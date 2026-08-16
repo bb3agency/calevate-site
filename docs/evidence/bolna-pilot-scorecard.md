@@ -70,7 +70,7 @@ A blank measured cell means NOT MEASURED. It is never zero: a zero here becomes 
 | Platform fee (BYOK) | unpublished; target <= ~INR 1.5/min | _not measured_ | — |
 | Sarvam Saaras V3 STT | INR 0.50/min | _not measured_ | — |
 | Sarvam Bulbul V3 TTS | INR 0.90-1.40/min (beta pricing) | _not measured_ | — |
-| LLM | INR 0.00 (Sarvam 105B per D-36); Gemini fallback 0.15-0.20 | _not measured_ | — |
+| LLM | INR 0.00 (Sarvam 105B per D-36); paid LLM 0.15-0.20 | _not measured_ | — |
 | Telephony | INR 0.35-0.50/min | _not measured_ | — |
 | Built-in KB | INR 0 - INFERRED included in the platform fee (D-33) | _not measured_ | — |
 | All-in | target INR 3.0-3.6/min | _not measured_ | — |

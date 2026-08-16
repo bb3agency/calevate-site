@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from scripts.seed import VERTICAL_TEMPLATES
 
 from apps.api.admin.service import DISCLOSURE_TEMPLATES
-from apps.api.core.auth import current_identity
+from apps.api.core.auth import client_request_ip, current_identity
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.tenancy.signup import (
@@ -101,9 +101,11 @@ async def signup(payload: SignupIn, request: Request, identity: Identity) -> Sig
     """
     user_id, clerk_user_id = identity
     await assert_signup_open()
-    await assert_signup_quota(
-        clerk_user_id=clerk_user_id, ip=request.client.host if request.client else None
-    )
+    # THE CALLER'S ADDRESS, not the socket peer. Behind the edge the peer is nginx,
+    # so the per-IP half of the quota was one bucket for the entire internet — a
+    # 30/hour cap on the PLATFORM (see `assert_signup_quota`).
+    caller_ip = client_request_ip(request)
+    await assert_signup_quota(clerk_user_id=clerk_user_id, ip=caller_ip)
 
     if payload.vertical_template not in VERTICAL_TEMPLATES:
         # `create_organization` falls back to the clinic template for an unknown
@@ -134,7 +136,7 @@ async def signup(payload: SignupIn, request: Request, identity: Identity) -> Sig
         language=payload.language,
         billing_email=str(payload.billing_email) if payload.billing_email else None,
         plan_tier=payload.plan_tier,
-        ip=request.client.host if request.client else None,
+        ip=caller_ip,
     )
 
     return SignupOut(

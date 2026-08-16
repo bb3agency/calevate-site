@@ -241,3 +241,43 @@ describe("the call detail screen", () => {
     expect(container.textContent).toContain("constructor");
   });
 });
+
+/**
+ * The follow-up card, and the silence it used to fall into.
+ *
+ * `{eligibility.data && <Card title="Follow up">…}` — and `eligibility.data` is undefined
+ * while `/v1/calls/{id}/callback` is in flight AND after it fails. So a 503 on that read
+ * deleted the entire card: no button, no reason, nothing to retry. The card's own comment
+ * says it is rendered "whenever the API has an opinion — disabled WITH the reason rather
+ * than hidden, so 'why can't I follow this up?' is answered on screen", which is exactly
+ * what the missing branch stopped it doing.
+ */
+describe("the follow-up card when the eligibility read did not answer", () => {
+  it("refuses in place, rather than deleting itself, on a failed read", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes(detail(), {
+        "/v1/calls/c1/callback": problem(503, { title: "Service unavailable", retryable: true }),
+      }),
+    );
+
+    // PRESENT, not merely "the button is gone" — an empty screen satisfies that too.
+    expect(await screen.findByText("Follow up")).toBeTruthy();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Service unavailable");
+    expect(container.textContent).toContain(
+      "We could not check whether this call can be followed up",
+    );
+    // And the action is not offered on a check that never landed.
+    expect(screen.queryByRole("button", { name: /Call back with AI/ })).toBeNull();
+  });
+
+  it("still renders the card, with its reason, when the server answered", async () => {
+    // The premise: without this, the test above passes on a screen with no card at all.
+    const { container } = await renderClientPage(page, routes(detail()));
+
+    expect(await screen.findByText("Follow up")).toBeTruthy();
+    expect(container.textContent).toContain("This call was answered.");
+    expect(container.textContent).not.toContain("We could not check whether this call");
+  });
+});

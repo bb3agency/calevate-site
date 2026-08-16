@@ -73,6 +73,19 @@ export interface WriteAccess {
    * flashes an explanation it is about to retract.
    */
   reason: string | null;
+  /**
+   * `allowed: false` because we could not FIND OUT, rather than because the server said
+   * no. Both cases close the control — that is the fail-closed default and it does not
+   * change — but they are different answers, and a screen that hides a control on a
+   * known refusal must still say something on an unknown one (BUILD-LOG §52).
+   *
+   * The distinction was previously unavailable to callers, and the integrations screen
+   * paid for it: it renders no payload column for a reader who genuinely lacks
+   * `calls:read_raw`, which is correct and needs no sentence, and had no way to tell
+   * that case apart from a dead `/v1/me` — where the same silence implies a refusal we
+   * never received. Read this, not `reason !== null`: a known refusal has a reason too.
+   */
+  unknown: boolean;
 }
 
 /**
@@ -102,19 +115,23 @@ export function useWriteAccess(session: Session, permission: string, action: str
     return {
       allowed: false,
       reason: `We could not check whether you can ${action}. Reload the page to try again.`,
+      unknown: true,
     };
   }
-  if (!me.data) return { allowed: false, reason: null };
+  // Still in flight: also unknown, and deliberately WITHOUT a sentence — a control that
+  // flashes an explanation and then retracts it teaches the reader to ignore the next one.
+  if (!me.data) return { allowed: false, reason: null, unknown: true };
   if (me.data.impersonating) {
     return {
       allowed: false,
       reason: `You are viewing this account read-only, so you cannot ${action} from here. Do it from the admin console instead.`,
+      unknown: false,
     };
   }
   if (!me.data.permissions.includes(permission)) {
-    return { allowed: false, reason: `Only an account owner can ${action}.` };
+    return { allowed: false, reason: `Only an account owner can ${action}.`, unknown: false };
   }
-  return { allowed: true, reason: null };
+  return { allowed: true, reason: null, unknown: false };
 }
 
 export function useDashboard(session: Session): UseQueryResult<Dashboard> {

@@ -55,7 +55,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import publish_agent
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
@@ -185,7 +185,7 @@ async def publish(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
     return PublishOut(agent_id=agent_id, engine_agent_ref=ref, status="live")
 

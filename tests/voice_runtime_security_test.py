@@ -39,7 +39,8 @@ from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.reliability.service import InboxClaim, body_hash
-from engine_intake import KNOWN_ENGINES, client_ip, is_trusted_peer, verify_source
+from calevate_shared.client_address import client_ip, is_trusted_peer
+from engine_intake import KNOWN_ENGINES, verify_source
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
@@ -857,7 +858,7 @@ async def test_a_delivery_whose_peer_we_cannot_see_is_refused_however_good_its_h
     monkeypatch.setattr(get_settings(), "app_env", "staging")
 
     # The unit answer first, so a regression says which half moved.
-    assert client_ip(None, {"cf-connecting-ip": ENGINE_EGRESS_IP}) is None
+    assert client_ip(None, {"cf-connecting-ip": ENGINE_EGRESS_IP}, app_env="staging") is None
     assert is_trusted_peer("") is False, "an unparseable peer is not a trusted proxy"
     assert is_trusted_peer("not-an-ip") is False
 

@@ -40,10 +40,12 @@ from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.redis import get_redis
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_enqueued
-from engine_intake import KNOWN_ENGINES, IntakeEvent, client_ip, extract, verify_source
+from calevate_shared.client_address import client_ip
+from engine_intake import KNOWN_ENGINES, IntakeEvent, extract, verify_source
 from fastapi import APIRouter, Request, Response
 from sqlalchemy import text
 
@@ -257,7 +259,8 @@ async def engine_webhook(engine: str, request: Request, response: Response) -> d
     # a rejection and a memory-exhaustion primitive.
     source_ip = client_ip(
         request.client.host if request.client else None,
-        {k.lower(): v for k, v in request.headers.items()},
+        request.headers,
+        app_env=get_settings().app_env,
     )
     verdict = verify_source(engine, source_ip)
     if not verdict.ok:

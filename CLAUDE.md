@@ -11,8 +11,11 @@ mirrors this manual for other coding agents.
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
 voice engine (Bolna primary per D-31) with BYOK models — **canonical stack per D-36**:
 Sarvam Saaras STT · **Sarvam 105B LLM (free per token, all-India residency)** · Sarvam
-Bulbul v3 TTS (v2 = value tier). Gemini Flash-Lite is a configurable fallback, not the
-default. Our code = admin console, client dashboards,
+Bulbul v3 TTS (v2 = value tier). Gemini 3.x Flash-Lite runs the USER-TRIGGERED dashboard
+AI through Vertex AI `asia-south1` (D-127 supersedes D-36's LLM leg for that surface
+only); the first post-call extraction stays on Sarvam permanently because it reads the raw
+transcript — `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`. Our
+code = admin console, client dashboards,
 schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance
 (TRAI/DLT/DPDP). Latency-critical voice path is isolated in `apps/voice-runtime`.
 

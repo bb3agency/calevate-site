@@ -72,7 +72,7 @@ from apps.api.billing.payments import (
 )
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
 from apps.api.core.alerting import alert
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -447,7 +447,7 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
         return WebhookAck(status="ignored", event=event or "unknown")
 
     payment = extract_captured_payment(envelope)
-    ip = request.client.host if request.client else None
+    ip = client_request_ip(request)
 
     async with tenant_session(payment.tenant_id) as session:
         if not await tenant_exists(session, payment.tenant_id):

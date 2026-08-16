@@ -639,7 +639,15 @@ describe("who owns a lead", () => {
     // The reason is ON the control, and also said once above the table — a refusal a
     // screenful away from the dead control is the defect §52 records.
     expect(select.title).toContain("account owner");
-    expect(container.textContent).toContain("Only an account owner can change who owns a lead");
+    // "edit a lead", not "change who owns a lead": ONE `leads:write` gate now covers the
+    // owner select and the status select. The second one used to be gated on a separate
+    // `Boolean(me.data?.impersonating)`, which read a failed `/v1/me` as "not read-only"
+    // and left it open to a 403 — and two gates on one permission is where the drift was.
+    expect(container.textContent).toContain("Only an account owner can edit a lead");
+    // The status select is dead for the same reason and under the same sentence.
+    expect(
+      (screen.getByLabelText(/Status for Ramesh Kumar/) as HTMLSelectElement).disabled,
+    ).toBe(true);
   });
 
   it("refuses rather than rendering an empty team when /v1/members fails", async () => {
@@ -730,5 +738,84 @@ describe("who owns a lead", () => {
     for (const anchor of Array.from(container.querySelectorAll("a"))) {
       expect(anchor.getAttribute("href") ?? "").not.toContain("9876543210");
     }
+  });
+});
+
+/**
+ * The "Call with AI" control, and the two reads it stands on.
+ *
+ * `(agents.data ?? []).filter(canDial)` made an EMPTY dialer list out of a failed
+ * `/v1/agents`, and `Boolean(me.data && me.data.permissions.includes("leads:dispatch")
+ * && …)` read a failed `/v1/me` as "no". Either one deleted the Call column, the agent
+ * picker and every row button with nothing said — a client who has the feature shown a
+ * screen identical to one where it was never built. §52: failure is a refusal, and
+ * silence is not a refusal.
+ *
+ * The sentence is asserted PRESENT in both, because "the button is gone" is also true of
+ * a screen that rendered nothing at all.
+ */
+describe("dispatching a call from the table, when a read did not answer", () => {
+  it("says why, rather than silently withdrawing the control, when /v1/agents fails", async () => {
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/agents": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/leads?limit=100": leadList([lead()]),
+      }),
+    );
+
+    await screen.findByRole("link", { name: /Ramesh Kumar/ });
+    expect(container.textContent).toContain("We could not read your agents just now");
+    expect(container.textContent).toContain("no call can be placed from this table");
+    expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
+    expect(container.textContent).not.toContain("Calls from this table are placed by");
+  });
+
+  it("says why when /v1/me fails, and does not read a dead permission check as a refusal", async () => {
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/me": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/leads?limit=100": leadList([lead()]),
+      }),
+    );
+
+    await screen.findByRole("link", { name: /Ramesh Kumar/ });
+    expect(container.textContent).toContain("We could not check who you are signed in as");
+    expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
+    // The owner filter goes with it, and the same sentence covers it — the chip used to
+    // vanish on its own, which reads as "there is no such filter".
+    expect(screen.queryByRole("button", { name: "Assigned to me" })).toBeNull();
+    expect(container.textContent).toContain("“Assigned to me” filter are closed");
+  });
+
+  it("still offers the control when both reads answered", async () => {
+    // The premise of the two above. Without this they pass on a screen that never
+    // renders a call button at all.
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/leads?limit=100": leadList([lead()]) }),
+    );
+
+    expect(await screen.findByRole("button", { name: /Call with AI/ })).toBeDefined();
+    expect(container.textContent).toContain("Calls from this table are placed by");
+    expect(container.textContent).not.toContain("We could not read your agents just now");
+  });
+
+  it("keeps the status select shut, not open, when the permission read fails", async () => {
+    // `readOnly` was `Boolean(me.data?.impersonating)` — §52's `?? false` in another
+    // costume. A dead `/v1/me` answered "you are NOT read-only" and re-opened every
+    // status select to a 403 on click.
+    await renderClientPage(
+      <LeadsPage />,
+      routes({
+        "/v1/me": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/leads?limit=100": leadList([lead()]),
+      }),
+    );
+
+    const select = (await screen.findByLabelText(/Status for Ramesh Kumar/)) as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    expect(screen.getByText(/We could not check whether you can edit a lead/)).toBeDefined();
   });
 });

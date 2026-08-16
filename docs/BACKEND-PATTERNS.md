@@ -114,10 +114,30 @@ queue depth + oldest-waiting age (stale-worker detection), and
 Single `degradation_mode` enum, priority-ordered (db_down > redis_down > queue_stale >
 config_missing > none) so dashboards get ONE word. Missing config keys render as
 validation-style `fields[]` entries — one shape for "something's not right".
+
+**THE VERDICT IS PUBLIC, THE DETAIL IS NOT (D-128).** A probe carries no credential, so
+the status code and the status word answer everybody; `degradation_mode`, `checks`,
+`queue` and `fields[]` answer only a caller who proves `ops:manage`, because
+`fields[].field` NAMES the credentials a deployment has not installed and that is a
+targeting oracle on an unauthenticated, rate-limit-exempt, publicly-proxied endpoint.
+The gate is injected into `build_health_router`, never imported by it (voice-runtime's
+pinned import surface), so a service with no auth layer discloses nothing to anybody.
+Whatever is withheld is written to a `health_not_ready` WARNING instead — during
+`db_down` nobody can authenticate, and a red light with no next step is its own outage.
+
 Load-shed guard (big red switch's engineering face): mode normal|reduced|emergency|
 maintenance durable in Postgres + Redis cache + 5s in-process memo;
-ALWAYS_ALLOWED_PREFIXES = health, auth, engine webhooks, ops/admin surface — the
-operator must never lock themselves out, provider callbacks must always land.
+ALWAYS_ALLOWED_PREFIXES = health, schema/docs, engine webhooks, ops/admin surface — the
+operator must never lock themselves out, provider callbacks must always land, and the
+platform must stay observable while degraded. Those three reasons are the whole list;
+**a route is never exempt for being important to a customer**, which is what shedding
+is for. It USED TO INCLUDE `/v1/auth` "so sign-in survives a shed", and that named a
+route this API does not have — Clerk owns sessions (§7), and the one route the prefix
+actually covered was `POST /v1/auth/signup`, a four-table write that kept manufacturing
+tenants in the modes that exist because we cannot serve the tenants we have. An
+exemption is per-prefix and inherited by whatever lands under it, so the reason is
+recorded per prefix and asserted against the live route table
+(`tests/loadshed_exemption_test.py`).
 
 ## 7. Auth & audit specifics worth copying (ADAPTED — Clerk owns sessions)
 

@@ -14,7 +14,7 @@ Three questions and two buttons:
 
 WHY THE AGENT'S VOICE IS READ HERE AND NOT ON `AgentOut`
 --------------------------------------------------------
-`PATCH /v1/agents/{id}/voice` shipped without any read, so the admin picker could set a
+`PATCH .../agents/{aid}/voice` shipped without any read, so the admin picker could set a
 voice and never show one. The obvious fix — put `tts_voice` on `AgentOut` — was
 rejected, and the reason is the feature itself rather than tidiness:
 
@@ -98,7 +98,7 @@ from apps.api.agents import publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.voices import Voice
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
@@ -167,7 +167,7 @@ class AgentVoiceOut(Strict):
 class VoiceStateOut(Strict):
     """The voice CONFIGURED on the agent and the voice the engine was last SENT.
 
-    Two fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row
+    Two fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row
     and stops there, so a live agent keeps its old voice until the next publish — one
     value labelled "the voice" would be a claim about a client's phone line that nobody
     checked.
@@ -331,7 +331,8 @@ async def list_lanes(_: PublishingReader) -> LanesOut:
         "Backs the unsaved-changes banner and the voice picker. `agents:read`, not "
         "`agents:write`: this is the view that explains why an edit has not taken "
         "effect, so it must be readable by someone who may only look (D-22).\n\n"
-        "`voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; "
+        "`voice.configured` is what "
+        "`PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; "
         "`voice.live` is what the engine was last sent. They differ until a publish, "
         "which is what `voice.republish_required` reports. A null `voice.live` on a "
         "published agent means we have no record of what it is holding — read it with "
@@ -455,7 +456,7 @@ async def apply(
             tenant_id=tenant_id,
             object_type="agent",
             object_id=str(agent_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             # Numbers and a boolean. A prompt body embeds client business detail
             # (hard rule 6) and never enters the audit log.
             summary={"version": result.live_version, "engine_synced": result.engine_synced},
@@ -496,7 +497,7 @@ async def undo(
             tenant_id=tenant_id,
             object_type="agent",
             object_id=str(agent_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "discarded_version": result.discarded_version,
                 "version": result.live_version,
@@ -543,7 +544,7 @@ async def set_call_cap(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "cap_s": result.effective_call_cap_s,
             "is_platform_default": result.is_platform_default,

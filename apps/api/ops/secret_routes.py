@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.envelope import MASKED, kek_ring, last_four
@@ -256,7 +256,7 @@ async def test_secret(
         actor=principal,
         object_type="platform_secrets",
         object_id=key,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The key, the verdict, and four characters the operator typed. No candidate.
         summary={
             "config_key": key,
@@ -314,7 +314,7 @@ async def set_secret_route(
         actor=principal,
         object_type="platform_secrets",
         object_id=key,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # §9: "no value and no fragment beyond last_four".
         summary={
             "config_key": key,
@@ -449,7 +449,7 @@ async def rewrap_keks(
         action="platform.kek_rewrapped",
         actor=principal,
         object_type="platform_secrets",
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "examined": result.examined,
             "rewrapped": result.rewrapped,

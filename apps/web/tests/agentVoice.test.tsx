@@ -12,7 +12,7 @@ import { problem, type Routes } from "./harness";
  * Voice selection on the agent screen — `GET /v1/agents/voices` finally has a consumer.
  *
  * The catalogue was readable over the API and selectable nowhere: D-36's premium/value
- * ladder existed as data, the admin write existed (`PATCH /v1/agents/{id}/voice`), and no
+ * ladder existed as data, the admin write existed (`PATCH …/agents/{id}/voice`), and no
  * screen joined them. It lives on this screen because voice is agent CONFIGURATION and the
  * write is admin-realm `agents:write` (D-21: which voice speaks Telugu well is an ear
  * test, so it routes through us) — the same gate every other control here is behind.
@@ -49,7 +49,7 @@ const HISTORY_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/prompt`;
 const PENDING_PATH = `/v1/agents/${AGENT}/pending`;
 const LANES_PATH = "/v1/agents/lanes";
 const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
-const SET_VOICE_PATH = `/v1/agents/${AGENT}/voice`;
+const SET_VOICE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice`;
 
 function voice(over: Partial<Voice> = {}): Voice {
   return {
@@ -328,10 +328,13 @@ describe("the voice panel", () => {
     expect(container.textContent).toContain("te-IN, hi-IN, en-IN");
   });
 
-  it("names the tenant in the BODY and reports that a republish is still needed", async () => {
-    // The tenant rides in the body because the route's shape says so: an admin principal
-    // has no tenant of its own, and the one way it could get one — impersonation — is
-    // refused for every mutation by D-22.
+  it("names the tenant in the PATH and reports that a republish is still needed", async () => {
+    // The tenant is in the URL, not the body: an admin principal has no tenant of its
+    // own, and the one way it could get one — impersonation — is refused for every
+    // mutation by D-22. It used to ride in the body on `PATCH /v1/agents/{id}/voice`,
+    // which made this the only admin-realm route in the client path space; the write now
+    // sits beside publish, apply, undo and the call cap under
+    // `/v1/admin/tenants/{tenant_id}/agents/{agent_id}/…`.
     const { container, calls } = await render({
       [SET_VOICE_PATH]: {
         agent_id: AGENT,
@@ -352,7 +355,9 @@ describe("the voice panel", () => {
     await waitFor(() => expect(calls.some((c) => c.path === SET_VOICE_PATH)).toBe(true));
     const write = calls.find((c) => c.path === SET_VOICE_PATH)!;
     expect(write.method).toBe("PATCH");
-    expect(JSON.parse(write.body!)).toEqual({ tenant_id: TENANT, voice_id: "vidya" });
+    // ONE field. The tenant is in the path the call was made to (`SET_VOICE_PATH`), and
+    // sending it twice would be two places to disagree.
+    expect(JSON.parse(write.body!)).toEqual({ voice_id: "vidya" });
     // The admin write is NOT impersonating — the impersonation header on a mutation is a
     // guaranteed 403 under D-22.
     expect(write.headers["X-Impersonate-Org"]).toBeUndefined();

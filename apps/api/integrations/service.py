@@ -52,6 +52,7 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.spreadsheet_safety import disarm_for_sheets
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.integrations.egress_guard import EgressRefusedError, assert_public_http_url
 from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
@@ -519,7 +520,29 @@ async def deliver(
     a 307 re-sends the body and our signature headers to whatever host the `Location`
     names, and the promise in docs/WEBHOOKS.md §1.5 must not depend on how a caller
     happened to construct the client it passed in.
+
+    **The destination is re-vetted HERE, on every attempt.** `egress_guard` also runs at
+    registration, and that check alone is worth little: the endpoint row can be months
+    old and the tenant owns the DNS for the name in it, so a record that answered
+    publicly when it was registered can answer `127.0.0.1` now (DNS rebinding — the
+    time-of-check/time-of-use half that the module docstring argues). This is the last
+    line before a lead's name and number go on a socket, so it is where the answer has
+    to be current. It runs even when the CALLER supplied the client, because a guard
+    with a caller-shaped hole in it is not a guard.
+
+    A refusal is a `DeliveryResult`, never an exception: the worker's contract is that
+    this function raises nothing, and the refusal has to land on the client's own
+    delivery screen with a reason they can act on. `transient=False` — a destination
+    that resolves inside a private network resolves there again in thirty seconds, and
+    the retry ladder would only delay the alert.
     """
+    try:
+        await assert_public_http_url(url)
+    except EgressRefusedError as exc:
+        # `exc.code` is one of OUR authored refusal codes (`record_delivery`'s rule for
+        # `reason`), never vendor prose and never anything off the payload.
+        return DeliveryResult(delivered=False, status_code=None, error=exc.code, transient=False)
+
     body = json.dumps(envelope, separators=(",", ":"), default=str)
     timestamp = str(int(datetime.now(UTC).timestamp()))
     headers = {

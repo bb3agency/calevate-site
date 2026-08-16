@@ -7,7 +7,7 @@ import type { TenantSummary } from "@/lib/api/admin";
 import { tenantStatusPath } from "@/lib/api/commercials";
 import type { Routes } from "./harness";
 
-import { problem } from "./harness";
+import { problem, stillLoading } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -30,6 +30,9 @@ import { renderAdminRoute, routeParams } from "./adminRoute";
 const TENANT = "0192f0aa-7777-7000-8000-0000000000d1";
 const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const STATUS_PATH = tenantStatusPath(TENANT);
+const ERASURE_PATH = `${TENANT_PATH}/erasure`;
+/** The submit control, which is also the erasure card's title — hence the role. */
+const ERASE_BUTTON = { name: /Erase this client's data/ };
 
 function tenant(status = "active"): TenantSummary {
   return {
@@ -58,8 +61,21 @@ function render(routes: Partial<Routes> = {}) {
   return renderAdminRoute(<LifecyclePage params={routeParams({ tenantId: TENANT })} />, {
     [TENANT_PATH]: tenant(),
     [ADMIN_ME_PATH]: ME,
+    [ERASURE_PATH]: [],
     ...routes,
   });
+}
+
+/** A superadmin: `ops:manage` is what unlocks the erasure control (admin/routes.py). */
+const SUPERADMIN: AdminMe = {
+  ...ME,
+  role: "superadmin",
+  permissions: ["org:read", "admin:tenants", "ops:manage"],
+} as AdminMe;
+
+/** The erasure panel only ever renders for a CLOSED account — the API 409s any other. */
+function renderClosed(routes: Partial<Routes> = {}) {
+  return render({ [TENANT_PATH]: tenant("churned"), [ADMIN_ME_PATH]: SUPERADMIN, ...routes });
 }
 
 describe("the account state screen", () => {
@@ -159,5 +175,86 @@ describe("the account state screen", () => {
     const button = (await screen.findByRole("button", { name: /Suspend/ })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(/change an account's state/)).toBeDefined();
+  });
+});
+
+/**
+ * The erasure panel, and the §52 defect that lived in it — the most expensive one this
+ * console has held.
+ *
+ * `useTenantErasures`'s `isLoading` and `error` were read NOWHERE, and `filed.data?.[0]`
+ * is undefined in both of those states. The undefined fell straight through to the
+ * "Erase this client's data" FORM. So while the read was in flight, and forever after it
+ * 503d, the screen told an operator that no erasure had been filed and offered to start
+ * an irreversible, tenant-wide DPDP erasure — one that may already have been running.
+ *
+ * Both tests assert the REPLACEMENT is on screen, not merely that the form is gone. A
+ * panel that rendered nothing at all would satisfy "no erase button" and would be its own
+ * §52 violation; that is the trap this suite has walked into before.
+ */
+describe("the erasure panel", () => {
+  it("shows a skeleton, and no erasure form, while the filed-erasures read is in flight", async () => {
+    const { container } = await renderClosed({ [ERASURE_PATH]: stillLoading() });
+
+    // The card is there and it is visibly waiting — `Skeleton` is the only thing in this
+    // app that animates, and it is `aria-hidden`, so the class is how a test sees it.
+    // Scoped to the card, so a skeleton belonging to some other query cannot stand in.
+    const card = (await screen.findByText("Data erasure")).closest("section");
+    expect(card, "the erasure panel is not a Card any more").not.toBeNull();
+    expect(
+      card!.querySelectorAll(".animate-pulse").length,
+      "no skeleton in the erasure panel while the read is in flight",
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
+    expect(container.textContent).not.toContain("Type the confirmation");
+  });
+
+  it("refuses, rather than offering an erasure it could not rule out", async () => {
+    const { container } = await renderClosed({
+      [ERASURE_PATH]: problem(503, { title: "Upstream unavailable", retryable: true }),
+    });
+
+    // A refusal the operator can act on, naming WHY the form is closed — not a blank
+    // card, and inside the erasure panel rather than anywhere on the page. Awaited on
+    // the ALERT, not on the card title: the title is on screen during the loading branch
+    // too, so scoping off it would look at the skeleton and find no alert.
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Upstream unavailable");
+    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe("Data erasure");
+    expect(container.textContent).toContain(
+      "we cannot tell you whether this client's data has already",
+    );
+    expect(container.textContent).toContain("Filing a second one would start a destructive job");
+    expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
+  });
+
+  it("still offers the form when the read says no erasure has been filed", async () => {
+    // The premise of the two above: if the panel never offered the form, they would pass
+    // for the wrong reason and this file would be testing nothing at all.
+    await renderClosed();
+
+    const button = (await screen.findByRole("button", ERASE_BUTTON)) as HTMLButtonElement;
+    expect(button.disabled).toBe(true); // no reason typed yet
+    expect(screen.getByText("Type the confirmation")).toBeDefined();
+  });
+
+  it("reports an erasure that has already been filed, and offers no second one", async () => {
+    await renderClosed({
+      [ERASURE_PATH]: [
+        {
+          id: "0192f0aa-7777-7000-8000-0000000000e1",
+          tenant_id: TENANT,
+          status: "running",
+          reason: "client asked, ticket 4471",
+          requested_at: "2026-08-14T10:00:00Z",
+          completed_at: null,
+          proof: null,
+          limitations: [],
+        },
+      ],
+    });
+
+    await screen.findByText(/An erasure has been filed for this client and is running/);
+    expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
   });
 });

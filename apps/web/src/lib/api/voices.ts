@@ -3,8 +3,8 @@
 /**
  * The voice catalogue and the one write that uses it (D-36's premium/value ladder).
  *
- *   GET   /v1/agents/voices          `agents:read`, realm ANY
- *   PATCH /v1/agents/{agent_id}/voice `agents:write`, realm ADMIN
+ *   GET   /v1/agents/voices                                     `agents:read`, realm ANY
+ *   PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice `agents:write`, realm ADMIN
  *
  * That split is D-21's and it decides the shape of this module. Which voice speaks Telugu
  * well is an EAR TEST, not a spec fact (BRD §6 R-10, TRD §10.1, OPERATIONS §2 gate 3), so
@@ -100,13 +100,20 @@ export function useTenantVoiceCatalogue(slug: string): UseQueryResult<VoiceCatal
 }
 
 /**
- * Set an agent's voice — admin realm, admin session, tenant named in the BODY.
+ * Set an agent's voice — admin realm, admin session, tenant named in the PATH.
  *
- * The tenant rides in the body rather than the path because that is the route's shape
- * (`agents/voice_routes.py` explains why: an admin principal has no tenant of its own, and
- * the one way it could get one — impersonation — is refused for every mutation by D-22).
- * Nothing here infers it from a session, and there is no session on this call that HAS
- * one.
+ * The tenant is in the URL rather than inferred from a session because an admin principal
+ * has no tenant of its own, and the one way it could get one — impersonation — is refused
+ * for every mutation by D-22 (`agents/voice_routes.py` argues it in full). It USED TO ride
+ * in the body, on `PATCH /v1/agents/{agent_id}/voice`: the same tenant, named in the one
+ * place the admin console does not name it anywhere else, on the only admin-realm route
+ * that lived in the client path space. Moving it cost this module a template literal and
+ * bought the route the `/v1/admin` rate-limit profile plus an audit trail readable from
+ * the URL.
+ *
+ * Breaking change with no alias, and this file is why that is safe: the endpoint is
+ * admin-realm, so its only reachable caller is this console, which is generated from the
+ * server's own schema and deployed with it.
  *
  * An id outside the catalogue comes back as `unknown_voice` problem+json with the list in
  * its remediation, so no client-side membership check is duplicated here.
@@ -120,10 +127,14 @@ export function useSetAgentVoice(target: { tenantId: string; agentId: string; sl
   const refresh = usePublishingRefresh(target);
   return useMutation({
     mutationFn: (voiceId: string) =>
-      apiRequest<SetVoiceOut>(adminSession(), `/v1/agents/${target.agentId}/voice`, {
-        method: "PATCH",
-        body: { tenant_id: target.tenantId, voice_id: voiceId } satisfies SetVoiceIn,
-      }),
+      apiRequest<SetVoiceOut>(
+        adminSession(),
+        `/v1/admin/tenants/${target.tenantId}/agents/${target.agentId}/voice`,
+        {
+          method: "PATCH",
+          body: { voice_id: voiceId } satisfies SetVoiceIn,
+        },
+      ),
     onSuccess: refresh,
   });
 }

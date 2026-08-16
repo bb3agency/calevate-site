@@ -53,7 +53,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
@@ -591,7 +591,7 @@ async def _audit(
         actor=principal,
         object_type="platform_settings",
         object_id=result.key,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "config_key": result.key,
             "old": result.old,

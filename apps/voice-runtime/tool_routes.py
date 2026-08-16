@@ -56,7 +56,9 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
-from engine_intake import client_ip, execution_key, verify_source
+from apps.api.core.settings import get_settings
+from calevate_shared.client_address import client_ip
+from engine_intake import execution_key, verify_source
 from fastapi import APIRouter, Request, Response
 
 # The ack accounting, the bounded read and the deadline, from the receiver that already
@@ -90,7 +92,8 @@ async def in_call_opt_out(engine: str, request: Request, response: Response) -> 
 
     source_ip = client_ip(
         request.client.host if request.client else None,
-        {k.lower(): v for k, v in request.headers.items()},
+        request.headers,
+        app_env=get_settings().app_env,
     )
     verdict = verify_source(engine, source_ip)
     if not verdict.ok:

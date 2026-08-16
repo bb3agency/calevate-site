@@ -4,8 +4,10 @@
 fact: the agent's question became the caller's name, a caller saying "ledu" set a
 boolean true, and an enum matched inside another word. Those were word-level bugs in a
 heuristic CI runs. Production does not run that heuristic. Production sends a PROMPT to
-Sarvam (D-36) or Gemini and writes whatever comes back, through one validator, into a
-CRM row the SMB acts on instead of listening to the call.
+Sarvam (D-36/D-127 G-7 for the first post-call pass) or to Gemini on Vertex AI
+`asia-south1` (D-127, for the user-triggered assist over the redacted copy) and writes
+whatever comes back, through one validator, into a CRM row the SMB acts on instead of
+listening to the call.
 
 So the same three defects have to be prevented on that path too, and there are exactly
 two artefacts standing in the way:
@@ -189,12 +191,14 @@ def test_the_prompt_still_carries_the_schema_and_the_transcript() -> None:
 def test_both_shipped_model_paths_send_this_exact_prompt() -> None:
     """The rules are worthless if a provider adapter builds its own instruction. Both
     adapters must render the shared prompt, or Gemini and Sarvam disagree about what a
-    denial means."""
+    denial means — and after D-127 they answer DIFFERENT questions about the same call
+    (Sarvam the first raw-transcript pass, Vertex the user-triggered assist over the
+    redacted copy), which makes one shared instruction more load-bearing, not less."""
     import inspect
 
     import apps.workers.extraction as extraction_module
 
-    for cls in (extraction_module.SarvamExtractor, extraction_module.GeminiExtractor):
+    for cls in (extraction_module.SarvamExtractor, extraction_module.VertexGeminiExtractor):
         source = inspect.getsource(cls.run)
         assert "build_extraction_prompt(spec, transcript)" in source, (
             f"{cls.__name__} does not send the shared extraction prompt"

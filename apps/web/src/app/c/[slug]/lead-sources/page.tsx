@@ -734,21 +734,41 @@ function LeadSourcesCard({
           </label>
           <label className="text-xs text-ink-muted">
             Which agent answers them
-            <select
-              aria-label="Agent to answer these leads"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              className={`${FIELD} mt-1 block w-full min-w-[16rem]`}
-            >
-              {/* Honest, not blank: a source with no agent SAVES leads and never dials
-                  them, which is a legitimate state and a surprising one. Say it. */}
-              <option value="">Not yet — save leads, don&apos;t call</option>
-              {(agents.data ?? []).map((agent) => (
-                <option key={agent.id} value={agent.id}>
-                  {agent.name}
+            {/* §52. `agents.data ?? []` left this picker holding ONE option — "Not yet —
+                save leads, don't call" — whenever `/v1/agents` failed, and that option is
+                a legitimate choice, so nothing looked wrong. A client would pick the only
+                thing on offer and walk away having built a source that saves leads and
+                never rings anybody, believing they had no agents to point it at. An empty
+                picker over a failed read is a statement about their business made from a
+                request that never landed. */}
+            {agents.error != null ? (
+              <span className="mt-1 block max-w-md rounded-md border border-line bg-surface px-3 py-2 text-ink-muted">
+                We could not read your agents just now, so this cannot be chosen yet —
+                saving without it would create a source that never rings anyone. Reload
+                the page to try again.
+              </span>
+            ) : (
+              <select
+                aria-label="Agent to answer these leads"
+                value={agentId}
+                disabled={agents.isLoading}
+                onChange={(e) => setAgentId(e.target.value)}
+                className={`${FIELD} mt-1 block w-full min-w-[16rem]`}
+              >
+                {/* Honest, not blank: a source with no agent SAVES leads and never dials
+                    them, which is a legitimate state and a surprising one. Say it. */}
+                <option value="">
+                  {agents.isLoading
+                    ? "Reading your agents…"
+                    : "Not yet — save leads, don't call"}
                 </option>
-              ))}
-            </select>
+                {(agents.data ?? []).map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </label>
         </div>
 
@@ -803,9 +823,14 @@ function LeadSourcesCard({
           </label>
         )}
 
+        {/* Blocked while the agent list is unreadable, because otherwise the sentence
+            above it is not true: the form would still POST, with no agent, and produce
+            exactly the silent never-dialling source that sentence promises to prevent. */}
         <button
           type="submit"
-          disabled={!canWrite || create.isPending || (isMeta && !appSecret.trim())}
+          disabled={
+            !canWrite || create.isPending || (isMeta && !appSecret.trim()) || agents.error != null
+          }
           className={PRIMARY_BUTTON_SM}
         >
           <Plus className="h-4 w-4" />

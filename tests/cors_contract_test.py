@@ -1,0 +1,185 @@
+"""CORS as a CONTRACT between the route table and the browser client, not a list.
+
+WHY THIS FILE EXISTS. `allow_methods` omitted `PUT`, and five routes were therefore
+unreachable from any browser — including `PUT /v1/ops/secrets/{key}`, which is how a
+vendor credential gets installed. Nothing went red, and nothing could: the web suite
+mocks `fetch`, and CORS is enforced only by a browser, so the Python suite never issued a
+preflight and the TypeScript suite never left the process. The bug was invisible to both
+sides of a repo that tests both sides.
+
+So the fix is one line and the GUARD is the deliverable. Three assertions, each derived
+from something that changes when the code changes rather than from a list someone typed:
+
+1. Every method on every route in `rbac.iter_api_routes(app)` is in `allow_methods`.
+   Add a router that uses a new verb and this fails until the middleware follows.
+2. Every request header `apps/web/src/lib/api/client.ts` can send is in `allow_headers`.
+   That file is READ, never edited, here — it is the one place the frontend sets headers
+   (its own docstring: "the only place `fetch` appears").
+3. A live preflight through the installed Starlette for each of the five routes that
+   were unreachable, because 1 and 2 assert our configuration and this asserts what the
+   library does with it. Starlette 1.3's `CORSMiddleware.preflight_response` answers 400
+   with `Disallowed CORS method`/`headers` rather than dropping the response, which is
+   what makes the negative direction observable here at all.
+"""
+
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+import pytest
+from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
+from apps.api.core.middleware import install_middleware
+from apps.api.core.rbac import iter_api_routes
+from apps.api.main import app
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from starlette.middleware.cors import CORSMiddleware
+
+ORIGIN = DEFAULT_CORS_ORIGINS[0]
+
+CLIENT_TS = (
+    Path(__file__).resolve().parents[1] / "apps" / "web" / "src" / "lib" / "api" / "client.ts"
+)
+
+#: Headers a browser may always send without listing them in `Access-Control-Allow-Headers`
+#: — Starlette adds these to the allowed set itself (`SAFELISTED_HEADERS`).
+SAFELISTED = {"accept", "accept-language", "content-language", "content-type"}
+
+
+def _cors_middleware() -> CORSMiddleware:
+    """The CORS layer as `install_middleware` actually builds it.
+
+    Built on a bare `FastAPI`, not read off `apps.api.main.app`: Starlette resolves its
+    middleware stack lazily and the built instances are not addressable before the first
+    request. Same call, same arguments, so this is the configuration under test rather
+    than a copy of it.
+    """
+    probe = FastAPI()
+    install_middleware(probe, cors_origins=list(DEFAULT_CORS_ORIGINS))
+    for middleware in probe.user_middleware:
+        if middleware.cls is CORSMiddleware:
+            return CORSMiddleware(app=probe, *middleware.args, **middleware.kwargs)  # noqa: B026
+    raise AssertionError("install_middleware no longer installs CORSMiddleware")
+
+
+def _allowed_methods() -> set[str]:
+    return {method.upper() for method in _cors_middleware().allow_methods}
+
+
+def _allowed_headers() -> set[str]:
+    return set(_cors_middleware().allow_headers)  # already lowercased by Starlette
+
+
+def _client_ts_request_headers() -> set[str]:
+    """Every header name `client.ts` puts on a request.
+
+    Two shapes, because the file uses both: the object literal it builds the headers
+    with (`Authorization: ...`, `"X-Org-Slug": ...`) and the conditional assignments
+    below it (`headers["If-Match"] = ifMatch`). A regex over the source rather than a
+    hand-kept list — the point of this test is to notice a header nobody told us about.
+    """
+    source = CLIENT_TS.read_text(encoding="utf-8")
+    assigned = set(re.findall(r'headers\[\s*"([A-Za-z0-9-]+)"\s*\]\s*=', source))
+    literal_block = re.search(
+        r"const headers: Record<string, string> = \{(.*?)\n  \};", source, re.S
+    )
+    assert literal_block is not None, "client.ts no longer builds a headers object literal"
+    quoted = set(re.findall(r'"([A-Za-z0-9-]+)"\s*:', literal_block.group(1)))
+    bare = set(re.findall(r"^\s*([A-Za-z][A-Za-z0-9-]*)\s*:", literal_block.group(1), re.M))
+    found = {h.lower() for h in assigned | quoted | bare}
+    assert "authorization" in found, "the header scan found nothing recognisable"
+    return found
+
+
+def test_every_route_method_is_allowed_by_cors() -> None:
+    """The guard that matters more than the fix.
+
+    `PUT` was the method that was missing; nothing here names it, so the same class is
+    caught for whatever verb is introduced next.
+    """
+    allowed = _allowed_methods()
+    served = {
+        method.upper()
+        for route in iter_api_routes(app)
+        for method in route.methods
+        # HEAD is generated by Starlette for every GET route and is never issued as a
+        # cross-origin preflight of its own.
+        if method.upper() != "HEAD"
+    }
+    missing = served - allowed
+    assert not missing, (
+        f"routes are served with {sorted(missing)} but the browser cannot call them: "
+        f"add to allow_methods in core/middleware.py"
+    )
+
+
+def test_every_header_the_web_client_sends_is_allowed_by_cors() -> None:
+    """`If-Match` was the missing one, and it is sent by exactly one call — the ops
+    config delete's optimistic-concurrency guard, which is unreachable from a browser
+    without it."""
+    allowed = _allowed_headers() | SAFELISTED
+    missing = _client_ts_request_headers() - allowed
+    assert not missing, (
+        f"apps/web/src/lib/api/client.ts sends {sorted(missing)}, which the preflight "
+        f"refuses: add to allow_headers in core/middleware.py"
+    )
+
+
+#: The five routes a browser could not reach, with the header each one sends.
+UNREACHABLE_BEFORE = [
+    ("PUT", "/v1/billing/caps", "authorization,content-type"),
+    ("PUT", "/v1/admin/tenants/x/feature-flags/beta", "authorization,content-type"),
+    ("PUT", "/v1/ops/config/engine", "authorization,content-type,x-confirm-action"),
+    ("PUT", "/v1/ops/secrets/bolna_api_key", "authorization,content-type,x-confirm-action"),
+    ("DELETE", "/v1/ops/config/engine", "authorization,if-match"),
+]
+
+
+@pytest.mark.parametrize(("method", "path", "headers"), UNREACHABLE_BEFORE)
+async def test_the_preflight_the_browser_actually_sends_succeeds(
+    method: str, path: str, headers: str
+) -> None:
+    """Through the installed Starlette, not through our reading of it.
+
+    A preflight never reaches a handler — CORS sits outside routing — so this asserts the
+    browser's half and nothing about authorization. 200 with the method echoed back is
+    what unblocks the request; the pre-fix answer was 400 `Disallowed CORS method`.
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.options(
+            path,
+            headers={
+                "Origin": ORIGIN,
+                "Access-Control-Request-Method": method,
+                "Access-Control-Request-Headers": headers,
+            },
+        )
+    assert response.status_code == 200, response.text
+    echoed = {
+        m.strip().upper() for m in response.headers["access-control-allow-methods"].split(",")
+    }
+    assert method in echoed
+    allowed_headers = {
+        h.strip().lower() for h in response.headers["access-control-allow-headers"].split(",")
+    }
+    assert set(headers.split(",")) <= allowed_headers
+
+
+async def test_a_method_outside_the_allow_list_is_still_refused() -> None:
+    """The negative control for the two assertions above: this suite can tell the
+    difference between "allowed" and "the middleware waves everything through".
+
+    `TRACE` is not in `allow_methods` and no route serves it, so it must fail the
+    preflight exactly the way `PUT` used to.
+    """
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        response = await http.options(
+            "/v1/billing/caps",
+            headers={
+                "Origin": ORIGIN,
+                "Access-Control-Request-Method": "TRACE",
+            },
+        )
+    assert response.status_code == 400
+    assert "method" in response.text

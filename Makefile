@@ -188,6 +188,20 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# `applies: live` on a key really read once at boot is a lie that costs an outage,
 	# and a new Settings field arrives managed but unclassified (D-101).
 	uv run python -m scripts.check_config_applies
+	# The SAME doctrine as the two above, on the value whose change is a compliance event
+	# rather than an outage: every Google model endpoint is Vertex AI `asia-south1`, and
+	# the region is a `Final` constant rather than a console field (D-127). Runs BEFORE
+	# the Vertex client exists (PLAN Part 12 before Part 13) — write the guard that makes
+	# a global endpoint impossible before writing the client that could reach one. Needs
+	# no network and no credential; it is decidable from syntax. `extraction.py`'s AI
+	# Studio URL is a dated, self-expiring allowance IN the script, not a skip. Negative
+	# controls, including a doctored `us-central1` tree, in tests/model_residency_guard_test.py.
+	uv run python -m scripts.check_model_residency
+	# `audit_log.ip` records the CALLER. Eighty handlers used to read the socket peer
+	# inline — behind nginx that is our own edge — so SEC-COMP §5's fourth field was
+	# satisfied in shape only on every audited route. Syntax-decidable; the one
+	# permitted peer read is named, and the check fails if it leaves its function.
+	uv run python -m scripts.check_audit_ip
 	uv run python -m scripts.check_redaction_exposure
 	uv run python -m scripts.check_openapi_fresh
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no

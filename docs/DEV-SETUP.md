@@ -5,9 +5,12 @@ Version 1.0. From zero to a running local stack. Target machine: Linux/macOS/WSL
 ## 1. Prerequisites
 
 Docker + Compose v2 · Python 3.12 + `uv` · Node 20 + `pnpm` · `terraform` (infra work
-only) · accounts/keys: Bolna (API key, D-31), Sarvam (₹1,000 free credits), Google AI
-Studio (Gemini), Clerk (two applications: calevate-admin, calevate-client), Cloudflare R2
-or DO Spaces (local dev uses MinIO instead).
+only) · accounts/keys: Bolna (API key, D-31), Sarvam (₹1,000 free credits), a **Google
+Cloud project with Vertex AI enabled in `asia-south1` and a service-account key**
+(`GCP_PROJECT_ID` + `GCP_SERVICE_ACCOUNT_JSON` — **not** a Google AI Studio API key, which
+D-127 disqualifies for having no data-residency guarantee), Clerk (two applications:
+calevate-admin, calevate-client), Cloudflare R2 or DO Spaces (local dev uses MinIO
+instead).
 
 ## 2. Bootstrap
 

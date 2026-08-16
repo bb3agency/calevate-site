@@ -102,17 +102,18 @@ spreadsheet id, a credential reference, an access token or a vendor error string
 
 from __future__ import annotations
 
-import json
-import time
-from dataclasses import dataclass
 from typing import Any
 from urllib.parse import quote
 
 import httpx
-import jwt
 
 from apps.api.core.logging import get_logger
 from apps.api.integrations import service
+from apps.workers.google_oauth import (
+    access_token,
+    parse_service_account,
+    reset_token_cache,
+)
 from apps.workers.sheets_sync import (
     VALUE_INPUT_OPTION,
     AppendResult,
@@ -131,20 +132,17 @@ log = get_logger(__name__)
 # The provider name that selects this adapter (`GOOGLE_SHEETS_PROVIDER`).
 PROVIDER = "service_account"
 
-TOKEN_URL = "https://oauth2.googleapis.com/token"
 SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets"
-# RFC 7523's JWT-bearer grant, which is what Google's server-to-server flow is.
-JWT_BEARER_GRANT = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 # See the module docstring: narrower scopes cannot reach a document the client created.
 SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
-# Google caps the assertion's own lifetime at one hour; we ask for exactly that and then
-# refuse to USE a token in its last five minutes. That margin is load-bearing for the
-# error mapping below: a token we hand to Google is never more than 55 minutes old, so a
-# 401 is a statement about the KEY and not about staleness, and can be reported to the
-# operator as such instead of being retried into the same wall three times.
-TOKEN_TTL_S = 3600
-TOKEN_REFRESH_SKEW_S = 300
+# `TOKEN_URL`, `JWT_BEARER_GRANT`, `TOKEN_TTL_S`, `TOKEN_REFRESH_SKEW_S`,
+# `ServiceAccount`, `parse_service_account` and the token exchange itself MOVED to
+# `apps/workers/google_oauth.py` when Vertex AI (D-127) needed the identical RFC 7523
+# flow with a different scope. They are NOT re-exported from here: a name with two
+# import paths is the drift this repo treats as a defect even when both work, so the
+# callers moved in the same change. What stays is this module's own vocabulary — the
+# Sheets scope, the credential reference namespace, and the authored reason codes.
 
 # The only credential reference this deployment can resolve. The scheme is a namespace
 # so that a value from a DATABASE ROW can never name arbitrary key material: `secret_ref`
@@ -170,49 +168,7 @@ _TRANSIENT_STATUS = frozenset({408, 429})
 
 
 # --- credentials ------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ServiceAccount:
-    """The three fields of a Google service-account key that the JWT flow needs.
-
-    `private_key` is PEM key material. It is held only for the moment of signing, never
-    logged, never placed in an exception message, and never returned to a caller — which
-    is why this dataclass has no `__str__` worth writing and nothing formats it.
-    """
-
-    client_email: str
-    private_key: str
-    token_uri: str
-    private_key_id: str | None = None
-
-
-def parse_service_account(raw: str) -> ServiceAccount | None:
-    """The deployment's key, as injected from the secrets manager at deploy time.
-
-    Returns None rather than raising on malformed material: a bad key is an operator
-    error that must surface as a named refusal on the delivery screen, not as a
-    traceback in a worker whose next line would print the key.
-    """
-    try:
-        parsed = json.loads(raw)
-    except ValueError:
-        return None
-    if not isinstance(parsed, dict):
-        return None
-    email = str(parsed.get("client_email") or "").strip()
-    key = str(parsed.get("private_key") or "").strip()
-    if not email or not key:
-        return None
-    key_id = parsed.get("private_key_id")
-    return ServiceAccount(
-        client_email=email,
-        private_key=key,
-        # The key file names its own token endpoint; falling back to the constant means
-        # a key minted before Google moved the endpoint still works.
-        token_uri=str(parsed.get("token_uri") or TOKEN_URL),
-        private_key_id=str(key_id) if key_id else None,
-    )
+# `ServiceAccount` and `parse_service_account` live in `google_oauth` now (see above).
 
 
 def credential_name(ref: str) -> str | None:
@@ -230,20 +186,10 @@ def credential_name(ref: str) -> str | None:
     return name
 
 
-# --- token cache ------------------------------------------------------------------
-# Module-level rather than instance-level because `sheets_sync.get_sheets_transport()`
-# builds a fresh transport per append (it re-reads settings so a config change takes
-# effect, which is right) — a token cached on the instance would be minted per lead and
-# would spend a network round-trip and a signature on every single row.
+# --- caches ------------------------------------------------------------------------
+# The TOKEN cache moved to `google_oauth` with the flow that fills it. What stays here is
+# the one cache that is about SPREADSHEETS rather than about Google auth.
 
-
-@dataclass(frozen=True, slots=True)
-class _CachedToken:
-    value: str
-    expires_at: float
-
-
-_TOKENS: dict[str, _CachedToken] = {}
 # (spreadsheet_id, worksheet) pairs this process has confirmed already carry a header.
 # Monotonic in practice — a header, once written, stays — and a stale MISS costs one
 # extra read plus an idempotent re-write, never a wrong row.
@@ -252,68 +198,15 @@ _HEADERED: set[tuple[str, str]] = set()
 
 def reset_caches() -> None:
     """Drop the process-level token and header caches. For tests and for an operator
-    rotating the service-account key without a restart."""
-    _TOKENS.clear()
+    rotating the service-account key without a restart.
+
+    Still clears BOTH, even though the token cache is no longer this module's: four test
+    files and the rotation runbook call this one verb, and leaving them to remember a
+    second one is how a rotation drill starts passing while a stale token keeps being
+    sent.
+    """
+    reset_token_cache()
     _HEADERED.clear()
-
-
-def _assertion(account: ServiceAccount, *, now: int) -> str:
-    """The signed JWT Google exchanges for an access token (RFC 7523 profile).
-
-    `aud` is the TOKEN endpoint, not the Sheets API: this assertion authenticates the
-    token request itself, so a captured one cannot be replayed against anything else.
-    """
-    headers = {"kid": account.private_key_id} if account.private_key_id else None
-    return jwt.encode(
-        {
-            "iss": account.client_email,
-            "scope": SCOPE,
-            "aud": account.token_uri,
-            "iat": now,
-            "exp": now + TOKEN_TTL_S,
-        },
-        account.private_key,
-        algorithm="RS256",
-        headers=headers,
-    )
-
-
-async def _access_token(http: httpx.AsyncClient, account: ServiceAccount) -> str | None:
-    """A bearer token for the Sheets API, cached until its refresh margin.
-
-    None means the exchange failed. The caller decides what that means; this function
-    deliberately does not raise, because the one thing that must never happen is a
-    credential landing in a traceback.
-    """
-    now = time.time()
-    cached = _TOKENS.get(account.client_email)
-    if cached is not None and cached.expires_at - TOKEN_REFRESH_SKEW_S > now:
-        return cached.value
-    try:
-        response = await http.post(
-            account.token_uri,
-            data={
-                "grant_type": JWT_BEARER_GRANT,
-                "assertion": _assertion(account, now=int(now)),
-            },
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
-    except httpx.HTTPError as exc:
-        log.warning("google_token_transport_error", extra={"error": type(exc).__name__})
-        return None
-    if response.status_code != 200:
-        # The status, never the body: Google's error body echoes the assertion's claims.
-        log.warning("google_token_refused", extra={"status": response.status_code})
-        return None
-    try:
-        body = response.json()
-        token = str(body["access_token"])
-        ttl = int(body.get("expires_in") or TOKEN_TTL_S)
-    except (ValueError, KeyError, TypeError):
-        log.warning("google_token_malformed")
-        return None
-    _TOKENS[account.client_email] = _CachedToken(value=token, expires_at=now + ttl)
-    return token
 
 
 # --- A1 notation ------------------------------------------------------------------
@@ -387,7 +280,7 @@ class GoogleSheetsTransport:
             timeout=service.DELIVERY_TIMEOUT_S, follow_redirects=False
         )
         try:
-            token = await _access_token(http, account)
+            token = await access_token(http, account, scope=SCOPE)
             if token is None:
                 # Could be a network blip or a bad key; the token endpoint does not let
                 # us tell those apart without reading a body we will not read. Transient
@@ -552,7 +445,8 @@ def _classify(status: int) -> AppendResult:
     if status >= 500:
         return AppendResult(AppendStatus.TRANSPORT_FAILED, reason=UNAVAILABLE_REASON)
     if status == 401:
-        # See TOKEN_REFRESH_SKEW_S: our tokens are never near expiry, so this is the key.
+        # See `google_oauth.TOKEN_REFRESH_SKEW_S`: our tokens are never near expiry, so a
+        # 401 is a statement about the KEY.
         return AppendResult(AppendStatus.REJECTED, reason=AUTH_FAILED_REASON)
     if status == 403:
         return AppendResult(AppendStatus.REJECTED, reason=SHEET_NOT_SHARED_REASON)
@@ -576,14 +470,11 @@ __all__ = [
     "SCOPE",
     "SHEET_NOT_SHARED_REASON",
     "SPREADSHEET_NOT_FOUND_REASON",
-    "TOKEN_REFRESH_SKEW_S",
     "UNAVAILABLE_REASON",
     "WORKSHEET_REJECTED_REASON",
     "GoogleSheetsTransport",
-    "ServiceAccount",
     "a1_sheet",
     "column_letter",
     "credential_name",
-    "parse_service_account",
     "reset_caches",
 ]

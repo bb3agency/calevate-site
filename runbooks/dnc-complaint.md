@@ -181,6 +181,14 @@ registrar names a number, or we decide this platform will never call it again. I
 ops action: no client can create or remove a global entry, and a client who tries is
 refused by name (`dnc_global_entry`).
 
+**Console: Operations → Global do-not-call (`/admin/ops/dnc`).** Paste the numbers, pick
+the source, write the reason, type SUPPRESS. The screen shows the whole list masked, and
+lifting one takes its own typed confirmation naming that row. Use it rather than the
+requests below: it sends the confirmation headers for you, states the blast radius before
+the click, and is the same audited path.
+
+The requests are the fallback for a console that will not load, and nothing else:
+
 ```
 POST /v1/ops/dnc/global
 X-Confirm-Action: suppress_number_platform_wide
@@ -205,6 +213,11 @@ X-Confirm-Action: release_number_platform_wide
 (`ops.dnc_global_added` / `ops.dnc_global_removed`) naming the operator, never the
 number.
 
+**Lifting one is the direction to be slow about.** It re-permits dialling somebody who
+asked not to be dialled, for every client, from the next dispatch tick — and the audit
+log will show that we chose to. Do it only when the instruction behind the entry has been
+withdrawn, and say so in the ticket.
+
 ## 7. If the suppression was recorded and we dialled anyway
 
 Treat as an incident.
@@ -220,3 +233,66 @@ Treat as an incident.
    different tenant than the one that dialled.
 4. Whichever it is, the fix ships with a test that fails on the old code. Hard rule 5
    permits no bypass — including a temporary one to unblock a client.
+
+## 8. Recording a national DND (NCPR) scrub of a campaign's list
+
+Symptom: a client's PROMOTIONAL campaign is refused at launch or mid-dispatch with
+`national_dnd_scrub_missing`, `national_dnd_scrub_expired` or
+`national_dnd_scrub_incomplete`. This is the one procedure in this file that has **no
+console screen and deliberately will not get one** — see the decision log — because the
+work happens on somebody else's platform and only the last step is ours.
+
+**Before anything: is this even possible today?** Running a scrub needs a login to an
+access provider's DLT platform, which comes with the Registered Telemarketer registration
+Calevate is still obtaining (R-01, `platform_state.tm_registration_status`). Until that is
+`active`, EVERY tenant's campaign is already refused with `tm_registration_missing` and
+there is nothing true to record here. Check the ops console first; if the platform is not
+a live registered telemarketer, this runbook is not the answer to the client's problem
+and recording a scrub anyway would be evidence of something that did not happen.
+
+1. **Get the list.** The numbers to submit are the campaign's pending contacts. Read-only,
+   through the audited admin path, and the output is a file you do not paste anywhere:
+
+   ```sql
+   SELECT phone_e164 FROM campaign_contacts
+   WHERE campaign_id = :campaign_id AND status = 'pending';
+   ```
+
+2. **Submit it to the access provider's scrub facility** and keep what comes back: a
+   reference number, a report of COUNTS (never the numbers), the blocked list, and the
+   timestamp of the run. The verdict is valid until **23:59:59 IST of the day it was
+   produced** — a scrub run this morning does not cover tomorrow's dialling, which is why
+   the gate is on the dispatch tick as well as on launch.
+
+3. **Record it against the campaign it covers.** `admin:tenants`, step-up confirmed, and
+   the confirmation is bound to the campaign id so a header captured for one campaign
+   cannot green-light another:
+
+   ```
+   POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub
+   X-Confirm-Action: record_preference_scrub:{campaign_id}
+   {"provider": "airtel", "scrub_ref": "<the reference>",
+    "scrubbed_at": "2026-08-15T11:30:00+05:30",
+    "blocked_numbers": ["<numbers the register suppressed>"]}
+   ```
+
+   - `blocked_numbers` is the list the register **suppressed** — the ones to take OUT.
+     The portal hands back two files and pasting the survivors here would suppress
+     everybody the scrub cleared. Up to 5,000 per recording.
+   - `scrubbed_at` must carry an offset. The window ends at a specific IST midnight and a
+     bare local string leaves the server guessing which one — a whole day of dialling.
+   - There is no `submitted_count` field: how many contacts were pending is read from the
+     campaign rather than typed, so it cannot be mistyped.
+   - Re-sending the same `(campaign, provider, scrub_ref)` is idempotent, so a retry after
+     a timeout is safe.
+
+4. **Check the answer, not the HTTP status.** The response carries `is_current`, which is
+   the same predicate the launch gate reads. `recorded: false` with `is_current: true`
+   means this run was already recorded. `is_current: false` means the run you recorded is
+   a legitimate historical record that does not satisfy the gate — usually a run whose day
+   has ended — and the campaign is still refused.
+
+**What is NOT this.** A number the register blocked shows up as a `dnc_blocked` campaign
+contact, not as a `dnc_list` row: NCPR preference is category-scoped and per list, so
+loading it into `dnc_list` would refuse lawful transactional traffic to the same person.
+§6 above is the different thing — an absolute platform-wide suppression naming one number.

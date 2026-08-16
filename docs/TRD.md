@@ -97,9 +97,13 @@ Models (per-agent config, BYOK):
   Sarvam is the speech provider. Gate A-2: compare bundled/managed Sarvam tier.
 - LLM: **Sarvam 105B — DEFAULT (D-36)**. Free per token (verified 11 Aug 2026), sovereign
   (all-India residency, no transcript text leaves India), and one vendor for STT+LLM+TTS.
-  **Gemini 2.5 Flash-Lite is retained as a configurable fallback** ($0.10/$0.40 per M) and
-  remains the reference for the post-call extraction path until Sarvam is measured against
-  the golden-transcript fixtures (§7). Availability of either on Bolna is UNVERIFIED (pilot;
+  **`GEMINI_EXTRACTION_DEFAULT is False` (D-127 G-7): Sarvam runs the first post-call
+  extraction permanently**, because that pass reads the RAW transcript and G-2 forbids raw
+  PII reaching Google. **Gemini 3.x Flash-Lite** ($0.25/$1.50 per M for `3.1-flash-lite`)
+  runs the USER-TRIGGERED dashboard AI over the redacted copy, through Vertex AI
+  `asia-south1` and never the AI Studio Developer API. Which model extracts BETTER is still
+  unmeasured and still blocked on a Sarvam key and egress (§7's golden-transcript
+  fixtures). Availability of either on Bolna is UNVERIFIED (pilot;
   fallback = their listed LLMs or an OpenAI-compatible endpoint if offered). Sarvam's
   **rate limits (60/200/1,000 rpm by plan) are a concurrency input**, not a price input —
   size the plan at pilot gate 13.
@@ -345,7 +349,10 @@ scorecard — D-31]:
   blueprint **"BYOK" means *we* bring *our* model keys to the *engine*.** Clients never
   hold or supply model keys — we are a managed service (D-10, flat tenancy). Three
   locations, and only three:
-  1. **Canonical copy → the secrets manager.** `SARVAM_API_KEY`, `GEMINI_API_KEY`,
+  1. **Canonical copy → the secrets manager.** `SARVAM_API_KEY`,
+     `GCP_SERVICE_ACCOUNT_JSON` (D-127 — the Vertex service-account key; `GEMINI_API_KEY`
+     is still a declared field but opens the disqualified AI Studio door and is read only
+     to produce a better refusal),
      `BOLNA_API_KEY` exist in `.env` for local dev only; prod values are injected at
      runtime from the secrets manager (DEV-SETUP §3). **Never in Postgres plaintext, never
      committed** (hard rule: secrets).
@@ -541,11 +548,23 @@ and there is NO silent failover between providers — Sarvam
 (`calevate_shared.engine.SARVAM_DEFAULT_LLM`, today `sarvam-105b`; the literal
 `sarvam-m` shipped here until D-105 and Sarvam has since RETIRED it, so the code was
 aimed at a model that no longer answers while §10 priced the 105B) when a Sarvam key
-is present, Gemini (`gemini-2.5-flash-lite`) when only a Gemini key is, and an offline
-heuristic runner otherwise, which is what keeps the regression harness's baseline stable.
-D-36 makes Sarvam the default; the §5 note that Gemini "remains the reference for the
-post-call extraction path" is about which baseline is measured, not about which model the
-pipeline reaches for.
+is present, and an offline heuristic runner otherwise, which is what keeps the regression
+harness's baseline stable.
+
+**Gemini is not in that ladder, and `GEMINI_EXTRACTION_DEFAULT is False` is the greppable
+form of why** (D-127 G-2/G-7). This selector's caller is `workers/pipeline.py`, which hands
+over the RAW transcript — `turn.text`, one line after `redacted.text` is computed, because
+a CRM "callback number" field needs the actual digits. Until D-127 the ladder returned a
+Gemini client whenever a Gemini key was configured and a Sarvam key was not, so one absent
+environment variable sent raw caller PII to a second processor. Gemini now serves only the
+USER-TRIGGERED work, through `workers/extraction.run_assist()`, over the redacted copy, on
+Vertex AI `asia-south1` — and `run_assist` re-runs `redact()` on its input and REFUSES text
+that still yields a match, so G-2 is structural rather than documentary.
+
+⚠ **This paragraph describes BEHAVIOUR and is the line that rots first.** Everything in it
+is decided in one function; if you are changing that function, change this paragraph in the
+same edit. `GEMINI_EXTRACTION_DEFAULT` exists so `scripts/check_docs_drift.py` §5 can catch
+the half of that which is machine-decidable.
 
 The generated prompt (`packages/shared/.../extraction.build_extraction_prompt`, shared with
 the regression harness so the scored prompt IS the shipped one) carries **five named rule
@@ -615,7 +634,9 @@ all-in ≈ 3.3–3.6 (launch) → 1.7–2.3 (phase 2)**.
 > the card live on 11 Aug 2026: **v2 is live at half the v3 rate**, which is why
 > `billing/rates.py` bills a two-rung ladder and why `plans.overage_rate_value` exists at
 > all), and "LLM 0.04–0.10" (D-36: **Sarvam 105B is free per token**; ₹0.15–0.20 is the
-> Gemini Flash-Lite fallback, not the default). `scripts/check_docs_drift.py` §4b now
+> Gemini Flash-Lite leg, which after D-127 is the user-triggered dashboard AI and not the
+> extraction default — `GEMINI_EXTRACTION_DEFAULT is False`).
+> `scripts/check_docs_drift.py` §4b now
 > diffs §10.1's card against `TTS_INR_PER_10K_CHARS`, so the RATES cannot drift again
 > unwatched; the platform and telephony bands here remain UNVERIFIED estimates (pilot
 > gate 12) and no check can say otherwise.

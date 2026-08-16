@@ -50,7 +50,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import dnc, preference_scrub
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
 from apps.api.core.rbac import permission_meta
@@ -204,7 +204,7 @@ async def suppress_globally(
         actor=principal,
         object_type="dnc_list",
         object_id=None,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # Counts, the source and the operator's reason. The numbers are the sensitive
         # part of this request and the audit stream is read by more people than the
         # endpoint (hard rule 6).
@@ -272,7 +272,7 @@ async def release_globally(
         actor=principal,
         object_type="dnc_list",
         object_id=str(entry_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"source": source},
     )
 
@@ -332,7 +332,7 @@ async def record_preference_scrub(
         tenant_id=tenant_id,
         object_type="preference_scrub_run",
         object_id=str(campaign_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # Counts and the provider's reference — the handle that makes this entry
         # checkable against the portal — and never a number (hard rule 6).
         summary={

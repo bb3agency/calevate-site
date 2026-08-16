@@ -211,10 +211,69 @@ class Settings(BaseSettings):
     # keystroke happens.
     usd_inr_rate: Decimal = Field(default=Decimal("88.00"), gt=0, le=1000)
 
-    # BYOK models — canonical stack per D-36: Sarvam does STT + LLM + TTS.
-    # Gemini is a configurable FALLBACK, not the default.
+    # BYOK models — canonical stack per D-36: Sarvam does STT + LLM + TTS, and per D-127
+    # it also does the FIRST post-call extraction, permanently, because that pass reads
+    # the RAW transcript (`workers/pipeline.py` hands `turn.text`, not `redacted.text`, to
+    # the extractor so a "callback number" field gets the actual digits) and G-2 forbids
+    # raw PII reaching Google. `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form
+    # of that sentence (`workers/extraction.py`).
     sarvam_api_key: str | None = None
+    # ⚠ THE AI STUDIO DEVELOPER API KEY, AND D-127 DISQUALIFIED THE DOOR IT OPENS.
+    # `generativelanguage.googleapis.com` is a global host with no region anywhere in the
+    # URL, and on the free tier Google states it uses submitted prompts and responses to
+    # improve its products with human reviewers able to read them — which for a Processor
+    # holding an Indian SMB's callers' transcripts is not a tradeoff, it is a disclosure
+    # we could not make. Vertex takes an OAuth2 bearer, never an API key in a query
+    # string, so this value cannot reach the replacement path even by accident.
+    #
+    # IT IS STILL DECLARED, and that is deliberate rather than an oversight. `Settings`
+    # is `extra="forbid"` over a dotenv file, so DELETING a field that a deployment's
+    # `.env` still declares is not a cleanup — it is a boot failure with a Pydantic
+    # traceback, in every environment that has not yet edited its env. Hard rule 8's
+    # two-step deprecation is a rule about columns for exactly this reason and it applies
+    # unchanged to a config key: stop reading it (done — nothing in the tree does), then
+    # drop it in a later release once no environment declares it.
+    #
+    # SO IT IS NOT A FIELD THAT SILENTLY DOES NOTHING, which PLATFORM-CONFIG §8 rightly
+    # calls worse than no field. It is read in exactly one place — `assist_capability()` —
+    # and its only effect is to turn the generic "no credential" refusal into the one an
+    # operator who installed it actually needs: this build reaches Gemini through Vertex
+    # AI and an AI Studio key opens no door here, install a GCP project and service
+    # account instead.
     gemini_api_key: str | None = None
+    # The GCP project the Vertex AI calls bill to and run in (D-127 G-1/G-3). ONE
+    # Calevate-owned project, cost absorbed and metered per tenant — never per-tenant
+    # credentials, because a tenant never chooses this endpoint and never sees it.
+    #
+    # ORDINARY CONFIG, not a credential: a project id is not a secret (it appears in every
+    # URL the client builds) and it is the value an operator will get wrong first, so it
+    # belongs on the console screen where they can see and correct it. What is NOT here,
+    # and must never be, is the REGION — `calevate_shared.engine.VERTEX_LOCATION` is a
+    # `Final` constant precisely so no console can move model traffic out of India, and
+    # `scripts/check_model_residency.py` fails the build on any `Settings` field whose
+    # name says region, location, residency, vertex or aiplatform.
+    #
+    # Bounded at GCP's own limit: project ids are 6-30 characters, lowercase letters,
+    # digits and hyphens, starting with a letter. The pattern refuses a project NUMBER
+    # (all digits) too — Vertex accepts either in the URL, but a number in this box is
+    # almost always somebody pasting the wrong field out of the console, and the resulting
+    # 403 names neither.
+    gcp_project_id: str | None = Field(
+        default=None, min_length=6, max_length=30, pattern=r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    )
+    # The service-account key that mints the OAuth2 bearer for Vertex (RFC 7523
+    # JWT-bearer, `workers/google_oauth.py`). Same shape, same handling and the same ONE
+    # key for the whole platform as `google_sheets_service_account_json` below — and the
+    # same rule about where it lives: injected from the secrets manager at deploy time,
+    # never a plaintext database row (its name matches `_json`, so `managed_fields()`
+    # excludes it and `platform_secrets` seals it), never a file committed here.
+    #
+    # Absent ⇒ `assist_capability()` answers `available=False, reason="no_credential"` and
+    # the dashboard-AI surface explains itself rather than going silently missing. It is
+    # deliberately NOT in `runtime_config_missing_keys`: a deployment with no dashboard AI
+    # is a coherent deployment, and a readiness probe that goes red for an absent optional
+    # feature is a probe operators learn to ignore.
+    gcp_service_account_json: str | None = None
     # Embeddings are provider-managed if the D-28 RAG service bundles them;
     # Cohere is only needed if the bake-off selects a store that does not.
     cohere_api_key: str | None = None

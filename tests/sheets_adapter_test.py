@@ -46,7 +46,8 @@ from apps.api.crm import attention
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.integrations import service
-from apps.workers import google_sheets, outbound_webhooks, sheets_sync
+from apps.workers import google_oauth, google_sheets, outbound_webhooks, sheets_sync
+from apps.workers.google_oauth import parse_service_account
 from apps.workers.google_sheets import (
     AUTH_FAILED_REASON,
     CREDENTIAL_REF_PREFIX,
@@ -64,7 +65,6 @@ from apps.workers.google_sheets import (
     a1_sheet,
     column_letter,
     credential_name,
-    parse_service_account,
 )
 from apps.workers.sheets_sync import AppendStatus, SheetAppend
 from arq import Retry
@@ -107,7 +107,7 @@ def _credential_json(**over: Any) -> str:
         "client_email": SERVICE_ACCOUNT_EMAIL,
         "private_key": _PRIVATE_PEM,
         "private_key_id": "kid-1",
-        "token_uri": google_sheets.TOKEN_URL,
+        "token_uri": google_oauth.TOKEN_URL,
     }
     payload.update(over)
     return json.dumps(payload)
@@ -221,20 +221,20 @@ async def test_the_assertion_is_signed_with_our_key_and_scoped_to_sheets() -> No
     await _append(fake)
 
     form = fake.token_requests[0]
-    assert form["grant_type"] == [google_sheets.JWT_BEARER_GRANT], (
+    assert form["grant_type"] == [google_oauth.JWT_BEARER_GRANT], (
         "RFC 7523's JWT-bearer grant is what Google's server-to-server flow is"
     )
     claims = jwt.decode(
         form["assertion"][0],
         _PUBLIC_KEY,
         algorithms=["RS256"],
-        audience=google_sheets.TOKEN_URL,
+        audience=google_oauth.TOKEN_URL,
     )
     assert claims["iss"] == SERVICE_ACCOUNT_EMAIL
     assert claims["scope"] == SCOPE
     # `aud` is the TOKEN endpoint, not the Sheets API: a captured assertion must not be
     # replayable against anything but the exchange it was minted for.
-    assert claims["aud"] == google_sheets.TOKEN_URL
+    assert claims["aud"] == google_oauth.TOKEN_URL
     assert 0 < claims["exp"] - claims["iat"] <= 3600, "Google caps the assertion at one hour"
     header = jwt.get_unverified_header(form["assertion"][0])
     assert header["alg"] == "RS256"

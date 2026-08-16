@@ -213,6 +213,19 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         # single forbidden import" — is what proves this module drags nothing heavy in.
         "apps.api.core.platform_config",
         "apps.api.core.queue",
+        # Reached ONLY through `core.middleware`, which is already on this list and which
+        # `core.bootstrap` imports at module scope — so this arrives with `create_app`
+        # rather than by anything this service does with it. `create_app(minimal=True)`
+        # (what `main.py` calls) never installs `RateLimitMiddleware`: the receiver's
+        # limits are nginx's `webhooks` zone, and hard rule 3 would not tolerate a Redis
+        # round trip inside the 500ms ack anyway.
+        #
+        # It qualifies as library code on the same terms as `errors` and `logging`: a
+        # profile table, a regex matcher and one INCR. Its whole import list is stdlib
+        # plus `core.errors`, `core.logging` and `core.redis`, all already held — which
+        # is what the "boots without a single forbidden import" test above proves rather
+        # than asserts by hand.
+        "apps.api.core.ratelimit",
         "apps.api.core.redis",
         "apps.api.core.settings",
         # Sessions and uuid7 only. NOT `db.registry` — see FORBIDDEN.

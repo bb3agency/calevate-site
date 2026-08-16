@@ -35,7 +35,7 @@ from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import IMPERSONATE_HEADER, IMPERSONATION_GRANT_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
@@ -282,7 +282,7 @@ async def create_tenant(
             tenant_id=tenant_id,
             object_type="organization",
             object_id=str(tenant_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={"slug": slug, "vertical": payload.vertical_template},
         )
 
@@ -338,7 +338,7 @@ async def invite_member(
             tenant_id=tenant_id,
             object_type="invitation",
             object_id=str(invitation_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             # The email is redacted by the audit summary sanitizer; the ROLE is what a
             # later review actually needs.
             summary={"role": payload.role},
@@ -465,7 +465,7 @@ async def revoke_tenant_invitation(
             tenant_id=tenant_id,
             object_type="invitation",
             object_id=str(invitation_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
 
 
@@ -587,7 +587,7 @@ async def record_intake(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # COUNTS, never the answers: services and FAQs are the client's business detail
         # and the escalation contacts are phone numbers (hard rule 6).
         summary={
@@ -661,7 +661,7 @@ async def save_intake_draft(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # COUNTS and CODES, never the answers: the same rule the submit's row follows,
         # and the escalation contacts on this sheet are phone numbers.
         summary={
@@ -862,7 +862,7 @@ async def mint_impersonation_grant(
         tenant_id=grant.tenant_id,
         object_type="organization",
         object_id=str(grant.tenant_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # `grant_id` is what joins this row to the `admin.impersonation_read` rows the
         # session goes on to produce (`core/auth.py`). Ids and an instant only.
         summary={
@@ -933,7 +933,7 @@ async def approve_kb(
             tenant_id=tenant_id,
             object_type="kb_source",
             object_id=str(source_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
     return {"status": "approved"}
 
@@ -970,7 +970,7 @@ async def reject_kb(
             tenant_id=tenant_id,
             object_type="kb_source",
             object_id=str(source_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={"reason": payload.reason},
         )
     return {"status": "rejected"}
@@ -999,7 +999,7 @@ async def publish_kb(
         tenant_id=tenant_id,
         object_type="kb_source",
         object_id=str(source_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"version": version},
     )
     return PublishOut(source_id=source_id, version=version, status="live")
@@ -1201,7 +1201,20 @@ async def provision_number(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> NumberCreatedOut:
+    """A mistyped tenant uuid is a 404, and it used to be a 409 about a NUMBER.
+
+    `provision_number` maps every `IntegrityError` to `number_taken` ("This number is
+    already provisioned — it may belong to another account"), which is the right answer
+    for the UNIQUE index it was written for and the wrong one for the tenant foreign
+    key. An operator who mistyped the client id was told to go looking for whoever
+    holds a number nobody holds. `service.tenant_exists` is the ONE definition of "is
+    this a live organization" and exists so every surface naming a tenant in its path
+    answers a mistyped uuid the same way — asked here rather than the predicate copied,
+    exactly as `set_tenant_status` and `record_commercial_terms` ask it.
+    """
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         number_id = await agents_service.provision_number(
             scoped,
             tenant_id=tenant_id,
@@ -1218,7 +1231,7 @@ async def provision_number(
         tenant_id=tenant_id,
         object_type="phone_number",
         object_id=str(number_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The series, never the number itself (hard rule 6).
         summary={"series": payload.series},
     )
@@ -1251,7 +1264,7 @@ async def set_number_dlt_status(
         tenant_id=tenant_id,
         object_type="phone_number",
         object_id=str(number_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"dlt_status": payload.dlt_status},
     )
     return {"dlt_status": payload.dlt_status}
@@ -1270,7 +1283,16 @@ async def register_template(
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> dict[str, str]:
+    """A mistyped tenant uuid is a 404 here, and it used to be a 500.
+
+    `dlt_templates.tenant_id` has an FK, so an id no organization holds reached the
+    INSERT and came back as `internal_error` — an operator was told "the team has been
+    alerted" for a typo they could fix themselves, and the team was alerted for it.
+    Same guard, same predicate and same reason as `record_commercial_terms` above.
+    """
     async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         template_id = await campaigns_service.register_dlt_template(
             scoped,
             tenant_id=tenant_id,
@@ -1285,7 +1307,7 @@ async def register_template(
         tenant_id=tenant_id,
         object_type="dlt_template",
         object_id=str(template_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"classification": payload.classification},
     )
     return {"id": str(template_id), "status": "submitted"}
@@ -1348,7 +1370,7 @@ async def set_template_status(
         tenant_id=tenant_id,
         object_type="dlt_template",
         object_id=str(template_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"status": payload.status},
     )
     return {"status": payload.status}
@@ -1417,7 +1439,7 @@ async def record_dlt_registration(
         tenant_id=tenant_id,
         object_type="dlt_registration",
         object_id=str(tenant_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The registrar's identifiers are the client's own business identity, not PII
         # under hard rule 6 — and the PE id is the whole point of the audit row: it is
         # what a regulator asks us to evidence.
@@ -1493,6 +1515,14 @@ async def record_kyc_verification(
         )
 
     async with tenant_session(tenant_id) as scoped:
+        # A mistyped tenant uuid is a 404, not a 500: `kyc_records.tenant_id` has an FK,
+        # so an id no organization holds reached the upsert and surfaced as
+        # `internal_error`. The two validations above exist so an operator gets a
+        # problem+json naming the missing field instead of an IntegrityError; this is
+        # the same argument for the field they are most likely to get wrong, since it is
+        # the only one they copy rather than type.
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         await record_kyc(
             scoped,
             tenant_id=tenant_id,
@@ -1512,7 +1542,7 @@ async def record_kyc_verification(
         tenant_id=tenant_id,
         object_type="kyc_record",
         object_id=str(tenant_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The registry identifier is the client's own business identity, published in a
         # public register — not PII under hard rule 6, and it is the whole point of the
         # audit row: it is what a regulator asks us to evidence. `signatory_name` is
@@ -1911,7 +1941,7 @@ async def record_commercial_terms(
             tenant_id=tenant_id,
             object_type="plan",
             object_id=str(result.plan_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "supersedes": str(result.superseded.id) if result.superseded else None,
                 "effective_from": (
@@ -2058,7 +2088,7 @@ async def set_tenant_status(
             tenant_id=tenant_id,
             object_type="organization",
             object_id=str(tenant_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             # The reason verbatim — it is why somebody stopped a business's calls, and
             # the whole value of the row. No prior status: `from_statuses` is a SET and
             # the CAS does not report which member it matched, so any "from" here would

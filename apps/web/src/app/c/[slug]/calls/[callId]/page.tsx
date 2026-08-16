@@ -161,7 +161,30 @@ export default function CallDetailPage({
       {/* D-21 M2. Rendered whenever the API has an opinion — disabled WITH the reason
           rather than hidden, so "why can't I follow this up?" is answered on screen.
           The refusals are mostly protective (we have already followed up twice; the
-          call is a fortnight old), and a client who cannot see them assumes a bug. */}
+          call is a fortnight old), and a client who cannot see them assumes a bug.
+
+          The two branches below exist because the card was doing the thing it says it
+          exists to prevent: `eligibility.data` is undefined while the read is in flight
+          and again after it fails, so a 503 on `/callback-eligibility` deleted the whole
+          card — no button, no reason, nothing to reload. §52: failure is a refusal, and
+          nothing is not a refusal. */}
+      {eligibility.isLoading && (
+        <Card title="Follow up">
+          <Skeleton rows={2} />
+        </Card>
+      )}
+      {eligibility.error != null && (
+        <Card title="Follow up">
+          <ProblemNotice
+            error={eligibility.error}
+            onRetry={() => void eligibility.refetch()}
+          />
+          <p className="mt-3 text-sm text-ink-muted">
+            We could not check whether this call can be followed up, so the button stays
+            closed rather than ringing somebody we were not allowed to ring.
+          </p>
+        </Card>
+      )}
       {eligibility.data && (
         <Card title="Follow up">
           {callback.data?.status === "queued" ? (

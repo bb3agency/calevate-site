@@ -181,3 +181,51 @@ describe("the retained delivery body", () => {
     expect(screen.getByText(/40,00,000 bytes/)).toBeTruthy();
   });
 });
+
+/**
+ * The last live entry on the §52 guard's EXEMPT list, closed.
+ *
+ * The offer was gated on `me.data?.permissions?.includes("calls:read_raw") ?? false`, and
+ * `me.data` is undefined while `/v1/me` is in flight AND after it fails. So an owner whose
+ * `/v1/me` 503'd lost the "Sent" column and the View buttons with no explanation — the
+ * screen implying a refusal it never received, which is the same defect the Leads export
+ * carried and closed the same way: `useWriteAccess`, which answers "We could not check
+ * whether you can …" for exactly this case.
+ */
+describe("the payload offer when we could not check the permission", () => {
+  it("says we could not check, rather than silently withdrawing the column", async () => {
+    const { container } = await renderClientPage(page, {
+      ...routes({ "/v1/me": problem(503, { title: "Service unavailable", retryable: true }) }),
+    });
+
+    // The delivery log itself is unaffected — that read succeeded.
+    expect(await screen.findByText("delivered")).toBeTruthy();
+    // The sentence is PRESENT. "No View button" is also true of a staff user, of an
+    // empty log, and of a card that failed to render at all.
+    expect(container.textContent).toContain(
+      "We could not check whether you can open a delivered payload",
+    );
+    expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+  });
+
+  it("stays quiet for a reader who genuinely lacks the permission", async () => {
+    // The distinction the fix turns on. A KNOWN refusal needs no sentence here — the
+    // column is deliberately absent, "a permanently empty column is a promise the screen
+    // cannot keep" — and printing one for every staff reader is the noise that stops the
+    // real refusal above from being read.
+    const { container } = await renderClientPage(page, { ...routes({ "/v1/me": STAFF }) });
+
+    expect(await screen.findByText("delivered")).toBeTruthy();
+    expect(container.textContent).not.toContain("open a delivered payload");
+    expect(screen.queryByRole("button", { name: "View" })).toBeNull();
+  });
+
+  it("says nothing at all to a reader who has it", async () => {
+    // A restriction note that renders for everybody is noise, and noise is how a real
+    // refusal stops being read.
+    const { container } = await renderClientPage(page, { ...routes() });
+
+    expect(await screen.findByRole("button", { name: "View" })).toBeTruthy();
+    expect(container.textContent).not.toContain("open a delivered payload");
+  });
+});

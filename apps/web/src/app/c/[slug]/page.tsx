@@ -124,16 +124,33 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
                 : "Using 9am–9pm IST — add your opening hours for a real figure"
             }
           />
-          <StatTile
-            label="Spend this month"
-            value={formatINR(usage.data?.overage_cost_inr)}
-            icon={<Sparkles className="h-5 w-5" />}
-            hint={
-              usage.data
-                ? `${usage.data.minutes_used} min used of ${formatCount(usage.data.included_minutes)} included`
-                : undefined
-            }
-          />
+          {/* The one tile on this screen fed by a SECOND query, and the one that had no
+              ladder of its own. `formatINR(undefined)` is "—", which is honest for a
+              moment and a lie forever: a failed `/v1/usage` left the money tile showing
+              "—" with no skeleton, no notice and no way to retry, so an owner watching
+              their spend saw a dash and had no idea whether it meant "nothing yet" or
+              "we could not read it". Same three states as the dashboard query beside it,
+              same spelling. */}
+          {usage.isLoading ? (
+            <Card title="Spend this month" bodyClassName="p-5">
+              <Skeleton rows={2} />
+            </Card>
+          ) : usage.error ? (
+            <Card title="Spend this month" bodyClassName="p-5">
+              <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />
+            </Card>
+          ) : (
+            <StatTile
+              label="Spend this month"
+              value={formatINR(usage.data?.overage_cost_inr)}
+              icon={<Sparkles className="h-5 w-5" />}
+              hint={
+                usage.data
+                  ? `${usage.data.minutes_used} min used of ${formatCount(usage.data.included_minutes)} included`
+                  : undefined
+              }
+            />
+          )}
           <SentimentSplit split={data?.sentiment_split ?? {}} />
         </div>
       </div>

@@ -10,14 +10,44 @@ BACKEND-PATTERNS §6:
 
 `degradation_mode` is priority-ordered so a dashboard shows one word:
 db_down > redis_down > queue_stale > config_missing > none.
+
+═══ THE STATUS IS PUBLIC. THE DETAIL IS NOT. ═══
+
+`/healthz/ready` used to publish, to anyone who asked, the NAMES of the configuration
+keys this deployment has not installed yet — `fields[].field` is
+`runtime_config_missing_keys`, i.e. `BOLNA_API_KEY`, `CLERK_ADMIN_SECRET_KEY`,
+`AUDIT_CHAIN_SECRET` — plus which of DB/Redis is down and how far behind the job queue
+is. Unauthenticated, exempt from the in-app rate limiter, and proxied from
+`api.calevate.tech` by `infra/nginx/calevate.conf.template`. That is a targeting oracle:
+it tells a stranger which credentials are NOT installed, and it is loudest during
+exactly the window before the real keys land.
+
+The origin lock (`infra/nginx/snippets/calevate-origin.conf`) is not the answer and
+never was: it is already included by the api vhost, and what it admits is every
+Cloudflare edge address — i.e. the whole internet, because the zone is proxied. It
+stops a direct-to-IP scan; it does not stop `curl https://api.calevate.tech/healthz/ready`.
+
+So the split is:
+
+- **status code and status word stay public.** A probe reads them and a probe that
+  cannot distinguish healthy from not is worse than no probe at all. `compose.prod.yml`
+  polls `/healthz/live`, `scripts/vps-deploy.sh` polls `/healthz` — neither can carry a
+  credential, and neither reads a body.
+- **everything that names an internal fact is disclosed only to `ops:manage`**, through
+  the one permission ladder this repo already has (`core.auth.requires`), injected as
+  `detail_gate` by the composition root.
+- **and when it is withheld it is LOGGED instead**, so the operator whose next step it
+  is still has it. A withheld detail with no operator-reachable copy would be a
+  security fix that costs an outage its diagnosis.
 """
 
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Request, Response
 from sqlalchemy import text
 
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE
@@ -33,6 +63,18 @@ DegradationMode = Literal["db_down", "redis_down", "queue_stale", "config_missin
 # A job waiting longer than this means no worker is draining the queue.
 QUEUE_STALE_AFTER_S = 120.0
 ARQ_QUEUE_KEY = "arq:queue"
+
+#: Answers, for ONE request, "may this caller be told WHY this service is unhealthy?".
+#:
+#: INJECTED RATHER THAN IMPORTED, and both halves of the reason are load-bearing:
+#:  - `core.auth` is outside voice-runtime's pinned import surface
+#:    (`tests/voice_runtime_import_surface_test.py`) and this module is inside it. An
+#:    `import` here would put the Clerk verifier and its JWKS client on the boot graph
+#:    of the service carrying live calls, to answer a question that service has no
+#:    authentication layer to ask (hard rule 3).
+#:  - it keeps "what counts as authorised" in the composition root (`core.bootstrap`)
+#:    rather than growing a second auth decision inside a probe.
+HealthDetailGate = Callable[[Request], Awaitable[bool]]
 
 
 async def _check_db() -> bool:
@@ -67,32 +109,48 @@ async def _queue_stats() -> tuple[int, float | None]:
     return depth, max(0.0, time.time() - score_ms / 1000.0)
 
 
-def build_health_router(service: str) -> APIRouter:
-    """Same three endpoints for api, voice-runtime and (via a tiny shim) workers."""
+def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = None) -> APIRouter:
+    """Same three endpoints for api, voice-runtime and (via a tiny shim) workers.
+
+    `detail_gate` decides who is told the detail. Absent — which is voice-runtime, and
+    is not an oversight — NOBODY is: that service authenticates no human being, and
+    `hooks.calevate.tech/healthz/ready` published the same key names from the same
+    `runtime_config_missing_keys` call. Its operators read the log line instead, which
+    is where they already are when a webhook receiver is unhealthy.
+    """
     router = APIRouter(tags=["health"])
+
+    async def _detail_allowed(request: Request) -> bool:
+        return detail_gate is not None and await detail_gate(request)
 
     @router.get("/healthz/live", summary="Liveness — touches no dependency")
     async def live() -> dict[str, str]:
         return {"status": "ok", "service": service}
 
     @router.get("/healthz", summary="Health — DB + Redis")
-    async def health(response: Response) -> dict[str, Any]:
+    async def health(request: Request, response: Response) -> dict[str, Any]:
         db_ok = await _check_db()
         redis_ok = await _check_redis()
         mode: DegradationMode = "db_down" if not db_ok else "redis_down" if not redis_ok else "none"
         body: dict[str, Any] = {
             "status": "ok" if mode == "none" else "degraded",
             "service": service,
-            "degradation_mode": mode,
-            "checks": {"db": db_ok, "redis": redis_ok},
         }
         if mode != "none":
             response.status_code = 503
             response.media_type = PROBLEM_CONTENT_TYPE
+        # WHICH dependency is down is gated for the same reason `/healthz/ready`'s
+        # fields[] is — it is a fact about our internals, and gating one while its
+        # sibling published the identical `checks` dict would be a mitigation defeated
+        # by a second URL. It needs no new log line: `_check_db`/`_check_redis` already
+        # write one per failed probe, which is the operator's copy.
+        if await _detail_allowed(request):
+            body["degradation_mode"] = mode
+            body["checks"] = {"db": db_ok, "redis": redis_ok}
         return body
 
     @router.get("/healthz/ready", summary="Readiness — the go-live gate")
-    async def ready(response: Response) -> dict[str, Any]:
+    async def ready(request: Request, response: Response) -> dict[str, Any]:
         db_ok = await _check_db()
         redis_ok = await _check_redis()
         depth = 0
@@ -119,22 +177,45 @@ def build_health_router(service: str) -> APIRouter:
         body: dict[str, Any] = {
             "status": "ready" if mode == "none" else "not_ready",
             "service": service,
-            "degradation_mode": mode,
-            "checks": {"db": db_ok, "redis": redis_ok},
-            "queue": {"depth": depth, "oldest_waiting_s": oldest},
-            # Missing config renders as validation-style fields[] — one shape for
-            # "something's not right" (§6).
-            "fields": [
-                {"field": key, "rule": "required_for_readiness", "message": f"{key} is not set"}
-                for key in missing
-            ],
         }
         if mode != "none":
             response.status_code = 503
             response.media_type = PROBLEM_CONTENT_TYPE
+            # THE OPERATOR'S COPY. Unlike `/healthz`, nothing else logs any of this, so
+            # withholding it from the response without writing it here would trade an
+            # information leak for an undiagnosable red light. Key NAMES, never values:
+            # `BOLNA_API_KEY` is the next step, and it is already in `.env.example`.
+            # Joined into one string on purpose — `redact_mapping` renders a list extra
+            # as "[N items]", which would log the count of what is missing and not the
+            # names of it.
+            log.warning(
+                "health_not_ready",
+                extra={
+                    "service": service,
+                    "degradation_mode": mode,
+                    "queue_depth": depth,
+                    "queue_oldest_waiting_s": oldest,
+                    "missing_config_keys": ",".join(missing),
+                },
+            )
+        if await _detail_allowed(request):
+            body["degradation_mode"] = mode
+            body["checks"] = {"db": db_ok, "redis": redis_ok}
+            body["queue"] = {"depth": depth, "oldest_waiting_s": oldest}
+            # Missing config renders as validation-style fields[] — one shape for
+            # "something's not right" (§6).
+            body["fields"] = [
+                {"field": key, "rule": "required_for_readiness", "message": f"{key} is not set"}
+                for key in missing
+            ]
         return body
 
     return router
 
 
-__all__ = ["QUEUE_STALE_AFTER_S", "DegradationMode", "build_health_router"]
+__all__ = [
+    "QUEUE_STALE_AFTER_S",
+    "DegradationMode",
+    "HealthDetailGate",
+    "build_health_router",
+]

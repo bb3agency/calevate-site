@@ -223,3 +223,66 @@ def s3(monkeypatch: pytest.MonkeyPatch) -> FakeS3:
     fake = FakeS3()
     monkeypatch.setattr(storage, "_client", lambda: fake)
     return fake
+
+
+# --- reserved test domains resolve, so the egress guard can judge them ---------------
+#
+# `egress_guard.assert_public_http_url` RESOLVES a webhook host and judges the address,
+# because the spelling of an IP is the attacker's to choose and the resolver's answer is
+# not (see that module for the bypass classes). Every fixture URL in this suite is under
+# an RFC 2606 / RFC 6761 reserved name — `crm.example`, `down.example.invalid`,
+# `accounts.example.test` — which are guaranteed NEVER to resolve, precisely so tests
+# cannot reach a real host by accident.
+#
+# So the suite needs an answer for them, and the two obvious ones are both wrong: real
+# DNS makes the suite fail on an offline laptop and on any CI box with a wildcard
+# resolver, and exempting reserved names inside the guard would put a bypass in the
+# shipped code "for testing", which hard rule 5 forbids in exactly these words.
+#
+# This substitutes the RESOLVER — the seam the guard has for it — and nothing else. The
+# guard still parses the URL, still calls out for an address, still classifies what comes
+# back, still checks the port. A test that wants a different answer (a private address, a
+# rebinding sequence) patches this same function again with a function-scoped
+# `monkeypatch`, which takes precedence and is undone per test.
+#: The RFC 2606 §2 reserved TLDs and the §3 second-level names, matched as whole labels.
+#: `localhost` is NOT here on purpose: it must keep resolving to 127.0.0.1, because the
+#: guard's local exemption is one of the things under test.
+_RESERVED_TEST_NAMES = (
+    "example",
+    "invalid",
+    "test",
+    "example.com",
+    "example.net",
+    "example.org",
+)
+
+#: A real, globally routable address (example.com's). Not 192.0.2.0/24 or 198.51.100.0/24
+#: — the TEST-NET blocks that look like the obvious choice are `is_private` in Python's
+#: `ipaddress`, so every fixture endpoint would be refused by the guard under test.
+PUBLIC_TEST_ADDRESS = "93.184.215.14"
+
+
+def _is_reserved_test_host(host: str) -> bool:
+    # Whole-label suffix match: `notexample.com` is somebody's real domain and must not
+    # be captured by a substring test.
+    lowered = host.lower().rstrip(".")
+    return any(lowered == name or lowered.endswith(f".{name}") for name in _RESERVED_TEST_NAMES)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _reserved_test_domains_resolve() -> Iterator[None]:
+    from apps.api.integrations import egress_guard
+
+    real = egress_guard.resolve_addresses
+
+    async def resolve(host: str, port: int) -> tuple[str, ...]:
+        if _is_reserved_test_host(host):
+            return (PUBLIC_TEST_ADDRESS,)
+        return await real(host, port)
+
+    patch = pytest.MonkeyPatch()
+    patch.setattr(egress_guard, "resolve_addresses", resolve)
+    try:
+        yield
+    finally:
+        patch.undo()

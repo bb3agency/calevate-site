@@ -229,13 +229,27 @@ Client realm (`/c/<slug>/…`)
   by somebody saying yes) · **`/do-not-call`** (`/v1/dnc`, with removal offered only where
   `is_removable()` says the entry may be undone here — the flag and the endpoint read one
   definition, so no button is rendered that would 422) ·
+  **`/settings/alerts`** (`GET`/`POST /v1/compliance/whatsapp-alerts` — the owner's own
+  WhatsApp hot-lead opt-in, in the first person, which is what a CHECK constraint requires.
+  The notice text and its version come from the SERVER on every response and the version
+  shown is the version sent back, so a stale build is refused rather than recorded; the
+  grant is withheld while `delivery_available` is false, and the withdrawal never is) ·
   **`/integrations`** (endpoints + delivery log) · **`/verification`** (the client's own
   view of `GET /v1/compliance/kyc` — the page a self-serve owner opens because their
   outbound stopped. It leads with "inbound is unaffected", says plainly that the client
   cannot self-verify, and carries no upload control, because the record stores a
   registry identifier and a filing reference and never a document) ·
   `/calls`, `/campaigns`, `/knowledge`,
-  **`/usage`** (usage panel + the §2b client cap editor).
+  **`/usage`** (usage panel + the §2b client cap editor) ·
+  **`/ai-assist`** ("AI help" — what the console's dashboard AI has used this month
+  against the allowance the plan includes, and the ONE place in either realm where a
+  client agrees to spend money on more. D-127 G-5: at the ceiling the feature blocks and
+  the screen opens a dialog naming the exact rupee figure, what it buys, that the unused
+  part does not carry over, and that nothing has been charged yet — the debit happens
+  only on accept, is one `credit_ledger` row, and is audited. Deliberately NOT part of
+  `/usage`: that panel is what the CLIENT is billed for, this is what Calevate absorbs
+  until a ceiling, and merging them would put a figure a client never pays into the
+  screen they check their bill on).
 
 Admin realm (`/admin/…`)
 - **Begin a view-as session** (`POST /v1/admin/impersonation-grants`,
@@ -371,6 +385,25 @@ Admin realm (`/admin/…`)
   stayed stopped until they acted themselves or the IST month rolled over. The response
   reports the counters and the effective ceiling next to the flag, so "it did not work"
   becomes "the ceiling is 2 and they have used 3".
+- **Global do-not-call** (`/admin/ops/dnc`; `GET`/`POST /v1/ops/dnc/global`,
+  `DELETE /v1/ops/dnc/global/{entry_id}`, `ops:manage`, both writes step-up confirmed and
+  audited). The writer for `dnc_list.scope='global'` (D-107) — an ABSOLUTE platform-wide
+  suppression, ranked above every tenant's own list and removable by no client. Its own
+  nav entry rather than a panel on `/admin/ops`, because whoever needs it is following
+  `runbooks/dnc-complaint.md` and not scrolling a screen of platform switches. Two
+  asymmetries are the design: the suppression takes ONE typed word for the whole paste,
+  and the RELEASE is confirmed per row against the masked number it would un-suppress —
+  lifting one re-permits dialling somebody who asked not to be dialled, for every client
+  at once. `GlobalEntryOut.removable` is `is_removable()`'s answer about CLIENTS and is
+  always false here, so it deliberately does NOT gate the ops control.
+- **WhatsApp alerts for a client's owner** (panel on `/admin/tenants/{id}`;
+  `GET`/`POST /v1/admin/tenants/{tenant_id}/whatsapp-alerts`, `admin:tenants`, audited) —
+  for the opt-in given on an onboarding call rather than on the client's own screen. A
+  grant carries the reference of the document it rests on (the service AND a CHECK refuse
+  one that cannot evidence itself); a withdrawal needs none. The GET exists so the panel
+  is not write-only: the ledger is append-only, so recording a month-old form over last
+  week's withdrawal is not editable, and the client-realm read deliberately reports no
+  subject state to an impersonated session.
 - **Calevate's own TM registration** (`POST /v1/ops/platform/tm-registration`, `ops:manage`)
   — the company half of SEC-COMP §3's first bullet, recorded on `platform_state` (D-43)
   and returned by `GET /v1/ops/platform`. Step-up confirmed in BOTH directions, with the
@@ -455,8 +488,10 @@ Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working c
   ATTEMPT (a refused slug is not free — free failures are what make a limiter enumerable),
   and two switches: `self_serve_signup_enabled`, which **defaults to OFF** (R-11's kill
   switch — public tenant creation should be something someone switched on), and the
-  platform load-shed mode, which `/v1/auth` is otherwise exempt from because that
-  exemption is right for signing IN and wrong for signing UP. Creates the organization, its
+  platform load-shed mode. `/v1/auth` used to be exempt from shedding on the grounds that
+  the exemption is right for signing IN — but nothing under it signs anyone in (Clerk owns
+  sessions), so the exemption's only subject was this route and it is no longer exempt;
+  the route's own mode check stays as the second lock. Creates the organization, its
   receptionist agent, its extraction schema and its retention policies, and makes the
   caller the owner; `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
   motion and is not self-assignable. The wallet starts empty, so the compliance gate

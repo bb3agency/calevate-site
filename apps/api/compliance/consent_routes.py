@@ -37,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import consent
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -150,7 +150,7 @@ async def record(
         tenant_id=principal.tenant_id,
         object_type="consent_ledger",
         object_id=None,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The decision, not the subject. The audit log is read by more people than this
         # endpoint, and "who did we newly permit ourselves to message" is not a list
         # that needs numbers in it to be useful.

@@ -26,7 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import prompts
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
@@ -122,7 +122,7 @@ async def write_prompt(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The version NUMBER, never the body (hard rule 6).
         summary={"version": version},
     )
@@ -159,7 +159,7 @@ async def rollback_prompt(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"to_version": payload.version, "new_version": new_version},
     )
     return RollbackOut(to_version=payload.version, new_version=new_version)

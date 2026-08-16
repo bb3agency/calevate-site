@@ -598,6 +598,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Set an agent's voice from the catalog (admin realm, D-21)
+         * @description Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one — impersonation — is read-only by D-22; sending `X-Impersonate-Org` here is still refused. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish — see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.
+         */
+        patch: operations["set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch"];
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": {
         parameters: {
             query?: never;
@@ -732,7 +752,15 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register a voice template — created `submitted`, never `approved` */
+        /**
+         * Register a voice template — created `submitted`, never `approved`
+         * @description A mistyped tenant uuid is a 404 here, and it used to be a 500.
+         *
+         *     `dlt_templates.tenant_id` has an FK, so an id no organization holds reached the
+         *     INSERT and came back as `internal_error` — an operator was told "the team has been
+         *     alerted" for a typo they could fix themselves, and the team was alerted for it.
+         *     Same guard, same predicate and same reason as `record_commercial_terms` above.
+         */
         post: operations["register_template_v1_admin_tenants__tenant_id__dlt_templates_post"];
         delete?: never;
         options?: never;
@@ -1086,7 +1114,19 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Provision a calling number — the series is the compliance-bearing field */
+        /**
+         * Provision a calling number — the series is the compliance-bearing field
+         * @description A mistyped tenant uuid is a 404, and it used to be a 409 about a NUMBER.
+         *
+         *     `provision_number` maps every `IntegrityError` to `number_taken` ("This number is
+         *     already provisioned — it may belong to another account"), which is the right answer
+         *     for the UNIQUE index it was written for and the wrong one for the tenant foreign
+         *     key. An operator who mistyped the client id was told to go looking for whoever
+         *     holds a number nobody holds. `service.tenant_exists` is the ONE definition of "is
+         *     this a live organization" and exists so every surface naming a tenant in its path
+         *     answers a mistyped uuid the same way — asked here rather than the predicate copied,
+         *     exactly as `set_tenant_status` and `record_commercial_terms` ask it.
+         */
         post: operations["provision_number_v1_admin_tenants__tenant_id__numbers_post"];
         delete?: never;
         options?: never;
@@ -1138,7 +1178,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Is this client's owner opted in to WhatsApp alerts?
+         * @description The owner's current opt-in state, for the operator about to record one from a document. No phone number is returned — the subject is the tenant's owner, resolved server-side from the same row the alert job would send to.
+         */
+        get: operations["read_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_get"];
         put?: never;
         /**
          * Record that a client's owner agreed to WhatsApp alerts (append-only)
@@ -1294,7 +1338,7 @@ export interface paths {
          * What is staged but not live, what one capped call costs, and which voice is live
          * @description Backs the unsaved-changes banner and the voice picker. `agents:read`, not `agents:write`: this is the view that explains why an edit has not taken effect, so it must be readable by someone who may only look (D-22).
          *
-         *     `voice.configured` is what `PATCH /v1/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding — read it with `published`, and never as 'in sync'.
+         *     `voice.configured` is what `PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` wrote; `voice.live` is what the engine was last sent. They differ until a publish, which is what `voice.republish_required` reports. A null `voice.live` on a published agent means we have no record of what it is holding — read it with `published`, and never as 'in sync'.
          */
         get: operations["pending_v1_agents__agent_id__pending_get"];
         put?: never;
@@ -1303,26 +1347,6 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
-        trace?: never;
-    };
-    "/v1/agents/{agent_id}/voice": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Set an agent's voice from the catalog (admin realm, D-21)
-         * @description Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish — see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.
-         */
-        patch: operations["set_agent_voice_v1_agents__agent_id__voice_patch"];
         trace?: never;
     };
     "/v1/attention": {
@@ -1361,6 +1385,46 @@ export interface paths {
          * @description The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
          */
         post: operations["signup_v1_auth_signup_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/ai-quota": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's AI help allowance for an IST billing month, and what more costs
+         * @description What the dashboard's AI help has used this month, against the allowance included with the plan. The allowance is a rupee ceiling; the assist counts beside it are an estimate of what that ceiling is worth and are labelled as such. Requires `billing:read`, which account owners hold and staff do not.
+         */
+        get: operations["get_ai_quota_v1_billing_ai_quota_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/ai-quota/extra": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Accept the charge for more AI help this month — the only thing that debits it
+         * @description Debits the wallet ONCE for this billing month and adds the extra AI allowance. `accept_amount_inr` must equal `extra_block_inr` from the read above, as an exact decimal string. Refused before anything moves if the account still has included allowance left, if it is invoiced rather than prepaid, or if AI help is paused platform-wide; a second submission of the same month returns the block already bought and charges nothing. Requires `org:manage`.
+         */
+        post: operations["buy_ai_extra_v1_billing_ai_quota_extra_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2184,7 +2248,27 @@ export interface paths {
         /** List Endpoints */
         get: operations["list_endpoints_v1_integrations_endpoints_get"];
         put?: never;
-        /** Register a webhook endpoint — the signing secret is shown once */
+        /**
+         * Register a webhook endpoint — the signing secret is shown once
+         * @description Register a webhook endpoint. Two things happen here that did not used to.
+         *
+         *     **The destination is vetted before the row exists.** `assert_public_http_url` resolves
+         *     the host and refuses loopback, link-local, private, multicast, reserved and
+         *     unroutable addresses, and any port but 80/443 — see `egress_guard` for the bypass
+         *     classes and the evidence. It is checked AGAIN in `service.deliver`, because the name
+         *     is one the tenant controls the DNS for and this row outlives the lookup.
+         *
+         *     **And the registration is audited.** Deactivating an endpoint wrote an `audit_log`
+         *     row while CREATING one wrote nothing, which had it exactly backwards: registration
+         *     is the act that starts a client's lead PII leaving their tenant, and it was the act
+         *     with no record of who performed it. Written in the SAME transaction as the INSERT,
+         *     so an endpoint cannot exist without the row naming who made it.
+         *
+         *     The summary records the HOST, never the URL. A webhook URL's path and query are
+         *     tenant-authored free text and routinely carry a bearer credential (`?apikey=…`); an
+         *     audit trail that quoted the whole thing would leak the secret it exists to attest
+         *     (hard rule 6). The host is the fact an investigator needs — where the leads went.
+         */
         post: operations["create_endpoint_v1_integrations_endpoints_post"];
         delete?: never;
         options?: never;
@@ -3436,6 +3520,63 @@ export interface components {
             provider: string | null;
             /** Voice Id */
             voice_id: string;
+        };
+        /**
+         * AiExtraIn
+         * @description What the person accepted, echoed back from the modal.
+         *
+         *     NO DEFAULT, deliberately. A Pydantic field with a default generates an OPTIONAL
+         *     TypeScript property in the client this repo generates from OpenAPI, and an optional
+         *     confirmation is not a confirmation — the whole value of the echo is that the caller
+         *     had to state the figure they were shown.
+         */
+        AiExtraIn: {
+            /** Accept Amount Inr */
+            accept_amount_inr: number | string;
+        };
+        /**
+         * AiQuotaOut
+         * @description This month's AI allowance, in the two units the screen needs it in.
+         *
+         *     EVERY FIELD IS REQUIRED — none carries a Pydantic default — because a default here
+         *     generates an optional property in the typed client, and a screen that can render
+         *     `undefined` as a figure is one §52 violation away from printing a ceiling nobody has.
+         *
+         *     Money is an exact decimal STRING throughout (hard rule 7); the counts are the
+         *     ESTIMATE the rupee ceiling is worth at a reference price, which the screen renders
+         *     with "about" beside it.
+         */
+        AiQuotaOut: {
+            /** Allowance Inr */
+            allowance_inr: string;
+            /** Extra Available */
+            extra_available: boolean;
+            /** Extra Block Inr */
+            extra_block_inr: string;
+            /** Extra Block Requests */
+            extra_block_requests: number;
+            /** Extra Purchased Inr */
+            extra_purchased_inr: string | null;
+            /** Extra Unavailable Reason */
+            extra_unavailable_reason: string | null;
+            /** Included Inr */
+            included_inr: string;
+            /** Month */
+            month: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Remaining Inr */
+            remaining_inr: string;
+            /** Requests Included */
+            requests_included: number;
+            /** Requests Remaining */
+            requests_remaining: number;
+            /** Requests Used */
+            requests_used: number;
+            /** State */
+            state: string;
+            /** Used Inr */
+            used_inr: string;
         };
         /**
          * AlertOptInOut
@@ -7642,15 +7783,14 @@ export interface components {
         };
         /**
          * SetVoiceIn
-         * @description `extra="forbid"` so a caller cannot smuggle a second config string (an llm_model,
-         *     a tts_provider) into a request whose whole point is one curated choice.
+         * @description One field, because the tenant and the agent are both in the path now.
+         *
+         *     `extra="forbid"` so a caller cannot smuggle a second config string (an llm_model, a
+         *     tts_provider) into a request whose whole point is one curated choice — and so a
+         *     caller still sending the old `tenant_id` body field is told, rather than having it
+         *     silently dropped while the path decides the tenant.
          */
         SetVoiceIn: {
-            /**
-             * Tenant Id
-             * Format: uuid
-             */
-            tenant_id: string;
             /** Voice Id */
             voice_id: string;
         };
@@ -8641,7 +8781,7 @@ export interface components {
          * VoiceStateOut
          * @description The voice CONFIGURED on the agent and the voice the engine was last SENT.
          *
-         *     Two fields because they are two facts. `PATCH /v1/agents/{id}/voice` writes our row
+         *     Two fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row
          *     and stops there, so a live agent keeps its old voice until the next publish — one
          *     value labelled "the voice" would be a claim about a client's phone line that nobody
          *     checked.
@@ -9775,6 +9915,42 @@ export interface operations {
             };
         };
     };
+    set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetVoiceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetVoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_preference_scrub_v1_admin_tenants__tenant_id__campaigns__campaign_id__preference_scrub_post: {
         parameters: {
             query?: never;
@@ -10746,6 +10922,37 @@ export interface operations {
             };
         };
     };
+    read_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertOptInOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     record_for_client_v1_admin_tenants__tenant_id__whatsapp_alerts_post: {
         parameters: {
             query?: never;
@@ -10992,41 +11199,6 @@ export interface operations {
             };
         };
     };
-    set_agent_voice_v1_agents__agent_id__voice_patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                agent_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetVoiceIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SetVoiceOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     attention_v1_attention_get: {
         parameters: {
             query?: {
@@ -11078,6 +11250,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SignupOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_ai_quota_v1_billing_ai_quota_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiQuotaOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    buy_ai_extra_v1_billing_ai_quota_extra_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiExtraIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiQuotaOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

@@ -45,6 +45,7 @@ from apps.api.billing.caps import (
     EFFECTIVE_CAP_SPEND_SQL,
     read_spend_counters,
 )
+from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import (
     ist_billing_month,
     month_pricing_instant,
@@ -664,6 +665,15 @@ async def plan_tier_of(session: AsyncSession, tenant_id: UUID) -> str:
 # client's invoice disagree with their own diary.
 _IST_MONTH = "to_char(occurred_at + interval '5 hours 30 minutes', 'YYYY-MM')"
 
+# "…and it is a CALL row", for the cost query that prices minutes. Spelled NEGATIVELY
+# rather than as a positive list of call unit types, and that is deliberate: a positive
+# list would silently drop `number_rental` and any unit added tomorrow out of the client's
+# own cost, which is the direction that costs a client money. Excluding the two units
+# whose whole point is that WE pay for them is the narrow, checkable statement. Derived
+# from the one constant in `billing/models.py`, never retyped, so a third AI unit type
+# cannot appear in a client's spend by omission.
+_NOT_AI_UNITS = "unit_type <> ALL(ARRAY[" + ", ".join(f"'{u}'" for u in AI_ASSIST_UNIT_TYPES) + "])"
+
 
 def current_billing_month() -> str:
     """Now, as an IST billing month. The offset lives in `plans.ist_billing_month` so
@@ -733,6 +743,16 @@ async def _tier_totals(
     attribution existed, or by a path that could not attribute one. Reporting keeps that
     distinction; pricing folds it into `value`, because a call we cannot prove got the
     premium voice is never charged the premium rate.
+
+    IT IS ABOUT CALLS, and `_NOT_AI_UNITS` is what keeps it that way. `usage_events` grew
+    a second kind of row with D-127: a dashboard assist, which has no call, no TTS rung
+    and — per G-3 — no bearing on what the CLIENT pays, because Calevate absorbs it. Left
+    unfiltered those rows would land in the `""` bucket and do three wrong things at
+    once: inflate `tier_usage.cost_unattributed_inr`, which an operator reads as "calls
+    we could not attribute a voice to"; put our absorbed AI cost into a closed month's
+    `spend_used_inr` on the CLIENT's panel (`_spend_used` sums this map); and add it to
+    `margin_for_tenant`'s cost side without the matching revenue. The AI ledger has its
+    own reader (`billing/ai_quota.py::read_ai_quota`) and this one stays about minutes.
     """
     rows = (
         await session.execute(
@@ -743,6 +763,7 @@ async def _tier_totals(
                 "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
                 "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
                 f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month "
+                f"AND {_NOT_AI_UNITS} "
                 "GROUP BY 1"
             ),
             {"tid": tenant_id, "month": month},

@@ -25,10 +25,11 @@ step with SEC-COMP §1. What is different is only the CALLER:
 - **How much of it anyone may do.** An endpoint that creates tenants is a
   resource-exhaustion surface: each signup writes an org, an agent, a schema and
   several retention policies, and a script can call it in a loop. `assert_signup_quota`
-  is the control — a fixed-window Redis counter, the same mechanism and key namespace
-  as `core/middleware.py::RateLimitMiddleware`, at a limit that suits tenant creation
-  rather than page loads. It differs from the middleware in ONE respect and that
-  difference is deliberate: it fails **closed**. The middleware fails open because a
+  is the control — literally `core/ratelimit.py::consume`, the one fixed-window counter
+  every limit in this platform shares, at a limit that suits tenant creation rather than
+  page loads. It differs from the request limiter in ONE respect, passed as
+  `fail_open=False` rather than reimplemented: it fails **closed**. That limiter fails
+  open because a
   Redis blip must not 500 the whole API; here Redis is the only thing standing between
   an unattended endpoint and unlimited tenants, so losing it means the endpoint is
   unavailable, not unguarded.
@@ -56,8 +57,6 @@ forever by a soft-deleted shell.
 
 from __future__ import annotations
 
-import hashlib
-import time
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -68,7 +67,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
-from apps.api.core.redis import get_redis
+from apps.api.core.ratelimit import LimitProfile, consume, fingerprint
 from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
@@ -133,24 +132,35 @@ async def assert_signup_open() -> None:
         )
 
 
-def _fingerprint(subject: str) -> str:
-    """Identities are hashed before they reach Redis — the limiter needs a stable key,
-    not a directory of who signed up from where."""
-    return hashlib.sha256(subject.encode()).hexdigest()[:16]
+#: The counter's namespace and window. The MECHANISM is `core/ratelimit.consume` — the
+#: same INCR/EXPIRE pair every other limit in the platform uses, with `fail_open=False`
+#: as the one difference (see the module docstring). It used to be a second copy of that
+#: pair in this file, which is how two limiters end up behaving differently under load.
+#: The key shape is unchanged: `calevate:rl:signup:{scope}:{fingerprint}:{bucket}`.
+#:
+#: THE EFFECTIVE LIMITS ARE THE TWO CONSTANTS ABOVE, PASSED PER DIMENSION, not this
+#: profile's `per_client` — this surface has two different ceilings on one window, and a
+#: profile field is read at import while those constants are read per call, which is what
+#: lets a test turn one of them down to make the refusal observable.
+SIGNUP_QUOTA: Final = LimitProfile(
+    "signup",
+    per_client=SIGNUPS_PER_IP_PER_HOUR,
+    per_tenant=None,
+    window_s=QUOTA_WINDOW_S,
+)
 
 
 async def _consume(scope: str, subject: str, limit: int) -> None:
-    bucket = int(time.time() // QUOTA_WINDOW_S)
-    key = f"calevate:rl:signup:{scope}:{_fingerprint(subject)}:{bucket}"
-    try:
-        redis = get_redis()
-        count = int(await redis.incr(key))
-        if count == 1:
-            await redis.expire(key, QUOTA_WINDOW_S + 1)
-    except Exception as exc:
+    # Identities are hashed before they reach Redis — the limiter needs a stable key,
+    # not a directory of who signed up from where.
+    decision = await consume(SIGNUP_QUOTA, scope, fingerprint(subject), limit, fail_open=False)
+    if decision.allowed:
+        return
+    if decision.reason == "unavailable":
         # FAIL CLOSED — see the module docstring. Everywhere else in this codebase a
         # Redis failure degrades gracefully; on an unattended tenant factory it would
-        # degrade into no control at all.
+        # degrade into no control at all. 503, not 429: the caller hit no limit, and
+        # telling them they did would send them away for an hour over our outage.
         log.warning("signup_quota_unavailable", extra={"scope": scope})
         raise ProblemError(
             kind="transient",
@@ -159,20 +169,17 @@ async def _consume(scope: str, subject: str, limit: int) -> None:
             detail="Signup cannot be processed right now.",
             remediation="Try again in a few minutes.",
             headers={"Retry-After": "60"},
-        ) from exc
-
-    if count > limit:
-        retry_after = QUOTA_WINDOW_S - int(time.time() % QUOTA_WINDOW_S)
-        log.warning("signup_quota_exceeded", extra={"scope": scope})
-        raise ProblemError(
-            kind="transient",
-            code="rate_limited",
-            title="Too many requests",
-            detail="Too many accounts have been created from here recently.",
-            status=429,
-            remediation=f"Retry in {retry_after}s.",
-            headers={"Retry-After": str(retry_after)},
         )
+    log.warning("signup_quota_exceeded", extra={"scope": scope})
+    raise ProblemError(
+        kind="transient",
+        code="rate_limited",
+        title="Too many requests",
+        detail="Too many accounts have been created from here recently.",
+        status=429,
+        remediation=f"Retry in {decision.retry_after_s}s.",
+        headers={"Retry-After": str(decision.retry_after_s)},
+    )
 
 
 async def assert_signup_quota(*, clerk_user_id: str, ip: str | None) -> None:
@@ -181,8 +188,23 @@ async def assert_signup_quota(*, clerk_user_id: str, ip: str | None) -> None:
     A caller who burns their window on refused slugs has still made us do the work of
     refusing them, and letting failures be free is what makes a limiter enumerable.
     The window is per hour, so a genuine fumble costs a wait, not an account.
+
+    `ip` IS NOW THE CALLER'S ADDRESS, and that is the whole point of this change. The
+    route used to pass the socket peer, which behind Cloudflare + nginx is one shared
+    proxy address for the entire internet — so `SIGNUPS_PER_IP_PER_HOUR = 30` was a cap
+    on the PLATFORM, not on an abuser, and thirty signups an hour denied self-serve to
+    everyone else. It comes from `core/auth.client_request_ip` now.
+
+    `None` — the deployment could not vouch for an address at all — still shares one
+    bucket, and that stays fail-closed on purpose: it is only reachable when the edge
+    has stopped setting `CF-Connecting-IP`, and in that state we genuinely cannot tell
+    two callers apart. The per-identity window above is untouched by it, so a legitimate
+    signup is still bounded rather than blocked, and `signup_quota_exceeded` on the `ip`
+    scope with `ip_established=false` in the log is the operator's signal.
     """
     await _consume("user", clerk_user_id, SIGNUPS_PER_USER_PER_HOUR)
+    if ip is None:
+        log.warning("signup_ip_unresolved")
     await _consume("ip", ip or "unknown", SIGNUPS_PER_IP_PER_HOUR)
 
 
@@ -252,6 +274,7 @@ __all__ = [
     "QUOTA_WINDOW_S",
     "SIGNUPS_PER_IP_PER_HOUR",
     "SIGNUPS_PER_USER_PER_HOUR",
+    "SIGNUP_QUOTA",
     "SelfServeTier",
     "assert_signup_open",
     "assert_signup_quota",

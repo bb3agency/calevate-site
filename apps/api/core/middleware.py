@@ -15,23 +15,33 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 
+from calevate_shared.client_address import client_ip
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from apps.api.core.alerting import alert
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     IMPERSONATION_GRANT_HEADER,
     ORG_HEADER,
+    bearer_token,
     correlation_id_var,
     principal_var,
 )
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ProblemError
 from apps.api.core.loadshed import get_platform_status, is_shed
 from apps.api.core.logging import get_logger
-from apps.api.core.redis import get_redis
+from apps.api.core.ratelimit import (
+    bucket_subject,
+    consume,
+    fingerprint,
+    profile_for,
+    too_many_requests,
+)
+from apps.api.core.settings import get_settings
 
 log = get_logger(__name__)
 
@@ -153,29 +163,85 @@ class CorrelationIdMiddleware:
             principal_var.reset(principal_token)
 
 
+def _payload_too_large(max_bytes: int) -> ProblemError:
+    return ProblemError(
+        kind="validation",
+        code="payload_too_large",
+        title="Payload too large",
+        detail=f"Request body exceeds {max_bytes} bytes.",
+        status=413,
+        remediation="Send a smaller body, or split the request.",
+    )
+
+
 class BodyLimitMiddleware:
-    """Bootstrap step 4's body limit. Declared Content-Length over the cap is refused
-    before a single byte is buffered."""
+    """Bootstrap step 4's body limit, on BOTH ways a body arrives.
+
+    A declared `Content-Length` over the cap is refused before a single byte is buffered.
+    That used to be the whole of it, and `Transfer-Encoding: chunked` — one header, no
+    credential — declares no length at all, so an oversized chunked body walked straight
+    past into `await request.json()` and was buffered whole. **The edge does not cover
+    this**: `infra/nginx/calevate.conf.template` sets `client_max_body_size 25m` on the api
+    vhost, which is twelve times this cap, so "nginx catches it" was true only of bodies
+    twelve times bigger than the ones we meant to refuse.
+
+    So the length is COUNTED as the body streams, which is the same bounded-read doctrine
+    `ingest/meta.py::_read_bounded` and voice-runtime's twin already apply per-route —
+    here it is applied once, for every route, including the ones nobody thought to bound.
+
+    HOW THE REFUSAL IS DELIVERED, since it happens mid-request. Over the cap, the
+    downstream app is handed `http.disconnect` — the one message an ASGI app is required
+    to handle at any point in a body read — and everything it tries to send afterwards is
+    dropped, so this middleware answers exactly once and the 413 is the caller's whole
+    response. Dropping is conditional on nothing having been sent yet: a handler that had
+    already begun a response and then read more body would otherwise get its response
+    truncated, and a truncated 200 is worse than a large body.
+
+    Counting rather than buffering, deliberately: buffering the body here to measure it
+    would mean a request to an unrouted path pays for two megabytes of memory before
+    anything decides it is a 404, which is a worse position than the one being fixed.
+    """
 
     def __init__(self, app: ASGIApp, *, max_bytes: int = MAX_BODY_BYTES) -> None:
         self.app = app
         self.max_bytes = max_bytes
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] == "http":
-            headers = _headers(scope)
-            declared = headers.get("content-length")
-            if declared and declared.isdigit() and int(declared) > self.max_bytes:
-                problem = ProblemError(
-                    kind="validation",
-                    code="payload_too_large",
-                    title="Payload too large",
-                    detail=f"Request body exceeds {self.max_bytes} bytes.",
-                    status=413,
-                )
-                await _problem_response(problem, str(scope.get("path", "")))(scope, receive, send)
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path", ""))
+        declared = _headers(scope).get("content-length")
+        if declared and declared.isdigit() and int(declared) > self.max_bytes:
+            await _problem_response(_payload_too_large(self.max_bytes), path)(scope, receive, send)
+            return
+
+        seen = 0
+        over_limit = False
+        responded = False
+
+        async def counting_receive() -> Message:
+            nonlocal seen, over_limit
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > self.max_bytes:
+                    over_limit = True
+                    return {"type": "http.disconnect"}
+            return message
+
+        async def guarded_send(message: Message) -> None:
+            nonlocal responded
+            if over_limit and not responded:
                 return
-        await self.app(scope, receive, send)
+            if message["type"] == "http.response.start":
+                responded = True
+            await send(message)
+
+        await self.app(scope, counting_receive, guarded_send)
+        if over_limit and not responded:
+            log.warning("payload_too_large", extra={"route": path, "bytes": seen})
+            await _problem_response(_payload_too_large(self.max_bytes), path)(scope, receive, send)
 
 
 class LoadShedMiddleware:
@@ -210,80 +276,104 @@ class LoadShedMiddleware:
 
 
 class RateLimitMiddleware:
-    """Fixed-window limiter in Redis, per (identity, profile). Deliberately simple:
-    the expensive surfaces (call dispatch, campaign launch) are additionally guarded
-    by idempotency + spend caps, so this only has to stop obvious abuse.
+    """The dimensions that can be decided BEFORE routing and BEFORE authentication:
+    per caller, and — on the ingest webhooks, which have no session — per `webhook_id`.
+    The profile table and the counter live in `core/ratelimit.py`; the per-TENANT
+    dimension is charged after authentication, in `core/auth.py`, because that is the
+    first moment the tenant is a verified fact rather than a header a stranger typed.
 
-    Identity is the bearer-token fingerprint when present, else the client IP taken
-    from the CIDR-verified proxy header (DEPLOYMENT §5 restores the real caller IP).
-    Redis being down must never 500 a request — the limiter fails OPEN and logs.
+    The caller is the bearer-token fingerprint when the request carries one, else the
+    client address as `calevate_shared.client_address.client_ip` can vouch for it — the
+    same one definition the audit rows and the signup quota now use.
+
+    Redis being down must never 500 a request: `ratelimit.consume` fails OPEN and logs.
     """
-
-    # prefix → (requests, window seconds)
-    PROFILES: tuple[tuple[str, int, int], ...] = (
-        ("/hooks", 600, 60),  # engine webhooks: generous, never the bottleneck
-        ("/v1/leads", 120, 60),
-        ("/v1/calls", 120, 60),
-        ("/v1/admin", 300, 60),
-        ("/v1", 240, 60),
-    )
-    EXEMPT: tuple[str, ...] = ("/healthz", "/openapi.json", "/docs")
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
-    def _profile(self, path: str) -> tuple[str, int, int] | None:
-        for prefix, limit, window in self.PROFILES:
-            if path.startswith(prefix):
-                return prefix, limit, window
-        return None
+    def _caller(self, scope: Scope, headers: dict[str, str]) -> str:
+        """The bucket subject for the per-caller dimension.
+
+        THREE FALLBACKS, IN DESCENDING ORDER OF WHAT WE CAN PROVE. A bearer token is the
+        caller — as `core.context.bearer_token` reads one, which is the same reading every
+        route authenticates with. It used to be `fingerprint(<the whole raw header>)`,
+        and the gap between those two readings was a bucket the caller could choose:
+        `bearer x`, `Bearer  x` and `Bearer x ` are one session and were three budgets,
+        with the padding making it unbounded (see that function). Failing that, the
+        address the edge vouched for. Failing THAT — outside `local`, an absent or
+        unparseable `CF-Connecting-IP`, i.e. a broken edge — the socket peer, which
+        behind nginx is one shared address for everyone.
+
+        AN UNVERIFIED TOKEN IS STILL A TOKEN HERE, and that is a boundary worth stating
+        rather than discovering: this runs before routing and before authentication, so
+        `Bearer <32 random bytes>` buys a fresh bucket every time and an anonymous caller
+        can walk past this dimension entirely. What bounds THAT caller is the edge's
+        per-real-IP `limit_req` zones (module docstring), which is the layer that owns
+        per-address limiting; what this dimension owns is "one authenticated caller
+        cannot spend the tenant's budget alone", and that is the half the reading above
+        restores.
+
+        That last bucket is a self-inflicted platform-wide cap, and it is still the right
+        answer: a limiter's degraded mode must refuse too much rather than too little,
+        and it is exactly the behaviour this middleware had for EVERY unauthenticated
+        request before the shared helper existed.
+
+        IT ALSO ALERTS, through the same path the receiver uses for the same fault
+        (`engine_intake.verify_source` → `webhook_source_rejected`, detail "client ip not
+        established"). The two are one incident — the edge stopped setting
+        `CF-Connecting-IP`, or something is reaching the container without passing
+        nginx — and here it is SILENT rather than a refusal: every `audit_log.ip` starts
+        recording NULL and every anonymous caller starts sharing one bucket, with nothing
+        failing. A degradation nobody is told about is the shape this repo alerts on.
+        `alert()` suppresses per fingerprint and holds a global hourly budget
+        (BACKEND-PATTERNS §8), so a broken edge does not turn into a mail flood.
+        """
+        token = bearer_token(headers.get("authorization"))
+        if token is not None:
+            return f"t:{fingerprint(token)}"
+        peer = (scope.get("client") or ("", 0))[0]
+        resolved = client_ip(peer, headers, app_env=get_settings().app_env)
+        if resolved is not None:
+            return f"ip:{bucket_subject(resolved)}"
+        alert(
+            "ROUTE_HANDLER",
+            "client_ip_unresolved",
+            detail=(
+                "no trusted hop vouched for a caller address; "
+                "audit ip and per-caller limits are degraded"
+            ),
+            route=str(scope.get("path", "")),
+        )
+        return f"peer:{bucket_subject(peer or None)}"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         path = str(scope.get("path", ""))
-        if any(path.startswith(p) for p in self.EXEMPT):
-            await self.app(scope, receive, send)
-            return
-        profile = self._profile(path)
-        if profile is None:
+        method = str(scope.get("method", "GET"))
+        profile = profile_for(path, method)
+        if profile.per_client <= 0 and not profile.per_tenant:
             await self.app(scope, receive, send)
             return
 
-        prefix, limit, window = profile
         headers = _headers(scope)
-        auth = headers.get("authorization", "")
-        # Fingerprint, never the token itself — tokens must not reach Redis or logs.
-        identity = (
-            f"t:{hash(auth) & 0xFFFFFFFF:08x}"
-            if auth
-            else f"ip:{(scope.get('client') or ('unknown', 0))[0]}"
-        )
-        bucket = int(time.time() // window)
-        key = f"calevate:rl:{prefix}:{identity}:{bucket}"
-        try:
-            redis = get_redis()
-            count = int(await redis.incr(key))
-            if count == 1:
-                await redis.expire(key, window + 1)
-        except Exception:
-            log.warning("ratelimit_unavailable", extra={"route": path})
-            await self.app(scope, receive, send)
-            return
-
-        if count > limit:
-            retry_after = window - int(time.time() % window)
-            problem = ProblemError(
-                kind="transient",
-                code="rate_limited",
-                title="Too many requests",
-                detail="Rate limit exceeded for this endpoint.",
-                status=429,
-                remediation=f"Retry in {retry_after}s.",
-                headers={"Retry-After": str(retry_after)},
+        caller = self._caller(scope, headers)
+        decision = await consume(profile, "client", caller, profile.per_client)
+        if decision.allowed and profile.tenant_from_last_path_segment and profile.per_tenant:
+            # The `webhook_id` in `/hooks/v1/ingest/...` — the tenant dimension on a
+            # surface that authenticates with a per-source secret rather than a session,
+            # and the reason a lead flood no longer 429s the payment webhook.
+            decision = await consume(
+                profile,
+                "hook",
+                bucket_subject(path.rsplit("/", 1)[-1]),
+                profile.per_tenant,
             )
-            await _problem_response(problem, path)(scope, receive, send)
+        if not decision.allowed:
+            log.warning("rate_limited", extra={"route": path, "profile": profile.name})
+            await _problem_response(too_many_requests(decision), path)(scope, receive, send)
             return
         await self.app(scope, receive, send)
 
@@ -298,19 +388,30 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        # PUT WAS MISSING AND FIVE ROUTES WERE UNREACHABLE FROM A BROWSER: `PUT
+        # /v1/billing/caps` (a client's own spend cap), `PUT …/feature-flags/{flag}`,
+        # `PUT /v1/ops/config/{key}`, `PUT /v1/ops/secrets/{key}` — which is how a vendor
+        # credential gets installed at all — and `DELETE /v1/ops/config/{key}`, which
+        # sends `If-Match`. Nothing went red: the web tests mock `fetch`, and CORS is
+        # enforced only by a browser, so the whole class is invisible to this suite
+        # unless something asserts it. `tests/cors_contract_test.py` now does, by walking
+        # the live route table rather than by listing what somebody remembered.
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         # Every custom header the client sends must be listed, or the browser fails
         # the PREFLIGHT and the request never reaches a handler — which looks like a
         # dead API rather than a config gap. X-Org-Slug carries tenant selection and
         # X-Impersonate-Org carries D-22 view-as, so omitting either breaks the whole
         # client realm while curl keeps working. X-Impersonation-Grant is the other half
         # of that pair — without it here, view-as fails the preflight and every client
-        # screen an operator opens is a 403 the browser will not explain.
+        # screen an operator opens is a 403 the browser will not explain. `If-Match` is
+        # the optimistic-concurrency header `client.ts` sends on the ops config delete;
+        # the same test asserts this list against that file's request headers.
         allow_headers=[
             "Authorization",
             "Content-Type",
             CORRELATION_HEADER,
             "Idempotency-Key",
+            "If-Match",
             ORG_HEADER,
             IMPERSONATE_HEADER,
             IMPERSONATION_GRANT_HEADER,

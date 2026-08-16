@@ -463,8 +463,19 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
 
     missing.extend(missing_engine_credential_keys(cfg))
     if cfg.app_env != "local":
-        # The canonical D-36 stack is all-Sarvam; Gemini is a configurable fallback,
-        # so its absence is not a readiness failure.
+        # The canonical D-36 stack is all-Sarvam, and after D-127 Sarvam also runs the
+        # first post-call extraction permanently (`GEMINI_EXTRACTION_DEFAULT is False`) —
+        # so this key is what stands between a deployment and an offline heuristic
+        # extractor, which makes it a readiness failure.
+        #
+        # THE GOOGLE CREDENTIAL IS DELIBERATELY NOT HERE. `GCP_PROJECT_ID` /
+        # `GCP_SERVICE_ACCOUNT_JSON` power the user-triggered dashboard AI, and a
+        # deployment without one is a coherent deployment that simply has no assistant:
+        # `assist_capability()` answers `no_credential`, the surface explains itself, and
+        # a disclosed Sarvam fallback carries the work. A readiness probe that went red
+        # for an absent OPTIONAL feature is a probe operators learn to ignore, which
+        # costs more than the feature. Neither is `GEMINI_API_KEY`, which after D-127
+        # opens a disqualified endpoint and whose absence is the CORRECT state.
         if not cfg.sarvam_api_key:
             missing.append("SARVAM_API_KEY")
         if not cfg.clerk_client_secret_key:

@@ -70,7 +70,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.export import build_subject_export, subject_ref
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -281,7 +281,7 @@ async def subject_export(
         # The subject is identified by a hash, never by their number — the audit trail
         # must not become a searchable index of everyone who ever exercised a right.
         object_id=subject_ref(payload.phone),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "subject_ref": subject_ref(payload.phone),
             "lead_id": lead["id"] if lead else None,

@@ -10,6 +10,19 @@ dependencies = [
     "psycopg[binary,pool]>=3.2",
     "pgvector>=0.4",
     "httpx>=0.28",
+    # RFC 7523's JWT-bearer assertion for Google service accounts (`google_oauth.py`,
+    # used by the Sheets adapter and by Vertex AI). It was already imported here and
+    # declared only by `apps/api` — the workspace installs one venv, so it resolved and
+    # nothing went red, which is exactly how an undeclared dependency survives. `[crypto]`
+    # is not optional for us: RS256 signing needs `cryptography`.
+    #
+    # DELIBERATELY NOT `google-auth`, which does the same job. See the argument in
+    # `apps/workers/google_oauth.py`: it would be the second implementation of a flow this
+    # repo already has, its refresh is synchronous and would need `requests` or `urllib3`
+    # in an async worker, and PyJWT is already here. Its lockfile diff was read first —
+    # two new pure-Python packages (`pyasn1`, `pyasn1-modules`), no install hooks — so the
+    # decision is about duplication, not about supply-chain surface.
+    "pyjwt[crypto]>=2.10",
     "boto3>=1.40",
     "opentelemetry-api>=1.30",
     "opentelemetry-sdk>=1.30",

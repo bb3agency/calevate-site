@@ -508,12 +508,30 @@ async def add_contacts(
     use. What stays refused is everything from `running` on: contacts appearing under a
     campaign mid-dial would move the "N people will be called" number the client
     confirmed at launch.
+
+    ABSENT AND NOT-PRE-LAUNCH ARE TWO DIFFERENT FACTS, and a client fixes only one of
+    them. This used to answer `campaign_not_draft` to both, so an id this caller cannot
+    see — another tenant's, or one that never existed — came back as "Contacts can only
+    be added before a campaign is launched": an instruction to un-launch a campaign
+    there is nothing to un-launch, and a claim that the id names something. RLS makes
+    absent and another-tenant's indistinguishable here on purpose, which is exactly why
+    the answer has to be 404 rather than a sentence about a lifecycle. Same correction
+    `kb/service.approve_source` records for the same mistake, and the shape the other
+    three readers of this column in this module family already have
+    (`declare_consent_provenance`, `_why_not_launchable`,
+    `scheduling._why_not_schedulable`) — this was the one that did not.
+
+    The check is also the ONLY thing between the request and an INSERT carrying
+    `campaign_id` as a foreign key: admitting a null status would surface as a raw
+    integrity error rather than a refusal anyone can read.
     """
     status = (
         await session.execute(
             text("SELECT status FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
         )
     ).scalar()
+    if status is None:
+        raise ProblemError.not_found("Campaign")
     if status not in ("draft", "scheduled"):
         raise ProblemError.business_rule(
             "campaign_not_draft",
