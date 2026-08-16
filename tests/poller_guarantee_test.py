@@ -665,3 +665,96 @@ async def test_the_stall_alarm_counts_a_schema_bearing_agents_silent_call() -> N
 
     async with tenant_session(tenant_id) as session:
         assert await dispatcher._count_stalled(session) == 1
+
+
+# ============================================== 7. the alarm survives one bad tenant
+
+
+async def test_the_stall_alarm_survives_a_tenant_it_cannot_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P6.2's isolation, DRIVEN rather than read.
+
+    `worker_reliability_test` pins this shape by reading the source — which is the right
+    tool for "is the call inside a handler at all" and the wrong one for "does the handler
+    work". The coverage ratchet said so in the only way that is not an opinion: the four
+    lines of the `except` branch were **uncovered units in the dial-path surface**, on a
+    budget of 1, because no test had ever executed them.
+
+    THE FAILURE MODE IS QUIETNESS, WHICH IS WHY IT NEEDS A REAL RUN. The alarm fires on a
+    TOTAL, so a sweep that aborted at tenant three produces a SMALLER number and reads
+    exactly like a healthy fleet. What must hold is that the tenants AFTER the broken one
+    are still counted, and that the alert says how much of the fleet it actually saw —
+    neither of which a source scan can tell you.
+    """
+    from apps.workers import dispatcher
+
+    tenant_id, _agent_ref, _execution_id = await _staged("stalliso")
+    await _completed_call_row(tenant_id, with_turns=True)
+
+    real_session = dispatcher.tenant_session
+    broken = uuid.UUID(int=0)
+
+    def _session(tid: UUID) -> Any:
+        if tid == broken:
+            raise RuntimeError("connection reset")
+        return real_session(tid)
+
+    async def _broken_first() -> list[UUID]:
+        # In FRONT of the healthy one, so this proves the sweep CONTINUES rather than
+        # merely that it does not raise.
+        return [broken, tenant_id]
+
+    fired: list[tuple[str, str, str]] = []
+
+    def _alert(kind: str, code: str, *, detail: str = "", **kw: Any) -> None:
+        fired.append((kind, code, detail))
+
+    monkeypatch.setattr(dispatcher, "tenant_session", _session)
+    monkeypatch.setattr(dispatcher, "_callable_tenants", _broken_first)
+    monkeypatch.setattr(dispatcher, "alert", _alert)
+
+    result = await dispatcher.report_stalled_pipeline({})
+
+    parsed = dict(part.split("=") for part in result.split())
+    assert int(parsed["unreached"]) == 1
+    assert int(parsed["stalled"]) == 1, "the tenant after the broken one was not counted"
+
+    body = next(detail for _kind, code, detail in fired if code == "postcall_pipeline_stalled")
+    assert "floor rather than a total" in body, (
+        "the alert quotes a number that is short by an unknown amount and must say so — "
+        "an alarm that fails towards silence is worse than no alarm"
+    )
+
+
+async def test_a_stall_sweep_that_reached_nobody_still_alerts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`if total or unreached:` rather than `if total:`, executed.
+
+    A sweep that reached no tenant has a total of zero, which is indistinguishable from a
+    clean fleet — and zero is the reading an operator takes on the one night it is wrong.
+    """
+    from apps.workers import dispatcher
+
+    tenant_id, _agent_ref, _execution_id = await _staged("stallnone")
+
+    def _session(tid: UUID) -> Any:
+        raise RuntimeError("connection reset")
+
+    fired: list[str] = []
+    monkeypatch.setattr(dispatcher, "tenant_session", _session)
+    monkeypatch.setattr(dispatcher, "_callable_tenants", lambda: _only(tenant_id))
+    monkeypatch.setattr(dispatcher, "alert", lambda kind, code, **kw: fired.append(code))
+
+    result = await dispatcher.report_stalled_pipeline({})
+
+    parsed = dict(part.split("=") for part in result.split())
+    assert (int(parsed["stalled"]), int(parsed["unreached"])) == (0, 1)
+    assert "postcall_pipeline_stalled" in fired, (
+        "a sweep that reached nobody reported zero stalled calls and said nothing"
+    )
+
+
+async def _only(tenant_id: UUID) -> list[UUID]:
+    return [tenant_id]

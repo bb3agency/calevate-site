@@ -113,6 +113,19 @@ class Campaign(PKMixin, TimestampMixin, Base):
     # gate has to ask before the first ring, about the list as a whole.
     consent_source: Mapped[str | None] = mapped_column(String)
     consent_collected_at: Mapped[datetime | None]
+    #: When OUR OWN tenant-list DNC scrub last ran for this campaign — half of
+    #: SEC-COMP §3's DNC bullet, and compliance EVIDENCE rather than a cache: it is what
+    #: a client's `/campaigns/{id}` shows beside the national-DND run, and the pair is
+    #: the point (one is ours, one is an access provider's, and a single green tick
+    #: could not say which).
+    #:
+    #: Declared here late (P4.3). It was created by `a1c8e40f27b9`, is written by
+    #: `launch_campaign` and read by `campaign_progress`, and was absent from this model
+    #: — so `alembic revision --autogenerate` compared a live column against metadata
+    #: that did not mention it and would have proposed DROPPING it. CLAUDE.md's workflow
+    #: is "autogenerate + hand-review diff", which makes an unreviewed accept a data-loss
+    #: event on compliance evidence.
+    dnc_scrubbed_at: Mapped[datetime | None]
 
 
 class CampaignContact(PKMixin, TimestampMixin, Base):

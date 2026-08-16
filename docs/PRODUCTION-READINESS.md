@@ -713,7 +713,19 @@ impersonation surface the minute `SELF_SERVE_SIGNUP_ENABLED=true`**, because
 **FIX:** add the seed to the deploy's migrate step, or a second one-shot profile beside it. It
 is idempotent by construction.
 
-### P4.3 — Seven live columns are missing from `Base.metadata`, so the next autogenerate proposes DROPPING them · SERIOUS · OURS
+### P4.3 — Seven live columns are missing from `Base.metadata`, so the next autogenerate proposes DROPPING them · SERIOUS · OURS · **FIXED — and it was eight**
+
+**Closed.** All seven are declared, and `compare_metadata` against the migrated schema then
+surfaced an **eighth**: `spend_state.billed_inr`, created by migration `c4f18a6b90e2` *in the
+same session that was fixing this finding*. That is the argument for the general check rather
+than the list, and it is now `scripts/check_metadata_columns.py` — in `make guardrails` and in
+CI, scoped to `add_column`/`remove_column` because 38 of the 39 live diffs are indexes and
+constraints the ORM deliberately does not declare. Negative controls in
+`tests/metadata_columns_guard_test.py` doctor the real model set by one column in each
+direction. Verdict today: `METADATA COLUMNS: OK (57 tables agree in both directions)`.
+
+The original finding follows.
+
 
 `alembic/env.py:19` sets `target_metadata = Base.metadata` and CLAUDE.md's workflow is
 "autogenerate + hand-review diff". Seven columns exist in the migrated schema, are written and
@@ -853,7 +865,8 @@ the only `sa.Float` is on the dead table. First-deploy DDL is sound: idempotent 
 `ALTER DEFAULT PRIVILEGES` covering later migrations, the one sequence granted explicitly, both
 `NO FORCE`/`FORCE` brackets inside alembic's per-revision transaction, and the single
 `CREATE INDEX CONCURRENTLY` correctly in an `autocommit_block`. ORM and migration TABLE sets
-are exactly equal at 57; only the column sets diverge, at P4.3's seven.
+are exactly equal at 57; only the column sets diverged, at P4.3's seven — eight once
+`compare_metadata` was actually run, and now zero, with a guardrail keeping it there.
 
 ### Correction to Section C of this register
 
@@ -1867,7 +1880,7 @@ is the only place it CAN be verified.
 | 23 | Three tables registered, plus **rule 7** — the guardrail can now see the two shapes it structurally could not | P4.6 | done |
 | 24 | `AnnAssign` constants read; the literal check looks where the job name actually sits per callee; two literals promoted | P6.9 | done |
 | 25 | `enqueue_outbox` stops taking a `queue` nothing routes on (two-step, D-162) | P6.8 | done |
-| 26 | Seven unmapped columns | P4.3 | open |
+| 26 | Eight unmapped columns declared (the eighth was created while fixing the seven), plus `check_metadata_columns` in both gates | P4.3 | done |
 | 27 | `_already_enqueued`'s unindexed scan; neither outbox table is ever pruned | P6.7 | open |
 | 28 | Contract and guard drift bundle | P2.6 | open |
 | 29 | nginx realm isolation (two `server` blocks) | P7.3 | external to `apps/` |

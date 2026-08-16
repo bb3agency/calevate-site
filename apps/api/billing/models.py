@@ -360,6 +360,23 @@ class SpendState(TimestampMixin, Base):
         Numeric(14, 4), nullable=False, server_default="0"
     )
     spend_used: Mapped[Decimal] = mapped_column(MONEY, nullable=False, server_default="0")
+    #: What the CLIENT owes for this month, at the CLIENT's rate — the other half of
+    #: P1.3, and the number the compliance gate's ceiling, the client's own cap route and
+    #: the client usage panel all compare against. `spend_used` above is what the ENGINE
+    #: charged US; keeping both is what makes margin (`billed - paid`) answerable at all,
+    #: including retrospectively.
+    #:
+    #: SAME TYPE AS `spend_used` EXACTLY (`MONEY` is NUMERIC(12,4)): the two are compared
+    #: against caps by one expression and summed onto one screen, and a pair of money
+    #: columns with different scales is how a rounding difference becomes a support
+    #: ticket (hard rule 7).
+    #:
+    #: Declared here in the same sweep that closed P4.3's other seven — and it was the
+    #: EIGHTH instance, created by migration `c4f18a6b90e2` in this same session and
+    #: missed. That is the argument for the guard rather than the list: a rule kept by
+    #: remembering is a rule that fails on the next migration, and this one failed on the
+    #: one being written while the rule was being read.
+    billed_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False, server_default="0")
     capped: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
 

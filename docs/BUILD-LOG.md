@@ -3820,6 +3820,37 @@ release that stops writing it, and the decision entry names both things that wou
 it. It was a second encoding anyway — every call site chose the value as a pure function
 of `job`.
 
+## §75 — the ratchet's honest complaint, and the finding that grew by one while being fixed
+
+CI went red on the coverage ratchet, not the suite: `dial-path: 5 uncovered unit(s),
+budget 1 (+4)`. The four new units were `dispatcher.py`'s `except` arm in
+`report_stalled_pipeline` — the branch that decides whether an alarm about a stalled
+pipeline is raised when probing one tenant throws. §72 added the sweep and never covered
+the path where it partially fails, which is the only path where the alarm's value is
+tested. Two behavioural tests in `poller_guarantee_test` now drive it: a tenant that
+cannot be probed must not suppress the alarm for the others, and a sweep that reached
+nobody must still alert rather than report silence as health. Uncovered units back to
+budget; nothing in the ratchet was adjusted, which is the point of an equality.
+
+**P4.3 was seven columns and it was eight.** Seven live columns were missing from their
+ORM models — `campaigns.dnc_scrubbed_at` (compliance evidence for the DNC scrub) and the
+six `engine_agent_routes` drift columns (the ones the RLS exemption spends fourteen lines
+justifying) — and because `alembic/env.py` generates the next migration *against*
+`Base.metadata`, each was `--autogenerate` proposing a DROP in a diff a human is asked to
+skim. Declaring them and then actually running `compare_metadata` surfaced an eighth:
+`spend_state.billed_inr`, created by migration `c4f18a6b90e2` **in this same session, while
+the finding was being fixed**.
+
+That is the whole argument for `scripts/check_metadata_columns.py` rather than a list. A
+rule kept by remembering fails on the next migration; this one failed on the migration
+being written at the time. It is scoped to `add_column`/`remove_column` and nothing else,
+because 38 of the 39 diffs `compare_metadata` reports against the live schema are indexes
+and constraints the ORM deliberately does not declare — a guard that failed on all 39 is a
+guard somebody turns off in a week. Both directions are checked; this repo had caught the
+autogenerate round-trip hazard three times before and every one of them only checked that
+a REMOVED thing stayed removed. In `make guardrails` and in CI, with negative controls that
+doctor the real model set by exactly one column in each direction.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

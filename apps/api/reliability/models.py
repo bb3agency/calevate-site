@@ -122,6 +122,33 @@ class EngineAgentRoute(Base):
     tenant_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
     agent_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+
+    # THE TWO DRIFT SWEEPS' RECORDS, declared here late (P4.3).
+    #
+    # Six live columns, created by `d4b8e1c73f05` and `a7c31e05b8d4`, written by
+    # `agents/reconciliation.py` and `kb/reconciliation.py`, read by two ops summaries —
+    # and absent from this model, so `alembic revision --autogenerate` compared them
+    # against metadata that did not mention them and would have proposed DROPPING all
+    # six. CLAUDE.md's workflow is "autogenerate + hand-review diff"; an unreviewed
+    # accept would delete the record that the drift exemption above spends fourteen lines
+    # justifying.
+    #
+    # WHY THEY LIVE ON THE ROUTE ROW rather than on `agents`, restated because a reader
+    # arriving at these six will ask: this row STANDS FOR one vendor-side agent object,
+    # and both sweeps need a global work queue ordered by staleness plus a cross-tenant
+    # ops summary — neither of which a tenant session can ask of a FORCE-RLS'd `agents`.
+    # Putting them here is what lets `agents` keep its policy (hard rule 1).
+    #
+    # Each `*_state` holds a verdict from a fixed vocabulary and the two timestamps are
+    # timestamps: no prompt, no disclosure line, no source name, no engine handle. That
+    # is what keeps this globally-readable table free of anything a tenant owns.
+    drift_state: Mapped[str | None] = mapped_column(Text)
+    drift_checked_at: Mapped[datetime | None]
+    drift_detected_at: Mapped[datetime | None]
+    kb_drift_state: Mapped[str | None] = mapped_column(Text)
+    kb_drift_checked_at: Mapped[datetime | None]
+    kb_drift_detected_at: Mapped[datetime | None]
+
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False

@@ -160,6 +160,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_ledger_immutability
 
+      - name: "Guardrail: models and schema agree about columns (P4.3)"
+        if: ${{ !cancelled() }}
+        # `alembic/env.py` generates the next migration against `Base.metadata`, so a
+        # column that exists only in the database is a proposed DROP. Runs after
+        # `Migrate` because it compares the models against the real schema, not a file.
+        run: uv run python -m scripts.check_metadata_columns
+
       - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_bootstrap_keys
