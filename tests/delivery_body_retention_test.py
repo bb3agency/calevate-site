@@ -580,7 +580,7 @@ async def test_an_erasure_reaches_an_object_whose_delivery_row_never_recorded_it
     orphan = storage.delivery_body_key(
         tenant_id=tenant_id, subject_type="lead", subject_id=str(lead_id), delivery_id=uuid7()
     )
-    storage.store_delivery_body(
+    await storage.store_delivery_body(
         key=orphan,
         delivery_id=uuid7(),
         endpoint_id=uuid7(),

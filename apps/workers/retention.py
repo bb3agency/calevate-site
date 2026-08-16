@@ -622,7 +622,7 @@ async def _sweep_objects_in_batches(
         if not rows:
             return done, False
         try:
-            storage.delete_objects([str(row[1]) for row in rows])
+            await storage.delete_objects([str(row[1]) for row in rows])
         except storage.StorageUnavailableError as exc:
             log.warning(deferred_event, extra={"reason": str(exc), "pending": len(rows)})
             return done, True
@@ -753,14 +753,14 @@ async def _erase_delivery_bodies(
 
     keys: list[str] = []
     for subject_type, subject_id in subjects:
-        keys += storage.keys_under(
+        keys += await storage.keys_under(
             storage.delivery_body_subject_prefix(
                 tenant_id=tenant_id, subject_type=subject_type, subject_id=subject_id
             )
         )
     if not keys:
         return 0
-    storage.delete_objects(keys)
+    await storage.delete_objects(keys)
     # The reference goes in the same transaction as the rest of the erasure. Scoped
     # through `outbound_webhooks` because this table has no RLS policy — the same reason
     # every other query against it in this codebase carries that subquery.
@@ -832,12 +832,12 @@ async def _erase_engine_payloads(
 
     keys: list[str] = []
     for call_id in call_ids:
-        keys += storage.keys_under(
+        keys += await storage.keys_under(
             storage.payload_call_prefix(tenant_id=tenant_id, call_id=call_id)
         )
     if not keys:
         return 0
-    storage.delete_objects(keys)
+    await storage.delete_objects(keys)
     # RLS scopes this to the tenant; `calls` is not an append-only table (hard rule 4's
     # registry names neither it nor any object-ref column), so clearing the ref is a
     # plain UPDATE rather than a compensating entry.
@@ -942,7 +942,7 @@ async def _erase_recordings(
             defer.append((UUID(str(call_id)), str(key), lawful_at))
 
     if destroy_now:
-        storage.delete_objects(destroy_now)
+        await storage.delete_objects(destroy_now)
     for call_id, key, lawful_at in defer:
         await session.execute(
             text(_HOLD_INSERT_SQL),

@@ -281,7 +281,7 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     except httpx.HTTPError as exc:
         raise StorageUnavailableError(f"recording fetch failed: {type(exc).__name__}") from exc
 
-    try:
+    def _put() -> None:
         _client().put_object(
             Bucket=settings.object_store_bucket,
             Key=key,
@@ -290,6 +290,12 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
             # SSE at rest (TRD §2). The bucket also enforces it; belt and braces.
             ServerSideEncryption="AES256",
         )
+
+    try:
+        # OFF THE EVENT LOOP. The fetch above is async and the upload was not, so the
+        # cheap half of this function yielded and the expensive half — a whole recording,
+        # over the network — stalled every other job in the worker for its duration.
+        await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"recording upload failed: {type(exc).__name__}") from exc
     # Key only — never the URL, and never the phone number in the log line.
@@ -471,7 +477,7 @@ def build_delivery_body_document(
     return json.dumps(document, separators=(",", ":")).encode(), original_bytes, truncated
 
 
-def store_delivery_body(
+async def store_delivery_body(
     *,
     key: str,
     delivery_id: UUID,
@@ -487,6 +493,11 @@ def store_delivery_body(
     lead must reach their CRM whether or not we managed to keep a copy of it. So this
     never raises and never retries — the caller records the delivery either way, and the
     missing reference is made visible by the caller's alert rather than by a failed job.
+
+    AWAITED for `archive_payload`'s reason, which was always true here too: boto3 blocks,
+    the only caller is an arq job, and one event loop runs every job in the worker. The
+    document-building above stays on the loop because it is pure CPU on bytes we already
+    hold; only the round trip moves.
     """
     document, original_bytes, truncated = build_delivery_body_document(
         delivery_id=delivery_id,
@@ -496,7 +507,8 @@ def store_delivery_body(
         subject_id=subject_id,
         body=body,
     )
-    try:
+
+    def _put() -> None:
         _client().put_object(
             Bucket=get_settings().object_store_bucket,
             Key=key,
@@ -504,6 +516,9 @@ def store_delivery_body(
             ContentType="application/json",
             ServerSideEncryption="AES256",
         )
+
+    try:
+        await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
         # Ids, byte counts and an exception TYPE. Never the key's subject segment as a
         # separate field and never one byte of the body (hard rule 6).
@@ -523,17 +538,29 @@ def store_delivery_body(
     return key
 
 
-def read_delivery_body(key: str) -> dict[str, Any] | None:
+async def read_delivery_body(key: str) -> dict[str, Any] | None:
     """The stored document, or None when the object is GONE.
 
     Gone and unreachable are DIFFERENT answers to "what did we send?" and this function
     refuses to merge them: an erased or expired body is a fact about our retention, a
     storage outage is a fact about today. `None` is the first; `StorageUnavailableError`
     is the second, and every caller has to say which it is telling the reader.
+
+    **THIS ONE IS AN API REQUEST HANDLER, WHICH MAKES IT THE WORST OF THE SET.** The other
+    blocking callers were arq jobs stalling their sibling jobs; this is read by
+    `integrations/routes.py`, so a synchronous `get_object` froze the entire API event
+    loop — every tenant's request, not just this one — for the length of one object-store
+    round trip. The read of `response["Body"]` moves into the thread with it: that is a
+    streaming handle, so calling `.read()` back on the loop would have moved the socket
+    traffic and left only the request behind.
     """
-    try:
+
+    def _get() -> bytes:
         response = _client().get_object(Bucket=get_settings().object_store_bucket, Key=key)
-        raw = response["Body"].read()
+        return bytes(response["Body"].read())
+
+    try:
+        raw = await asyncio.to_thread(_get)
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         # `NoSuchKey` is S3's; MinIO answers the same, and a 404 status covers a store
@@ -555,7 +582,7 @@ def read_delivery_body(key: str) -> dict[str, Any] | None:
     return document if isinstance(document, dict) else None
 
 
-def keys_under(prefix: str) -> list[str]:
+async def keys_under(prefix: str) -> list[str]:
     """Every object under one prefix. RAISES on failure, deliberately.
 
     The DPDP erasure calls this, and an erasure that treats "the store did not answer"
@@ -567,18 +594,28 @@ def keys_under(prefix: str) -> list[str]:
     same function, exactly as `delete_objects` is already shared by every store in this
     module. Two listings for one question is how the second one grows a different
     failure contract.
+
+    THE WHOLE PAGINATION RUNS IN ONE THREAD HOP, not one hop per page. `paginate` returns
+    a lazy iterator that issues a request per `next()`, so awaiting page by page would put
+    a thread handoff behind every step of the loop and multiply them by the page count for
+    no benefit — an erasure listing a tenant's prefix wants one answer, not a hundred
+    yields.
     """
-    keys: list[str] = []
-    try:
+
+    def _list() -> list[str]:
+        keys: list[str] = []
         paginator = _client().get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=get_settings().object_store_bucket, Prefix=prefix):
             keys += [str(item["Key"]) for item in page.get("Contents", [])]
+        return keys
+
+    try:
+        return await asyncio.to_thread(_list)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object list failed: {type(exc).__name__}") from exc
-    return keys
 
 
-def delete_objects(keys: Sequence[str]) -> int:
+async def delete_objects(keys: Sequence[str]) -> int:
     """Delete objects by key; returns how many were asked for. RAISES on failure.
 
     Raising rather than reporting a partial success is what lets every caller be correct
@@ -589,12 +626,19 @@ def delete_objects(keys: Sequence[str]) -> int:
 
     Not delivery-body-specific and its messages no longer say so: recordings and the
     scheduled destructions of `recording_erasure_holds` come through here too.
+
+    ALL CHUNKS IN ONE THREAD HOP, and the partial-failure contract is why that is safe to
+    do rather than merely cheaper. `StorageUnavailableError` mid-way already means "some
+    of these may be gone and some may not, retry the whole list" — every caller is written
+    to re-drive rather than reconcile — so a batch that raises on chunk three behaves
+    identically whether the earlier chunks ran on this thread or that one.
     """
     if not keys:
         return 0
     bucket = get_settings().object_store_bucket
-    client = _client()
-    try:
+
+    def _delete() -> None:
+        client = _client()
         for chunk in _chunks(keys, _DELETE_BATCH):
             response = client.delete_objects(
                 Bucket=bucket, Delete={"Objects": [{"Key": key} for key in chunk], "Quiet": True}
@@ -604,6 +648,9 @@ def delete_objects(keys: Sequence[str]) -> int:
                 # Keys are not logged: a delivery-body key contains the subject's row id,
                 # and a recording key names one of the client's calls (hard rule 6).
                 raise StorageUnavailableError(f"object delete refused {len(errors)} key(s)")
+
+    try:
+        await asyncio.to_thread(_delete)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object delete failed: {type(exc).__name__}") from exc
     return len(keys)

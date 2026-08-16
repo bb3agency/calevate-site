@@ -740,7 +740,7 @@ async def get_delivery_payload(
     from apps.workers.storage import StorageUnavailableError, read_delivery_body
 
     try:
-        document = read_delivery_body(payload_ref)
+        document = await read_delivery_body(payload_ref)
     except StorageUnavailableError as exc:
         raise ProblemError(
             kind="dependency",

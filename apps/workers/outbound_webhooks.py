@@ -161,7 +161,7 @@ async def _deliver_to_endpoint(
     )
 
 
-def _retain_body(
+async def _retain_body(
     *,
     tenant_id: UUID,
     endpoint_id: UUID,
@@ -171,6 +171,9 @@ def _retain_body(
     result: service.DeliveryResult,
 ) -> str | None:
     """Keep a copy of what we sent, and return its object key — or None.
+
+    ASYNC because `storage.store_delivery_body` now is. The two early returns below still
+    cost no thread hop: they answer from the payload alone and never reach the store.
 
     THE RULE THIS ENFORCES: nothing is retained that a DPDP erasure could not later
     find. `body_subject` reads OUR field names off the pre-mapping payload and answers
@@ -200,7 +203,7 @@ def _retain_body(
         subject_id=subject_id,
         delivery_id=delivery_id,
     )
-    stored = storage.store_delivery_body(
+    stored = await storage.store_delivery_body(
         key=key,
         delivery_id=delivery_id,
         endpoint_id=endpoint_id,
@@ -285,7 +288,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             reason=None if result.delivered else result.error,
             # The KEY of the body, never the body. Written in the same statement as the
             # status, so a delivery row and the evidence behind it arrive together.
-            payload_ref=_retain_body(
+            payload_ref=await _retain_body(
                 tenant_id=tenant_id,
                 endpoint_id=endpoint_id,
                 delivery_id=delivery_id,
