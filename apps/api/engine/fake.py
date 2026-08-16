@@ -486,14 +486,27 @@ class FakeEngine:
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         call = self._calls.get(call_id)
         if call is None:
-            # Match the real thing: an unknown execution id is an engine-side 404, and
-            # the caller must handle it rather than get a synthesized success.
-            call = {
-                "agent_ref": "unknown",
-                "direction": "inbound",
-                "status": "failed",
-                "duration_s": 0,
-            }
+            # RAISES, and the comment that used to sit here said it did while the code
+            # fabricated a `status="failed"` snapshot instead (P2.6). Two adapters then
+            # disagreed about the same input — `BolnaEngine` 404s, so `_request` raises
+            # `engine_rejected` — which is verbatim the divergence the conformance suite
+            # exists to prevent, and it went unnoticed because there was no clause for
+            # `get_execution` on an unknown id (there are explicit ones for `get_agent`
+            # and `detach_kb`).
+            #
+            # A FABRICATED "failed" IS THE WORST OF THE AVAILABLE ANSWERS, because it is
+            # indistinguishable from a real failed call: the poller would record a repair
+            # for a phantom execution, and `_pipeline_settled` would judge artefacts for
+            # a call the engine has never heard of. The same argument
+            # `test_reading_an_agent_the_engine_never_created_is_reported` makes one
+            # method up.
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform could not complete this operation.",
+                failure_stage="CORE_LOGIC",
+            )
         # THE DOCUMENT IS THIS ENGINE'S OWN ANSWER, and this adapter IS its own vendor —
         # so the archive is exercised offline (DEV-SETUP §3) rather than only against a
         # transport stub. It carries the execution id because a document that is identical

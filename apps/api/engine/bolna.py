@@ -68,7 +68,12 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.api.engine.capabilities import require_capability, require_speech_leg
+from apps.api.engine.capabilities import (
+    NO_CREDENTIALS_REASON,
+    engine_not_configured,
+    require_capability,
+    require_speech_leg,
+)
 from apps.api.engine.document import engine_document
 
 log = get_logger(__name__)
@@ -595,12 +600,14 @@ class BolnaEngine:
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
             if not self._api_key:
-                raise ProblemError(
-                    kind="dependency",
-                    code="engine_not_configured",
-                    title="Voice engine is not configured",
-                    detail="No Bolna API key is available in this environment.",
-                )
+                # THE shared refusal, not a third spelling of it (P2.6). Three sites used
+                # to build this by hand — two adapters and a caller-ID check — under one
+                # code with three different titles and details, one of which named the
+                # vendor to the client. `engine_not_configured` exists precisely so every
+                # surface says it identically; it had no callers while three lived beside
+                # it. The vendor-specific sentence moves into the operator LOG, where the
+                # engine name is ours to say.
+                raise engine_not_configured(f"{NO_CREDENTIALS_REASON}:{self.name}")
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=REQUEST_TIMEOUT_S,

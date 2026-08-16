@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from apps.api.engine import engine_availability, engine_capabilities, engine_lacks
+from apps.api.engine import engine_capabilities, engine_lacks
 from apps.api.engine.capabilities import (
     ENGINE_CAPABILITY_ABSENT,
     NO_CREDENTIALS_REASON,
@@ -78,24 +78,51 @@ def test_an_absent_capability_refuses_with_an_authored_code_and_names_itself() -
     assert "cartesia" not in str(problem).lower(), "the vendor name must not reach a client"
 
 
-def test_an_engine_without_credentials_is_reported_unavailable_by_our_own_code() -> None:
+async def test_an_engine_without_credentials_refuses_through_the_one_shared_builder(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """The deployment-level answer, derived from the adapter rather than from settings.
 
     This is the state EVERY deployment is in for Cartesia today: the adapter is wired,
-    selectable and has no account behind it. One selector says so once, with an authored
-    reason naming which engine — rather than each surface discovering it separately at the
-    vendor boundary, which is how a screen comes to offer what a route refuses.
+    selectable and has no account behind it.
+
+    WHAT THIS TEST USED TO ASSERT, AND WHY IT MOVED (P2.6). It called
+    `engine_availability()` — a second deployment-level "can we reach the engine" answer
+    that **nothing in production ever called**, beside the one that is wired
+    (`missing_engine_credential_keys`, which readiness uses because it NAMES the
+    environment key an operator must set). Two answers to one question is a defect even
+    when both are correct, so the uncalled one is gone and this asserts the two facts that
+    are actually reachable: readiness names the key, and the vendor boundary refuses
+    through the ONE shared builder rather than a third hand-rolled ProblemError.
     """
-    unavailable = engine_availability(_cartesia_without_client(api_key=None))
-    assert unavailable.available is False
-    assert unavailable.reason == f"{NO_CREDENTIALS_REASON}:cartesia"
+    from apps.api.core.errors import ProblemError
+
+    unconfigured = _cartesia_without_client(api_key=None)
+    assert unconfigured.holds_credentials() is False
+    assert unconfigured.credential_env_keys, "readiness needs a key to name, not a verdict"
+
+    raised: ProblemError | None = None
+    with caplog.at_level("WARNING"):
+        try:
+            await unconfigured.get_agent("anything")
+        except ProblemError as exc:
+            raised = exc
+    assert raised is not None, "an adapter with no credential must refuse at the boundary"
+    problem = raised.as_problem()
+    assert problem["type"].rsplit("/", 1)[-1] == "engine_not_configured"
+    assert "cartesia" not in str(problem).lower(), (
+        "the vendor name reached a client — it belongs in the operator log, which is "
+        "exactly what `engine_not_configured` takes its `reason` for"
+    )
+    # And it DID reach the operator log, naming which engine. The refusal a client sees
+    # is deliberately identical across engines; the line an operator acts on is not.
+    reasons = [getattr(r, "reason", None) for r in caplog.records]
+    assert f"{NO_CREDENTIALS_REASON}:cartesia" in reasons, reasons
+
     # The capability answer survives the credential answer, and that is deliberate: an
     # engine with a knowledge base and no API key still HAS a knowledge base. Collapsing
     # the two would make "unconfigured" and "incapable" the same fact.
-    assert unavailable.capabilities.knowledge_base is True
-
-    available = engine_availability(_cartesia())
-    assert available.available is True and available.reason is None
+    assert unconfigured.capabilities.knowledge_base is True
 
 
 def _cartesia_without_client(*, api_key: str | None) -> CartesiaEngine:
@@ -164,7 +191,12 @@ async def test_cartesia_will_not_dial_without_a_caller_id() -> None:
         await _cartesia(from_number_id=None).start_outbound_call(
             "agent_1", "+919876543210", CallContext()
         )
-    assert getattr(raised.value, "code", "") == "engine_not_configured"
+    # ITS OWN CODE. This asserted `engine_not_configured`, which is the CREDENTIAL
+    # refusal — one machine code for two causes (P2.6). An operator reading a
+    # problem+json `type` could not tell "we hold no API key" from "we hold an API key
+    # and no outbound number": different fixes, different people, and the remediation
+    # text was already saying so in prose while the machine field said otherwise.
+    assert getattr(raised.value, "code", "") == "engine_caller_id_not_configured"
 
 
 async def test_cartesia_pins_the_api_version_on_every_request() -> None:

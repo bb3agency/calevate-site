@@ -18,7 +18,7 @@ from typing import Any
 
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from calevate_shared.config import bolna_source_ips
+from calevate_shared.config import SOURCE_IP_ALLOWLIST_BY_ENGINE
 from calevate_shared.engine import WEBHOOK_AUTH_BY_ENGINE, WebhookAuthMethod
 
 log = get_logger(__name__)
@@ -118,7 +118,21 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
     """
     method = WEBHOOK_AUTH_BY_ENGINE.get(engine)
     if method == "source_ip":
-        if source_ip is not None and source_ip in bolna_source_ips(get_settings()):
+        # WHOSE ALLOWLIST, and the answer is not "whoever asked" (P2.6). The METHOD is
+        # looked up per engine; the ADDRESSES were not — this read `bolna_source_ips` for
+        # any engine declaring `source_ip`, so a second such engine would have been
+        # authenticated against Bolna's egress. That is the identical defect the `hmac`
+        # branch below spends a paragraph refusing ("an allowlist is evidence about a
+        # DIFFERENT engine's egress"), left live one branch above it. Inert today, because
+        # `bolna` is the only engine declaring the method — which is exactly why it was
+        # invisible, and exactly why a lookup with no entry must refuse rather than fall
+        # back to the one entry that exists.
+        resolver = SOURCE_IP_ALLOWLIST_BY_ENGINE.get(engine)
+        if resolver is None:
+            return IntakeVerdict(
+                ok=False, method="source_ip", reason="no source ip allowlist for this engine"
+            )
+        if source_ip is not None and source_ip in resolver(get_settings()):
             # `source_ip`, not `hmac`: the caller must keep treating this as a hint.
             return IntakeVerdict(ok=True, method="source_ip")
         return IntakeVerdict(

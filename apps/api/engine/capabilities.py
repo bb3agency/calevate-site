@@ -35,13 +35,11 @@ enumerate them. One code, one attribute.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Final
 
 from calevate_shared.engine import (
     EngineCapabilities,
     EngineCapabilityName,
-    NumberSeries,
     SpeechLeg,
     VoiceEngine,
 )
@@ -137,51 +135,16 @@ def engine_lacks(capability: EngineCapabilityName, *, engine: str) -> EngineCapa
 
 
 #: This deployment selected an engine whose adapter holds no credentials. Suffixed with
-#: the engine name so an alert says WHICH — the name is OUR config, not vendor text.
+#: the engine name so an operator log says WHICH — the name is OUR config, not vendor text.
+#:
+#: IT IS A LOG REASON, NOT A RESPONSE FIELD, and that is the whole of its job now. It used
+#: to also feed `EngineAvailability`/`engine_availability()` — a second deployment-level
+#: "can we reach the engine" answer that **nothing ever called** (P2.6), beside the one
+#: that IS wired: `engine.missing_engine_credential_keys`, which readiness uses because it
+#: names the environment key an operator must set rather than only rendering a verdict.
+#: Two answers to one question is the drift this repo treats as a defect even when both
+#: are correct, so the uncalled one is gone rather than given a caller invented for it.
 NO_CREDENTIALS_REASON: Final = "no_engine_credentials"
-
-
-@dataclass(frozen=True, slots=True)
-class EngineAvailability:
-    """Can this deployment reach its selected engine at all, as ONE answer.
-
-    Distinct from `EngineCapabilities`, and the two must not be collapsed. Capabilities
-    are what the engine COULD do for anybody; this is whether we can talk to it. An engine
-    with a built-in knowledge base and no API key still has a built-in knowledge base, and
-    a surface that read `capabilities.knowledge_base` as permission to publish would offer
-    a button that fails at the vendor boundary every time.
-
-    `capabilities` rides on the same object rather than being fetched separately — the
-    argument `PaymentCapability.creates_orders` and `RetrievalCapability.retriever` both
-    make: two facts, one lookup, one object. `reason` is non-None exactly when `available`
-    is False, and it is an authored code naming OUR state.
-    """
-
-    available: bool
-    engine: str
-    capabilities: EngineCapabilities
-    reason: str | None = None
-
-
-def engine_availability(engine: VoiceEngine | None = None) -> EngineAvailability:
-    """THE deployment-level selector: is the selected engine usable, and what can it do?
-
-    The credential answer is DERIVED from the adapter (`holds_credentials`), never from a
-    second read of settings — `lead_retrieval_capability` makes the argument in full. That
-    matters most for an adapter like `cartesia`, which is wired and configurable and has
-    no account behind it: every surface gets the same `no_engine_credentials` answer from
-    one place, rather than each request discovering it separately at the vendor boundary.
-    """
-    resolved = engine if engine is not None else _selected_engine()
-    caps = resolved.capabilities
-    if not resolved.holds_credentials():
-        return EngineAvailability(
-            available=False,
-            engine=resolved.name,
-            capabilities=caps,
-            reason=f"{NO_CREDENTIALS_REASON}:{resolved.name}",
-        )
-    return EngineAvailability(available=True, engine=resolved.name, capabilities=caps)
 
 
 def engine_not_configured(reason: str | None) -> ProblemError:
@@ -257,21 +220,20 @@ def require_speech_leg(leg: SpeechLeg, *, engine: VoiceEngine, value: str | None
         raise engine_lacks(leg, engine=engine.name)
 
 
-def provisionable_series(engine: VoiceEngine) -> frozenset[NumberSeries]:
-    """The number classes this engine can provision. Empty is the normal answer today."""
-    return engine.capabilities.number_series
+# NO `provisionable_series()` HERE. It existed, was exported, had no callers, and its
+# docstring claimed the campaign gate matches on the engine's series — the gate matches on
+# OUR `phone_numbers.series`, which is a DLT 140/160 decision in our own schema and not a
+# vendor capability (P2.6). A one-line accessor that restates `capabilities.number_series`
+# under a name that describes the wrong thing is worse than the attribute it wraps.
 
 
 __all__ = [
     "ENGINE_CAPABILITY_ABSENT",
     "NO_CREDENTIALS_REASON",
-    "EngineAvailability",
     "EngineCapabilityAbsentError",
-    "engine_availability",
     "engine_capabilities",
     "engine_lacks",
     "engine_not_configured",
-    "provisionable_series",
     "require_capability",
     "require_speech_leg",
 ]

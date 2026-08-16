@@ -465,7 +465,39 @@ boundary is `ExecutionSnapshot`, not `parse_webhook` — which `engine.py:1027` 
 field until an escalation surface needs it. Correct hard rule 2's wording in CLAUDE.md and
 docs/AGENTS.md: the models production consumes are `ExecutionSnapshot` and `TranscriptTurn`.
 
-### P2.6 — Contract and guard drift · MINOR · OURS
+### P2.6 — Contract and guard drift · MINOR · OURS · **FIXED (all four)**
+
+- **`get_execution` on an unknown id now RAISES in every adapter**, and there is a
+  conformance clause for it beside `get_agent`'s. `fake.py` fabricated a `status="failed"`
+  snapshot under a comment claiming it matched the real thing — the worst available answer,
+  because it is indistinguishable from a real failed call, so the poller would record a
+  repair for a phantom and `_pipeline_settled` would judge artefacts for an execution the
+  engine never heard of. Both vendor stubs are now STATEFUL on that route: a stub that
+  answered 200 for an id nobody placed could not fail the new clause.
+- **`engine_availability()`, `EngineAvailability` and `provisionable_series()` are gone**,
+  not given callers invented for them. `missing_engine_credential_keys` is the deployment-
+  side answer that IS wired (readiness uses it because it names the environment key an
+  operator must set), and two answers to one question is a defect even when both are
+  correct. `provisionable_series` additionally described the wrong thing — the campaign
+  gate matches on OUR `phone_numbers.series`, a DLT 140/160 decision in our schema.
+  **`engine_not_configured()` got its callers instead**: both adapters' credential
+  refusals now build through it, so one code stops having three titles, and one of those
+  titles stops naming the vendor to a client. Cartesia's caller-ID refusal, which reused
+  that code for a different cause, has its own — `engine_caller_id_not_configured` — because
+  "no API key" and "no outbound number" are different fixes for different people.
+- **The source-IP allowlist is now looked up per engine**
+  (`config.SOURCE_IP_ALLOWLIST_BY_ENGINE`). The METHOD was table-driven and the ADDRESSES
+  were always Bolna's, so a second unsigned engine would have been authenticated against
+  Bolna's egress — verbatim what the `hmac` branch one line below refuses at length. An
+  absent entry refuses with its own reason; it does not fall back. The table lives in
+  `calevate_shared.config` beside its resolver because `engine_name_drift_test` forbids the
+  receiver from spelling an engine name in a collection at all (D-103) — the guard caught
+  the first placement, which is the guard working.
+- **The forbidden-import list is globbed off the tree**, so it can no longer name two
+  adapters out of three.
+
+The original finding follows.
+
 
 - `fake.py:479` fabricates a snapshot for an unknown execution id while its own comment says
   it matches the real thing; `bolna.py:1066` 404s. Two adapters disagree and there is **no
@@ -1532,7 +1564,22 @@ at `:241` includes it; the one at `:161` does not. Two spellings of one shape in
 delete the three assertions, add `redacted` to the fixture, and add a `bannedPartialAssertion`
 marker to the negative controls.
 
-### P7.3 — nginx serves the admin console on the client hostname, so the realm-isolation premise is unenforced · SERIOUS · OURS
+### P7.3 — nginx serves the admin console on the client hostname, so the realm-isolation premise is unenforced · SERIOUS · OURS · **FIXED**
+
+Two `server` blocks now, with `location ^~ /admin { return 404; }` on `app.${ROOT_DOMAIN}`
+and `location ^~ /c/ { return 404; }` on `admin.${ROOT_DOMAIN}`. `clerkRuntime.tsx`'s
+sentence is a fact rather than a premise.
+
+`^~` is the load-bearing part and the config says so: nginx tries regex locations before
+plain prefix ones, so a `location ~ \.(js|css)$` added later would win over a bare
+`location /admin` and quietly re-open it. 404 rather than 403, because 403 confirms the
+tree exists. `tests/nginx_hooks_vhost_test.py` asserts the PROPERTY — no request under the
+other realm's prefix reaches an upstream, each host still proxies its own realm, and no TLS
+`server` block names both hostnames again — rather than asserting that two lines are
+present, exactly as its hooks-vhost tests already do.
+
+The original finding follows.
+
 
 `calevate.conf.template:61` is a **single server block** for `admin.` and `app.`, with one
 `location /` proxying everything. `clerkRuntime.tsx:29` reasons from the opposite premise:
@@ -1909,8 +1956,8 @@ is the only place it CAN be verified.
 | 25 | `enqueue_outbox` stops taking a `queue` nothing routes on (two-step, D-162) | P6.8 | done |
 | 26 | Eight unmapped columns declared (the eighth was created while fixing the seven), plus `check_metadata_columns` in both gates | P4.3 | done |
 | 27 | `crm_notified_at` + a partial-unique `dedupe_key` replace four containment scans; both infra tables pruned nightly at a 90-day floor | P6.7 | done |
-| 28 | Contract and guard drift bundle | P2.6 | open |
-| 29 | nginx realm isolation (two `server` blocks) | P7.3 | external to `apps/` |
+| 28 | All four: the unknown-execution contract + its conformance clause, two uncalled exports deleted and one given its callers, the allowlist looked up per engine, the import ban globbed | P2.6 | done |
+| 29 | nginx realm isolation: two `server` blocks, `^~` 404s both ways, property-tested | P7.3 | done |
 
 **P4.5 and P4.6 are one defect in two registers, and P4.6's fix is the durable half.**
 The ledger guardrail's first line of prose enumerated four ledgers while the constant it

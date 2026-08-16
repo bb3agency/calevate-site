@@ -130,3 +130,77 @@ def test_the_api_vhost_still_serves_both_health_routes() -> None:
 def test_the_browser_realms_never_had_a_health_route_and_still_do_not(hostname: str) -> None:
     block = _block_for(hostname)
     assert not [prefix for _, prefix in _locations(block) if prefix.startswith("/healthz")]
+
+
+# --- realm isolation: the two browser hostnames are actually two (P7.3) -------
+#
+# `clerkRuntime.tsx` reasons from "disjoint route trees on disjoint hostnames", and the
+# shipped config was ONE server block for both — so `app.` served the operator console at
+# `/admin` and `admin.` served client dashboards at `/c/`. The consequence that matters is
+# not authorization (the admin realm resolves against its own JWKS): it is that the
+# operator SIGN-IN page was served on the hostname clients are told to visit.
+#
+# Same doctrine as the hooks tests above: the property is "no request under the other
+# realm's prefix can reach an upstream", not "these two lines exist". A future edit could
+# undo it by deleting the 404 or by adding a proxy back, and both must fail here.
+
+REALM_REFUSALS = (
+    # (hostname fragment, prefix it must refuse, what is behind that prefix)
+    ("app.", "/admin", "the operator console, including its sign-in page"),
+    ("admin.", "/c/", "every client dashboard"),
+)
+
+
+@pytest.mark.parametrize(("host", "prefix", "what"), REALM_REFUSALS)
+def test_each_browser_hostname_refuses_the_other_realms_tree(
+    host: str, prefix: str, what: str
+) -> None:
+    block = _block_for(host)
+    matching = [
+        (modifier, at) for modifier, at in _locations(block) if at.rstrip("/") == prefix.rstrip("/")
+    ]
+    assert matching, (
+        f"{host} has no location for {prefix}, so `location /` below it serves {what} "
+        "on this hostname — the realm isolation the frontend reasons from is a comment"
+    )
+    assert any(modifier == "^~" for modifier, _ in matching), (
+        f"the {prefix} location on {host} must use `^~`: nginx tries regex locations "
+        "before plain prefix ones, so a regex location added later would win and "
+        f"quietly re-open it. Got: {matching}"
+    )
+    for body in re.findall(rf"location\s+\^~\s*{re.escape(prefix)}\s*\{{([^}}]*)\}}", block):
+        assert "proxy_pass" not in body, f"{host}{prefix} proxies to an upstream again"
+        assert re.search(r"\breturn\s+404\b", body), (
+            f"expected `return 404` (not 403, which confirms the tree exists) in "
+            f"{host}{prefix}, got: {body.strip()!r}"
+        )
+
+
+@pytest.mark.parametrize(("host", "prefix"), [(h, p) for h, p, _ in REALM_REFUSALS])
+def test_each_hostname_still_serves_its_own_realm(host: str, prefix: str) -> None:
+    """The fix must not be "both trees are 404 everywhere". Each block still has the
+    catch-all that proxies its own realm to Next.js."""
+    block = _block_for(host)
+    catch_all = re.findall(r"location\s+/\s*\{([^}]*)\}", block)
+    assert catch_all, f"{host} lost its catch-all and now serves nothing"
+    assert any("proxy_pass http://calevate_web" in body for body in catch_all), (
+        f"{host} no longer proxies its own realm to the web upstream"
+    )
+
+
+def test_the_two_realms_are_not_sharing_one_server_block() -> None:
+    """The defect itself, stated directly: one `server_name admin. app.` line is what made
+    every location above apply to both hostnames at once."""
+    config = TEMPLATE.read_text(encoding="utf-8")
+    for block in _server_blocks(config):
+        if "listen 443" not in block:
+            continue  # the port-80 redirect legitimately names all four
+        names = re.search(r"server_name([^;]*);", block)
+        if names is None:
+            continue
+        listed = names.group(1).split()
+        both = [n for n in listed if n.startswith(("admin.", "app."))]
+        assert len(both) <= 1, (
+            "one TLS server block serves both browser realms again, so every location in "
+            f"it applies to both hostnames: {listed}"
+        )

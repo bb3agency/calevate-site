@@ -276,6 +276,31 @@ async def test_reading_an_agent_the_engine_never_created_is_reported(
     )
 
 
+async def test_reading_an_execution_the_engine_never_placed_is_reported(
+    engine: VoiceEngine,
+) -> None:
+    """The same clause as `get_agent`'s, one method along — and it was missing while the
+    two adapters actively disagreed (P2.6).
+
+    `BolnaEngine` 404s, which `_request` turns into `engine_rejected`. `FakeEngine`
+    fabricated a `status="failed"` snapshot, under a comment claiming it matched the real
+    thing. That answer is worse than an error precisely because it is well-formed: it is
+    indistinguishable from a real failed call, so the poller would record a repair for a
+    phantom execution and `_pipeline_settled` would reason about artefacts for a call the
+    engine has never heard of. Both are conclusions drawn from nothing that look like
+    measurements.
+    """
+    reported: Exception | None = None
+    try:
+        await engine.get_execution("exec_this_engine_never_placed")
+    except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+        reported = exc
+    assert reported is not None, (
+        "reading back an execution the engine never placed returned a snapshot — a "
+        "caller cannot tell it from a call that really happened and really failed"
+    )
+
+
 async def test_delete_agent_removes_exactly_the_agent_it_names_and_is_idempotent(
     engine: VoiceEngine,
 ) -> None:

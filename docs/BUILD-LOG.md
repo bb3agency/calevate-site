@@ -3887,6 +3887,53 @@ Every call past the floor would have scored as an unfinished pipeline and been r
 forever — a billed model round trip and a re-notified client, on every tick. The regression
 test deletes a settled call's outbox rows and asserts the verdict does not move.
 
+**P2.6 and P7.3 close the register.** Four small drifts and one hostname.
+
+The one that was actively wrong: `FakeEngine.get_execution` fabricated a `status="failed"`
+snapshot for an unknown execution id, under a comment saying it matched the real thing —
+which 404s. Two adapters disagreeing about one input is what the conformance suite exists
+to prevent, and it survived because there was no clause for `get_execution` on an unknown
+id, only for `get_agent` and `detach_kb`. The fabricated answer is worse than an error
+precisely because it is well-formed: indistinguishable from a real failed call, so the
+poller would record a repair for a phantom and the settled-probe would reason about
+artefacts for a call the engine never heard of. Both vendor stubs are stateful on that
+route now — one that answered 200 for an id nobody placed could not fail the new clause.
+
+Three exported `capabilities.py` functions had no callers. Two are DELETED rather than
+given callers invented for them: `missing_engine_credential_keys` is the deployment-side
+answer that is actually wired, and a second one nothing asks is drift waiting to happen —
+`provisionable_series` additionally described the wrong thing, since the campaign gate
+matches on OUR `phone_numbers.series`, a DLT decision in our own schema. The third,
+`engine_not_configured`, got its callers: both adapters hand-rolled the same code with
+different titles, one of which named the vendor to a client. And Cartesia's caller-ID
+refusal, which reused that code for a different cause, now has its own — "no API key" and
+"no outbound number" are different fixes for different people, and the remediation text was
+already saying so while the machine field said otherwise.
+
+The receiver's source-IP check looked the METHOD up per engine and then read Bolna's
+addresses for whichever engine asked. Inert, because `bolna` is the only engine declaring
+the method — and that is exactly why nobody saw it. It is the same defect the `hmac` branch
+one line below refuses in a paragraph of its own ("an allowlist is evidence about a
+DIFFERENT engine's egress"), left live directly above it. Now a per-engine table where an
+absent entry REFUSES with its own reason. Worth recording: the first placement put that
+table in the receiver, and `engine_name_drift_test` failed it — the file may not spell an
+engine name in a collection at all (D-103). The guard was right; the table belongs beside
+its resolver in `calevate_shared.config`, where it moves with the thing it names.
+
+And the forbidden-import list for the ack path named two adapters out of three. It is
+globbed off the tree now, so a fourth adapter is in it the moment the file exists.
+
+**P7.3 was one `server` block for two hostnames**, which made a sentence the frontend
+reasons from — "disjoint route trees on disjoint hostnames" — false in the shipped config.
+Not an authorization hole; the admin realm resolves against its own JWKS. What it was is
+the operator SIGN-IN page served on the hostname every client is told to visit, which is
+phishing surface for the one console holding cross-client data. Two blocks now, `^~ /admin`
+404 on `app.` and `^~ /c/` 404 on `admin.`. The `^~` is load-bearing and the config says
+why: nginx tries regex locations first, so a bare prefix match could be overtaken by a
+`location ~ \.(js|css)$` added later. 404 rather than 403 because 403 confirms the tree is
+there. Tested as a property — nothing under the other realm's prefix reaches an upstream,
+each host still serves its own, and no TLS block names both hostnames again.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"
