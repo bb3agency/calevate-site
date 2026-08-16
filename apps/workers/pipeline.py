@@ -51,6 +51,7 @@ from apps.api.billing.rates import (
     client_billed_inr,
 )
 from apps.api.billing.service import charge_for_call, plan_tier_of
+from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
     OptOutSignal,
@@ -775,7 +776,26 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         set_span_attributes(stage, outcome=outcome)
 
     # STEP 3 — extraction against the agent's schema.
-    spec, schema_version, agent_id, direction = await _load_call_context(tenant_id, call_id)
+    spec, schema_version, agent_id, direction, disclosure_line = await _load_call_context(
+        tenant_id, call_id
+    )
+
+    # STEP 2c — the evidence that the disclosure was spoken (P3.3). Numbered out of order
+    # because that is where it belongs and where it now runs: it is transcript work, it
+    # needs the agent row, and `_load_call_context` is the statement that fetches one. A
+    # second query before STEP 2b purely to keep the numbers tidy would put a per-call
+    # round trip on the critical path for cosmetics.
+    #
+    # BEFORE extraction rather than after, for `pipeline.opt_out`'s reason: extraction is
+    # a model round trip with a 30-second timeout and a retry ladder behind it, and this
+    # is a string match. A compliance record that is only written when the LLM answers is
+    # a compliance record missing on exactly the calls somebody will ask about.
+    with span("pipeline.disclosure", call_id=str(call_id)) as stage:
+        played = disclosure_spoken(snapshot.transcript or [], disclosure_line=disclosure_line)
+        await _record_disclosure(tenant_id, call_id, played)
+        # The VERDICT, never the line and never a turn (hard rule 6).
+        set_span_attributes(stage, disclosure_played=("unknown" if played is None else played))
+
     needs_extraction = bool(spec.fields or transcript_text)
     # THE SPAN THIS WHOLE EXERCISE IS FOR. A model round trip lives in here, and it is
     # the stage most likely to own the missing minutes — a 30s extraction timeout
@@ -1140,8 +1160,9 @@ async def _persist_extraction(
 
 async def _load_call_context(
     tenant_id: UUID, call_id: UUID
-) -> tuple[ExtractionSchemaSpec, int, UUID, str]:
-    """The call's agent, its direction, and the schema ACTIVE AT EXTRACTION TIME.
+) -> tuple[ExtractionSchemaSpec, int, UUID, str, str]:
+    """The call's agent, its direction, its disclosure line, and the schema ACTIVE AT
+    EXTRACTION TIME.
 
     Direction comes from the stored call row rather than being re-derived: it decides
     which number belongs to the lead, and getting it wrong would file an outbound call
@@ -1149,12 +1170,24 @@ async def _load_call_context(
 
     Leads render by the schema version stored on the row, so a later schema edit never
     rewrites an old lead (TRD §7).
+
+    THE DISCLOSURE LINE RIDES ON THIS QUERY rather than getting its own. It comes from
+    the same `agents` row this already joins, one column further along, and a second
+    round trip for one string would put a per-call query on the pipeline's critical path
+    to answer a question this statement was already standing next to. It is the agent's
+    CURRENT line, not a snapshot of the one live when the call ran — the same
+    approximation `_upsert_lead` accepts about the agent — and a tenant editing it
+    mid-month can therefore make an old call read as undisclosed. That is visible and
+    conservative (it can only turn True into False); the alternative is a
+    `calls.disclosure_line_at_call` column, which is a real answer and a migration this
+    finding does not call for.
     """
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT c.agent_id, c.direction, es.version, es.fields FROM calls c "
+                    "SELECT c.agent_id, c.direction, es.version, es.fields, a.disclosure_line "
+                    "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -1165,11 +1198,32 @@ async def _load_call_context(
     if row is None:
         raise RuntimeError(f"call {call_id} not found for schema load")
     agent_id, direction, version, fields = row[0], str(row[1]), row[2], row[3]
+    disclosure_line = str(row[4] or "")
     if not fields:
         empty = ExtractionSchemaSpec(version=version or 1, fields=[])
-        return empty, version or 1, agent_id, direction
+        return empty, version or 1, agent_id, direction, disclosure_line
     spec = ExtractionSchemaSpec.model_validate({"version": version or 1, "fields": fields})
-    return spec, spec.version, agent_id, direction
+    return spec, spec.version, agent_id, direction, disclosure_line
+
+
+async def _record_disclosure(tenant_id: UUID, call_id: UUID, spoken: bool | None) -> None:
+    """Write `calls.disclosure_played` — the column three surfaces render and nothing
+    wrote (P3.3).
+
+    A NULL VERDICT IS STILL WRITTEN, and writing `None` over a previous `True` is the
+    behaviour we want on a re-run: the pipeline is re-runnable by design (TRD §8), and if
+    a second pass sees no transcript then the evidence for the first pass's answer is
+    gone too. A verdict that could only ever move towards `True` would be a compliance
+    field that ratchets, which is the shape of a field that stops meaning anything.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET disclosure_played = :played, updated_at = now() "
+                "WHERE id = :cid AND tenant_id = :tid"
+            ),
+            {"played": spoken, "cid": call_id, "tid": tenant_id},
+        )
 
 
 async def _upsert_lead(

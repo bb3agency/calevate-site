@@ -391,12 +391,56 @@ export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   );
 }
 
-export function Skeleton({ rows = 3 }: { rows?: number }) {
+/**
+ * The loading state, said out loud as well as drawn.
+ *
+ * §52's first clause is "loading is a skeleton", and for ~96 sites this component WAS the
+ * whole of it — a `<div aria-hidden>` of pulsing bars. To a sighted reader that is the
+ * clearest possible statement that an answer is on its way. To a screen-reader user it
+ * was nothing at all: the bars were hidden from the accessibility tree and no text
+ * replaced them, so a screen that had refused to lie in pixels was silent in the one
+ * modality where silence and "there is nothing here" are the same thing. That is P7.1's
+ * defect on the audience `tests/a11y.ts` names, and `a11y.ts:42` says out loud that the
+ * axe sweep cannot see it: axe checks the markup that exists, not the announcement that
+ * never happens.
+ *
+ * **`role="status"` + `aria-live="polite"` on the container, an `sr-only` label inside
+ * it, and `aria-hidden` kept on the bars.** That is the researched shape rather than an
+ * invention — Adrian Roselli, "More Accessible Skeletons"; Semrush Intergalactic's
+ * skeleton a11y guidance ("place skeleton loaders inside a container with role='status'
+ * and aria-live='polite' … for the screen reader to announce the start of the loading
+ * process"); MDN on `aria-busy`.
+ *
+ * **`aria-busy` is deliberately NOT here**, and that is a departure from the obvious fix.
+ * `aria-busy` is a property of the region whose CONTENTS are changing, so it belongs on
+ * the card or table that is about to be filled, not on the placeholder that will be
+ * removed (vuetifyjs/vuetify#10999 makes exactly this correction). Putting it on the
+ * skeleton marks the skeleton itself as busy, which is both untrue and useless. Doing it
+ * properly means `aria-busy` on ~96 containers, which is a change to the call sites and
+ * not to this component.
+ *
+ * **What this does not give**, stated rather than implied: it announces the START of a
+ * load. It cannot announce the ARRIVAL, because a live region has to be in the document
+ * when the change happens and this one is removed by the change. Saying "loaded" would
+ * need a region that outlives the skeleton, in both shells, fed by every screen — a
+ * different mechanism, and one that would say "loaded" 96 times a session unless it also
+ * knew which loads a reader cares about.
+ *
+ * `label` names what is loading, because "Loading…" four times on one screen tells a
+ * reader less than "Loading your calls". It has a default so no call site is obliged to
+ * think about it, and the sites that mean something specific can say so.
+ */
+export function Skeleton({ rows = 3, label = "Loading…" }: { rows?: number; label?: string }) {
   return (
-    <div className="space-y-2" aria-hidden>
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="h-8 animate-pulse rounded bg-black/5 dark:bg-white/10" />
-      ))}
+    <div role="status" aria-live="polite" className="space-y-2">
+      <span className="sr-only">{label}</span>
+      {/* The bars themselves stay out of the accessibility tree: they are the drawing of
+          the sentence above, and reading them out is 96 announcements of nothing. */}
+      <div aria-hidden className="space-y-2">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="h-8 animate-pulse rounded bg-black/5 dark:bg-white/10" />
+        ))}
+      </div>
     </div>
   );
 }

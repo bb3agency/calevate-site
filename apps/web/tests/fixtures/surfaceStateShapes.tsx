@@ -159,6 +159,44 @@ export function bannedFirstRowFallthrough(): React.JSX.Element {
   );
 }
 
+/**
+ * bannedPausedEmptyState — the shape that survived the gate, because the gate asked the
+ * wrong question.
+ *
+ * This component DOES refuse: `board.error != null` has a branch of its own, which is
+ * exactly what rules 3 and 4 ask for, and for two of the three ways to have no answer
+ * that is enough. There is a third. TanStack does not START a query while the browser is
+ * offline — it parks it (`fetchStatus: canFetch(networkMode) ? "fetching" : "paused"`,
+ * query-core `query.js`) — and a PAUSED query reports `isPending === true`,
+ * `isFetching === false` and therefore `isLoading === false`, with `error === null` and
+ * `data === undefined`. Neither branch above is taken, `rows` is `[]` because the `??`
+ * spent our ignorance before the ladder ran, and the screen states "there are none".
+ *
+ * This is the six-screen defect in eleven lines: the client dashboard's "No call history
+ * yet", the call log's "No calls yet", the health board's "Every client looks healthy",
+ * the hold queue's "Nobody is waiting on us", QA sampling's "Every sampled call has been
+ * reviewed" and the quality report's "No quality report yet" — every one of them printed
+ * to somebody whose connection had dropped, over a request that was never sent.
+ *
+ * The fix is one test, and it is the only test that separates all three non-answers from
+ * an answer: ask whether the data ARRIVED. See `safeGuardedListFallback`.
+ */
+export function bannedPausedEmptyState(): React.JSX.Element {
+  const board = useBoard();
+  const rows = board.data?.rows ?? [];
+  return (
+    <div>
+      {board.error != null ? (
+        <p>We could not read this. Reload the page to try again.</p>
+      ) : rows.length === 0 ? (
+        <p>There are none.</p>
+      ) : (
+        <span>{rows.length}</span>
+      )}
+    </div>
+  );
+}
+
 // ─── SAFE — the guard must stay silent on every one of these ────────────────────────
 
 /**
@@ -189,22 +227,34 @@ export function safeLocalConstant(rows: string[] | undefined): number {
 }
 
 /**
- * `?? []` on an envelope read, in a component that DOES refuse — `admin/health/page.tsx`
- * and `admin/holds/page.tsx`, transcribed with the ladder they actually carry.
+ * `?? []` on an envelope read, in a component that DOES refuse AND asks whether the
+ * answer arrived — `admin/health/page.tsx` and `admin/holds/page.tsx`, transcribed with
+ * the ladder they actually carry.
  *
- * The literal is identical to `bannedUnrefusedListFallback`'s. What separates them is
- * the `board.isError` branch above: with it, the `[]` is only ever reached on a read
- * that succeeded and returned nothing, which is a fact. Without it, the `[]` IS the
- * failed read. That is the whole of the guard's gate, and it is why the rule asks a
- * question about the component rather than about the expression.
+ * The literal is identical to `bannedUnrefusedListFallback`'s and to
+ * `bannedPausedEmptyState`'s, and it is safe here for two different reasons that have to
+ * BOTH hold:
+ *
+ * * `board.error` has a branch of its own, so a failed read is not silently spent as an
+ *   empty list (that is what separates this from `bannedUnrefusedListFallback`); and
+ * * `!board.data` is asked as well, so the read that never happened — the paused one,
+ *   which carries no error — cannot reach the count either (that is what separates it
+ *   from `bannedPausedEmptyState`).
+ *
+ * `error` and `data` are two questions, not one. A refusal branch answers "did it fail";
+ * only the `data` test answers "have we got an answer at all", and there are three ways
+ * for that to be no.
  */
 export function safeGuardedListFallback(): React.JSX.Element {
   const board = useBoard();
   const rows = board.data?.rows ?? [];
   return (
     <div>
-      {board.error != null && <p>We could not read this. Reload the page to try again.</p>}
-      <span>{rows.length}</span>
+      {board.error != null || !board.data ? (
+        <p>We could not read this. Reload the page to try again.</p>
+      ) : (
+        <span>{rows.length}</span>
+      )}
     </div>
   );
 }

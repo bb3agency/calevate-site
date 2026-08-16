@@ -47,6 +47,14 @@ import { expect } from "vitest";
  * the ONLY signal for a state. Those are checked by hand, and a green run here is not a
  * claim about any of them.
  *
+ * Two of those blind spots turned out to be hiding real defects, and both now have tests
+ * of their own rather than a note in this paragraph — which is what a named blind spot is
+ * FOR. `aiQuota.test.tsx` pins the money dialog's focus trap and its restore (it had
+ * neither, under `aria-modal="true"`), and `dashboard.test.tsx` pins that the `Skeleton`
+ * announces itself (96 sites rendered `<div aria-hidden>` and said nothing at all). Both
+ * were green here throughout: axe checks markup that exists, never an announcement that
+ * never happens or a Tab that goes somewhere it should not.
+ *
  * Three MECHANICAL limits are worth knowing before trusting a green tick:
  *
  * - **`placeholder` satisfies axe's `label` rule.** An input whose only name is its

@@ -474,12 +474,16 @@ function DecisionForm({
           {/* Error first: with a failed list `campaigns.data` is undefined, and saying
               "this account has no campaigns yet" about a read that never landed would
               invite a release recorded on a premise nobody checked. */}
-          {campaigns.error != null ? (
+          {/* `|| !campaigns.data` covers the non-answer that carries no error: a query
+              TanStack has PAUSED because the browser is offline has `error === null` and
+              no data, so neither arm was taken and the picker sat empty and unexplained —
+              which is the premise this branch exists to stop a reviewer acting on. */}
+          {campaigns.error != null || !campaigns.data ? (
             <p className="mt-1 text-xs text-ink-muted">
               Their campaigns could not be listed, so this field is empty. It is optional —
               the decision can still be recorded without naming one.
             </p>
-          ) : campaigns.data?.length === 0 ? (
+          ) : campaigns.data.length === 0 ? (
             <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
               This account has no campaigns yet. Releasing it now clears the rule before
               anything exists to read — which is a decision, not an accident, so record why

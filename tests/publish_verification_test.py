@@ -138,6 +138,27 @@ class DisclosureDroppingEngine(MutatingEngine):
         return cfg.model_copy(update={"disclosure_line": "…"})
 
 
+class GreetingOnlyDroppingEngine(RecordingEngine):
+    """Keeps the disclosure line in the PROMPT and drops it from the GREETING.
+
+    **This is the engine P3.3 is about, and no fake in this file could express it before
+    the snapshot gained a greeting field.** It is not a contrived shape: it is what a
+    vendor that stopped recognising `agent_welcome_message` does — the prompt is the
+    field every engine has, the greeting is the one whose name we guessed from our own
+    request body, and the write silently landing in only one of them is the ordinary way
+    that goes wrong.
+
+    Scored against the prompt, this agent passes: our own adapter prepended the line
+    there, so the marker is present and `disclosure_applied` reads True. Scored against
+    the greeting, it fails — and the caller never hears the disclosure, which is the one
+    property here with a legal consequence (SEC-COMP §1).
+    """
+
+    async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+        snapshot = await super().get_agent(ref)
+        return snapshot.model_copy(update={"greeting": "Namaskaram!", "greeting_readable": True})
+
+
 class VoiceDroppingEngine(MutatingEngine):
     """Applies the script and speaks in a voice nobody chose."""
 
@@ -369,13 +390,99 @@ async def test_an_engine_that_drops_the_disclosure_line_is_refused_by_name() -> 
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
 
     assert exc.value.code == "engine_publish_not_applied"
-    assert "disclosure line" in exc.value.detail
+    assert "greeting disclosure" in exc.value.detail
     assert isinstance(engine, RecordingEngine)
     assert engine.names() == ["create_agent", "get_agent"]
 
     # An agent that never got a confirmed publish is not live, and says so.
     state, verified, status, ref = await _verify_row(tenant_id, agent_id)
     assert (state, verified, status, ref) == ("unverified", False, "draft", None)
+
+
+async def test_the_disclosure_verdict_reads_the_field_that_speaks_not_the_one_we_wrote() -> None:
+    """P3.3, and the only test in this file that could have caught it.
+
+    The engine here keeps the disclosure line in the PROMPT — where our own adapter
+    prepends it — and drops it from the GREETING, which is the deterministic first
+    utterance and the only one a caller actually hears. Every other fake in this file
+    mutates the config wholesale, so prompt and greeting fail together and either one
+    scored green looks the same.
+
+    Before this change the verdict was `carries_prompt_marker(cfg.disclosure_line)`
+    against a prompt WE had just prepended the line to, so it was true whenever the
+    prompt round-tripped at all. The publish below would have been confirmed `applied`,
+    the agent would have gone live, and OPERATIONS §7's escalation on
+    `disclosure_applied: false` could never have fired for its own reason.
+    """
+    tenant_id, agent_id = await _publishable_agent()
+    with _engine(GreetingOnlyDroppingEngine()), pytest.raises(ProblemError) as exc:
+        async with tenant_session(tenant_id) as session:
+            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+
+    assert exc.value.code == "engine_publish_not_applied"
+    assert "greeting disclosure" in exc.value.detail
+    assert "script" not in exc.value.detail, (
+        "the script DID land — naming it would send an operator to the wrong field"
+    )
+    state, verified, status, ref = await _verify_row(tenant_id, agent_id)
+    assert (state, verified, status, ref) == ("unverified", False, "draft", None)
+
+
+def test_the_prompt_copy_is_reported_but_never_refuses_a_publish() -> None:
+    """The other half of the split, and it must NOT be a gate.
+
+    Both adapters send the disclosure twice — greeting and prompt — deliberately. But a
+    prompt is a long rendered document, and an engine that normalises whitespace or wraps
+    it in its own headers has not broken hard rule 5 as long as the greeting stands. If
+    the prompt copy joined the refusal set, every such engine would fail every publish on
+    a compliance ground it did not actually breach, and the verdict would be the first
+    thing an operator learned to override.
+    """
+    cfg = _cfg()
+    greeting_only = _snapshot(cfg, system_prompt=cfg.system_prompt)  # no prepended line
+
+    verdict = judge(FakeEngine(), cfg, greeting_only)
+
+    assert verdict.state == "applied", "the greeting carries the obligation and it is intact"
+    assert verdict.disclosure_applied is True
+    assert verdict.prompt_disclosure_applied is False, (
+        "the missing second copy is a fact worth recording, and it is recorded"
+    )
+
+
+def test_a_greeting_the_adapter_cannot_find_is_never_confirmed() -> None:
+    """`unreadable`, never `applied` — the finding says this in as many words.
+
+    An adapter that could not locate the greeting field has learned nothing about the
+    disclosure, and the one outcome that must be impossible is the green tick. It is also
+    not a REFUSAL: an adapter looking in the wrong place is our defect, and failing every
+    publish on it would take a client offline for a field name.
+    """
+    cfg = _cfg()
+    blind = _snapshot(cfg, greeting=None, greeting_readable=False)
+
+    verdict = judge(FakeEngine(), cfg, blind)
+
+    assert verdict.state == "unreadable"
+    assert verdict.disclosure_applied is None
+    assert verdict.proven is False
+
+
+def test_an_engine_holding_an_empty_greeting_is_a_refusal_not_a_shrug() -> None:
+    """The distinction the `(value, readable)` pair in both adapters exists for.
+
+    A greeting key present and EMPTY is an agent that opens the call saying nothing —
+    provably not compliant, and exactly the shape a vendor dropping an unrecognised field
+    leaves behind. Collapsing it into `readable=False` would turn the one provable
+    failure on this path into a recorded uncertainty that does not block the publish.
+    """
+    cfg = _cfg()
+    silent = _snapshot(cfg, greeting="", greeting_readable=True)
+
+    verdict = judge(FakeEngine(), cfg, silent)
+
+    assert verdict.state == "not_applied"
+    assert verdict.disclosure_applied is False
 
 
 async def test_an_engine_speaking_a_voice_nobody_chose_is_refused() -> None:
@@ -728,10 +835,21 @@ def _cfg(**kw: Any) -> AgentConfig:
 
 
 def _snapshot(cfg: AgentConfig, **kw: Any) -> AgentSnapshot:
+    """A healthy read-back: the engine holds the prompt AND the greeting.
+
+    THE GREETING IS IN THE BASE, and its absence is how P3.3 survived. This helper used
+    to build a snapshot with the prompt alone, which is what every adapter's read-back
+    looked like — no greeting field existed on `AgentSnapshot` at all — so the disclosure
+    verdict had nowhere to read but the prompt our own adapter prepends the line to. A
+    fixture that cannot express the failure is a fixture that certifies the wrong
+    behaviour, and every test below rested on this one.
+    """
     base: dict[str, Any] = {
         "engine_agent_ref": "ref_1",
         "system_prompt": f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
         "system_prompt_readable": True,
+        "greeting": cfg.disclosure_line,
+        "greeting_readable": True,
         "models": cfg.models,
         "models_readable": True,
     }

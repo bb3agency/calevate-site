@@ -1768,9 +1768,10 @@ settled so nothing will come back for them. Its grace is the poller's own
 |---|---|---|---|
 | 16 | The three DLQ docstrings say what actually happens; the three drift sweeps get the ladder the other six have; an overdue-erasure probe exists | P6.5 | done |
 | 17 | `response.json()` and `httpx.URL(candidate)` guarded, plus a scan over the whole engine layer | P2.2 / P2.3 | done |
-| 18 | Rollback, dev compose file, nginx install-before-test, restore drill, the two `/healthz/` lines | P5.2 / P5.7 / P5.8 / P5.12 / P5.13 + P2.1 | in flight |
-| 19 | Disclosure | P3.3 | open |
-| 20 | Paused queries, campaign launch confirmation | P7.1 / P7.4 | in flight |
+| 18 | Rollback, dev compose project name, nginx install-before-test, restore drill, `/healthz` on the hooks vhost | P5.2 / P5.7 / P5.8 / P5.12 / P5.13 + P2.1 | done |
+| 19 | `AgentSnapshot.greeting`; the disclosure verdict scored on the field that speaks; `disclosure_played` written from the transcript | P3.3 | done |
+| 20 | Paused queries refuse rather than render an empty state; campaign launch gets the three-beat confirmation | P7.1 / P7.4 | done |
+| 21 | `EMAIL_PROVIDER` + Resend transport, `support@calevate.tech`, `/test` probe | (new) | done, pending the account |
 
 **P6.5 was three findings wearing one number, and the third is the one with a statute
 behind it.**
@@ -1825,10 +1826,102 @@ actually going to production missed it. A defect that recurs across three module
 one a per-instance test can hold, so the suite AST-scans every file in `apps/api/engine/`
 for a `.json()` outside any `try`, including the adapters that do not exist yet.
 
+**P3.3's two layers are now connected, and the top one was checking the wrong field.**
+`judge()` scored `disclosure_applied` with `carries_prompt_marker` — against the prompt
+`_agent_body` had just PREPENDED the disclosure line to. So the single property
+OPERATIONS §7 calls *"the one with a legal consequence"* was true whenever the prompt
+round-tripped at all, and could not fail for its own reason. `AgentSnapshot` gained
+`greeting` / `greeting_readable` and a `carries_greeting_marker` accessor; all three
+adapters populate it (`agent_welcome_message`, `introduction`, and the fake now holds a
+real greeting rather than the prompt alone); the verdict is scored there, with the prompt
+copy reported beside it as `prompt_disclosure_applied` and deliberately NOT in the refusal
+set — an engine that normalises whitespace inside a long system prompt has not breached
+hard rule 5, and making it fail every publish is how a verdict becomes the first thing an
+operator overrides.
+
+**Two details in that split were arrived at by getting them wrong first.** The greeting
+reader returns a `(value, readable)` PAIR rather than "None means unreadable": a key
+present and EMPTY is an agent that opens the call saying nothing — a provable failure, and
+exactly the shape a vendor dropping an unrecognised field leaves — while an ABSENT key is
+our own adapter looking in the wrong place, which must never fail a publish. Collapsing
+them turns the one refusal available on this path into a shrug. And the conformance suite
+now requires both adapters to read the greeting back, because an adapter that cannot see
+it reports `unreadable` on every publish forever.
+
+**`calls.disclosure_played` is written.** `apps/api/compliance/disclosure.py` is one
+function: agent turns only (the mirror of `detect_opt_out`'s caller-turns-only rule, so an
+STT pass that misattributed our own audio cannot certify a call), normalised through the
+same `normalize_utterance`, strict containment so it errs towards `False`, and a genuine
+tri-state — a call with no transcript stays NULL rather than reading, to a client, as a
+breach. The pipeline runs it before extraction for `pipeline.opt_out`'s reason: a
+compliance record written only when the LLM answers is a record missing on exactly the
+calls somebody will ask about. It measures "was it said", NOT "was it said first" — that
+is the greeting field's property and it is verified at publish against the engine, which
+is the only place it CAN be verified.
+
 ## Stage 4 — Guards, drift and the rest
 
-P4.3 (seven unmapped columns), P4.5/P4.6 (registry and docstring counts), P6.9/P7.2 (the two
-holed guards), P2.6, P6.7, P6.8, P6.10, P7.3, P7.5, and every MINOR.
+P4.3 (seven unmapped columns), P4.5/P4.6 (registry and docstring counts), P6.9 (the
+job-registration guard's blind spots), P2.6, P6.7, P6.8, P7.3, and the remaining MINORs.
+
+**Already closed, out of order, because Stage 3 was in the same files:** P6.10 (Stage 1's
+object-store client cache), P7.2 (the `Partial<T>` hole — the guard now walks
+`aliasTypeArguments`, and all three live sites are gone), P7.5 (`useFocusTrap` extracted
+and the nav drawer migrated onto it; `Skeleton` is a live region), and P7.6's five
+minors.
+
+### What the fix sequence corrected about the register
+
+The register is a record of what was FOUND, and four of its prescribed fixes were wrong.
+Each was measured before being replaced, and each correction is worth more than the fix
+it replaced:
+
+- **P7.1's fix would have made the error arm unreachable.** It says "three characters per
+  site — `q.isLoading || !q.data`". On four of the six screens the LOADING arm comes
+  first, so widening it pins a permanent skeleton over a real 503. This repository had
+  already solved the same problem correctly on two screens that met a paused query first
+  (`c/[slug]/verification`, `c/[slug]/campaign-review`), both spelling it
+  `if (q.error || !q.data)`. That idiom was applied instead — widen the REFUSAL, which is
+  order-safe — and the class was swept: 14 sites across 11 files, not 6.
+- **P5.7's fix refuses every deploy.** "Refuse the dev compose file's presence in
+  `preflight()`" cannot be right: the file is committed. What is checkable is the PROJECT
+  NAME, so `docker-compose.yml` now declares `name: calevate-dev` and preflight refuses a
+  missing or colliding one.
+- **P5.13's fix does not close the path.** Deleting the two `/healthz/` lines from the
+  hooks vhost leaves `location /` — a prefix match on `/` — catching every `/healthz*`
+  request and proxying it anyway, at the webhook rate zone. The fix is
+  `location ^~ /healthz { return 404; }`, and the test asserts the PROPERTY (nothing under
+  `/healthz` reaches an upstream on hooks) rather than the absence of two lines.
+- **P7.6's first bullet is factually wrong.** `myId` does go null on a failed `/v1/me`,
+  but the owner is not offered a role select and Remove: `useWriteAccess` reads the SAME
+  query and returns `allowed: false`, so `canManage` is false and the row renders that
+  sentence where the controls would be. The real loss is the "(you)" marker. Nothing was
+  changed; a regression test now pins the true invariant — the two derivations read one
+  query, and that agreement is what makes the screen safe.
+
+**And two of Stage 1's own fixes had never executed.** `preflight()` ran BEFORE
+`resolve_plan`, so `PLAN` was an unset array — and under `set -u`, bash 4.4+ expands
+`"${PLAN[@]}"` of an unset array to nothing rather than erroring. `in_plan web` and
+`in_plan nginx` therefore answered "no" to everything: the `apps/web/.env.local` refusal
+(P5.5), the `pnpm`/`pm2` checks (P5.4) and the four nginx exports (P5.9) were dead code
+while three documents said they were live. Proven rather than inferred — with
+`apps/web/.env.local` removed, the pre-Stage-3 script exits 0 and says nothing.
+
+**P5.10 is closed, both halves.** `sentry-sdk` is in `uv.lock` as a `[dependency-groups]`
+entry named `errors`, not as a runtime dependency of `apps/api`/`apps/workers` — `uv sync`
+builds ONE venv for the whole workspace and voice-runtime shares it, so hard rule 3 makes
+the opt-in per HOST (`uv sync --all-packages --group errors` — the flag is not optional;
+a bare `uv sync --group errors` drops every workspace member, measured on a real
+environment) rather than per package. The lockfile diff
+was read before adding: one package, whose only dependencies are `certifi` and `urllib3`,
+both already in the tree, with no build hooks (hard rule 9). DEPLOYMENT §8 now says a host
+that has not run that command has no error reporting whatever the DSN says.
+
+**P7.3 is half ours and the halves are now separated.** The `apps/web` half is closed —
+`clerkRuntime.tsx` no longer states an unenforced premise as fact, and names the exact edge
+change that would make it true; the enforcement is two nginx `server` blocks with
+`location ^~ /admin { return 404; }` on `app.` and `location ^~ /c/ { return 404; }` on
+`admin.`.
 
 ## Stage 5 — Only after an account exists
 

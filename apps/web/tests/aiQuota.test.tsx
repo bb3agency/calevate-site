@@ -379,4 +379,68 @@ describe("the money dialog (G-5)", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(false);
   });
+
+  /**
+   * The other half of `aria-modal="true"`, which this dialog shipped without.
+   *
+   * It moved focus on open and handled Escape and stopped there — so the first Tab left
+   * the panel and landed on the page behind it, and Escape dropped focus onto `<body>`.
+   * On the one control in this console that debits a wallet, that means a keyboard user
+   * typing into a page they believe is covered, and a screen-reader user returned to
+   * nowhere. `navDrawer` had had the trap since it shipped; the two now share
+   * `useFocusTrap` (src/lib/focusTrap.ts).
+   *
+   * jsdom implements no native Tab movement, which is what makes these assertions honest:
+   * every focus change below is one the trap performed.
+   */
+  async function openDialog() {
+    const rendered = await renderClientPage(<AiAssistPage />, {
+      "/v1/me": ME,
+      "/v1/billing/ai-quota": AT_CEILING,
+    });
+    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    // Explicit, because `fireEvent.click` does not move focus in jsdom and the trap
+    // restores focus to whatever HELD it — which is the browser's real sequence.
+    offer.focus();
+    await act(async () => {
+      fireEvent.click(offer);
+    });
+    return { ...rendered, offer };
+  }
+
+  it("cycles Tab inside the dialog instead of letting it reach the page behind", async () => {
+    await openDialog();
+    const notNow = screen.getByRole("button", { name: "Not now" });
+    const add = screen.getByRole("button", { name: "Add ₹500.00" });
+
+    add.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(notNow);
+
+    notNow.focus();
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(add);
+  });
+
+  it("pulls focus back when it is already outside the panel", async () => {
+    // The defect exactly: the offer button is still in the document behind the scrim, so
+    // without the trap this is where the first Tab went — onto a control the person was
+    // told they had left.
+    const { offer } = await openDialog();
+    offer.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Not now" }));
+  });
+
+  it("gives focus back to the control that opened it", async () => {
+    const { offer } = await openDialog();
+    await act(async () => {
+      fireEvent.keyDown(document, { key: "Escape" });
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Not `<body>`. A person who cancels a charge is put back where they were, which is
+    // the only place the next Tab means anything from.
+    expect(document.activeElement).toBe(offer);
+  });
 });

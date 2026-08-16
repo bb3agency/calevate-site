@@ -112,12 +112,19 @@ export default function HeldAccountsPage() {
           <div className="p-6">
             <Skeleton rows={4} />
           </div>
-        ) : queue.error ? (
+        ) : queue.error || !queue.data ? (
           /* Deliberately NOT the empty state. "Nobody is waiting" is a claim about the
              world, and a failed read is not evidence for it — an operator told the queue
              was clear because a token expired would stop looking. `NoticeBox` rather than
              a hand-built box: the tone table and the medallion are the same ones every
-             other verdict on both realms uses, and this screen had drifted to its own. */
+             other verdict on both realms uses, and this screen had drifted to its own.
+             `|| !queue.data` because a FAILED read is not the only way to have no answer:
+             TanStack pauses a query rather than starting it while the browser is offline
+             (`fetchStatus: "paused"`, query-core `query.js`), and a paused query reports
+             `isLoading === false` and `error === null` — so this arm used to be skipped
+             and `rows.length === 0` below stated "Nobody is waiting on us" off a request
+             that was never made. Same spelling as `/c/<slug>/verification` and
+             `/c/<slug>/campaign-review`, which met this first. */
           <div className="p-6">
             <NoticeBox
               tone="warn"

@@ -304,10 +304,18 @@ export default function TenantDetailPage({
                       <ProblemNotice error={preview.error} onRetry={() => preview.refetch()} />
                     ) : preview.isLoading ? (
                       <Skeleton rows={2} />
+                    ) : !preview.data ? (
+                      /* A paused query (offline) is neither loading nor failed, and
+                         `?? []` below would have shown an operator an EMPTY source and
+                         invited them to approve it on that evidence. */
+                      <ProblemNotice
+                        error={new Error("The preview did not load.")}
+                        onRetry={() => preview.refetch()}
+                      />
                     ) : (
                       /* Chunk-by-chunk is how it is reviewed because chunk-by-chunk is
                          how it will be retrieved and read aloud. */
-                      (preview.data ?? []).map((chunk) => (
+                      preview.data.map((chunk) => (
                         <div key={chunk.idx} className="rounded-md bg-app p-2 text-xs text-ink-muted">
                           <span className="mr-2 text-ink-faint">#{chunk.idx}</span>
                           {chunk.content}
@@ -350,9 +358,17 @@ export default function TenantDetailPage({
         <Card title="Approved, awaiting publish">
           <Skeleton rows={2} />
         </Card>
-      ) : publishQueue.error ? (
+      ) : publishQueue.error || !publishQueue.data ? (
+        /* `|| !publishQueue.data` closes the same hole one state further out. The comment
+           above names "in flight" and "failed"; a query TanStack has PAUSED because the
+           browser is offline is neither — `isLoading === false`, `error === null` — so
+           `awaitingPublish` was `[]` and the panel rendered `null`, which on this screen
+           reads as "nothing is waiting to be published". */
         <Card title="Approved, awaiting publish">
-          <ProblemNotice error={publishQueue.error} onRetry={() => publishQueue.refetch()} />
+          <ProblemNotice
+            error={publishQueue.error ?? new Error("The publish queue did not load.")}
+            onRetry={() => publishQueue.refetch()}
+          />
         </Card>
       ) : awaitingPublish.length > 0 ? (
         <Card title="Approved, awaiting publish" bodyClassName="px-6 pb-4">

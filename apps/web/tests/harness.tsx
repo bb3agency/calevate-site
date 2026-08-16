@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, onlineManager } from "@tanstack/react-query";
 import { act, render, type RenderResult } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { expect, vi } from "vitest";
@@ -68,6 +68,31 @@ export class NeverAnswers {}
 /** A route stuck in flight, for asserting the skeleton rather than the settled state. */
 export function stillLoading(): NeverAnswers {
   return new NeverAnswers();
+}
+
+/**
+ * The THIRD state §52 did not name: a query TanStack never started.
+ *
+ * `stillLoading()` above closed the in-flight gap and left this one, and the two are not
+ * the same branch. With the default `networkMode: "online"` (which `providers.tsx` keeps),
+ * query-core does not run a fetch it believes cannot succeed — `query.js` sets
+ * `fetchStatus: canFetch(networkMode) ? "fetching" : "paused"`, and `canFetch("online")`
+ * is `onlineManager.isOnline()`. A PAUSED query reports `isPending === true`,
+ * `isFetching === false` and therefore **`isLoading === false`**, with `error === null`
+ * and `data === undefined`.
+ *
+ * So a `isLoading ? <Skeleton/> : error ? <Refusal/> : …` ladder takes neither arm and
+ * renders its data branch on nothing. `client.ts` calls a console tab open across a
+ * dropped connection "the normal case, not an edge", and six screens stated an empty
+ * state as a fact in it.
+ *
+ * This flips the REAL switch rather than mocking a hook, so what a test exercises is the
+ * library's own pause, exactly as a lost connection produces it. `setup.ts` puts the
+ * browser back online after every test — before which `cleanup()` has already unmounted,
+ * so nothing resumes into a torn-down tree.
+ */
+export function browserOffline(): void {
+  onlineManager.setOnline(false);
 }
 
 /** One request the screen made, as the network saw it. */

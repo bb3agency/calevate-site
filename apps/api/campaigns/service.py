@@ -1164,16 +1164,34 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
     campaign = (
         await session.execute(
             text(
-                "SELECT status, launched_at, concurrency, "
+                # EVERY column is `c.`-qualified since the join arrived, and that is not
+                # tidiness: `phone_numbers` has a `status` of its own, so a bare `status`
+                # here would be ambiguous — and had it not been, an unqualified name would
+                # be one schema change away from silently answering about the number.
+                "SELECT c.status, c.launched_at, c.concurrency, "
                 # Only while the campaign is still WAITING. `launch_campaign` leaves the
                 # column populated on the row it starts (it is the record of why that
                 # launch happened, and `_expire` is the only thing that clears it), so an
                 # unconditional read would have a running campaign still advertising a
                 # start time that has already been honoured.
-                "  CASE WHEN status = 'scheduled' THEN schedule->>'start_at' END, "
-                "  CASE WHEN status = 'scheduled' THEN schedule->'last_blocked'->'rules' END, "
-                "  schedule, dnc_scrubbed_at "
-                "FROM campaigns WHERE id = :cid"
+                "  CASE WHEN c.status = 'scheduled' THEN c.schedule->>'start_at' END, "
+                "  CASE WHEN c.status = 'scheduled' THEN c.schedule->'last_blocked'->'rules' END, "
+                "  c.schedule, c.dnc_scrubbed_at, "
+                # The two facts a launch confirmation has to state and could not read
+                # back (P7.4). Both were WRITE-ONLY until now: `calling_hours` and the
+                # number were set in the create form, held as local state, and never
+                # returned by any endpoint — so the panel that asks a client to authorise
+                # ringing N strangers could not tell them WHEN it would ring or WHICH
+                # number would appear on the handset. Both are properties of the
+                # irreversible act being confirmed.
+                "  c.calling_hours, p.e164 "
+                # LEFT: `number_id` is nullable and `ON DELETE SET NULL`, so a campaign
+                # whose number was released still has to render. NULL means "the platform
+                # picks at dial time", which is what the screen must say rather than
+                # showing a blank where a number belongs.
+                "FROM campaigns c LEFT JOIN phone_numbers p "
+                "  ON p.id = c.number_id AND p.tenant_id = c.tenant_id "
+                "WHERE c.id = :cid"
             ),
             {"cid": campaign_id},
         )
@@ -1209,6 +1227,26 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
             if scrub.recorded
             else None
         ),
+        # THE WINDOW, and it is the campaign's own NARROWING or nothing — the platform's
+        # 09:00-21:00 IST bound is not restated here. `campaign_window_open` treats a NULL
+        # `calling_hours` as "the platform window applies", and a reader that saw the
+        # platform hours echoed into this field could not tell a campaign that chose them
+        # from one that chose nothing. The screen states the platform bound itself,
+        # because it is true of every campaign.
+        #
+        # Normalised to the two keys `_validated_window` writes rather than handed over
+        # whole: a response model is an output WHITELIST (BACKEND-PATTERNS §1), and this
+        # column is JSONB that a future field would ride out of on its own.
+        "calling_hours": (
+            {"start": str(campaign[7]["start"]), "end": str(campaign[7]["end"])}
+            if isinstance(campaign[7], dict) and {"start", "end"} <= campaign[7].keys()
+            else None
+        ),
+        # The number that will appear on the handset. None when the campaign has none —
+        # which the screen must SAY rather than leave blank, because "the platform picks
+        # one at dial time" and "we could not read it" are different facts to a client
+        # deciding whether to authorise the calls.
+        "number_e164": campaign[8],
     }
 
 

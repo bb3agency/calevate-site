@@ -67,6 +67,32 @@ export function bannedIndexedAccessAssertion(): CallSummary["status"] {
   return "abandoned" as CallSummary["status"];
 }
 
+/**
+ * `Partial<T>` — the hole the first draft of the guard left open, and the one that was
+ * hiding a real missing field.
+ *
+ * `Partial<Me>` is a MAPPED type. Its resolved type carries no symbol declared in
+ * `schema.d.ts` (the mapped type is anonymous), `getTypeArguments` returns `[]` because a
+ * mapped type is not a type REFERENCE, and its `aliasSymbol` is `Partial`, declared in
+ * `lib.es5.d.ts`. So every test in this guard's first version passed while
+ * `as unknown as Partial<CallDetail>` sat in `callDetail.test.tsx` — and behind one of
+ * those three assertions, a transcript fixture was missing `TranscriptTurnOut.redacted`,
+ * which the wire marks REQUIRED. Two spellings of one shape in one file, and
+ * `pnpm typecheck` green over both.
+ *
+ * The fix is `aliasTypeArguments`, which is where a mapped type keeps what it was applied
+ * TO. Every generic wrapper answers to it — `Partial`, `Readonly`, `Required`, `Pick`,
+ * `Omit`, `Record<string, Me>` — so this closes the shape rather than the one instance.
+ *
+ * Why the assertion is never right here: a fixture builder already takes `Partial<T>`
+ * (`function me(over: Partial<Me> = {})`), so the argument is checked by the parameter
+ * and the assertion can only remove that check. The three live sites were the assertion
+ * fighting the annotation, which is exactly what the 106 removed sites were.
+ */
+export function bannedPartialAssertion(): Partial<Me> {
+  return { role: "staff", permissions: ["calls:read"] } as Partial<Me>;
+}
+
 // ─── safe ────────────────────────────────────────────────────────────────────────────
 
 /**

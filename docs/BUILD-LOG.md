@@ -3686,6 +3686,79 @@ that recurs across three modules is not one a per-instance test can hold, so
 `tests/adapter_escaping_exception_test.py` AST-scans every file in `apps/api/engine/` for a
 `.json()` call outside any `try`, and covers the adapters that do not exist yet.
 
+## §73 — four agents in parallel: the disclosure nobody verified, email moves to Resend, and two Stage 1 fixes that had never run
+
+**The compliance verdict with a legal consequence was checking the wrong field, and could
+not have failed.** `verification.judge` scored `disclosure_applied` with
+`carries_prompt_marker(cfg.disclosure_line)` — against the prompt `_agent_body` had just
+PREPENDED that line to. So it read `True` whenever the prompt round-tripped at all, and
+OPERATIONS §7's escalation on *"the one property here with a legal consequence"* was wired
+to our own string formatting. `AgentSnapshot` had no greeting field at all, so the layer
+that COULD have answered did not exist; both adapters send the disclosure to the engine's
+greeting (`agent_welcome_message`, `introduction`) as well as the prompt, and only the
+greeting is the deterministic first utterance.
+
+Three adapters now populate `greeting`/`greeting_readable`, the verdict is scored there,
+and the prompt copy is reported beside it as `prompt_disclosure_applied` — deliberately
+NOT in the refusal set, because an engine that normalises whitespace inside a long system
+prompt has not breached hard rule 5, and a verdict that failed on that would be the first
+thing an operator learned to override. **The fixture was the reason this survived**:
+`_snapshot()` in `publish_verification_test.py` built a snapshot with the prompt alone,
+so every test in that file rested on a shape that could not express the failure. A new
+fake — `GreetingOnlyDroppingEngine`, keeping the line in the prompt and dropping it from
+the greeting — is what the whole finding reduces to.
+
+**And `calls.disclosure_played` was written by nothing.** It has existed since the first
+migration, renders on the client's call detail screen and sits in the weekly QA
+compliance-review queue where a reviewer works OPERATIONS §5's "disclosure spoken"
+scenario — a permanently null field where the evidence belongs, on every call, since the
+beginning. `compliance/disclosure.py` is one function that reads agent turns only (the
+mirror of `detect_opt_out`'s caller-turns-only rule) through the same normaliser, with a
+genuine tri-state so a call with no transcript stays NULL rather than reading as a breach.
+It measures "was it said", never "was it said first" — the second is the greeting field's
+property and is verified at publish, which is the only place it CAN be.
+
+**Email moved to Resend, and the interesting part is what the migration refused to do.**
+`EMAIL_PROVIDER` is now the single selector through one resolver
+(`config.email_transport_reason`), following the `payment_provider` seam: a credential is
+not a statement of capability, and `SMTP_HOST` alone no longer selects anything. SMTP
+survives as the escape hatch that keeps a suspended Resend account a config change rather
+than a deploy — two implementations behind one rule is not two rules. httpx over the
+`resend` SDK for one POST, and imported LAZILY because `httpx`/`httpcore`/`h11`/`certifi`
+are not in voice-runtime's boot graph and a module-scope import would put all four into
+the 500ms-ack process. Timeouts are phased (`connect=5, write=3, read=6, pool=1`) because
+httpx has no whole-request deadline, and they sum to exactly `SMTP_TIMEOUT_S` — the first
+draft summed to 21s, which pushed `alerting`'s two attempts past
+`host_alert.FLUSH_TIMEOUT_S` and would have reported a DELIVERED alert as undelivered.
+The `/test` probe gained a `refusal_statuses` distinction: a least-privilege Sending-access
+key gets **401** on `GET /domains` while a wrong key gets **403**, and calling that 401
+"rejected" would tell an operator to rotate a working key.
+
+**Two of Stage 1's own fixes had never executed.** `preflight()` ran BEFORE `resolve_plan`,
+so `PLAN` was an unset array — and under `set -u`, bash 4.4+ expands `"${PLAN[@]}"` of an
+unset array to nothing rather than erroring. `in_plan web` and `in_plan nginx` answered
+"no" to everything, so the `apps/web/.env.local` refusal, the `pnpm`/`pm2` checks and the
+four nginx exports were dead code while three documents said they were live. Proven, not
+inferred: with `.env.local` removed the old script exits 0 and says nothing.
+
+**Four of the register's prescribed fixes were wrong, and the corrections outlast them.**
+P7.1's "widen the loading condition" would have pinned a permanent skeleton over a real
+503 on four of six screens — this repo had already solved it correctly twice by widening
+the REFUSAL instead. P5.7's "refuse the dev compose file's presence" refuses every deploy,
+because the file is committed; the project NAME is what is checkable. P5.13's "delete the
+two `/healthz/` lines" does not close the path, because `location /` catches every
+`/healthz*` request anyway — `location ^~ /healthz { return 404; }` does. And P7.6's team
+screen finding is simply false: `useWriteAccess` reads the same query, so the controls
+were never offered; only the "(you)" marker is lost.
+
+**One class was swept rather than fixed per-instance, twice.** The paused-query defect was
+14 sites across 11 files, not the 6 the finding named, and `surfaceStatesGuard` gained a
+fifth rule after four candidate formulations were measured (67/57/38/33 hits) to find one
+precise enough to ship with an empty `EXEMPT` list. And the unguarded-`.json()` defect had
+already been solved twice in this repository — `billing/payments.py`, `engine/cartesia.py`
+— before the adapter actually going to production missed it, so the test AST-scans every
+file in `apps/api/engine/` including the adapters that do not exist yet.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

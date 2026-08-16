@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import { HOLDS_PATH, type HeldTenant } from "@/lib/api/holds";
 
-import { problem, renderAdminPage } from "./harness";
+import { browserOffline, problem, renderAdminPage } from "./harness";
 
 /**
  * The ops hold queue, ranked fourth — an operator-facing screen, which caps the blast
@@ -214,4 +214,27 @@ describe("the hold queue", () => {
     expect(markup).toContain("border-line");
     expect(markup).toContain("text-ink-muted");
   });
+
+  /**
+   * THE PAUSED QUERY — the state that is neither loading nor failed.
+   *
+   * TanStack does not start a fetch it believes cannot succeed: with the default
+   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
+   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
+   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
+   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
+   * than mocking anything, so this is the branch a dropped connection actually produces.
+   */
+  it("does not report an empty queue over a read the browser never made", () => {
+    browserOffline();
+    const { container } = renderAdminPage(<HeldAccountsPage />, {
+      [HOLDS_PATH]: [tenant()],
+    });
+
+    // An account IS waiting. The screen must not say otherwise on no evidence.
+    expect(container.textContent).not.toContain("Nobody is waiting on us");
+    expect(container.textContent).toContain("The queue could not be read");
+    expect(container.textContent).toContain("This is not an empty queue");
+  });
+
 });

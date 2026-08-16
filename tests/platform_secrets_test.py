@@ -1005,3 +1005,77 @@ def test_the_aad_namespaces_platform_secrets_away_from_tenant_secrets() -> None:
     tenant's sealed credential ever being swapped into a platform row."""
     assert secret_context("bolna_api_key") == "platform_secret:bolna_api_key"
     assert not secret_context("x").startswith("tenant_secret:")
+
+
+# --- the email credential's probe (§7 step 10a) --------------------------------
+
+
+def test_the_email_credential_has_a_probe_at_last() -> None:
+    """`smtp_password` never had one and could not have one: a probe is an HTTP request
+    and SMTP AUTH is a different protocol, so a wrong mail password was always discovered
+    at the first hot lead. Moving email onto an HTTP API is what makes "wrong key,
+    refused at the screen" possible here at all — so the probe is part of that move, not
+    a nicety after it."""
+    from apps.api.ops.secret_probes import PROBES
+
+    probe = PROBES["resend_api_key"]
+    assert probe.url.startswith("https://api.resend.com/")
+    assert probe.method == "GET", "a probe must not be able to send mail"
+    assert probe.headers("re_candidate") == {"Authorization": "Bearer re_candidate"}
+    assert probe.verified is False, "no request has ever been made to api.resend.com"
+
+
+async def test_a_sending_only_resend_key_is_never_reported_as_wrong(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE FALSE NEGATIVE THIS FILE EXISTS TO AVOID, in the one place a vendor splits the
+    two refusals. Resend answers **403 `invalid_api_key`** for a wrong key and **401
+    `restricted_api_key`** for a REAL key scoped to sending only — and sending-only is the
+    least-privilege key DEPLOYMENT §6 tells the operator to create, so it cannot read
+    `/domains`. Calling that 401 a refusal would send them to rotate a working key.
+
+    401-is-restricted is REPORTED, NOT READ (`resend.com` is refused by this
+    environment's egress proxy); the 403/401 split itself is READ AT SOURCE from
+    `resend/resend-python`'s error map.
+    """
+    from apps.api.ops import secret_probes
+
+    class _Response:
+        def __init__(self, status: int) -> None:
+            self.status_code = status
+
+    class _Client:
+        def __init__(self, status: int) -> None:
+            self._status = status
+
+        async def __aenter__(self) -> _Client:
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        async def request(self, *_: object, **__: object) -> _Response:
+            return _Response(self._status)
+
+    for status, expected in ((200, "accepted"), (403, "rejected"), (401, "unreachable")):
+        monkeypatch.setattr(
+            secret_probes.httpx, "AsyncClient", lambda *_, _s=status, **__: _Client(_s)
+        )
+        result = await secret_probes.probe_credential("resend_api_key", "re_candidate")
+        assert result.outcome == expected, status
+
+    # And the 401 says WHY it could not check, rather than leaving "not checked" to be
+    # read as "something is wrong".
+    assert "Sending access" in result.detail
+    assert "NOT been checked" in result.detail
+
+
+def test_the_split_is_scoped_to_resend_and_not_a_new_default() -> None:
+    """Widening `refusal_statuses` for everybody would make every probe silently stop
+    reporting a 401 as a bad key — the opposite of what this file is for."""
+    from apps.api.ops.secret_probes import PROBES
+
+    assert PROBES["resend_api_key"].refusal_statuses == (403,)
+    for key, probe in PROBES.items():
+        if key != "resend_api_key":
+            assert probe.refusal_statuses == (401, 403), key

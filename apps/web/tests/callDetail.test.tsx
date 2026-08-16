@@ -44,7 +44,7 @@ function me(over: Partial<Me> = {}): Me {
 }
 
 /** The staff role: `calls:read` but never `calls:read_raw` (core/rbac.py). */
-const STAFF = me({ role: "staff", permissions: ["calls:read", "leads:read"] } as Partial<Me>);
+const STAFF = me({ role: "staff", permissions: ["calls:read", "leads:read"] });
 
 /** The digits that must never appear, in any grouping. */
 const RAW_NUMBER = "9876543210";
@@ -157,12 +157,16 @@ describe("the call detail screen", () => {
   });
 
   it("says that opening the full transcript is recorded, once it is open", async () => {
+    // `redacted: false` — this IS the raw view, and the field is REQUIRED on
+    // `TranscriptTurnOut`. It was missing here, and the `as unknown as Partial<CallDetail>`
+    // that used to sit on this literal is what kept the compiler from saying so; the turn
+    // eleven lines above spells the same shape correctly (tests/wireFixtureGuard.test.ts).
     const raw = detail({
       transcript: [
-        { idx: 0, speaker: "agent", text: "Namaskaram, this is an AI assistant." },
-        { idx: 1, speaker: "caller", text: `My number is ${RAW_NUMBER}.` },
+        { idx: 0, speaker: "agent", text: "Namaskaram, this is an AI assistant.", redacted: false },
+        { idx: 1, speaker: "caller", text: `My number is ${RAW_NUMBER}.`, redacted: false },
       ],
-    } as unknown as Partial<CallDetail>);
+    });
     const { container } = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }));
 
     fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
@@ -234,13 +238,18 @@ describe("the call detail screen", () => {
   it("prints a speaker it has never heard of rather than dropping the turn", async () => {
     const { container } = await renderClientPage(
       page,
-      routes(
-        detail({
-          transcript: [
-            { idx: 0, speaker: "constructor", text: "A line nobody may lose.", redacted: true },
-          ],
-        } as unknown as Partial<CallDetail>),
-      ),
+      // DELIBERATELY OFF-CONTRACT: `TranscriptTurnOut.speaker` is the closed union
+      // `"agent" | "caller"`, and a speaker outside it is the whole premise of this test.
+      // So the payload is handed to the route map as the `unknown` it is, rather than
+      // asserted into a union that does not contain it — an assertion here would keep
+      // compiling on the day somebody removed a speaker from the union for real, which is
+      // exactly the change this test exists to survive (tests/wireFixtureGuard.test.ts).
+      routes({
+        ...detail(),
+        transcript: [
+          { idx: 0, speaker: "constructor", text: "A line nobody may lose.", redacted: true },
+        ],
+      }),
     );
 
     // `lookup`, not `SPEAKERS[turn.speaker]`: a wire value naming an Object.prototype

@@ -6,10 +6,15 @@
 #   hooks.${ROOT_DOMAIN}  ──▶ 127.0.0.1:8100   voice-runtime container  ← never gated
 #
 # Rendered by `scripts/vps-deploy.sh` with `envsubst` over an EXPLICIT variable list, so
-# an unrelated `$` in this file (every nginx variable is one) survives the render. The
-# substituted names are exactly:
+# an unrelated `$` in this file (every nginx variable is one) survives the render. That
+# list is five names — one `envsubst` invocation renders all three templates — and the
+# three THIS file uses are:
 #
 #   ROOT_DOMAIN  ACME_WEBROOT  TLS_LIVE_DIR
+#
+# (`ORIGIN_CERT_PATH` and `ORIGIN_KEY_PATH` are the other two and belong to
+# `000-default.conf.template`. Stated as five-of-which-three rather than as three,
+# because a reader who adds a variable here needs the render's list, not this file's.)
 #
 # NO SECRET IS SUBSTITUTED HERE and none ever should be: nginx config is world-readable
 # on most hosts, and TLS private keys are referenced by path, never inlined.
@@ -157,8 +162,27 @@ server {
     proxy_send_timeout    15s;
     proxy_read_timeout    15s;
 
-    location = /healthz          { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_hooks; include /etc/nginx/snippets/calevate-proxy.conf; }
-    location ^~ /healthz/        { limit_req zone=health burst=5 nodelay; proxy_pass http://calevate_hooks; include /etc/nginx/snippets/calevate-proxy.conf; }
+    # NO HEALTH ROUTE ON THIS HOSTNAME, and a 404 rather than a deletion.
+    #
+    # This vhost used to proxy `= /healthz` and `^~ /healthz/` to voice-runtime. Nothing
+    # needs them here: the deploy polls `127.0.0.1:8100/healthz` directly and compose's
+    # healthcheck runs `/healthz/live` inside the container, so both readers are already
+    # on the loopback side of nginx. What the pair DID buy was a public path to
+    # `/healthz/ready`, whose handler resolves the engine adapter and drags `httpx` and
+    # `apps.api.engine.bolna` onto the event loop that has 500ms to ack a webhook —
+    # measured at 381-435ms of import on a first call, on the one service where that is a
+    # lost call rather than a slow page.
+    #
+    # DELETING the two lines does NOT close it: `location /` below is a prefix match on
+    # `/`, so every `/healthz*` request would simply fall through to it and reach the same
+    # handler — with the webhook rate zone paying for it. Closing it takes a location that
+    # answers instead of proxying, and `^~` so it wins over that catch-all.
+    #
+    # 404, not 403: the route genuinely does not exist on `hooks.`, and saying so tells a
+    # scanner less than a refusal does. The app-side fix (a per-service config probe, so
+    # readiness never constructs an adapter) is the other half and is not made redundant
+    # by this — voice-runtime still serves the route on the loopback interface.
+    location ^~ /healthz { return 404; }
 
     location / {
         # `burst=200 nodelay` on top of 600r/m: the average is a campaign's worth of

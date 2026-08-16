@@ -31,6 +31,7 @@ help:  ## List targets
 	@echo '  make guardrails  - executable governance (D-29)'
 	@echo '  make coverage-ratchet - suite under coverage + the per-surface ratchet [CI gate]'
 	@echo '  make conformance - both engine adapters'
+	@echo '  make restore-drill [SABOTAGE=kind] - local half of the backup/restore drill'
 
 up:  ## Local infra
 	docker compose up -d
@@ -221,6 +222,36 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# set against the Makefile, the package scripts, the decision log and the code's own
 	# vocabulary. Negative controls in tests/docs_drift_guard_test.py.
 	uv run python -m scripts.check_docs_drift
+
+# --- Backup/restore drill (OPERATIONS §6, runbooks/backup-restore-drill.md) ---
+# Its own .PHONY line, same reasoning as the pilot block below.
+.PHONY: restore-drill
+
+## THE LOCAL HALF of the quarterly drill, and the target `scripts/restore_drill.py`'s own
+## usage block has always named — there was no rule for it, so a committed 1500-line
+## harness naming a command that did not exist was reachable from nothing and had almost
+## certainly never run. That is the same class of finding as an unapplied terraform tree,
+## and it is worse here, because the whole point of this harness is proving the verifier
+## goes RED.
+##
+## NEEDS `make up` (Postgres on 5433 for the scratch databases, MinIO on 9000 standing in
+## for R2) plus `age`, `pg_dump` and `pg_restore` on PATH. It creates and drops its own
+## `calevate_drill_*` databases and touches nothing else — every destructive statement in
+## it checks the name against `SCRATCH_DB_PATTERN` first.
+##
+## Its verdict is `GREEN (local scope)`, never `PASS`: it does not test wal-g, R2, the
+## offsite provider, the age identity in the secrets manager, the systemd timers or
+## rclone, and it prints that list next to its verdict every run. **A green run here does
+## NOT tick "backups verified" on OPERATIONS §8** — only the quarterly runbook does, and
+## §0a there maps what this covers onto what it does not.
+##
+##   make restore-drill                              # the chain, green path
+##   make restore-drill SABOTAGE=drop-rls-policy     # prove it goes red, naming that defect
+##
+## SABOTAGE kinds: corrupt-object, drop-rls-policy, disable-append-only-trigger,
+## tamper-audit-row.
+restore-drill:  ## Local half of the backup/restore drill [GREEN (local scope), never PASS]
+	uv run python -m scripts.restore_drill $(if $(SABOTAGE),--sabotage=$(SABOTAGE),)
 
 # --- Bolna pilot (OPERATIONS §2, ROADMAP gate G0) -----------------------------
 # Its own .PHONY line rather than an edit to the one at the top: these targets were

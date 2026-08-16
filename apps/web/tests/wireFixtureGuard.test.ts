@@ -189,7 +189,26 @@ function isWireType(checker: ts.TypeChecker, type: ts.Type | undefined, depth = 
   if (declarations.some((declaration) => declaration.getSourceFile().fileName === SCHEMA)) {
     return true;
   }
-  return (checker.getTypeArguments?.(type as ts.TypeReference) ?? []).some((argument) =>
+  if (
+    (checker.getTypeArguments?.(type as ts.TypeReference) ?? []).some((argument) =>
+      isWireType(checker, argument, depth + 1),
+    )
+  ) {
+    return true;
+  }
+  /*
+   * `aliasTypeArguments` — where a MAPPED type keeps what it was applied to.
+   *
+   * `getTypeArguments` above only answers for a type REFERENCE, and `Partial<Me>` is not
+   * one: it resolves to an anonymous mapped type whose own symbol is declared nowhere
+   * near `schema.d.ts` and whose `aliasSymbol` is `Partial`, in `lib.es5.d.ts`. The first
+   * version of this guard therefore waved through `as Partial<Me>` and
+   * `as unknown as Partial<CallDetail>` — and behind one of those, a transcript fixture
+   * was missing `TranscriptTurnOut.redacted`, a REQUIRED field, with `pnpm typecheck`
+   * green. One line, and it closes every generic wrapper at once (`Partial`, `Readonly`,
+   * `Required`, `Pick`, `Omit`, `Record<string, Me>`) rather than the one that was found.
+   */
+  return (type.aliasTypeArguments ?? []).some((argument) =>
     isWireType(checker, argument, depth + 1),
   );
 }
@@ -212,6 +231,17 @@ function targetsWireType(checker: ts.TypeChecker, typeNode: ts.TypeNode): boolea
   if (isWireType(checker, checker.getTypeFromTypeNode(typeNode))) return true;
   if (ts.isIndexedAccessTypeNode(typeNode)) return targetsWireType(checker, typeNode.objectType);
   if (ts.isArrayTypeNode(typeNode)) return targetsWireType(checker, typeNode.elementType);
+  /*
+   * The written form of the same mapped-type hole. `isWireType`'s `aliasTypeArguments`
+   * branch answers for `Partial<Me>`, and this answers for the cases where the checker
+   * hands back something with no alias at all — a type argument that is itself indexed
+   * (`Partial<CallDetail["transcript"]>`), or a wrapper whose instantiation the checker
+   * has already eagerly resolved. Asking the NODE is exact: the argument is written out
+   * in the source, so there is nothing to infer.
+   */
+  if (ts.isTypeReferenceNode(typeNode)) {
+    return (typeNode.typeArguments ?? []).some((argument) => targetsWireType(checker, argument));
+  }
   return false;
 }
 
@@ -284,7 +314,20 @@ describe("the wire-fixture guard: a type assertion onto a generated schema type"
       `${fixtureLine("bannedDoubleAssertion") + 8} Me`,
       `${fixtureLine("bannedArrayAssertion") + 1} CallSummary[]`,
       `${fixtureLine("bannedIndexedAccessAssertion") + 1} CallSummary["status"]`,
+      `${fixtureLine("bannedPartialAssertion") + 1} Partial<Me>`,
     ]);
+  }, SCAN_TIMEOUT_MS);
+
+  it("sees through a mapped type to the wire type it was applied to", () => {
+    // Called out on its own because this is the hole the guard shipped with: `Partial<T>`
+    // resolves to an anonymous mapped type, so every mechanism the first version had —
+    // the declaring file of the type's symbol, `getTypeArguments`, the indexed-access
+    // branch — answered "not a wire type" for it. Three live sites passed, and one of
+    // them was hiding a missing REQUIRED field. If this ever goes green the other way,
+    // `as unknown as Partial<Anything>` is an unchecked fixture again.
+    const fixture = program.getSourceFile(resolve(WEB_ROOT, FIXTURE))!;
+    const flagged = findViolations(program, fixture).map((violation) => violation.line);
+    expect(flagged).toContain(fixtureLine("bannedPartialAssertion") + 1);
   }, SCAN_TIMEOUT_MS);
 
   it("stays silent on the six safe look-alikes", () => {

@@ -278,6 +278,13 @@ class FakeEngine:
             name=cfg.name,
             system_prompt=f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
             system_prompt_readable=True,
+            # The greeting, held SEPARATELY from the prompt exactly as both real adapters
+            # send it — `agent_welcome_message` on Bolna, `introduction` on Cartesia. The
+            # fake storing only the prompt is what would let a caller write a disclosure
+            # check that passes here and proves nothing against a vendor, which is the
+            # substitution finding P3.3 records.
+            greeting=cfg.disclosure_line,
+            greeting_readable=True,
             # The fake engine's agent really does reference its attached sources, so this
             # is readable — and it is the ONLY place D-41's dangling-handle logic gets
             # exercised until the pilot settles where Bolna keeps the reference.

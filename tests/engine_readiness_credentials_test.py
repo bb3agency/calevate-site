@@ -92,6 +92,11 @@ def _settings(**overrides: Any) -> Settings:
         "impersonation_grant_secret": "i" * 32,
         "audit_chain_secret": "a" * 32,
         "idempotency_scope_secret": "d" * 32,
+        # The KEK joined the readiness list with P3.3's ops sweep. Present here for the
+        # reason every other secret above is: this file is about the ENGINE clause, and a
+        # key reported from anywhere else would be noise these assertions cannot tell
+        # apart from the thing they measure.
+        "platform_kek": base64.b64encode(b"k" * 32).decode(),
     }
     base.update(overrides)
     return Settings(_env_file=None, **base)  # type: ignore[arg-type]

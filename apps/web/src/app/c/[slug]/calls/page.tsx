@@ -120,7 +120,23 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
           <div className="p-4">
             <Skeleton rows={6} />
           </div>
-        ) : calls.error ? null : calls.data?.length ? (
+        ) : /* `calls.error ? null` was the whole non-answer branch, and it left one non-
+               answer uncovered: a query TanStack has PAUSED because the browser is offline
+               reports `isLoading === false` AND `error === null` with no data, so the
+               ternary walked past both arms and printed "No calls yet" to a client whose
+               phone had lost signal. `!calls.data` is the test that separates an empty
+               list the server sent from a list we never asked for. `null` still, not a
+               notice: the `ProblemNotice` above this Card is this screen's whole refusal
+               and a second one inside it would say the same thing twice — but under a
+               PAUSE there is no error above, so this arm renders the sentence itself. */
+        calls.error ? null : !calls.data ? (
+          <div className="p-4">
+            <ProblemNotice
+              error={new Error("Your calls did not load.")}
+              onRetry={() => void calls.refetch()}
+            />
+          </div>
+        ) : calls.data.length ? (
           <ul className="divide-y divide-line">
             {calls.data.map((call) => {
               const Icon = lookup(STATUS_ICONS, call.status) ?? PhoneCall;

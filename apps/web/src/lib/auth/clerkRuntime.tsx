@@ -26,11 +26,33 @@
  * clerk-js is a **browser singleton**: it installs itself on `window.Clerk`, and one
  * document can therefore host exactly ONE Clerk application. That is not a limitation
  * we work around — it is the invariant this app is built on. `/admin/**` and `/c/**`
- * are disjoint route trees on disjoint hostnames (admin.calevate.tech and
- * app.calevate.tech), so only one realm's provider is ever mounted in a document, and
- * the D-22 "view as client" handoff mounts the ADMIN application on the client-realm
- * path precisely because that document must present an admin credential
- * (`lib/api/session.tsx`).
+ * are disjoint ROUTE TREES with disjoint providers, so only one realm's provider is ever
+ * mounted in a document, and the D-22 "view as client" handoff mounts the ADMIN
+ * application on the client-realm path precisely because that document must present an
+ * admin credential (`lib/api/session.tsx`).
+ *
+ * This paragraph used to say "disjoint route trees on disjoint hostnames
+ * (admin.calevate.tech and app.calevate.tech)", **and the hostname half was a premise
+ * this app does not enforce and cannot**: nothing in `apps/web` reads `Host`, both
+ * hostnames resolve to the same Next server, and `infra/nginx/calevate.conf.template`
+ * serves them from ONE `server` block with one `location /`. So
+ * `app.calevate.tech/admin` reaches the operator console and
+ * `admin.calevate.tech/c/<slug>` reaches a client dashboard. The route trees are still
+ * disjoint — which is all the singleton argument above actually needs — but the sentence
+ * claimed an edge property as a fact about this file, and a premise stated as a fact is
+ * the thing nobody re-checks.
+ *
+ * **What holds regardless**, and why this is not an authorization hole: the admin realm
+ * resolves against its own JWKS (`verify_token(token, "admin")` — an unknown `kid` is a
+ * 401), `assertMountedApplication` below refuses a provider mismatch in the browser, and
+ * the two applications' cookies are key-suffixed so they cannot collide. What does NOT
+ * hold is the separation of SURFACES: the operator sign-in page is served on the
+ * hostname clients are told to visit, which is phishing surface for the one console that
+ * holds cross-client data. Closing it is an edge change — two `server` blocks, with
+ * `location ^~ /admin { return 404; }` on `app.` and `^~ /c/` on `admin.` — and when it
+ * lands, the hostnames are disjoint as a matter of configuration rather than of
+ * intention. Nothing in this file changes either way; the sentence above is now the one
+ * this file can actually vouch for.
  *
  * `assertMountedApplication` turns "the right provider is mounted" from an assumption
  * into a checked fact. Without it, a future mis-wiring would send a CLIENT token to

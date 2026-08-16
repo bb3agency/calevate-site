@@ -1,5 +1,22 @@
+import { onlineManager } from "@tanstack/react-query";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+
+/**
+ * Put the browser back online after a test that took it offline (`browserOffline`).
+ *
+ * `onlineManager` is a MODULE-LEVEL singleton in query-core, so a test that leaves it
+ * false hands the next file a tree where nothing ever fetches — which shows up as an
+ * unrelated timeout in an unrelated suite, the worst kind of failure to read.
+ *
+ * Registered BEFORE `cleanup` on purpose: Vitest runs `afterEach` hooks in reverse
+ * registration order ("stack" is the default `sequence.hooks`), so this one runs LAST —
+ * after the tree is unmounted, so resuming the paused queries cannot fetch into a
+ * torn-down component with the `fetch` stub already gone.
+ */
+afterEach(() => {
+  onlineManager.setOnline(true);
+});
 
 /**
  * Unmount between tests.

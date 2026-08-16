@@ -595,7 +595,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     <AdminRealmClerkProvider protect>
       <Providers>
         <AdminMfaGate>
-          <div className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+          {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
+              to. The document scrolls by default; a shell that clips its own content is
+              the only thing that needs the document to stop. */}
+          <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
             <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
             <div className="flex flex-1 flex-col overflow-hidden">
               <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />

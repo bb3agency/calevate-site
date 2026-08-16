@@ -255,10 +255,15 @@ email**, through the same transport as hot-lead notifications, on a daemon threa
 request path. No WhatsApp sink: that is a BSP decision (see the open items in ROADMAP §6),
 and a second delivery mechanism is a second thing to be broken on the night it is needed.
 
-- **Configuration**: `ALERTS_EMAIL` plus an SMTP host. A non-local service booting with
-  neither logs `alert_delivery_unconfigured`, and one with a recipient but no transport
-  logs `alert_delivery_has_no_transport` — both at boot, so a deployment where alerts
-  reach nobody fails §8's gate visibly rather than silently.
+- **Configuration**: `ALERTS_EMAIL` plus a working email transport — `EMAIL_PROVIDER`
+  and its credential (`resend` + `RESEND_API_KEY`; `smtp` + `SMTP_HOST` remains the
+  escape hatch). A non-local service booting with no recipient logs
+  `alert_delivery_unconfigured`, and one with a recipient but no transport logs
+  `alert_delivery_has_no_transport` **with the reason** — `no_email_provider`,
+  `no_resend_api_key`, `no_sender_address` or `provider_not_implemented:<name>` — both at
+  boot, so a deployment where alerts reach nobody fails §8's gate visibly rather than
+  silently. Boot cannot check the one thing that is not a setting: an unverified sender
+  domain is refused per send (403) and appears as `email_sender_rejected` at ERROR.
 - **Noise bounds**: per-fingerprint repeat suppression keyed on `stage:code`, 15 minutes
   (Alertmanager's `repeat_interval`, tightened because there is one operator and no
   incident console), plus a global token bucket at 20/hour with a burst of 6. Both count
@@ -341,7 +346,8 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   state directory fails OPEN. Without it, a broken chain checked every fifteen minutes is
   ~96 mails a day, which becomes a filter rule, which is an alarm reaching nobody again.
 
-  What remains to do on the host is `ALERTS_EMAIL` plus readable `SMTP_*` — proved by
+  What remains to do on the host is `ALERTS_EMAIL` plus a readable email transport
+  (`EMAIL_PROVIDER` + `RESEND_API_KEY`) — proved by
   `notify.sh probe "delivery test"` putting mail in a real inbox, since local delivery
   success is transport acceptance, not receipt.
 
@@ -402,9 +408,12 @@ Daily: alert triage; pipeline DLQ empty; spend anomalies. Weekly: regression nig
 results review; knowledge-gap report → KB updates; pipeline/latency trend. Monthly:
 invoice run; margin per client; rate-card check. Quarterly: restore drill (prove RTO 4h/
 RPO 15min) — `runbooks/backup-restore-drill.md`, alternating the R2 PITR chain and the
-offsite dump chain, result recorded in `docs/evidence/`; access review; secret rotation;
-regulation/pricing re-verify; adapter conformance run against Bolna (keep the exit door
-oiled).
+offsite dump chain, result recorded in `docs/evidence/`; access review; secret rotation
+(**one credential lives in two places and both must move together** — the host backup
+relay reads `SMTP_PASSWORD` from `/etc/calevate/alerts.env`, not from the console, because
+an alarm saying the database is unrecoverable cannot need the database to be sent;
+`infra/backup/README.md` §5); regulation/pricing re-verify; adapter conformance run against
+Bolna (keep the exit door oiled).
 
 ## 7. Runbooks (summaries; full steps in /runbooks)
 
@@ -533,7 +542,38 @@ engine verification scorecard passed · agent passed test-call gate + regression
 disclosure + consent verified on a real recording · caps set · backups verified ·
 alerts firing to Sri's phone · client owner trained on Leads table (15-min session) ·
 DPA + privacy notice signed · invoice template ready · **admin-realm MFA switched on in
-the admin Clerk application**.
+the admin Clerk application** · **`GET /healthz/ready` answers `ready` — last, because it
+is the only item on this list the platform can answer for itself**.
+
+**`/healthz/ready` is the go-live gate and this is the line that polls it.** `core/health.py`
+names it that; `runtime_config_missing_keys` behind it is the completeness check over the
+credentials a deployment needs in order to serve rather than merely to boot (the list is
+that function, not a number written here — engine credentials come from the engine layer,
+so it moves with `ENGINE`). Until this line existed **nothing called it** — the
+deploy script polls `/healthz`, compose polls `/healthz/live`, and a grep across
+`scripts/`, `.github/`, `infra/` and the Makefile found one hit and it was a comment. A
+gate nobody opens is not a gate.
+
+```sh
+curl -sS -i -H "Authorization: Bearer <a session holding ops:manage>" \
+  https://api.calevate.tech/healthz/ready
+```
+
+200 + `"status":"ready"` is the pass. 503 + `"status":"not_ready"` names its own reason in
+`degradation_mode` — `db_down`, `redis_down`, `queue_stale`, `config_missing` — and
+`config_missing` lists the keys in `fields[]`. **Send the credential**: without
+`ops:manage` the endpoint answers the status word alone and nothing else (D-128 — it used
+to publish the names of the credentials this deployment had not installed yet, to anyone
+who asked, which is a targeting oracle at exactly the moment it is most useful to a
+stranger). The withheld detail is written to the service log instead, so an operator on the
+box is never blind, but at the checklist stage you want it in the response.
+
+It goes **last** for a reason: `config_missing` stays red until §9 step 10a's ~50 keys are
+in, so running it early only teaches people to ignore it. `GET /v1/ops/config` is the
+companion read — every key with its source, i.e. "is anything still on a code default in
+production" — and the two together are the whole of what this repository can assert about
+its own readiness. Everything else on this checklist is a human, a registration or a
+vendor.
 
 **Three of those items have a pass condition that deployed code does not satisfy on its
 own**, stated here because they have previously been read as done:
@@ -577,11 +617,19 @@ own**, stated here because they have previously been read as done:
   record committed to `docs/evidence/`. The existence of `infra/backup/` does not tick it:
   nothing in that tree has been applied and no wal-g command has ever been run, so until a
   drill record exists the §5 RPO is a design intent rather than a measurement.
-- **Alerts firing to Sri's phone** = `ALERTS_EMAIL` plus a reachable SMTP host in the
-  environment, on the app hosts AND on the database host (where the same configuration is
+- **Alerts firing to Sri's phone** = `ALERTS_EMAIL` plus a working email transport
+  (`EMAIL_PROVIDER=resend` and `RESEND_API_KEY`, or the `smtp` escape hatch), on the app
+  hosts AND on the database host (where the same configuration is
   what lets the backup relay page). A service booting without them says so — see §4 — and
   local delivery success is transport acceptance, not receipt, so the proof is a probe
   message landing in a real inbox.
+
+  **The sender domain is a THIRD condition and it is not a setting.** Resend refuses a
+  send from a domain it has not verified (403, `email_sender_rejected`), so
+  `calevate.tech` must be verified in the Resend dashboard with its DNS records live
+  before this gate can be ticked — DEPLOYMENT §6 lists the records. A key that
+  authenticates is not a domain that can send, and `POST /v1/ops/secrets/{key}/test`
+  checks only the first of the two.
 
   **That gate covers alarms that are SENT. The dead man covers the ones that cannot be**
   (D-54), and it is armed separately: `BACKUP_HEARTBEAT_URL` set on the DATABASE host from

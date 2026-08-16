@@ -65,6 +65,12 @@ BOOTSTRAP_REQUIRED = (
     "OBJECT_STORE_BUCKET",
 )
 
+#: The `user:password` pair `.env.example` ships and migration `05bba2f3c19c` creates the
+#: application role with when a human did not go first. Spelled ONCE, here, because it is
+#: a literal that must stay identical to the one in those two files and a second copy is
+#: the drift this project has already paid for twice (D-103/D-105).
+_DEV_DB_CREDENTIAL = "calevate_app:calevate_app"
+
 # Repo root: apps/api/core/settings.py -> apps/api/core -> apps/api -> apps -> root
 _ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
@@ -133,6 +139,33 @@ def validate_bootstrap_env(environ: dict[str, str] | None = None) -> None:
                 f"Set it to one of {'|'.join(ENVIRONMENTS)}"
             )
             + " (DEV-SETUP §4)."
+        )
+    # THE DEVELOPMENT PASSWORD, REFUSED OUTSIDE `local` (P5.14b). This is not a
+    # hypothetical operator slip: `.env.example` ships the literal, AND migration
+    # `05bba2f3c19c` CREATES the `calevate_app` role with exactly this password when a
+    # human has not created it first — so a deployment that follows the happy path and
+    # nothing else ends up with a production database whose application role's password
+    # is published in this repository.
+    #
+    # A SUBSTRING CHECK, deliberately, rather than parsing the URL. The failure is that
+    # this exact pair of words reached a non-local host by ANY route — a copied `.env`, a
+    # CI default, a `docker compose` override — and every one of those routes produces
+    # the literal somewhere in the string. Parsing would additionally require deciding
+    # what to do about a URL that does not parse, which is a second failure mode invented
+    # to answer a question about a fixed string.
+    #
+    # It cannot false-positive a real credential: `calevate_app:calevate_app` as a
+    # password is a password identical to the username, which no secrets manager emits
+    # and no operator chooses. If one somehow did, the correct response to this message
+    # is still to change it.
+    if stated != "local" and _DEV_DB_CREDENTIAL in env.get("DATABASE_URL", ""):
+        raise BootstrapError(
+            f"DATABASE_URL carries the development credential {_DEV_DB_CREDENTIAL!r} on "
+            f"APP_ENV={stated}. That password is published in .env.example and is what "
+            "migration 05bba2f3c19c creates the role with when nobody creates it first, "
+            "so it is public. Create the role with a generated password before running "
+            "migrations (DEPLOYMENT §9.3a) and set DATABASE_URL and ALEMBIC_DATABASE_URL "
+            "from the secrets manager."
         )
 
 
@@ -534,6 +567,22 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # verification aid, absent on every deployment that has never rotated.
         if not cfg.idempotency_scope_secret:
             missing.append("IDEMPOTENCY_SCOPE_SECRET")
+        # THE KEK, and it is the widest of the three: the two above disable one feature
+        # each, this one disables every console-managed credential at once. `PLATFORM_KEK`
+        # unwraps the DEKs that `platform_secrets` rows are encrypted under
+        # (`core/envelope.py`), so a deployment without it cannot decrypt its engine key,
+        # its payment key or its email key — and every one of those is stored there rather
+        # than in the environment BY DESIGN (D-95, PLATFORM-CONFIG §5), which is what makes
+        # its absence a whole-platform outage wearing the shape of six unrelated ones.
+        #
+        # Reported here rather than refused at boot for the reason the whole function
+        # exists: `apps/api` boots, serves `/healthz`, and lets an operator SEE the
+        # problem in the ops console. Refusing at import would leave them with a
+        # crash-looping container and no surface to fix it from. The deploy preflight
+        # refuses it by name as well (`scripts/vps-deploy.sh`) — that catches the deploy,
+        # this catches the host somebody edited afterwards, and neither covers the other.
+        if not cfg.platform_kek:
+            missing.append("PLATFORM_KEK")
         # OBJECT STORAGE, and these two are read off `os.environ` rather than off `cfg`
         # because that is where they actually live: botocore resolves its own credentials
         # and nothing in this repository passes them to it (`workers/storage._client`,

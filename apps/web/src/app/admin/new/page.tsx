@@ -761,10 +761,17 @@ function CreatedPanel({
                   that put this panel on screen. */}
               {pending.isLoading ? (
                 <Skeleton rows={2} />
-              ) : pending.error ? (
-                <ProblemNotice error={pending.error} onRetry={() => void pending.refetch()} />
+              ) : pending.error || !pending.data ? (
+                /* `|| !pending.data` because a paused query — what TanStack does with
+                   every read while the browser is offline — has `isLoading === false` and
+                   `error === null`, so both arms above were skipped and `?? []` rendered
+                   "no pending invites" against the 409 that put this panel on screen. */
+                <ProblemNotice
+                  error={pending.error ?? new Error("The pending invitations did not load.")}
+                  onRetry={() => void pending.refetch()}
+                />
               ) : (
-                (pending.data ?? []).map((row) => (
+                pending.data.map((row) => (
                   <div key={row.id} className="flex flex-wrap items-center gap-2 text-xs">
                     <span className="font-mono text-ink">{row.email_masked}</span>
                     <span className="text-ink-muted">

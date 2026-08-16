@@ -271,6 +271,18 @@ class ProgressOut(Strict):
     # campaign that is dialling right now still has a next Tuesday to show and a repeat
     # to offer stopping.
     recurrence: RecurrenceOut | None = None
+    # THE TWO FACTS A LAUNCH CONFIRMATION HAS TO STATE (P7.4), and both were write-only
+    # until this pair landed: set in the create form, held as local state, returned by no
+    # endpoint. So `LaunchConfirm.tsx` — the panel asking a client to authorise ringing N
+    # strangers, irreversibly — could not tell them WHEN it would ring or WHICH number
+    # would appear on the handset.
+    #
+    # `calling_hours` is the campaign's own NARROWING, null when it chose none; the
+    # platform's 09:00-21:00 IST bound is true of every campaign and the screen states it
+    # unconditionally. `number_e164` is null when the campaign has no number, which the
+    # screen says rather than rendering blank.
+    calling_hours: CallingHoursIn | None = None
+    number_e164: str | None = None
 
 
 class CampaignSummaryOut(Strict):

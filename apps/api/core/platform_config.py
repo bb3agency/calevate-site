@@ -304,6 +304,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "object_store_endpoint": AppliesRule(LIVE),  # workers/storage._client(), per call
     "object_store_bucket": AppliesRule(LIVE),  # workers/storage, per call
     "bolna_webhook_source_ips": AppliesRule(LIVE),  # bolna_source_ips(get_settings())
+    # WHICH email transport this deployment sends through. `live`, and checked rather
+    # than assumed: `workers/transport.get_transport()` resolves it through
+    # `calevate_shared.config.email_transport_reason()` on EVERY send and builds a fresh
+    # transport each time — no adapter instance is cached anywhere, unlike `engine`.
+    "email_provider": AppliesRule(LIVE),
     "smtp_host": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
     "smtp_port": AppliesRule(LIVE),
     "smtp_username": AppliesRule(LIVE),
@@ -395,6 +400,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "audit_chain_secret_retired": AppliesRule(LIVE),
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
+    # The Resend API key. `live` for the same checked reason `email_provider` is: the
+    # transport is constructed per send from `get_settings()`, so a rotation reaches the
+    # next hot-lead email and the next alert without a restart. This is the difference
+    # from `bolna_api_key`, which a cached adapter captures once.
+    "resend_api_key": AppliesRule(LIVE),
     "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
     "backup_heartbeat_url": AppliesRule(LIVE),
     "google_sheets_service_account_json": AppliesRule(LIVE),

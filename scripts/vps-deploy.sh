@@ -84,7 +84,27 @@ NGINX_SNIPPET_DIR=${NGINX_SNIPPET_DIR:-/etc/nginx/snippets}
 # Cloudflare has released.
 CLOUDFLARE_IPS_MAX_AGE_DAYS=${CLOUDFLARE_IPS_MAX_AGE_DAYS:-180}
 
+# ONE IMAGE PER COMMIT, and this is what makes a rollback cheap enough to take.
+#
+# `compose.prod.yml` names the image `calevate/app:${CALEVATE_IMAGE_TAG:-local}` and
+# NOTHING used to set that variable, so every build overwrote one mutable `:local` tag.
+# Two consequences, both paid during an incident: a rollback had no artefact to go back to
+# and meant a full serial `docker build` on a degraded host, and an api-only build replaced
+# the image `voice-runtime` would use at its NEXT recreate — hard rule 3 held at the
+# container level and not at the artefact level.
+#
+# The tag is the commit, so an artefact is identifiable, a rollback lands on a build that
+# already exists, and `IMAGE_KEEP` bounds what that costs on disk. 12 hex characters: long
+# enough that a collision is not a thing that happens to a repository, short enough to read
+# in `docker image ls`.
+IMAGE_REPO=${IMAGE_REPO:-calevate/app}
+IMAGE_KEEP=${IMAGE_KEEP:-5}
+
 readonly ALL_COMPONENTS=(api voice-runtime workers web nginx)
+
+# Set by `run_migrations` when it recognised a rollback and left the schema alone. Declared
+# here because `set -u` is on and the summary reads it whether or not migrations ran.
+MIGRATIONS_SKIPPED=0
 
 # --- output -------------------------------------------------------------------------
 STEP="startup"
@@ -155,6 +175,8 @@ preflight() {
   [[ -f "$ROOT/$COMPOSE_FILE" ]] || die "missing $ROOT/$COMPOSE_FILE"
   [[ -f "$ROOT/Dockerfile" ]]    || die "missing $ROOT/Dockerfile"
 
+  check_dev_compose_cannot_collide
+
   # The one precondition this script will never satisfy for you.
   [[ -f "$ROOT/.env" ]] || die \
     ".env is missing at $ROOT/.env. Deploy scripts NEVER write secrets (DEPLOYMENT §6):
@@ -188,6 +210,28 @@ preflight() {
      refuses at boot and the first failure is a recording copy that lands in the DLQ.
      See DEPLOYMENT §6 tier 1. AWS_REGION is optional and defaults to 'auto' (R2)."
 
+  # PLATFORM_KEK, by NAME, for the same reason and by the same means. It is the key that
+  # opens the credential store: every console-managed secret is ciphertext until it
+  # unwraps them. It is deliberately NOT in `BOOTSTRAP_REQUIRED` (a worker must boot
+  # tolerantly), and it is not in `runtime_config_missing_keys` either — so a deployment
+  # that never had it boots clean, answers /healthz, answers /healthz/ready `ready`, and
+  # fails at the first read of the first vendor credential, which is the first outbound
+  # call. Losing it later is worse and is not recoverable by any means: every stored
+  # credential becomes permanently undecryptable. Both cases were guarded by prose only.
+  #
+  # PRESENCE, never the value or its length: `apps/api/core/envelope.py` owns the
+  # encoding and the length rule and refuses on a short key at read time, and a second
+  # copy of that rule here would be a second thing to keep in step. This check moves the
+  # ABSENT case from "the first outbound call in production" to "before anything is
+  # deployed", which is all it is for.
+  grep -qE "^PLATFORM_KEK=." "$ROOT/.env" || die \
+    "PLATFORM_KEK is not set in .env. It unwraps every console-managed credential
+     (PLATFORM-CONFIG §3/§4), it is env-only by design — the store cannot hold the key to
+     itself — and nothing refuses at boot without it: the deploy would go green and the
+     first vendor call would fail. Generate it into the secrets manager, once per
+     deployment, and never lose it:
+       python -c \"import base64,os; print(base64.b64encode(os.urandom(32)).decode())\""
+
   git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$ROOT is not a git checkout"
   if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]]; then
     git -C "$ROOT" status --short --untracked-files=no >&2
@@ -201,12 +245,33 @@ preflight() {
     "only ${free_gb}GB free at $ROOT; need ${MIN_FREE_GB}GB. Reclaim first:
      docker image prune -af && docker builder prune --keep-storage 3GB"
 
-  # --- checks that used to live in the step that needed them ---------------------
-  #
-  # Every one of these was previously discovered at the step that needed it — i.e. AFTER migrations
-  # had run and all three containers had been swapped — so a missing tool or a missing
-  # file aborted a deploy that had already half-happened. A precondition found late is a
-  # precondition that costs a rollback.
+  check_cloudflare_ip_age
+}
+
+# --- 1b. the refusals that need to know the PLAN --------------------------------------
+#
+# SEPARATE FUNCTION, AND THIS IS WHY. These checks arrived inside `preflight()` guarded by
+# `in_plan web` / `in_plan nginx` — and `preflight` runs BEFORE `resolve_plan`, so `PLAN`
+# was an unset array. Under `set -u`, bash 4.4+ expands `"${PLAN[@]}"` of an unset array to
+# nothing rather than erroring, so `in_plan` answered "no" to every question and every
+# check inside those two blocks silently never ran. Not a check that was wrong: a check
+# that was NOT THERE, while three documents said it was and the deploy printed nothing
+# either way. The class of defect is the one CLAUDE.md calls half-wired, and the only
+# reason it was survivable is that nobody has run this script.
+#
+# Called from `main` immediately after `resolve_plan` and BEFORE `--dry-run` exits, so
+# `scripts/vps-deploy.sh --dry-run --all` — the first command DEPLOYMENT §9 step 4 tells an
+# operator to run — reports a missing browser env file or an unexported ROOT_DOMAIN
+# instead of printing a plan that cannot execute. Nothing between it and `preflight` mutates
+# anything: only `git pull --ff-only` runs in between.
+
+preflight_plan() {
+  step "preflight (plan-scoped)"
+
+  # Every one of these was previously discovered at the step that needed it — i.e. AFTER
+  # migrations had run and all three containers had been swapped — so a missing tool or a
+  # missing file aborted a deploy that had already half-happened. A precondition found
+  # late is a precondition that costs a rollback.
 
   # The browser tier's configuration. Next loads `.env*` from the PACKAGE directory and
   # inlines every NEXT_PUBLIC_* at BUILD time, so a missing file here does not fail the
@@ -220,6 +285,10 @@ preflight() {
      (apps/web/.env.example). Without it the bundle ships with an empty API base and empty
      Clerk publishable keys, and the deploy still reports success. Place it by hand from
      the secrets manager, then re-run."
+    # The ONLY copy of this check. `deploy_web` used to repeat it, which is two ways of
+    # asking one question and is a defect here even though both worked: the copy at step
+    # 10 is the one that fires after migrations have run.
+    local tool
     for tool in pnpm pm2; do
       command -v "$tool" >/dev/null || die "$tool is not installed on this host (DEPLOYMENT §2)"
     done
@@ -227,9 +296,11 @@ preflight() {
 
   # The five the nginx step needs. They are NOT in .env and are not Settings fields — this
   # script never sources .env — so they must be exported in the operator's shell. Checked
-  # here rather than at `render_nginx`, which is the last step of the deploy.
+  # here rather than at `render_nginx`, which is the last step of the deploy. ACME_WEBROOT
+  # is the fifth and is not listed: it has a real default in `render_nginx`, and demanding
+  # an export for a value that defaults correctly trains people to export noise.
   if in_plan nginx; then
-    local missing=()
+    local missing=() var
     for var in ROOT_DOMAIN TLS_LIVE_DIR ORIGIN_CERT_PATH ORIGIN_KEY_PATH; do
       [[ -n "${!var:-}" ]] || missing+=("$var")
     done
@@ -237,16 +308,114 @@ preflight() {
       "the nginx step needs these exported in this shell and they are unset: ${missing[*]}.
      They are deliberately not in .env (this script never sources it) and not Settings
      fields. See DEPLOYMENT §9 step 4."
+
+    # Only when the script is going to touch /etc/nginx. Unset, it renders and prints the
+    # install commands, and none of this is needed.
+    if [[ "$NGINX_AUTO_RELOAD" == "1" ]]; then
+      command -v nginx >/dev/null || die "NGINX_AUTO_RELOAD=1 but nginx is not installed
+     on this host (DEPLOYMENT §2 baseline)."
+      for var in NGINX_CONF_DIR NGINX_SNIPPET_DIR; do
+        [[ -d "${!var}" ]] || die "$var is ${!var}, which is not a directory. nginx is
+     either not installed the way DEPLOYMENT §5 expects or these overrides point at
+     nothing; either way the install step would create files nginx never reads."
+      done
+      # `sudo -n`: the install step is unattended under CD, and a sudo that PROMPTS there
+      # does not fail — it blocks, holding the deploy open until the job times out 45
+      # minutes later, with the container swap already done and the edge config not.
+      sudo -n true 2>/dev/null || die "NGINX_AUTO_RELOAD=1 needs passwordless sudo for the
+     install step, and this shell does not have it. Under CD a prompting sudo does not
+     fail, it hangs until the job times out — with the containers already swapped."
+    fi
   fi
 
-  check_cloudflare_ip_age
+  # --- host capacity, for the two components that have a hard requirement ------------
+  #
+  # Both are stated as rules in DEPLOYMENT §2/§2a and neither was ever checked, so the
+  # first symptom of each is a deploy that has already half-happened.
+
+  # `next build` peaks over 2GB. §2 requires 2GB of swap for exactly this, and the OOM
+  # killer takes the build with no error message — `deploy-failed.md` §5 lists it as the
+  # first cause of "the build just stopped". Read from /proc rather than `free`, whose
+  # output format is localised.
+  if in_plan web; then
+    local swap_kb=0
+    if [[ -r /proc/meminfo ]]; then
+      swap_kb=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo)
+    fi
+    (( swap_kb >= 1000000 )) || warn "swap is $(( swap_kb / 1024 ))MB; DEPLOYMENT §2 wants
+     2GB for the web build. \`next build\` peaks over 2GB and an OOM kill leaves no error,
+     only a build that stopped. This is a warning rather than a refusal because a bigger
+     box legitimately needs no swap — check free RAM before ignoring it."
+  fi
+
+  # §2a is unambiguous: "NEVER more workers than vCPU — each one saturates a core, so
+  # oversubscribing trades throughput for context switching." The default is 4, sized for
+  # the production box; on a smaller host it silently costs ack latency, which is the one
+  # budget hard rule 3 spends. A refusal, not a warning: the honest fix is fewer workers
+  # and a lower supported concurrency, and it is one environment variable.
+  if in_plan voice-runtime; then
+    local vcpu workers
+    vcpu=$(nproc)
+    workers=${VOICE_RUNTIME_WORKERS:-4}
+    (( workers <= vcpu )) || die \
+      "VOICE_RUNTIME_WORKERS is $workers on a ${vcpu}-vCPU host. DEPLOYMENT §2a: never more
+     workers than vCPU — each saturates a core, and oversubscription is paid out of the
+     500ms ack budget on the service carrying live calls. Set VOICE_RUNTIME_WORKERS=$vcpu
+     (and read §2a's table: fewer workers means a lower supported concurrency, which is the
+     honest answer on this box)."
+  fi
+}
+
+# The deploy root is a checkout of this repository, so `docker-compose.yml` — the DEV
+# infra file — is always sitting next to `compose.prod.yml`, and `docker compose` with no
+# `-f` picks the dev one. What made that dangerous was not its presence, it was its
+# ABSENT project name: compose falls back to the directory basename, `/var/www/calevate`
+# is `calevate`, and `compose.prod.yml` declares `name: calevate`. One project, two files,
+# both defining a service called `redis` — so a bare `docker compose up -d` recreated
+# PRODUCTION redis from the dev definition (no `--appendonly yes`, no `redis-data`
+# volume: the ARQ queue and the webhook dedupe keys, gone), published Postgres and MinIO
+# on 0.0.0.0 behind ufw rules that do not filter Docker's nat/FORWARD entries, and
+# `docker compose down -v` took the production volumes with it.
+#
+# So this refuses a MISSING OR COLLIDING project name rather than the file itself —
+# refusing the file would refuse every deploy, since it is committed and always there.
+check_dev_compose_cannot_collide() {
+  local dev="$ROOT/docker-compose.yml" declared
+  [[ -f "$dev" ]] || return 0
+
+  # Top-level `name:` only — column 0, so a `name:` nested under a service cannot answer
+  # for the project. `if grep` rather than `grep || true`: no-match is an expected answer
+  # here, and the header of this file promises no `|| true` anywhere in it.
+  declared=""
+  if declared=$(grep -m1 -E '^name:[[:space:]]*[^[:space:]]' "$dev"); then
+    declared=${declared#name:}
+    declared=${declared//[[:space:]]/}
+  fi
+
+  [[ -n "$declared" ]] || die \
+    "$dev declares no top-level 'name:', so compose would default its project to this
+     directory's basename ($(basename "$ROOT")). If that equals the production project
+     ($COMPOSE_PROJECT), a bare 'docker compose up -d' here recreates production redis
+     from the DEV definition — no appendonly, no redis-data volume — and 'down -v'
+     deletes the production volumes. Add 'name: calevate-dev' to it."
+
+  [[ "$declared" != "$COMPOSE_PROJECT" ]] || die \
+    "$dev declares 'name: $declared', which is the production compose project. Two files
+     addressing one project both define a 'redis' service; the dev one has no persistence.
+     Give the dev file its own project name."
 }
 
 check_cloudflare_ip_age() {
   local conf="$ROOT/infra/nginx/snippets/calevate-origin.conf" stamp age_days
   [[ -f "$conf" ]] || die "missing $conf"
-  stamp=$(grep -m1 -oE 'CLOUDFLARE_IPS_UPDATED: [0-9]{4}-[0-9]{2}-[0-9]{2}' "$conf" | awk '{print $2}') \
-    || true
+  # `if grep`, not `grep || true`. The header of this file says there is no `|| true` in
+  # it and none should be added; there was one, here, and it made that sentence false in
+  # the one place a reader checks it. A no-match is an expected answer, and `if` is how
+  # bash asks for one without turning off the setting that makes every OTHER failure loud.
+  stamp=""
+  if stamp=$(grep -m1 -oE 'CLOUDFLARE_IPS_UPDATED: [0-9]{4}-[0-9]{2}-[0-9]{2}' "$conf"); then
+    stamp=${stamp##* }
+  fi
   [[ -n "$stamp" ]] || die "$conf carries no CLOUDFLARE_IPS_UPDATED stamp; refusing to
      install an origin allowlist of unknown age"
   age_days=$(( ( $(date -u +%s) - $(date -u -d "$stamp" +%s) ) / 86400 ))
@@ -276,7 +445,15 @@ sync_checkout() {
     die "HEAD is $HEAD_SHA but CI validated $EXPECTED_SHA.
      This deploy would ship untested code. Re-run CI on HEAD, or deploy that commit."
   fi
-  log "deploying $HEAD_SHA"
+
+  # EXPORTED, because compose reads it from the environment for every `build`, `run` and
+  # `up` in this script. Set here rather than at the build step so that the migrate `run`,
+  # the bootstrap-env `run` and each swap all resolve the SAME artefact as the build did —
+  # a deploy where those disagree is one nobody can reason about afterwards.
+  export CALEVATE_IMAGE_TAG="${HEAD_SHA:0:12}"
+  IMAGE_REF="$IMAGE_REPO:$CALEVATE_IMAGE_TAG"
+
+  log "deploying $HEAD_SHA as $IMAGE_REF"
 }
 
 # --- 3. which components ------------------------------------------------------------
@@ -394,6 +571,17 @@ build_images() {
   mapfile -t services < <(python_services_in_plan)
   (( ${#services[@]} )) || { log "no python service in plan — nothing to build"; return 0; }
 
+  # THE ARTEFACT FOR THIS COMMIT MAY ALREADY EXIST, and on the rollback path it usually
+  # does. The checkout is verified clean in `preflight`, so the commit fully determines
+  # what a build would produce; rebuilding it would burn a serial `docker build` on a host
+  # that is, in the case this matters, already degraded. To force one, delete the tag:
+  #   docker image rm $IMAGE_REF
+  if docker image inspect "$IMAGE_REF" >/dev/null 2>&1; then
+    step "build images"
+    log "$IMAGE_REF already exists — reusing it (this is what makes a rollback fast)"
+    return 0
+  fi
+
   step "build images (serial)"
   # SERIAL, one --build-arg-free service at a time. Parallel builds OOM a 4GB host
   # (DEPLOYMENT §10) and the OOM kills the runner, not the build, so it reads as a CI
@@ -429,6 +617,64 @@ print("bootstrap env OK for", get_settings().app_env)'
 }
 
 # --- 6. migrations ------------------------------------------------------------------
+
+# Is the database at a revision this image has never heard of?
+#
+# THE ROLLBACK CASE, and the only one this answers. `runbooks/deploy-failed.md` §4 and the
+# summary banner both tell an operator to roll back with `git checkout <previous-sha>` and
+# `--all --no-pull`. `--all` puts the python services in the plan, so `run_migrations`
+# would run `alembic upgrade head` FROM THE OLDER IMAGE — and if the deploy being rolled
+# back carried a migration, alembic resolves the stored `alembic_version` against its own
+# script directory first and dies with `Can't locate revision identified by '<rev>'`
+# (verified against the installed alembic; exit 255). The rollback aborted before swapping
+# a single container, in exactly the incident it exists for.
+#
+# The right behaviour is the one the docs already promise for the other direction: **code
+# rolls back, the schema does not.** Rule 8 makes that safe — the older release can serve
+# on the newer schema, because a migration may not remove anything the previous release
+# still uses. So the upgrade is not merely impossible here, it is unwanted, and the fix is
+# to recognise it rather than to attempt it.
+#
+# THE SEED IS SKIPPED WITH IT. It is idempotent and rule 8 says the older seed can run
+# against the newer schema — but the newer release has already seeded everything the older
+# one knows about, so the upside is nil, and a rollback is the worst moment to discover an
+# edge of rule 8. Nothing is skipped silently: both are named in the banner below and in
+# `.deploy-state/history`.
+#
+# `scripts/deploy_revision_check` answers with an EXIT CODE, in the image, so that "the
+# database is ahead" and "the check broke" cannot be confused. Only a clean `3` skips;
+# anything else migrates, or dies trying, which is the safe direction.
+rolling_back_onto_a_newer_database() {
+  local revision=${DB_REVISION_BEFORE%% *}   # `alembic current` prints "<rev> (head)"
+  # An empty version table is a first deploy and an unreadable one is a database problem;
+  # neither is a rollback, and both belong to the migrate step that follows.
+  [[ -n "$revision" && "$revision" != "unreadable" ]] || return 1
+
+  local verdict=0
+  compose run --rm --no-deps --entrypoint python api \
+    -m scripts.deploy_revision_check "$revision" || verdict=$?
+
+  case "$verdict" in
+    0) return 1 ;;   # this image knows the revision — an ordinary forward deploy
+    3) ;;            # it does not: the database is ahead of this artefact
+    *) die "could not decide whether the database is ahead of this image (checker exit
+     $verdict, database at '$revision'). Refusing to guess: guessing 'ahead' would skip a
+     migration this release needs and swap new code onto an old schema. Fix the checker or
+     run the migration by hand — runbooks/deploy-failed.md §3." ;;
+  esac
+
+  printf '\n\033[1;33m===================== MIGRATIONS SKIPPED =====================\033[0m\n' >&2
+  printf 'The database is at revision %s, which this commit does not contain.\n' "$revision" >&2
+  printf 'That means this deploy is a ROLLBACK: the code is going backwards and the\n' >&2
+  printf 'schema is staying where it is. "alembic upgrade head" from here cannot work\n' >&2
+  printf "(alembic cannot resolve a revision it has no script for) and is not wanted —\n" >&2
+  printf 'hard rule 8 is what makes the previous release able to serve on this schema.\n' >&2
+  printf 'The seed is skipped with it. Containers WILL be swapped.\n' >&2
+  printf 'If you meant to move the schema back, that is a considered manual downgrade:\n' >&2
+  printf 'runbooks/deploy-failed.md §3.\n' >&2
+  printf '\033[1;33m==============================================================\033[0m\n' >&2
+  return 0
+}
 
 run_migrations() {
   in_plan api || in_plan workers || in_plan voice-runtime || return 0
@@ -468,6 +714,11 @@ run_migrations() {
   DB_REVISION_BEFORE=$(compose run --rm --no-deps --entrypoint alembic api current 2>/dev/null \
                        | tail -1 | tr -d '\r' || echo "unreadable")
   log "alembic revision before: ${DB_REVISION_BEFORE:-none}"
+
+  if rolling_back_onto_a_newer_database; then
+    MIGRATIONS_SKIPPED=1
+    return 0
+  fi
 
   compose --profile migrate run --rm --no-deps migrate
 
@@ -537,8 +788,10 @@ deploy_web() {
   # Next.js runs on the host under pm2, not in Compose (DEPLOYMENT §1). `next build`
   # peaks over 2GB, which is why §2 requires 2GB of swap and why §7a wants this build
   # moved into CI once self-serve opens.
-  command -v pnpm >/dev/null || die "pnpm is not installed on this host (Node 22 + pnpm 10 — DEPLOYMENT §2)"
-  command -v pm2  >/dev/null || die "pm2 is not installed on this host"
+  #
+  # `pnpm` and `pm2` are NOT checked here any more — `preflight_plan` owns that, before
+  # anything has been built, migrated or swapped. Two copies of one refusal is a defect
+  # even while both work: the survivor is always the one that fires late.
 
   # `--frozen-lockfile` is the supply-chain line, not a speed flag: it makes the install
   # reproduce the reviewed lockfile exactly and FAIL if the manifest and the lock
@@ -626,15 +879,77 @@ install_nginx() {
     return 0
   fi
 
+  # ============================ WHY THERE IS A BACKUP HERE ===========================
+  # `nginx -t` reads /etc/nginx, so the files have to be ON DISK before they can be
+  # tested — there is no "test this candidate set" mode. That used to mean a failed test
+  # aborted the deploy with the BROKEN FILES STILL INSTALLED. The running nginx was fine,
+  # which is what `runbooks/deploy-failed.md` told the operator, and it was the wrong
+  # thing to be reassured by: the next reload picks the broken set up, and nginx reloads
+  # are triggered by things nobody associates with a deploy — Debian's daily logrotate
+  # postrotate, certbot's renewal deploy hook. A config bomb with a delay fuse measured
+  # in days.
+  #
+  # So: copy every file this step is about to write (the ones that EXIST — the rest are
+  # new and get removed instead), install, test, and put the previous set back if the
+  # test fails. The backup mirrors the absolute path under one temp root, because a
+  # snippet and a conf.d file are allowed to share a basename and a flat copy would
+  # silently restore one over the other.
+  local backup target relative
+  backup=$(mktemp -d)
+
+  local -a targets=() preexisting=() introduced=()
+  for target in "$ROOT"/infra/nginx/snippets/*.conf; do
+    targets+=("$NGINX_SNIPPET_DIR/$(basename "$target")")
+  done
+  for target in "$NGINX_STAGING"/*.conf; do
+    targets+=("$NGINX_CONF_DIR/$(basename "$target")")
+  done
+
+  for target in "${targets[@]}"; do
+    if [[ -f "$target" ]]; then
+      relative=${target#/}
+      mkdir -p "$backup/$(dirname "$relative")"
+      # `cp -p`, and restored with `cp -p` too: whatever mode and ownership the live file
+      # has is the thing to put back, not the 0644 this script would install.
+      sudo cp -p "$target" "$backup/$relative"
+      preexisting+=("$target")
+    else
+      introduced+=("$target")
+    fi
+  done
+  log "previous nginx config backed up to $backup (${#preexisting[@]} file(s); ${#introduced[@]} new)"
+
   # Snippets first: the site config `include`s them, so installing the site config first
   # would make `nginx -t` fail on a file that is about to exist. Ordering, not taste.
-  sudo install -m 0644 "$ROOT"/infra/nginx/snippets/*.conf "$NGINX_SNIPPET_DIR/"
-  sudo install -m 0644 "$NGINX_STAGING"/*.conf "$NGINX_CONF_DIR/"
-
+  #
   # TEST BEFORE RELOAD, ALWAYS. `systemctl reload` on a bad config leaves the old workers
   # running and reports success, so the failure surfaces at the next restart — possibly a
   # reboot, weeks later, with nobody connecting the two events.
-  sudo nginx -t
+  #
+  # All three commands sit in one `if !` condition so that a failure of ANY of them —
+  # including an `install` that dies half way through on permissions or a full disk —
+  # lands in the same restore path. Inside an `if` condition bash suppresses errexit and
+  # the ERR trap, and `&&` keeps the short-circuit, so this is not a swallowed failure:
+  # the branch below re-raises it with more information than the trap could.
+  if ! { sudo install -m 0644 "$ROOT"/infra/nginx/snippets/*.conf "$NGINX_SNIPPET_DIR/" \
+      && sudo install -m 0644 "$NGINX_STAGING"/*.conf "$NGINX_CONF_DIR/" \
+      && sudo nginx -t; }; then
+    warn "nginx refused the new config — restoring the previous files before aborting"
+    for target in "${preexisting[@]}"; do sudo cp -p "$backup/${target#/}" "$target"; done
+    for target in "${introduced[@]}";  do sudo rm -f "$target"; done
+    # Prove the restore is what nginx had, rather than asserting it. If THIS fails, the
+    # edge config is in a state neither this script nor the operator can describe, and
+    # saying so is worth more than a tidy exit code.
+    sudo nginx -t || die \
+      "the RESTORED nginx config does not pass 'nginx -t' either. /etc/nginx is now in a
+     state this script did not produce and cannot describe. Previous files are in
+     $backup; do not reload nginx until it tests clean. runbooks/deploy-failed.md §5."
+    die "nginx -t failed on the rendered config (error above). The previous config has been
+     put back and nothing was reloaded, so the running edge is unchanged AND the files on
+     disk match it — the next logrotate or certbot reload is safe.
+     Rendered files: $NGINX_STAGING     Backup of the previous set: $backup"
+  fi
+
   sudo systemctl reload nginx
   log "nginx reloaded"
 }
@@ -646,8 +961,18 @@ record_deploy() {
   mkdir -p "$STATE_DIR"
   printf '%s\n' "$HEAD_SHA" > "$STATE_DIR/deployed-sha"
   # Kept as history, not just a pointer: "what was live at 02:00 last Tuesday" is the
-  # first question of every incident and the last thing anyone can reconstruct.
-  printf '%s %s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$HEAD_SHA" "${PLAN[*]}" \
+  # first question of every incident and the last thing anyone can reconstruct. The image
+  # ref is on the line because it is the thing you can actually `docker run`, and the
+  # migration verdict is on it because "did that deploy move the schema?" is the second
+  # question and it now has three answers, not two.
+  local migrations=none
+  if (( MIGRATIONS_SKIPPED )); then
+    migrations=skipped-rollback
+  elif [[ -n "${DB_REVISION_AFTER:-}" ]]; then
+    migrations=applied
+  fi
+  printf '%s %s image=%s migrations=%s %s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$HEAD_SHA" "${IMAGE_REF:-unknown}" "$migrations" "${PLAN[*]}" \
     >> "$STATE_DIR/history"
 }
 
@@ -661,16 +986,60 @@ post_deploy_prune() {
   # `--reserved-space` and still accepts the old name as a deprecated alias; if a future
   # engine removes it this line fails loudly, which is the correct way to find out.
   docker builder prune -f --keep-storage 3GB
+  prune_app_images
+}
+
+# Per-commit tags are what a rollback lands on, so they must NOT be dangling — which also
+# means `docker image prune -f` above will never reclaim one. This is the other half of
+# that decision: keep the newest `IMAGE_KEEP` and drop the rest.
+#
+# Two rules make it safe. Nothing referenced by a container (running OR stopped) is a
+# candidate, so this cannot delete what is serving traffic or what `docker start` would
+# need. And a removal that fails anyway is reported and does not abort — this runs AFTER
+# the deploy has fully succeeded, and turning a housekeeping refusal into a DEPLOY FAILED
+# banner would teach operators that the banner does not mean anything. Reported, not
+# swallowed: the ref and docker's own message both reach the log.
+prune_app_images() {
+  local in_use candidate
+  in_use=$(docker ps -a --format '{{.Image}}' | sort -u)
+
+  local -a stale=()
+  while IFS= read -r candidate; do
+    [[ -n "$candidate" && "$candidate" != *"<none>"* ]] || continue
+    if ! grep -qxF "$candidate" <<<"$in_use"; then stale+=("$candidate"); fi
+  done < <(docker image ls --filter "reference=$IMAGE_REPO" --format '{{.Repository}}:{{.Tag}}' \
+           | tail -n +$(( IMAGE_KEEP + 1 )))
+
+  (( ${#stale[@]} )) || { log "app images: nothing beyond the newest $IMAGE_KEEP to remove"; return 0; }
+
+  log "removing ${#stale[@]} app image(s) older than the newest $IMAGE_KEEP"
+  local ref
+  for ref in "${stale[@]}"; do
+    if ! docker image rm "$ref"; then
+      warn "could not remove $ref (message above). The deploy itself is done; this is disk
+     housekeeping. If it keeps failing, 'docker ps -a --filter ancestor=$ref' names what is
+     holding it."
+    fi
+  done
 }
 
 summary() {
   printf '\n\033[1;32m========================== DEPLOYED ==========================\033[0m\n'
   printf 'commit     : %s\n' "$HEAD_SHA"
+  printf 'image      : %s\n' "${IMAGE_REF:-unknown}"
   printf 'components : %s\n' "${PLAN[*]}"
-  printf 'db revision: %s -> %s\n' "${DB_REVISION_BEFORE:-unchanged}" "${DB_REVISION_AFTER:-unchanged}"
+  if (( MIGRATIONS_SKIPPED )); then
+    printf 'db revision: %s (UNCHANGED — rollback detected, see the banner above)\n' \
+      "${DB_REVISION_BEFORE:-unknown}"
+  else
+    printf 'db revision: %s -> %s\n' "${DB_REVISION_BEFORE:-unchanged}" "${DB_REVISION_AFTER:-unchanged}"
+  fi
   printf 'rollback   : git -C %s checkout <previous-sha> && scripts/vps-deploy.sh --all --no-pull\n' "$ROOT"
-  printf '             (code only — the database does NOT roll back with it; see\n'
-  printf '              runbooks/deploy-failed.md §3 before downgrading a revision)\n'
+  printf '             (code only — the database does NOT roll back with it, and the\n'
+  printf '              deploy will SAY SO and skip the migration rather than failing on\n'
+  printf '              a revision the older image has no script for. It reuses that\n'
+  printf '              commit'"'"'s image if it is still on the host, so it is a swap and\n'
+  printf '              not a rebuild. See runbooks/deploy-failed.md §4.)\n'
   printf '\033[1;32m==============================================================\033[0m\n'
 }
 
@@ -679,6 +1048,7 @@ summary() {
 preflight
 sync_checkout
 resolve_plan
+preflight_plan
 
 if (( DRY_RUN )); then
   log "--dry-run: would deploy [${PLAN[*]}] at $HEAD_SHA and stop here"

@@ -3919,6 +3919,17 @@
             ],
             "title": "Prompt Applied"
           },
+          "prompt_disclosure_applied": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Disclosure Applied"
+          },
           "state": {
             "title": "State",
             "type": "string"
@@ -3944,6 +3955,7 @@
           "in_sync",
           "prompt_applied",
           "disclosure_applied",
+          "prompt_disclosure_applied",
           "voice_applied",
           "detail"
         ],
@@ -8812,6 +8824,16 @@
       "ProgressOut": {
         "additionalProperties": false,
         "properties": {
+          "calling_hours": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CallingHoursIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "concurrency": {
             "title": "Concurrency",
             "type": "integer"
@@ -8856,6 +8878,17 @@
                 "type": "null"
               }
             ]
+          },
+          "number_e164": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Number E164"
           },
           "recurrence": {
             "anyOf": [

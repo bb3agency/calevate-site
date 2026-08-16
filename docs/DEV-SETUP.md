@@ -53,6 +53,17 @@ pnpm install
 **6380** (5432/6379 are taken by another project on the build machine). `.env.example`
 already points at those — do not "fix" them back.
 
+**The dev compose project is named `calevate-dev`**, declared at the top of
+`docker-compose.yml` rather than defaulted from the directory name. The reason is in that
+file's header and it is a production one: on the VPS the deploy directory is
+`/var/www/calevate`, so an unnamed dev file resolved to the same compose project as
+`compose.prod.yml` and a bare `docker compose up -d` there would have recreated
+production redis from the dev definition. **If you ran `make up` before this line
+existed**, your old containers and volumes still exist under the previous project name
+(your directory's basename) and this file no longer sees them: `docker compose ps` looks
+empty and Postgres comes up fresh. `make db-reset` reseeds it; `docker volume ls` still
+lists the old volumes if anything in there mattered.
+
 **No Docker? `bash scripts/dev_bootstrap.sh`.** Compose stays the documented default; the
 script is the fallback for a machine where Docker is unavailable or its registry is
 unreachable (sandboxed CI container, locked-down laptop). It provisions the same

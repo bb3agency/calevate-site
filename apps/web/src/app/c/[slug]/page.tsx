@@ -62,10 +62,31 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
     );
   }
 
-  if (dashboard.error) {
-    return <ProblemNotice error={dashboard.error} onRetry={() => void dashboard.refetch()} />;
+  /**
+   * A refusal we received, or an answer that never arrived — one branch, because to the
+   * owner they are the same sentence and it is not "nothing happened today".
+   *
+   * `|| !dashboard.data` is the half this screen was missing. `isLoading` is
+   * `isPending && isFetching` (query-core `queryObserver.js`), so it is FALSE for a query
+   * TanStack has PAUSED rather than started — which is what it does the moment the
+   * browser is offline (`fetchStatus: canFetch(networkMode) ? "fetching" : "paused"`).
+   * A paused query has `isLoading === false`, `error === null` and `data === undefined`,
+   * so both guards above fell through and every tile below rendered its absence marker
+   * while "No call history yet" and "No calls yet" were printed as facts about this
+   * business. Same spelling as `/c/<slug>/verification` and `/c/<slug>/campaign-review`,
+   * which met this first.
+   */
+  if (dashboard.error || !dashboard.data) {
+    return (
+      <ProblemNotice
+        error={dashboard.error ?? new Error("Your dashboard did not load.")}
+        onRetry={() => void dashboard.refetch()}
+      />
+    );
   }
 
+  // Narrowed by the guard above, so nothing below has to invent a day, a mood or a
+  // count: every `?? []` this screen used to carry was standing in for an answer.
   const data = dashboard.data;
 
   return (
@@ -73,19 +94,19 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Calls today"
-          value={formatCount(data?.calls_today)}
+          value={formatCount(data.calls_today)}
           icon={<PhoneCall className="h-5 w-5" />}
-          hint={`${formatCount(data?.calls_7d)} in the last 7 days`}
+          hint={`${formatCount(data.calls_7d)} in the last 7 days`}
         />
         <StatTile
           label="Average call length"
-          value={formatDuration(data?.avg_duration_s)}
+          value={formatDuration(data.avg_duration_s)}
           icon={<Clock className="h-5 w-5" />}
           hint="Completed calls only"
         />
         <StatTile
           label="New leads (7 days)"
-          value={formatCount(data?.leads_new_7d)}
+          value={formatCount(data.leads_new_7d)}
           icon={<Users className="h-5 w-5" />}
           hint={
             <Link href={href(`/c/${slug}/leads`)} className="underline hover:text-ink">
@@ -95,7 +116,7 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
         />
         <StatTile
           label="Hot leads waiting"
-          value={formatCount(data?.hot_leads_open)}
+          value={formatCount(data.hot_leads_open)}
           icon={<Flame className="h-5 w-5" />}
           tone="strong"
           hint="Interested and not yet won or lost"
@@ -105,21 +126,21 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
           <Card title="Calls each day" bodyClassName="p-6">
-            <DailyCalls days={data?.daily_7d ?? []} />
+            <DailyCalls days={data.daily_7d} />
           </Card>
         </div>
 
         <div className="flex flex-col gap-4 lg:col-span-4">
           <StatTile
             label="Captured after hours"
-            value={formatCount(data?.after_hours_captured_7d)}
+            value={formatCount(data.after_hours_captured_7d)}
             icon={<Moon className="h-5 w-5" />}
             hint={
               /* WHICH definition produced the number, straight from the field the API
                  added for exactly this reason. A tile that renders "14 captured after
                  hours" identically from a fact and from a 09:00–21:00 guess invites an
                  owner to trust a number we did not earn. */
-              data?.after_hours_basis === "business_hours"
+              data.after_hours_basis === "business_hours"
                 ? "Using your recorded opening hours"
                 : "Using 9am–9pm IST — add your opening hours for a real figure"
             }
@@ -135,23 +156,32 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
             <Card title="Spend this month" bodyClassName="p-5">
               <Skeleton rows={2} />
             </Card>
-          ) : usage.error ? (
+          ) : usage.error || !usage.data ? (
+            /* `|| !usage.data` for the paused case: with no error to render, this tile
+               used to fall through to `formatINR(undefined)` — a "—" that an owner
+               cannot tell from "you have spent nothing this month". */
             <Card title="Spend this month" bodyClassName="p-5">
-              <ProblemNotice error={usage.error} onRetry={() => void usage.refetch()} />
+              <ProblemNotice
+                error={usage.error ?? new Error("Your spend did not load.")}
+                onRetry={() => void usage.refetch()}
+              />
             </Card>
           ) : (
             <StatTile
               label="Spend this month"
-              value={formatINR(usage.data?.overage_cost_inr)}
+              value={formatINR(usage.data.overage_cost_inr)}
               icon={<Sparkles className="h-5 w-5" />}
-              hint={
-                usage.data
-                  ? `${usage.data.minutes_used} min used of ${formatCount(usage.data.included_minutes)} included`
-                  : undefined
-              }
+              hint={`${usage.data.minutes_used} min used of ${formatCount(usage.data.included_minutes)} included`}
             />
           )}
-          <SentimentSplit split={data?.sentiment_split ?? {}} />
+          {/* `?? {}` here is a PAYLOAD null, not an envelope one, and the difference is
+              the whole of §52: `data` is narrowed, so the only `undefined` left is the
+              one `DashboardOut.sentiment_split` carries because it has a server-side
+              default and Pydantic therefore generates an OPTIONAL property (the
+              optional-on-the-wire trap, `tenant_erasure_routes.TenantErasureScopeOut`).
+              An absent split from a response that ARRIVED means no scored calls, which is
+              exactly what `SentimentSplit` renders for an empty map. */}
+          <SentimentSplit split={data.sentiment_split ?? {}} />
         </div>
       </div>
 
@@ -167,11 +197,18 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
         }
         bodyClassName="p-2"
       >
-        {recent.error ? (
-          <ProblemNotice error={recent.error} onRetry={() => void recent.refetch()} />
-        ) : recent.isLoading ? (
+        {recent.isLoading ? (
           <Skeleton rows={5} />
-        ) : !recent.data?.length ? (
+        ) : recent.error || !recent.data ? (
+          /* `!recent.data?.length` used to decide this, and `?.` collapses the two
+             answers §52 keeps apart: an empty list the server sent and no answer at all
+             are both falsy, so a paused query printed "No calls yet" to a client whose
+             phone had simply lost signal. The refusal arm now owns both non-answers. */
+          <ProblemNotice
+            error={recent.error ?? new Error("The latest calls did not load.")}
+            onRetry={() => void recent.refetch()}
+          />
+        ) : !recent.data.length ? (
           <EmptyState
             title="No calls yet"
             hint="They appear here within a couple of minutes of the call ending."

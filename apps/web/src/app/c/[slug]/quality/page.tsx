@@ -76,11 +76,16 @@ export default function QualityPage() {
         <Card>
           <Skeleton rows={6} />
         </Card>
-      ) : reports.error ? (
+      ) : reports.error || !reports.data ? (
         /* Deliberately NOT the empty state. "No report yet" is a claim about your
            account, and a failed read is not evidence for it — a client told their agent
            has never been tested, because a token expired, has been misinformed about the
-           thing this screen exists to prove. */
+           thing this screen exists to prove.
+           `|| !reports.data` because a failed read is not the only way to have no answer:
+           a query TanStack has PAUSED because the browser is offline reports
+           `isLoading === false` and `error === null` with no data, so `all` was `[]`,
+           `shown` was undefined, and this screen told a client their agent had never been
+           tested off a request that was never sent. */
         <Card>
           <NoticeBox
             tone="warn"

@@ -653,6 +653,7 @@ async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
                 state="not_published",
                 prompt_applied=None,
                 disclosure_applied=None,
+                prompt_disclosure_applied=None,
                 voice_applied=None,
                 detail="This agent is not on the voice platform, so there is nothing to compare.",
             )
@@ -671,6 +672,7 @@ async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
         state=verdict.state,
         prompt_applied=verdict.prompt_applied,
         disclosure_applied=verdict.disclosure_applied,
+        prompt_disclosure_applied=verdict.prompt_disclosure_applied,
         voice_applied=verdict.voice_applied,
         detail=(
             # `verify_publish`'s wording assumes a write just happened. Here nothing did,

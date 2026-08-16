@@ -187,11 +187,42 @@ backup did not run", and an alert that names the wrong stage lies about where to
   construction under D-26, and the thing to revisit if the database ever moves to its own
   box;
 - `Settings` is one class, so `DATABASE_URL`, `REDIS_URL` and the object-store keys must be
-  *readable* by `postgres`. Either the repo's `.env` is readable by that user (simple
-  shape) or the units supply `EnvironmentFile=-/etc/calevate/alerts.env` with only those
-  keys plus `SMTP_*`, `ALERTS_EMAIL` and `BACKUP_HEARTBEAT_URL` (hardened shape).
+  *readable* by `postgres`, and so must `SMTP_*` and `ALERTS_EMAIL` — this process opens no
+  database connection, so it cannot read a console-managed value. **`/etc/calevate/alerts.env`
+  is the only shape**: a file owned by `root`, mode 0640, group-readable by `postgres`,
+  carrying those keys and `BACKUP_HEARTBEAT_URL`, loaded by every unit here through
+  `EnvironmentFile=-/etc/calevate/alerts.env`.
   **Nothing here opens either connection** — that property is deliberate in `alerting` and is re-proved end to end in
   `tests/backup_alert_relay_test.py` with both DSNs pointed at a closed port;
+
+  > **The "simple shape" — put `SMTP_*` into the repo's `.env` and let `postgres` read it —
+  > used to be offered here first, and it is withdrawn rather than demoted.** It cannot
+  > work as written, because the repo `.env` is §6 tier 1 (the bootstrap eight plus the two
+  > object-store credentials) and carries no `SMTP_*` and no `ALERTS_EMAIL`: those are
+  > console-managed, i.e. rows in the database this process deliberately does not open, so
+  > the relay exits **78 (`EX_CONFIG`) — "nowhere to deliver"** on every alarm, forever,
+  > while backups look healthy.
+  >
+  > Adding them to that file is worse than not, and this is the part that is easy to miss:
+  > **the environment always wins over the console** (`settings.apply_platform_overrides` —
+  > `platform_config._resolve` never offers a key the environment declares). D-26 puts
+  > PostgreSQL on the same VPS as the app, so there is ONE `/var/www/calevate/.env`, read by
+  > `api`, `workers` and `voice-runtime` as well. An `SMTP_PASSWORD=` line placed there to
+  > fix the backup relay silently pins the whole platform's SMTP credential to that file:
+  > rotating it in the console changes a row nothing reads any more, and the failure is a
+  > console screen that says the new value is live while every mail still goes out under the
+  > old one. A separate `EnvironmentFile` the app processes never load has neither problem.
+
+- **`SMTP_PASSWORD` therefore exists in two places, and there is no third option.** The
+  console holds the platform's copy; `/etc/calevate/alerts.env` holds the database host's.
+  That duplication is inherent — an alarm that says "the database is unrecoverable" must not
+  need the database in order to be sent — so it is managed rather than removed: **rotating
+  it means rotating BOTH, in the same sitting** (OPERATIONS §6's quarterly secret rotation
+  names this). Rotating only the console leaves a healthy-looking platform and a host relay
+  that authenticates with a dead credential, which is a *failing alarm path under a passing
+  heartbeat*: the external dead man (§5) covers a check that stops running, not one that
+  runs, goes red and cannot say so. Prove both after any rotation with
+  `scripts/backup/notify.sh probe "delivery test"` (§8 step 11);
 - an interpreter start and up to ~45s of SMTP wait per alert, paid by a backup script that
   has already failed, bounded by `timeout 90s` in the wrapper so a unit can never hang on
   its own alarm.
@@ -255,8 +286,8 @@ which cannot send anything at all.
    missed runs, the same number `MAX_HEALTH_GAP_S` uses, so a slow boot or a long
    `wal-verify` does not page anyone and a stopped schedule does. Point its notification at
    the same person `ALERTS_EMAIL` reaches.
-2. Put its ping URL in `BACKUP_HEARTBEAT_URL` **on the database host** — the repo `.env`
-   (simple shape) or `/etc/calevate/alerts.env` (hardened shape), from the secrets manager.
+2. Put its ping URL in `BACKUP_HEARTBEAT_URL` **on the database host**, in
+   `/etc/calevate/alerts.env` (§5 — the one shape), from the secrets manager.
    **It is a credential**: anyone holding it can silence the alarm by pinging it, so it is
    never committed, never pasted into a ticket, and never logged — operator output names a
    12-character digest of it instead. Rotating it = a new check, a new secret, nothing else.
@@ -400,13 +431,15 @@ was written. **Do not assume any of it works.**
 10. **Run the drill before go-live, not after** — `runbooks/backup-restore-drill.md`. Until
     it has passed once, the correct description of this directory is "a backup system we
     believe in", and D-26's requirement is not met.
-11. **Set `ALERTS_EMAIL` (and `SMTP_*`) where this host can read them**, and prove it:
-    `scripts/backup/notify.sh probe "delivery test"` must print `host_alert delivered` and
-    put mail in the operator's inbox. `HOST_BACKUP` is already a member of
-    `alerting.FailureStage` and the hook already defaults to the relay, so this is the
-    only remaining step between a backup failure and a phone. If the app's `.env` is not
-    readable by `postgres`, write `/etc/calevate/alerts.env` instead (§5) — the units
-    already load it optionally.
+11. **Write `/etc/calevate/alerts.env`** — `ALERTS_EMAIL`, `SMTP_*`, `BACKUP_HEARTBEAT_URL`
+    and the three `Settings` requires to construct (`DATABASE_URL`, `REDIS_URL`, the
+    object-store keys) — root-owned, 0640, group `postgres`; the units already load it
+    optionally. Then prove it: `scripts/backup/notify.sh probe "delivery test"` must print
+    `host_alert delivered` and put mail in the operator's inbox. `HOST_BACKUP` is already a
+    member of `alerting.FailureStage` and the hook already defaults to the relay, so this is
+    the only remaining step between a backup failure and a phone. **Not the app's `.env`**,
+    for the reason §5 gives: the console-managed keys are not in it, and adding them pins
+    the whole platform's SMTP credential to a file that outranks the console.
 12. **Record the decisions this raises** in ROADMAP §6: the 35-day retention as a DPDP
     commitment (§6/§7), the external heartbeat dependency (§5 — still open, and now with
     exactly three named failures behind it), and whether `ERASURE_LIMITATIONS` gains a

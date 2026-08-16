@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import ClientHealthPage from "@/app/admin/health/page";
 import { CLIENT_HEALTH_PATH, type ClientHealth } from "@/lib/api/clientHealth";
 
-import { problem, renderAdminPage } from "./harness";
+import { browserOffline, problem, renderAdminPage } from "./harness";
 
 /**
  * The client health board — the screen that decides which client gets looked at.
@@ -336,4 +336,27 @@ describe("the client health board", () => {
     expect(markup).toContain("border-line");
     expect(markup).toContain("text-ink-muted");
   });
+
+  /**
+   * THE PAUSED QUERY — the state that is neither loading nor failed.
+   *
+   * TanStack does not start a fetch it believes cannot succeed: with the default
+   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
+   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
+   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
+   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
+   * than mocking anything, so this is the branch a dropped connection actually produces.
+   */
+  it("does not call the estate healthy over a read the browser never made", () => {
+    browserOffline();
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [row()],
+    });
+
+    // The server WOULD have answered with a broken client. Nobody asked it.
+    expect(container.textContent).not.toContain("Every client looks healthy");
+    expect(container.textContent).toContain("The board could not be read");
+    expect(container.textContent).toContain("This is not a healthy estate");
+  });
+
 });

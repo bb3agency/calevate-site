@@ -3,19 +3,37 @@ import { describe, expect, it } from "vitest";
 
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import type { Agent } from "@/lib/api/agents";
-import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
+import type {
+  CampaignProgress,
+  CampaignSummary,
+  LaunchCheck,
+} from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
-import { expectTextCount, renderClientPage } from "./harness";
+import {
+  expectTextCount,
+  problem,
+  renderClientPage,
+  type Routes,
+} from "./harness";
 
 /**
- * The launch control's enabled state, read off the DOM property.
+ * The control that stands where a launch begins — whichever of the two it is.
+ *
+ * There is exactly ONE at a time and the branches are mutually exclusive: a campaign with
+ * outstanding blockers gets a dead button labelled with the thing it may not do ("Launch
+ * campaign"), and a campaign the gate has cleared gets the live opener of the
+ * confirmation (`LaunchConfirm`'s "Review this launch"). Matching both is what keeps every
+ * assertion below about the SAME question — may this person start dialling, and are they
+ * told why not — rather than about which label the branch happens to carry.
  *
  * Not `toBeDisabled()`: `@testing-library/jest-dom` is deliberately not a dependency
  * (see vitest.config.mts), and `disabled` is the property the browser actually acts on.
  */
 function launchButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: "Launch campaign" }) as HTMLButtonElement;
+  return screen.getByRole("button", {
+    name: /^(Launch campaign|Review this launch)$/,
+  }) as HTMLButtonElement;
 }
 
 function launchButtonDisabled(): boolean {
@@ -71,7 +89,8 @@ const AGENT: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line, and an outbound
   // campaign agent is the case the rule exists for. This fixture omitted it entirely —
   // `as unknown as Agent` is why nobody noticed.
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   engine: "bolna",
   published: true,
   extraction_fields: [],
@@ -109,7 +128,11 @@ function check(...blockers: { rule: string; reason: string }[]): LaunchCheck {
  * `enabled` on it. Seeding it any other way would be testing a screen state the app
  * cannot reach.
  */
-async function openLaunchPanel(launchCheck: LaunchCheck, me: Me = ME) {
+async function openLaunchPanel(
+  launchCheck: LaunchCheck,
+  me: Me = ME,
+  over: Routes = {},
+) {
   const rendered = await renderClientPage(<CampaignsPage />, {
     "/v1/me": me,
     "/v1/campaigns": [CAMPAIGN],
@@ -118,6 +141,7 @@ async function openLaunchPanel(launchCheck: LaunchCheck, me: Me = ME) {
     "/v1/campaigns/templates": [],
     [`/v1/campaigns/${CAMPAIGN_ID}`]: PROGRESS,
     [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: launchCheck,
+    ...over,
   });
   fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
   await screen.findByText("Before you launch");
@@ -151,7 +175,10 @@ describe("the launch panel with blockers outstanding", () => {
   it("names the desk a blocker lands on, so a client does not hunt for a setting they do not have", async () => {
     const { container } = await openLaunchPanel(
       check(
-        { rule: "pe_registration_not_active", reason: "PE registration inactive." },
+        {
+          rule: "pe_registration_not_active",
+          reason: "PE registration inactive.",
+        },
         { rule: "no_contacts", reason: "The campaign has no contacts." },
       ),
     );
@@ -173,12 +200,15 @@ describe("the launch panel with blockers outstanding", () => {
     const { container } = await openLaunchPanel(
       check({
         rule: "a_gate_this_build_predates",
-        reason: "Calling hours for this campaign fall outside the platform window.",
+        reason:
+          "Calling hours for this campaign fall outside the platform window.",
       }),
     );
 
     expect(container.querySelectorAll("li")).toHaveLength(1);
-    expect(container.textContent).toContain("Calling hours for this campaign fall outside");
+    expect(container.textContent).toContain(
+      "Calling hours for this campaign fall outside",
+    );
     // The rule NAME is the gate's vocabulary and must not be what the client reads.
     expect(container.textContent).not.toContain("a_gate_this_build_predates");
     expect(launchButtonDisabled()).toBe(true);
@@ -192,7 +222,9 @@ describe("the launch panel with blockers outstanding", () => {
       }),
     );
 
-    expect(container.textContent).toContain("Calevate doesn't dial purchased lists");
+    expect(container.textContent).toContain(
+      "Calevate doesn't dial purchased lists",
+    );
     expect(container.textContent).not.toContain("consent_source_refused");
     // This one the client CAN act on — the correction form is the point of the badge.
     expect(container.textContent).toContain("You can fix this");
@@ -217,16 +249,23 @@ describe("the launch panel during a platform-wide outage", () => {
 
   it("never lists our outage among the client's to-dos", async () => {
     const { container } = await openLaunchPanel(
-      check(OUTAGE, { rule: "no_contacts", reason: "The campaign has no contacts." }),
+      check(OUTAGE, {
+        rule: "no_contacts",
+        reason: "The campaign has no contacts.",
+      }),
     );
 
     // One bullet, and it is the client's. The outage is above the list in its own
     // shape — a `role="status"` notice — not an item in it.
     expect(container.querySelectorAll("li")).toHaveLength(1);
-    expect(container.querySelector("li")?.textContent).toContain("Upload the contact list.");
+    expect(container.querySelector("li")?.textContent).toContain(
+      "Upload the contact list.",
+    );
 
     const notice = screen.getByRole("status");
-    expect(notice.textContent).toContain("Outbound calling is paused across Calevate");
+    expect(notice.textContent).toContain(
+      "Outbound calling is paused across Calevate",
+    );
     // No owner badge on the outage: "We handle this" describes a queue with a desk
     // attached, and this is the product not working.
     expect(notice.textContent).not.toContain("We handle this");
@@ -359,5 +398,149 @@ describe("the launch panel for a viewer who may not launch", () => {
     expect(container.querySelectorAll("li")).toHaveLength(1);
     expect(container.textContent).toContain("Upload the contact list.");
     expect(launchButtonDisabled()).toBe(true);
+  });
+});
+
+/**
+ * The gate in front of the gate — `LaunchConfirm`.
+ *
+ * `/launch-check` answering `ready` means the compliance gate has nothing to say. It does
+ * NOT mean the client meant to press the button, and this control had no second step at
+ * all: `<button onClick={() => launch.mutate()}>` under the sentence "Everything checks
+ * out." One click dialled every contact on the campaign, irreversibly, under TRAI.
+ *
+ * The server had already assumed otherwise — `campaigns/service.py::launch_campaign` says
+ * the scrub makes "the 'N contacts will be dialled' number **the client confirms** true".
+ * These are the tests that make that sentence describe something real.
+ */
+describe("the confirmation in front of a launch", () => {
+  const LAUNCHED = { status: "running", dialable: 120, dnc_scrubbed: 0 };
+  const READY_PROGRESS: CampaignProgress = { ...PROGRESS, total: 120 };
+  const LAUNCH_ROUTE = `POST /v1/campaigns/${CAMPAIGN_ID}/launch`;
+
+  async function openReview() {
+    const rendered = await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: READY_PROGRESS,
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review this launch" }));
+    return rendered;
+  }
+
+  it("does not dial on the first click, and restates what the launch will do", async () => {
+    const { container, calls } = await openReview();
+
+    // THE CLICK THAT USED TO PLACE 120 CALLS. It now opens a review and nothing else.
+    expect(calls.some((call) => call.path.endsWith("/launch"))).toBe(false);
+
+    // The count is stated, from the server's `total` and never from the create form.
+    expect(container.textContent).toContain("This starts calling 120 people.");
+    // The irreversibility is named, because that is the thing being agreed to.
+    expect(container.textContent).toContain("cannot be recalled");
+    // The bound every campaign is under, and the concurrency this one carries.
+    expect(container.textContent).toContain("between 9am and 9pm IST");
+    expect(container.textContent).toContain(
+      "Up to 3 calls run at the same time",
+    );
+  });
+
+  it("states this campaign's own window and dialling number, read back from the server", async () => {
+    // BOTH FIELDS WERE WRITE-ONLY until `ProgressOut` gained them: set in the create
+    // form, held as local state, returned by no endpoint. So the panel asking a client
+    // to authorise 120 calls could not say WHEN they would go out or WHAT would appear
+    // on the handset — the two facts most likely to be wrong about a campaign created
+    // weeks earlier on different settings.
+    const { container } = await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
+        ...READY_PROGRESS,
+        calling_hours: { start: "10:00", end: "18:00" },
+        number_e164: "+911140001234",
+      },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review this launch" }));
+
+    // The platform bound is stated ANYWAY — a narrowing is additional, never a
+    // replacement, because the legal window is true of every campaign.
+    expect(container.textContent).toContain("between 9am and 9pm IST");
+    expect(container.textContent).toContain("10:00");
+    expect(container.textContent).toContain("18:00");
+    expect(container.textContent).toContain("+911140001234");
+  });
+
+  it("says in words that a campaign with no number of its own has none", async () => {
+    // A blank where a number belongs reads as "we could not read it". "The platform
+    // picks one" is a different fact and the person authorising the calls needs the
+    // difference — §52's rule applied to the confirmation rather than to a list.
+    const { container } = await openLaunchPanel(check(), ME, {
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: {
+        ...READY_PROGRESS,
+        number_e164: null,
+      },
+      [LAUNCH_ROUTE]: LAUNCHED,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review this launch" }));
+
+    expect(container.textContent).toContain("no number of its own");
+  });
+
+  it("keeps the danger button dead until the count has been typed", async () => {
+    const { calls } = await openReview();
+
+    const confirm = screen.getByRole("button", {
+      name: "Call 120 people",
+    }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+
+    // A number that is not THE number proves nothing — the risk here is the count, not
+    // the button, so a near miss must not arm it.
+    fireEvent.change(screen.getByLabelText("Type 120 to confirm"), {
+      target: { value: "12" },
+    });
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Call 120 people",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(calls.some((call) => call.path.endsWith("/launch"))).toBe(false);
+
+    fireEvent.change(screen.getByLabelText("Type 120 to confirm"), {
+      target: { value: "120" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Call 120 people" }));
+
+    await screen.findByText(/Calling 120 people/);
+    const launched = calls.filter((call) => call.path.endsWith("/launch"));
+    expect(launched).toHaveLength(1);
+    expect(launched[0].method).toBe("POST");
+  });
+
+  it("offers no launch at all when the campaign's progress could not be read", async () => {
+    // §52 applies hardest to a confirmation: a manufactured `0` under "this will call N
+    // people" is the one number nobody would question. The card that holds the launch is
+    // gated on a status that comes from the same read, so a failed progress request takes
+    // the whole thing off screen rather than offering an uncountable launch — and the
+    // launch check's green sentence must not appear on its own either.
+    const { container } = await renderClientPage(<CampaignsPage />, {
+      "/v1/me": ME,
+      "/v1/campaigns": [CAMPAIGN],
+      "/v1/agents": [AGENT],
+      "/v1/campaigns/numbers": [],
+      "/v1/campaigns/templates": [],
+      [`/v1/campaigns/${CAMPAIGN_ID}`]: problem(503, {
+        title: "Service unavailable",
+      }),
+      [`/v1/campaigns/${CAMPAIGN_ID}/launch-check`]: check(),
+    });
+    fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
+    await screen.findByRole("alert");
+
+    expect(
+      screen.queryByRole("button", { name: "Review this launch" }),
+    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Call \d/ })).toBeNull();
+    expect(container.textContent).not.toContain("Everything checks out.");
   });
 });

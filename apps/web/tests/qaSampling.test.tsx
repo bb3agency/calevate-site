@@ -5,7 +5,7 @@ import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import type { QaSample } from "@/lib/api/qaSamples";
 
-import { problem } from "./harness";
+import { browserOffline, problem } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -224,4 +224,25 @@ describe("reviewing a sampled call", () => {
     expect(container.textContent).toContain("A verdict is written once");
     expect(screen.queryByRole("button", { name: /Concern/ })).toBeNull();
   });
+
+  /**
+   * THE PAUSED QUERY — the state that is neither loading nor failed.
+   *
+   * TanStack does not start a fetch it believes cannot succeed: with the default
+   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
+   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
+   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
+   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
+   * than mocking anything, so this is the branch a dropped connection actually produces.
+   */
+  it("does not report the sampling queue reviewed over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await renderAdminRoute(<QaSamplingPage />, {
+      "/v1/admin/qa-samples?pending=true": [SAMPLE],
+    });
+
+    expect(container.textContent).not.toContain("Every sampled call has been reviewed");
+    expect(container.textContent).toContain("The sampling queue could not be read");
+  });
+
 });

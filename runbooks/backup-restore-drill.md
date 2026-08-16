@@ -33,6 +33,47 @@ that covers the scenario nobody plans for. Look at the previous drill record bef
 start; if the last one was chain A, this one is chain B, regardless of which is more
 convenient.
 
+## 0a. Run the local half first — `make restore-drill`
+
+`scripts/restore_drill.py` is the executable half of this runbook, and it needs **no cloud
+account at all**: it seeds a database, dumps it the way `scripts/backup/dump-offsite.sh`
+does, encrypts it with the same `age` invocation, puts it in object storage, takes it back
+out, decrypts it, restores it into a scratch database, and then proves the restore is a
+restore — alembic head, RLS still ENABLEd *and* FORCEd with a cross-tenant read returning
+zero rows, the append-only triggers still raising on UPDATE and DELETE, the audit chain
+still verifying, and the row counts matching.
+
+```sh
+make up                                          # postgres on 5433, MinIO on 9000
+make restore-drill                               # the chain, green path
+make restore-drill SABOTAGE=drop-rls-policy      # and prove it goes red naming that defect
+```
+
+Do it **before** booking the half-day. It costs minutes, and it catches the class of
+defect — a verification step that no longer verifies — that would otherwise be discovered
+with a scratch VM already provisioned and the clock already running.
+
+**Its verdict is `GREEN (local scope)`, and that vocabulary is deliberate: it is not this
+runbook's PASS and it can never tick "backups verified" on OPERATIONS §8.** It prints what
+it did not test on every run. Here is where each of those goes, so the mapping is written
+down once rather than re-derived each quarter:
+
+| Not covered locally | Covered by |
+|---|---|
+| `walg_pitr` | §0 chain A + §4 (odd quarters) |
+| `r2_object_store` | §0 chain A — MinIO proves S3 semantics, not R2's |
+| `offsite_provider` | §0 chain B + §4 (even quarters) |
+| `age_identity_retrieval` | §1's first checkbox — fetching the real identity IS the test |
+| `libsodium_key` | §1's first checkbox, chain A side |
+| `systemd_schedule` | §7's detection tests against the live timers |
+| `alert_delivery` | §7 + OPERATIONS §8's "alerts firing" gate (a real inbox) |
+| `external_dead_man` | §7.8 (D-54) |
+| `recording_bucket` | §6's verification against the recordings bucket |
+| `production_scale` | §3/§5 — the clock, on production-sized data |
+
+Everything in that table needs a credential, an account or a live host, which is exactly
+why the local harness stops where it does.
+
 ## 1. Before you start
 
 - [ ] A **scratch host or VM** that is not the production VPS, with disk ≥ 2× the database

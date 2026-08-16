@@ -358,6 +358,31 @@ def _agent_system_prompt(agent: dict[str, Any]) -> str | None:
     return prompt if isinstance(prompt, str) and prompt else None
 
 
+def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
+    """`(greeting, readable)` — the welcome message the engine holds.
+
+    `agent_welcome_message` is the key `_agent_body` SENDS (read at source in their OSS
+    server's agent object), so this is hand-maintained from our own request shape for
+    `_agent_system_prompt`'s reason — Bolna publishes no OpenAPI spec. If their read path
+    spells it differently the honest outcome is `readable=False`, which the judge reports
+    as `unreadable` rather than as a missing disclosure: an adapter that cannot find the
+    field must not be able to fail a publish on a compliance ground (P3.3).
+
+    A `(readable, value)` PAIR rather than "None means unreadable", which is the shape
+    the prompt reader uses and the wrong one here. A key present and EMPTY is an agent
+    that speaks nothing first — a real compliance failure, and exactly the shape a vendor
+    dropping an unrecognised field takes — while an ABSENT key is our own adapter looking
+    in the wrong place. Collapsing them would turn every provable failure into a shrug,
+    which is the direction that lets an agent go live saying nothing.
+    """
+    config = agent.get("agent_config")
+    source = config if isinstance(config, dict) else agent
+    if "agent_welcome_message" not in source:
+        return None, False
+    greeting = source.get("agent_welcome_message")
+    return (greeting if isinstance(greeting, str) else ""), True
+
+
 def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     """`(selections, readable)` — the BYOK choices the agent is RUNNING, in our terms.
 
@@ -837,6 +862,14 @@ class BolnaEngine:
           from silence here. That is precisely D-41's open question and it stays a PILOT
           GATE (OPERATIONS §2 gate 8), not a premise.
 
+        * THE GREETING has the same standing as the prompt and no better:
+          `agent_welcome_message` is the key we SEND (their OSS agent object carries it),
+          and whether the hosted GET echoes it under that name is inferred from the same
+          "it returns the stored agent object" claim. `greeting_readable=False` when the
+          key is absent, which the judge scores `unreadable` — never as a missing
+          disclosure, because an adapter looking in the wrong place must not be able to
+          fail a publish on a compliance ground (P3.3).
+
         If the path is wrong, `_request` raises `engine_rejected` on the 404 and the gate
         reports a failed read-back — loud, and the correct outcome for an unverified
         endpoint. It never degrades to a green tick.
@@ -844,6 +877,7 @@ class BolnaEngine:
         payload = await self._request("GET", f"/v2/agent/{ref}")
         agent = _agent_object(payload)
         prompt = _agent_system_prompt(agent)
+        greeting, greeting_readable = _agent_greeting(agent)
         kb_refs, kb_readable = _agent_kb_refs(agent)
         models, models_readable = _agent_models(agent)
         returned_id = agent.get("agent_id") or agent.get("id") or payload.get("agent_id")
@@ -854,6 +888,8 @@ class BolnaEngine:
             name=_agent_name(agent),
             system_prompt=prompt,
             system_prompt_readable=prompt is not None,
+            greeting=greeting,
+            greeting_readable=greeting_readable,
             knowledge_base_refs=kb_refs,
             knowledge_base_refs_readable=kb_readable,
             models=models,

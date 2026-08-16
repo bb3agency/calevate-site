@@ -85,7 +85,13 @@ export default function QaSamplingPage() {
           <div className="p-6">
             <Skeleton rows={4} />
           </div>
-        ) : queue.error ? (
+        ) : /* `|| !queue.data` because a failed read is not the only way to have no
+               answer: while the browser is offline TanStack PAUSES the query rather than
+               running it (`fetchStatus: "paused"`), and a paused query reports
+               `isLoading === false` and `error === null` with `data === undefined`. This
+               arm used to be skipped in that state and the empty state below told an
+               operator every sampled call had been reviewed, off a request nobody made. */
+        queue.error || !queue.data ? (
           <div className="p-6">
             <NoticeBox
               tone="warn"

@@ -504,6 +504,28 @@ class AgentSnapshot(BaseModel):
     system_prompt: str | None = None
     #: True only when the adapter positively read a prompt out of the engine's answer.
     system_prompt_readable: bool = False
+    #: The GREETING as the engine holds it — Bolna's `agent_welcome_message`, Cartesia's
+    #: `introduction`. Both adapters send the disclosure line here AS WELL AS prepending
+    #: it to the prompt, and the two are not interchangeable: only the greeting is the
+    #: deterministic FIRST utterance. A prompt-carried line is an instruction the model
+    #: may reorder, summarise or drop under a long conversation; the greeting field is
+    #: played.
+    #:
+    #: WHY THIS FIELD EXISTS AT ALL (P3.3). `verification.judge` computed
+    #: `disclosure_applied` from `carries_prompt_marker`, against the prompt OUR OWN
+    #: adapter had just prepended the line to — so the one property OPERATIONS §7 calls
+    #: "the one with a legal consequence" was true by construction of our own string
+    #: formatting and said nothing about the field that speaks. This snapshot could not
+    #: see that field. Now it can.
+    greeting: str | None = None
+    #: True only when the adapter positively located the greeting field. The fourth
+    #: instance of the `*_readable` tri-state and the one where confusing the two facts
+    #: is most expensive: "the engine holds no greeting" is a compliance failure to
+    #: refuse a publish over, and "we could not find the greeting field" is a reason to
+    #: go and look at the adapter. Reporting the second as the first would block every
+    #: publish on an engine whose read path names the field differently; reporting the
+    #: first as the second would let an agent go live speaking nothing.
+    greeting_readable: bool = False
     #: The knowledge handles the AGENT ITSELF references. Not the account's KB list —
     #: that is `list_kb`, a different object, and conflating the two is what makes D-41
     #: question (b) unanswerable.
@@ -543,6 +565,19 @@ class AgentSnapshot(BaseModel):
         if not self.system_prompt_readable or self.system_prompt is None:
             return None
         return marker in self.system_prompt
+
+    def carries_greeting_marker(self, marker: str) -> bool | None:
+        """Is `marker` in the live GREETING? `None` = the greeting could not be read.
+
+        Containment for `carries_prompt_marker`'s reason — an engine may wrap or
+        punctuate what it stores — and a SEPARATE accessor rather than a `field=`
+        argument on that one, because the two answer different questions and a caller
+        that could pass the wrong constant is a caller that can report the prompt's
+        verdict under the greeting's name. That substitution IS finding P3.3.
+        """
+        if not self.greeting_readable or self.greeting is None:
+            return None
+        return marker in self.greeting
 
     def references_kb(self, kb: EngineKBRef) -> bool | None:
         """Does the agent still point at this handle? `None` = we could not tell.
