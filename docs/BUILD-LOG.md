@@ -3473,6 +3473,75 @@ coordinator identically. The sabotage protocol's restore step is `cp` from the b
 a git operation, precisely because git restores from HEAD and knows nothing about what else
 is in the working tree.
 
+## §70 — recordings, key moments, KB drift, and the twenty failures that were not failures
+
+Three feature slices and one investigation. The investigation is first because it changes
+how much the other three are worth believing.
+
+**"20 pre-existing failures" was a description, not a diagnosis.** A hardening agent's
+final run reported `4328 passed / 20 pre-existing failures` and moved on. Nobody had ever
+named them. They were three clusters — 15 in `platform_secrets_test`, 3 in
+`rls_sweep_test`, 2 in `dnc_test` — and **all 20 pass on a quiet box**: a single
+uncontended run scored 4511 passed, 0 failed. Every one of the three files is a
+whole-table sweep over shared un-tenanted state (`rls_sweep_test` enumerates EVERY tenant
+table; `dnc_list` and `platform_secrets` are global), `pytest-xdist` is not installed so
+the suite is serial and the interference cannot be intra-run, and `platform_secrets_test`
+says in its own docstring that its table is shared. Five concurrent agents were pointed at
+one database. This matters beyond the bookkeeping because three of the twenty are hard
+rule 1 in executable form, and a standing count of unexplained red is how a real tenancy
+break would have been waved through as "one of the usual twenty".
+
+**Running the suite SCOPED is how a guard goes unseen.** The KB drift agent ran 282 tests
+across 16 KB-related suites, reported green, and the coordinator pushed on that. The first
+whole-suite run afterwards found two failures, both belonging to that commit:
+
+- `kb_boundaries_test` scans every file under `apps/api/kb/` AS TEXT for vendor vocabulary
+  (hard rule 2). The new `kb/reconciliation.py` named the vendor four times and its
+  account-listing endpoint once — all in prose. This is the "prose defeats its own guard"
+  class for the sixth time this session, but here **the guard was right and the prose was
+  wrong twice**: the module is engine-agnostic (it drives off
+  `capabilities.has("knowledge_base")`), so a vendor name in it was inaccurate as well as
+  a rule-2 leak, and `kb/service.py` had been describing the same mechanics without naming
+  anyone. Reworded. Making the scan comment-aware was the easy fix and is forbidden —
+  weakening a guard to pass a test — and the rewrite reads better regardless.
+- `tm_registration_test`'s EXACT-SET assertion on `GET /v1/ops/platform` caught `kb_drift`
+  arriving. Third time that assertion has earned itself; its own comment already records
+  `outbox_dead_letters` and `engine_drift` landing the same way.
+
+**Call recordings became listenable, and the link stopped expiring mid-audio** (D-153).
+Every presigned link was signed for 300s against a `CALL_CAP_MAX_S` of 3600, so a
+twenty-minute call played for five minutes and stopped — and S3 answers an expired
+signature with XML that a browser surfaces as a bare `MEDIA_ERR_NETWORK`, so the owner's
+reasonable conclusion was that we had only recorded the first five minutes. TTL is now
+derived per call from the metered duration. `start_ms` had been on every transcript turn
+since the pipeline was written and NOTHING read it; turns are now seek targets.
+
+**Key moments are computed once at storage, never per listen** (D-156). Research settled
+the tempting version: ID3v2 `CHAP`/`CTOC` and WebVTT chapter tracks are both real
+standards that browsers ignore on `<audio>`, so embedding buys nothing and costs a
+container rewrite plus chapter titles quoting the caller inside an object that can only be
+deleted, never redacted. Markers live beside the player instead. The derived half exists
+because it CANNOT be wrong — `anchor_of` returns a turn's own offset or None, never an
+approximation — and there is exactly one model kind rather than a taxonomy, because D-36
+records Telugu extraction quality as UNMEASURED and rendering an unscored classification
+as fact is a claim we cannot support until task #87 runs.
+
+**Our knowledge and the vendor's copy only ever agreed at publish time** (D-158). A KB is
+the object here with the longest gap between writes, so a console edit or a publish that
+committed at the vendor and rolled back here stayed invisible for months. The sweep reads
+both directions and REPORTS ONLY: the repair a KB drift invites is `detach_kb`, an
+irreversible delete at the vendor of a document our tables by hypothesis cannot describe.
+Its honest limit is recorded rather than papered over — an empty listing is `unreadable`,
+not `missing`, unless another agent in the same tick proves the vendor attributes its
+listing by agent (pilot gate 8, still open on an external blocker).
+
+**The coverage ratchet was finally scored**, owed since `189c268`. Two earlier attempts
+stalled under five-agent contention and were killed rather than report a number the
+ratchet itself refuses to vouch for. On a fresh database with Redis flushed:
+`COVERAGE RATCHET: OK (7 guarded surfaces, all at their floor)` — compliance-gate,
+voice-runtime-ack and platform-credentials at 100%, redaction the weakest at 97.9%.
+
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"
