@@ -50,12 +50,20 @@ IDEMPOTENT, KEYED, RETRIED (TRD §8, BACKEND-PATTERNS §5)
   two WORKERS cannot both run the same tick (`arq/worker.py::run_cron`). Two
   consecutive ticks overlapping is not a concern here the way it is for the dispatch
   tick — a day apart, and harmless if it ever happened, per the paragraph above.
-* RETRIED 3 TIMES then DLQ: `cron()` defaults `max_tries=1`, which would silently cost this
-  job the ladder every other job in this repo has, so it is passed explicitly in
-  `settings.py`. A failing tenant raises `Retry` (arq only retries `Retry`/`RetryJob` —
-  see `WorkerSettings.retry_jobs`), and the last attempt alerts instead: a fee that
-  could not be issued must be a page an operator can act on, not a silent zero in a
-  log.
+* RETRIED 3 TIMES, THEN ALERTED — not "then DLQ", which is what this line used to say
+  and what `WorkerSettings` used to promise for every job (P6.5). **There is no arq
+  dead-letter queue.** An exhausted job is `zrem`'d off the queue and written to a result
+  key nothing in `apps/` or `scripts/` reads; the only DLQ in this repository is the
+  OUTBOX's `status='failed'`, which covers the enqueue leg and not the execution leg. So
+  the last attempt's `alert()` IS the dead-letter mechanism, and a job without one fails
+  in silence.
+  `cron()` defaults `max_tries=1`, which would silently cost this job the ladder every
+  other job in this repo has, so it is passed explicitly in `settings.py`. A failing
+  tenant raises `Retry` (arq only retries `Retry`/`RetryJob` — see
+  `WorkerSettings.retry_jobs`), and the last attempt alerts instead: a fee that could not
+  be issued must be a page an operator can act on, not a silent zero in a log. **This job
+  is the shape the three drift sweeps were corrected to match**, rather than the other way
+  round.
 """
 
 from __future__ import annotations

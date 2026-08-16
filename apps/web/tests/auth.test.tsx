@@ -218,6 +218,15 @@ describe("the doors a person can actually reach", () => {
     // route to point at. There is one now, and an unlinked route is not a door.
     stubApi({});
     render(<Home />);
-    expect(screen.getByRole("link", { name: /Sign in/i }).getAttribute("href")).toBe("/sign-in");
+    // `getAllBy`, not `getBy`: the redesigned page offers the door twice on purpose —
+    // once in the sticky header, where a returning client looks first, and once in the
+    // "Already a client" card beside the workspace URL. The property this test exists
+    // for is that a returning client HAS a door and it points somewhere real, not that
+    // there is exactly one of them.
+    const doors = screen.getAllByRole("link", { name: /Sign in/i });
+    expect(doors.length).toBeGreaterThan(0);
+    for (const door of doors) {
+      expect(door.getAttribute("href")).toBe("/sign-in");
+    }
   });
 });

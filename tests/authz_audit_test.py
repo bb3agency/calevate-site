@@ -178,6 +178,11 @@ def _prod_settings(**update: object) -> object:
             "impersonation_grant_secret": "i" * 32,
             "audit_chain_secret": "a" * 32,
             "idempotency_scope_secret": "d" * 32,
+            # The KEK joined the readiness list with the ops sweep. Present for the same
+            # reason as every secret above it: this file is about REALM SEPARATION, and a
+            # key reported from anywhere else is noise these assertions cannot tell apart
+            # from the thing they measure — the control below asserts an EMPTY list.
+            "platform_kek": base64.b64encode(b"k" * 32).decode(),
             **update,
         }
     )
@@ -215,9 +220,19 @@ async def test_a_prod_deployment_whose_realms_share_one_jwks_is_not_ready() -> N
         assert "CLERK_CLIENT_PUBLISHABLE_KEY" in missing, missing
 
 
-async def test_two_distinct_clerk_applications_are_ready() -> None:
+async def test_two_distinct_clerk_applications_are_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The control. A readiness probe that is red for a correct deployment is an outage
-    of its own, so the shape a real two-application deploy has must report nothing."""
+    of its own, so the shape a real two-application deploy has must report nothing.
+
+    The object-store credentials are DECLARED rather than borrowed, per the suite's
+    `_no_ambient_credentials` rule: readiness reports them off `os.environ` because that
+    is where botocore reads them, and a correct deployment has them. Without this the
+    control would report two keys that have nothing to do with Clerk realms.
+    """
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
     settings = _prod_settings(
         clerk_admin_publishable_key=_publishable_key("admin-clerk.calevate.tech"),
         clerk_client_publishable_key=_publishable_key("app-clerk.calevate.tech"),

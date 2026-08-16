@@ -741,7 +741,12 @@ function LeadSourcesCard({
                 never rings anybody, believing they had no agents to point it at. An empty
                 picker over a failed read is a statement about their business made from a
                 request that never landed. */}
-            {agents.error != null ? (
+            {/* `!agents.isLoading && !agents.data` is the same sentence for the
+                non-answer that carries no error: a query TanStack has PAUSED because the
+                browser is offline reports `isLoading === false`, `error === null` and no
+                data, so the picker below rendered "Not yet — save leads, don't call" as
+                the only option and made exactly the claim this branch exists to prevent. */}
+            {agents.error != null || (!agents.isLoading && !agents.data) ? (
               <span className="mt-1 block max-w-md rounded-md border border-line bg-surface px-3 py-2 text-ink-muted">
                 We could not read your agents just now, so this cannot be chosen yet —
                 saving without it would create a source that never rings anyone. Reload

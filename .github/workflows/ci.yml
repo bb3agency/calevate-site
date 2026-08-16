@@ -160,6 +160,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_ledger_immutability
 
+      - name: "Guardrail: models and schema agree about columns (P4.3)"
+        if: ${{ !cancelled() }}
+        # `alembic/env.py` generates the next migration against `Base.metadata`, so a
+        # column that exists only in the database is a proposed DROP. Runs after
+        # `Migrate` because it compares the models against the real schema, not a file.
+        run: uv run python -m scripts.check_metadata_columns
+
       - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_bootstrap_keys
@@ -270,3 +277,68 @@ jobs:
       - run: uv sync --all-packages
       - name: mypy (strict)
         run: uv run mypy apps packages
+
+  deploy-artefacts:
+    # THE FILES THAT PUT THIS SYSTEM IN PRODUCTION HAD NO CI STEP OF ANY KIND.
+    #
+    # `scripts/vps-deploy.sh` (700+ lines), `compose.prod.yml`, the dev compose file and
+    # every script under `scripts/backup/` were checked by nothing: not `bash -n`, not
+    # shellcheck, not `docker compose config`. A repository with thirteen executable
+    # guardrails had zero on the artefact that ships it — which is how a preflight check
+    # guarded by an unset array shipped and never ran, and why the register that found
+    # that put "the deploy artefacts have no CI gate" in the same class as the terraform
+    # nobody has ever applied.
+    #
+    # Deliberately small and daemon-free, so it stays fast and cannot flake: it answers
+    # "would bash refuse to parse this?" and "would compose refuse to read this?", which
+    # are exactly the failures that currently surface for the first time on the
+    # production host. The BEHAVIOUR of the script is pytest's job
+    # (`tests/deploy_rollback_test.py`, `tests/nginx_hooks_vhost_test.py`).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Every shell script parses
+        # `bash -n` is a parse, not a run — nothing here executes a deploy.
+        run: |
+          set -euo pipefail
+          mapfile -t scripts < <(git ls-files '*.sh')
+          printf 'checking %d shell script(s)\n' "${#scripts[@]}"
+          for script in "${scripts[@]}"; do bash -n "$script"; done
+
+      - name: shellcheck
+        # `-S warning`: the tree is clean at that severity today, and the two remaining
+        # `info` hits are deliberate single-quoted strings that must NOT expand (an
+        # `envsubst` variable list, and a `jq` filter). Gating on `info` would mean
+        # decorating correct lines with disable comments to keep a check quiet, which is
+        # how a check starts being edited around instead of read.
+        run: shellcheck -S warning $(git ls-files '*.sh')
+
+      - name: Both compose files are valid and address different projects
+        # `config` is client-side: it interpolates, merges and validates without a
+        # daemon. The empty `.env` stands in for the one a human places from the secrets
+        # manager — `compose.prod.yml` declares `env_file: [.env]`, so without a file
+        # there is nothing to interpolate against and this would fail for a reason that
+        # is not a defect.
+        #
+        # The project-name assertion is the other half of a real incident shape: the
+        # deploy directory on the VPS is `/var/www/calevate`, so a dev file with no
+        # `name:` defaulted to the SAME compose project as production, and a bare
+        # `docker compose up -d` there recreated production redis from the dev
+        # definition. `scripts/vps-deploy.sh` refuses that at preflight; this refuses it
+        # at review time.
+        run: |
+          set -euo pipefail
+          [[ -f .env ]] || : > .env
+          docker compose -f compose.prod.yml config -q
+          docker compose -f docker-compose.yml config -q
+          prod=$(docker compose -f compose.prod.yml config --format json | jq -r '.name')
+          dev=$(docker compose -f docker-compose.yml config --format json | jq -r '.name')
+          printf 'prod project: %s\ndev project:  %s\n' "$prod" "$dev"
+          if [[ "$prod" == "$dev" ]]; then
+            echo "::error::both compose files declare the project '$prod'. Both define a"
+            echo "::error::'redis' service and only the prod one persists it, so a bare"
+            echo "::error::'docker compose up -d' in the deploy directory would recreate"
+            echo "::error::production redis from the dev definition."
+            exit 1
+          fi

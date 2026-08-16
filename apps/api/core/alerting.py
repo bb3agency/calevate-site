@@ -24,9 +24,22 @@ WHY NOT THE OUTBOX. Every other side effect in this repo goes through the
 transactional outbox (BACKEND-PATTERNS §4), and this one deliberately does not: the
 alarms that matter most are `outbox_dispatch_exhausted`, `pipeline_stalled` and
 `enqueue_failed` — "the thing that delivers work is broken". An alert routed through
-the broken component is an alert nobody gets. This path touches no database and no
-Redis, so it survives the failures it reports. The cost is honest and bounded: a
-process that dies with alerts queued loses those SENDS, never the log lines.
+the broken component is an alert nobody gets. This path touches no database, and the
+one Redis call it makes CAN ONLY SUPPRESS — see the next paragraph — so it still
+survives the failures it reports. The cost is honest and bounded: a process that dies
+with alerts queued loses those SENDS, never the log lines.
+
+THE BOUNDS ARE PER SERVICE, NOT PER PROCESS (D-160). This module's globals were the
+whole story while every service ran one process, and `compose.prod.yml` has run
+voice-runtime with `--workers=4` since D-55 answered the 500ms ack budget — so four
+processes kept four windows and, worse, four token buckets, quietly making a
+deliberate 20/hour bound into 80/hour. `core/alert_admission.py` moves the real
+decision into one atomic Redis script keyed by service, and the globals below stay as
+a per-process PRE-FILTER whose job is now only to keep one process from flooding its
+own bounded queue. **The shared gate fails OPEN, absolutely**: unreachable, slow or
+unreadable Redis all return "send". A cache outage therefore costs deduplication and
+never delivery, which leaves the paragraph above true — the alert path cannot be
+silenced by the infrastructure it exists to report on.
 
 DEDUPLICATION AND RATE LIMITING are part of "reaches a human" — an inbox with 4,000
 copies of one bad deploy is the same as no alert at all. Two bounds, both taken from
@@ -71,7 +84,7 @@ import atexit
 import queue
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from apps.api.core.logging import get_logger, redact_mapping
@@ -285,7 +298,15 @@ def _forget(fingerprint: str) -> None:
     The window means "a human has been told". A transport that returned False told
     nobody, so keeping the stamp would let one SMTP blip silence an alarm for the whole
     window. Best-effort under the same non-blocking lock, for the same reason.
+
+    BOTH HALVES, since D-160. Clearing only the local dict would leave the SHARED marker
+    standing for the rest of the window — and that is worse than the bug this function
+    was written for, because the shared marker silences every OTHER worker too. Called
+    on the delivery thread, so the Redis half is affordable here.
     """
+    from apps.api.core.alert_admission import forget as forget_shared
+
+    forget_shared(service=_service, fingerprint=fingerprint)
     if not _state_lock.acquire(blocking=False):
         return
     try:
@@ -309,6 +330,41 @@ def _ensure_worker() -> None:
         _worker_lock.release()
 
 
+def _admit_shared(notice: AlertNotice) -> AlertNotice | None:
+    """The cross-process half of admission. None means another worker already sent it.
+
+    RUNS ON THE DELIVERY THREAD, which is the only place it may: `_admit` above is
+    reached from a SIGTERM handler and from voice-runtime's 500ms ack path, so it must
+    stay pure memory. Here a bounded network call is affordable — nothing waits on this
+    thread except `flush_alerts`, which has its own deadline.
+
+    The counts are ADDED to what the local pre-filter already gathered, so a message
+    reports every occurrence withheld across the whole service rather than the fraction
+    this particular worker happened to receive.
+    """
+    from apps.api.core.alert_admission import admit
+
+    verdict = admit(
+        service=_service,
+        fingerprint=f"{notice.stage}:{notice.code}",
+        window_s=ALERT_REPEAT_INTERVAL_S,
+        burst=ALERT_BURST,
+        budget_per_hour=ALERT_BUDGET_PER_HOUR,
+    )
+    if not verdict.admitted:
+        # Not an error and not a loss: the ERROR log line was written by `alert()`, and
+        # a sibling process is telling this human the same thing right now.
+        log.info("alert_suppressed_by_sibling", extra={"code": notice.code})
+        return None
+    if verdict.suppressed or verdict.rate_limited:
+        return replace(
+            notice,
+            suppressed=notice.suppressed + verdict.suppressed,
+            rate_limited=notice.rate_limited + verdict.rate_limited,
+        )
+    return notice
+
+
 def _drain() -> None:
     while True:
         notice = _queue.get()
@@ -318,7 +374,10 @@ def _drain() -> None:
         try:
             if notice is None:
                 return
-            _deliver(notice)
+            admitted = _admit_shared(notice)
+            if admitted is None:
+                continue
+            _deliver(admitted)
         except Exception as exc:
             log.error(
                 "alert_delivery_crashed",
@@ -430,7 +489,13 @@ def reset_alerts() -> None:
     delivery thread is left running — it is a daemon holding no state between notices,
     and stopping it would race a test that is already inside one."""
     global _rate_limited, _tokens, _tokens_refilled_at, _unconfigured_warned
+    from apps.api.core.alert_admission import reset_admission
+
     flush_alerts(timeout=5.0)
+    # The shared half too, or a test that resets alerting still inherits the previous
+    # test's window from Redis and watches its alert vanish for reasons nothing in the
+    # test file explains.
+    reset_admission(service=_service)
     with _state_lock:
         _last_sent.clear()
         _suppressed.clear()

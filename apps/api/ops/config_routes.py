@@ -69,7 +69,7 @@ from apps.api.core.platform_config import (
 )
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import (
-    BOOTSTRAP_REASONS,
+    ENV_ONLY_DISPLAY,
     effective_env,
     env_declares,
     env_var_for,
@@ -436,7 +436,7 @@ async def read_config(session: GlobalSession, _: ConfigOperator) -> ConfigOut:
                 reason=reason,
                 configured=env_declares(key, environ),
             )
-            for key, reason in sorted(BOOTSTRAP_REASONS.items())
+            for key, reason in sorted(ENV_ONLY_DISPLAY.items())
         ],
     )
 

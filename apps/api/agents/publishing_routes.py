@@ -234,7 +234,14 @@ class EngineStateOut(Strict):
     #: Tri-state per property: null means the adapter could not read it back, which is
     #: neither a match nor a mismatch (`AgentSnapshot`'s `*_readable` doctrine).
     prompt_applied: bool | None
+    #: The disclosure IN THE GREETING — the engine's first-utterance field, which is what
+    #: hard rule 5 is about and what OPERATIONS §7 escalates. It was computed from the
+    #: PROMPT until P3.3, where our own adapter prepends the line, so it read true by
+    #: construction and could not fail for its own reason.
     disclosure_applied: bool | None
+    #: The prompt's second copy of the same line. Reported beside the verdict, never
+    #: instead of it: a mismatch here is a fact about rendering, not a compliance failure.
+    prompt_disclosure_applied: bool | None
     voice_applied: bool | None
     detail: str
 
@@ -418,6 +425,7 @@ async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineSta
         in_sync=drift.in_sync,
         prompt_applied=drift.prompt_applied,
         disclosure_applied=drift.disclosure_applied,
+        prompt_disclosure_applied=drift.prompt_disclosure_applied,
         voice_applied=drift.voice_applied,
         detail=drift.detail,
     )

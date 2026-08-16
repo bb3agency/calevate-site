@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import QualityPage from "@/app/c/[slug]/quality/page";
 import { renderMeasurement, type QaReport } from "@/lib/api/quality";
 
-import { problem, renderClientPage } from "./harness";
+import { browserOffline, problem, renderClientPage } from "./harness";
 
 /**
  * The monthly quality report, in-app (SURFACES §2, D-15) — the screen a client checks our
@@ -136,4 +136,28 @@ describe("the client's quality report", () => {
     await screen.findByText("No defects found across 58 scenarios");
     expect(screen.getByRole("group", { name: "Choose a month" })).toBeTruthy();
   });
+
+  /**
+   * THE PAUSED QUERY — the state that is neither loading nor failed.
+   *
+   * TanStack does not start a fetch it believes cannot succeed: with the default
+   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
+   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
+   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
+   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
+   * than mocking anything, so this is the branch a dropped connection actually produces.
+   */
+  it("does not claim an untested agent over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await renderClientPage(<QualityPage />, {
+      "/v1/me": ME,
+      "/v1/quality/reports": [report()],
+    });
+
+    // The strongest claim on this screen is that we test the agent. Its ABSENCE is the
+    // second strongest, and it must never be made from a request that was never sent.
+    expect(container.textContent).not.toContain("No quality report yet");
+    expect(container.textContent).toContain("Your quality reports could not be loaded");
+  });
+
 });

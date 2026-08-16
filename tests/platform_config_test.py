@@ -127,6 +127,11 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
     if something offers it anyway."""
     managed = set(pc.managed_fields())
     assert not (managed & ENV_ONLY_KEYS)
+    # A SUBSET, not an equality. The six are §4's set and may never shrink; `ENV_ONLY_KEYS`
+    # is now the union of those and a second category (`ENV_ONLY_REASONS`) whose members
+    # are env-only for a different reason — `resend_api_key`, because the alert relay on
+    # the database host reaches no store. An equality here would make ADDING protection to
+    # a seventh key fail the test that exists to stop protection being REMOVED from six.
     assert {
         "app_env",
         "database_url",
@@ -134,6 +139,19 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         "platform_kek",
         "platform_kek_retired",
         "redis_url",
+    } <= ENV_ONLY_KEYS
+
+    # ...and the union is pinned in its own right, so a seventh entry is still a visible
+    # diff in a test rather than one line in a frozenset (`test_exemption_list_is_pinned`
+    # makes the same argument about RLS exemptions).
+    assert {
+        "app_env",
+        "database_url",
+        "alembic_database_url",
+        "platform_kek",
+        "platform_kek_retired",
+        "redis_url",
+        "resend_api_key",
     } == ENV_ONLY_KEYS
 
     before = get_settings().app_env
@@ -229,8 +247,17 @@ def test_no_second_field_list_exists() -> None:
         if name not in ENV_ONLY_KEYS and not pc.is_secret_key(name)
     }
     assert set(pc.managed_fields()) == derived
-    assert len(derived) == len(Settings.model_fields) - len(ENV_ONLY_KEYS) - sum(
-        pc.is_secret_key(n) for n in Settings.model_fields
+    # INCLUSION-EXCLUSION, because the two exclusions now OVERLAP. `resend_api_key` is
+    # both env-only and secret-shaped, so subtracting the two counts independently
+    # removed it twice and the arithmetic came out one short — which is a defect in the
+    # SUM, not in the set above it, and would have been "fixed" by relaxing the real
+    # assertion if this one had been written as a magic number.
+    both = sum(1 for n in Settings.model_fields if n in ENV_ONLY_KEYS and pc.is_secret_key(n))
+    assert len(derived) == (
+        len(Settings.model_fields)
+        - len(ENV_ONLY_KEYS)
+        - sum(pc.is_secret_key(n) for n in Settings.model_fields)
+        + both
     )
 
 

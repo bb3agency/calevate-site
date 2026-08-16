@@ -2,9 +2,28 @@
 
 Run: uv run arq apps.workers.settings.WorkerSettings
 
-Every job is idempotent and keyed (post-call work is keyed by call_id), retries 3
-times with exponential backoff, and lands in a DLQ with an alert on exhaustion
-(TRD §8).
+Every job is idempotent and keyed (post-call work is keyed by call_id) and retries 3 times
+with exponential backoff.
+
+**THERE IS NO ARQ DEAD-LETTER QUEUE, and this docstring used to say there was** (P6.5).
+The sentence promised "lands in a DLQ with an alert on exhaustion", and two more modules
+repeated it. What actually exists is the OUTBOX's `status='failed'`, which is fully wired
+— an ops replay action, a depth metric, an audit note — but that covers the ENQUEUE leg.
+On the EXECUTION leg, an arq job that exhausts its ladder is `zrem`'d off the queue,
+written to a result key for `keep_result` seconds, and gone: nothing in `apps/` or
+`scripts/` reads an arq result key, a job status or a failed-job set.
+
+**So the alert is not a property of the queue; it is a property of each job**, and the
+shape every job that matters uses is the one `billing.issue_one_time_charges` spells out —
+`if attempt < WORKER_MAX_TRIES: raise Retry(...)`, else `alert(...)` and then RAISE, because
+returning would file the tick as a success with a number in it that nobody reads. A job
+that does not make that pair of gestures fails in silence, whatever this file says.
+
+Building a real DLQ was weighed and is not what P6.5 asked for: it would mean a second
+durable store for failures beside the outbox we already have, and "one way per problem"
+says the answer is to make the nine jobs alert rather than to add a tenth mechanism. The
+one thing a DLQ would have bought that per-job alerting does not is REPLAY, and the jobs
+here are crons — the next tick is the replay.
 
 **Tolerant boot** (BACKEND-PATTERNS §2): workers hard-require only DB + Redis. A
 missing provider key must NOT crash-loop every queue — the extractor falls back to the
@@ -32,7 +51,12 @@ from apps.api.core.settings import (
 )
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
-from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
+from apps.workers.dispatcher import (
+    dispatch_outbox,
+    report_overdue_erasures,
+    report_stalled_pipeline,
+    sweep_expired,
+)
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
@@ -100,7 +124,23 @@ CRON_JOBS = [
     # D-31: the guarantee of record, not a safety net. 10 minutes matches the window
     # in which a Bolna execution reaches `completed` plus margin.
     cron(traced_job(reconcile_executions), minute={0, 10, 20, 30, 40, 50}, run_at_startup=True),
-    cron(traced_job(report_stalled_pipeline), minute={5, 35}),
+    # `max_tries` here too, though this one DOES self-heal on its next tick 30 minutes
+    # later: the alarm's whole job is to notice that the pipeline is late, and an alarm
+    # that gives up on its first transient database error is silent for exactly as long
+    # as the incident it exists to report. Half an hour of that is not free.
+    cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    # The DPDP §12 equivalent of the line above, and the reason it exists is that there
+    # WAS no equivalent: an erasure request whose job was lost to a deploy sat open
+    # forever with nothing watching (P6.5). Hourly rather than half-hourly because
+    # `ERASURE_OVERDUE_AFTER` is an hour — a tighter cadence would re-report the same
+    # request without shortening the time to notice it.
+    #
+    # `max_tries` for its neighbour's reason, and more sharply: unlike the pipeline
+    # stall, this condition CANNOT self-heal between ticks. `execute_deletion_request`
+    # is enqueued once, in the request's own transaction, with no poller behind it — so
+    # the alarm going quiet on a transient database error is the whole failure, not a
+    # delay in reporting it.
+    cron(traced_job(report_overdue_erasures), minute={25}, max_tries=WORKER_MAX_TRIES),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
     # 'before the next dispatch tick' — this cron IS that tick.
     #
@@ -117,7 +157,10 @@ CRON_JOBS = [
     # (`keep_cronjob_progress`) and would turn a 30-second tick into a 60-second one.
     # `campaign_dispatch._tick_lease` is where single-flight actually comes from.
     cron(traced_job(dispatch_campaign_tick), second=set(TICK_SECONDS)),
-    cron(traced_job(sweep_expired), hour={3}, minute={17}),
+    # `max_tries` for `apply_retention`'s reason, and it is the same class of job: the
+    # other half of the retention obligation, on the same nightly cadence, with the same
+    # "gone until tomorrow" failure mode and no next tick to self-heal on.
+    cron(traced_job(sweep_expired), hour={3}, minute={17}, max_tries=WORKER_MAX_TRIES),
     # THE WEEKLY QA SPOT-CHECK (SURFACES §1): 5% of every client's calls, drawn so the
     # draw can be re-run and checked (`apps/api/quality/sampling.py`). Monday, early.
     #
@@ -144,7 +187,19 @@ CRON_JOBS = [
     ),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
-    cron(traced_job(apply_retention), hour={3}, minute={40}),
+    #
+    # `max_tries` EXPLICIT, and the omission this corrects (P6.2) mattered more here than
+    # on any of its neighbours — `cron()` defaults it to 1, `WorkerSettings.max_tries`
+    # does not reach a function carrying its own, and the neighbours above and below make
+    # this exact argument four times while the one job that is a LEGAL obligation went
+    # without. Two ways it bit: a container swap cancels the in-flight job, which requeues
+    # and then fails its pickup with `job_try=2 > 1`; and any error inside the sweep
+    # finished the job on its first attempt. The other four crons that failed this way
+    # self-heal on their next tick. This one and `sweep_expired` are gone until tomorrow,
+    # which is a night's expired recordings, transcripts and leads still held — so
+    # `apply_retention` also alerts on a non-zero failure count now, because a retry
+    # ladder that runs out still has to tell somebody.
+    cron(traced_job(apply_retention), hour={3}, minute={40}, max_tries=WORKER_MAX_TRIES),
     # THE DRIFT SWEEP (D-123). `engine_drift_for` was on-demand only, so the two
     # divergences a publish-time read-back structurally cannot see — an agent edited in
     # the VENDOR'S dashboard, and a publish that failed on our side after the vendor
@@ -303,3 +358,31 @@ class WorkerSettings:
     # Keep results long enough for the ARQ-level job-id dedupe window to be useful
     # against duplicate webhooks (BACKEND-PATTERNS §4's cheapest layer).
     keep_result = 3600
+    # DRAIN ON SIGTERM RATHER THAN HARD-CANCEL, and until this line existed three
+    # documents said we did while the code did the opposite (P6.1).
+    #
+    # arq selects its signal handler on the TRUTHINESS of this value: `0` — the default,
+    # and what this class carried — installs `handle_sig`, which cancels every in-flight
+    # job task in the first millisecond of SIGTERM. Any non-zero value installs
+    # `handle_sig_wait_for_completion`, which awaits the running tasks and cancels only
+    # what is still going at the deadline. So `compose.prod.yml`'s 60-second
+    # `stop_grace_period`, `docs/DEPLOYMENT.md` §4b's "in-flight work finishes instead of
+    # being killed" and BACKEND-PATTERNS §10's "drain-then-quit shutdown" were all
+    # describing a process that had already thrown its work away.
+    #
+    # WHY 45 AND NOT 60. It has to be strictly UNDER the compose grace, because that
+    # grace ends in SIGKILL: a drain window equal to it would be racing the kill and a
+    # drain window longer than it would be cancelled by one. Fifteen seconds of headroom
+    # covers the `on_shutdown` hook, the tracing flush and the pool teardown that all run
+    # AFTER the drain. `tests/worker_drain_test.py` pins the relationship against the
+    # compose file rather than trusting this paragraph — the same shape
+    # `dispatch_tick_lease_test` uses for `job_timeout < TICK_LEASE_TTL_S`.
+    #
+    # WHY NOT `job_timeout` (300). A job that has run for five minutes is not going to
+    # finish in the grace window either, and sizing the drain to the slowest possible job
+    # would mean every deploy waits for SIGKILL. The nine `FUNCTIONS` jobs are idempotent
+    # and re-queue; what this window is actually FOR is the six `max_tries=1` crons,
+    # which do not — a cancelled `apply_retention` requeues, fails its pickup with
+    # `job_try=2 > 1`, and is gone until tomorrow, which is a legal obligation skipped in
+    # silence because a deploy happened at 03:40 UTC.
+    job_completion_wait = 45

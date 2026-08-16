@@ -58,6 +58,8 @@ from contextlib import contextmanager
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from calevate_shared.config import email_transport_reason
+
 from apps.api.core.alerting import configure_alerts
 from apps.api.core.logging import (
     MESSAGE_WITHHELD,
@@ -1007,11 +1009,23 @@ def init_observability(service: str) -> str:
     configure_alerts(service=service)
     if settings.alerts_email:
         enabled.append("alerts:email")
-        if settings.app_env != "local" and not settings.smtp_host:
+        # THE SAME RESOLVER `get_transport()` USES, never a second read of the same
+        # fields. It used to be `not settings.smtp_host` here, which stopped being the
+        # question the moment `EMAIL_PROVIDER` existed — this line would have warned at
+        # every boot of a perfectly good Resend deployment. `email_transport_reason`
+        # lives in `calevate_shared.config` precisely so this check can call it:
+        # voice-runtime boots through here and may not import `apps.workers`
+        # (hard rule 3).
+        transport_gap = email_transport_reason(settings)
+        if transport_gap is not None:
             # A recipient with nothing to carry the mail: `get_transport()` is the
             # authority on selection and will hand back `NullTransport`, which refuses
-            # loudly — but it refuses at 3am, and this refuses at boot.
-            log.warning("alert_delivery_has_no_transport", extra={"service": service})
+            # loudly — but it refuses at 3am, and this refuses at boot. The reason rides
+            # along so the operator does not have to guess which half is missing.
+            log.warning(
+                "alert_delivery_has_no_transport",
+                extra={"service": service, "reason": transport_gap},
+            )
     elif settings.app_env != "local":
         # Not a crash: a service whose job is answering calls must boot without a
         # mailbox. But a deployment where alerts reach nobody is OPERATIONS §8's

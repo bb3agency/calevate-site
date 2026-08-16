@@ -371,6 +371,34 @@ class TestBlindSpots:
         code, output = _run(tree, capsys)
         assert code == 0, output
 
+    def test_the_config_is_out_of_scope_and_a_lookalike_under_src_is_not(
+        self, tree: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """`next.config.ts` runs in NODE. Everything this guardrail asks rests on "the
+        value gets inlined into the bundle", which is false there — Next compiles the
+        config to `next.config.compiled.js` and executes it in the build process, where it
+        reads the live `process.env` and nothing is inlined anywhere.
+
+        Both halves are asserted, because the exemption is only safe while it is narrow: a
+        build-time-only read in the real config is fine, and the identical read one
+        directory deeper is still a finding. A `startswith("next.config")` or a match on
+        the word "config" would have quietly exempted the second."""
+        config = tree / "apps/web/next.config.ts"
+        config.write_text(
+            'const deployBuild = process.env.CALEVATE_DEPLOY_BUILD_MIRROR === "1";\n'
+            "export default { deployBuild };\n"
+        )
+        code, output = _run(tree, capsys)
+        assert code == 0, output
+        assert "CALEVATE_DEPLOY_BUILD_MIRROR" not in output
+
+        (tree / "apps/web/src/next.config.ts").write_text(
+            'export const x = process.env.CALEVATE_DEPLOY_BUILD_MIRROR ?? "";\n'
+        )
+        code, output = _run(tree, capsys)
+        assert code == 1, output
+        assert "CALEVATE_DEPLOY_BUILD_MIRROR" in output
+
     def test_a_missing_declaration_file_fails(
         self, tree: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:

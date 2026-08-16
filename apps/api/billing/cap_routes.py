@@ -164,7 +164,14 @@ async def get_caps(session: Session, principal: CapsRead) -> CapsOut:
     return _render(
         caps,
         minutes=counters.minutes_used,
-        spend=counters.spend_used,
+        # `billed_inr` — the CLIENT'S spend at their own rate, which is the number
+        # `caps.over_cap_sql` compares their ceiling against. It used to be
+        # `spend_used` — the engine's charge to US — so a client who set ₹5,000 was
+        # shown our supplier cost as their progress towards it and was stopped at
+        # roughly a quarter of what they thought they had bought (P1.3). Our pricing is
+        # commercially ours; `billing/service.py` states that rule and this route was
+        # publishing the monthly aggregate of it.
+        spend=counters.billed_inr,
         capped=counters.capped,
     )
 
@@ -227,7 +234,10 @@ async def set_caps(payload: CapsIn, session: Session, principal: CapsWrite) -> C
     return _render(
         result.caps,
         minutes=counters.minutes_used,
-        spend=counters.spend_used,
+        # Same column as the GET above, for the same reason: the two describe one
+        # screen, and a PUT that answered in a different currency from the GET that
+        # loaded it would move the number under the client as they pressed save.
+        spend=counters.billed_inr,
         # The flag AFTER this write, from the recompute itself rather than from a second
         # read: same transaction either way, but this is the value the client is being
         # told they caused.

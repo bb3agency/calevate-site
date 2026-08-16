@@ -42,8 +42,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.billing.caps import CAPS_CTE, lock_tenant_spend_state, over_cap_sql
-from apps.api.billing.rates import MONEY_Q, ROUNDING, billable_tier
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.rates import (
+    MONEY_Q,
+    PREPAID_TIERS,
+    ROUNDING,
+    billable_tier,
+    client_billed_inr,
+)
 from apps.api.billing.service import charge_for_call, plan_tier_of
+from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
     OptOutSignal,
@@ -60,6 +68,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -80,6 +89,19 @@ log = get_logger(__name__)
 
 POSTCALL_JOB = "run_post_call_pipeline"
 INGEST_JOB = "ingest_engine_event"
+# The two names this module ENQUEUES rather than defines, promoted from literals (P6.9).
+# They lived as bare strings at four call sites, which made them invisible to
+# `tests/job_registration_test.py` — the guard whose entire job is noticing a job name no
+# worker answers to. That guard could not see them because it inspected `node.args[0]` for
+# every enqueuer, and `enqueue_outbox`'s first positional is the SESSION.
+#
+# Declared HERE rather than beside their functions for `compliance/deletion.DELETION_JOB`'s
+# reason: the constant sits with the enqueuer, so `apps/api` never has to import
+# `apps/workers` to name a job. `notify_hot_lead` lives in `workers/notifications.py` and
+# `deliver_outbound_webhook` in `workers/outbound_webhooks.py`; both are registered in
+# `settings.FUNCTIONS`, which is now what the guard actually checks these against.
+HOT_LEAD_JOB = "notify_hot_lead"
+OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 
 # Hot-lead rule (FLOWS §6): these reach the owner within 2 minutes.
 HOT_LEAD_STATUSES = frozenset({"hot"})
@@ -767,7 +789,26 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         set_span_attributes(stage, outcome=outcome)
 
     # STEP 3 — extraction against the agent's schema.
-    spec, schema_version, agent_id, direction = await _load_call_context(tenant_id, call_id)
+    spec, schema_version, agent_id, direction, disclosure_line = await _load_call_context(
+        tenant_id, call_id
+    )
+
+    # STEP 2c — the evidence that the disclosure was spoken (P3.3). Numbered out of order
+    # because that is where it belongs and where it now runs: it is transcript work, it
+    # needs the agent row, and `_load_call_context` is the statement that fetches one. A
+    # second query before STEP 2b purely to keep the numbers tidy would put a per-call
+    # round trip on the critical path for cosmetics.
+    #
+    # BEFORE extraction rather than after, for `pipeline.opt_out`'s reason: extraction is
+    # a model round trip with a 30-second timeout and a retry ladder behind it, and this
+    # is a string match. A compliance record that is only written when the LLM answers is
+    # a compliance record missing on exactly the calls somebody will ask about.
+    with span("pipeline.disclosure", call_id=str(call_id)) as stage:
+        played = disclosure_spoken(snapshot.transcript or [], disclosure_line=disclosure_line)
+        await _record_disclosure(tenant_id, call_id, played)
+        # The VERDICT, never the line and never a turn (hard rule 6).
+        set_span_attributes(stage, disclosure_played=("unknown" if played is None else played))
+
     needs_extraction = bool(spec.fields or transcript_text)
     # THE SPAN THIS WHOLE EXERCISE IS FOR. A model round trip lives in here, and it is
     # the stage most likely to own the missing minutes — a 30s extraction timeout
@@ -871,7 +912,7 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         # the same call — the client would simply be told twice.
         if snapshot.status == "completed" and not await _already_enqueued(
             session,
-            job="deliver_outbound_webhook",
+            job=OUTBOUND_WEBHOOK_JOB,
             matcher={"event": "call.completed", "data": {"call_id": str(call_id)}},
         ):
             await integrations.enqueue_event(
@@ -1132,8 +1173,9 @@ async def _persist_extraction(
 
 async def _load_call_context(
     tenant_id: UUID, call_id: UUID
-) -> tuple[ExtractionSchemaSpec, int, UUID, str]:
-    """The call's agent, its direction, and the schema ACTIVE AT EXTRACTION TIME.
+) -> tuple[ExtractionSchemaSpec, int, UUID, str, str]:
+    """The call's agent, its direction, its disclosure line, and the schema ACTIVE AT
+    EXTRACTION TIME.
 
     Direction comes from the stored call row rather than being re-derived: it decides
     which number belongs to the lead, and getting it wrong would file an outbound call
@@ -1141,12 +1183,24 @@ async def _load_call_context(
 
     Leads render by the schema version stored on the row, so a later schema edit never
     rewrites an old lead (TRD §7).
+
+    THE DISCLOSURE LINE RIDES ON THIS QUERY rather than getting its own. It comes from
+    the same `agents` row this already joins, one column further along, and a second
+    round trip for one string would put a per-call query on the pipeline's critical path
+    to answer a question this statement was already standing next to. It is the agent's
+    CURRENT line, not a snapshot of the one live when the call ran — the same
+    approximation `_upsert_lead` accepts about the agent — and a tenant editing it
+    mid-month can therefore make an old call read as undisclosed. That is visible and
+    conservative (it can only turn True into False); the alternative is a
+    `calls.disclosure_line_at_call` column, which is a real answer and a migration this
+    finding does not call for.
     """
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT c.agent_id, c.direction, es.version, es.fields FROM calls c "
+                    "SELECT c.agent_id, c.direction, es.version, es.fields, a.disclosure_line "
+                    "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -1157,11 +1211,32 @@ async def _load_call_context(
     if row is None:
         raise RuntimeError(f"call {call_id} not found for schema load")
     agent_id, direction, version, fields = row[0], str(row[1]), row[2], row[3]
+    disclosure_line = str(row[4] or "")
     if not fields:
         empty = ExtractionSchemaSpec(version=version or 1, fields=[])
-        return empty, version or 1, agent_id, direction
+        return empty, version or 1, agent_id, direction, disclosure_line
     spec = ExtractionSchemaSpec.model_validate({"version": version or 1, "fields": fields})
-    return spec, spec.version, agent_id, direction
+    return spec, spec.version, agent_id, direction, disclosure_line
+
+
+async def _record_disclosure(tenant_id: UUID, call_id: UUID, spoken: bool | None) -> None:
+    """Write `calls.disclosure_played` — the column three surfaces render and nothing
+    wrote (P3.3).
+
+    A NULL VERDICT IS STILL WRITTEN, and writing `None` over a previous `True` is the
+    behaviour we want on a re-run: the pipeline is re-runnable by design (TRD §8), and if
+    a second pass sees no transcript then the evidence for the first pass's answer is
+    gone too. A verdict that could only ever move towards `True` would be a compliance
+    field that ratchets, which is the shape of a field that stops meaning anything.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET disclosure_played = :played, updated_at = now() "
+                "WHERE id = :cid AND tenant_id = :tid"
+            ),
+            {"played": spoken, "cid": call_id, "tid": tenant_id},
+        )
 
 
 async def _upsert_lead(
@@ -1346,25 +1421,38 @@ _ACC_SPEND = (
     "THEN spend_state.spend_used + EXCLUDED.spend_used "
     "ELSE EXCLUDED.spend_used END"
 )
+# The CLIENT's currency, accumulated beside ours (P1.3). `spend_used` is what the engine
+# charged us and stays the margin panel's; this is what the client owes and is what the
+# cap below is compared against. Same reset-on-rollover rule as the two above — a
+# client's allowance does not carry into the next month any more than their minutes do.
+_ACC_BILLED = (
+    "CASE WHEN spend_state.month = EXCLUDED.month "
+    "THEN spend_state.billed_inr + EXCLUDED.billed_inr "
+    "ELSE EXCLUDED.billed_inr END"
+)
 
 
 _SPEND_STATE_UPSERT = f"""
 WITH caps AS ({CAPS_CTE})
 INSERT INTO spend_state (
-    tenant_id, month, minutes_used, spend_used, capped, created_at, updated_at
+    tenant_id, month, minutes_used, spend_used, billed_inr, capped, created_at, updated_at
 )
 SELECT
     CAST(:tid AS uuid), CAST(:month AS text),
-    CAST(:minutes AS numeric), CAST(:spend AS numeric),
-    {over_cap_sql("CAST(:minutes AS numeric)", "CAST(:spend AS numeric)")},
+    CAST(:minutes AS numeric), CAST(:spend AS numeric), CAST(:billed AS numeric),
+    -- THE CAP IS COMPARED AGAINST THE CLIENT'S NUMBER, not ours. It used to read
+    -- `:spend`, so a client who capped themselves at ₹5,000 was stopped at ₹5,000 of
+    -- CALEVATE's supplier cost — roughly ₹20,000 of their own bill.
+    {over_cap_sql("CAST(:minutes AS numeric)", "CAST(:billed AS numeric)")},
     now(), now()
 ON CONFLICT (tenant_id) DO UPDATE SET
     minutes_used = {_ACC_MINUTES},
     spend_used = {_ACC_SPEND},
+    billed_inr = {_ACC_BILLED},
     -- Recomputed, never carried: on a month rollover the counters above reset, and a
     -- flag left at its old value is a tenant capped in July who can never dial in
     -- August — the counters would read one minute used and the gate would still refuse.
-    capped = {over_cap_sql(_ACC_MINUTES, _ACC_SPEND)},
+    capped = {over_cap_sql(_ACC_MINUTES, _ACC_BILLED)},
     month = EXCLUDED.month,
     updated_at = now()
 """
@@ -1410,6 +1498,38 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     """
     cost = snapshot.cost
     if cost is None:
+        # A CALL THAT COMPLETED AND CANNOT BE PRICED IS NOT A NON-EVENT (P1.2).
+        #
+        # `return 0` on its own wrote no usage row, took no credit, moved no
+        # `spend_state` — and `_pipeline_settled` only expects a usage artefact when
+        # `snapshot.cost is not None`, so the reconciliation poller, which is D-31's
+        # GUARANTEE OF RECORD, classified the call `settled` and never came back for it.
+        # Every client-facing money figure derives from `usage_events` rather than from
+        # `calls`, so the blast radius of the vendor spelling `total_cost` differently on
+        # the live account is: every usage panel reads 0 calls / ₹0.00, every invoice
+        # renders empty, no cap ever arms, no wallet is ever debited — and nothing
+        # anywhere goes red. That last clause is the defect; refusing to invent a price
+        # is correct and stays.
+        #
+        # `billable_ready` is the discriminator, and it is what makes this an alert
+        # rather than noise. A snapshot that is not yet billable has no cost because the
+        # engine has not finished settling it (`engine.py`: the vendor may take minutes
+        # after disconnect), and the poller WILL come back for that one. A snapshot the
+        # adapter has declared billable and cannot price is the adapter and the vendor
+        # disagreeing about the payload, which no amount of waiting fixes.
+        if snapshot.billable_ready:
+            alert(
+                "WORKER_TERMINAL",
+                "call_billable_without_cost",
+                detail=(
+                    "engine reported the execution as billable and the adapter could not "
+                    "read a cost from it: metered nothing, charged nothing, and the "
+                    "reconciliation poller will call this call settled. Check the "
+                    "adapter's cost keys against a live payload (pilot gate 7)."
+                ),
+                call_id=str(call_id),
+                tenant_id=str(tenant_id),
+            )
         return 0
     async with tenant_session(tenant_id) as session:
         await lock_call_writes(session, call_id)
@@ -1502,12 +1622,64 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 },
             )
 
+        # WHAT THE CLIENT OWES FOR THIS CALL, which is not what it cost us (P1.1/P1.3).
+        #
+        # `cost.total_inr` is the ENGINE's charge to US. It used to be the amount debited
+        # from the prepaid wallet as well, so the balance drained at roughly ₹2/min while
+        # the runway framing on the client's own screen priced the same minute at
+        # `self_serve_inr_per_min` (₹6.00) — the platform booking zero gross margin on the
+        # entire self-serve motion, from one variable doing two jobs.
+        #
+        # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
+        # re-read under the lock: `plan_in_effect_sql` is what `caps.CAPS_CTE` already
+        # resolves in the upsert, and a second reading could land on a different row if an
+        # operator changed the plan between the two statements — the wallet debit and the
+        # counter would then disagree about the price of one call.
+        plan_rates = (
+            await session.execute(
+                text(
+                    plan_in_effect_sql(
+                        "COALESCE(included_min, 0) AS included_min, "
+                        "overage_rate, overage_rate_value",
+                        at=NOW_SQL,
+                    )
+                ),
+                {"tid": tenant_id},
+            )
+        ).first()
+        # WHICH RUNG THIS CALL'S MARGINAL MINUTES ARE PRICED ON. The rate card has two,
+        # and the call already resolved its own `tts_tier` above — so the marginal minute
+        # is priced on the rung the call ran on, which is the same honesty rule
+        # `billable_tier` applies: an unproven call resolved to `value` and is charged the
+        # cheaper rate here too. `usage_summary` allocates the month's INCLUDED allowance
+        # to the dearer rung first, which is a month-level decision this per-call counter
+        # deliberately does not try to reproduce — see `client_billed_inr`.
+        marginal_rate: Decimal | None = None
+        if plan_rates is not None:
+            premium_rate = plan_rates[1]
+            value_rate = plan_rates[2]
+            chosen = (
+                value_rate if (tts_tier == "value" and value_rate is not None) else premium_rate
+            )
+            marginal_rate = Decimal(str(chosen)) if chosen is not None else None
+
         # Prepaid credits move with the metering, keyed by call_id so a pipeline
         # re-run cannot double-charge (D-39). Managed tenants are invoiced against a
         # retainer instead, which `charge_for_call` reads from plan_tier.
-        if tier in ("self_serve", "trial"):
+        #
+        # PREPAID HAS NO ALLOWANCE, so the debit needs no month arithmetic and can be
+        # taken before the `spend_state` lock: every minute is charged at the list price.
+        if tier in PREPAID_TIERS:
             await charge_for_call(
-                session, tenant_id=tenant_id, call_id=call_id, amount_inr=cost.total_inr
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                amount_inr=client_billed_inr(
+                    plan_tier=tier,
+                    minutes=minutes,
+                    self_serve_rate=get_settings().self_serve_inr_per_min,
+                    marginal_rate=marginal_rate,
+                ),
             )
 
         # spend_state is the pre-dispatch gate (TRD §9): caps are enforced BEFORE a
@@ -1531,16 +1703,92 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # which is the only order anything takes the two in.
         await lock_tenant_spend_state(session, tenant_id)
         month = _ist_month(snapshot.ended_at or datetime.now(UTC))
+        billed = await _billed_for_this_call(
+            session,
+            tenant_id=tenant_id,
+            plan_tier=tier,
+            month=month,
+            minutes=minutes,
+            included_min=Decimal(str(plan_rates[0])) if plan_rates is not None else Decimal("0"),
+            marginal_rate=marginal_rate,
+        )
         await session.execute(
             text(_SPEND_STATE_UPSERT),
             {
                 "tid": tenant_id,
                 "month": month,
-                "minutes": duration_s / Decimal(60),
+                "minutes": minutes,
                 "spend": cost.total_inr,
+                "billed": billed,
             },
         )
     return len(rows)
+
+
+async def _billed_for_this_call(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    plan_tier: str | None,
+    month: str,
+    minutes: Decimal,
+    included_min: Decimal,
+    marginal_rate: Decimal | None,
+) -> Decimal:
+    """This call's contribution to `spend_state.billed_inr` — the CLIENT's currency.
+
+    **MUST be called with `lock_tenant_spend_state` held**, and every line below is why:
+    the managed branch reads the month's running minutes and then writes a figure derived
+    from them, which is the read-then-write over money CLAUDE.md's concurrency rule names.
+    The lock is already taken by the only caller for the upsert's own sake, so this costs
+    nothing and adds no second lock to reason about.
+
+    PREPAID (`self_serve`, `trial`): every minute is charged, so there is no month to
+    consult and the answer is the same one `charge_for_call` was just given. Deliberately
+    computed twice from one function rather than threaded through as a variable — the two
+    are the same NUMBER but not the same FACT, and a future tier with a wallet discount
+    would want the debit and the accrual to diverge without either quietly following the
+    other.
+
+    MANAGED: only the minutes BEYOND the plan's included allowance are charged, and which
+    minutes those are is a fact about the month rather than about this call. The counter
+    already holds the month's running total, so the increment is exact and independent of
+    the order calls happen to meter in:
+
+        billed(this call) = over(minutes_before + minutes) - over(minutes_before)
+        where over(m)     = max(0, m - included_min)
+
+    A CLOSED-MONTH ROW COUNTS AS ZERO MINUTES SO FAR, matching the upsert immediately
+    below, which resets rather than accumulates when `spend_state.month` differs. Reading
+    a stale row's minutes as "already used" would spend the new month's allowance on the
+    old month's calls — a client's first call in August charged at the overage rate.
+    """
+    if plan_tier in PREPAID_TIERS:
+        return client_billed_inr(
+            plan_tier=plan_tier,
+            minutes=minutes,
+            self_serve_rate=get_settings().self_serve_inr_per_min,
+            marginal_rate=marginal_rate,
+        )
+    row = (
+        await session.execute(
+            text("SELECT minutes_used, month FROM spend_state WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    used_before = Decimal(str(row[0])) if row is not None and str(row[1]) == month else Decimal("0")
+    over_before = max(Decimal("0"), used_before - included_min)
+    over_after = max(Decimal("0"), used_before + minutes - included_min)
+    return client_billed_inr(
+        plan_tier=plan_tier,
+        minutes=over_after - over_before,
+        # Unread on this branch — `client_billed_inr` reaches for the list price only
+        # for a PREPAID tier, and a managed tenant with no quoted rate accrues nothing
+        # rather than being priced at a number nobody agreed. Passed as the real value
+        # anyway so the call site does not carry a lie about what it means.
+        self_serve_rate=get_settings().self_serve_inr_per_min,
+        marginal_rate=marginal_rate,
+    )
 
 
 async def _maybe_notify_hot_lead(
@@ -1576,14 +1824,13 @@ async def _maybe_notify_hot_lead(
         )
         if await _already_enqueued(
             session,
-            job="notify_hot_lead",
+            job=HOT_LEAD_JOB,
             matcher={"lead_id": str(lead_id), "call_id": str(call_id)},
         ):
             return "already_queued"
         await enqueue_outbox(
             session,
-            queue="notifications",
-            job="notify_hot_lead",
+            job=HOT_LEAD_JOB,
             payload={
                 "tenant_id": str(tenant_id),
                 "lead_id": str(lead_id),
@@ -1639,7 +1886,9 @@ EXTRACTION_OWED_SQL = (
 )
 
 
-def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -> tuple[str, ...]:
+def _expected_artifacts(
+    snapshot: ExecutionSnapshot, *, extraction_owed: bool, crm_fanout_owed: bool
+) -> tuple[str, ...]:
     """What a FINISHED pipeline must have left behind for THIS execution.
 
     The whole trick of the probe below, and the reason it needs no schema column. Asked
@@ -1650,7 +1899,7 @@ def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -
     whether this execution had a cost and whether it had a transcript, and an artefact
     the engine's data implies is one the pipeline owed.
 
-    Three artefacts, each gated on the condition the pipeline itself gates on:
+    Four artefacts, each gated on the condition the pipeline itself gates on:
 
     - `transcript_turns` — `_persist_transcript` upserts one row per turn and returns
       early only on an empty transcript.
@@ -1660,6 +1909,36 @@ def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -
     - `extraction` — owed exactly when `needs_extraction` would be true, which the
       caller resolves with `EXTRACTION_OWED_SQL` because half of it lives in the
       database rather than in the snapshot.
+    - `crm_fanout` — the D-23 outbound sync, step 8 and therefore LAST. See below.
+
+    **THE FOURTH ONE CLOSES THE HOLE THAT MADE THIS LIST A GUARANTEE OF THE FIRST FIVE
+    STEPS RATHER THAN OF THE PIPELINE** (P6.4). `_post_call_stages` has eight steps and
+    this list covered three, all of them at or before step 5. Steps 6, 7 and 8 — the
+    hot-lead notification, the campaign-contact resolution and the CRM fan-out — run
+    AFTER metering, each in its own transaction. So a pipeline that died between step 5's
+    commit and step 8 left `usage_events` written, this probe answered `settled`, and the
+    poller never came back: **the client's CRM was never told about that call, and nothing
+    anywhere recorded that it was not told.** `report_stalled_pipeline` could not see it
+    either — `EXTRACTION_OWED_SQL` asks only about extraction.
+
+    The justification this docstring used to carry ("a pipeline that reached metering
+    reached the lead upsert") is true, and true of step 4, which PRECEDES metering. It
+    proves nothing about 6-8, and the two sentences had been read as one.
+
+    **WHY THE CRM FAN-OUT AND NOT ALL THREE.** It is the last step, so its presence
+    implies 6 and 7 ran; and it is the only one of the three with a durable artefact that
+    is not conditional on something this function cannot see. Step 6's notification is
+    skipped for a lead that is not hot, and step 7's is a no-op for a call that was not a
+    campaign dial — both legitimately leave nothing, which is exactly the ambiguity that
+    makes an artefact useless as a probe.
+
+    **AND WHY IT NEEDS `has_crm_endpoint`.** `integrations.enqueue_events` writes one
+    outbox row per SUBSCRIBED ACTIVE ENDPOINT and returns 0 when there are none — which
+    is most tenants, most of the time. Expecting the artefact unconditionally would make
+    every call on every tenant without a CRM integration read as `unfinished_pipeline`
+    forever, re-driving a whole pipeline (including a billed extraction) on every tick.
+    That is precisely the failure this function's first paragraph exists to prevent, one
+    artefact later.
 
     NOT a lead: `_upsert_lead` returns None when the other party has no number, and that
     is invisible from here without re-deriving the direction rule. Its absence is
@@ -1672,6 +1951,10 @@ def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -
         expected.append("usage")
     if extraction_owed:
         expected.append("extraction")
+    # Step 8 gates on exactly this status, so this list does too — a call that did not
+    # complete was never owed a fan-out.
+    if snapshot.status == "completed" and crm_fanout_owed:
+        expected.append("crm_fanout")
     return tuple(expected)
 
 
@@ -1724,8 +2007,8 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
     (a model round trip, billed) alongside one that is about to finish. Past it, the
     pipeline is late by the SLO's own definition and the poller is what repairs it.
 
-    Costs one extra statement per completed execution and no extra round trip: both
-    EXISTS probes ride the same SELECT as the call row.
+    Costs one extra statement per completed execution and no extra round trip: every
+    EXISTS probe rides the same SELECT as the call row.
     """
     async with untenanted_session() as session:
         resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
@@ -1742,6 +2025,31 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     "  EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) AS has_usage, "
                     "  EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
                     "    AS has_extraction, "
+                    # STEP 8's artefact (P6.4). Matched on the outbox payload the way
+                    # `_already_enqueued` matches it — same job name, same `@>` containment
+                    # on (event, call_id) — because two spellings of "has this call been
+                    # fanned out" is how the probe and the writer stop agreeing. Rows are
+                    # never deleted from the outbox (`mark_outbox_published` only moves
+                    # status), so presence is durable proof and not a race with the
+                    # dispatcher.
+                    #
+                    # The job name is INTERPOLATED from the constant rather than spelled
+                    # again (P6.9's promotion): "same job name" was previously two literals
+                    # a reader had to compare by eye, and a test that compared them by eye
+                    # too. It is a module constant, never caller input, so there is nothing
+                    # for an f-string to inject.
+                    "  EXISTS (SELECT 1 FROM outbox_messages o "
+                    f"    WHERE o.job = '{OUTBOUND_WEBHOOK_JOB}' "
+                    "    AND o.payload @> jsonb_build_object("
+                    "      'event', 'call.completed', "
+                    "      'data', jsonb_build_object('call_id', c.id::text))) AS has_crm_fanout, "
+                    # And whether one was OWED at all. Mirrors
+                    # `integrations.enqueue_events`' own endpoint predicate, because a
+                    # tenant with no subscribed active endpoint gets zero outbox rows from
+                    # a perfectly healthy pipeline — and expecting the artefact anyway
+                    # would re-drive every call on every tick forever.
+                    "  EXISTS (SELECT 1 FROM outbound_webhooks w WHERE w.active = true "
+                    "    AND 'call.completed' = ANY(w.events)) AS crm_fanout_owed, "
                     f"  {EXTRACTION_OWED_SQL} AS extraction_owed "
                     "FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
@@ -1756,15 +2064,28 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
         # No completed call row at all: the original question, and still the common case
         # — a webhook that never arrived.
         return "missing_call"
-    ended_at, has_transcript, has_usage, has_extraction, extraction_owed = row
+    (
+        ended_at,
+        has_transcript,
+        has_usage,
+        has_extraction,
+        has_crm_fanout,
+        crm_fanout_owed,
+        extraction_owed,
+    ) = row
     present = {
         "transcript": bool(has_transcript),
         "usage": bool(has_usage),
         "extraction": bool(has_extraction),
+        "crm_fanout": bool(has_crm_fanout),
     }
     missing = [
         name
-        for name in _expected_artifacts(snapshot, extraction_owed=bool(extraction_owed))
+        for name in _expected_artifacts(
+            snapshot,
+            extraction_owed=bool(extraction_owed),
+            crm_fanout_owed=bool(crm_fanout_owed),
+        )
         if not present[name]
     ]
     if not missing:

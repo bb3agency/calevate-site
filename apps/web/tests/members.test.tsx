@@ -53,7 +53,10 @@ const INVITE: PendingInvitation = {
 
 async function renderTeam(
   over: {
-    me?: Me;
+    /* `unknown`, not `Me`: one test hands this a `problem()` so the screen meets a FAILED
+       `/v1/me`, and the route map takes `unknown` — asserting a refusal into the wire
+       type would be exactly what `wireFixtureGuard.test.ts` bans. */
+    me?: unknown;
     members?: unknown;
     invitations?: unknown;
   } = {},
@@ -106,6 +109,34 @@ describe("who may change the team", () => {
     expect(screen.queryByRole("button", { name: /Remove Anita/ })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /Role for Anita/ })).toBeNull();
     expect(container.textContent).toContain("You cannot change your own access");
+  });
+
+  /**
+   * When `/v1/me` fails, the screen does not know WHICH ROW IS YOU — `myId` is null, so
+   * `isMe` is false for every row and the "(you)" marker and the sentence beside it are
+   * gone. The obvious worry is that the owner is then offered a role select and a Remove
+   * on themselves, which the API refuses with a 403 that nobody can read as a boundary.
+   *
+   * **That does not happen, and this test is here so it cannot start.** `useWriteAccess`
+   * reads the SAME `/v1/me` query, so a failure that blanks `myId` also makes
+   * `write.allowed` false and `write.reason` "We could not check whether you can …" — the
+   * row renders that sentence where the controls would be, and no control is offered to
+   * anybody on any row. The two derivations agreeing is what makes the screen safe, and
+   * it would stop being true the moment `myId` came from somewhere else — a prop, a
+   * second query, a cached session.
+   */
+  it("offers nobody a control when it does not know who you are", async () => {
+    const { container } = await renderTeam({
+      me: problem(503, { title: "Service unavailable", retryable: false }),
+    });
+
+    await screen.findByText("Anita");
+    expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: /Role for/ })).toBeNull();
+    expect(container.textContent).toContain("We could not check whether you can");
+    // …and the screen does not claim to know which row is you, either way round.
+    expect(container.textContent).not.toContain("(you)");
+    expect(container.textContent).not.toContain("You cannot change your own access");
   });
 });
 

@@ -69,8 +69,26 @@ describe("the landing page's claims", () => {
     expect(calls).toEqual([]);
   });
 
-  it("scrolls on its own, because globals.css hides the document's overflow", () => {
+  it("hands the document its scrollbar back, without reaching the app shells", () => {
+    // THE MECHANISM CHANGED AND THE INVARIANT DID NOT (D-161). This used to assert an
+    // `overflow-y-auto` container, because `globals.css` pins
+    // `html, body { overflow: hidden }` for the `fixed inset-0` shells under /c and
+    // /admin, and a marketing page that simply grew was silently clipped.
+    //
+    // Lenis drives the WINDOW scroller, so an inner scrolling div would break smooth
+    // scroll, ScrollTrigger's defaults, browser scroll restoration and the mobile
+    // address-bar collapse all at once. The page now scrolls the document, and the
+    // override in globals.css is scoped by `:has([data-marketing-root])` — so it is
+    // structurally unable to reach a route that does not render this attribute.
+    //
+    // Asserted on the attribute rather than on a class: the attribute is the actual
+    // contract with the stylesheet, and a class name is a detail either side could
+    // rename without the other noticing.
     const { container } = render(<Home />);
-    expect(container.firstElementChild?.className).toContain("overflow-y-auto");
+    const root = container.querySelector("[data-marketing-root]");
+    expect(root).not.toBeNull();
+    // And it must be the OUTERMOST element, because `:has()` on <html> only frees the
+    // document when the marketing root is genuinely in this page's tree.
+    expect(container.firstElementChild?.hasAttribute("data-marketing-root")).toBe(true);
   });
 });

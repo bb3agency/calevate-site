@@ -149,7 +149,11 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
   {
     title: "Notifications",
     hint: "Where hot-lead alerts and operator alarms go.",
-    prefixes: ["smtp_", "notifications_", "alerts_", "whatsapp_"],
+    // `email_provider` belongs here rather than under Integrations, even though it is
+    // the same "a credential is not a statement of capability" selector `payment_provider`
+    // is: an operator looking for why an alert did not arrive looks under the alerts, and
+    // the setting that decides whether ANY transport exists is the first one they need.
+    prefixes: ["smtp_", "notifications_", "alerts_", "whatsapp_", "email_provider", "resend_"],
   },
   {
     title: "Integrations",

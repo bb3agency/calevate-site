@@ -78,13 +78,32 @@
 }
 
 /*
- * The app shell owns scrolling: the sidebar and the main panel scroll independently,
- * so the document itself must not. Every route under /c and /admin renders inside a
- * `fixed inset-0` shell that relies on this.
+ * The document scrolls BY DEFAULT, and the app shell opts out of that.
+ *
+ * The polarity here used to be the other way round — `html, body { overflow: hidden }`
+ * unconditionally, with an `html:has([data-marketing-root])` rule handing the scrollbar
+ * back — and it failed in the wrong direction. `:has()` is a selector, so a browser that
+ * does not support it does not merely ignore the override, it ignores the whole rule and
+ * keeps the pin: the marketing homepage, the one page a stranger reaches, was clipped at
+ * the fold with no way to scroll. Tailwind v4's own browser floor already excludes those
+ * engines, which is why this was a MINOR and not a blocker — but a rule whose failure
+ * mode costs a stranger the homepage is the wrong way round whatever the support matrix
+ * says, and the cost of the other way round is some rubber-banding behind an app shell
+ * that is `fixed inset-0` and clips its own content anyway.
+ *
+ * So: the pin is scoped to the shells that need it, and `:has()` failing now costs the
+ * console a little bounce instead of costing the public site its content. `[data-app-shell]`
+ * is on the root of both shells (`app/admin/layout.tsx`, `app/c/[slug]/layout.tsx`) —
+ * a marker they render, not a class a client effect toggles, which would flash on first
+ * paint and leak if a route forgot to clean it up.
  */
 html,
 body {
   height: 100%;
+}
+
+html:has([data-app-shell]),
+html:has([data-app-shell]) body {
   overflow: hidden;
 }
 
@@ -124,4 +143,37 @@ h6 {
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background-color: var(--color-ink-faint);
   border-radius: 20px;
+}
+/*
+ * MARKETING PAGES SCROLL THE DOCUMENT, and Lenis (D-161) needs them to.
+ *
+ * Lenis drives smooth scrolling from the WINDOW scroller, and a marketing page that
+ * scrolled an inner div instead would also break ScrollTrigger's defaults, browser
+ * scroll restoration, and the address-bar collapse on mobile.
+ *
+ * There is no override here any more: the pin above is scoped to `[data-app-shell]`, so
+ * a page with no shell in it is already scrollable and the marketing root has nothing to
+ * undo. `height: auto` is the one thing it still needs — `html, body { height: 100% }`
+ * above is what the shells size against, and a marketing page is taller than the viewport
+ * on purpose.
+ */
+html:has([data-marketing-root]),
+html:has([data-marketing-root]) body {
+  height: auto;
+}
+
+/*
+ * The reveal primitive's resting state. Elements start visible and GSAP animates FROM
+ * a displaced state — never the reverse. A `.reveal { opacity: 0 }` rule is the classic
+ * way to ship a page that is permanently blank when JavaScript fails, when a bundle is
+ * blocked, or when a crawler renders without executing scripts, and it is exactly the
+ * failure `prefers-reduced-motion` users would otherwise hit too.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html:has([data-marketing-root]) * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

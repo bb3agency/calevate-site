@@ -70,9 +70,12 @@ async def _tenant_capped_in(month: str | None) -> UUID:
         async with tenant_session(tenant_id) as session:
             await session.execute(
                 text(
+                    # Both money columns, because the meter writes both: `spend_used` is what
+                    # the engine charged us and `billed_inr` is what the client owes, and
+                    # the CAP is compared against the second (P1.3).
                     "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
-                    "capped, created_at, updated_at) VALUES (:t, :m, 500, "
-                    "CAST(:s AS numeric), true, now(), now())"
+                    "billed_inr, capped, created_at, updated_at) VALUES (:t, :m, 500, "
+                    "CAST(:s AS numeric), CAST(:s AS numeric), true, now(), now())"
                 ),
                 {"t": tenant_id, "m": month, "s": Decimal("5000.0000")},
             )

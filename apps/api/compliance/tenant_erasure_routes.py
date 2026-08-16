@@ -103,6 +103,13 @@ class TenantErasureScopeOut(Strict):
     transcript_turns_erased: int | None
     call_extractions_erased: int | None
     leads_erased: int | None
+    # The client's own uploaded campaign lists (P3.1). A first-class count rather than a
+    # sentence in `actions`, because a certificate that enumerates calls, transcripts and
+    # leads and is SILENT about the CSV of 5,000 numbers the client pasted in is the
+    # "claims exhaustive enumeration and is not" defect this whole document exists
+    # against — and because unlike the object-store counts it is a plain row count that
+    # needs no explanation to be meaningful.
+    campaign_contacts_erased: int | None
     recordings_destroyed: int | None
     recordings_within_trai_floor: int | None
     webhook_bodies_erased: int | None

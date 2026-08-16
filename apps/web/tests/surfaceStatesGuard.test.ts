@@ -54,6 +54,12 @@ import { beforeAll, describe, expect, it } from "vitest";
  *     and the early-return form where the fall-through is the dangerous branch. This is
  *     the shape that offered an irreversible tenant erasure while stating that none had
  *     been filed.
+ *  5. **An empty collection, in a component that refuses to a FAILURE but never asks
+ *     whether the answer ARRIVED.** `const rows = q.data ?? []` under an
+ *     `isLoading ? … : error ? … : rows.length === 0 ? "there are none"` ladder. Rule 3's
+ *     gate passes it — the component does consult `q.isError` — and the sentence is still
+ *     false, because failing is not the only way to have no answer. See the next section
+ *     but one.
  *
  * "Manufactured literal" means a number, `true`/`false`, `[]` or `{}` — a value. NOT a
  * string, NOT `null`, NOT `undefined`: `?? "—"` and `?? null` claim absence, which is
@@ -96,6 +102,51 @@ import { beforeAll, describe, expect, it } from "vitest";
  *   unable to act and unable to ask why. A branch that only decides whether a sentence
  *   is printed is a sentence we do not have. `{me.data?.impersonating && <p>…</p>}` is
  *   the second kind and stays out.
+ *
+ * ═══ RULE 5: THE THIRD WAY TO HAVE NO ANSWER ═════════════════════════════════════════
+ *
+ * Rules 3 and 4 are gated on whether the component consults the query's FAILURE, and that
+ * gate was written against a two-state world: a read is in flight, or it failed. **There
+ * is a third state, and it is neither.**
+ *
+ * `queryObserver.js` computes `isLoading = isPending && isFetching`, and `query.js`
+ * sets `fetchStatus: canFetch(networkMode) ? "fetching" : "paused"`. With the default
+ * `networkMode: "online"` — `providers.tsx` sets none — a query whose fetch cannot start
+ * because the browser is offline is PARKED rather than run. It reports
+ * `isPending === true`, `isFetching === false` and therefore **`isLoading === false`**,
+ * with **`error === null`** and `data === undefined`. `client.ts` calls a console tab open
+ * across a dropped connection *"the normal case, not an edge"*.
+ *
+ * So a ladder that reads `isLoading ? <Skeleton/> : error ? <Refusal/> : …` takes NEITHER
+ * arm, and whatever the author coalesced above it is what the screen states. Six screens
+ * did exactly this, and the two admin ones are the sharpest: `admin/holds` says of its own
+ * empty state *"'Nobody is waiting' is a claim about the world, and a failed read is not
+ * evidence for it"* — and then walked past its own error branch into that sentence.
+ *
+ * Rule 5 therefore asks a DIFFERENT question of the component: not "does a failed read
+ * have somewhere to go" but **"does this component anywhere ask whether the answer
+ * arrived"** — `!q.data`, `q.data === undefined`, `Boolean(q.data)`, `q.data ? … : …`, or
+ * the same tests on a local that still carries the `undefined`. That test is the only one
+ * that separates all three non-answers from an answer, which is why `verification` and
+ * `campaign-review` — the two screens that met the paused query first — both spell their
+ * refusal `if (q.error || !q.data)`.
+ *
+ * Two deliberate narrowings keep it at zero false positives on this tree:
+ *
+ * * **Empty collections only** (`[]`, `{}`). A manufactured number or boolean is already
+ *   unconditional under rules 1 and 2, and a string or `null` is an absence marker. The
+ *   empty collection is the one manufactured value that is spent BEFORE the ladder runs
+ *   and then reappears at the bottom of it as "there are none".
+ * * **Only where rule 3 is silent.** If the component consults neither failure nor
+ *   arrival, that is rule 3's site and it is reported once, as rule 3. Rule 5 is for the
+ *   component that did the first half of the job.
+ *
+ * Measured on the tree the day this landed: 12 hits, 12 of them real, all fixed in the
+ * same change, EXEMPT empty. Two more sites in the same class carry no `??` at all
+ * (`!calls.data?.length ? <EmptyState/>` on the call log, and the dashboard's `recent`
+ * ternary) — the optional chain collapses "an empty list the server sent" into "no
+ * answer", and both were fixed by hand in that change. Rule 5 does not see that spelling;
+ * see the next section for why the per-component gate cannot.
  *
  * ═══ WHAT IS **NOT** CHECKED, AND WHY ════════════════════════════════════════════════
  *
@@ -217,6 +268,17 @@ interface Violation {
 function siteKey(violation: Violation): string {
   return `${violation.file}  ${violation.text}`;
 }
+
+/** Rule 5's sentence — the fix, and the mechanism, because nobody guesses this one. */
+const PAUSED_IS_NEITHER =
+  "substitutes an empty collection for an answer that may never have arrived. This " +
+  "component refuses when `{query}` FAILS, and that is not enough: TanStack parks a query " +
+  "rather than starting it while the browser is offline (`fetchStatus: \"paused\"`), and a " +
+  "paused query reports `isLoading === false` AND `error === null` with `data === " +
+  "undefined` — so neither arm of the ladder is taken and this `[]`/`{}` is what the " +
+  "screen states. Ask whether the answer ARRIVED: spell the refusal " +
+  "`if ({query}.error || !{query}.data)`, the way /c/<slug>/verification and " +
+  "/c/<slug>/campaign-review do.";
 
 const REFUSE_FIRST =
   "Render the failed branch explicitly (ProblemNotice / a sentence naming what could " +
@@ -460,6 +522,174 @@ function unrefusedQueryRead(checker: ts.TypeChecker, node: ts.Node): string | nu
   return found;
 }
 
+// ─── rule 5's gate: does the component ever ask whether the answer ARRIVED? ──────────
+
+/**
+ * Is this read of `X.data` (or of a local still carrying its `undefined`) ASKING whether
+ * the answer arrived, rather than spending it?
+ *
+ * `!q.data`, the four equality forms, either side of `&&`/`||`, the condition of an `if`
+ * or a ternary, and `Boolean(q.data)` — which the header above already names as this
+ * repo's settled spelling for the honest question.
+ *
+ * `??` is deliberately absent from that list and its absence is the whole rule:
+ * `q.data ?? []` is the coalesce, not the question. A guard that counted it would be
+ * discharged by the very expression it exists to flag.
+ */
+function isArrivalTest(node: ts.Node): boolean {
+  let current: ts.Node = node;
+  let parent: ts.Node | undefined = current.parent;
+  while (parent && ts.isParenthesizedExpression(parent)) {
+    current = parent;
+    parent = current.parent;
+  }
+  if (!parent) return false;
+  if (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken) {
+    return true;
+  }
+  if (ts.isBinaryExpression(parent)) {
+    switch (parent.operatorToken.kind) {
+      case ts.SyntaxKind.EqualsEqualsEqualsToken:
+      case ts.SyntaxKind.ExclamationEqualsEqualsToken:
+      case ts.SyntaxKind.EqualsEqualsToken:
+      case ts.SyntaxKind.ExclamationEqualsToken:
+      case ts.SyntaxKind.AmpersandAmpersandToken:
+      case ts.SyntaxKind.BarBarToken:
+        return true;
+      default:
+        return false;
+    }
+  }
+  if (ts.isConditionalExpression(parent) && parent.condition === current) return true;
+  if (ts.isIfStatement(parent) && parent.expression === current) return true;
+  return (
+    ts.isCallExpression(parent) &&
+    ts.isIdentifier(parent.expression) &&
+    parent.expression.text === "Boolean"
+  );
+}
+
+/** Memoised for the same reason `REFUSAL_CACHE` is: the answer is per declaration. */
+const ARRIVAL_CACHE = new WeakMap<ts.VariableDeclaration, boolean>();
+
+function asksWhetherAnswerArrived(
+  checker: ts.TypeChecker,
+  declaration: ts.VariableDeclaration,
+): boolean {
+  const cached = ARRIVAL_CACHE.get(declaration);
+  if (cached !== undefined) return cached;
+  const answer = computeAsksWhetherAnswerArrived(checker, declaration);
+  ARRIVAL_CACHE.set(declaration, answer);
+  return answer;
+}
+
+function computeAsksWhetherAnswerArrived(
+  checker: ts.TypeChecker,
+  declaration: ts.VariableDeclaration,
+): boolean {
+  const scope = owningFunction(declaration);
+  if (!scope || !ts.isIdentifier(declaration.name)) return true;
+  const symbol = checker.getSymbolAtLocation(declaration.name);
+  if (!symbol) return true;
+
+  /*
+   * One hop, and only towards locals that KEPT the `undefined`. `const rows = q.data`
+   * still carries the question, so `!rows` asks it. `const rows = q.data ?? []` does not
+   * and never can — the alias cannot be absent any more — which is precisely the defect,
+   * so those locals are not collected and cannot discharge the gate.
+   */
+  const aliases = new Set<ts.Symbol>();
+  const collect = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      let initializer: ts.Expression = node.initializer;
+      while (ts.isParenthesizedExpression(initializer)) initializer = initializer.expression;
+      if (
+        ts.isPropertyAccessExpression(initializer) &&
+        initializer.name.text === "data" &&
+        ts.isIdentifier(initializer.expression) &&
+        checker.getSymbolAtLocation(initializer.expression) === symbol &&
+        includesUndefined(checker.getTypeAtLocation(node.name))
+      ) {
+        const alias = checker.getSymbolAtLocation(node.name);
+        if (alias) aliases.add(alias);
+      }
+    }
+    ts.forEachChild(node, collect);
+  };
+  collect(scope);
+
+  let asks = false;
+  const visit = (node: ts.Node): void => {
+    if (asks) return;
+    if (ts.isIdentifier(node)) {
+      const resolved = checker.getSymbolAtLocation(node);
+      const parent = node.parent;
+      const isEnvelopeRead =
+        ts.isPropertyAccessExpression(parent) &&
+        parent.expression === node &&
+        parent.name.text === "data" &&
+        resolved === symbol;
+      if (isEnvelopeRead && isArrivalTest(parent)) {
+        asks = true;
+        return;
+      }
+      if (resolved && aliases.has(resolved) && isArrivalTest(node)) {
+        asks = true;
+        return;
+      }
+      // Handed on — the envelope itself passed to something this scan cannot follow.
+      // Tolerant for the reason `refusesSomewhere` gives: a missed site costs one hit, a
+      // wrong demand costs the rule its credibility.
+      const isReceiver = ts.isPropertyAccessExpression(parent) && parent.expression === node;
+      if (resolved === symbol && node !== declaration.name && !isReceiver) {
+        asks = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(scope);
+  return asks;
+}
+
+/**
+ * The first unnarrowed read of a query that this component REFUSES for but never asks
+ * about — rule 5's subject, and deliberately disjoint from `unrefusedQueryRead`'s.
+ *
+ * A component that consults neither the failure nor the arrival is rule 3's, and is
+ * reported once, there. This one is for the component that did the first half of the job:
+ * it has a `ProblemNotice` and it is still wrong, because a paused query never reaches it.
+ */
+function unansweredQueryRead(checker: ts.TypeChecker, node: ts.Node): string | null {
+  let found: string | null = null;
+
+  const visit = (child: ts.Node): void => {
+    if (found !== null) return;
+    if (
+      ts.isPropertyAccessExpression(child) &&
+      child.name.text === "data" &&
+      ts.isIdentifier(child.expression) &&
+      isQueryEnvelope(checker, checker.getTypeAtLocation(child.expression)) &&
+      includesUndefined(checker.getTypeAtLocation(child))
+    ) {
+      const declaration = checker.getSymbolAtLocation(child.expression)?.declarations?.[0];
+      if (
+        declaration &&
+        ts.isVariableDeclaration(declaration) &&
+        refusesSomewhere(checker, declaration) &&
+        !asksWhetherAnswerArrived(checker, declaration)
+      ) {
+        found = child.expression.text;
+        return;
+      }
+    }
+    ts.forEachChild(child, visit);
+  };
+
+  visit(node);
+  return found;
+}
+
 /**
  * A value invented to stand in for an answer we do not have — and what the screen then
  * claims with it, in §52's own three words.
@@ -660,6 +890,12 @@ function findViolations(program: ts.Program, sourceFile: ts.SourceFile): Violati
             `substitutes ${claim} for a read that may have failed, and nothing in this ` +
               `component ever consults \`${query}.isError\`. ${REFUSE_FIRST}`,
           );
+        } else if (claim === "an empty state") {
+          // ── rule 5: it refuses to a failure, and a PAUSED query is not a failure ──
+          const paused = unansweredQueryRead(checker, node.left);
+          if (paused !== null) {
+            record(node, claim, PAUSED_IS_NEITHER.replace(/\{query\}/g, paused));
+          }
         }
       }
     }
@@ -755,6 +991,7 @@ describe("the §52 guard: a fallback on a query envelope", () => {
       `${fixtureLine("bannedUnrefusedListFallback") + 2} an empty state`,
       `${fixtureLine("bannedVanishingControl") + 2} an absent control`,
       `${fixtureLine("bannedFirstRowFallthrough") + 3} an absent control`,
+      `${fixtureLine("bannedPausedEmptyState") + 2} an empty state`,
     ]);
   }, SCAN_TIMEOUT_MS);
 
@@ -806,6 +1043,38 @@ describe("the §52 guard: a fallback on a query envelope", () => {
     const flagged = findViolations(program, fixture).map((violation) => violation.line);
     expect(flagged).toContain(fixtureLine("bannedUnrefusedListFallback") + 2);
     expect(flagged).not.toContain(fixtureLine("safeGuardedListFallback") + 2);
+  });
+
+  it("distinguishes a refusal from a component that also asked whether the answer came", () => {
+    // Rule 5, on its own, because it is the one property no earlier draft of this file
+    // had: `bannedPausedEmptyState` and `safeGuardedListFallback` are the SAME `?? []`
+    // against the same query, and BOTH refuse on `board.error`. The only difference is
+    // the `!board.data` half of the refusal — the half that catches the read TanStack
+    // never started. If this pair ever collapses, six screens' worth of "there are none"
+    // over an offline connection comes back.
+    const fixture = program.getSourceFile(resolve(WEB_ROOT, FIXTURE))!;
+    const flagged = findViolations(program, fixture).map((violation) => violation.line);
+    expect(flagged).toContain(fixtureLine("bannedPausedEmptyState") + 2);
+    expect(flagged).not.toContain(fixtureLine("safeGuardedListFallback") + 2);
+  });
+
+  it("reports a paused-query hole once, as rule 5 and not also as rule 3", () => {
+    // The two rules are gated on different questions and their subjects must not overlap:
+    // `bannedUnrefusedListFallback` consults neither failure nor arrival and belongs to
+    // rule 3; `bannedPausedEmptyState` consults failure only and belongs to rule 5. A
+    // site reported twice is a site whose fix reads as half-done.
+    const fixture = program.getSourceFile(resolve(WEB_ROOT, FIXTURE))!;
+    const flagged = findViolations(program, fixture).map((violation) => violation.line);
+    const at = (line: number) => flagged.filter((candidate) => candidate === line).length;
+    expect(at(fixtureLine("bannedUnrefusedListFallback") + 2)).toBe(1);
+    expect(at(fixtureLine("bannedPausedEmptyState") + 2)).toBe(1);
+
+    const paused = findViolations(program, fixture).find(
+      (violation) => violation.line === fixtureLine("bannedPausedEmptyState") + 2,
+    );
+    expect(paused?.fix, "rule 5 must name the mechanism, not just the shape").toContain(
+      'fetchStatus: "paused"',
+    );
   });
 
   it("distinguishes a withdrawn control from a sentence we do not have", () => {

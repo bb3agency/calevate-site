@@ -148,3 +148,29 @@ describe("the client shell's attention bell", () => {
     expect(link.textContent).not.toContain("?");
   });
 });
+
+describe("the client shell's identity block", () => {
+  /*
+   * The same rule as the bell above, applied to the one place in the shell that says
+   * WHOSE ACCOUNT THIS IS. It rendered `—` for the organisation and `—` for the role off
+   * `me.data?.… ?? "—"` with `me.error` unread: an honest absence marker for a second and
+   * a permanent, unexplained one after that, on a console an operator can also be
+   * impersonating into. Two dashes are not a refusal.
+   */
+  it("names the failure instead of leaving two permanent dashes", async () => {
+    await renderClientShell({
+      "/v1/me": problem(503, { title: "Service unavailable", retryable: false }),
+      "/v1/attention": { total: 0, items: [] },
+    });
+
+    expect(await screen.findByText("Account not read")).toBeTruthy();
+    expect(screen.getByText("Reload to see whose account this is")).toBeTruthy();
+  });
+
+  it("says whose account it is when the server answered", async () => {
+    await renderClientShell({ "/v1/attention": { total: 0, items: [] } });
+
+    expect(await screen.findByText("Acme")).toBeTruthy();
+    expect(screen.queryByText("Account not read")).toBeNull();
+  });
+});

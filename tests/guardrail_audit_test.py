@@ -186,6 +186,65 @@ class TestRlsCoverage:
         )
         assert any("whatsapp_threads" in f and "too thin" in f for f in failures)
 
+    def test_catches_a_platform_table_nobody_registered(self) -> None:
+        """Rule 7a, and the shape it exists for.
+
+        `platform_state` and `platform_ai_spend` were both created AFTER two siblings had
+        already been registered, and neither was added — because a table with no
+        `tenant_id` is invisible to every column-driven rule above it. The prefix is this
+        repo's own convention for "one row for the whole deployment", so it is a
+        mechanical question with a mechanical answer.
+        """
+        state = _tenant_state()
+        state = replace(state, all_tables=state.all_tables | {"platform_new_thing"})
+
+        failures = check_rls_coverage.evaluate(state)
+
+        assert any("platform_new_thing" in f and "platform-scoped" in f for f in failures)
+
+    def test_catches_an_object_reference_to_tenant_data_with_no_tenant(self) -> None:
+        """Rule 7b, and the one that mattered.
+
+        A row holding `payload_ref` is a pointer INTO tenant data — it dereferences to a
+        CRM payload carrying a lead's name and number — so it is tenant data at one
+        remove. `webhook_deliveries` had no `tenant_id`, no policy, and its justification
+        only in a model docstring that no guardrail reads and no test pinned.
+        """
+        state = _tenant_state()
+        state = replace(
+            state,
+            all_tables=state.all_tables | {"delivery_receipts"},
+            object_ref_tables=frozenset({"delivery_receipts"}),
+        )
+
+        failures = check_rls_coverage.evaluate(state)
+
+        assert any("delivery_receipts" in f and "object-storage reference" in f for f in failures)
+
+    def test_a_registered_object_reference_table_passes(self) -> None:
+        """The control. Rule 7b asks for a WRITTEN REASON, not for a policy — a table
+        that genuinely cannot carry a tenant_id at write time (an inbound webhook is
+        recorded before tenant resolution) must be able to satisfy it."""
+        state = _tenant_state()
+        state = replace(
+            state,
+            all_tables=state.all_tables | {"delivery_receipts"},
+            object_ref_tables=frozenset({"delivery_receipts"}),
+        )
+
+        failures = check_rls_coverage.evaluate(
+            state,
+            exemptions={
+                **RLS_EXEMPT_TENANT_COLUMNS,
+                "delivery_receipts": (
+                    "recorded before tenant resolution; holds an object key and never a "
+                    "payload, and the bytes behind it are reachable only through workers"
+                ),
+            },
+        )
+
+        assert not any("delivery_receipts" in f for f in failures)
+
     def test_catches_a_stale_exemption(self) -> None:
         failures = check_rls_coverage.evaluate(
             _tenant_state(),
@@ -203,11 +262,23 @@ class TestRlsCoverage:
         """Adding an RLS exemption must cost a visible diff in a TEST, not one line in
         a dict. If this fails, review the new exemption on its merits and update it.
 
-        The two `platform_*` entries are the second SHAPE this list now carries: tables
-        with no `tenant_id` at all, exempt because they are platform state rather than
-        because a tenant policy was skipped (PLATFORM-CONFIG §5). They are in the same
-        dict on purpose — one list answering "what is not tenant-isolated, and why" is
+        The `platform_*` entries are the second SHAPE this list carries: tables with no
+        `tenant_id` at all, exempt because they are platform state rather than because a
+        tenant policy was skipped (PLATFORM-CONFIG §5). They are in the same dict on
+        purpose — one list answering "what is not tenant-isolated, and why" is
         reviewable; two lists is one list nobody reads.
+
+        **AND THAT SECOND SHAPE IS EXACTLY WHY THIS PIN IS NOT ENOUGH ON ITS OWN (P4.6).**
+        A table with no `tenant_id` is invisible to `check_rls_coverage`, which is
+        column-driven — so `platform_state`, `platform_ai_spend` and `webhook_deliveries`
+        sat outside this dict for months with nothing able to notice, while the registry's
+        own contract says it is the one place a reviewer learns what is deliberately not
+        tenant-isolated. `webhook_deliveries` is the one that mattered: it holds
+        `payload_ref`, the object-storage key of a CRM payload carrying a lead's name and
+        number, and its "why" lived only in a model docstring no guardrail reads. The
+        structural companion to this pin is
+        `test_every_policy_less_table_is_registered_or_tenant_scoped` below, which asks
+        the DATABASE rather than the dict.
         """
         assert set(RLS_EXEMPT_TENANT_COLUMNS) == {
             "audit_log",
@@ -215,6 +286,9 @@ class TestRlsCoverage:
             "platform_settings",
             "platform_config_version",
             "platform_secrets",
+            "platform_state",
+            "platform_ai_spend",
+            "webhook_deliveries",
         }
 
 
@@ -689,8 +763,43 @@ class TestEnvParity:
                 # Operator tooling that runs outside every deployable (the restore
                 # drill), each entry carrying the reason it is not application config.
                 or key in check_env_parity.DRILL_ENV_KEYS
+                # Variables a third-party SDK resolves for itself (botocore's AWS_*),
+                # which a Settings field could shadow but never replace.
+                or key in check_env_parity.SDK_ENV_KEYS
                 or key.lower() in fields
             ), key
+
+    def test_an_sdk_key_is_exempt_and_an_unregistered_one_is_not(self) -> None:
+        """The exemption must be the REGISTRY, never the `AWS_` prefix.
+
+        A pattern match would exempt every future `AWS_*` variable by accident — including
+        one somebody adds for our own configuration, which is exactly the "config that
+        never fails fast" this direction exists to catch. So the registry is a list, and
+        an unlisted sibling of a listed key still fails.
+        """
+        from calevate_shared.config import Settings
+
+        declared, _ = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        fields = set(Settings.model_fields)
+
+        exempt = check_env_parity.evaluate(
+            declared, fields, {"AWS_REGION": ["apps/workers/storage.py:1"]}
+        )
+        assert not any("AWS_REGION" in failure for failure in exempt), exempt
+
+        unregistered = check_env_parity.evaluate(
+            declared, fields, {"AWS_ENDPOINT_URL_S3": ["apps/workers/storage.py:1"]}
+        )
+        assert any(
+            "AWS_ENDPOINT_URL_S3" in failure and "never fails fast" in failure
+            for failure in unregistered
+        ), unregistered
+
+    def test_every_sdk_exemption_carries_a_reason(self) -> None:
+        """An entry with an empty reason is an exemption nobody has to justify, which is
+        how a registry turns into a wildcard one line at a time."""
+        for key, reason in check_env_parity.SDK_ENV_KEYS.items():
+            assert len(reason) > 60, f"{key}'s exemption does not say why"
 
 
 # ============================================================================

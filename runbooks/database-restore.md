@@ -23,6 +23,19 @@ postmortem.
 1. **Never restore onto the broken cluster's data directory.** Move it aside; do not
    delete it. It is the forensic record, it is where the pre-restore erasure list lives
    (§8), and twice in this document it is the only copy of something.
+
+   **Nothing but this sentence protects it, and the thing it protects is not recoverable.**
+   `/var/lib/postgresql/16/main.broken-<stamp>` is a directory the size of the database,
+   sitting on a host somebody is about to be told is low on disk, holding the ONLY record of
+   which DPDP erasures completed after the recovery target (§8) — a restore un-erases those
+   people, and their certificates say their data is gone. One `rm -rf` and the re-erasure
+   list cannot be reconstructed from anywhere: not from the restored cluster (the requests
+   post-date its target), not from a backup (same target), not from the audit chain in the
+   restored copy. So: **do not reclaim disk by deleting it, and do not let the disk alarm
+   talk you into it.** If space is genuinely the problem, `pg_dump` the preserved cluster's
+   `deletion_requests` and `dnc_list` tables to a file on the offsite target FIRST, verify
+   the file reads back, and only then reclaim. Delete the preserved directory when §8 is
+   recorded as done in the incident record, and not before.
 2. **Restore to a new directory, and where you can, to a different port or host.** A
    restore that boots in an alternate location is a restore you can inspect before anyone
    depends on it. Cutting over is a separate, later decision.
@@ -56,7 +69,13 @@ Writes arriving during the restore are writes you will lose or have to reconcile
 ```sh
 # Stop the application, not the database — the database is still your source of truth
 # until you have decided otherwise.
-docker compose -p calevate stop api workers voice-runtime
+#
+# `-f compose.prod.yml` is not optional and this line used to omit it: with no -f, compose
+# reads `docker-compose.yml`, which is the DEV infra file and defines no `api`, no
+# `workers` and no `voice-runtime` — so the command fails with "no such service" at the
+# top of a restore, which is the worst possible moment to debug a command.
+cd /var/www/calevate
+docker compose -p calevate -f compose.prod.yml stop api workers voice-runtime
 pm2 stop calevate-web
 ```
 
@@ -334,9 +353,17 @@ Then:
 
 ```sh
 # Point the application at the restored cluster and bring it back.
-docker compose -p calevate up -d api workers voice-runtime
+cd /var/www/calevate
+docker compose -p calevate -f compose.prod.yml up -d api workers voice-runtime
+# `start` by NAME works because §1 stopped it rather than deleting it, so pm2 still holds
+# the definition. If pm2's list is empty (a host reboot without a prior `pm2 save`):
+#   pm2 start apps/web/ecosystem.config.cjs && pm2 save
 pm2 start calevate-web
-curl -fsS https://api.calevate.tech/healthz && curl -fsS https://hooks.calevate.tech/healthz
+# api through the edge, voice-runtime on the loopback: `hooks.calevate.tech` deliberately
+# serves NO health route (the vhost answers 404) so that the readiness handler — which
+# resolves the engine adapter — is not reachable from the internet on the service with a
+# 500ms ack budget. The container's own port is the place to ask.
+curl -fsS https://api.calevate.tech/healthz && curl -fsS http://127.0.0.1:8100/healthz
 ```
 
 Clear the big red switch if you set it (§1), and only then.

@@ -89,6 +89,7 @@ function engineState(over: Record<string, unknown> = {}) {
     in_sync: true,
     prompt_applied: true,
     disclosure_applied: true,
+    prompt_disclosure_applied: true,
     voice_applied: true,
     detail: "The voice platform was read back and is holding the published script and voice.",
     ...over,

@@ -87,6 +87,7 @@ from arq import Retry
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb.reconciliation import (
@@ -378,9 +379,10 @@ async def sweep_kb_drift(ctx: dict[str, Any]) -> str:
     finished on its first attempt, whatever `max_tries` says. So a sweep that could not run
     AT ALL (the batch read failed, Postgres was unreachable) must ask for the retry
     explicitly, or every client's published knowledge goes unwatched until the next hour
-    with nothing marked wrong. Three attempts, then the DLQ, which is this repo's
-    convention and is also what puts an exhausted sweep on the ops console beside every
-    other dead letter.
+    with nothing marked wrong. Three attempts, then an ALERT — not a dead-letter queue,
+    which this docstring used to name and which does not exist (P6.5). An exhausted arq
+    job is `zrem`'d off the queue and written to a result key nothing in this repository
+    reads, so the alert on the last attempt IS the dead-letter mechanism.
 
     A VENDOR failure is deliberately NOT in scope: `_observe_one` converts one into a
     recorded `unreachable` for that agent, and re-running the whole sweep because one
@@ -393,9 +395,27 @@ async def sweep_kb_drift(ctx: dict[str, Any]) -> str:
             "kb_drift_sweep_failed",
             extra={"reason": exc.__class__.__name__, "attempt": ctx.get("job_try")},
         )
-        # `defer` climbs with the attempt so a database that is restarting is not hammered
-        # by three sweeps in ninety seconds — the ladder BACKEND-PATTERNS §4 asks for.
-        raise Retry(defer=30 * int(ctx.get("job_try", 1) or 1)) from exc
+        attempt = int(ctx.get("job_try", 1) or 1)
+        if attempt < WORKER_MAX_TRIES:
+            # `defer` climbs with the attempt so a database that is restarting is not
+            # hammered by three sweeps in ninety seconds — the ladder BACKEND-PATTERNS §4
+            # asks for.
+            raise Retry(defer=30 * attempt) from exc
+        # THE LAST ATTEMPT IS THE ONE THAT HAS TO SHOUT (P6.5). This used to raise `Retry`
+        # unconditionally, and on the final try arq does not honour it: the job finishes
+        # with `JobExecutionFailed` and a `logger.warning`, which nothing reads. The
+        # docstring's "three attempts, then the DLQ" was describing a queue that does not
+        # exist — an exhausted arq job is `zrem`'d and written to a result key nobody
+        # reads. So the alert IS the dead-letter mechanism, and it has to be here.
+        alert(
+            "WORKER_TERMINAL",
+            "kb_drift_sweep_abandoned",
+            detail=(
+                f"{exc.__class__.__name__} after {attempt} attempt(s); "
+                "every client's published knowledge is unwatched until this cron succeeds"
+            ),
+        )
+        raise
 
 
 __all__ = [

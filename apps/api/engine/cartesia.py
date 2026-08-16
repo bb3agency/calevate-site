@@ -503,6 +503,17 @@ class CartesiaEngine:
         agent: dict[str, Any] = inner if isinstance(inner, dict) else payload
         prompt = agent.get("system_prompt")
         prompt_text = prompt if isinstance(prompt, str) and prompt else None
+        # THE GREETING, on the `(value, readable)` pair `bolna._agent_greeting` argues
+        # for: a key present and EMPTY is an agent that speaks nothing first — a real
+        # compliance failure — while an ABSENT key is us looking in the wrong place, and
+        # only the first may fail a publish (P3.3). `introduction` is the field
+        # `_agent_body` sends and the SDK's own `AgentConfig(introduction=...)` argument;
+        # that the GET echoes it is INFERRED, like the rest of this method.
+        greeting_readable = "introduction" in agent
+        raw_greeting = agent.get("introduction")
+        greeting = None
+        if greeting_readable:
+            greeting = raw_greeting if isinstance(raw_greeting, str) else ""
         returned_id = _first_str(agent, ("id", "agent_id"))
         name = agent.get("name")
         # UNVERIFIED: that the agent object lists its documents, or under what key. An
@@ -518,6 +529,8 @@ class CartesiaEngine:
             name=name if isinstance(name, str) and name else None,
             system_prompt=prompt_text,
             system_prompt_readable=prompt_text is not None,
+            greeting=greeting,
+            greeting_readable=greeting_readable,
             knowledge_base_refs=handles,
             knowledge_base_refs_readable=docs_readable,
             # The LLM leg only. STT/TTS stay None because they are not ours to set — a

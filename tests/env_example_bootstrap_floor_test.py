@@ -181,12 +181,24 @@ def test_everything_the_template_dropped_is_manageable_from_the_console() -> Non
     the reduction reversible knowledge rather than a diff someone has to trust.
     """
     from apps.api.core.platform_config import managed_fields
+    from apps.api.core.settings import ENV_ONLY_DISPLAY
     from apps.api.ops.secret_service import manageable_secret_keys
 
-    manageable = set(managed_fields()) | set(manageable_secret_keys())
+    # THREE surfaces, not two. `ENV_ONLY_DISPLAY` is the third and it is a genuine
+    # discovery surface rather than a loophole: `GET /v1/ops/config` renders every entry
+    # with its key, its ENVIRONMENT VARIABLE NAME, the reason it cannot be edited here,
+    # and whether this host currently declares it. That is strictly more than
+    # `.env.example` tells anybody — it says where the value goes AND whether it arrived.
+    #
+    # It exists because `ENV_ONLY_KEYS` grew a second category: the bootstrap six (which
+    # cannot come from the store because the store cannot be read without them) and
+    # `resend_api_key` (which must not, because the alert relay on the database host
+    # reaches no store at all). A key in the second category is undiscoverable if this
+    # test only knows about the first two surfaces — which is exactly what it caught.
+    manageable = set(managed_fields()) | set(manageable_secret_keys()) | set(ENV_ONLY_DISPLAY)
     declared = {key.lower() for key in declared_keys()}
     orphans = set(Settings.model_fields) - declared - manageable
     assert not orphans, (
-        f"config nobody can discover: {sorted(orphans)} — not in .env.example and not "
-        "offered by either console surface"
+        f"config nobody can discover: {sorted(orphans)} — not in .env.example, not "
+        "offered by either console surface, and not explained as env-only"
     )

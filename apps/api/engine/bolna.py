@@ -358,6 +358,31 @@ def _agent_system_prompt(agent: dict[str, Any]) -> str | None:
     return prompt if isinstance(prompt, str) and prompt else None
 
 
+def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
+    """`(greeting, readable)` — the welcome message the engine holds.
+
+    `agent_welcome_message` is the key `_agent_body` SENDS (read at source in their OSS
+    server's agent object), so this is hand-maintained from our own request shape for
+    `_agent_system_prompt`'s reason — Bolna publishes no OpenAPI spec. If their read path
+    spells it differently the honest outcome is `readable=False`, which the judge reports
+    as `unreadable` rather than as a missing disclosure: an adapter that cannot find the
+    field must not be able to fail a publish on a compliance ground (P3.3).
+
+    A `(readable, value)` PAIR rather than "None means unreadable", which is the shape
+    the prompt reader uses and the wrong one here. A key present and EMPTY is an agent
+    that speaks nothing first — a real compliance failure, and exactly the shape a vendor
+    dropping an unrecognised field takes — while an ABSENT key is our own adapter looking
+    in the wrong place. Collapsing them would turn every provable failure into a shrug,
+    which is the direction that lets an agent go live saying nothing.
+    """
+    config = agent.get("agent_config")
+    source = config if isinstance(config, dict) else agent
+    if "agent_welcome_message" not in source:
+        return None, False
+    greeting = source.get("agent_welcome_message")
+    return (greeting if isinstance(greeting, str) else ""), True
+
+
 def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     """`(selections, readable)` — the BYOK choices the agent is RUNNING, in our terms.
 
@@ -652,7 +677,42 @@ class BolnaEngine:
             # empty body, and a delete that "failed" only because the vendor said
             # nothing is the worst possible lie on this particular path.
             return {}
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            # A 2xx WITH A NON-JSON BODY (P2.2). The `>= 400` branch above raises first,
+            # so what reaches here is a success status carrying something that is not
+            # JSON: a WAF challenge, a proxy interstitial, a CDN maintenance page. Those
+            # are the ordinary failure modes of an API behind an edge, and they are
+            # indistinguishable from a real answer until the parse fails.
+            #
+            # `json.JSONDecodeError` is a `ValueError` — NOT a `ProblemError` and NOT an
+            # `httpx.HTTPError` — so it was caught by nothing. It surfaced as a raw 500
+            # with no code and no remediation on `create_agent`; it made
+            # `verify_publish`'s "never raises for a vendor-side failure" docstring
+            # false; and it DLQ'd the post-call pipeline and the reconciliation poller,
+            # which is D-31's guarantee of record.
+            #
+            # This repository had already solved it twice — `billing/payments.py` catches
+            # `ValueError` and `payment_order_test` pins it by name, and
+            # `engine/cartesia.py` has the guard. The adapter actually going to
+            # production is the one that missed it.
+            #
+            # RAISED rather than returning `{}` like Cartesia's, and the difference is
+            # deliberate: an empty dict here would flow on to callers that read fields
+            # out of it and fail somewhere further from the cause. The body is never
+            # echoed — it is not our vocabulary and it is not user-safe.
+            log.warning(
+                "engine_non_json_success",
+                extra={"status": response.status_code, "route": path},
+            )
+            raise ProblemError(
+                kind="dependency",
+                code="engine_bad_response",
+                title="Voice engine returned an unreadable response",
+                detail="The voice platform answered successfully with a body we could not read.",
+                failure_stage="CORE_LOGIC",
+            ) from None
         return payload if isinstance(payload, dict) else {"data": payload}
 
     # --- agent lifecycle -----------------------------------------------------
@@ -802,6 +862,14 @@ class BolnaEngine:
           from silence here. That is precisely D-41's open question and it stays a PILOT
           GATE (OPERATIONS §2 gate 8), not a premise.
 
+        * THE GREETING has the same standing as the prompt and no better:
+          `agent_welcome_message` is the key we SEND (their OSS agent object carries it),
+          and whether the hosted GET echoes it under that name is inferred from the same
+          "it returns the stored agent object" claim. `greeting_readable=False` when the
+          key is absent, which the judge scores `unreadable` — never as a missing
+          disclosure, because an adapter looking in the wrong place must not be able to
+          fail a publish on a compliance ground (P3.3).
+
         If the path is wrong, `_request` raises `engine_rejected` on the 404 and the gate
         reports a failed read-back — loud, and the correct outcome for an unverified
         endpoint. It never degrades to a green tick.
@@ -809,6 +877,7 @@ class BolnaEngine:
         payload = await self._request("GET", f"/v2/agent/{ref}")
         agent = _agent_object(payload)
         prompt = _agent_system_prompt(agent)
+        greeting, greeting_readable = _agent_greeting(agent)
         kb_refs, kb_readable = _agent_kb_refs(agent)
         models, models_readable = _agent_models(agent)
         returned_id = agent.get("agent_id") or agent.get("id") or payload.get("agent_id")
@@ -819,6 +888,8 @@ class BolnaEngine:
             name=_agent_name(agent),
             system_prompt=prompt,
             system_prompt_readable=prompt is not None,
+            greeting=greeting,
+            greeting_readable=greeting_readable,
             knowledge_base_refs=kb_refs,
             knowledge_base_refs_readable=kb_readable,
             models=models,
@@ -1021,6 +1092,20 @@ class BolnaEngine:
         """
         total = payload.get("total_cost")
         if total is None:
+            # SILENT UNTIL P1.2. `total_cost` is a HAND-MAINTAINED CLAIM about a vendor
+            # that publishes no OpenAPI spec (TRD §5, pilot gate 7), so "the key is not
+            # there" and "the key is spelled differently on the live account" are the same
+            # observation from here — and the second one means every completed call meters
+            # nothing, every usage panel reads ₹0.00, no cap ever arms and no wallet is
+            # ever debited. Refusing to fabricate a cost is right; refusing to COUNT the
+            # refusals is what made it undetectable. The pipeline turns this into an alert
+            # (`_meter`); this line makes it visible in the adapter's own logs, where the
+            # execution id is the thing an operator can look up. Ids only, never the
+            # payload (hard rule 6).
+            log.warning(
+                "engine_cost_absent",
+                extra={"engine": "bolna", "execution_id": str(payload.get("id") or "")},
+            )
             return None
 
         stated = payload.get("currency") or payload.get("cost_currency")
@@ -1204,7 +1289,31 @@ class BolnaEngine:
             candidate = value.strip()
             if candidate.startswith("/"):
                 return candidate
-            parsed = httpx.URL(candidate)
+            try:
+                parsed = httpx.URL(candidate)
+            except httpx.InvalidURL:
+                # A VENDOR-SUPPLIED STRING THAT IS NOT A URL AT ALL (P2.3), and the
+                # docstring three lines above already promised this outcome: "anything
+                # else is dropped — dropping degrades to `explicit_more`, which is loud".
+                # It was not true, because `httpx.URL()` raises before any of the checks
+                # below run.
+                #
+                # MEASURED, not assumed: `httpx.InvalidURL`'s MRO does NOT include
+                # `httpx.HTTPError`, so `_request`'s handler would not have caught it even
+                # if this call were inside one — and it is not. A zero-width space in a
+                # host (`http://a​.com`) is enough to raise.
+                #
+                # `list_executions`' only caller is `reconcile_executions`, which under
+                # D-31 IS the guarantee of record. An exception there retries three times
+                # and DLQs, and every execution whose webhook was lost stops being
+                # recoverable until somebody reads a dead-letter queue. Dropping the link
+                # costs one page and reports `explicit_more`, which is exactly what the
+                # poller is built to see.
+                log.warning(
+                    "engine_listing_next_link_rejected",
+                    extra={"engine": "bolna", "reason": "unparseable"},
+                )
+                continue
             if parsed.scheme == "https" and parsed.host == httpx.URL(self._base_url).host:
                 return candidate
             log.warning(

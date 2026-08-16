@@ -391,7 +391,6 @@ async def test_the_outbox_claim_respects_its_limit_when_timestamps_tie() -> None
         for _ in range(12):
             await enqueue_outbox(
                 session,
-                queue="default",
                 job="deliver_outbound_webhook",
                 payload={"marker": "batch-limit-test"},
             )
@@ -413,7 +412,6 @@ async def test_two_dispatchers_running_at_once_never_claim_the_same_message() ->
         for _ in range(6):
             await enqueue_outbox(
                 session,
-                queue="default",
                 job="deliver_outbound_webhook",
                 payload={"marker": "concurrent"},
             )

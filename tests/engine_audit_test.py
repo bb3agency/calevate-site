@@ -1265,6 +1265,9 @@ _VENDOR_ONLY_KEYS = frozenset(
         "agent_config",
         "agent_name",
         "agent_prompts",
+        # The greeting field — Bolna's own noun for it. Read since P3.3, because the
+        # disclosure verdict has to be scored against the field that SPEAKS.
+        "agent_welcome_message",
         "conversation_duration",
         "cost_breakdown",
         "cost_currency",
@@ -1287,6 +1290,12 @@ _VENDOR_ONLY_KEYS = frozenset(
         "duration_seconds",
         "from_number_id",
         "has_more",
+        # Cartesia's spelling of the same greeting field. VENDOR-ONLY rather than shared
+        # despite being an ordinary English word: nothing of ours is called an
+        # `introduction` — `AgentSnapshot` calls it `greeting` — so the word appearing
+        # outside the adapter is a vendor shape that escaped, which is what the scan is
+        # for.
+        "introduction",
         "next_page",
         "outbound_calls",
     }

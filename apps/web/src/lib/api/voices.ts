@@ -6,12 +6,20 @@
  *   GET   /v1/agents/voices                                     `agents:read`, realm ANY
  *   PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice `agents:write`, realm ADMIN
  *
- * That split is D-21's and it decides the shape of this module. Which voice speaks Telugu
- * well is an EAR TEST, not a spec fact (BRD §6 R-10, TRD §10.1, OPERATIONS §2 gate 3), so
- * a client may HEAR what their agent sounds like and only we may change it. There is
- * therefore deliberately no client-realm setter here — the same rule `agents.ts` and
- * `publishing.ts` already follow: a button that could only ever 403 is worse than no
- * button.
+ * That split is D-21's and it decides the shape of this module: only we may change a
+ * voice, so there is deliberately no client-realm setter here — the same rule `agents.ts`
+ * and `publishing.ts` already follow, that a button which could only ever 403 is worse
+ * than no button.
+ *
+ * **The read half is not client-facing YET, and this docstring used to say it was.** It
+ * justified the client-realm route as existing so "a client may HEAR what their agent
+ * sounds like" — the right eventual reason (which voice speaks Telugu well is an EAR
+ * TEST, not a spec fact: BRD §6 R-10, TRD §10.1, OPERATIONS §2 gate 3) attached to a
+ * capability that is neither wired nor representable. No client screen reads the
+ * catalogue, and `Voice` carries no sample or preview URL of any kind, so there is
+ * nothing for a client to hear. Listening needs a field on the API's `Voice` model — a
+ * signed sample URL — before it needs a screen, so the client-realm hook is NOT sitting
+ * here unwired waiting for one (see below).
  *
  * ## The catalogue read needs a tenant even from the console
  *
@@ -89,10 +97,13 @@ function catalogueOptions(session: Session) {
   };
 }
 
-/** The catalogue, client realm. */
-export function useVoiceCatalogue(session: Session): UseQueryResult<VoiceCatalogue> {
-  return useQuery(catalogueOptions(session));
-}
+/*
+ * THERE IS NO CLIENT-REALM HOOK, and the module docstring above used to imply otherwise.
+ *
+ * `useVoiceCatalogue(session)` existed and nothing called it. `catalogueOptions` stays
+ * because the console's `useTenantVoiceCatalogue` is built from it; the client-realm
+ * wrapper is gone until there is a screen and something to put on it.
+ */
 
 /** The same catalogue from the console, through the impersonation session (see above). */
 export function useTenantVoiceCatalogue(slug: string): UseQueryResult<VoiceCatalogue> {

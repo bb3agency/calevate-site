@@ -377,8 +377,9 @@ async def test_a_capped_tenant_cannot_launch_a_campaign() -> None:
         campaign_id = await _campaign(session, tenant_id, agent_id, phones=("9876530001",))
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:tid, :month, 0, 0, true, now(), now()) "
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:tid, :month, 0, 0, 0, true, now(), now()) "
                 "ON CONFLICT (tenant_id) DO UPDATE SET capped = true"
             ),
             {"tid": tenant_id, "month": datetime.now(UTC).strftime("%Y-%m")},

@@ -69,7 +69,7 @@ export interface SignalCopy {
 }
 
 /**
- * The five signals the board emits, each with the screen that acts on it.
+ * The six signals the board emits, each with the screen that acts on it.
  *
  * A `Record<string, …>` rather than a `Record<Rule, …>`, for the reason `HOLD_RULES` is:
  * `rule` is a plain string on the wire because the set grows whenever a signal does, and
@@ -118,6 +118,16 @@ export const SIGNAL_COPY: Record<string, SignalCopy> = {
       "answering without it, and this one is entirely ours to clear.",
     screen: (tenantId) => `/admin/tenants/${tenantId}`,
     cta: "Approve knowledge",
+  },
+  calls_unmetered: {
+    label: "Calls billed to us and to nobody",
+    meaning:
+      "Completed calls on this account produced no usage row, so they are missing from " +
+      "the client's usage panel, their invoice, their spend cap and their wallet — while " +
+      "the engine has already charged us for them. The reconciliation poller treats them " +
+      "as settled and will not come back, so this does not clear itself.",
+    screen: (tenantId) => `/admin/tenants/${tenantId}`,
+    cta: "Open the account",
   },
 };
 

@@ -10,10 +10,10 @@ directory — `/v1/admin/tenants` is the roster (every client, with counters), t
 exception report (only clients with a live signal, worst first). An account with nothing
 wrong does not appear at all.
 
-WHY THESE FIVE SIGNALS, AND NOT A GRID
----------------------------------------
+WHY THESE SIX SIGNALS, AND NOT A GRID
+--------------------------------------
 The bar every candidate had to clear: an operator can DO something about it today, and
-the platform can observe it HONESTLY. Five cleared it.
+the platform can observe it HONESTLY. Six cleared it.
 
 1. **`calls_stopped`** — the account's call volume collapsed against its own previous
    week. This is the outcome signal rather than a cause, and it is the one that catches
@@ -38,11 +38,20 @@ the platform can observe it HONESTLY. Five cleared it.
    delivery reads to them as the product having stopped, and it is invisible until they
    notice absences. `crm/attention.py` already shows this to the CLIENT; nothing showed it
    to us, across clients, which is the gap this closes.
-5. **`knowledge_waiting`** — the client uploaded knowledge and WE never approved it. The
-   only signal here that is entirely our own fault: `crm/attention.py` deliberately keeps
-   `pending_approval` off the client's queue ("waiting for us is not the client's to-do"),
-   which means the operator console is the only correct home for it, and until now it had
-   none — an operator had to open each account to find it.
+5. **`knowledge_waiting`** — the client uploaded knowledge and WE never approved it. One
+   of the two signals here that are entirely our own fault: `crm/attention.py`
+   deliberately keeps `pending_approval` off the client's queue ("waiting for us is not
+   the client's to-do"), which means the operator console is the only correct home for it,
+   and until now it had none — an operator had to open each account to find it.
+6. **`calls_unmetered`** — calls completed, cost us money, and produced no `usage_events`
+   row (P1.2). The other one that is entirely ours, and the only one on this list that
+   NOTHING else can surface: every client-facing money figure derives from `usage_events`
+   rather than from `calls`, so these calls are absent from the client's usage panel, from
+   their invoice, from the spend cap and from the wallet — and `_pipeline_settled` calls
+   them `settled`, so the poller never returns. `_meter` alerts on each one as it happens;
+   this is the count that tells an operator whether it is one payload or the whole
+   account. Its grace is the poller's own `PIPELINE_STALL_AFTER`, so a call still walking
+   its retry ladder is not accused of anything.
 
 CANDIDATES REJECTED, WITH THE REASON (so nobody re-proposes them)
 -----------------------------------------------------------------
@@ -105,9 +114,9 @@ policies) at length; that argument is not repeated here, it is inherited.
 QUERY SHAPE, MEASURED RATHER THAN ASSUMED
 ------------------------------------------
 One directory query, then ONE session per candidate tenant. Inside that session the facts
-only this module needs are ONE aggregate statement (`_FACTS`, five correlated counts over
+only this module needs are ONE aggregate statement (`_FACTS`, correlated counts over
 already-indexed tenant tables) — not one query per signal, which is the shape that turns
-a five-signal board into a five-fold cost.
+a six-signal board into a six-fold cost.
 
 What is NOT folded into that statement is the compliance and billing half, and that is a
 deliberate trade rather than an oversight: `spend_capped`, `credits_exhausted`,
@@ -158,6 +167,7 @@ from apps.api.compliance.registration import pe_registration_blocker
 from apps.api.compliance.service import credits_exhausted, spend_capped
 from apps.api.core.logging import get_logger
 from apps.api.db.session import tenant_session
+from apps.workers.pipeline import PIPELINE_STALL_AFTER
 
 log = get_logger(__name__)
 
@@ -181,6 +191,20 @@ TREND_DECLINE_PCT = 60
 # How much of the ceiling has to be spent before the cap is "about to bite". At 80% there
 # is still a working week left to raise it; at 95% the operator is reacting, not acting.
 CAP_WARN_PCT = 80
+
+# How long a completed call may go without a usage row before it counts as unmetered.
+#
+# IMPORTED FROM THE WORKER, not chosen here. It is `PIPELINE_STALL_AFTER` — the poller's
+# own definition of a pipeline that is late rather than merely queued — and this panel
+# has to use the same one: a shorter grace makes the signal fire on every busy account
+# while the pipeline is walking a retry ladder that will succeed, and a longer one leaves
+# a window where the poller has already given up and the console says nothing. Two
+# numbers for one question is how they end up disagreeing.
+#
+# api importing a worker constant is the same seam `crm/service.py` already uses for
+# `workers.redaction.redact`; the alternative is a copied timedelta that CI cannot see
+# drift in.
+UNMETERED_GRACE = PIPELINE_STALL_AFTER
 
 # How long the whole walk may take before it is a problem in its own right. Five seconds
 # is the point at which a console page stops feeling loaded and starts feeling broken, and
@@ -303,7 +327,27 @@ SELECT
   (SELECT count(*) FROM kb_sources WHERE status = 'pending_approval') AS kb_waiting,
   (SELECT count(*) FROM agents
      WHERE deleted_at IS NULL AND direction IN ('outbound', 'both')) AS outbound_agents,
-  (SELECT count(*) FROM campaigns) AS campaigns
+  (SELECT count(*) FROM campaigns) AS campaigns,
+  -- COMPLETED CALLS THAT METERED NOTHING (P1.2). Every client-facing money figure
+  -- derives from `usage_events` and not from `calls`, so a vendor payload the adapter
+  -- cannot read a cost out of produces a call that happened, cost us money, and is
+  -- invisible to every panel and every invoice — while `_pipeline_settled` classifies it
+  -- `settled` and the poller never comes back. `_meter` alerts on each one; this counts
+  -- them, because an alert answers "did it happen" and only a count answers "is it
+  -- happening to everybody".
+  --
+  -- THE GRACE MATTERS AS MUCH AS THE PREDICATE. A call that ended ninety seconds ago has
+  -- a pipeline that is queued or walking its retry ladder, and counting it would make
+  -- this signal fire on every busy account. `PIPELINE_STALL_AFTER` is the poller's own
+  -- definition of late, read from the worker rather than restated, so the panel and the
+  -- guarantee of record agree about when a call has run out of chances.
+  (SELECT count(*) FROM calls c
+     WHERE c.status = 'completed'
+       AND c.ended_at >= :window_start
+       AND c.ended_at < :unmetered_cutoff
+       AND NOT EXISTS (
+         SELECT 1 FROM usage_events u WHERE u.call_id = c.id
+       )) AS unmetered_calls
 """
 
 
@@ -403,7 +447,7 @@ async def _outbound_blocked(session: AsyncSession, *, tenant_id: UUID) -> Health
 
 
 def _cap_utilisation(
-    *, minutes_used: Decimal, spend_used: Decimal, cap_min: int | None, cap_spend: Decimal | None
+    *, minutes_used: Decimal, billed_inr: Decimal, cap_min: int | None, cap_spend: Decimal | None
 ) -> int | None:
     """How much of the ceiling in force is gone, as a whole percent — or None if no
     ceiling is in force.
@@ -414,6 +458,13 @@ def _cap_utilisation(
     percentage honest; averaging them would hide a minute cap that is one call from
     biting behind a rupee cap that is barely touched.
 
+    THE RUPEE SIDE IS THE CLIENT'S NUMBER, not ours (P1.3). It used to be
+    `spend_used` — the engine's charge to us — while `cap_spend` is the ceiling the
+    compliance gate enforces against `billed_inr`. Two different currencies in one
+    division: at a 3x markup this panel reported an account at 25% of a cap the gate was
+    about to close, which is worse than reporting nothing, because it is the number an
+    operator would have used to decide there was time.
+
     Integer arithmetic on Decimals throughout — no float ever touches a rupee (hard
     rule 7), and the answer is a percentage for a screen, not a money value.
     """
@@ -421,7 +472,7 @@ def _cap_utilisation(
     if cap_min is not None and cap_min > 0:
         utilisations.append(int(minutes_used * 100 // cap_min))
     if cap_spend is not None and cap_spend > 0:
-        utilisations.append(int(spend_used * 100 // cap_spend))
+        utilisations.append(int(billed_inr * 100 // cap_spend))
     return max(utilisations) if utilisations else None
 
 
@@ -448,7 +499,12 @@ async def tenant_health(
 
     facts = (
         await session.execute(
-            text(_FACTS), {"window_start": window_start, "prev_start": prev_start}
+            text(_FACTS),
+            {
+                "window_start": window_start,
+                "prev_start": prev_start,
+                "unmetered_cutoff": now - UNMETERED_GRACE,
+            },
         )
     ).first()
     assert facts is not None, "an aggregate-only SELECT always returns exactly one row"
@@ -470,12 +526,19 @@ async def tenant_health(
         if blocked is not None:
             signals.append(blocked)
 
+    unmetered = int(facts[7] or 0)
+    if unmetered:
+        # `stop`, not `warn`. These calls are already billed to us by the engine and are
+        # invisible to every client-facing figure — nothing downstream will notice, and
+        # the poller has already called them settled. It cannot self-correct.
+        signals.append(HealthSignal(rule="calls_unmetered", severity="stop", count=unmetered))
+
     counters = await read_spend_counters(session, tenant_id=account.tenant_id)
     caps = await read_caps(session, tenant_id=account.tenant_id)
     cap_spend = caps.effective_cap_spend
     utilisation = _cap_utilisation(
         minutes_used=counters.minutes_used,
-        spend_used=counters.spend_used,
+        billed_inr=counters.billed_inr,
         cap_min=caps.effective_cap_min,
         cap_spend=cap_spend,
     )
@@ -504,7 +567,11 @@ async def tenant_health(
         severity="stop" if any(s.severity == "stop" for s in signals) else "warn",
         signals=tuple(signals),
         volume=volume,
-        spend_used_inr=counters.spend_used,
+        # THE CLIENT'S NUMBER, because its partner on the next line is the cap and a
+        # used/cap pair denominated in two different currencies is not a pair. Our
+        # supplier cost has a home and this is not it: the admin MARGIN panel reads
+        # `spend_used` and computes `billed - paid` from both.
+        spend_used_inr=counters.billed_inr,
         spend_cap_inr=cap_spend,
     )
 

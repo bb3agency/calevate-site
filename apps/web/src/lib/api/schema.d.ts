@@ -5072,6 +5072,8 @@ export interface components {
             in_sync: boolean;
             /** Prompt Applied */
             prompt_applied: boolean | null;
+            /** Prompt Disclosure Applied */
+            prompt_disclosure_applied: boolean | null;
             /** State */
             state: string;
             /** Voice Applied */
@@ -7147,6 +7149,7 @@ export interface components {
         };
         /** ProgressOut */
         ProgressOut: {
+            calling_hours?: components["schemas"]["CallingHoursIn"] | null;
             /** Concurrency */
             concurrency: number;
             /** Contacts */
@@ -7158,6 +7161,8 @@ export interface components {
             /** Launched At */
             launched_at: string | null;
             national_dnd_scrub?: components["schemas"]["NationalDndScrubOut"] | null;
+            /** Number E164 */
+            number_e164?: string | null;
             recurrence?: components["schemas"]["RecurrenceOut"] | null;
             /** Schedule Blocked Rules */
             schedule_blocked_rules?: string[];
@@ -8491,6 +8496,8 @@ export interface components {
             call_extractions_erased: number | null;
             /** Calls Erased */
             calls_erased: number | null;
+            /** Campaign Contacts Erased */
+            campaign_contacts_erased: number | null;
             /** Leads Erased */
             leads_erased: number | null;
             /** Recordings Destroyed */

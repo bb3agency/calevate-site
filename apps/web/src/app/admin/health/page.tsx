@@ -105,12 +105,17 @@ export default function ClientHealthPage() {
           <div className="p-6">
             <Skeleton rows={4} />
           </div>
-        ) : board.error ? (
+        ) : board.error || !board.data ? (
           /* Deliberately NOT the empty state. "Every client is fine" is a claim about the
              world, and a failed read is not evidence for it — an operator told the board
              was clear because a token expired would stop looking. `NoticeBox` rather than a
              hand-built box, so this refusal is painted by the same tone table as every
-             other verdict in both realms. */
+             other verdict in both realms.
+             `|| !board.data` because a failed read is not the only way to have no answer:
+             a query TanStack has PAUSED because the browser is offline reports
+             `isLoading === false` and `error === null` with no data, so this arm used to
+             be skipped and the empty state below claimed a healthy estate off a request
+             that was never made. */
           <div className="p-6">
             <NoticeBox
               tone="warn"

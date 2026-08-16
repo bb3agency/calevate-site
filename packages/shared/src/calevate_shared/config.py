@@ -359,10 +359,49 @@ class Settings(BaseSettings):
     # access to a client's data rather than an unverifiable ledger.
     impersonation_grant_secret: str | None = None
 
-    # Email transport for hot-lead alerts (ROADMAP M1: email first, WhatsApp next).
-    # Any SMTP provider works, which keeps the provider a deployment decision rather
-    # than a code dependency. Unset in a non-local env = notifications report FAILURE
-    # rather than silently pretending (see workers/transport.py).
+    # WHICH email transport this deployment uses. THE statement, and the only one:
+    # `email_transport_reason()` below is the single resolver and `workers/transport
+    # .get_transport()` is its only consumer, so "which transport is this deployment
+    # using?" has exactly one answer and it is this field.
+    #
+    # It exists as CONFIG rather than being inferred from "is there an API key" for the
+    # same reason `payment_provider` and `google_sheets_provider` do: a credential is not
+    # a statement that a capability exists, and two independent reads of "is SMTP_HOST
+    # set?" eventually disagree. Credential-presence sniffing also cannot express the
+    # state this migration creates — a deployment that still HAS smtp_* rows and has
+    # moved to Resend — without inventing a precedence order nobody can see.
+    #
+    # A SEAM, NOT A SWITCH, exactly as `whatsapp_provider` is: the names with an adapter
+    # behind them are `resend` (the founder's choice, Aug 2026) and
+    # `smtp` (kept as the escape hatch — see workers/transport.py for why). Any other
+    # name resolves to `provider_not_implemented` and refuses to send, loudly, rather
+    # than looking configured. `console` is deliberately NOT a name here: the local dev
+    # sink is selected by APP_ENV=local with no provider set, which is what it already
+    # was, and making it typeable would let a staging host silently deliver to a log.
+    email_provider: str | None = Field(default=None, max_length=64)
+
+    # The Resend API key (`re_…`). **ENV-ONLY, and NOT for the usual bootstrap reason** —
+    # `core/settings.ENV_ONLY_REASONS` carries the argument and
+    # `tests/resend_env_only_test.py` pins it. This comment shipped saying the opposite
+    # ("lives encrypted in `platform_secrets`, set from `admin.calevate.tech/ops`"), which
+    # was the right home for a vendor credential and the wrong one for THIS credential:
+    # `scripts/host_alert.py` runs on the database host, opens no database connection, and
+    # is what pages a human when a backup fails — so it can only ever read this key from
+    # its own environment. Offering the console as a second home would mean an operator
+    # rotating it on a screen, seeing it accepted, and watching mail keep going out under
+    # the old key, because the environment silently wins in `apply_platform_overrides`.
+    #
+    # `EMAIL_PROVIDER` above is deliberately NOT env-only: selection is exactly the change
+    # the console exists for. One fact, two hosts, no shared secret.
+    #
+    # Unset with `EMAIL_PROVIDER=resend` is a refusal by name (`no_resend_api_key`),
+    # never a transport that reports success having sent nothing.
+    resend_api_key: str | None = None
+
+    # SMTP, kept as the escape hatch (`EMAIL_PROVIDER=smtp`). Any SMTP provider works,
+    # which is what keeps a Resend outage or a suspended account a configuration change
+    # rather than a deploy. Unreachable unless the provider names it — `smtp_host` alone
+    # no longer selects anything, because selection is the field above.
     smtp_host: str | None = Field(default=None, max_length=253)
     # 1..65535 is the whole legal port space. `0` is type-valid, is what an empty box
     # submits as an integer, and would make every hot-lead alert fail at connect.
@@ -370,8 +409,22 @@ class Settings(BaseSettings):
     smtp_username: str | None = Field(default=None, max_length=320)
     smtp_password: str | None = None
     smtp_use_tls: bool = True
+    # THE SENDER, for hot-lead notifications and for operator alerts alike — one address,
+    # because a client who allowlists one and not the other has half a channel.
+    #
+    # DEFAULTED RATHER THAN NULL, and defaulted HERE. `get_transport()` used to carry an
+    # inline `or "alerts@calevate.tech"`, so the platform had two spellings of its own
+    # return address and the console showed neither. The default now lives with the field:
+    # one definition, visible in `GET /v1/ops/config`, editable without a deploy.
+    #
+    # `support@calevate.tech` is the founder's choice and is the address the Calevate
+    # domain is being verified for. A sender whose DOMAIN the provider has not verified is
+    # not a soft failure — Resend refuses the send outright (403) — so changing this to an
+    # unverified domain stops mail rather than sending it to spam. `workers/transport.py`
+    # logs that refusal under its own event name for exactly that reason.
+    #
     # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
-    notifications_from: str | None = Field(default=None, max_length=320)
+    notifications_from: str | None = Field(default="support@calevate.tech", max_length=320)
 
     # WHERE OPERATOR ALERTS GO (OPERATIONS §4; §8's pre-launch gate "alerts firing to
     # Sri's phone"). `apps/api/core/alerting.py` delivers through the SAME transport as
@@ -689,12 +742,82 @@ def bolna_source_ips(settings: Settings) -> frozenset[str]:
     return parse_source_ip_allowlist(settings.bolna_webhook_source_ips)
 
 
+# --- email: the one selector ---------------------------------------------------
+#
+# The provider names that have an adapter behind them in `workers/transport.py`.
+# `console` is absent on purpose — see `Settings.email_provider`.
+EMAIL_PROVIDER_RESEND = "resend"
+EMAIL_PROVIDER_SMTP = "smtp"
+SELECTABLE_EMAIL_PROVIDERS: frozenset[str] = frozenset({EMAIL_PROVIDER_RESEND, EMAIL_PROVIDER_SMTP})
+
+# AUTHORED reason codes for "this deployment cannot deliver email". Ours, never a
+# vendor's error string, and greppable — each one is a sentence an operator can act on
+# and a token a log search can find. Same shape as `billing/payments.py`'s codes.
+NO_EMAIL_PROVIDER_REASON = "no_email_provider"
+EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON = "provider_not_implemented"
+NO_SENDER_ADDRESS_REASON = "no_sender_address"
+NO_RESEND_API_KEY_REASON = "no_resend_api_key"
+NO_SMTP_HOST_REASON = "no_smtp_host"
+
+
+def email_transport_reason(settings: Settings) -> str | None:
+    """Why this deployment can deliver no email, or None when it can. ONE resolver.
+
+    Both halves of the email question call THIS — `workers/transport.get_transport()`,
+    which builds the transport, and `core/observability.init_observability`, which warns
+    at boot that alerts have nowhere to go — for the same reason `bolna_source_ips` above
+    is one resolver: a second read of the same fields is a second answer waiting to
+    disagree, and the disagreement here reads as "the boot line said alerts were fine and
+    no alert ever arrived".
+
+    IT LIVES HERE, BESIDE THE FIELDS, rather than with the transports, and that is not
+    tidiness. `apps/voice-runtime` calls `init_observability` at boot and is forbidden to
+    import `apps.workers` (hard rule 3, pinned by
+    tests/voice_runtime_import_surface_test.py) — so a resolver that lived with the
+    transports could not be the one the boot check uses, and the boot check would have to
+    re-derive it. `calevate_shared.config` is already in every deployable's boot graph.
+
+    Returns an AUTHORED code, never a vendor string. None means a real transport is
+    selectable — which under APP_ENV=local with no provider set includes the console
+    sink, because a message logged to a developer's terminal genuinely was delivered.
+    """
+    provider = (settings.email_provider or "").strip().lower()
+    if not provider:
+        # The local dev sink. Unchanged from before this field existed: nothing
+        # configured on a laptop is the console transport, and anywhere else it is a
+        # deployment that cannot mail anybody and must say so.
+        return None if settings.app_env == "local" else NO_EMAIL_PROVIDER_REASON
+    if provider not in SELECTABLE_EMAIL_PROVIDERS:
+        # `EMAIL_PROVIDER=sendgrid` fails loudly rather than looking configured. The name
+        # rides along because "which one did you mean" is the operator's next question.
+        return f"{EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON}:{provider}"
+    if not (settings.notifications_from or "").strip():
+        # A provider with no return address cannot send, and both adapters would fail
+        # obscurely rather than clearly: Resend answers 422 on a missing `from`, and
+        # `EmailMessage["From"] = None` raises inside smtplib. The field is defaulted, so
+        # reaching here means somebody explicitly blanked it — which is a configuration
+        # mistake, and the boot check names it as one.
+        return NO_SENDER_ADDRESS_REASON
+    if provider == EMAIL_PROVIDER_RESEND:
+        return None if settings.resend_api_key else NO_RESEND_API_KEY_REASON
+    return None if settings.smtp_host else NO_SMTP_HOST_REASON
+
+
 __all__ = [
     "DEFAULT_BOLNA_SOURCE_IPS",
+    "EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON",
+    "EMAIL_PROVIDER_RESEND",
+    "EMAIL_PROVIDER_SMTP",
+    "NO_EMAIL_PROVIDER_REASON",
+    "NO_RESEND_API_KEY_REASON",
+    "NO_SENDER_ADDRESS_REASON",
+    "NO_SMTP_HOST_REASON",
+    "SELECTABLE_EMAIL_PROVIDERS",
     "SELECTABLE_ENGINES",
     "EngineName",
     "Environment",
     "Settings",
     "bolna_source_ips",
+    "email_transport_reason",
     "parse_source_ip_allowlist",
 ]

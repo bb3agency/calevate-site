@@ -88,7 +88,22 @@ class PublishVerification:
     state: VerifyState
     #: Tri-state per property, the `AgentSnapshot` doctrine: None = could not be read.
     prompt_applied: bool | None
+    #: **The disclosure in the field that SPEAKS** — the engine's greeting
+    #: (`agent_welcome_message` / `introduction`), which is the deterministic first
+    #: utterance. This is the property OPERATIONS §7 escalates and the one with the legal
+    #: consequence (SEC-COMP §1, hard rule 5).
+    #:
+    #: It used to be computed from the PROMPT (P3.3), which our own adapter prepends the
+    #: line to on the way out — so it read `True` by construction of our own string
+    #: formatting and could not have failed for the reason it exists. An incident signal
+    #: wired to the wrong half.
     disclosure_applied: bool | None
+    #: The disclosure in the PROMPT — the second copy, and the weaker evidence: an
+    #: instruction the model may reorder or drop, not an utterance that is played.
+    #: Recorded because both adapters deliberately send it in both places (belt and
+    #: braces, `cartesia._agent_body` argues it), so an engine holding one and not the
+    #: other is a fact worth being able to see rather than one to average away.
+    prompt_disclosure_applied: bool | None
     voice_applied: bool | None
     #: One operator-readable sentence. Never carries a prompt body (hard rule 6).
     detail: str
@@ -136,9 +151,19 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     kept the script while dropping the greeting would otherwise pass on the script check
     alone — which is exactly the shape of the failure (a field the vendor did not
     recognise) that this whole read-back exists to catch.
+
+    **AND IT IS CHECKED IN THE GREETING, WHICH IS WHERE IT IS SPOKEN (P3.3).** This
+    function used to score the disclosure with `carries_prompt_marker` — against the
+    prompt `_agent_body` had just PREPENDED the line to. That verdict was true whenever
+    the prompt round-tripped at all, so the single property with a legal consequence
+    could not fail for its own reason, and the paragraph above describing "an engine that
+    dropped the greeting" described a case the code could not detect. The greeting is now
+    its own read (`carries_greeting_marker`) and it is what `disclosure_applied` means;
+    the prompt copy is reported beside it, never instead of it.
     """
     prompt = snapshot.carries_prompt_marker(cfg.system_prompt)
-    disclosure = snapshot.carries_prompt_marker(cfg.disclosure_line)
+    disclosure = snapshot.carries_greeting_marker(cfg.disclosure_line)
+    prompt_disclosure = snapshot.carries_prompt_marker(cfg.disclosure_line)
     expected_voice = _voice_expected(engine, cfg)
     held_voice = snapshot.holds_speech("tts")
     voice: bool | None
@@ -151,13 +176,20 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     else:
         voice = held_voice == expected_voice
 
-    checked = (("script", prompt), ("disclosure line", disclosure), ("voice", voice))
+    # THE PROMPT COPY IS NOT IN `checked`, and that is a decision. The greeting is the
+    # utterance; the prompt copy is a second belt on the same trousers, and an engine
+    # holding the greeting while rendering the prompt differently is not a compliance
+    # failure worth refusing a publish over — it is a fact worth RECORDING, which is what
+    # the field beside the verdict is for. Putting it in `checked` would make every
+    # engine that normalises whitespace inside a system prompt fail hard rule 5.
+    checked = (("greeting disclosure", disclosure), ("script", prompt), ("voice", voice))
     mismatched = [name for name, verdict in checked if verdict is False]
     if mismatched:
         return PublishVerification(
             state="not_applied",
             prompt_applied=prompt,
             disclosure_applied=disclosure,
+            prompt_disclosure_applied=prompt_disclosure,
             voice_applied=voice,
             detail=(
                 "The voice platform accepted the change and is not running it: "
@@ -171,6 +203,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             state="unreadable",
             prompt_applied=prompt,
             disclosure_applied=disclosure,
+            prompt_disclosure_applied=prompt_disclosure,
             voice_applied=voice,
             detail=(
                 "The voice platform accepted the change; we could not confirm it is "
@@ -181,6 +214,10 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         state="applied",
         prompt_applied=True,
         disclosure_applied=True,
+        # NOT hard-coded True like its neighbours: this one is not in `checked`, so
+        # reaching here says nothing about it. Writing True here would be the same
+        # true-by-construction move that made the original verdict meaningless.
+        prompt_disclosure_applied=prompt_disclosure,
         voice_applied=True,
         detail="The voice platform was read back and is holding the published script and voice.",
     )
@@ -208,6 +245,7 @@ async def verify_publish(
             state="unreachable",
             prompt_applied=None,
             disclosure_applied=None,
+            prompt_disclosure_applied=None,
             voice_applied=None,
             detail=(
                 "The voice platform accepted the change and did not answer a read-back, "
@@ -239,7 +277,12 @@ class EngineDrift:
     checked: bool
     state: VerifyState | Literal["not_published"]
     prompt_applied: bool | None
+    #: The GREETING's disclosure, same meaning as on `PublishVerification` — this is the
+    #: field an operator escalates on (OPERATIONS §7).
     disclosure_applied: bool | None
+    #: The prompt's copy of the line. Carried here as well so the drift screen and the
+    #: publish banner say the same thing about the same agent.
+    prompt_disclosure_applied: bool | None
     voice_applied: bool | None
     detail: str
 

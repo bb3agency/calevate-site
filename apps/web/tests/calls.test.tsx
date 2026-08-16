@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import CallsPage from "@/app/c/[slug]/calls/page";
 import type { CallSummary, Me } from "@/lib/api/client";
 
-import { problem, renderClientPage } from "./harness";
+import { browserOffline, problem, renderClientPage } from "./harness";
 
 /**
  * The call log — the screen a client opens when they want to know what actually
@@ -136,4 +136,23 @@ describe("the call log", () => {
     // status this build does not know is the one a reader most needs to see.
     expect(container.textContent).toContain("abandoned");
   });
+
+  /**
+   * THE PAUSED QUERY — the state that is neither loading nor failed.
+   *
+   * TanStack does not start a fetch it believes cannot succeed: with the default
+   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
+   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
+   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
+   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
+   * than mocking anything, so this is the branch a dropped connection actually produces.
+   */
+  it("does not report an empty call log over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await renderClientPage(page, routes([call()]));
+
+    expect(container.textContent).not.toContain("No calls yet");
+    expect(container.textContent).toContain("We could not reach Calevate");
+  });
+
 });

@@ -1,5 +1,22 @@
+import { onlineManager } from "@tanstack/react-query";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
+
+/**
+ * Put the browser back online after a test that took it offline (`browserOffline`).
+ *
+ * `onlineManager` is a MODULE-LEVEL singleton in query-core, so a test that leaves it
+ * false hands the next file a tree where nothing ever fetches — which shows up as an
+ * unrelated timeout in an unrelated suite, the worst kind of failure to read.
+ *
+ * Registered BEFORE `cleanup` on purpose: Vitest runs `afterEach` hooks in reverse
+ * registration order ("stack" is the default `sequence.hooks`), so this one runs LAST —
+ * after the tree is unmounted, so resuming the paused queries cannot fetch into a
+ * torn-down component with the `fetch` stub already gone.
+ */
+afterEach(() => {
+  onlineManager.setOnline(true);
+});
 
 /**
  * Unmount between tests.
@@ -36,3 +53,44 @@ vi.mock("next/navigation", () => ({
     prefetch: vi.fn(),
   }),
 }));
+
+/**
+ * `window.matchMedia`, which jsdom does not implement at all.
+ *
+ * Registered here rather than per file for the reason above: without it, importing the
+ * marketing page fails inside GSAP's `registerPlugin` — a stack trace through
+ * `gsap-core.js` that says nothing about the missing browser API, on a test that was
+ * about the page's copy.
+ *
+ * IT REPORTS "reduce", and that is the truthful answer rather than a convenience.
+ * jsdom has no layout, no compositor and no scrolling, so there is no smooth scroll for
+ * Lenis to drive and no viewport for a ScrollTrigger to intersect — constructing them
+ * here does not exercise the animation, it just crashes on browser APIs jsdom does not
+ * implement.
+ *
+ * What this makes the suite test is the STATIC page: the exact markup a reader who asked
+ * for reduced motion receives, and the exact markup that renders if the bundle never
+ * loads. That is the branch worth pinning, because the design rule for the marketing
+ * page is that motion is an enhancement and the page is finished without it — so the
+ * a11y sweep and the copy tests asserting against the un-animated DOM is the assertion,
+ * not a limitation. Content is visible by default and GSAP animates FROM a displaced
+ * state, so nothing here is hidden by the choice.
+ *
+ * A jsdom gap, not a stub of our own code — ENGINEERING-PRACTICES §3's rule is about
+ * not mocking things under test, and this is neither.
+ */
+Object.defineProperty(window, "matchMedia", {
+  writable: true,
+  configurable: true,
+  value: (query: string): MediaQueryList =>
+    ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }) as unknown as MediaQueryList,
+});

@@ -19,9 +19,15 @@ from typing import Any
 import httpx
 import pytest
 from apps.api.core.errors import ProblemError
-from apps.api.engine.bolna import BolnaEngine, _agent_kb_refs, _agent_object, _agent_system_prompt
+from apps.api.engine.bolna import (
+    BolnaEngine,
+    _agent_greeting,
+    _agent_kb_refs,
+    _agent_object,
+    _agent_system_prompt,
+)
 from apps.api.engine.fake import FakeEngine
-from calevate_shared.engine import AgentConfig, KBSourceRef
+from calevate_shared.engine import AgentConfig, AgentSnapshot, KBSourceRef
 
 
 def _cfg(prompt: str = "You are the receptionist for Sunrise Clinic.") -> AgentConfig:
@@ -149,6 +155,54 @@ def test_no_kb_field_anywhere_is_declined_not_answered() -> None:
     handles, readable = _agent_kb_refs({"agent_config": {"agent_name": "x", "tasks": []}})
     assert readable is False
     assert handles == []
+
+
+# --- the greeting, which is the field that actually speaks (P3.3) --------------
+
+
+def test_the_greeting_is_read_from_the_field_we_send_it_in() -> None:
+    agent = {"agent_config": {"agent_welcome_message": "Idi AI assistant."}}
+    greeting, readable = _agent_greeting(agent)
+    assert (greeting, readable) == ("Idi AI assistant.", True)
+
+
+def test_a_present_but_empty_greeting_is_an_answer_not_a_shrug() -> None:
+    """THE DISTINCTION THIS READER'S `(value, readable)` PAIR EXISTS FOR, and the one a
+    naive "empty means we could not read it" would erase.
+
+    A vendor that stopped recognising the field, or an operator who blanked it in the
+    vendor's own dashboard, leaves the key present and empty — and that agent OPENS THE
+    CALL SAYING NOTHING, which is a provable hard rule 5 breach and the loudest failure on
+    this path. Folding it into `readable=False` turns the one refusal `judge` can make on
+    compliance grounds into a recorded uncertainty that does not block the publish.
+    """
+    greeting, readable = _agent_greeting({"agent_config": {"agent_welcome_message": ""}})
+    assert readable is True, "the field WAS there — we read it, and it was empty"
+    assert greeting == ""
+
+    snapshot = AgentSnapshot(engine_agent_ref="r", greeting="", greeting_readable=True)
+    assert snapshot.carries_greeting_marker("Idi AI assistant.") is False, (
+        "an empty greeting must score FALSE — a publish is refused on this, and `None` "
+        "would let it through as merely unconfirmed"
+    )
+
+
+def test_no_greeting_field_at_all_is_declined_rather_than_answered() -> None:
+    """Our own adapter looking in the wrong place, which is not the vendor's failure and
+    must never fail a publish. `_agent_kb_refs` makes the identical distinction for D-41
+    and this follows it rather than inventing a second tri-state."""
+    greeting, readable = _agent_greeting({"agent_config": {"agent_name": "x"}})
+    assert (greeting, readable) == (None, False)
+
+    snapshot = AgentSnapshot(engine_agent_ref="r", greeting=None, greeting_readable=False)
+    assert snapshot.carries_greeting_marker("anything") is None
+
+
+def test_a_non_string_greeting_is_read_as_empty_rather_than_trusted() -> None:
+    """A vendor answering `null` under a key it still publishes has told us the agent
+    holds no welcome message. That is the empty case, not the unreadable one."""
+    greeting, readable = _agent_greeting({"agent_config": {"agent_welcome_message": None}})
+    assert (greeting, readable) == ("", True)
 
 
 # --- bolna: the round trip over a transport stub -------------------------------

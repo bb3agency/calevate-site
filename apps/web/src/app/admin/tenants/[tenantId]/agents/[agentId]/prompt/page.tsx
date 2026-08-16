@@ -683,9 +683,23 @@ function LiveConfirmation({
               </p>
               <dl className="mt-2 flex flex-wrap gap-x-8 gap-y-2">
                 <PropertyVerdict label="Script" verdict={engineState.data.prompt_applied} />
+                {/*
+                 * TWO DISCLOSURE VERDICTS, and the labels have to say which is which.
+                 * "Disclosure (spoken first)" is the engine's GREETING field — the
+                 * deterministic first utterance, the one hard rule 5 and SEC-COMP §1 are
+                 * about, and the only one a publish is refused over. "Disclosure (in
+                 * script)" is the second copy both adapters also send; a mismatch there
+                 * is a rendering difference worth seeing, not a compliance failure. One
+                 * label reading "Disclosure line" for whichever we happened to check is
+                 * how P3.3 stayed invisible on this very screen.
+                 */}
                 <PropertyVerdict
-                  label="Disclosure line"
+                  label="Disclosure (spoken first)"
                   verdict={engineState.data.disclosure_applied}
+                />
+                <PropertyVerdict
+                  label="Disclosure (in script)"
+                  verdict={engineState.data.prompt_disclosure_applied}
                 />
                 <PropertyVerdict label="Voice" verdict={engineState.data.voice_applied} />
               </dl>

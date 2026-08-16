@@ -53,7 +53,8 @@ we control with a queue depth we do not. The retry that matters here is the NEXT
 which is free: a row that failed keeps its old `drift_checked_at` and is therefore first
 in the next batch.
 
-RETRIES AND THE DLQ. `max_tries` is passed EXPLICITLY at the `cron()` call site because
+RETRIES, AND THERE IS NO DLQ (P6.5). `max_tries` is passed EXPLICITLY at the `cron()`
+call site because
 `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not reach a function that
 carries its own — the argument `issue_one_time_charges` and `draw_qa_samples` both make,
 and the reason a sweep that gave up on its first Redis blip would leave the platform
@@ -83,6 +84,7 @@ from apps.api.agents.reconciliation import (
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
 from apps.api.engine import get_engine
 
@@ -271,8 +273,10 @@ async def sweep_engine_drift(ctx: dict[str, Any]) -> str:
     (`WorkerSettings` says so in its own comment). So a sweep that could not run AT ALL —
     the batch read failed, Postgres was unreachable — must ask for the retry explicitly, or
     the platform goes unwatched until the next half hour with nothing marked wrong. Three
-    attempts, then the DLQ, which is this repo's convention and is also what puts an
-    exhausted sweep on the ops console beside every other dead letter.
+    attempts, then an ALERT — not a dead-letter queue, which this docstring used to name
+    and which does not exist (P6.5). An exhausted arq job is `zrem`'d off the queue and
+    written to a result key nothing in this repository reads, so the alert on the last
+    attempt IS the dead-letter mechanism.
 
     A VENDOR failure is deliberately NOT in scope: `_reconcile_one` already converts one
     into a recorded `unreachable` for that agent, and re-running the whole sweep because
@@ -285,9 +289,27 @@ async def sweep_engine_drift(ctx: dict[str, Any]) -> str:
             "engine_drift_sweep_failed",
             extra={"reason": exc.__class__.__name__, "attempt": ctx.get("job_try")},
         )
-        # `defer` climbs with the attempt so a database that is restarting is not hammered
-        # by three sweeps in nine seconds — the ladder BACKEND-PATTERNS §4 asks for.
-        raise Retry(defer=30 * int(ctx.get("job_try", 1) or 1)) from exc
+        attempt = int(ctx.get("job_try", 1) or 1)
+        if attempt < WORKER_MAX_TRIES:
+            # `defer` climbs with the attempt so a database that is restarting is not
+            # hammered by three sweeps in ninety seconds — the ladder BACKEND-PATTERNS §4
+            # asks for.
+            raise Retry(defer=30 * attempt) from exc
+        # THE LAST ATTEMPT IS THE ONE THAT HAS TO SHOUT (P6.5). This used to raise `Retry`
+        # unconditionally, and on the final try arq does not honour it: the job finishes
+        # with `JobExecutionFailed` and a `logger.warning`, which nothing reads. The
+        # docstring's "three attempts, then the DLQ" was describing a queue that does not
+        # exist — an exhausted arq job is `zrem`'d and written to a result key nobody
+        # reads. So the alert IS the dead-letter mechanism, and it has to be here.
+        alert(
+            "WORKER_TERMINAL",
+            "engine_drift_sweep_abandoned",
+            detail=(
+                f"{exc.__class__.__name__} after {attempt} attempt(s); "
+                "every client's live agent is unwatched until this cron succeeds"
+            ),
+        )
+        raise
 
 
 __all__ = [

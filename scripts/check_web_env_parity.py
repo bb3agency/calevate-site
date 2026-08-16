@@ -154,6 +154,23 @@ DECLARATION_FILE = WEB_PACKAGE / ".env.example"
 SOURCE_SUFFIXES = frozenset({".ts", ".tsx", ".js", ".jsx", ".mjs", ".mts", ".cjs"})
 EXCLUDED_DIRECTORIES = frozenset({"node_modules", ".next", "out", "tests", "public", "dist"})
 
+# Files Next compiles and then RUNS IN NODE, never bundles.
+#
+# Every question this guardrail asks rests on one premise: `next build` inlines
+# `process.env.NAME` into the bundle, so an undeclared key becomes `""` in a browser. That
+# premise is simply false for the config, which Next compiles to `next.config.compiled.js`
+# and executes in the build process — it reads the live `process.env`, nothing it touches
+# is inlined anywhere, and a value it reads never reaches a visitor. Scanning it therefore
+# produced two findings that were both wrong: an "undeclared browser variable" that is not
+# a browser variable, and a "read `next build` cannot inline" in a file with no bundle.
+#
+# NARROW ON PURPOSE — one stem, in the package root, not a `config` pattern. Anything
+# under `src/` is browser-reachable and stays in scope, which is where the rule earns its
+# keep. `instrumentation.ts` and `middleware.ts` are deliberately NOT here: both run
+# server-side but are compiled INTO the deployed output, and middleware in particular can
+# carry a value into a response header.
+EXCLUDED_ROOT_STEMS = frozenset({"next.config"})
+
 # Set by the runtime, not by us — the web twin of `check_env_parity.INFRA_ENV_KEYS`.
 # `NODE_ENV` is Next's own production signal (`lib/auth/mode.ts` depends on the fact that a
 # deployment cannot forget it); `NEXT_RUNTIME` is set by Next per execution environment.
@@ -243,6 +260,9 @@ def source_files(root: Path | None = None) -> list[Path]:
         if path.is_file()
         and path.suffix in SOURCE_SUFFIXES
         and not EXCLUDED_DIRECTORIES & set(path.relative_to(base).parts)
+        # Only at the package root: a `next.config.ts` somewhere under `src/` would be an
+        # ordinary module with an unfortunate name, and it stays in scope.
+        and not (path.parent == base and path.stem in EXCLUDED_ROOT_STEMS)
     )
 
 

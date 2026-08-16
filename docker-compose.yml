@@ -1,3 +1,30 @@
+# Local development infra ONLY — `make up`. Production is `compose.prod.yml`, which is
+# driven exclusively by `scripts/vps-deploy.sh`.
+#
+# WHY THIS FILE DECLARES A PROJECT NAME. Compose defaults the project name to the
+# directory basename. The deploy root on the VPS is `/var/www/calevate`, so this file's
+# default there was `calevate` — the exact name `compose.prod.yml` declares. Both files
+# then addressed ONE compose project, and both define a service called `redis`: a bare
+# `docker compose up -d` in the deploy directory (this file is the default one) would
+# recreate PRODUCTION redis from the definition below — no `--appendonly yes`, no
+# `redis-data` volume — destroying the ARQ queue and the webhook dedupe keys, and would
+# additionally publish Postgres on 0.0.0.0:5433 and MinIO on 0.0.0.0:9000 with the
+# passwords written a few lines down. `docker compose down -v` would have taken the
+# production project's volumes with it.
+#
+# Docker's published ports are inserted in nat/FORWARD and are NOT filtered by ufw's
+# INPUT rules, so DEPLOYMENT §2's "inbound 22/80/443 only" would not have contained any
+# of that. A distinct project name is the whole fix, and `preflight()` in
+# `scripts/vps-deploy.sh` refuses to deploy from a checkout where this line has gone
+# missing again.
+#
+# ONE-TIME COST, SAID OUT LOUD: on a machine that ran `make up` before this line existed,
+# the old containers and volumes are still there under the OLD project name (the
+# directory basename) and this file no longer sees them. Local Postgres will look empty.
+# `make db-reset` reseeds; `docker volume ls` still lists the old ones if something in
+# there was worth keeping. Written up in docs/DEV-SETUP.md §2.
+name: calevate-dev
+
 services:
   postgres:
     image: pgvector/pgvector:pg16

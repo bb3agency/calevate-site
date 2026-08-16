@@ -40,6 +40,7 @@ assembled from redacted values only, and the alerts below carry ids, never addre
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from uuid import UUID
@@ -115,6 +116,21 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
 
         if billing_email:
             body = _compose(name, phone, status, summary, triggers)
+            # INSIDE the transaction, DELIBERATELY, and the finding that produced the
+            # `to_thread` above recommended moving it out as well. It is not moved, and
+            # the reason is the atomicity the next block argues for at length: the
+            # delivery record and the WhatsApp enqueue must land together or a crash
+            # leaves an email recorded and its twin lost, and the dedupe check at the top
+            # of this transaction is what stops two concurrent runs both sending.
+            # Splitting the session in three would trade a real invariant for a smaller
+            # one.
+            #
+            # What the open transaction actually costs here is ONE pooled connection for
+            # the length of the send — the pool is 16 for ten concurrent jobs, and the
+            # statements above are plain SELECTs, so no row lock is held while we wait.
+            # What it used to cost was the event loop, which is every job in the process.
+            # Those are not the same order of problem, and `to_thread` closes the one
+            # that is.
             delivered = await _send_email(billing_email, HOT_LEAD_SUBJECT, body)
         else:
             # Nothing to attempt: `_send_email` would only report the same thing back.
@@ -307,8 +323,23 @@ async def _send_email(to: str, subject: str, body: str) -> bool:
     Returns whether it landed; the CALLER decides what a failure costs, because only
     the caller knows which attempt this is. The no-address case never reaches here —
     it is a data fix and is alerted as one.
+
+    **OFF THE EVENT LOOP (P6.3).** `SmtpTransport.send` is plain `smtplib.SMTP` with
+    `starttls()` and `login()` on a `SMTP_TIMEOUT_S` budget — synchronous socket I/O, and
+    this `async def` used to `return` it directly. So the call site READ as deferred while
+    doing nothing of the kind, and up to `SMTP_TIMEOUT_S` of network wait stopped the
+    whole worker: all ten concurrent jobs, including `dispatch_outbox` on its 10-second
+    schedule and `dispatch_campaign_tick` on its 30-second one — and hard rule 5's DNC
+    deadline is "before the next dispatch tick".
+
+    This repository already stated the rule twice and broke it here. `transport.py` says
+    callers on a latency budget defer rather than adapt the transport, and `alerting.py`
+    does defer; `whatsapp.py` says of the WhatsApp twin of this exact call, on the same
+    lead, in the same transaction, that a blocking send "would park the loop … and stall
+    every other job on the same worker". D-159 fixed the same class in `storage.py`.
     """
-    return get_transport().send(to=to, subject=subject, body=body)
+    transport = get_transport()
+    return await asyncio.to_thread(lambda: transport.send(to=to, subject=subject, body=body))
 
 
 def _json(value: Any) -> str:

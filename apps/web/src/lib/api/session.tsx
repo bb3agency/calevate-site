@@ -36,7 +36,12 @@
  *   (`requires()` + `MUTATING_PERMISSIONS`), so the read-only promise is enforced
  *   server-side whatever this file does.
  * - The banner renders from `me.impersonating` — the SERVER's answer — never from the
- *   URL. A client-realm user who types `?view=admin` gets 401s, not a banner.
+ *   URL, so a client-realm user who types `?view=admin` cannot produce one. What they
+ *   actually get is a REDIRECT: `viewAsRequested` mounts `<AdminRealmClerkProvider
+ *   protect>` (below), so a document with no admin-realm session goes to
+ *   `/admin/sign-in` before any read is attempted. This line used to say "401s, not a
+ *   banner" — true of the API and true of this file until `protect` was added, and since
+ *   then a sentence about a request that is never made.
  *
  * So the worst a client-realm user achieves by editing the query string is breaking
  * their own page; they cannot claim impersonation, and they cannot read another

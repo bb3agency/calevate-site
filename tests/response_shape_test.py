@@ -183,8 +183,9 @@ async def _seed_billing(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
         # falling back to ₹0.00 is precisely the empty case that hides a missing field.
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 120, 250.5000, false, now(), now())"
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, billed_inr, "
+                "capped, created_at, updated_at) "
+                "VALUES (:t, :m, 120, 250.5000, 250.5000, false, now(), now())"
             ),
             {"t": tenant_id, "m": billing.current_billing_month()},
         )

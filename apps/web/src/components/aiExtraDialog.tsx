@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 
 import { PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON, formatCount, formatINR } from "./ui";
 import type { AiQuota } from "@/lib/api/aiQuota";
+import { useFocusTrap } from "@/lib/focusTrap";
 
 /**
  * G-5's acceptance dialog — the ONE thing in this console that debits a wallet, and
@@ -32,10 +33,18 @@ import type { AiQuota } from "@/lib/api/aiQuota";
  *    selling a block rather than metering per use;
  * 4. that nothing has been charged yet, which is the whole promise of the dialog.
  *
- * ACCESSIBILITY. `role="dialog"` + `aria-modal` + a heading it is labelled by, focus
- * moved to the dialog on open, and Escape cancels. The two buttons are real buttons in
- * DOM order, so a keyboard reaches "Not now" first — the safe answer should not be the
- * one that takes more keystrokes.
+ * ACCESSIBILITY. `role="dialog"` + `aria-modal` + a heading it is labelled by, and the
+ * full APG focus contract via `useFocusTrap`. The two buttons are real buttons in DOM
+ * order, so a keyboard reaches "Not now" first — the safe answer should not be the one
+ * that takes more keystrokes.
+ *
+ * This dialog used to move focus on open and handle Escape and NOTHING ELSE, which is
+ * half of `aria-modal="true"`'s promise and the wrong half: the first Tab left the panel
+ * and landed on the page behind it, and Escape dropped focus onto `<body>`. On the one
+ * control in this console that debits a wallet, a keyboard user could be typing into a
+ * page they believed was covered by a modal. `navDrawer` had had the trap since it
+ * shipped and said in its own header that the next modal should borrow it; the borrowing
+ * is now a hook both call (src/lib/focusTrap.ts), so there is one implementation.
  */
 export function AcceptChargeDialog({
   quota,
@@ -52,27 +61,18 @@ export function AcceptChargeDialog({
 }) {
   const panel = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    panel.current?.focus();
-  }, []);
-
-  /**
-   * Escape on the DOCUMENT, not on a wrapper's `onKeyDown`.
+  /*
+   * Always `true`: this component only exists while the dialog is open — both callers
+   * render it inside a `{showing && …}` — so mounting IS opening, and unmounting is what
+   * hands focus back to the button that opened it.
    *
-   * Two reasons and the second is the real one. A React handler on the backdrop only
-   * fires for keys pressed inside its own subtree, so Escape would stop working the
-   * moment focus left the dialog — which is exactly when a person reaches for it. And a
-   * `<div onKeyDown>` is a non-native interactive element (`jsx-a11y/
-   * no-static-element-interactions`): the lint rule is right, and the fix it is asking
-   * for is this one rather than a role that would lie about what the element is.
+   * The Escape listener that used to live here (on `document`, not on a wrapper's
+   * `onKeyDown`, because a React handler only fires for keys pressed inside its own
+   * subtree and Escape has to work when focus has left the dialog) is inside the hook,
+   * for that same reason and one more: the hook needs the document listener anyway to
+   * pull focus back when Tab tries to leave.
    */
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onCancel();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onCancel]);
+  useFocusTrap(panel, true, onCancel, "container");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

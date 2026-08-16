@@ -237,6 +237,22 @@ async def test_a_read_back_carries_the_disclosure_line_the_engine_was_given(
         "the script we sent is not in what the engine holds, so a publish of it could "
         "never be scored applied"
     )
+    # AND THE GREETING, which is the half that actually speaks (P3.3). Both clauses
+    # above are about the PROMPT — the field our own adapter prepends the line to — so
+    # an adapter could satisfy every one of them while the engine opened the call
+    # saying nothing. `verification.judge` scores hard rule 5 on the greeting now, so an
+    # adapter whose read-back cannot see it fails every publish closed on that engine,
+    # exactly as the prompt clause above already did. Caught here rather than by a client
+    # with a dead phone line.
+    assert snapshot.greeting_readable, (
+        "the adapter cannot read the greeting back, so hard rule 5's verdict is "
+        "`unreadable` on every publish through this engine — the disclosure can never "
+        "be confirmed, only assumed"
+    )
+    assert snapshot.carries_greeting_marker(cfg.disclosure_line) is True, (
+        "the greeting the engine holds does not contain the disclosure line, so the "
+        "first thing this agent says to a caller is not the thing SEC-COMP §1 requires"
+    )
 
 
 async def test_reading_an_agent_the_engine_never_created_is_reported(

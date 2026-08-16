@@ -252,16 +252,32 @@ function Sidebar({
       <div className="border-t border-line p-4">
         <div className={`flex items-center rounded-lg p-2 ${isCollapsed ? "justify-center" : "gap-3"}`}>
           <Avatar name={me.data?.organization?.name ?? null} />
-          {!isCollapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-ink">
-                {me.data?.organization?.name ?? "—"}
-              </p>
-              <p className="truncate text-xs capitalize text-ink-muted">
-                {me.data?.role ?? "—"}
-              </p>
-            </div>
-          )}
+          {!isCollapsed &&
+            /* `—` is an honest absence marker while the read is in flight and a
+               PERMANENT, unexplained one after it fails: two dashes where the account
+               name should be, on the one place in the shell that says whose account this
+               is, and no way to tell "still loading" from "we lost the API". `TopHeader`
+               and the admin shell's `HeldCount` both solved this by giving the failure a
+               mark of its own, and this is the same answer in the same amber. */
+            (me.error != null ? (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-amber-700 dark:text-amber-400">
+                  Account not read
+                </p>
+                <p className="truncate text-xs text-ink-muted">
+                  Reload to see whose account this is
+                </p>
+              </div>
+            ) : (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-ink">
+                  {me.data?.organization?.name ?? "—"}
+                </p>
+                <p className="truncate text-xs capitalize text-ink-muted">
+                  {me.data?.role ?? "—"}
+                </p>
+              </div>
+            ))}
         </div>
       </div>
     </NavDrawer>
@@ -376,7 +392,10 @@ export default function ClientRealmLayout({
 
   return (
     <Providers>
-      <div className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+      {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin to.
+          The document scrolls by default; a shell that clips its own content is the only
+          thing that needs the document to stop. */}
+      <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
         <ClientRealmProvider
           slug={slug}
           fallback={

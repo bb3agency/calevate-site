@@ -333,6 +333,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
                 "engine": engine.name,
                 "prompt_applied": verdict.prompt_applied,
                 "disclosure_applied": verdict.disclosure_applied,
+                "prompt_disclosure_applied": verdict.prompt_disclosure_applied,
                 "voice_applied": verdict.voice_applied,
             },
         )
@@ -505,6 +506,7 @@ async def publish_variant(
                 "engine": engine.name,
                 "prompt_applied": verdict.prompt_applied,
                 "disclosure_applied": verdict.disclosure_applied,
+                "prompt_disclosure_applied": verdict.prompt_disclosure_applied,
             },
         )
         raise ProblemError(

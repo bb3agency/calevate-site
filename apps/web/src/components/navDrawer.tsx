@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { useRef, useSyncExternalStore, type ReactNode } from "react";
+
+import { useFocusTrap } from "@/lib/focusTrap";
 
 /**
  * The mobile navigation drawer, for BOTH shells — `app/admin/layout.tsx` and
@@ -50,27 +52,21 @@ import { useCallback, useEffect, useRef, useSyncExternalStore, type ReactNode } 
  *
  * ## Focus, when it OPENS
  *
- * The repo had no focus-trap idiom and no dialog component to borrow one from, so this is
- * the first: focus moves into the panel on open, Tab and Shift+Tab cycle inside it,
- * Escape closes, and focus returns to whatever opened it (the header's "Open navigation"
- * button) — the WAI-ARIA APG modal-dialog pattern. No `focus-trap`/`focus-trap-react`
- * dependency: it is ~40 lines against a repo that treats every new package as supply
- * chain surface (CLAUDE.md hard rule 9, `incident_report.md`), and a native `<dialog
- * showModal>` — which would give the trap for free — cannot be used because the same
- * element has to remain a plain in-flow `<aside>` above `lg`.
+ * `useFocusTrap` (src/lib/focusTrap.ts) — focus moves into the panel on open, Tab and
+ * Shift+Tab cycle inside it, Escape closes, and focus returns to whatever opened it (the
+ * header's "Open navigation" button): the WAI-ARIA APG modal-dialog pattern.
  *
- * Known limit, stated rather than hidden: the page BEHIND the open drawer is not made
- * inert, so a screen reader's virtual cursor can still reach it. `aria-modal="true"`
- * declares the intent and the trap holds for keyboard users; doing better needs the main
- * region to be reachable from here, which is a change to both shells' DOM shape.
+ * That code WAS here, and this header said it was "the first" such idiom in the repo and
+ * that the next modal should borrow it. The second one — `AcceptChargeDialog`, the
+ * control that debits a wallet — did not, and shipped with no Tab cycling and no restore.
+ * So it moved out to a hook and both call it. The trade-offs it makes (no `focus-trap`
+ * dependency; no native `<dialog showModal>`, because THIS element has to remain a plain
+ * in-flow `<aside>` above `lg`) and its known limit about the page behind the panel are
+ * written out there.
  */
 
 /** Below Tailwind's `lg` (1024px) — the width at which the sidebar becomes an overlay. */
 const OVERLAY_QUERY = "(max-width: 1023.98px)";
-
-/** Elements that can hold focus from a Tab press, in DOM order when queried. */
-const TABBABLE =
-  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function subscribeToOverlayWidth(onChange: () => void): () => void {
   // jsdom implements no `matchMedia`, and this hook runs in every layout test.
@@ -95,11 +91,6 @@ function useOverlayWidth(): boolean {
   return useSyncExternalStore(subscribeToOverlayWidth, isOverlayWidth, isOverlayWidthOnServer);
 }
 
-function tabbablesWithin(root: HTMLElement | null): HTMLElement[] {
-  if (!root) return [];
-  return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE));
-}
-
 export function NavDrawer({
   isOpen,
   onClose,
@@ -116,66 +107,16 @@ export function NavDrawer({
   children: ReactNode;
 }) {
   const panel = useRef<HTMLElement | null>(null);
-  const openedFrom = useRef<HTMLElement | null>(null);
   const isOverlay = useOverlayWidth();
   // The ONE condition every rule below keys on: an overlay panel that is showing. Above
   // `lg` this is false at all times, so the desktop sidebar keeps plain sidebar behaviour
   // — no dialog role, no trap, and never inert.
   const isModal = isOverlay && isOpen;
 
-  useEffect(() => {
-    if (!isModal) return;
-    openedFrom.current = document.activeElement as HTMLElement | null;
-    // The panel itself, not its first link, when it has no focusable child: focus must
-    // land INSIDE the trap or the first Tab escapes it.
-    (tabbablesWithin(panel.current)[0] ?? panel.current)?.focus();
-    return () => {
-      const trigger = openedFrom.current;
-      openedFrom.current = null;
-      // `isConnected`: on a route change the whole shell unmounts and the trigger is
-      // detached — focusing it would silently move focus to `<body>`. `!== body` for the
-      // same reason from the other side: when nothing held focus at open time there is
-      // nothing to give it back to, and blanking focus is worse than leaving it.
-      if (trigger && trigger !== document.body && trigger.isConnected) trigger.focus();
-    };
-  }, [isModal]);
-
-  const onKeyDown = useCallback(
-    (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-      const items = tabbablesWithin(panel.current);
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      const inside = panel.current?.contains(active) ?? false;
-      if (!first || !last) {
-        // Nothing to cycle between; keep focus on the panel rather than letting Tab out.
-        event.preventDefault();
-        panel.current?.focus();
-        return;
-      }
-      if (event.shiftKey && (active === first || !inside)) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && (active === last || !inside)) {
-        event.preventDefault();
-        first.focus();
-      }
-    },
-    [onClose],
-  );
-
-  useEffect(() => {
-    if (!isModal) return;
-    // On `document`, not the panel: Escape has to work from the scrim too, and focus can
-    // be on the panel element itself rather than a child.
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isModal, onKeyDown]);
+  // Only while it IS a modal. Above `lg` the same element is the permanent desktop
+  // sidebar, and trapping focus in a sidebar nobody opened would be a far worse bug than
+  // the one this file was written for.
+  useFocusTrap(panel, isModal, onClose);
 
   return (
     <>

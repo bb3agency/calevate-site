@@ -88,6 +88,21 @@ class Probe:
     #: Has the REFUSAL been observed against the live vendor from this build? See the
     #: module docstring. False is the honest default and is reported to the operator.
     verified: bool
+    #: Which HTTP statuses mean "the vendor refused THIS credential". 401 and 403 are the
+    #: two ways an API says no to a key, and for most vendors both are exactly that.
+    #:
+    #: PER PROBE because one vendor splits them, and getting it wrong costs the mistake
+    #: this whole file exists to avoid. Resend answers **403 `invalid_api_key`** for a
+    #: wrong key but **401 `restricted_api_key`** for a REAL key that is scoped to sending
+    #: only — and sending-only is the least-privilege key this platform asks the operator
+    #: to create. Reporting that 401 as a refusal would tell them to rotate a working key.
+    #: A status outside this tuple that is not a success falls through to `unreachable`,
+    #: whose sentence is already "this credential has NOT been checked", which is the
+    #: honest answer for a read a valid key is simply not allowed to make.
+    refusal_statuses: tuple[int, ...] = (401, 403)
+    #: Appended to the `unreachable` sentence, when this probe knows why a non-refusal
+    #: rejection is expected. `None` for probes with nothing to add.
+    inconclusive_detail: str | None = None
 
 
 def _bearer(value: str) -> dict[str, str]:
@@ -126,6 +141,44 @@ PROBES: Mapping[str, Probe] = {
         headers=_bearer,
         source="apps/workers/extraction.py (SARVAM_CHAT_URL host, Bearer auth)",
         verified=False,
+    ),
+    # THE EMAIL CREDENTIAL, TESTABLE FOR THE FIRST TIME. `smtp_password` never had a probe
+    # and could not have one: a probe is an HTTP request and SMTP AUTH is a different
+    # protocol, so a wrong mail password was always discovered at the first hot lead.
+    # Moving email onto an HTTP API is what makes "wrong key, refused at the screen"
+    # possible here at all.
+    #
+    # `GET /domains` rather than a send: it is a LIST, it changes nothing, and it is the
+    # cheapest authenticated read Resend documents. It is NOT a check that the sender
+    # domain is verified — this file reads a status code and never a body, so it cannot
+    # see which domains came back. That check is the operator's, in the Resend dashboard.
+    #
+    # Host and auth header are READ AT SOURCE from `apps/workers/transport.py`'s
+    # `RESEND_SEND_URL` and its `Authorization: Bearer` header — the same evidence the
+    # other three probes use, which is what keeps a probe from authenticating differently
+    # from the thing it tests. The `/domains` PATH is REPORTED, NOT READ
+    # (`resend.com` is refused by this environment's egress proxy).
+    # STILL PROBEABLE THOUGH NO LONGER STORABLE, and that is deliberate rather than an
+    # oversight left behind by the env-only move. `/test` takes a CANDIDATE the caller
+    # already holds and stores nothing, so "check this key before I put it in the host's
+    # environment" is exactly the question it answers — and it is the only chance to
+    # catch a wrong Resend key before a deploy, since the console can no longer set it.
+    # `manageable_secret_keys` excludes it; `probe_credential` deliberately does not.
+    "resend_api_key": Probe(
+        method="GET",
+        url="https://api.resend.com/domains",
+        headers=_bearer,
+        source=(
+            "apps/workers/transport.py (RESEND_SEND_URL host, Bearer auth); "
+            "the /domains path and the 401-vs-403 split are REPORTED, NOT READ"
+        ),
+        verified=False,
+        refusal_statuses=(403,),
+        inconclusive_detail=(
+            "A Resend key with `Sending access` cannot read the domain list, and that is "
+            "the key type this platform asks for — so a refusal of THIS read is expected "
+            "and is not evidence the key is wrong."
+        ),
     ),
 }
 
@@ -195,10 +248,12 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
         )
 
     status = response.status_code
-    # 401/403 is the vendor saying no to THIS credential. Everything else that is not a
-    # success is the vendor having a bad day, and conflating the two would tell an
-    # operator to rotate a working key during someone else's outage.
-    if status in (401, 403):
+    # `refusal_statuses` is the vendor saying no to THIS credential — 401/403 for every
+    # probe but Resend's, which splits them (see the field's own comment). Everything else
+    # that is not a success is the vendor having a bad day, or a read this key is not
+    # allowed to make, and conflating either with a refusal would tell an operator to
+    # rotate a working key.
+    if status in probe.refusal_statuses:
         outcome: ProbeOutcome = "rejected"
         detail = (
             "The vendor refused this credential. It is wrong, revoked, or lacks the "
@@ -216,6 +271,8 @@ async def probe_credential(key: str, candidate: str) -> ProbeResult:
             f"The vendor answered {status}, which is neither an acceptance nor a "
             "refusal, so this credential has NOT been checked."
         )
+        if probe.inconclusive_detail:
+            detail = f"{detail} {probe.inconclusive_detail}"
     log.info("secret_probe", extra={"config_key": key, "outcome": outcome, "status": status})
     return ProbeResult(
         outcome=outcome,

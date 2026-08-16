@@ -5,7 +5,7 @@ import DashboardPage from "@/app/c/[slug]/page";
 import type { CallSummary, Dashboard, Me } from "@/lib/api/client";
 import type { UsagePanel } from "@/lib/api/hooks";
 
-import { problem, renderClientPage, stillLoading } from "./harness";
+import { browserOffline, problem, renderClientPage, stillLoading } from "./harness";
 
 /**
  * The dashboard — the screen a client looks at to decide whether the product is
@@ -253,4 +253,44 @@ describe("the money tile says which kind of nothing it is showing", () => {
     ).toBeGreaterThan(0);
     expect(container.textContent).not.toContain("₹");
   });
+
+  it("says it is loading, and not only draws it", async () => {
+    // §52's first clause has an audience the pixels do not reach. `Skeleton` rendered
+    // `<div aria-hidden>` of pulsing bars and nothing else, so across ~96 sites a
+    // screen-reader user got SILENCE during every load — and silence and "there is
+    // nothing here" are the same thing in that modality. `tests/a11y.ts:42` says out loud
+    // that the axe sweep cannot see this: axe checks markup that exists, not an
+    // announcement that never happens, so it is asserted here.
+    await renderClientPage(page, routes({ "/v1/usage": stillLoading() }));
+
+    const tile = (await screen.findByText("Spend this month")).closest("section")!;
+    const live = tile.querySelector('[role="status"]');
+    expect(live, "the skeleton is not a live region, so nothing is announced").not.toBeNull();
+    expect(live!.getAttribute("aria-live")).toBe("polite");
+    expect(live!.textContent).toContain("Loading");
+    // …and the bars stay out of the accessibility tree: they are the drawing of that
+    // sentence, and reading them out is an announcement of nothing, per row.
+    expect(tile.querySelector(".animate-pulse")!.closest("[aria-hidden]")).not.toBeNull();
+  });
+
+  /**
+   * THE PAUSED QUERY — the state that is neither loading nor failed.
+   *
+   * TanStack does not start a fetch it believes cannot succeed: with the default
+   * `networkMode: "online"` it parks the query (`fetchStatus: "paused"`), so
+   * `isLoading` — which is `isPending && isFetching` — is FALSE, `error` is null and
+   * `data` is undefined. A two-armed ladder therefore walks past both arms into its data
+   * branch with nothing in it. `browserOffline()` flips the library's own switch rather
+   * than mocking anything, so this is the branch a dropped connection actually produces.
+   */
+  it("states nothing about the business over a read the browser never made", async () => {
+    browserOffline();
+    const { container } = await renderClientPage(page, routes());
+
+    // Neither empty state, and no tile pretending to a figure.
+    expect(container.textContent).not.toContain("No call history yet");
+    expect(container.textContent).not.toContain("No calls yet");
+    expect(container.textContent).toContain("We could not reach Calevate");
+  });
+
 });

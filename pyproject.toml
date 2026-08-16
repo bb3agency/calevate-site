@@ -32,6 +32,31 @@ dev = [
     "coverage>=7.10",
 ]
 
+# ERROR REPORTING, and it is a GROUP rather than a runtime dependency (P5.10).
+#
+# `core/observability.py` has always initialised Sentry properly — scrubbed
+# `before_send`, `send_default_pii=False`, no second tracing pipeline — inside a
+# `try: import sentry_sdk / except ImportError: log.warning(...)`. What it never had was
+# anything that installs the package, so `sentry_dsn_set_but_sdk_missing` was not a
+# tolerant fallback, it was the ONLY reachable outcome. A capability that cannot be
+# turned on is not optional, it is absent, and three documents counted on it.
+#
+# NOT in `apps/api`/`apps/workers` `dependencies`, because `uv sync` installs ONE venv
+# for the whole workspace and voice-runtime shares it. `init_observability` imports the
+# SDK only when a DSN is set, so an installed-but-unused package costs that process
+# nothing at import time — but hard rule 3 makes voice-runtime's boot graph a thing to
+# keep deliberately small, and a group is how a deployment opts in per host rather than
+# by editing a runtime dependency list.
+#
+# `uv sync --all-packages --group errors` on the api/worker host — `--all-packages` is
+# not optional, because a bare `uv sync --group errors` drops every workspace member in a
+# uv workspace (measured, not assumed). DEPLOYMENT §8 carries it. The
+# lockfile diff was read before adding: `sentry-sdk` brings `urllib3` and `certifi`, both
+# already in this tree, and declares no build hooks (hard rule 9).
+errors = [
+    "sentry-sdk>=2.20",
+]
+
 # --- import-linter (guardrail: engine isolation, hard rule 2) -----------------
 # Contracts grow with the code; this seed contract locks the boundary that exists
 # today: shared contracts never depend on app code.

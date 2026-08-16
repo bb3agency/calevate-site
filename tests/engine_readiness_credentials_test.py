@@ -38,6 +38,21 @@ from apps.api.engine import build_engine, get_engine, missing_engine_credential_
 from calevate_shared.config import SELECTABLE_ENGINES
 
 
+@pytest.fixture(autouse=True)
+def _object_store_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Part of "every non-engine requirement satisfied", and it cannot live in
+    `_settings()` because it is not a `Settings` field.
+
+    Readiness reports `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` off `os.environ` — that
+    is where botocore reads them and where the app therefore has to look. The suite's
+    `_no_ambient_credentials` fixture strips both session-wide so local matches CI, so
+    without this every assertion in this file would carry two extra keys it is not about.
+    Declared here rather than borrowed, which is that fixture's whole rule.
+    """
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+
+
 def _publishable_key(host: str) -> str:
     """Clerk's publishable-key format: `pk_<env>_<base64(host + '$')>`.
 
@@ -77,6 +92,11 @@ def _settings(**overrides: Any) -> Settings:
         "impersonation_grant_secret": "i" * 32,
         "audit_chain_secret": "a" * 32,
         "idempotency_scope_secret": "d" * 32,
+        # The KEK joined the readiness list with P3.3's ops sweep. Present here for the
+        # reason every other secret above is: this file is about the ENGINE clause, and a
+        # key reported from anywhere else would be noise these assertions cannot tell
+        # apart from the thing they measure.
+        "platform_kek": base64.b64encode(b"k" * 32).decode(),
     }
     base.update(overrides)
     return Settings(_env_file=None, **base)  # type: ignore[arg-type]

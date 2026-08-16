@@ -22,7 +22,6 @@ calls. But a wall-clock assertion on a CI box is flaky, and flaky latency assert
 deleted. What is NOT flaky is the set of modules the process holds: an LLM SDK, an
 engine adapter or the ORM model registry cannot appear in it by accident, and each one
 arrives with a matching pile of work someone intended to do on this path. Catching the
-from collections.abc import Callable
 import catches the intent before the millisecond.
 
 Measured as the REAL import graph — a fresh interpreter that imports the app exactly as
@@ -539,19 +538,61 @@ RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
     ),
 }
 
+#: Modules the delivery thread acquires ON PURPOSE, which no rule bans.
+#:
+#: A SEPARATE constant from the dict above, and the split is the point. That one records
+#: a GAP — modules `FORBIDDEN` names, present anyway, each with a sentence about what
+#: closes it, pinned by `test_the_recorded_runtime_exception_is_forbidden_at_boot` so it
+#: cannot outlive the ban it excepts. This one records a DECISION. Merging them would
+#: have made that test demand a ban on `apps.api.core`, which voice-runtime imports as a
+#: library by design — so the two lists would have had to contradict each other to stay
+#: green, and the cheapest way out would have been deleting the assertion.
+#:
+#: The measured set below is compared against the UNION: an intended import still has to
+#: be declared, or an equality guard cannot tell it from an accidental one.
+INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
+    # `alerting._admit_shared` asks Redis whether a SIBLING WORKER has already sent this
+    # fingerprint, because `compose.prod.yml` runs this service with `--workers=4` and an
+    # in-process window cannot see the other three (D-160).
+    #
+    # It satisfies hard rule 3 the same way the transport does, and more cheaply. The
+    # import is lazy and lands on the delivery thread, never the ack path. It pulls no new
+    # distribution, because `redis` is already resident — arq and `core/redis.py` both
+    # hold it — and THIS TEST IS THE PROOF, since `redis` does not appear in the measured
+    # delta. The call it makes is bounded at `alert_admission.SOCKET_TIMEOUT_S` (0.5s) and
+    # fails OPEN, so a Redis outage costs deduplication and never an alarm.
+    "apps.api.core.alert_admission": (
+        "the cross-process alert suppression gate (D-160). Lazy, delivery thread only, "
+        "no new distribution, 0.5s bounded, fails open. Intended — this does not close."
+    ),
+}
+
 _ALERT_PROBE = """
-import json, sys
+import json, sys, uuid
 sys.path.insert(0, "apps/voice-runtime")
 sys.path.insert(1, ".")
 import main  # noqa: F401  — boot exactly as the ASGI server does
 from apps.api.core.alerting import alert, flush_alerts
 
 before = sorted(sys.modules)
-alert("ROUTE_HANDLER", "import_surface_probe", engine="bolna")
-delivered = flush_alerts(timeout=20.0)
+# A FRESH CODE EVERY RUN (D-160). The suppression window is shared through Redis now and
+# survives process exit by design — a restart must not re-page an operator — so a fixed
+# code meant the second probe within fifteen minutes was suppressed before it reached the
+# transport, and measured an import set with the transport missing. Uniqueness makes the
+# probe hermetic without depending on Redis being reachable or resettable.
+alert("ROUTE_HANDLER", f"import_surface_probe_{uuid.uuid4().hex}", engine="bolna")
+flushed = flush_alerts(timeout=20.0)
 after = sorted(sys.modules)
+# `flush_alerts` only proves the QUEUE drained, which is also what a suppressed notice
+# does — so on its own it is not evidence that anything was sent. The transport module
+# appearing in the delta is: it is imported by `_deliver` and by nothing else on this
+# path. Reported separately so a failure says which of the two went wrong.
+delivered = flushed and "apps.workers.transport" in set(after) - set(before)
 with open(sys.argv[1], "w") as handle:
-    json.dump({"before": before, "after": after, "delivered": delivered}, handle)
+    json.dump(
+        {"before": before, "after": after, "delivered": delivered, "flushed": flushed},
+        handle,
+    )
 """
 
 
@@ -600,7 +641,10 @@ def test_the_alert_delivery_thread_acquires_only_the_recorded_exception() -> Non
         for module in set(measured["after"]) - set(measured["before"])
         if module.split(".")[0] not in sys.stdlib_module_names and not module.startswith("_")
     }
-    assert acquired == set(RUNTIME_IMPORTS_ON_THE_ALERT_THREAD), (
+    expected = set(RUNTIME_IMPORTS_ON_THE_ALERT_THREAD) | set(
+        INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD
+    )
+    assert acquired == expected, (
         "delivering one alert changed what this latency-critical process holds:\n"
         + "\n".join(f"  - {module}" for module in sorted(acquired))
         + "\n\nIf the transport has moved out of `apps.workers`, delete the matching "

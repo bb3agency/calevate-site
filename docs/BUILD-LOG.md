@@ -3542,6 +3542,315 @@ ratchet itself refuses to vouch for. On a fresh database with Redis flushed:
 voice-runtime-ack and platform-credentials at 100%, redaction the weakest at 97.9%.
 
 
+## §71 — a seven-agent audit, then the two stages that make a deploy possible and honest
+
+The wave that stopped adding features and asked whether the thing could ship.
+
+**Seven agents in parallel, one subsystem each: 34 findings, 12 BLOCKER, 17 SERIOUS.** The
+headline is not any single one — it is that **the first deploy on a fresh host could not
+have completed, for six independent reasons**, none of which any test could see because
+every one of them is about a step that had never been run. Two findings were reached
+independently by two agents each (a call billed to us and to nobody; pm2 plus the browser
+environment), which is the strongest evidence in the set. `docs/PRODUCTION-READINESS.md`
+carries all 34 with a five-stage fix sequence; the sequence is dependency order, not a
+schedule.
+
+**Stage 1 — the deploy.** `alembic/env.py` passed no `transaction_per_migration`, and
+alembic defaults it to False: one transaction for the whole `upgrade head`, so a failure
+at revision 40 discarded the 39 before it — while three operator-facing documents told
+the reader the opposite in the three places they are read at 3am. Three revisions use
+`autocommit_block()` for `CREATE INDEX CONCURRENTLY`, which alembic's own docstring names
+as the case that setting exists for, so a failed run could leave an INVALID unique index
+on `credit_ledger` behind a commit boundary. Nothing had ever inserted an `admin_users`
+row, so a fresh deploy came up green with an empty allowlist and every admin request
+403ing — a deployment with no way in, which is why `scripts/bootstrap_admin.py` exists.
+`vps-deploy.sh` reloaded a pm2 app nothing had ever started, brought up no redis (every
+swap passes `--no-deps`, which is exactly the flag that skips `depends_on`), and ran
+`scripts/seed.py` nowhere, so production would have had no reserved slugs and no retention
+defaults. All eight items are closed.
+
+**Three of the eight were not what the finding said, and the corrections outlast the
+fixes.** P5.6 claimed botocore raises `NoRegionError` without a region; measured, **for
+s3 it does not** — it falls back to `us-east-1` and signs with it, so this was never a
+crash, it was every request scoped to a region nobody chose. The credential half was real
+and larger: with no `AWS_ACCESS_KEY_ID` every object-store path fails, including
+`retention._erase_*`, where a store that will not answer stands between an erasure and a
+certificate claiming a deletion that did not happen. And the fix as written said to add
+the three variables to `.env.example` — which `tests/env_example_bootstrap_floor_test`
+correctly refuses, because that file is the set a process needs to BOOT and a
+credential-less process boots perfectly well.
+
+**Two more defects were inside the eight lines P5.6 pointed at.** `_client()` used
+`boto3.client(...)`, which resolves through a process-global `DEFAULT_SESSION` — the exact
+defect D-106 found and fixed in `apply_lifecycle.py`, in the copy that never got it. It
+**reproduced live during the sabotage check**: with the global session restored, a test
+that had deleted both credentials from the environment still presigned successfully,
+signing with a key an earlier test had cached. And the client was rebuilt per call: ~90ms
+of botocore service-model loading, on the API event loop, for every recording playback.
+One cached client per process, keyed on a digest of (endpoint, region, credentials).
+
+**Stage 2's money cluster: the platform was giving its own margin away.** `charge_for_call`
+debited the prepaid wallet with `cost.total_inr` — the ENGINE's charge to US, ~₹2/min —
+while `self_serve_inr_per_min` (₹6.00) was read in exactly one place, to render the
+runway string on the client's own screen. The wallet drained at a third of the advertised
+rate and **the self-serve motion booked zero gross margin**. One layer up,
+`spend_state.spend_used` had the same two-facts-in-one-column problem: the compliance
+gate's ceiling, the client's own cap route and the client usage panel all read our
+supplier cost, so a client capping at ₹5,000 was stopped at ₹5,000 of OUR cost and shown
+our pricing to explain it — three functions below the comment stating that the client
+panel never shows it.
+
+`billing/rates.py::client_billed_inr` is now the one answer to "what does the client owe",
+migration `c4f18a6b90e2` gives it a column, and `cost.total_inr` appears in neither write.
+**The forks inside it are the interesting part.** A managed tenant with no quoted rate
+accrues NOTHING rather than being priced at the list rate — tried, then rejected, because
+the same rate prices the panel, the cap AND the invoice, and `b1d5c8e73f04` already
+settled that this repository does not invent a price a plan does not quote. The included
+allowance is netted off per MONTH rather than per call, computed against the counter under
+the lock the meter already holds, so the increment does not depend on the order calls
+meter in.
+
+**The third writer of `capped` is what no existing test could see.** Swapping
+`_RECOMPUTE_CAPPED` back to `spend_used` passed the entire suite, because every fixture
+put both numbers on the same side of the ceiling. `tests/client_rate_billing_test.py`
+puts the cap between them — ₹1.90 of cost, ₹8.00 billed, capped at ₹5.00 — and it is the
+only thing standing between the client's stop button and the meter disagreeing about what
+"over cap" means.
+
+**And a call that completed and could not be priced was a non-event.** `_meter` returned
+0: no usage row, no charge, no counter — and `_pipeline_settled` only expects a usage
+artefact when a cost exists, so the reconciliation poller, D-31's *guarantee of record*,
+classified the call `settled` and never came back. Since every client-facing money figure
+derives from `usage_events` rather than from `calls`, the blast radius of the vendor
+spelling `total_cost` differently on the live account is every panel reading ₹0.00, every
+invoice empty, no cap arming, no wallet debited — **and nothing anywhere going red.**
+Refusing to invent a price was right; refusing to COUNT the refusals was the defect. Now
+`snapshot.billable_ready and cost is None` alerts, the adapter logs its own refusal, and
+`calls_unmetered` is a sixth signal on the admin health board at `stop` severity.
+
+## §72 — Stage 3's backend half: a dead-letter queue that never existed, and the erasure nobody was watching
+
+**Every job in this repository promised a DLQ it did not have.** `WorkerSettings`'
+docstring, `billing.py`'s header and three drift sweeps all said "3 retries then DLQ".
+arq has no dead-letter queue: an exhausted job is `zrem`'d off the queue and written to a
+result key that nothing in `apps/` or `scripts/` reads. The only DLQ in this codebase is
+the OUTBOX's `status='failed'`, and it covers the ENQUEUE leg — a job that fails while
+RUNNING never touches it. So for nine cron jobs, the last attempt's `alert()` **is** the
+dead-letter mechanism, and the three that had no such alert were failing into silence
+while their docstrings said an operator would be told. Six neighbours already had the
+right shape; the three were given it by copying `issue_one_time_charges`, not by
+designing a second one. **Two of their existing tests encoded the defect**, asserting that
+`job_try=3` still raises `Retry` — which is the attempt arq does not honour, logging
+`JobExecutionFailed` at warning and dropping it.
+
+**The third part of that finding is the one with a statute behind it.** `deletion_requests`
+rows sat `completed_at IS NULL` forever: no cron, no alert, no ops query.
+`report_stalled_pipeline` had existed for months for CALLS — worst case, a lead a client
+did not see — while the one workflow carrying a DPDP §12 right had no equivalent. It
+cannot self-heal, either: `execute_deletion_request` is enqueued once, in the request's
+own transaction, with no poller behind it the way the post-call pipeline has
+`reconcile_executions`. A deploy that cancelled the in-flight job left the request open
+permanently, and the only signal was a status page returning `pending` to a data principal
+nobody was watching.
+
+**`report_overdue_erasures` was written wrong twice before it was written right, and both
+mistakes are the interesting part.** The obvious move was to reuse the stall alarm's
+tenant list — and that list is `SELECT DISTINCT tenant_id FROM engine_agent_routes`,
+i.e. tenants with a PUBLISHED AGENT. A client can file a §12 request having never
+published one, and a churned client's routes are torn down by `tenant_erasure` while their
+subjects' requests stay open, so the tenants that list excludes are precisely the ones most
+likely to be holding a forgotten erasure: the alarm would have read green exactly where it
+was needed. The second attempt walked `organizations` under `untenanted_session` and
+returned **zero tenants on a real database** — that table carries its own FORCEd policy —
+so the sweep would have covered an empty fleet and reported a healthy one forever. Both are
+now pinned by tests that fail on the wrong version, and the bound (an hour) is derived from
+the mechanisms on the path and documented as NOT a legal deadline, because
+SECURITY-COMPLIANCE §4 states no figure and a constant is not the place to invent a
+commitment nobody made.
+
+**Stage 3's other half was one mistake in two spellings: an exception type in no `except`
+clause on the path.** `json.JSONDecodeError` is a `ValueError` — not a `ProblemError`, not
+an `httpx.HTTPError` — so a 2xx with a non-JSON body (a WAF challenge, a proxy
+interstitial) reached `create_agent` as a raw 500 with no code and no remediation, made
+`verify_publish`'s "never raises for a vendor-side failure" docstring false, and DLQ'd both
+the post-call pipeline and the reconciliation poller. `httpx.InvalidURL`'s MRO does not
+include `httpx.HTTPError` either, so `_next_link` could not have been caught even from
+inside `_request`'s handler. Both MRO facts are now pinned as MEASUREMENTS rather than
+restated as reasoning, so a library change that invalidates either comment fails a test
+instead of leaving two paragraphs that quietly stopped being true.
+
+**The scan is the part that will still be earning in a year.** This repository had ALREADY
+solved the unguarded-`.json()` problem twice — in `billing/payments.py` and in
+`engine/cartesia.py` — before the adapter actually going to production missed it. A defect
+that recurs across three modules is not one a per-instance test can hold, so
+`tests/adapter_escaping_exception_test.py` AST-scans every file in `apps/api/engine/` for a
+`.json()` call outside any `try`, and covers the adapters that do not exist yet.
+
+## §73 — four agents in parallel: the disclosure nobody verified, email moves to Resend, and two Stage 1 fixes that had never run
+
+**The compliance verdict with a legal consequence was checking the wrong field, and could
+not have failed.** `verification.judge` scored `disclosure_applied` with
+`carries_prompt_marker(cfg.disclosure_line)` — against the prompt `_agent_body` had just
+PREPENDED that line to. So it read `True` whenever the prompt round-tripped at all, and
+OPERATIONS §7's escalation on *"the one property here with a legal consequence"* was wired
+to our own string formatting. `AgentSnapshot` had no greeting field at all, so the layer
+that COULD have answered did not exist; both adapters send the disclosure to the engine's
+greeting (`agent_welcome_message`, `introduction`) as well as the prompt, and only the
+greeting is the deterministic first utterance.
+
+Three adapters now populate `greeting`/`greeting_readable`, the verdict is scored there,
+and the prompt copy is reported beside it as `prompt_disclosure_applied` — deliberately
+NOT in the refusal set, because an engine that normalises whitespace inside a long system
+prompt has not breached hard rule 5, and a verdict that failed on that would be the first
+thing an operator learned to override. **The fixture was the reason this survived**:
+`_snapshot()` in `publish_verification_test.py` built a snapshot with the prompt alone,
+so every test in that file rested on a shape that could not express the failure. A new
+fake — `GreetingOnlyDroppingEngine`, keeping the line in the prompt and dropping it from
+the greeting — is what the whole finding reduces to.
+
+**And `calls.disclosure_played` was written by nothing.** It has existed since the first
+migration, renders on the client's call detail screen and sits in the weekly QA
+compliance-review queue where a reviewer works OPERATIONS §5's "disclosure spoken"
+scenario — a permanently null field where the evidence belongs, on every call, since the
+beginning. `compliance/disclosure.py` is one function that reads agent turns only (the
+mirror of `detect_opt_out`'s caller-turns-only rule) through the same normaliser, with a
+genuine tri-state so a call with no transcript stays NULL rather than reading as a breach.
+It measures "was it said", never "was it said first" — the second is the greeting field's
+property and is verified at publish, which is the only place it CAN be.
+
+**Email moved to Resend, and the interesting part is what the migration refused to do.**
+`EMAIL_PROVIDER` is now the single selector through one resolver
+(`config.email_transport_reason`), following the `payment_provider` seam: a credential is
+not a statement of capability, and `SMTP_HOST` alone no longer selects anything. SMTP
+survives as the escape hatch that keeps a suspended Resend account a config change rather
+than a deploy — two implementations behind one rule is not two rules. httpx over the
+`resend` SDK for one POST, and imported LAZILY because `httpx`/`httpcore`/`h11`/`certifi`
+are not in voice-runtime's boot graph and a module-scope import would put all four into
+the 500ms-ack process. Timeouts are phased (`connect=5, write=3, read=6, pool=1`) because
+httpx has no whole-request deadline, and they sum to exactly `SMTP_TIMEOUT_S` — the first
+draft summed to 21s, which pushed `alerting`'s two attempts past
+`host_alert.FLUSH_TIMEOUT_S` and would have reported a DELIVERED alert as undelivered.
+The `/test` probe gained a `refusal_statuses` distinction: a least-privilege Sending-access
+key gets **401** on `GET /domains` while a wrong key gets **403**, and calling that 401
+"rejected" would tell an operator to rotate a working key.
+
+**Two of Stage 1's own fixes had never executed.** `preflight()` ran BEFORE `resolve_plan`,
+so `PLAN` was an unset array — and under `set -u`, bash 4.4+ expands `"${PLAN[@]}"` of an
+unset array to nothing rather than erroring. `in_plan web` and `in_plan nginx` answered
+"no" to everything, so the `apps/web/.env.local` refusal, the `pnpm`/`pm2` checks and the
+four nginx exports were dead code while three documents said they were live. Proven, not
+inferred: with `.env.local` removed the old script exits 0 and says nothing.
+
+**Four of the register's prescribed fixes were wrong, and the corrections outlast them.**
+P7.1's "widen the loading condition" would have pinned a permanent skeleton over a real
+503 on four of six screens — this repo had already solved it correctly twice by widening
+the REFUSAL instead. P5.7's "refuse the dev compose file's presence" refuses every deploy,
+because the file is committed; the project NAME is what is checkable. P5.13's "delete the
+two `/healthz/` lines" does not close the path, because `location /` catches every
+`/healthz*` request anyway — `location ^~ /healthz { return 404; }` does. And P7.6's team
+screen finding is simply false: `useWriteAccess` reads the same query, so the controls
+were never offered; only the "(you)" marker is lost.
+
+**One class was swept rather than fixed per-instance, twice.** The paused-query defect was
+14 sites across 11 files, not the 6 the finding named, and `surfaceStatesGuard` gained a
+fifth rule after four candidate formulations were measured (67/57/38/33 hits) to find one
+precise enough to ship with an empty `EXEMPT` list. And the unguarded-`.json()` defect had
+already been solved twice in this repository — `billing/payments.py`, `engine/cartesia.py`
+— before the adapter actually going to production missed it, so the test AST-scans every
+file in `apps/api/engine/` including the adapters that do not exist yet.
+
+## §74 — Stage 4's guards: four checks that reported coverage they did not have
+
+Every item in this slice is the same defect at a different address: **a guard whose own
+docstring overstated what it could see.** That is worse than a missing guard, because a
+missing one is a known gap and an overstating one is a gap somebody has already decided
+not to look at.
+
+**The ledger guardrail enumerated four ledgers; the constant it iterates held eight.** On
+the first line of prose in the file whose entire job is hard rule 4 — whose own commentary
+in CLAUDE.md says *"a count in prose is the defect class D-103/D-105 exist for"*. The code
+was always right, which is precisely why the prose could rot: nothing depended on it. It
+now references the constant, and `migration_reversibility_test` stops quoting a revision
+count for the same reason (it said 62; there were 65).
+
+**`RLS_EXEMPT_TENANT_COLUMNS` claims to be the one place a reviewer learns what is
+deliberately not tenant-isolated, and three tables of exactly that shape were absent** —
+`platform_state`, `platform_ai_spend`, and `webhook_deliveries`, which holds `payload_ref`:
+the object-storage key of a CRM payload carrying a lead's name and number, with its "why"
+living only in a model docstring no guardrail reads.
+
+**They were absent for a structural reason, so the fix is structural rather than three
+dict entries.** Every rule in `check_rls_coverage` is driven by the `tenant_id` COLUMN, so
+a table without one is invisible to all of them — correct for `users`, and how three
+tables sat outside the dict for months with nothing able to notice. Rule 7 asks the two
+questions worth asking: every `platform_*` table must be registered (that prefix is this
+repo's own convention for "one row for the whole deployment", and two of the five were
+created after two siblings had already been listed), and every table holding an
+object-storage key that dereferences to tenant data must be tenant-isolated OR registered.
+Deliberately narrow — "every unpoliced table must be registered" would demand ~20 entries
+nobody would ever ask about, and a list that long is the exact failure mode the dict
+exists to avoid.
+
+**The job-registration guard claimed ONE blind spot and had FOUR.** It read `ast.Assign`
+only, so `TENANT_ERASURE_JOB: Final = "..."` — the annotated spelling half this repo's
+constants use — was never checked; and its literal check inspected `node.args[0]` for
+every enqueuer, while `enqueue_outbox`'s first positional is the SESSION. It was therefore
+**entirely inert for every outbox call site**, which is the path where an unrecognised job
+name gets published and reported as queued. Fixing it immediately produced the two
+literals the finding predicted (`notify_hot_lead`, `deliver_outbound_webhook`), both now
+constants — and the poller's settled-probe interpolates the same constant its writer
+passes, so the test that used to compare two literals by eye now asserts they agree by
+construction.
+
+**`outbox_messages.queue` read as routing and routed nothing.** Six call sites passed
+`"notifications"` or `"default"`, the column is NOT NULL, `claim_outbox_batch` selects
+it — and `dispatch_outbox` published without it while `WorkerSettings` sets no
+`queue_name`, so everything landed on arq's one default queue regardless. The hazard is
+comprehension rather than capacity: a column that reads as routing makes an operator
+believe notifications are isolated from CRM deliveries when the two are sharing one
+worker's ten slots.
+
+**The refusal is the decision (D-162).** Honouring it means a SECOND DEPLOYABLE — arq
+routes by `_queue_name` consumed by a worker whose `queue_name` matches, and one worker
+consumes exactly one queue — for a platform with no clients, against "monolith module
+before new service"; and passing `_queue_name` today with no worker on that queue would
+silently stop every notification. So step 1 of a two-step retirement: the parameter goes,
+one constant is written, the column stays because hard rule 8 forbids dropping it in the
+release that stops writing it, and the decision entry names both things that would close
+it. It was a second encoding anyway — every call site chose the value as a pure function
+of `job`.
+
+## §75 — the ratchet's honest complaint, and the finding that grew by one while being fixed
+
+CI went red on the coverage ratchet, not the suite: `dial-path: 5 uncovered unit(s),
+budget 1 (+4)`. The four new units were `dispatcher.py`'s `except` arm in
+`report_stalled_pipeline` — the branch that decides whether an alarm about a stalled
+pipeline is raised when probing one tenant throws. §72 added the sweep and never covered
+the path where it partially fails, which is the only path where the alarm's value is
+tested. Two behavioural tests in `poller_guarantee_test` now drive it: a tenant that
+cannot be probed must not suppress the alarm for the others, and a sweep that reached
+nobody must still alert rather than report silence as health. Uncovered units back to
+budget; nothing in the ratchet was adjusted, which is the point of an equality.
+
+**P4.3 was seven columns and it was eight.** Seven live columns were missing from their
+ORM models — `campaigns.dnc_scrubbed_at` (compliance evidence for the DNC scrub) and the
+six `engine_agent_routes` drift columns (the ones the RLS exemption spends fourteen lines
+justifying) — and because `alembic/env.py` generates the next migration *against*
+`Base.metadata`, each was `--autogenerate` proposing a DROP in a diff a human is asked to
+skim. Declaring them and then actually running `compare_metadata` surfaced an eighth:
+`spend_state.billed_inr`, created by migration `c4f18a6b90e2` **in this same session, while
+the finding was being fixed**.
+
+That is the whole argument for `scripts/check_metadata_columns.py` rather than a list. A
+rule kept by remembering fails on the next migration; this one failed on the migration
+being written at the time. It is scoped to `add_column`/`remove_column` and nothing else,
+because 38 of the 39 diffs `compare_metadata` reports against the live schema are indexes
+and constraints the ORM deliberately does not declare — a guard that failed on all 39 is a
+guard somebody turns off in a week. Both directions are checked; this repo had caught the
+autogenerate round-trip hazard three times before and every one of them only checked that
+a REMOVED thing stayed removed. In `make guardrails` and in CI, with negative controls that
+doctor the real model set by exactly one column in each direction.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

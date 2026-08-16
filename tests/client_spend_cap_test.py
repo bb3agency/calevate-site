@@ -74,7 +74,9 @@ def _principal(tenant_id: UUID) -> Principal:
     )
 
 
-async def _admin_plan(tenant_id: UUID, *, cap_min: int | None, cap_spend: str | None) -> None:
+async def _admin_plan(
+    tenant_id: UUID, *, cap_min: int | None, cap_spend: str | None, included_min: int = 100
+) -> None:
     """One plan row carrying only the ADMIN ceilings — the state every existing tenant
     is in before a client ever touches their own cap."""
     async with tenant_session(tenant_id) as session:
@@ -82,11 +84,14 @@ async def _admin_plan(tenant_id: UUID, *, cap_min: int | None, cap_spend: str | 
             text(
                 "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "
                 "hard_cap_min, hard_cap_spend, concurrency_ceiling, created_at, updated_at) "
-                "VALUES (:i, :t, 9999.00, 100, 8.0000, :cmin, :cspend, 10, now(), now())"
+                "VALUES (:i, :t, 9999.00, :inc, 8.0000, :cmin, :cspend, 10, now(), now())"
             ),
             {
                 "i": uuid7(),
                 "t": tenant_id,
+                # 100 by default; 0 where a test needs every metered minute to be charged
+                # so a rupee ceiling can actually be crossed.
+                "inc": included_min,
                 "cmin": cap_min,
                 "cspend": Decimal(cap_spend) if cap_spend is not None else None,
             },
@@ -217,6 +222,12 @@ async def test_a_cap_below_this_months_spend_stops_the_next_dial_not_the_next_me
     flag would sit at `false` until some call completed — and for an outbound-only
     tenant the next call is exactly the one the cap was set to prevent."""
     tenant_id, agent_id, _ = await _tenant("panic")
+    # A PRICED plan, because the cap is compared against what the CLIENT owes (P1.3) and
+    # a tenant with no `plans` row has no quoted rate — so nothing accrues for them and
+    # a rupee ceiling has nothing to bite on, which is a deliberate refusal to invent a
+    # price rather than an oversight (`billing/rates.py::client_billed_inr`). No included
+    # allowance, so all 120 metered minutes are charged: ₹960 against a ₹100 cap.
+    await _admin_plan(tenant_id, cap_min=None, cap_spend=None, included_min=0)
     await _bill(tenant_id, agent_id, seconds=7200, spend="500.00", ended=THIS_MONTH)
     assert (await _gate(tenant_id, agent_id)).allowed is True
 
@@ -233,6 +244,7 @@ async def test_raising_the_cap_back_releases_the_gate_in_the_same_breath() -> No
     """The recompute is symmetric on purpose: a mistaken stop costs one more click. A
     one-way arm would leave a client stopped until a call they cannot place completes."""
     tenant_id, agent_id, _ = await _tenant("undo")
+    await _admin_plan(tenant_id, cap_min=None, cap_spend=None, included_min=0)
     await _bill(tenant_id, agent_id, seconds=7200, spend="500.00", ended=THIS_MONTH)
     await _put(tenant_id, minutes=None, spend="100.00")
     assert (await _gate(tenant_id, agent_id)).allowed is False
@@ -287,7 +299,14 @@ async def test_the_read_route_reports_all_three_answers_and_the_current_month() 
     assert view.plan_cap_spend_inr == "5000.00"
     assert view.client_cap_spend_inr is None
     assert view.effective_cap_spend_inr == "5000.00"
-    assert view.minutes_used == "10.00" and view.spend_used_inr == "42.50"
+    assert view.minutes_used == "10.00"
+    # **₹0.00 AND NOT ₹42.50, AND THAT IS THE FIX RATHER THAN A REGRESSION (P1.3).**
+    # ₹42.50 is what the ENGINE charged US for the call; this field is what the CLIENT
+    # has spent, and `_admin_plan` gives them 100 included minutes. Ten of those minutes
+    # are inside the allowance they have already paid a retainer for, so they owe nothing
+    # further — which is what the invoice will say too. The old value was our supplier
+    # cost, published on the client's own screen and compared against the cap they set.
+    assert view.spend_used_inr == "0.00"
     # Money is an exact decimal STRING, never a JSON float (hard rule 7).
     assert isinstance(view.spend_used_inr, str)
 

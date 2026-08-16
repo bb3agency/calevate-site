@@ -468,6 +468,12 @@ class SpendCapRecomputeOut(BaseModel):
     capped: bool
     # This month's metered counters — NOT written by this route, only read.
     minutes_used: str
+    # THE CLIENT'S NUMBER (`spend_state.billed_inr`), because it is the one the verdict
+    # above was reached from: `over_cap_sql` compares the ceiling against what the client
+    # owes, not against what the engine charged us (P1.3). Reporting our supplier cost
+    # beside `effective_cap_spend_inr` would show an operator a pair that does not
+    # explain itself — the recompute would read as arbitrary at exactly the moment they
+    # are checking whether it was right.
     spend_used_inr: str
     # The ceiling in force: LEAST(the plan's, the client's own). Money as an exact
     # decimal string, never a JSON float (hard rule 7).
@@ -837,7 +843,7 @@ async def recompute_spend_cap(
         capped_before=before.capped,
         capped=capped,
         minutes_used=str(to_paise(before.minutes_used)),
-        spend_used_inr=str(to_paise(before.spend_used)),
+        spend_used_inr=str(to_paise(before.billed_inr)),
         effective_cap_minutes=caps.effective_cap_min,
         effective_cap_spend_inr=(
             str(to_paise(caps.effective_cap_spend))

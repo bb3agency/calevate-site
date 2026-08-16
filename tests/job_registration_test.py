@@ -18,6 +18,21 @@ bugs. The repo already funnels them through module-level `*_JOB*` constants prec
 the name has one home per job, so those constants ARE the enqueueable set — and the last
 assertion here is what keeps that true: a literal that never became a constant is the
 one shape this file cannot see, so new job names must land as constants.
+
+**AND THAT SENTENCE WAS FALSE IN TWO WAYS UNTIL P6.9** — the guard could not see three
+more shapes, which is worse than a guard that admits a gap:
+
+* the constant scan read `ast.Assign` only, so `TENANT_ERASURE_JOB: Final = "..."` — an
+  `AnnAssign`, and the annotated spelling this repo prefers — was never checked;
+* the literal scan inspected `node.args[0]` for every enqueuer, and `enqueue_outbox`'s
+  first positional is the SESSION. It was therefore ENTIRELY INERT for every outbox call
+  site, which is most of them, and inert in the direction that matters: the outbox is the
+  path where an unrecognised job name is published and reported as queued.
+
+Run against the tree at the time: one missed constant, two invisible keyword literals.
+All three named jobs that WERE registered, so there was no live outage — the defect was
+a guard reporting coverage it did not have, which is the class this whole file exists
+for. Both are closed and both are sabotage-verified.
 """
 
 from __future__ import annotations
@@ -58,14 +73,27 @@ def _job_name_constants() -> dict[str, str]:
                 continue
             tree = ast.parse(path.read_text(), filename=str(path))
             for node in tree.body:  # module level only: a job name is a module fact
-                if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Constant):
+                # BOTH assignment forms (P6.9). This read `ast.Assign` only, so
+                # `TENANT_ERASURE_JOB: Final = "execute_tenant_erasure"` — an `AnnAssign`,
+                # and the annotated form this repo prefers for constants — was not checked
+                # at all. Measured against the tree at the time: one constant missed. The
+                # job it names IS registered, so there was no live outage; what there was
+                # is a guard whose docstring claims to see every job-name constant and
+                # could not see the spelling half of them use.
+                if isinstance(node, ast.Assign):
+                    targets: list[ast.expr] = list(node.targets)
+                    value = node.value
+                elif isinstance(node, ast.AnnAssign):
+                    targets = [node.target]
+                    value = node.value  # `X: Final` with no value is not a job name
+                else:
                     continue
-                if not isinstance(node.value.value, str):
+                if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
                     continue
-                for target in node.targets:
+                for target in targets:
                     if isinstance(target, ast.Name) and _JOB_CONST.match(target.id):
                         rel = path.relative_to(REPO_ROOT)
-                        found[f"{rel}:{node.lineno}"] = node.value.value
+                        found[f"{rel}:{node.lineno}"] = value.value
     return found
 
 
@@ -124,10 +152,27 @@ def test_a_job_name_is_declared_as_a_constant_rather_than_a_literal() -> None:
                 name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
                 if name not in enqueuers:
                     continue
-                first = node.args[0] if node.args else None
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    rel = path.relative_to(REPO_ROOT)
-                    offenders.append(f"{rel}:{node.lineno} → {first.value!r}")
+                # WHERE THE JOB NAME ACTUALLY SITS, per callee (P6.9). This inspected
+                # `node.args[0]` for every enqueuer — and `enqueue_outbox`'s first
+                # positional is the SESSION, so the check was entirely inert for every
+                # outbox call site, which is the majority of them. Measured against the
+                # tree at the time: two invisible keyword literals.
+                #
+                # The keyword form is checked for all three, because `enqueue(job=...)`
+                # and `enqueue_outbox(job=...)` are both legal and both hide the name from
+                # a positional-only reader.
+                candidates: list[ast.expr] = []
+                if name == "enqueue_outbox":
+                    # `enqueue_outbox(session, job, payload, ...)` — index 1.
+                    if len(node.args) > 1:
+                        candidates.append(node.args[1])
+                elif node.args:
+                    candidates.append(node.args[0])
+                candidates += [kw.value for kw in node.keywords if kw.arg == "job"]
+                for candidate in candidates:
+                    if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
+                        rel = path.relative_to(REPO_ROOT)
+                        offenders.append(f"{rel}:{node.lineno} → {candidate.value!r}")
     assert not offenders, (
         "a job name was passed as a literal, which makes it invisible to the registration "
         f"guard above: {offenders}. Declare it as a module-level *_JOB constant."
