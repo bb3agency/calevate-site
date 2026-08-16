@@ -57,7 +57,35 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     engine = create_engine(_database_url())
     with engine.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata, compare_type=True)
+        context.configure(
+            connection=connection,
+            target_metadata=target_metadata,
+            compare_type=True,
+            # ONE TRANSACTION PER REVISION, and this line is what makes three other
+            # documents true rather than aspirational (P5.3).
+            #
+            # Alembic's default is False, and under PostgreSQL's transactional DDL that
+            # means `context.begin_transaction()` below opens ONE transaction spanning the
+            # whole `upgrade head` run. So a failure at revision 40 discarded the 39 that
+            # had already succeeded — while `docs/DEPLOYMENT.md`, `scripts/vps-deploy.sh`
+            # and `runbooks/deploy-failed.md` all told the operator, in the three places
+            # they read at 3am, that "a failure leaves the database at the last revision
+            # that fully applied".
+            #
+            # Worse, it was not even one clean transaction: three revisions use
+            # `op.get_context().autocommit_block()` for `CREATE INDEX CONCURRENTLY`, and
+            # each of those is an unconditional commit point. Alembic's own docstring for
+            # that method says so — "It is recommended that when an application includes
+            # migrations with 'autocommit' blocks, that `transaction_per_migration` be
+            # used." This repo has such blocks and did not use it, so a failed run could
+            # leave an INVALID unique index on `credit_ledger` behind a commit boundary,
+            # which is money (hard rule 7) and is exactly the "half-applied" state the
+            # runbook promised could not exist.
+            #
+            # Chosen over editing the three documents to describe the worse property,
+            # because the property they describe is the one hard rule 8 actually wants.
+            transaction_per_migration=True,
+        )
         with context.begin_transaction():
             context.run_migrations()
     engine.dispose()

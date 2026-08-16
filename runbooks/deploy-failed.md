@@ -56,8 +56,23 @@ build or built and cannot read a usable environment.
 What is true at this moment:
 
 - The database is at the last revision that fully applied. PostgreSQL has transactional
-  DDL and alembic runs each revision in its own transaction, so there is no half-applied
+  DDL and alembic runs each revision in its own transaction (`alembic/env.py` passes
+  `transaction_per_migration=True` — alembic's default is one transaction for the WHOLE
+  run, and this line is what makes the sentence true), so there is no half-applied
   revision — there is a *partially applied migration set*.
+- **CHECK FOR AN INVALID INDEX ANYWAY.** Three revisions build an index with
+  `CREATE INDEX CONCURRENTLY` inside an `autocommit_block()`, which is a real commit point
+  no transaction setting can wrap — that is what CONCURRENTLY means. A build interrupted
+  there leaves an index that is **INVALID**: never used to answer a read, still enforcing
+  uniqueness on every insert. One of them is on `credit_ledger`, which is money.
+
+  ```sql
+  SELECT indexrelid::regclass AS index, indrelid::regclass AS table
+  FROM pg_index WHERE NOT indisvalid;
+  ```
+
+  If a row comes back, `DROP INDEX` it and let the re-run rebuild it. An INVALID index is
+  not a state the revision can resume from.
 - **The old containers are still serving, and they can serve on this schema.** That is
   hard rule 8 doing its job: a migration may not drop a column in the same release that
   stops writing it, which is the same statement as "old code runs against new schema".

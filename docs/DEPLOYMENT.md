@@ -266,7 +266,10 @@ because "deploy then migrate" is a defensible ordering in codebases that do *not
 rule 8 — here it would throw away the property rule 8 buys.
 
 On failure: PostgreSQL has transactional DDL and alembic runs each revision in its own
-transaction, so a failure leaves the database at the last revision that fully applied — a
+transaction — because `alembic/env.py` passes `transaction_per_migration=True`, which is
+what makes this sentence true; alembic's default is one transaction for the WHOLE run, and
+until that line was added a failure at revision 40 discarded the 39 before it. So a
+failure leaves the database at the last revision that fully applied — a
 valid intermediate state which, by the same argument, the still-running old containers can
 serve on. **No automatic downgrade.** A downgrade can drop a column a partially deployed
 system has already written to, turning a failed deploy into data loss; it is a judgement,

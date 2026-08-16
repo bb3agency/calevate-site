@@ -181,6 +181,44 @@ preflight() {
     "only ${free_gb}GB free at $ROOT; need ${MIN_FREE_GB}GB. Reclaim first:
      docker image prune -af && docker builder prune --keep-storage 3GB"
 
+  # --- checks that used to live in the step that needed them ---------------------
+  #
+  # Every one of these was previously discovered at step 9 of 11 — i.e. AFTER migrations
+  # had run and all three containers had been swapped — so a missing tool or a missing
+  # file aborted a deploy that had already half-happened. A precondition found late is a
+  # precondition that costs a rollback.
+
+  # The browser tier's configuration. Next loads `.env*` from the PACKAGE directory and
+  # inlines every NEXT_PUBLIC_* at BUILD time, so a missing file here does not fail the
+  # build — it bakes empty strings into the bundle and ships. The observable result is a
+  # console whose API base is `http://localhost:8000`, i.e. every client's browser calling
+  # its own machine, behind a page that returns 200 to the health poll.
+  if in_plan web; then
+    [[ -f "$ROOT/apps/web/.env.local" || -f "$ROOT/apps/web/.env.production" ]] || die \
+      "apps/web/.env.local is missing. Next inlines NEXT_PUBLIC_* at BUILD time from the
+     PACKAGE directory — the root .env is not read and is forbidden from carrying them
+     (apps/web/.env.example). Without it the bundle ships with an empty API base and empty
+     Clerk publishable keys, and the deploy still reports success. Place it by hand from
+     the secrets manager, then re-run."
+    for tool in pnpm pm2; do
+      command -v "$tool" >/dev/null || die "$tool is not installed on this host (DEPLOYMENT §2)"
+    done
+  fi
+
+  # The five the nginx step needs. They are NOT in .env and are not Settings fields — this
+  # script never sources .env — so they must be exported in the operator's shell. Checked
+  # here rather than at `render_nginx`, which is the last step of the deploy.
+  if in_plan nginx; then
+    local missing=()
+    for var in ROOT_DOMAIN TLS_LIVE_DIR ORIGIN_CERT_PATH ORIGIN_KEY_PATH; do
+      [[ -n "${!var:-}" ]] || missing+=("$var")
+    done
+    (( ${#missing[@]} == 0 )) || die \
+      "the nginx step needs these exported in this shell and they are unset: ${missing[*]}.
+     They are deliberately not in .env (this script never sources it) and not Settings
+     fields. See DEPLOYMENT §9 step 4."
+  fi
+
   check_cloudflare_ip_age
 }
 
@@ -394,8 +432,10 @@ run_migrations() {
   #
   # ================================ ON FAILURE ====================================
   # NO AUTOMATIC DOWNGRADE, EVER. PostgreSQL has transactional DDL and alembic runs each
-  # revision in its own transaction, so a failure leaves the database at the last
-  # revision that fully applied — a valid intermediate state which, by the argument
+  # revision in its own transaction — because `alembic/env.py` passes
+  # `transaction_per_migration=True`, which is what makes this sentence true; alembic's
+  # default is one transaction for the whole run. So a failure leaves the database at the
+  # last revision that fully applied — a valid intermediate state which, by the argument
   # above, the currently-running OLD containers can serve on. Automatically downgrading
   # from here would be the dangerous move, not the safe one: a downgrade can drop a
   # column the partially-deployed system has already written to, turning a failed deploy
@@ -410,6 +450,18 @@ run_migrations() {
   log "alembic revision before: ${DB_REVISION_BEFORE:-none}"
 
   compose --profile migrate run --rm --no-deps migrate
+
+  # THEN SEED. `scripts/seed.py` was invoked nowhere in production — only by `make
+  # db-reset`, which is the dev reset — so `reserved_slugs` was empty on every deployed
+  # database. That table is the sole enforcement of slug reservation (`admin/service.py`
+  # probes it and refuses only if a row exists), so against an empty table `admin`, `api`,
+  # `app`, `www`, `hooks`, `login`, `billing`, `support`, `security` and `calevate` were
+  # all claimable. Contained today because self-serve signup defaults OFF, and a public
+  # impersonation surface the minute it is switched on.
+  #
+  # Idempotent and non-destructive by construction (seed.py says so and inserts with
+  # ON CONFLICT), so it runs on every deploy rather than only the first.
+  compose --profile migrate run --rm --no-deps --entrypoint python migrate -m scripts.seed
 
   DB_REVISION_AFTER=$(compose run --rm --no-deps --entrypoint alembic api current 2>/dev/null \
                       | tail -1 | tr -d '\r' || echo "unreadable")
@@ -474,10 +526,28 @@ deploy_web() {
   pnpm install --frozen-lockfile
   pnpm -C apps/web build
 
-  # `--update-env` so a changed .env is actually picked up; without it pm2 re-executes
-  # with the environment it was first started with, and an operator who rotated a key
-  # watches the old one keep working.
-  pm2 reload calevate-web --update-env
+  # START IF ABSENT, RELOAD IF PRESENT.
+  #
+  # This was `pm2 reload` alone, which exits non-zero on an unregistered app — and nothing
+  # in this repository has ever run `pm2 start`. There was no ecosystem file at all, and
+  # DEPLOYMENT §2 lists only `pm2 startup`, which makes pm2 resurrect a SAVED list rather
+  # than create one. So the first deploy on a fresh host aborted here, at step 9 of 11,
+  # with migrations already applied and all three containers already swapped — and
+  # `runbooks/deploy-failed.md` then told the operator to start it "from the ecosystem
+  # definition", which did not exist.
+  #
+  # `pm2 save` after a start so `pm2 startup`'s resurrect actually has a list to restore;
+  # without it a host reboot brings the containers back and leaves the web tier down.
+  if pm2 describe calevate-web >/dev/null 2>&1; then
+    # `--update-env` so a changed .env is actually picked up; without it pm2 re-executes
+    # with the environment it was first started with, and an operator who rotated a key
+    # watches the old one keep working.
+    pm2 reload calevate-web --update-env
+  else
+    log "  calevate-web is not registered with pm2 — starting it for the first time"
+    pm2 start "$ROOT/apps/web/ecosystem.config.cjs" --update-env
+    pm2 save
+  fi
   wait_healthy web
 }
 
@@ -604,6 +674,25 @@ fi
 # gets no ack, Bolna does not retry (D-31), and the reconciliation poller picks it up on
 # a 10-minute tick. Making that window the shortest-lived and the last thing to happen is
 # the cheapest mitigation available without a blue/green mechanism.
+# REDIS FIRST, AND NOT WITH `--no-deps`.
+#
+# Every swap below passes `--no-deps`, which is correct for a SWAP — it is the flag that
+# stops an api deploy from restarting redis and, through it, the service answering live
+# calls. But it was also the ONLY way this stack was ever brought up, and `--no-deps` is
+# precisely the flag that tells compose not to walk `depends_on`. So the redis container
+# named by all three services' `depends_on: {condition: service_healthy}` was never
+# created by anything: the first `--all` run started workers against no queue, then swapped
+# api, whose `/healthz` PINGs redis and answers 503 — and the deploy died at `swap api`,
+# AFTER migrations had already run.
+#
+# Bringing it up explicitly, once, before the loop is the whole fix. It is idempotent
+# (`up -d` on a healthy container is a no-op) and it deliberately does NOT use `--no-deps`,
+# because redis is the thing at the bottom of the graph rather than a thing with a graph.
+if in_plan api || in_plan workers || in_plan voice-runtime; then
+  step "redis"
+  compose up -d redis
+fi
+
 for component in workers api voice-runtime; do
   if in_plan "$component"; then swap_service "$component"; fi
 done
