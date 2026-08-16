@@ -50,7 +50,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from apps.api.compliance import tenant_erasure
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
@@ -232,7 +232,7 @@ async def request_tenant_erasure(
             tenant_id=tenant_id,
             object_type="organization",
             object_id=str(tenant_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "request_id": str(record.id),
                 "reason": payload.reason,

@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import dnc
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -113,7 +113,7 @@ async def add_numbers(
         tenant_id=principal.tenant_id,
         object_type="dnc_list",
         object_id=None,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # Counts and the reason. The numbers are the sensitive part of this request and
         # the audit row is read by more people than the endpoint.
         summary={
@@ -204,7 +204,7 @@ async def remove(
         tenant_id=principal.tenant_id,
         object_type="dnc_list",
         object_id=str(entry_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"source": source},
     )
 

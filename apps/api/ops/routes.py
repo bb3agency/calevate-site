@@ -95,7 +95,7 @@ from apps.api.agents.reconciliation import read_engine_drift
 from apps.api.billing.caps import read_caps, read_spend_counters, recompute_capped
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import verify_chain, write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
@@ -591,7 +591,7 @@ async def set_platform(
         actor_id=str(principal.user_id) if principal.user_id else None,
     )
     halt = await read_halt_state(session)
-    ip = request.client.host if request.client else None
+    ip = client_request_ip(request)
     if payload.outbound_halted is not None:
         await write_audit(
             session,
@@ -662,7 +662,7 @@ async def set_tm_registration_route(
         actor=principal,
         object_type="platform_state",
         object_id="1",
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "tm_registration_status": registration.status,
             "tm_id": registration.tm_id,
@@ -752,7 +752,7 @@ async def recompute_spend_cap(
             tenant_id=tenant_id,
             object_type="spend_state",
             object_id=str(tenant_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             # Ids, ceilings and two booleans. No phone number, transcript or extraction
             # exists anywhere on this path (hard rule 6).
             summary={
@@ -901,7 +901,7 @@ async def replay_outbox(
         action="ops.outbox_replay",
         actor=principal,
         object_type="outbox_messages",
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"replayed": count, "job": job},
     )
     return ReplayOut(replayed=count, job=job)

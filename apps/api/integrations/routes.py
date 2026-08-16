@@ -40,7 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -358,7 +358,7 @@ async def create_endpoint(
         tenant_id=principal.tenant_id,
         object_type="outbound_webhook",
         object_id=str(endpoint_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "kind": service.WEBHOOK_KIND,
             "host": destination.host,
@@ -528,7 +528,7 @@ async def create_sheets_endpoint(
         tenant_id=principal.tenant_id,
         object_type="outbound_webhook",
         object_id=str(endpoint_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "kind": service.SHEET_KIND,
             "spreadsheet_id": spreadsheet_id,
@@ -593,7 +593,7 @@ async def deactivate_endpoint(
             tenant_id=principal.tenant_id,
             object_type="outbound_webhook",
             object_id=str(endpoint_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
 
 
@@ -714,7 +714,7 @@ async def get_delivery_payload(
         tenant_id=principal.tenant_id,
         object_type="webhook_delivery",
         object_id=str(delivery_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
 
     # Imported here, not at module scope, for the reason `crm.routes.get_recording`

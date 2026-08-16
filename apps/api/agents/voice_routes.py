@@ -116,7 +116,7 @@ from apps.api.agents.voices import (
     voice_selection_capability,
 )
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
@@ -357,7 +357,7 @@ async def set_agent_voice(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # Catalog ids and a boolean. No prompt text, no client detail (hard rule 6).
         summary={
             "voice_id": voice.id,

@@ -65,7 +65,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.proportions import MIN_CALLS_PER_VARIANT
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
@@ -347,7 +347,7 @@ async def start_experiment(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # Version NUMBERS and a split. No body, no disclosure text (hard rule 6).
         summary={
             "experiment_id": str(result.experiment_id),
@@ -412,7 +412,7 @@ async def conclude_experiment(
             tenant_id=tenant_id,
             object_type="agent",
             object_id=str(agent_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "experiment_id": str(result.experiment_id),
                 "promoted": result.promoted_label,

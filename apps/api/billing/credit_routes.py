@@ -201,7 +201,7 @@ from apps.api.billing.service import (
 )
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import credits_exhausted
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -672,7 +672,7 @@ async def record_topup(
             tenant_id=tenant_id,
             object_type="credit_ledger",
             object_id=str(written.entry_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "payment_ref": ref,
                 "amount_inr": str(amount),
@@ -862,7 +862,7 @@ async def record_adjustment(
             tenant_id=tenant_id,
             object_type="credit_ledger",
             object_id=str(written.entry_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "corrects_entry_id": str(target.entry_id),
                 "corrects_reason": target.reason,
@@ -1078,7 +1078,7 @@ async def record_restatement(
             tenant_id=tenant_id,
             object_type="credit_ledger",
             object_id=str(written.entry_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "payment_ref": ref,
                 # Quantized, like the adjustment's and unlike the top-up's: these land in

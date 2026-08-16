@@ -58,7 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import deletion, deletion_proof
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -281,7 +281,7 @@ async def request_erasure(
         # The subject is named by hash, never by number — and by the SAME hash the
         # subject-access export uses, so both rights for one person line up.
         object_id=record.subject_ref,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "subject_ref": record.subject_ref,
             "request_id": str(record.id),

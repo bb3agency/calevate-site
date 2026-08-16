@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.billing import service as billing
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -133,7 +133,7 @@ async def get_raw_transcript(
         tenant_id=principal.tenant_id,
         object_type="call",
         object_id=str(call_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
     return await service.get_call(session, call_id, raw=True)
 
@@ -158,7 +158,7 @@ async def get_recording(
         tenant_id=principal.tenant_id,
         object_type="call",
         object_id=str(call_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
     # Imported here, not at module scope: the presigner lives in the workers package
     # and pulling boto3 into every API import would slow cold starts for one route.
@@ -515,7 +515,7 @@ async def export_leads(
         actor=principal,
         tenant_id=principal.tenant_id,
         object_type="lead_export",
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # WHAT was taken, now that it can vary. "Exported four hot leads" and "exported
         # the entire account" were the same audit row while `agent_id` was the only
         # filter; they are the two ends of an incident and the record should tell them
@@ -657,7 +657,7 @@ async def bulk_leads(
         actor=principal,
         tenant_id=principal.tenant_id,
         object_type="lead",
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # COUNTS and SCOPE, never the id list and never a facet VALUE — the same rule the
         # export's audit row follows, for the same reason: a facet value is a client's own
         # captured data and a lead id list of 500 is not a summary. "Moved four leads I
@@ -843,7 +843,7 @@ async def call_lead(
         tenant_id=principal.tenant_id,
         object_type="lead",
         object_id=str(lead_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"agent_id": str(payload.agent_id), "has_note": bool(payload.context_note)},
     )
     result = CallLeadOut(status="queued", call_handle=handle)
@@ -1037,7 +1037,7 @@ async def call_back(
         tenant_id=principal.tenant_id,
         object_type="call",
         object_id=str(call_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"follow_up_number": plan.depth + 1},
     )
     result = CallbackOut(status="queued", call_handle=handle, follow_up_number=plan.depth + 1)

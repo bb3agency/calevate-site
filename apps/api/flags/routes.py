@@ -53,7 +53,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from apps.api.admin.service import tenant_exists
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
@@ -317,7 +317,7 @@ async def put_feature_flag(
                 tenant_id=tenant_id,
                 object_type="tenant_feature_flag",
                 object_id=flag,
-                ip=request.client.host if request.client else None,
+                ip=client_request_ip(request),
                 summary={
                     "flag": flag,
                     "enabled_before": change.before.enabled,

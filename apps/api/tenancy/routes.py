@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import current_identity, requires, tenant_of
+from apps.api.core.auth import client_request_ip, current_identity, requires, tenant_of
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -275,7 +275,7 @@ async def invite_member(
         tenant_id=principal.tenant_id,
         object_type="invitation",
         object_id=str(invitation_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
     row = (
         await session.execute(
@@ -347,7 +347,7 @@ async def revoke_invitation(
         tenant_id=principal.tenant_id,
         object_type="invitation",
         object_id=str(invitation_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
     return InvitationOut(
         id=invitation_id,
@@ -390,7 +390,7 @@ async def set_member_role(
             # resolvable after the person is removed — which is exactly the case a
             # reader asking "why did they have access?" is asking about.
             object_id=str(user_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
     name = (
         await session.execute(
@@ -428,7 +428,7 @@ async def remove_member(
         tenant_id=principal.tenant_id,
         object_type="membership",
         object_id=str(user_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
     )
     return MemberRemovedOut(
         user_id=user_id, previous_role=previous, leads_still_assigned=still_assigned
@@ -557,7 +557,7 @@ async def accept_invitation(
             tenant_id=tenant_id,
             object_type="membership",
             object_id=str(user_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
     return AcceptInviteOut(tenant_id=tenant_id, slug=str(slug), role=str(role or "owner"))
 

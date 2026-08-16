@@ -67,7 +67,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.errors import ProblemError
@@ -269,7 +269,7 @@ async def get_qa_sample(
             tenant_id=tenant_id,
             object_type="call",
             object_id=str(row.call_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
         call = await crm.get_call(scoped, row.call_id, raw=False)
     return QaSampleDetailOut(sample=_out(row, tenant_id=tenant_id, name=name, slug=slug), call=call)
@@ -313,7 +313,7 @@ async def review_qa_sample(
             # The verdict is one of three of OUR words — not prose, not caller content —
             # so it is safe in the ledger, and the entry is useless without it.
             summary={"verdict": reviewed.verdict},
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
     return _out(reviewed, tenant_id=tenant_id, name=name, slug=slug)
 

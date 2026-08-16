@@ -98,7 +98,7 @@ from apps.api.agents import publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.voices import Voice
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
@@ -456,7 +456,7 @@ async def apply(
             tenant_id=tenant_id,
             object_type="agent",
             object_id=str(agent_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             # Numbers and a boolean. A prompt body embeds client business detail
             # (hard rule 6) and never enters the audit log.
             summary={"version": result.live_version, "engine_synced": result.engine_synced},
@@ -497,7 +497,7 @@ async def undo(
             tenant_id=tenant_id,
             object_type="agent",
             object_id=str(agent_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             summary={
                 "discarded_version": result.discarded_version,
                 "version": result.live_version,
@@ -544,7 +544,7 @@ async def set_call_cap(
         tenant_id=tenant_id,
         object_type="agent",
         object_id=str(agent_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "cap_s": result.effective_call_cap_s,
             "is_platform_default": result.is_platform_default,

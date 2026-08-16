@@ -52,7 +52,7 @@ from apps.api.compliance.first_campaign import (
     record_first_campaign_decision,
 )
 from apps.api.compliance.service import first_campaign_hold_blocker
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
@@ -235,7 +235,7 @@ async def decide(
         tenant_id=tenant_id,
         object_type="first_campaign_review",
         object_id=str(tenant_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The note travels with the entry into the audit LOG STREAM (`audit_log` has no
         # summary column — the row carries the hash chain, the summary is emitted
         # alongside it keyed by entry id, BACKEND-PATTERNS §7). It is copied rather than

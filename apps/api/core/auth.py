@@ -879,14 +879,19 @@ def client_request_ip(request: Request) -> str | None:
     proxy, or a missing header. NULL in an evidentiary column is honest; the proxy's
     address in it is not, and neither is a header nobody checked.
 
-    ⚠ THIS IS NOT YET THE ONLY CALLER OF THAT DEFINITION IN `apps/api`. Eighty handlers
-    still write `ip=request.client.host if request.client else None` inline into
-    `write_audit(...)` — the same defect this function fixes, one copy per audited route
-    — so those rows still record the edge. The migration is mechanical (this call,
-    imported) and is the next thing to do here; it was left out of the change that fixed
-    this one only because it spans ~30 files that were being edited concurrently.
-    `grep -rn "request.client.host" apps/api` is the worklist, and this line is the
-    reason it will not be mistaken for a design.
+    THIS IS NOW THE ONLY CALLER OF THAT DEFINITION IN `apps/api`, and a guardrail keeps
+    it that way. Eighty handlers used to write `ip=request.client.host if request.client
+    else None` inline into `write_audit(...)` — one copy of the defect per audited route,
+    every one of them recording the edge — and this docstring carried the grep as a
+    worklist until they were swept. `scripts/check_audit_ip.py` now fails CI on any new
+    occurrence outside this function, because a worklist in a docstring is a promise and
+    a check is a guarantee: the next author to reach for `request.client` is stopped by
+    the build rather than by whether a reviewer remembered this paragraph.
+
+    The line below is the ONE legitimate read of the socket peer in this process, and it
+    is legitimate precisely because it is an ARGUMENT to the predicate rather than an
+    answer: `client_ip` decides whether that peer is a trusted proxy before believing any
+    header it sent.
     """
     return client_ip(
         request.client.host if request.client else None,

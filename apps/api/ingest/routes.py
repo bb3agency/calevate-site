@@ -28,7 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.alerting import alert
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -979,7 +979,7 @@ async def meta_redrive(
             tenant_id=principal.tenant_id,
             object_type="inbound_webhook",
             object_id=str(webhook_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
             # A COUNT, never the ids. `write_audit`'s summary reaches the log stream, a
             # `leadgen_id` is 15 digits and phone-shaped, and the redactor cannot tell one
             # from a number it is required to mask — `_record_refusal` makes the same call
@@ -1263,7 +1263,7 @@ async def create_lead_source(
         tenant_id=principal.tenant_id,
         object_type="inbound_webhook",
         object_id=str(webhook_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"source": payload.source, "agent_id": str(payload.agent_id or "")},
     )
     return LeadSourceCreatedOut(
@@ -1313,7 +1313,7 @@ async def rotate_lead_source_secret(
         tenant_id=principal.tenant_id,
         object_type="inbound_webhook",
         object_id=str(webhook_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The GRACE is the security-relevant fact: "rotated with an hour of overlap" and
         # "revoked on the spot" are different answers to an incident review.
         summary={"grace_minutes": payload.grace_minutes},
@@ -1356,7 +1356,7 @@ async def disable_lead_source(
             tenant_id=principal.tenant_id,
             object_type="inbound_webhook",
             object_id=str(webhook_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
 
 
@@ -1388,7 +1388,7 @@ async def enable_lead_source(
             tenant_id=principal.tenant_id,
             object_type="inbound_webhook",
             object_id=str(webhook_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
 
 

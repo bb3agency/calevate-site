@@ -68,7 +68,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance import whatsapp_optin
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.models import ALERT_OPTIN_OPERATOR, ALERT_OPTIN_SELF_SERVE
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
@@ -311,7 +311,7 @@ async def record(
         tenant_id=principal.tenant_id,
         object_type="whatsapp_alert_optin_ledger",
         object_id=None,
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         # The decision and the wording, never the number.
         summary={
             "status": payload.status,
@@ -409,7 +409,7 @@ async def record_for_client(
         tenant_id=tenant_id,
         object_type="whatsapp_alert_optin_ledger",
         object_id=str(owner_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "status": payload.status,
             "channel": ALERT_OPTIN_OPERATOR,

@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.campaigns import scheduling, service
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -448,7 +448,7 @@ async def declare_consent_provenance(
         tenant_id=principal.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"source": payload.source, "collected_at": payload.collected_at.isoformat()},
     )
 
@@ -519,7 +519,7 @@ async def launch(
         tenant_id=principal.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"dialable": result["dialable"], "dnc_scrubbed": result["dnc_scrubbed"]},
     )
     return LaunchOut.model_validate(result)
@@ -569,7 +569,7 @@ async def schedule(
         tenant_id=principal.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"start_at": result.start_at.isoformat()},
     )
     return ScheduleOut(start_at=result.start_at, first_dial_not_before=result.first_dial_not_before)
@@ -619,7 +619,7 @@ async def set_recurrence(
         tenant_id=principal.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={
             "days": list(result.days),
             "at_ist": payload.at,
@@ -669,7 +669,7 @@ async def unschedule(
         tenant_id=principal.tenant_id,
         object_type="campaign",
         object_id=str(campaign_id),
-        ip=request.client.host if request.client else None,
+        ip=client_request_ip(request),
         summary={"kind": stopped.kind},
     )
     return ScheduleCancelledOut(
@@ -736,7 +736,7 @@ async def pause(
             tenant_id=principal.tenant_id,
             object_type="campaign",
             object_id=str(campaign_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
 
 
@@ -782,7 +782,7 @@ async def resume(
             tenant_id=principal.tenant_id,
             object_type="campaign",
             object_id=str(campaign_id),
-            ip=request.client.host if request.client else None,
+            ip=client_request_ip(request),
         )
 
 

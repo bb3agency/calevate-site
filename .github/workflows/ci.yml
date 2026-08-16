@@ -203,6 +203,14 @@ jobs:
         # one guardrail whose whole value is that it blocks a merge.
         run: uv run python -m scripts.check_model_residency
 
+      - name: "Guardrail: audit rows record the caller, not the proxy"
+        if: ${{ !cancelled() }}
+        # SEC-COMP §5 wants "actor, tenant, at, ip". Eighty handlers read
+        # `request.client` inline, which behind the edge is nginx — the column was
+        # honest-looking and wrong on every audited route (D-131 fixed the definition,
+        # D-139 the callers). Blocks the merge that reintroduces one.
+        run: uv run python -m scripts.check_audit_ip
+
       - name: "Guardrail: env parity (fail-fast config)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity
