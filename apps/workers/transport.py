@@ -300,8 +300,8 @@ class ResendTransport:
                     "recipient_domain": recipient_domain,
                     "remediation": (
                         "Resend refused this sender: the key is wrong or revoked, or the "
-                        "sender domain is not verified. Check the key at "
-                        "admin.calevate.tech/ops and the domain in Resend."
+                        "sender domain is not verified. Check RESEND_API_KEY in this "
+                        "host's environment, and the domain in Resend."
                     ),
                 },
             )
@@ -315,7 +315,7 @@ class ResendTransport:
                     "recipient_domain": recipient_domain,
                     "remediation": (
                         "Resend did not accept the API key (absent, or scoped so narrowly "
-                        "it cannot send). Set RESEND_API_KEY at admin.calevate.tech/ops "
+                        "it cannot send). Set RESEND_API_KEY in this host's environment, "
                         "with Sending access for this domain."
                     ),
                 },
