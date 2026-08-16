@@ -5,7 +5,7 @@
  * unregistered app — and nothing in this repository ever ran `pm2 start`. There was no
  * ecosystem file, and `docs/DEPLOYMENT.md` §2 lists only `pm2 startup`, which makes pm2
  * resurrect a SAVED process list rather than create one. So a first deploy on a fresh host
- * aborted at step 9 of 11, with migrations already applied and all three containers
+ * aborted at the web step, with migrations already applied and all three containers
  * already swapped, and `runbooks/deploy-failed.md` then told the operator to start it
  * "from the ecosystem definition" — a file that did not exist.
  *

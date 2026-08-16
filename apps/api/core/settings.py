@@ -534,6 +534,31 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # verification aid, absent on every deployment that has never rotated.
         if not cfg.idempotency_scope_secret:
             missing.append("IDEMPOTENCY_SCOPE_SECRET")
+        # OBJECT STORAGE, and these two are read off `os.environ` rather than off `cfg`
+        # because that is where they actually live: botocore resolves its own credentials
+        # and nothing in this repository passes them to it (`workers/storage._client`,
+        # `infra/object-lifecycle/apply_lifecycle._client`). A check against a `Settings`
+        # field would be checking a value the SDK never sees.
+        #
+        # WHY THIS IS NOT AN "ABSENT OPTIONAL FEATURE" of the kind the Google comment
+        # above declines to report. `OBJECT_STORE_ENDPOINT`/`_BUCKET` are in the bootstrap
+        # eight, so a deployment reaching this line has already declared it HAS object
+        # storage — and without a credential every path into it fails: the recording copy
+        # (a 90-day TRAI floor on a vendor link with no documented expiry, so a failed copy
+        # is a recording that is simply gone), the raw-payload archive, the delivered-body
+        # store, recording playback, and `retention._erase_*`, where a store that will not
+        # answer is the one thing standing between an erasure and a certificate claiming a
+        # deletion that did not happen. That is the deployment being unfit to serve, which
+        # is exactly what this function reports.
+        #
+        # `AWS_SESSION_TOKEN` and `AWS_PROFILE` are deliberately absent: the first is only
+        # meaningful with STS credentials this deployment does not use, and the second
+        # names a `~/.aws` file that no container has.
+        missing.extend(
+            name
+            for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
+            if not os.environ.get(name)
+        )
     return missing
 
 

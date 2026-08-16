@@ -3,7 +3,8 @@
 
 Every key in `.env.example` must be a Settings field, every Settings field must appear
 in `.env.example` **or be managed in the ops console** — and every environment variable
-the code actually READS must be a Settings field.
+the code actually READS must be a Settings field, or be in one of the three named
+registries below with the reason it cannot be one.
 
 THE SECOND DIRECTION LEARNED A NEW SOURCE OF TRUTH (PLATFORM-CONFIG §12). Before the
 console existed, `.env.example` was the only place a key could be declared, so "in
@@ -87,6 +88,46 @@ DRILL_ENV_KEYS: dict[str, str] = {
         "scratch database and a scratch bucket, by an operator, outside every deployable; "
         "`Settings.object_store_endpoint` is the application's and is deliberately not "
         "reused, because a drill must be able to point somewhere the app cannot."
+    ),
+}
+
+# Variables a THIRD-PARTY SDK resolves for itself, which our code may only observe.
+#
+# This is a different category from both sets above and the distinction is the whole
+# justification. `DRILL_ENV_KEYS` are ours and simply out of scope; these are NOT OURS TO
+# OWN. botocore reads these exact names out of the environment on every client build, and
+# it will keep doing so whatever `Settings` says — so promoting one to a Settings field
+# does not make it fail fast, it creates a SECOND value that the SDK ignores. A validated
+# field the library never consults is strictly worse than an unvalidated one it does: the
+# guardrail would go green while the actual behaviour moved somewhere nobody is looking.
+#
+# What replaces the fail-fast property, since it genuinely cannot apply here:
+# `runtime_config_missing_keys` reports the two credentials by name at `/healthz/ready`
+# outside `local`, and `scripts/vps-deploy.sh`'s preflight refuses a `.env` without them.
+# Both check the environment, which is the thing botocore will actually read.
+#
+# NOTE ON COVERAGE: `_env_reads` only sees a literal string argument, so the two
+# credentials — read through a tuple in `workers/storage._CREDENTIAL_ENV` and a generator
+# in `core/settings.runtime_config_missing_keys` — are invisible to the scan and are
+# listed anyway. A registry that recorded only what the AST happens to catch would read,
+# to the next person, as though the others had never been considered.
+SDK_ENV_KEYS: dict[str, str] = {
+    "AWS_REGION": (
+        "botocore's own region variable, passed through explicitly by "
+        "`workers/storage._client` and `infra/object-lifecycle/apply_lifecycle._client` "
+        "so both sign the SAME bucket for the same region. Optional: it defaults to "
+        "`auto`, which is what Cloudflare R2 documents for its S3 API (DEPLOYMENT §1), "
+        "so absence is the correct state on the production store and there is nothing "
+        "for a boot gate to demand."
+    ),
+    "AWS_ACCESS_KEY_ID": (
+        "Resolved by botocore itself — nothing in this repository passes credentials to "
+        "boto3. Observed by `workers/storage._client_fingerprint`, so a rotated key "
+        "yields a new client rather than a stale one, and by "
+        "`runtime_config_missing_keys`, which is where a deployment missing it is told."
+    ),
+    "AWS_SECRET_ACCESS_KEY": (
+        "The other half of the pair above, with the same owner and the same reason."
     ),
 }
 
@@ -224,7 +265,12 @@ def evaluate(
     for key in duplicates or []:
         failures.append(f"{key.upper()} is declared twice in .env.example")
     for key, sites in sorted(reads.items()):
-        if key in INFRA_ENV_KEYS or key in DRILL_ENV_KEYS or key.lower() in settings_fields:
+        if (
+            key in INFRA_ENV_KEYS
+            or key in DRILL_ENV_KEYS
+            or key in SDK_ENV_KEYS
+            or key.lower() in settings_fields
+        ):
             continue
         failures.append(
             f"{key} is read directly from the environment ({', '.join(sorted(sites))}) "

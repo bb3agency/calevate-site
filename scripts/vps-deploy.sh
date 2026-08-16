@@ -168,6 +168,26 @@ preflight() {
   [[ "$mode" == "600" || "$mode" == "400" ]] \
     || warn ".env is mode $mode; it holds every bootstrap credential. chmod 600 it."
 
+  # The object store's credentials, checked by NAME and never by value. botocore resolves
+  # these itself — nothing in the tree passes them to boto3 — so a `.env` without them
+  # produces a platform that boots, passes every fail-fast check, reports 200 on
+  # `/healthz`, and then cannot copy a single recording: `NoCredentialsError` at the first
+  # `put_object`, three arq retries, DLQ, and a recording that TRAI says we must hold for
+  # 90 days and that the vendor's link does not promise to keep. `/healthz/ready` reports
+  # them by name too, but that is after the swap; this is before it.
+  #
+  # `grep`, not a source: this script never sources `.env` (see the mode warning above),
+  # and reading a key's PRESENCE never needs its value.
+  local credential missing_credentials=()
+  for credential in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY; do
+    grep -qE "^${credential}=." "$ROOT/.env" || missing_credentials+=("$credential")
+  done
+  (( ${#missing_credentials[@]} == 0 )) || die \
+    "the object store has no credentials in .env: ${missing_credentials[*]}.
+     They are not Settings fields — botocore reads these exact names — so nothing
+     refuses at boot and the first failure is a recording copy that lands in the DLQ.
+     See DEPLOYMENT §6 tier 1. AWS_REGION is optional and defaults to 'auto' (R2)."
+
   git -C "$ROOT" rev-parse --git-dir >/dev/null 2>&1 || die "$ROOT is not a git checkout"
   if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no)" ]]; then
     git -C "$ROOT" status --short --untracked-files=no >&2
@@ -183,7 +203,7 @@ preflight() {
 
   # --- checks that used to live in the step that needed them ---------------------
   #
-  # Every one of these was previously discovered at step 9 of 11 — i.e. AFTER migrations
+  # Every one of these was previously discovered at the step that needed it — i.e. AFTER migrations
   # had run and all three containers had been swapped — so a missing tool or a missing
   # file aborted a deploy that had already half-happened. A precondition found late is a
   # precondition that costs a rollback.
@@ -524,14 +544,20 @@ deploy_web() {
   # reproduce the reviewed lockfile exactly and FAIL if the manifest and the lock
   # disagree, which is what a tampered or drifted dependency looks like (hard rule 9).
   pnpm install --frozen-lockfile
-  pnpm -C apps/web build
+  # STATED, never inferred. `apps/web/next.config.ts` refuses to build when this is set
+  # and the browser tier's three build-time values are empty — which is the only moment
+  # anyone can catch it, because `next build` inlines `NEXT_PUBLIC_*` and an absent key
+  # compiles to "" rather than throwing. It is a flag rather than an unconditional check
+  # because CI builds this package as a COMPILE check with no environment at all, and
+  # that is a legitimate build; see the config's comment for the full argument.
+  CALEVATE_DEPLOY_BUILD=1 pnpm -C apps/web build
 
   # START IF ABSENT, RELOAD IF PRESENT.
   #
   # This was `pm2 reload` alone, which exits non-zero on an unregistered app — and nothing
   # in this repository has ever run `pm2 start`. There was no ecosystem file at all, and
   # DEPLOYMENT §2 lists only `pm2 startup`, which makes pm2 resurrect a SAVED list rather
-  # than create one. So the first deploy on a fresh host aborted here, at step 9 of 11,
+  # than create one. So the first deploy on a fresh host aborted here, at the web step,
   # with migrations already applied and all three containers already swapped — and
   # `runbooks/deploy-failed.md` then told the operator to start it "from the ecosystem
   # definition", which did not exist.

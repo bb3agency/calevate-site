@@ -216,9 +216,14 @@ scripts/vps-deploy.sh --expected-sha <sha>  # abort unless HEAD is that commit
 Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
 
 1. **Preflight, all refusals**: `.env` present (deploy scripts NEVER write secrets; abort
-   if missing, warn if not mode 600), compose file and Dockerfile present, docker compose
-   v2 present, **checkout clean** (a deploy from an edited tree ships code CI never saw),
-   ≥3GB free, and the Cloudflare IP list not older than 180 days (§5.3).
+   if missing, warn if not mode 600), the two object-store credentials present in it,
+   compose file and Dockerfile present, docker compose v2 present, **checkout clean** (a
+   deploy from an edited tree ships code CI never saw), ≥3GB free, and the Cloudflare IP
+   list not older than 180 days (§5.3). Plan-scoped: with `web` in the plan,
+   `apps/web/.env.local` and `pnpm`/`pm2` on PATH; with `nginx` in it, the five exported
+   variables `render_nginx` needs. **Every one of those five used to be discovered at
+   the web step** — after migrations had run and all three containers had been swapped —
+   so a missing file aborted a deploy that had already half-happened.
 2. `git pull --ff-only`; **abort if HEAD ≠ `--expected-sha`**. CI validates one commit and
    `main` can move before the runner starts; without this gate that race ships silently.
 3. **Resolve the component plan** from `git diff <last deployed SHA> HEAD` through the
@@ -232,16 +237,34 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
 6. **Bootstrap-env preflight, run IN the new image** (`validate_bootstrap_env` +
    `Settings()`), before any swap. In the image rather than on the host because what
    matters is what the process about to serve traffic can read.
-7. **Migrations** (`compose --profile migrate run --rm migrate`), before the swap — §4a.
-8. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
+7. **Migrations** (`compose --profile migrate run --rm migrate`), before the swap — §4a —
+   **then the seed** in the same profile. `scripts/seed.py` writes the reserved-slug list,
+   the vertical templates and the retention defaults, and until this step existed it ran
+   nowhere but `make db-reset`: production had none of them, so the first tenant could
+   claim `admin` as a slug and every tenant was created with no retention policy at all.
+   Idempotent by construction, so it runs on every deploy rather than only the first.
+8. **Redis, explicitly, before the swap loop and deliberately WITHOUT `--no-deps`.** Every
+   swap below passes that flag — correctly, so an api deploy cannot restart the queue
+   under a live call — but it was also the only way this stack was ever brought up, and
+   `--no-deps` is exactly the flag that tells compose not to walk `depends_on`. So the
+   redis container all three services declare a healthy dependency on was created by
+   nothing: the first `--all` run started workers against no queue, then swapped api,
+   whose `/healthz` pings redis and answers 503, and the deploy died **after** migrations
+   had run. `up -d` on a healthy container is a no-op, so this costs a correct deploy
+   nothing.
+9. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
    order workers → api → voice-runtime (§4b), each followed by a health wait of
    **90×2s** on `/healthz` (§10's lesson: 60s was shorter than a migrate-on-boot, which
    trains operators to ignore red deploys).
-9. **web**: `pnpm install --frozen-lockfile` + `pnpm -C apps/web build` +
-   `pm2 reload calevate-web --update-env` + health poll on :3000.
-10. **nginx**: envsubst render → placeholder check → `nginx -t` → `systemctl reload`,
+10. **web**: `pnpm install --frozen-lockfile` + `pnpm -C apps/web build` + `pm2 reload
+    calevate-web --update-env`, or `pm2 start apps/web/ecosystem.config.cjs && pm2 save`
+    when pm2 has never heard of the app — `reload` exits non-zero on an unregistered
+    process, and nothing in this repository had ever run `start`, so a first deploy on a
+    fresh host aborted here with the database already migrated and all three containers
+    already swapped. Then a health poll on :3000.
+11. **nginx**: envsubst render → placeholder check → `nginx -t` → `systemctl reload`,
     gated on `NGINX_AUTO_RELOAD=1`. Unset, it renders and prints the install commands.
-11. Post-deploy prune, record the SHA and the plan to `.deploy-state/history`, summary
+12. Post-deploy prune, record the SHA and the plan to `.deploy-state/history`, summary
     with the before/after alembic revision and the rollback command.
 
 A failed step prints a banner naming the step, the exit code and the alembic revision,
@@ -363,7 +386,7 @@ templated config), `000-default.conf` with Cloudflare Origin CA cert on
 > **STATUS (Aug 2026): the config now lives in `infra/nginx/` and has never been loaded
 > by an nginx process.** Read `infra/nginx/README.md` before this section — it is the
 > authority on what is there, where each file installs, and what has never been run.
-> `scripts/vps-deploy.sh` renders and installs it (§4 step 10). Two items of the
+> `scripts/vps-deploy.sh` renders and installs it (§4 step 11). Two items of the
 > inheritance above are deliberately NOT built and are named as gaps rather than
 > approximated: the **maintenance gate** (its single-hop `error_page 401 =503` shape is
 > hard-won and a half-remembered version fails exactly when it is needed — §10 keeps the
@@ -403,8 +426,11 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
 ## 6. Secrets (three tiers, raghava model mapped to our stack)
 
-1. **VPS `.env`** — **the bootstrap eight, and nothing else** (D-95, PLATFORM-CONFIG §4).
-   Provisioning a VPS means writing these and only these:
+1. **VPS `.env`** — **the bootstrap eight, plus the object-store credentials botocore
+   reads for itself** (D-95, PLATFORM-CONFIG §4). It used to say "and nothing else", and
+   an operator who followed that literally got a platform that boots, passes every
+   container's fail-fast check, and cannot write one recording. Provisioning a VPS means
+   writing these and only these:
 
    ```
    APP_ENV=prod
@@ -415,7 +441,24 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    PLATFORM_KEK_RETIRED=     # empty until the first rotation
    OBJECT_STORE_ENDPOINT=…
    OBJECT_STORE_BUCKET=…
+   AWS_ACCESS_KEY_ID=…        # the R2 token for the RECORDINGS bucket, not the backup one
+   AWS_SECRET_ACCESS_KEY=…
+   AWS_REGION=auto            # optional; `auto` is what R2 documents, and is the default
    ```
+
+   **The three `AWS_*` lines are env-only for a THIRD reason, and it is neither of the two
+   below**: nothing in this repository passes credentials to boto3 — botocore resolves
+   them itself, from exactly these variable names (`workers/storage._client`,
+   `infra/object-lifecycle/apply_lifecycle._client`). A value in `platform_secrets` would
+   be a value the SDK never looks at, and the second consumer is a standalone script that
+   runs with no database and could not read one anyway. They are not in `.env.example`
+   because that file is the set a process needs to BOOT and these are not — a
+   credential-less process starts perfectly well and then cannot copy a recording. What
+   catches that is `/healthz/ready`, which reports both by name outside `local`, so a host
+   missing them never goes green. `AWS_REGION` is genuinely optional: it defaults to
+   `auto`, which is what Cloudflare R2 documents for its S3 API; set it only for a store
+   that wants its own datacenter slug (a DO Spaces endpoint wants `blr1`, matching the
+   host in `OBJECT_STORE_ENDPOINT`).
 
    Everything else — Clerk keys, `BOLNA_API_KEY`, Sarvam, SMTP, Razorpay, the GST
    invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 50 of
@@ -608,7 +651,7 @@ OPERATIONS §4 alerts (email/WhatsApp) carry the load.
 + pgvector (and `max_connections = 200`, §2a) → 4. clone repo, place `.env` from the
 secrets manager, first manual deploy — **`scripts/vps-deploy.sh --dry-run --all` first,
 then `--all --no-pull`**, attended, working through §4d's six hand-first items →
-5. nginx render + certbot certonly + `000-default.conf` + origin lock (§4 step 10 renders
+5. nginx render + certbot certonly + `000-default.conf` + origin lock (§4 step 11 renders
 it; `NGINX_AUTO_RELOAD` stays unset for this first pass so the config is installed by
 hand after being read) →
 6. flip Cloudflare orange + Full (strict), verify with `dig +short` (CF IPs) and the
@@ -619,8 +662,9 @@ the one this order previously assumed away)** → 10. configure Bolna per-agent 
 source-IP allowlist (13.203.39.153 via CF real_ip, D-27/D-31) rejects a spoofed test
 delivery and accepts a real one → 11. pre-launch checklist (OPERATIONS §8).
 
-**Step 4 places the bootstrap EIGHT only (§6 tier 1); the other 50 keys are step 10a.**
-After the first deploy the platform is running and its integrations are unconfigured —
+**Step 4 places §6 tier 1 — the bootstrap eight plus the two object-store credentials;
+the other 50 keys are step 10a.** After the first deploy the platform is running and its
+integrations are unconfigured —
 each refusing by name, none pretending to work. Open `admin.calevate.tech/ops` and set
 them: engine + `BOLNA_API_KEY`, the Sarvam stack, the Clerk secrets, SMTP +
 `ALERTS_EMAIL`, `USD_INR_RATE`, and the GST invoice identity when the entity exists.
@@ -629,6 +673,28 @@ credential goes live, so a wrong key is refused at the screen rather than at the
 call. `GET /v1/ops/config` is also the pre-launch audit: it shows every key with its
 source, so "is anything still on a code default in production" is one screen rather than
 an SSH session — worth reading before ticking OPERATIONS §8.
+
+**But the ops console has a door, and step 4 is also where somebody is given a key.**
+`admin_users` is the allowlist the entire admin realm resolves against, it is
+ops-managed and never reconciled from Clerk (`core/clerk_identity.py` states that
+deliberately), and **nothing in this repository ever inserted a row** — not `seed.py`,
+not the deploy script, not any migration. So a fresh deploy came up green with an empty
+table and every admin request 403ing: no organization creatable, no platform setting
+writable, no first campaign reviewable, and no way to reach the screen the paragraph
+above sends you to. It fails closed, so this was never a security hole; it was a
+deployment with no way in. After the first `vps-deploy.sh` run, once per host:
+
+```sh
+ALEMBIC_DATABASE_URL=… uv run python -m scripts.bootstrap_admin \
+  --clerk-user-id user_… --role superadmin --name "…"
+```
+
+The id comes from the **ADMIN** Clerk application's Users page — the admin realm is a
+separate Clerk app from the client realm (TRD §11), and a client-realm id will never
+match. The script validates the shape rather than accepting it blind, because a wrong id
+here is indistinguishable from an empty table at the 403. It is idempotent and it never
+UPDATEs: promoting an existing `operator` is a privilege change and belongs to the
+console's own audited path.
 
 **Step 9 in full — `infra/backup/README.md` §8 is the ordered checklist; the shape of it:**
 create the R2 **backup** bucket + a token scoped to it alone → install wal-g (v3.0.8,

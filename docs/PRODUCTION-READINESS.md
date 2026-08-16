@@ -1590,20 +1590,56 @@ resting rule to strand it.
 All seven audits are in. **34 findings: 12 BLOCKER, 17 SERIOUS, plus the minors.** Nothing below
 is scheduling; it is dependency order.
 
-## Stage 1 — Make the deploy possible at all (nothing external)
+## Stage 1 — Make the deploy possible at all (nothing external) — **DONE**
 
-Until these are done, a deploy cannot succeed. All are small.
+Until these were done, a deploy could not succeed. All eight are closed.
 
-| # | Fix | Part |
-|---|---|---|
-| 1 | Start `redis` as a first-class step | P5.1 |
-| 2 | Commit `apps/web/ecosystem.config.cjs`; `pm2 describe \|\| pm2 start` | P5.4 / P7 |
-| 3 | Place and preflight `apps/web/.env.local`; fail the build on empty publishable keys | P5.5 / P7 |
-| 4 | Give the S3 client `region_name` + credentials; add the three vars to `.env.example`, DEPLOYMENT §6 and preflight | P5.6 / P6.11 |
-| 5 | `scripts/bootstrap_admin.py` — **without it nobody can log in to the admin realm at all** | P4.1 |
-| 6 | Run `scripts/seed.py` in the deploy's migrate step | P4.2 / P5.10 |
-| 7 | Set `transaction_per_migration=True`; correct the three documents | P5.3 |
-| 8 | Move the five nginx exports and the `pnpm`/`pm2` checks into `preflight()` | P5.9 / P5.4 |
+| # | Fix | Part | State |
+|---|---|---|---|
+| 1 | Start `redis` as a first-class step, before the swap loop and without `--no-deps` | P5.1 | done |
+| 2 | `apps/web/ecosystem.config.cjs`; `pm2 describe \|\| pm2 start` + `pm2 save` | P5.4 / P7 | done |
+| 3 | Preflight `apps/web/.env.local`; fail a DEPLOY build on empty publishable keys | P5.5 / P7 | done |
+| 4 | S3 client: explicit region, own session, cached; credentials named at readiness and in preflight | P5.6 / P6.11 | done |
+| 5 | `scripts/bootstrap_admin.py` — **without it nobody can log in to the admin realm at all** | P4.1 | done |
+| 6 | Run `scripts/seed.py` in the deploy's migrate step | P4.2 / P5.10 | done |
+| 7 | Set `transaction_per_migration=True`; correct the three documents | P5.3 | done |
+| 8 | Move the five nginx exports and the `pnpm`/`pm2` checks into `preflight()` | P5.9 / P5.4 | done |
+
+**Three of the eight were not what the finding said they were, and the corrections matter
+more than the fixes:**
+
+- **P5.6's stated mechanism was wrong.** The finding claimed botocore raises `NoRegionError`
+  at construction without `AWS_DEFAULT_REGION`. Measured: for **s3 specifically** it does
+  not — it falls back to `us-east-1` and signs with it. So this was never a crash; it was
+  every request signed under a region nobody chose, against a store (R2) that documents
+  `auto`, with `SignatureDoesNotMatch` as the symptom and the region as the last place
+  anyone would look. The credential half of the finding was real and worse: **every**
+  object-store path fails `NoCredentialsError`, including `retention._erase_*`, where a
+  store that will not answer stands between an erasure and a certificate claiming a
+  deletion that did not happen.
+- **A larger defect was in the same eight lines.** `_client()` used `boto3.client(...)`,
+  which resolves through a process-global `DEFAULT_SESSION` — the exact defect D-106
+  already found and fixed in `infra/object-lifecycle/apply_lifecycle.py`, in the copy that
+  did not get the fix. It reproduced live during the sabotage check: with the global
+  session restored, a test that had removed both credentials from the environment still
+  presigned successfully, because an earlier test's key was cached in the shared session.
+  It also rebuilt the session per call — ~90ms of botocore service-model loading, on the
+  event loop, for every recording playback, since `presigned_url` is synchronous and
+  called from an API route. Cached on a fingerprint of (endpoint, region, credentials):
+  0.17ms, and a rotated key still yields a new client.
+- **`.env.example` must NOT gain the three variables**, contrary to the fix as written.
+  That file is the set a process needs to BOOT, and `tests/env_example_bootstrap_floor_test`
+  asserts the exact eight-key list — correctly, since a credential-less process starts
+  perfectly well and only fails at the first `put_object`. They belong to DEPLOYMENT §6
+  tier 1 (the VPS `.env`), the deploy preflight, and `/healthz/ready`, which now names both
+  outside `local`. `check_env_parity` gained an `SDK_ENV_KEYS` registry for the category
+  the exemption actually is — a variable a third-party SDK resolves for itself, where a
+  `Settings` field would be a validated value the library never consults.
+
+P5.5's build gate is stated, not inferred: `CALEVATE_DEPLOY_BUILD=1`, set by
+`vps-deploy.sh` and nothing else. CI builds this package as a compile check with no
+environment at all, and that is a legitimate build — inferring the difference from what
+happens to be set is the mistake D-49 exists for.
 
 ## Stage 2 — Do not lose money or break the law on day one
 

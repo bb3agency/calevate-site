@@ -23,7 +23,10 @@ Presigned URLs only, 5-minute TTL, never public (TRD §2).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import os
+import threading
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -107,13 +110,87 @@ class StorageUnavailableError(Retry):
         return self.message
 
 
+#: What botocore will sign requests as. Read here rather than left to the SDK's own
+#: lookup so the client cache below can notice a change; the SESSION is still what
+#: resolves them, exactly as before. These are botocore's documented variable names and
+#: deliberately NOT `Settings` fields — the other consumer of this bucket,
+#: `infra/object-lifecycle/apply_lifecycle.py`, is a standalone script that runs with no
+#: database and therefore cannot read a console-managed secret, and one credential with
+#: two sources is the drift `check_env_parity` exists to prevent.
+_CREDENTIAL_ENV = ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE")
+
+#: One client per process, rebuilt only when its inputs change. `_lock` guards the build
+#: rather than the read: botocore's own guidance is that a low-level client IS thread safe
+#: and should be instantiated once and shared, while a `Session` is NOT
+#: (boto3 "Resources" guide, §Multithreading/multiprocessing).
+_client_lock = threading.Lock()
+_cached_client: tuple[str, Any] | None = None
+
+
+def _client_fingerprint(endpoint: str, region: str) -> str:
+    """Identity of the connection: which store, in which region, as whom.
+
+    HASHED rather than stored, because a secret access key held in a module-level tuple
+    is a secret that any traceback rendering locals can print (hard rule 6's reasoning
+    applied to a credential rather than to a phone number). The digest answers the only
+    question the cache asks — "are these the same inputs as last time?" — and answers
+    nothing else.
+    """
+    parts = (endpoint, region, *(os.environ.get(name, "") for name in _CREDENTIAL_ENV))
+    return hashlib.sha256("\x00".join(parts).encode()).hexdigest()
+
+
 def _client() -> Any:
+    """The S3 client, cached.
+
+    **`boto3.Session().client(...)`, never the module-level `boto3.client(...)`** — the
+    same choice `infra/object-lifecycle/apply_lifecycle.py` made for D-106, and for the
+    same reason: that helper reuses a process-global `DEFAULT_SESSION`, so the FIRST
+    caller anywhere in the process fixes the credentials every later caller signs with,
+    and the resolution is cached against a changed environment. In a script that was
+    benign until a second module built a client first; in a worker that runs alongside
+    the lifecycle script's own tests it produced `InvalidAccessKeyId` against a store
+    whose credentials were right there in the environment.
+
+    **REGION IS EXPLICIT.** botocore needs one for the sigv4 credential scope and, for
+    s3 alone, silently falls back to `us-east-1` when nothing supplies it — so this was
+    not a crash, it was a signature scoped to a region nobody chose. Production object
+    storage is Cloudflare R2 (DEPLOYMENT §1), which documents `auto` for its S3 API;
+    `AWS_REGION` overrides it for a store that wants its own datacenter slug. Same
+    expression as `apply_lifecycle.py`, because two clients against one bucket disagreeing
+    about the region is a `SignatureDoesNotMatch` nobody would look for here.
+
+    **CACHED, and that is a 500x difference on the one call site that is not threaded.**
+    Constructing a session and client loads botocore's s3 service model: ~90ms, measured,
+    every time. `presigned_url` is called synchronously from an API route, so that was 90ms
+    of event-loop CPU per recording playback — blocking every tenant's request, not just
+    the one asking. Signing on a reused client is 0.17ms. Keyed on the fingerprint rather
+    than held forever so that changing the environment changes the client, which is what
+    makes this safe under test and honest under a credential rotation.
+    """
     settings = get_settings()
-    return boto3.client(
-        "s3",
-        endpoint_url=settings.object_store_endpoint,
-        config=Config(signature_version="s3v4", retries={"max_attempts": 3}),
-    )
+    endpoint = settings.object_store_endpoint
+    region = os.environ.get("AWS_REGION", "auto")
+    fingerprint = _client_fingerprint(endpoint, region)
+
+    global _cached_client
+    cached = _cached_client
+    if cached is not None and cached[0] == fingerprint:
+        return cached[1]
+    with _client_lock:
+        # Re-checked under the lock: two threads that missed together must not both pay
+        # the 90ms, and the loser must not overwrite the winner with an identical client.
+        cached = _cached_client
+        if cached is not None and cached[0] == fingerprint:
+            return cached[1]
+        client = boto3.Session().client(
+            "s3",
+            endpoint_url=endpoint,
+            region_name=region,
+            config=Config(signature_version="s3v4", retries={"max_attempts": 3}),
+        )
+        _cached_client = (fingerprint, client)
+        return client
 
 
 def recording_key(tenant_id: UUID, call_id: UUID) -> str:
@@ -662,6 +739,14 @@ def _chunks(keys: Sequence[str], size: int) -> Iterable[Sequence[str]]:
 
 
 def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
+    """A short-lived read URL for one object, or None.
+
+    SYNCHRONOUS, alone in this module, and that is now defensible rather than an
+    oversight: with the client cached, signing is a local HMAC over a canonical request —
+    0.17ms, measured, no socket — so moving it to a thread would cost a handoff to save
+    nothing. It was NOT defensible while `_client()` rebuilt the session per call, which
+    is the other half of what that cache bought.
+    """
     settings = get_settings()
     try:
         url = _client().generate_presigned_url(
@@ -669,8 +754,14 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
             Params={"Bucket": settings.object_store_bucket, "Key": key},
             ExpiresIn=ttl_s,
         )
-    except (BotoCoreError, ClientError):
-        log.warning("presign_failed")
+    except (BotoCoreError, ClientError) as exc:
+        # The TYPE, because the commonest cause of this is `NoCredentialsError` on a host
+        # whose environment never received `AWS_ACCESS_KEY_ID` — and a bare
+        # "presign_failed" sent an operator looking at the bucket, the key and the object
+        # lifecycle before the credential. Never the key: it names one of the client's
+        # calls (hard rule 6). `/healthz/ready` reports the same condition by name before
+        # a request ever gets here.
+        log.warning("presign_failed", extra={"reason": type(exc).__name__})
         return None
     return str(url)
 

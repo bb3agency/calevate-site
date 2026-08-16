@@ -689,8 +689,43 @@ class TestEnvParity:
                 # Operator tooling that runs outside every deployable (the restore
                 # drill), each entry carrying the reason it is not application config.
                 or key in check_env_parity.DRILL_ENV_KEYS
+                # Variables a third-party SDK resolves for itself (botocore's AWS_*),
+                # which a Settings field could shadow but never replace.
+                or key in check_env_parity.SDK_ENV_KEYS
                 or key.lower() in fields
             ), key
+
+    def test_an_sdk_key_is_exempt_and_an_unregistered_one_is_not(self) -> None:
+        """The exemption must be the REGISTRY, never the `AWS_` prefix.
+
+        A pattern match would exempt every future `AWS_*` variable by accident — including
+        one somebody adds for our own configuration, which is exactly the "config that
+        never fails fast" this direction exists to catch. So the registry is a list, and
+        an unlisted sibling of a listed key still fails.
+        """
+        from calevate_shared.config import Settings
+
+        declared, _ = check_env_parity.example_keys(REPO_ROOT / ".env.example")
+        fields = set(Settings.model_fields)
+
+        exempt = check_env_parity.evaluate(
+            declared, fields, {"AWS_REGION": ["apps/workers/storage.py:1"]}
+        )
+        assert not any("AWS_REGION" in failure for failure in exempt), exempt
+
+        unregistered = check_env_parity.evaluate(
+            declared, fields, {"AWS_ENDPOINT_URL_S3": ["apps/workers/storage.py:1"]}
+        )
+        assert any(
+            "AWS_ENDPOINT_URL_S3" in failure and "never fails fast" in failure
+            for failure in unregistered
+        ), unregistered
+
+    def test_every_sdk_exemption_carries_a_reason(self) -> None:
+        """An entry with an empty reason is an exemption nobody has to justify, which is
+        how a registry turns into a wildcard one line at a time."""
+        for key, reason in check_env_parity.SDK_ENV_KEYS.items():
+            assert len(reason) > 60, f"{key}'s exemption does not say why"
 
 
 # ============================================================================

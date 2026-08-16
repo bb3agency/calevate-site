@@ -38,6 +38,21 @@ from apps.api.engine import build_engine, get_engine, missing_engine_credential_
 from calevate_shared.config import SELECTABLE_ENGINES
 
 
+@pytest.fixture(autouse=True)
+def _object_store_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Part of "every non-engine requirement satisfied", and it cannot live in
+    `_settings()` because it is not a `Settings` field.
+
+    Readiness reports `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` off `os.environ` — that
+    is where botocore reads them and where the app therefore has to look. The suite's
+    `_no_ambient_credentials` fixture strips both session-wide so local matches CI, so
+    without this every assertion in this file would carry two extra keys it is not about.
+    Declared here rather than borrowed, which is that fixture's whole rule.
+    """
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+
+
 def _publishable_key(host: str) -> str:
     """Clerk's publishable-key format: `pk_<env>_<base64(host + '$')>`.
 
