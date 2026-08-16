@@ -572,6 +572,7 @@ _SCOPE_COUNTS: Final = (
     "transcript_turns_erased",
     "call_extractions_erased",
     "leads_erased",
+    "campaign_contacts_erased",
     "recordings_destroyed",
     "recordings_within_trai_floor",
     "webhook_bodies_erased",

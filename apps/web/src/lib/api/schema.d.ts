@@ -8491,6 +8491,8 @@ export interface components {
             call_extractions_erased: number | null;
             /** Calls Erased */
             calls_erased: number | null;
+            /** Campaign Contacts Erased */
+            campaign_contacts_erased: number | null;
             /** Leads Erased */
             leads_erased: number | null;
             /** Recordings Destroyed */

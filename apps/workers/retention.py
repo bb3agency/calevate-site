@@ -960,6 +960,74 @@ async def _erase_recordings(
     return len(defer), len(destroy_now), latest
 
 
+#: The campaign contact row, erased in place. Never a DELETE, for `_LEAD_SQL`'s reason
+#: turned around: `campaign_contacts` is referenced by nothing, but a running campaign
+#: counts its own rows to decide when it is finished, and removing them mid-flight would
+#: make a campaign that has dialled 400 of 500 people report a total of 100.
+#:
+#: **`status = 'dnc_blocked'` IS THE LOAD-BEARING PART.** Anonymizing the number alone
+#: would leave the row `pending` with a live campaign behind it, and the dispatcher reads
+#: `status`, not the number — so the erasure would have been followed by a dial. That is
+#: the second consequence P3.1 names and the one that is not merely a records gap: **we
+#: would ring a person whose certificate says they were removed.** `dnc_blocked` is
+#: already the status the compliance gate's own refusal writes, so a settled campaign
+#: reports this row exactly as it reports one the DNC list stopped, and no reader needs a
+#: new state.
+#:
+#: **`dedupe_hash` IS CLEARED TOO, and it is not in the finding.** It holds
+#: `sha256(phone)[:16]` — unsalted, and Indian mobile E.164 is a ~10^9 space anyone can
+#: enumerate in seconds, so leaving it is leaving the number in a form that reverses. It
+#: is only a dedupe key within one upload, so nothing reads it after the import.
+#:
+#: `custom` is the whole of what the client pasted from their CSV beside the phone and
+#: the name — every other column, whatever it was — so it is emptied rather than
+#: inspected. We do not know what is in it, which is precisely why it cannot stay.
+_CAMPAIGN_CONTACT_ERASE_SQL = """
+UPDATE campaign_contacts
+SET phone_e164 = :anon || substr(id::text, 1, 8),
+    name = NULL,
+    custom = NULL,
+    dedupe_hash = NULL,
+    status = 'dnc_blocked',
+    next_attempt_at = NULL,
+    updated_at = now()
+WHERE {predicate}
+  AND left(phone_e164, length(:anon)) <> :anon
+"""
+
+
+async def _erase_campaign_contacts(session: AsyncSession, *, phone: str | None = None) -> int:
+    """Erase this subject's uploaded contact rows — or every one in the tenant.
+
+    ONE STATEMENT, TWO CALLERS, because the alternative is two statements that drift and
+    a certificate that is right about one erasure and wrong about the other. `phone=None`
+    is the tenant-wide arm; a number is the per-subject arm.
+
+    THE GAP THIS CLOSES (P3.1). The string `campaign_contacts` appeared in NEITHER erasure
+    path, and the table carries `phone_e164 NOT NULL`, `name`, and a `custom` JSONB
+    holding every other column the client pasted from their CSV. So a data principal who
+    exercised DPDP §12 got a certificate saying their record was removed while their
+    number, their name and their pasted details sat in a campaign list — and the row was
+    still `pending`, so the next dispatch tick would have called them.
+
+    THE ANONYMIZED PREFIX IS THE ALREADY-DONE GUARD, exactly as in `_LEAD_SQL`, and for
+    the same reason: keying on `name IS NOT NULL` would skip every row whose upload
+    carried no name, which are the rows that consist of nothing but a phone number.
+
+    The per-row `substr(id::text, 1, 8)` keeps `uq_campaign_contacts_campaign_id_phone_e164`
+    satisfiable — two erased contacts in one campaign would otherwise collide on a
+    constant and abort the whole erasure.
+    """
+    predicate = "TRUE" if phone is None else "phone_e164 = :phone"
+    params: dict[str, Any] = {"anon": ANONYMIZED_PHONE[:9]}
+    if phone is not None:
+        params["phone"] = phone
+    result = await session.execute(
+        text(_CAMPAIGN_CONTACT_ERASE_SQL.format(predicate=predicate)), params
+    )
+    return int(rowcount_of(result) or 0)
+
+
 async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """DPDP erasure for one phone number, with a proof certificate (SEC-COMP §4).
 
@@ -1091,6 +1159,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 {"ids": list(leads), "anon": ANONYMIZED_PHONE[:9]},
             )
 
+        # KEYED ON THE NUMBER, not on `calls` or `leads`, and that is the point. A
+        # campaign contact this person is on may have been uploaded and never dialled, so
+        # there is no call to find them by and no lead either — which is exactly the row
+        # that would have been dialled AFTER the certificate was issued.
+        contacts_erased = await _erase_campaign_contacts(session, phone=phone)
+
         proof = {
             "subject_hash": _hash(phone),
             "executed_at": datetime.now(UTC).isoformat(),
@@ -1143,6 +1217,14 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"{payloads_erased} archived raw engine payload(s) deleted from "
                     "object storage and their references cleared"
                 ),
+                # The count is in the sentence for the same reason the two above are:
+                # `scope` is a whitelist both the certificate renderer and the response
+                # model enumerate, so a number added there is a wire-shape change.
+                "campaign_contacts": (
+                    f"{contacts_erased} uploaded campaign contact row(s): phone "
+                    "anonymized, name, pasted columns and dedupe hash cleared, and the "
+                    "row set to dnc_blocked so no campaign can dial it"
+                ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
             },
@@ -1181,7 +1263,8 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
     return (
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
         f"bodies={bodies_erased} payloads={payloads_erased} "
-        f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor}"
+        f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor} "
+        f"campaign_contacts={contacts_erased}"
     )
 
 
@@ -1422,6 +1505,12 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         leads_erased, lead_bodies = await _erase_tenant_leads(session, tenant_id=tenant_id)
         counts["leads_erased"] = leads_erased
         counts["webhook_bodies_erased"] += lead_bodies
+        # UNPAGED, unlike the two above, and deliberately: this is ONE statement over one
+        # tenant's contact rows with no object-store round trip in it, so the row budget
+        # the paging exists to bound does not apply. `_erase_tenant_calls` pages because
+        # each page issues object deletions; `_erase_tenant_leads` pages because each page
+        # lists a prefix per lead. This touches neither.
+        counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
 
         marked = await session.execute(text(_MARK_ERASED_SQL), {"tid": tenant_id})
         if int(rowcount_of(marked) or 0) != 1:
@@ -1459,6 +1548,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 "transcript_turns": "text and text_redacted replaced",
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
+                "campaign_contacts": (
+                    f"{counts['campaign_contacts_erased']} uploaded campaign contact "
+                    "row(s): phone anonymized, name, pasted columns and dedupe hash "
+                    "cleared, and the row set to dnc_blocked so no campaign can dial it"
+                ),
                 "webhook_deliveries": (
                     f"{counts['webhook_bodies_erased']} delivered CRM payload(s) deleted "
                     "from object storage and their references cleared"
@@ -1499,7 +1593,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         f"bodies={counts['webhook_bodies_erased']} "
         f"payloads={counts['engine_payloads_erased']} "
         f"recordings={counts['recordings_destroyed']} "
-        f"floor_recordings={counts['recordings_within_trai_floor']}"
+        f"floor_recordings={counts['recordings_within_trai_floor']} "
+        f"campaign_contacts={counts['campaign_contacts_erased']}"
     )
 
 

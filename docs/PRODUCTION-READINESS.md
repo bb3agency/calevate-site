@@ -1647,7 +1647,7 @@ happens to be set is the mistake D-49 exists for.
 |---|---|---|---|
 | 9 | `charge_for_call` bills at the CLIENT rate, not our supplier cost | P1.1 | done |
 | 10 | Alert + count completed calls with no usage row | P1.2 | done |
-| 11 | `campaign_contacts` in both erasure paths, `status='dnc_blocked'`, counted in the proof | P3.1 | |
+| 11 | `campaign_contacts` in both erasure paths, `status='dnc_blocked'`, counted in the proof | P3.1 | done |
 | 12 | `spend_state.billed_inr` at the client rate; cap and client panel read it | P1.3 | done |
 | 13 | `job_completion_wait`; `max_tries` on `apply_retention` + `sweep_expired`; per-tenant isolation | P6.1 / P6.2 | |
 | 14 | `await asyncio.to_thread` on the SMTP send, outside the transaction | P6.3 | |
@@ -1684,6 +1684,37 @@ now puts the cap between them.
   takes the caller's client-side figure — list rate x minutes for a prepaid tier, the
   invoice's own `overage_cost` for a managed one — so the panel and the statement cannot
   disagree by a paisa.
+
+**P3.1 — the erasure half is closed; the retention half is external and now probed.**
+`_erase_campaign_contacts` is one statement with two callers, so the per-subject and
+tenant-wide paths cannot drift about what an erasure does to an uploaded contact list. It
+anonymizes the number per row (the unique index on `(campaign_id, phone_e164)` makes a
+constant unusable), clears `name`, clears the `custom` blob that holds every column the
+client pasted, and sets `status='dnc_blocked'`.
+
+**The status is the load-bearing part, and the finding is right that it is not a records
+gap.** The campaign dispatcher reads `status`, not the number, so anonymizing alone would
+have left the row perfectly dialable — we would have rung a person whose certificate says
+they were removed. `dnc_blocked` is the status the compliance gate's own refusal already
+writes, so a settled campaign reports the row exactly as it reports one the DNC list
+stopped and no reader needs a new state.
+
+**One thing the finding did not name: `dedupe_hash`.** It holds `sha256(phone)[:16]`,
+unsalted, over an Indian mobile E.164 space of ~10^9 — enumerable in seconds. Leaving it
+is leaving the number in a form that reverses, so it is cleared too.
+
+Both certificates carry the count: a sentence in the per-subject proof's `actions`, and a
+first-class `campaign_contacts_erased` on the tenant certificate's `scope` — the whitelist
+`_SCOPE_COUNTS` and the `extra="forbid"` response model both, because a count the worker
+records and the renderer does not name is a count nobody ever sees.
+
+**The RETENTION half stays open and is now recorded with a probe.**
+`retention_policies.data_category` is CHECK-constrained to four categories, none of which
+an uploaded contact list fits, so with no erasure request the list is kept indefinitely —
+a DPDP §8(7) storage-limitation exposure erring in the dangerous direction. The period is
+a DPA commitment to the client rather than an engineering default, so it is a third entry
+in `tests/dpdp_known_gaps_test.py`, whose probe reads the live constraint and whose
+equality assertion forces the entry's deletion on the day it is widened.
 
 P1.2's alert is on `snapshot.billable_ready and snapshot.cost is None`, which is the
 discriminator that makes it signal rather than noise: a snapshot that is not YET billable
