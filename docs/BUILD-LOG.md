@@ -3934,6 +3934,32 @@ why: nginx tries regex locations first, so a bare prefix match could be overtake
 there. Tested as a property — nothing under the other realm's prefix reaches an upstream,
 each host still serves its own, and no TLS block names both hostnames again.
 
+**The shared-state test class was swept, and the sweep became a guard.** Two more members
+turned up beyond the two already fixed. `platform_audit_test` counted `organizations`
+before and after a webhook under `admin_session` and asserted the delta was zero — any
+suite creating a tenant in between failed it, and the delta was *weaker* than the scoped
+question anyway: a phantom created while another suite deleted an org would have passed.
+`audit_chain_concurrency_test` compared a chain walk against `count(*) FROM audit_log`
+read AFTER the walk, on the one table every suite appends to — while its own sibling forty
+lines above counts first and compares with `>=`, and says why in a comment. Both are fixed
+the way the sibling already was.
+
+The suspect flagged during the Resend work, `alert_multiprocess_test`, is NOT a member:
+every Redis key and service name in it is uuid-scoped per test. Worth recording, because a
+suspicion left unresolved is indistinguishable from a defect nobody fixed.
+
+`tests/shared_state_assertion_guard_test.py` is what stops the next one. It refuses an
+unscoped whole-table count on any table no tenant policy scopes, unless registered with a
+sentence explaining why it survives a concurrent writer. A cleverer check — infer safety
+from the comparison operator, allow `>=` and `== 0` — was considered and rejected as
+decidable for today's seven sites and wrong in general: `platform_state == 1` is safe
+because of a CHECK constraint no local analysis can see, and the `platform_audit` delta
+spanned two statements with a network round trip between them. Registry-with-reasons is
+the shape `RLS_EXEMPT_TENANT_COLUMNS` already uses here, drift is checked both ways, and a
+reason shorter than a sentence fails — which caught one of the six entries while it was
+being written. Its detection was proven in five directions before it was trusted, including
+that it does not fire on its own prose, which it did on the first run.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

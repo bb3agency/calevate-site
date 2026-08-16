@@ -2032,6 +2032,33 @@ it replaced:
   changed; a regression test now pins the true invariant — the two derivations read one
   query, and that agreement is what makes the screen safe.
 
+**The shared-state test class was swept, and it had two more members.** The two found
+earlier (`outbox_backpressure_test`'s fleet-wide deltas, and a hard-rule-6 log scan matching
+a phone inside a uuid7) were not the whole set:
+
+- `platform_audit_test` counted `organizations` before and after a Clerk webhook under
+  `admin_session` — unscoped by design — and asserted the delta was zero. Any suite creating
+  a tenant in that window failed it. The delta was also WEAKER than the scoped question: a
+  run that created a phantom while another suite deleted an org would have passed. It now
+  asks whether the slug that event named became a tenant.
+- `audit_chain_concurrency_test` asserted `entries_checked == count(*) FROM audit_log` with
+  the count read AFTER the walk, on the one table every suite appends to. **Its own sibling
+  forty lines above does this correctly and explains why** — count first, compare with `>=`,
+  because the ledger only grows. Now both do.
+
+`tests/alert_multiprocess_test.py`, flagged as a suspect during the Resend work, does NOT
+belong to the class: every Redis key and service name it uses is uuid-scoped per test.
+
+**The sweep is now a guard rather than a memory.** `tests/shared_state_assertion_guard_test.py`
+refuses any unscoped whole-table count on a table no tenant policy scopes, unless it is
+registered with a sentence saying why it survives a concurrent writer — the same
+registry-with-reasons shape as `RLS_EXEMPT_TENANT_COLUMNS`, and for the same reason. A
+cleverer check that inferred safety from the comparison operator was considered and rejected:
+`platform_state == 1` is safe because of a CHECK constraint no local analysis can see, and
+the `platform_audit` delta spanned two statements with a round trip between them. Registry
+drift is checked in both directions, and a reason under 80 characters fails — which caught
+one of the six entries as it was being written.
+
 **And two of Stage 1's own fixes had never executed.** `preflight()` ran BEFORE
 `resolve_plan`, so `PLAN` was an unset array — and under `set -u`, bash 4.4+ expands
 `"${PLAN[@]}"` of an unset array to nothing rather than erroring. `in_plan web` and

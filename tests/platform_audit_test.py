@@ -273,21 +273,32 @@ async def test_an_unknown_organization_event_creates_no_phantom_row(
     """Organizations are created by OUR wizard (D-10). An upstream org event naming an
     id we have never seen must be acknowledged and dropped, not invented."""
     monkeypatch.setattr(get_settings_obj(), "clerk_webhook_secret", SECRET)
-    async with admin_session() as session:
-        before = (await session.execute(text("SELECT count(*) FROM organizations"))).scalar()
+    slug = _run_slug("phantom")
 
     body = json.dumps(
         {
             "type": "organization.created",
-            "data": {"id": f"org_{uuid.uuid4().hex[:12]}", "slug": _run_slug("phantom")},
+            "data": {"id": f"org_{uuid.uuid4().hex[:12]}", "slug": slug},
         }
     ).encode()
     response = await _post_clerk(body)
     assert response.json()["status"] == "ignored"  # type: ignore[attr-defined]
 
+    # THE SLUG THIS EVENT NAMED, not a whole-table delta.
+    #
+    # This asserted `count(*) FROM organizations` before and after, under `admin_session`
+    # — which is unscoped by design — so any suite that created a tenant in between failed
+    # it, and the failure named a property that was never violated. Worse, the delta was
+    # WEAKER than the scoped question: a run in which this event created a phantom AND
+    # another suite's org was deleted would have passed. The property is "the id in this
+    # event did not become a tenant", and the slug is what identifies it.
     async with admin_session() as session:
-        after = (await session.execute(text("SELECT count(*) FROM organizations"))).scalar()
-    assert after == before, "an upstream org id must never become a tenant"
+        phantom = (
+            await session.execute(
+                text("SELECT count(*) FROM organizations WHERE slug = :slug"), {"slug": slug}
+            )
+        ).scalar()
+    assert phantom == 0, "an upstream org id must never become a tenant"
 
 
 async def test_a_mirror_failure_is_retryable_rather_than_silently_swallowed(
