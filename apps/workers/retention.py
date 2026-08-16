@@ -546,8 +546,16 @@ WHERE id IN (
 # DERIVED COPY of the transcript that is ALSO the client's CRM — the caller's name,
 # their callback number and every extracted field. On the lead clock, so the client
 # keeps what they bought for as long as their lead policy says, and no longer.
+# `moments` is cleared with `data` and by the same predicate. A key-moment label is
+# DERIVED from the transcript and names what the caller said and when — "Caller asked not
+# to be called again", and, for a model-authored one, a sentence quoting them. Leaving it
+# behind after the extraction is emptied would be a second copy of the erased thing,
+# surviving under a column nobody thought of: the D-126 shape, on a column added later.
+# The predicate still keys on `data` alone so the sweep's batching is unchanged and a row
+# whose data is already empty is not re-visited forever.
 _EXTRACTION_SQL = """
-UPDATE call_extractions SET data = '{}'::jsonb, errors = NULL, updated_at = now()
+UPDATE call_extractions
+   SET data = '{}'::jsonb, moments = NULL, errors = NULL, updated_at = now()
 WHERE id IN (
   SELECT id FROM call_extractions WHERE updated_at < :cutoff AND data <> '{}'::jsonb
   ORDER BY updated_at LIMIT :batch)
@@ -801,13 +809,15 @@ async def _erase_engine_payloads(
     calls carries a reference the listing runs over ALL of them, so a sibling that lost its
     own reference is still destroyed.
 
-    NO CALLER WRITES THIS ARCHIVE YET (D-126): the arm is deliberately built before the
-    producer, because after the producer exists the unreachable objects already do.
+    THE PRODUCER NOW EXISTS, and this arm is no longer guarding an empty store: D-126 built
+    it BEFORE the producer because after the producer the unreachable objects already do,
+    and `pipeline._archive_engine_document` is that producer. It commits
+    `engine_payload_ref` before the PUT, which is exactly what keeps the gate above sound.
     """
     if not call_ids:
         return 0
     # The gate. `id = ANY(...)` is the primary key, so this is an index probe over the
-    # calls in hand rather than a scan for a column nothing currently writes.
+    # calls in hand rather than a scan of a column with one writer.
     archived = (
         await session.execute(
             text(
@@ -1064,8 +1074,9 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # the proof certificate would have said otherwise.
             result = await session.execute(
                 text(
-                    "UPDATE call_extractions SET data = '{}'::jsonb, errors = NULL, "
-                    "updated_at = now() WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
+                    "UPDATE call_extractions SET data = '{}'::jsonb, moments = NULL, "
+                    "errors = NULL, updated_at = now() "
+                    "WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
                 ),
                 {"ids": list(calls)},
             )
@@ -1305,8 +1316,9 @@ async def _erase_tenant_calls(
 
         result = await session.execute(
             text(
-                "UPDATE call_extractions SET data = '{}'::jsonb, errors = NULL, "
-                "updated_at = now() WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
+                "UPDATE call_extractions SET data = '{}'::jsonb, moments = NULL, "
+                "errors = NULL, updated_at = now() "
+                "WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
             ),
             {"ids": call_ids},
         )

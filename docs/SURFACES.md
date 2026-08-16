@@ -81,6 +81,12 @@ Trust surfaces (our differentiators made visible)
     `audit_log` row — "who listened to this call" is answerable.
   - Recordings are kept for at least 90 days because TRAI requires it; that floor is
     enforced in the schema, not by policy, and DPDP erasure defers rather than breaks it.
+  - **"Key points in this call"** (D-156) — timestamps computed ONCE by the post-call
+    pipeline, never per listen, so the panel costs nothing to open. Clicking one seeks the
+    player. Hidden entirely when a call has none: an always-present heading over an empty
+    box on every short call is a heading people learn to skip. Markers derived from the
+    transcript's own turn offsets are shown plainly; anything the assistant suggested is
+    badged, because one of the two cannot be at the wrong second and the other can.
 - Monthly QA report (D-15) rendered in-app, not just PDF.
 - "Why customers call" themes and knowledge-gap-driven "your agent couldn't answer
   these" list — turns T4 refusals into KB update requests.

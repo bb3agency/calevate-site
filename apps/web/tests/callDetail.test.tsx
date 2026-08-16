@@ -67,6 +67,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     extraction_valid: true,
     has_recording: false,
     disclosure_played: true,
+    moments: [],
     transcript: [
       { idx: 0, speaker: "agent", text: "Namaskaram, this is an AI assistant.", redacted: true },
       { idx: 1, speaker: "caller", text: "My number is [redacted].", redacted: true },

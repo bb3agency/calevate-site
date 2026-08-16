@@ -3824,6 +3824,8 @@ export interface components {
             id: string;
             /** Lead Id */
             lead_id?: string | null;
+            /** Moments */
+            moments: components["schemas"]["CallMomentOut"][];
             /** Outcome Tag */
             outcome_tag?: string | null;
             /** Sentiment */
@@ -3864,6 +3866,37 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "blocked";
+        };
+        /**
+         * CallMomentOut
+         * @description One jump-to point in a call's recording.
+         *
+         *     `label` follows the SAME redaction switch as the transcript on the model it hangs
+         *     off: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the
+         *     raw, so a marker can never be the one field on this screen that leaks (hard rule 5).
+         *     There is no second `label_raw` on the wire — one field whose contents depend on the
+         *     endpoint you called is the shape the transcript already established, and a second
+         *     field would be a second thing to forget to gate.
+         *
+         *     `source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker
+         *     was computed from the transcript's own turn offsets and cannot be at the wrong second;
+         *     a `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.
+         */
+        CallMomentOut: {
+            /** At Ms */
+            at_ms: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "field_captured" | "opt_out" | "highlight";
+            /** Label */
+            label: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "derived" | "model";
         };
         /** CallSummaryOut */
         CallSummaryOut: {

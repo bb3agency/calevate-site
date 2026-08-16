@@ -71,6 +71,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     extraction_valid: true,
     has_recording: true,
     disclosure_played: true,
+    moments: [],
     transcript: [
       { idx: 0, speaker: "agent", text: "Namaskaram.", redacted: true, start_ms: 0 },
       { idx: 1, speaker: "caller", text: "I need an appointment.", redacted: true, start_ms: 8000 },
@@ -236,6 +237,67 @@ describe("the recording player", () => {
     // in words instead of watching a control that never starts.
     expect(minted()).toBe(2);
     expect(screen.getByRole("alert").textContent).toMatch(/could not be reloaded/i);
+  });
+});
+
+describe("key points in the call", () => {
+  const MOMENTS = [
+    { at_ms: 8_000, kind: "field_captured", label: "Appointment slot captured", source: "derived" },
+    { at_ms: 21_000, kind: "highlight", label: "Caller asked about price", source: "model" },
+    { at_ms: 34_000, kind: "opt_out", label: "Caller asked not to be called again", source: "derived" },
+  ] satisfies CallDetail["moments"];
+
+  it("is not rendered at all when the call has none", async () => {
+    // An always-present "Key points" heading over an empty box on every short call is a
+    // heading people learn to skip — and then miss on the call that has six.
+    await renderClientPage(page, routes(detail({ moments: [] }), { [REC_PATH]: LINK }));
+    await screen.findByText("I need an appointment.");
+    expect(screen.queryByText(/key points in this call/i)).toBeNull();
+  });
+
+  it("lists each moment with its timestamp, in time order", async () => {
+    await renderClientPage(page, routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }));
+    await screen.findByText(/key points in this call/i);
+    // Scoped to the panel's own rows: "0:08" also appears on the transcript turn at that
+    // offset, which is the two halves agreeing rather than a duplicate to deduplicate.
+    const rows = screen
+      .getByText("Appointment slot captured")
+      .closest("ol")!
+      .querySelectorAll("li");
+    expect(Array.from(rows).map((li) => li.textContent)).toEqual([
+      "0:08Appointment slot captured",
+      "0:21Caller asked about priceAI",
+      "0:34Caller asked not to be called again",
+    ]);
+  });
+
+  it("marks a model-suggested moment and leaves a derived one unmarked", async () => {
+    // The provenance is the trust signal. A derived timestamp is arithmetic on the
+    // transcript's own offsets and cannot be at the wrong second; a model one is a
+    // sentence from an unmeasured model (D-36). Rendering them identically would force a
+    // reader to distrust both, which wastes the half that is exact.
+    await renderClientPage(page, routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }));
+    await screen.findByText(/key points in this call/i);
+    const badges = screen.getAllByText("AI");
+    expect(badges).toHaveLength(1);
+    expect(badges[0].closest("li")?.textContent).toContain("Caller asked about price");
+  });
+
+  it("seeks the recording when a moment is clicked", async () => {
+    const { container } = await openPlayer({}, detail({ moments: MOMENTS }));
+    fireEvent.click(screen.getByRole("button", { name: /play from 0:34/i }));
+    expect(container.querySelector("audio")?.currentTime).toBe(34);
+  });
+
+  it("is a readable list, not dead buttons, before the audio is loaded", async () => {
+    // Same rule as the transcript turns: a control that silently does nothing is worse
+    // than no control. The list still has value unopened — an owner scanning for "did
+    // they ask about price" does not always want to listen.
+    await renderClientPage(page, routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }));
+    await screen.findByText(/key points in this call/i);
+    expect(screen.queryByRole("button", { name: /play from 0:34/i })).toBeNull();
+    expect(screen.getByText("Caller asked not to be called again")).toBeTruthy();
+    expect(screen.getByText(/open the recording above to jump/i)).toBeTruthy();
   });
 });
 

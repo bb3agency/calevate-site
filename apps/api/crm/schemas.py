@@ -62,8 +62,44 @@ class CallSummaryOut(Strict):
     lead_id: UUID | None = None
 
 
+class CallMomentOut(Strict):
+    """One jump-to point in a call's recording.
+
+    `label` follows the SAME redaction switch as the transcript on the model it hangs
+    off: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the
+    raw, so a marker can never be the one field on this screen that leaks (hard rule 5).
+    There is no second `label_raw` on the wire — one field whose contents depend on the
+    endpoint you called is the shape the transcript already established, and a second
+    field would be a second thing to forget to gate.
+
+    `source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker
+    was computed from the transcript's own turn offsets and cannot be at the wrong second;
+    a `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.
+    """
+
+    at_ms: int
+    kind: Literal["field_captured", "opt_out", "highlight"]
+    label: str
+    source: Literal["derived", "model"]
+
+
 class CallDetailOut(CallSummaryOut):
     transcript: list[TranscriptTurnOut] = Field(default_factory=list)
+    #: REQUIRED, with no default, and that is deliberate rather than an oversight.
+    #:
+    #: A `default_factory` does not emit a schema `default`, so the property generates as
+    #: OPTIONAL TypeScript — the optional-on-the-wire trap this repo has now been bitten
+    #: by five times, and the reason `transcript` above is `transcript?:` in the client
+    #: while the server has never once omitted it. Declaring it required makes the
+    #: generated type say the true thing and deletes a branch the screen would otherwise
+    #: carry for a case that cannot happen. `duration_s` on `RecordingLinkOut` and the
+    #: whole of `TierSplitOut` were written the same way today; `transcript` is the older
+    #: shape and moving it is a wider change than this one.
+    #:
+    #: Empty covers BOTH "the call had none" and "nobody has looked yet" — the screen
+    #: hides the panel either way, and the distinction that matters to an operator is
+    #: NULL-versus-`[]` in the column, which is not a client's question.
+    moments: list[CallMomentOut]
     extraction: dict[str, Any] = Field(default_factory=dict)
     extraction_valid: bool = True
     has_recording: bool = False

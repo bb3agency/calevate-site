@@ -48,6 +48,7 @@ const CALL = {
   extraction_valid: true,
   has_recording: false,
   disclosure_played: true,
+  moments: [],
 };
 
 const ME: Me = {

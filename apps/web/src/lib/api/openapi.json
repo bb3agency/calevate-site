@@ -970,6 +970,13 @@
             ],
             "title": "Lead Id"
           },
+          "moments": {
+            "items": {
+              "$ref": "#/components/schemas/CallMomentOut"
+            },
+            "title": "Moments",
+            "type": "array"
+          },
           "outcome_tag": {
             "anyOf": [
               {
@@ -1031,7 +1038,8 @@
           "id",
           "agent_id",
           "direction",
-          "status"
+          "status",
+          "moments"
         ],
         "title": "CallDetailOut",
         "type": "object"
@@ -1113,6 +1121,45 @@
           "status"
         ],
         "title": "CallLeadOut",
+        "type": "object"
+      },
+      "CallMomentOut": {
+        "additionalProperties": false,
+        "description": "One jump-to point in a call's recording.\n\n`label` follows the SAME redaction switch as the transcript on the model it hangs\noff: `get_call(raw=False)` fills it from the redacted text and `raw=True` from the\nraw, so a marker can never be the one field on this screen that leaks (hard rule 5).\nThere is no second `label_raw` on the wire \u2014 one field whose contents depend on the\nendpoint you called is the shape the transcript already established, and a second\nfield would be a second thing to forget to gate.\n\n`source` is what a reader needs to know how much to trust `at_ms`. A `derived` marker\nwas computed from the transcript's own turn offsets and cannot be at the wrong second;\na `model` one is a suggestion from an unmeasured model (D-36) and the screen says so.",
+        "properties": {
+          "at_ms": {
+            "title": "At Ms",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "field_captured",
+              "opt_out",
+              "highlight"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "derived",
+              "model"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "at_ms",
+          "kind",
+          "label",
+          "source"
+        ],
+        "title": "CallMomentOut",
         "type": "object"
       },
       "CallSummaryOut": {

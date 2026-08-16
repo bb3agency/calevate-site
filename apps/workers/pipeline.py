@@ -44,7 +44,12 @@ from apps.api.agents import assignment
 from apps.api.billing.caps import CAPS_CTE, lock_tenant_spend_state, over_cap_sql
 from apps.api.billing.rates import MONEY_Q, ROUNDING, billable_tier
 from apps.api.billing.service import charge_for_call, plan_tier_of
-from apps.api.compliance.optout import DETECTED_POST_CALL, detect_opt_out, record_call_optout
+from apps.api.compliance.optout import (
+    DETECTED_POST_CALL,
+    OptOutSignal,
+    detect_opt_out,
+    record_call_optout,
+)
 from apps.api.core.alerting import (
     alert,
     record_pipeline_lag,
@@ -56,13 +61,20 @@ from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.integrations import service as integrations
 from apps.api.reliability.service import enqueue_outbox, mark_inbox_failed, mark_inbox_processed
 from apps.workers.extraction import extract_call
+from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
-from apps.workers.storage import StorageUnavailableError, copy_recording
+from apps.workers.storage import (
+    StorageUnavailableError,
+    archive_payload,
+    copy_recording,
+    payload_key,
+)
 
 log = get_logger(__name__)
 
@@ -639,6 +651,82 @@ async def _copy_recording_once(tenant_id: UUID, call_id: UUID, snapshot: Executi
     return "copied"
 
 
+async def _archive_engine_document(
+    tenant_id: UUID, call_id: UUID, execution_id: str, snapshot: ExecutionSnapshot
+) -> str:
+    """Keep the engine's OWN answer for this call. Returns what happened, for the span.
+
+    **THE PRODUCER D-126 BUILT THE ERASURE ARM FOR.** `storage.archive_payload`,
+    `calls.engine_payload_ref` and `retention._erase_engine_payloads` all shipped with
+    nothing writing an object between them, so the erasure guarded a store that could not
+    exist and TRD §5's "raw vendor payloads go to object storage refs, never into typed
+    columns" described a bucket that was always empty. This is the write that makes the
+    other three true.
+
+    **WHAT CROSSES THE BOUNDARY IS BYTES** (hard rule 2). `snapshot.raw_document` is the
+    vendor's document sealed by the adapter; this function stores it and cannot read a
+    field out of it, which is the whole point of the type. The only vendor-derived thing
+    named here is `snapshot.engine`, which is OUR name for the adapter.
+
+    **THE WRITE ORDER IS `archive_payload`'s CONTRACT, not a preference.** The reference is
+    committed FIRST and the object PUT second, because `_erase_engine_payloads` gates its
+    prefix listing on a call carrying a reference: a reference with no object costs one
+    wasted listing, while an object no reference names is a caller's number and transcript
+    that no DPDP erasure has any reason to look for. The two transactions below are in that
+    order for that reason, and swapping them re-opens D-126 one crash at a time.
+
+    **RE-WRITTEN ON EVERY RE-DRIVE, deliberately, and this is where it differs from
+    `_copy_recording_once`.** That stage guards because re-running it costs a multi-megabyte
+    fetch from a third party who can refuse; this one costs a local PUT of bytes already in
+    hand, and `payload_key` is a pure function of (tenant, call, engine, execution) so the
+    re-write lands on the same key rather than accumulating objects. A "have we already
+    archived it?" guard would buy that PUT back and cost something worth more: an archive
+    lost to one storage blip would be recorded as done forever, since the reference is
+    committed before the PUT that failed.
+
+    Never raises. The archive is a debug artifact (`archive_payload` is best-effort by
+    design), and failing a client's lead to save one would be the tail wagging the dog. A
+    refused PUT is visible in the store's own warning and in this stage's `outcome`.
+    """
+    if snapshot.raw_document is None:
+        # An adapter that carried no document. Conformant only for a listing row, so on
+        # this path it is worth an outcome an operator can see rather than a silent skip.
+        return "none_offered"
+    key = payload_key(
+        tenant_id=tenant_id, call_id=call_id, engine=snapshot.engine, execution_id=execution_id
+    )
+    async with tenant_session(tenant_id) as session:
+        recorded = rowcount_of(
+            await session.execute(
+                text(
+                    "UPDATE calls SET engine_payload_ref = :key, updated_at = now() "
+                    "WHERE id = :id AND tenant_id = :tid"
+                ),
+                {"key": key, "id": call_id, "tid": tenant_id},
+            )
+        )
+    if not recorded:
+        # NO ROW TOOK THE REFERENCE — the call is gone, or RLS put it out of this tenant's
+        # reach. Either way the index the erasure walks by does not exist, so PUTting now
+        # would create precisely the object D-126 exists to make impossible: a caller's
+        # number and transcript under a prefix no `calls` row will ever point at. The
+        # ordering contract is only a contract if the second half is CONDITIONAL on the
+        # first half having landed.
+        log.warning(
+            "engine_document_archive_unreferenced",
+            extra={"call_id": str(call_id), "engine": snapshot.engine},
+        )
+        return "call_row_absent"
+    stored = await archive_payload(
+        tenant_id=tenant_id,
+        call_id=call_id,
+        engine=snapshot.engine,
+        execution_id=execution_id,
+        document=snapshot.raw_document,
+    )
+    return "archived" if stored is not None else "put_refused"
+
+
 async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -> str:
     started = time.perf_counter()
 
@@ -647,6 +735,15 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
     # STEP 1 — recording first, always. Everything else can be recomputed.
     with span("pipeline.recording_copy", call_id=str(call_id)) as stage:
         set_span_attributes(stage, outcome=await _copy_recording_once(tenant_id, call_id, snapshot))
+
+    # STEP 1b — the vendor's own document, archived under this call's prefix (D-126).
+    # After the recording because the recording is the artefact a third party can take
+    # away from us; this one is bytes we already hold.
+    with span("pipeline.engine_document_archive", call_id=str(call_id)) as stage:
+        set_span_attributes(
+            stage,
+            outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
+        )
 
     # STEP 2 — transcript + redaction. `text_redacted` is the default view (hard rule 5).
     with span("pipeline.transcript_persist", call_id=str(call_id)) as stage:
@@ -664,8 +761,9 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
     # → `workers.optout.record_in_call_optout`), which fires while the caller is still on
     # the line; this pass runs on every completed call whether or not the model invoked
     # it. `compliance/optout.py` argues why both exist and what each one misses.
+    opt_out_signal = detect_opt_out(snapshot.transcript) if snapshot.transcript else None
     with span("pipeline.opt_out", call_id=str(call_id)) as stage:
-        outcome = await _maybe_record_opt_out(tenant_id, call_id, snapshot)
+        outcome = await _maybe_record_opt_out(tenant_id, call_id, snapshot, opt_out_signal)
         set_span_attributes(stage, outcome=outcome)
 
     # STEP 3 — extraction against the agent's schema.
@@ -690,12 +788,38 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         )
 
     if extraction is not None:
+        # STEP 3b — the key moments a client jumps to instead of replaying the call
+        # (D-156). No model call and no round trip: every input is already in hand here,
+        # so this is a string match over turns we have just persisted. It runs INSIDE the
+        # persist span rather than its own because it is arithmetic — a span per
+        # microsecond of Python is noise in a trace whose point is finding the missing
+        # minutes.
+        #
+        # The model half (`merge_moments`'s second argument) is empty until the extractor
+        # returns highlights; the merge is called anyway so the write path is the same one
+        # that will carry them, rather than a branch nobody has run.
+        moments = merge_moments(
+            derive_moments(
+                turns=snapshot.transcript,
+                extraction=extraction.data,
+                field_labels={field.key: field.label for field in spec.fields},
+                opt_out_turn_idx=opt_out_signal.turn_idx if opt_out_signal else None,
+            ),
+            [],
+        )
         with span(
             "pipeline.extraction_persist",
             call_id=str(call_id),
             field_count=len(extraction.data),
+            moment_count=len(moments),
         ):
-            await _persist_extraction(tenant_id, call_id, extraction, schema_version=schema_version)
+            await _persist_extraction(
+                tenant_id,
+                call_id,
+                extraction,
+                schema_version=schema_version,
+                moments=moments,
+            )
 
     # STEP 4 — lead upsert (+ repeat-caller flag on phone match).
     with span("pipeline.lead_upsert", call_id=str(call_id), agent_id=str(agent_id)) as stage:
@@ -885,7 +1009,12 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
     return "\n".join(lines)
 
 
-async def _maybe_record_opt_out(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
+async def _maybe_record_opt_out(
+    tenant_id: UUID,
+    call_id: UUID,
+    snapshot: ExecutionSnapshot,
+    signal: OptOutSignal | None,
+) -> str:
     """ "Don't call me again", said on this call, becomes a `dnc_list` row.
 
     Returns what happened, for the stage span: `none` (nobody asked), `recorded`, or
@@ -896,10 +1025,14 @@ async def _maybe_record_opt_out(tenant_id: UUID, call_id: UUID, snapshot: Execut
     THE PHONE IS THE OTHER PARTY, on the same rule `_upsert_lead` uses: the caller on
     inbound, the recipient on outbound. Suppressing the wrong end would put OUR OWN
     number on a tenant's do-not-call list and stop every outbound call they place.
+
+    `signal` is DETECTED BY THE CALLER, not here, because the same detection answers a
+    second question — which turn to put a "caller asked not to be called again" marker on
+    (D-156). Two `detect_opt_out` calls over one transcript could not disagree today, but
+    the suppression and the marker would then be free to drift apart on the day the
+    detector grows a parameter, and a marker pointing at a turn no suppression was made
+    for is worse than no marker.
     """
-    if not snapshot.transcript:
-        return "none"
-    signal = detect_opt_out(snapshot.transcript)
     if signal is None:
         return "none"
     subject = snapshot.from_e164 if snapshot.direction == "inbound" else snapshot.to_e164
@@ -931,6 +1064,7 @@ async def _persist_extraction(
     extraction: ExtractionOutput,
     *,
     schema_version: int,
+    moments: list[dict[str, Any]] | None = None,
 ) -> None:
     """One call has ONE extraction, however many times the pipeline runs.
 
@@ -945,18 +1079,27 @@ async def _persist_extraction(
     no longer both read "no row" and both insert. The read-modify-write this replaces
     depended on the ARQ job id (keyed on the call) to serialize them, which is a Redis
     convention rather than a database fact.
+
+    `moments` rides the same row and the same upsert (D-156). It is DERIVED from this
+    extraction and the transcript, so a re-run recomputes it and the upsert replaces it —
+    exactly the behaviour `data` needs, for the same reason. Passing None writes NULL,
+    which is "nobody has looked at this call" and is distinct from `[]`, "we looked and it
+    had none": every row written before the column existed is the former, and a caller
+    that cannot compute markers must not claim it found none.
     """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO call_extractions (id, tenant_id, call_id, schema_version, data, "
-                "model, valid, errors, created_at, updated_at) VALUES (:id, :tid, :cid, :ver, "
-                "CAST(:data AS jsonb), :model, :valid, CAST(:errors AS jsonb), now(), now()) "
+                "model, valid, errors, moments, created_at, updated_at) VALUES "
+                "(:id, :tid, :cid, :ver, CAST(:data AS jsonb), :model, :valid, "
+                "CAST(:errors AS jsonb), CAST(:moments AS jsonb), now(), now()) "
                 "ON CONFLICT (tenant_id, call_id) DO UPDATE SET "
                 "  schema_version = EXCLUDED.schema_version, "
                 "  data = EXCLUDED.data, "
                 "  valid = EXCLUDED.valid, "
                 "  errors = EXCLUDED.errors, "
+                "  moments = EXCLUDED.moments, "
                 "  updated_at = now()"
             ),
             {
@@ -968,6 +1111,7 @@ async def _persist_extraction(
                 "model": None,
                 "valid": extraction.valid,
                 "errors": _json(extraction.errors) if extraction.errors else None,
+                "moments": _json(moments) if moments is not None else None,
             },
         )
         await session.execute(
