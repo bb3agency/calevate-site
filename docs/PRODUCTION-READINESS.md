@@ -181,3 +181,307 @@ The gap between that and a live client is almost entirely **accounts, registrati
 one never-executed deploy** — not code. That is a good position to be in, and it is worth
 stating plainly so the remaining work is not mistaken for a larger engineering effort than
 it is.
+
+---
+---
+
+# The final audit — findings as numbered parts
+
+Seven parallel read-only audits were run across the whole repository before the deploy,
+one per subsystem. What follows is their output organised as **PARTS**: each part is a
+self-contained unit of work with its own findings, fixes and dependencies, so they can be
+worked through one at a time.
+
+**Status of this section:** 2 of 7 audits reported (money/billing, voice/engine). Parts
+are appended as each audit lands, so a part number is stable once written.
+
+**Severity, as the audits used it.** BLOCKER = must fix before a paying client. SERIOUS =
+fix before scale. MINOR = worth doing.
+
+**Two findings were reached independently by two different audits** (P1.2 and P2.5 are the
+same defect seen from the billing side and the engine side). That agreement is the
+strongest evidence in this document and the reason P1.2 is ranked first.
+
+---
+
+## PART 1 — Money that is wrong the day a client pays
+
+**Why first:** every item here loses real rupees on day one, none is hard to fix, and none
+of it appeared in the register above — whose closing section listed "billing and invoicing"
+among what is shipped and tested. A deploy planned off that sentence would have shipped all
+three.
+
+### P1.1 — Self-serve calls are billed at OUR supplier cost, so margin is zero by construction · BLOCKER · OURS
+
+`apps/workers/pipeline.py:1509` calls `charge_for_call(..., amount_inr=cost.total_inr)`,
+and `cost.total_inr` is what the engine charges **us** (`bolna.py:1043`, converted from USD
+cents). Meanwhile `self_serve_inr_per_min` (₹6.00, `config.py:562`) is read in exactly ONE
+place — `billing/service.py:1092` — and only to render the "about N minutes left" runway
+string.
+
+So the wallet is debited at roughly ₹2/min while the screen prices the same minute at
+₹6/min. The balance drains at a third of the advertised rate and Calevate books **₹0 gross
+margin on the entire self-serve motion**. `config.py:551` explicitly promises that the
+runway framing *and the top-up flow* price from the same source; the debit path never reads
+it.
+
+**FIX:** `charge_for_call` must take a BILLED amount, not `cost.total_inr` — derive it the
+way `usage_summary` already does (`self_serve_inr_per_min × minutes` for prepaid tiers) and
+keep `cost.total_inr` on `unit_cost_paid` and the margin query. The two numbers must stop
+being one number.
+
+### P1.2 — A completed call with an unreadable cost is silently free, and the poller calls it settled · BLOCKER · OURS (detector) / EXTERNAL premise (gate 7)
+
+**Found independently by both the billing and the engine audits**, which is why it leads.
+
+`bolna.py:1022` returns `None` when `total_cost` is absent — silently, no log. `pipeline.py:1411`
+then does `if cost is None: return 0`: no usage row, no `charge_for_call`, no `spend_state`
+increment. And `pipeline.py:1671` only expects a usage artifact `if snapshot.cost is not
+None`, so the reconciliation poller — D-31's *guarantee of record* — classifies the call
+**`settled`** and never repairs it.
+
+The blast radius is the entire billing surface, because every client-facing figure derives
+from `usage_events` and not from `calls` (`service.py:992` counts
+`COUNT(DISTINCT call_id) FROM usage_events`). `total_cost` and `cost_breakdown.*` are
+**hand-maintained claims from a vendor with no OpenAPI spec** (gate 7). If the live account
+spells that key differently: every usage panel reads 0 calls / 0 minutes / ₹0.00, every
+invoice renders empty, no spend cap ever arms, no wallet is ever debited — **and nothing
+anywhere goes red.**
+
+Refusing to fabricate a cost is right. Refusing to COUNT the refusals is not.
+
+**FIX:** (a) in `_meter`, when `snapshot.billable_ready and snapshot.cost is None`, `alert()`
+rather than `return 0`; (b) add a "completed calls with no usage row" counter to the admin
+health surface — `_pipeline_settled` already has the query shape at `pipeline.py:1739`;
+(c) add a conformance clause so an adapter claiming `billable_ready=True` must carry a cost
+or explicitly declare it cannot.
+
+### P1.3 — The client's spend cap is denominated in our supplier cost, and that cost is printed on their screen · SERIOUS · OURS
+
+`pipeline.py:1540` accumulates `spend_state.spend_used` from `cost.total_inr`;
+`billing/caps.py:191` compares the client's `cap_spend` against that column; and
+`cap_routes.py:124,144` lets the client set the cap and shows them the used figure, rendered
+at `usage/page.tsx:336`.
+
+Two defects in one column. A client who caps at ₹5,000 is stopped at ₹5,000 of **Calevate's**
+cost — roughly ₹20,000 of their own bill. And `service.py:728` states the rule in as many
+words — *"The client panel never shows `unit_cost_paid`. Our supplier pricing is
+commercially ours"* — while the panel three functions below publishes its aggregate.
+
+**FIX:** a second column (`billed_inr`) accumulated at the CLIENT's rate. Cap and client
+panel read the new one; the margin panel keeps the old one.
+
+### P1.4 — Two USD/INR rates, 8.7% apart · SERIOUS · OURS
+
+`config.py:212` defaults `usd_inr_rate` to `88.00` — the rate that converts every engine leg
+into `unit_cost_paid`. `ai_quota.py:190` bakes in *"₹95.66 to the dollar (RBI reference, 16
+Aug 2026)"*. One fact about the world, two values, same month. The 88.00 default understates
+our own cost ~8%, so the margin panel reads too healthy and — compounding P1.1 — the
+self-serve wallet is debited a further ~8% below true cost.
+
+**FIX:** one home. Best: `ai_quota.py` derives its INR price from
+`settings.usd_inr_rate × USD list price` instead of storing a pre-multiplied literal.
+
+### P1.5 — The INR branch of the cost adapter divides by 100 on a silent premise · SERIOUS · OURS to mark, EXTERNAL to settle (gate 7)
+
+`bolna.py:196` computes `cents / 100 * rate` and `bolna.py:1041` hands a stated-INR payload
+to the same function with `rate = 1`, i.e. it assumes INR arrives in **paise**. The
+docstring argues carefully about the RATE and never about the SCALE. If Bolna reports INR in
+rupees, every INR call is metered at **1/100th** of true cost. The USD-cents premise is
+marked; this one is not — the exact shape D-31/D-32 forbid.
+
+**FIX:** name the minor-unit assumption in a constant beside `_ASSUMED_CURRENCY` and add it
+to gate 7, or refuse the INR branch until the gate answers.
+
+### P1.6 — The ledger-correction path has no production entrypoint · SERIOUS · OURS
+
+`billing/service.py:1241` defines `record_tier_correction`; its only callers are in
+`tests/tts_tier_metering_test.py`. Hard rule 4 says fixes are compensating entries — so the
+compensating entry for a mis-tiered call is a 145-line function invocable from pytest and
+nowhere else. `usage_events` carries an immutability trigger, so a mis-billed call in
+production today has **no legal remedy** short of hand-written psql against an append-only
+table.
+
+**FIX:** one audited ops action, or a `scripts/` entry point in the family of
+`reconcile_credit_ledger.py`. It needs a `chars` input only a Sarvam usage export supplies —
+name that in the runbook.
+
+### P1.7 — `tts_tier_source` is written on every row and read by nothing; the register was wrong about why · SERIOUS · OURS
+
+The audit corrected this document. The earlier claim — *"the mapping from engine model name
+to rung is not confirmed"* — conflates two constants and is wrong about both:
+
+- `ENGINE_REPORTS_TTS_MODEL = False` (`rates.py:74`): there **is no engine model name**. The
+  engine reports a synthesizer leg cost only, so the rung is read from the agent's
+  configured voice via `agents/voices.py`. The mapping is not unconfirmed; it does not exist.
+- `ENGINE_TTS_MODEL_GENERATION_VERIFIED = False` (`rates.py:109`): a different question —
+  whether Sarvam's premium rung is still *called* v3 given Aug-2026 reports of a v4 at the
+  same price. **The money is unaffected**; the exposed thing is the identifier.
+
+**It can mislead an operator in one specific way.** `billable_tier` (`rates.py:168`) returns
+`("value", "unproven")` for an unrecognised voice, so an unattributable call is stamped
+`value` and lands in `minutes_value`. `tier_usage`'s docstring (`service.py:1195`) claims
+three buckets keep "we know this ran on v2" and "we never knew" apart. They do not.
+
+**FIX:** add `meta->>'tts_tier_source'` to `_tier_totals`' GROUP BY and give the panel a
+fourth cell for value-but-unproven. Correct the docstring either way.
+
+### P1.8 — Invoice will self-certify as a tax invoice while missing a mandatory particular · SERIOUS · OURS (columns) / EXTERNAL (registration)
+
+`gst.py:206` decides "may this deployment issue a TAX INVOICE" from the four
+`GST_SUPPLIER_*` env values alone, and `invoice.py:402` flips `document_type` on that
+predicate. But the recipient block (`invoice.py:411`) carries name, email, GSTIN and state —
+**no address** — and `tenancy/models.py:43` has no postal-address column at all. Rule 46(e)-(f)
+requires name **and address**. Also absent: Rule 46(p) reverse-charge statement; a real
+issue DATE (`generated_at` is the render timestamp, re-derived every GET).
+
+**FIX:** add `organizations.billing_address`, print it, and give `document_type` a
+per-document blocker list so it cannot go green on a document missing a mandatory field. The
+reverse-charge line is one literal.
+
+### P1.9 — Minor money items · MINOR · OURS
+
+- `payments.py:252` says a `Settings` field *"DOES NOT EXIST YET"*. It exists
+  (`config.py:605`). Before it existed, setting `RAZORPAY_KEY_SECRET` crashed boot on
+  `extra="forbid"`; now it configures. A stale paragraph on the money-critical module that
+  tells a reader the opposite of the truth. Delete it.
+- `apps/web/src/components/ui.tsx:474` (`formatINR`) and `usage/page.tsx:631` (`addRupees`)
+  TRUNCATE below two decimals rather than round. Safe today because every field they receive
+  is paise-rounded server-side, but `unit_inr` on an invoice line is a deliberate 4dp rate —
+  one future caller drops a fraction of a paisa on a legal document. Make them refuse or
+  round explicitly.
+- The margin panel hard-codes `"Premium (v3)"` / `"Value (v2)"`
+  (`admin/tenants/[tenantId]/page.tsx:665`) while the catalog owns those words
+  (`voices.py:150`) and `rates.py:109` says the generation is unverified.
+- `scripts/pilot/safety.py:60` imputes ~467 chars/min, the exact imputation `rates.py:142`
+  refuses to make. Low stakes (a budget line, never a ledger row) but the same premise
+  treated two ways.
+
+---
+
+## PART 2 — The ack budget and the engine boundary
+
+**Why second:** P2.1 is a measured hard-rule-3 violation on the service carrying live calls,
+and the guard written to prevent exactly it cannot see it.
+
+### P2.1 — `/healthz/ready` pulls the vendor adapter and httpx onto the live-call event loop · SERIOUS · OURS
+
+Measured, not inferred. `health.py:163` → `settings.py:479` → `engine/__init__.py:108` →
+`build_engine` → `from apps.api.engine.bolna import BolnaEngine`. voice-runtime builds with
+`minimal=True` but `bootstrap.py:363` installs the health router anyway, and
+`infra/nginx/calevate.conf.template:161` proxies `^~ /healthz/` on the `hooks.` vhost — so
+the route is **publicly reachable**.
+
+Booting voice-runtime exactly as uvicorn does, then making one `/healthz/ready` call:
+
+```
+httpx at boot: False    engine at boot: False
+AFTER readiness call: ['apps.api.engine', 'apps.api.engine.bolna',
+                       'apps.api.engine.capabilities', 'apps.api.engine.document', 'httpx']
+```
+
+With `ENGINE=fake` it pulls `apps.api.billing` instead. Every one of those is in the
+receiver's own `FORBIDDEN` list. The import costs **381 / 435 / 394 ms** in three fresh
+interpreters — against a **500 ms** ack budget, synchronously, on the event loop, on the
+service whose vendor delivers at most once with no retry.
+
+The guard misses it because `_boot_modules()` measures `sys.modules` after importing `main`
+only, and `_drive()` exercises the hook and tool routes and never `/healthz/ready`.
+
+Secondary: voice-runtime reports itself **not ready** for `BOLNA_API_KEY`, a credential it
+never uses — it makes no outbound call at all.
+
+**FIX:** inject a per-service `config_probe` into `build_health_router` (the way `detail_gate`
+already is), or move `credential_env_keys` to a module-level table beside
+`WEBHOOK_AUTH_BY_ENGINE` so readiness can name a key without constructing an adapter. Then
+add `/healthz/ready` to `_drive()` so the clause actually covers it.
+
+### P2.2 — A raw `JSONDecodeError` escapes the Bolna adapter on a non-JSON 2xx · SERIOUS · OURS
+
+`bolna.py:650` calls `response.json()` unguarded. The `>=400` branch raises first, so the
+exposure is a **2xx with a non-JSON body** — a WAF challenge, a proxy interstitial, a CDN
+maintenance page. `JSONDecodeError` is a `ValueError`: not a `ProblemError`, not an
+`httpx.HTTPError`, caught by nothing. It reaches `create_agent` as a raw 500 with no code and
+no remediation; it makes `verify_publish`'s *"never raises for a vendor-side failure"*
+docstring false; and it DLQs the post-call pipeline and the reconciliation poller.
+
+**This repo already solved this twice.** `payments.py:656` catches `ValueError` and
+`tests/payment_order_test.py:503` pins it by name. `cartesia.py:372` has the guard. The
+adapter actually going to production is the one that missed it.
+
+**FIX:** wrap in `try/except ValueError` → the existing `engine_bad_response` ProblemError.
+Add a conformance clause parametrised over all three adapters.
+
+### P2.3 — `_next_link` raises `httpx.InvalidURL` out of the poller, contradicting its own docstring · SERIOUS · OURS
+
+`bolna.py:1207` constructs `httpx.URL(candidate)` on a vendor-supplied string, unguarded.
+Verified against the installed httpx: `httpx.URL("http://a​.com")` raises `InvalidURL`,
+whose MRO does **not** include `httpx.HTTPError` — so `_request`'s handler would not catch it
+even if it were inside one, and it is not. The docstring three lines above promises the
+opposite: *"anything else is dropped — dropping degrades to `explicit_more`, which is loud"*.
+
+`list_executions`' only caller is `reconcile_executions`, which under D-31 **is the guarantee
+of record**. An exception there retries three times and DLQs, and every execution whose
+webhook was lost stops being recoverable until somebody reads the DLQ.
+
+**FIX:** catch `httpx.InvalidURL` → log + `continue`, landing on `explicit_more` exactly as
+promised. Add the case beside the existing off-origin test.
+
+### P2.4 — Cartesia is selectable at runtime and is not safe to select · SERIOUS · OURS to record / EXTERNAL to close
+
+The register listed ONE inferred Cartesia route. Counting what the adapter actually calls:
+**read at source: zero** (the one sourced route is never called), **reported: one**,
+**INFERRED: ten** — create/update/get/delete agent, end call, get/list executions, and three
+document CRUD siblings — plus an unverified status enum and transcript shape.
+
+Three things make it unsafe today, at once: every webhook is refused (`cartesia.py:818` fails
+closed, and the receiver independently refuses `hmac`), so 100% of calls depend on an
+INFERRED poller path; `_cost` returns `None` forever, so **no usage_event is ever written for
+any call** and nothing says so (P1.2); and `billable_ready` is equated to `terminal` on an
+unsourced premise. It also has **no throttle ladder at all**, so a 429 becomes a
+non-retryable `engine_rejected` — the exact harm the Bolna adapter documents avoiding.
+
+And it IS selectable: `EngineName` includes it, migration `d7b1c48a2e93` widened the CHECK,
+and `engine` is console-editable at runtime, whose `AppliesRule` warns only about stale refs
+and webhook URLs.
+
+**FIX:** expand the register's row to the ten routes plus the two permanent gaps. Extend the
+`AppliesRule` text. Consider refusing `engine=cartesia` in config validation until signature
+verification and cost reading exist.
+
+### P2.5 — Half the `VoiceEngine` contract has no production caller, including a model CLAUDE.md names · SERIOUS (as a hard-rule documentation defect) · OURS
+
+`parse_webhook`, `verify_webhook`, `transfer` and `end_call` have **no production caller**
+(pilot scripts and conformance only; `transfer` has none anywhere). And `CallEvent` — which
+**hard rule 2 names as one of the two normalized models everything else consumes** — has
+exactly one hit across `apps/`, a comment. Nothing constructs or reads one.
+
+This is defensible design and undefended prose: D-31 makes the webhook payload a hint the
+receiver discards and the authenticated `get_execution` the truth, so the real isolation
+boundary is `ExecutionSnapshot`, not `parse_webhook` — which `engine.py:1027` still calls
+*"The isolation boundary"*.
+
+**FIX:** state the standing at each Protocol member, or delete `transfer` and its capability
+field until an escalation surface needs it. Correct hard rule 2's wording in CLAUDE.md and
+docs/AGENTS.md: the models production consumes are `ExecutionSnapshot` and `TranscriptTurn`.
+
+### P2.6 — Contract and guard drift · MINOR · OURS
+
+- `fake.py:479` fabricates a snapshot for an unknown execution id while its own comment says
+  it matches the real thing; `bolna.py:1066` 404s. Two adapters disagree and there is **no
+  conformance clause** for `get_execution` on an unknown id, though there are explicit ones
+  for `get_agent` and `detach_kb`. This is verbatim the divergence `EngineCapabilities` exists
+  to prevent.
+- `engine_availability()`, `engine_not_configured()` and `provisionable_series()`
+  (`capabilities.py`) are exported, documented as *"the ONE deployment-side refusal, so every
+  surface says it the same way"* — and have **no callers**. The three adapters hand-roll the
+  same error code instead. `provisionable_series`' docstring claims the campaign gate matches
+  on the series; the gate matches on OUR `phone_numbers.series`.
+- `engine_intake.py:119` looks the auth METHOD up by engine and then uses Bolna's IP allowlist
+  for any engine declaring `source_ip` — inert today, and precisely the hazard the same file
+  flags one branch below for `hmac`.
+- `tests/engine_audit_test.py:1005` bans two adapters out of three; `cartesia` is missing. The
+  property is covered by a prefix rule elsewhere, which makes this a duplicated check whose
+  weaker copy fell behind — the drift class D-103 exists for.
+
+---
