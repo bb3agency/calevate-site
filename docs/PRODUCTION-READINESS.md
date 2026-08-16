@@ -485,3 +485,171 @@ docs/AGENTS.md: the models production consumes are `ExecutionSnapshot` and `Tran
   weaker copy fell behind — the drift class D-103 exists for.
 
 ---
+
+## PART 3 — Indian telecom and privacy law as enforced code
+
+**Why third:** P3.1 is the only finding in this whole audit where the product does something
+to a real person that a certificate says it did not do.
+
+**Status of the section's four core questions**, answered structurally rather than by
+inspection (the auditor ran the AST half of `check_compliance_invariants.py` directly):
+
+- **Can anything dial outside 09:00–21:00 IST? No.** Exactly four dial sites exist, all four
+  pass `check_dispatch` → `within_calling_hours`. Retries re-enter through the same path
+  (`campaign_dispatch.py:962`), scheduled campaigns dial nothing themselves, and per-campaign
+  windows can only NARROW and are re-asked per contact.
+- **Does an in-call opt-out propagate before the next tick? Not provably** — see P3.4.
+- **Is every claim on the erasure certificate true? Yes** — but a whole store of personal data
+  is neither erased nor admitted (P3.1).
+- **Does the audit chain detect tampering? Yes, except tail truncation** (P3.7).
+
+### P3.1 — `campaign_contacts` is unreachable by BOTH erasures, has NO retention clock, and neither certificate admits it · BLOCKER · OURS
+
+`campaign_contacts` carries `phone_e164 NOT NULL`, `name`, and `custom JSONB` holding **every
+other column the client pasted from their CSV** (`campaigns/models.py:118`, written at
+`campaigns/service.py:610`). The string `campaign_contacts` appears in **none** of
+`workers/retention.py`, `compliance/deletion.py`, `compliance/tenant_erasure.py`,
+`compliance/deletion_proof.py`.
+
+Three consequences, each independently serious:
+
+1. **The per-subject DPDP §12 erasure misses it.** `execute_deletion_request` locates the
+   subject through `calls` and `leads` only (`retention.py:990`). Their number, name and
+   pasted columns survive intact.
+2. **The subject stays DIALABLE after being certified erased.** The contact row is still
+   `status='pending'` with a live number, and the erasure adds no DNC entry — there is no
+   `add_to_dnc` anywhere in `retention.py` — so `check_dispatch` permits the dial. **We ring a
+   person whose certificate says they were removed.**
+3. **Both certificates claim exhaustive enumeration and are not.**
+   `TENANT_ERASURE_LIMITATIONS` lists seven exceptions, the per-subject register eight, the
+   proof `actions` map ten stores — and none names this one. SEC-COMP §4 says explicitly that
+   what erasure does not reach "is enumerated in the certificate rather than left to
+   inference".
+
+Separately **no clock reaches it**: `retention_policies.data_category` is CHECK-constrained to
+`('recording','transcript','lead','consent_log')` (`05bba2f3c19c`), so an uploaded contact
+list is kept **indefinitely, with full phone numbers** — a DPDP §8(7) storage-limitation
+exposure that is undisclosed. And nothing is watching: `tests/dpdp_known_gaps_test.py:31`
+holds exactly two entries and asserts equality.
+
+**FIX (one change, three parts):** (a) add `campaign_contacts` to both erasure paths —
+anonymize `phone_e164`, NULL `name` and `custom`, set `status='dnc_blocked'` so a running
+campaign settles rather than dials; (b) add the count to `proof.actions` in both paths;
+(c) if the founder decides erasure should not touch a client's own contact list, it becomes a
+`*_LIMITATIONS` entry with an authority line **plus** a `dpdp_known_gaps_test` entry — never
+silence. The retention half (a `campaign_contact` category) is a documented-enum change and a
+DPA commitment: **EXTERNAL**, same shape as the KB reservation.
+
+### P3.2 — The number that decides whether a call is lawful has no authority, and the document it cites says the opposite · SERIOUS · OURS (citation) / EXTERNAL (the value)
+
+`DEFAULT_WINDOW = (time(9,0), time(21,0))` (`compliance/service.py:75`) is sourced as
+"SEC-COMP §2.5", and `campaigns/service.py:352` tells the client in a 422 body that *"That
+window is the law (TRAI)"*. SEC-COMP §2.5 is one line — *"Calling hours: campaign engine
+enforces permitted windows; **per-tenant timezone**"* — containing neither `09:00` nor `21:00`
+nor a TRAI provision, and asking for per-tenant timezone resolution that
+`compliance/service.py:30` explicitly refuses. Two contradictions in one citation, on the
+constant with the widest blast radius on the platform.
+
+`compliance/optout.py:11` is the standard this repo set — it cites TCCCPR 2018 Reg. 6/17, the
+12 Feb 2025 Second Amendment and PIB PRID 2102413 by name, and records which gazette PDFs
+were unreachable. The calling window does not meet it.
+
+**FIX:** put a citation of that form beside `DEFAULT_WINDOW`; correct SEC-COMP §2.5 to state
+the window and drop "per-tenant timezone" (or say why the code departs); note that TCCCPR
+time bands are subscriber-preference-scoped and the NCPR is not obtainable to us, so
+09:00–21:00 is the conservative outer bound rather than a per-subscriber answer.
+
+### P3.3 — Nothing records that the AI disclosure was actually spoken, and the read-back that claims to verify it cannot see the field that speaks · SERIOUS · OURS
+
+Three layers, and the top two do not connect:
+
+- The disclosure reaches the vendor twice — prepended to the system prompt AND as the greeting
+  field (`bolna.py:675` `agent_welcome_message`, `cartesia.py:408` `introduction`). Only the
+  greeting makes it the deterministic FIRST utterance.
+- `judge()` computes `disclosure_applied` from `snapshot.carries_prompt_marker(...)`
+  (`agents/verification.py:141`) against `AgentSnapshot.system_prompt` — and `AgentSnapshot`
+  has **no greeting field at all** (`engine.py:498`). So `disclosure_applied=True` is true by
+  construction of our own prepend and proves nothing about the field that actually speaks.
+  OPERATIONS §7 escalates `disclosure_applied: false` as *"the one property here with a legal
+  consequence"* — an incident signal wired to the wrong half.
+- `calls.disclosure_played` (`crm/models.py:85`) is **written by nothing in the repository**.
+  It is rendered on the client call detail and on the weekly QA compliance-review queue
+  (`quality/sampling.py:203`), where a reviewer working OPERATIONS §5's "disclosure spoken"
+  scenario sees a permanently null field where the evidence belongs.
+
+The only real control is a one-off manual pre-launch check. IT Act / Sanjay Pandey exposure
+(SEC-COMP §1) rests on it.
+
+**FIX:** (a) add `greeting` to `AgentSnapshot` with a `_readable` flag in the shape the other
+two use, populate from both adapters, and split the verdict into prompt-carried vs
+greeting-carried — an unreadable greeting reports `None`, never `True`; (b) either write
+`disclosure_played` from the post-call transcript pass (the same deterministic match
+`detect_opt_out` already does over turns) or drop the column from both response models. A
+compliance field that is structurally always null is worse than an absent one.
+
+### P3.4 — Hard rule 5's "before the next dispatch tick" is false of the in-call tool path · MINOR · OURS (wording) / EXTERNAL (gate 8)
+
+For a DNC row that EXISTS, propagation is ≤1 tick — the gate's read is live SQL with no cache.
+But detection→row is unbounded: `tool_routes.py:162` only enqueues, and `workers/optout.py:86`
+then makes a vendor `get_execution` round trip before any write, with a 30s/120s retry ladder.
+SEC-COMP §2.3 states this correctly ("target ≤ minutes"); CLAUDE.md hard rule 5 does not.
+
+Second, unmarked: `optout.py:115` reads `from_e164`/`to_e164` from an execution **still in
+progress**. Whether Bolna populates those mid-call is recorded nowhere. The failure is loud
+(`in_call_optout_unattributable`) but D-31/D-32 doctrine says a vendor behaviour is a gate or
+a marked assumption, never a silent premise.
+
+**FIX:** reword the hard rule to what is enforced ("a DNC addition is honoured by the next
+dispatch tick"), and add "does `get_execution` carry both numbers for an in-progress
+execution?" to gate 8 as item (c).
+
+### P3.5 — Backups and the recording-floor authority · SERIOUS · EXTERNAL, and correctly registered already
+
+Both are real, both held open by an equality assertion in `tests/dpdp_known_gaps_test.py:31`,
+both name who closes them, and SEC-COMP §4 reserves both in writing. The auditor checked
+whether the register had gone stale — it has not. **No action.** Recorded only because P3.1 is
+a third gap of exactly this class that *should* be in that file and is not.
+
+### P3.6 — Two bounded edges on the dial gate · MINOR · OURS
+
+- `within_calling_hours` uses `start <= current <= end` (`compliance/service.py:124`), so
+  `21:00:00.000–.999` is dialable. One second, and a `<` away.
+- `check_dispatch`'s big-red-switch read goes through a 5s memo over a 15s Redis cache, so it
+  can be up to 20s stale — `loadshed.py` states and defends that bound, but
+  `campaign_dispatch.py:645`'s comment ("stops a batch mid-flight because `check_dispatch`
+  re-reads it per contact") reads stronger than it is. One-line correction.
+
+### P3.7 — The audit chain cannot detect tail truncation, and the summary is outside the hash · MINOR · OURS
+
+`verify_chain` walks forward from GENESIS and re-anchors per row, so a deleted MIDDLE range is
+caught as `link` — but deleting the NEWEST n entries leaves a chain that verifies end-to-end
+with zero breaks, because the head "lives nowhere else" and there is no external anchor.
+
+The DB-layer mitigation is strong (migration `a2e9f31c605d` adds `BEFORE TRUNCATE ... FOR EACH
+STATEMENT` triggers, `ENABLE ALWAYS` so `session_replication_role = replica` cannot bypass
+them, and `calevate_app` holds no TRUNCATE grant), so this is defence-in-depth rather than a
+live hole. But `ChainVerification`'s own design principle is that "the scope is part of the
+answer", and its verdict cannot say this. Also: `write_audit`'s `summary` is deliberately not
+in the hashed payload, so the chain attests actor/action/object and never the detail — worth a
+sentence so nobody reads `ok=True` as "the summaries are intact".
+
+**FIX:** record `entries_checked` + `newest_checked_at` from each run into a durable ops row,
+so a later walk can assert the log only grew. One table, one comparison, and it turns the
+strongest remaining attack on the ledger into a detectable one.
+
+### Checked and clean (compliance)
+
+No gate bypass parameter, no environment read on any gate-bearing function, no test hook —
+`gate_bypasses()` and `stale_exemptions()` both clean across `apps/`, `packages/`, `scripts/`.
+`check_dispatch` fails closed on a missing org row and derives refusing consent statuses by
+SUBTRACTION from `CONSENT_STATUSES`, so a new status blocks by default. Phone normalization is
+ONE function used by every DNC writer and reader alike, so the exact-string match cannot miss.
+DLT/PE-TM, template, series and national-DND gates are re-asked every tick, and `add_contacts`
+refuses non-draft campaigns, which closes the "scrub 3, add 5000" hole. CSV export is
+`calls:read_raw` + audited with column keys but never values. Webhook phone masking happens at
+the fan-out per endpoint, so a producer passing the domain row cannot leak. `redact_mapping`
+fails closed on TYPE — Pydantic models render as `<ClassName>`, sequences as a count — and
+exception messages are withheld rather than masked. OTel is redacted at the exporter, Sentry
+has both `scrub_event` and `scrub_breadcrumb`. All three compliance jobs are registered.
+
+---
