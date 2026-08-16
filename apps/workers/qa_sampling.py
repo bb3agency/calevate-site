@@ -48,6 +48,7 @@ from sqlalchemy import text
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.quality.sampling import draw_week_sample, ist_week_start
 
@@ -112,7 +113,10 @@ async def draw_qa_samples(ctx: dict[str, Any]) -> str:
     Counts only in the log and in the return value — no call id, no phone number, no
     transcript (hard rule 6).
     """
-    del ctx
+    # `ctx` IS read now — `job_try` bounds the retry ladder at the bottom of this
+    # function (P6.5). It used to be discarded on the first line, which is how the
+    # unbounded `Retry` went unnoticed: nothing in the body could see which attempt it was.
+    attempt = int(ctx.get("job_try", 1) or 1)
     weeks = closed_weeks(datetime.now(UTC))
     async with admin_session() as directory:
         rows = (await directory.execute(text(_DIRECTORY))).all()
@@ -130,7 +134,25 @@ async def draw_qa_samples(ctx: dict[str, Any]) -> str:
         # Everybody failed: that is a database or a deploy, not a tenant. Ask for the
         # retry ladder — `WorkerSettings.retry_jobs` only honours `Retry`, so a plain
         # raise here would be a single silent attempt.
-        raise Retry(defer=300)
+        #
+        # BOUNDED, and it was not (P6.5). This raised `Retry` unconditionally, and arq does
+        # not honour it on the final attempt: the job finishes with `JobExecutionFailed`
+        # and a `logger.warning` that nothing reads. The per-tenant alert above HAD already
+        # fired, which is why this job was closer to correct than its two siblings — but
+        # "some tenants failed" and "the whole weekly draw was abandoned" are different
+        # incidents and only the first of them was ever reported.
+        if attempt < WORKER_MAX_TRIES:
+            raise Retry(defer=300)
+        alert(
+            "WORKER_TERMINAL",
+            "qa_sample_draw_abandoned",
+            detail=(
+                f"the weekly draw failed for all {len(tenant_ids)} tenant(s) after "
+                f"{attempt} attempt(s); this week's 5% sample is undrawn and the next "
+                "tick is seven days away"
+            ),
+        )
+        raise RuntimeError(f"qa sample draw abandoned after {attempt} attempt(s)")
     return json.dumps(totals)
 
 

@@ -103,7 +103,17 @@ def test_the_drain_window_fits_inside_the_grace_docker_gives_it() -> None:
 #: "gone until tomorrow". `apply_retention` and `sweep_expired` are the legal obligation;
 #: `report_stalled_pipeline` self-heals in 30 minutes but is the ALARM, and an alarm that
 #: gives up on its first transient error is silent for exactly as long as the incident.
-_CRONS_NEEDING_A_LADDER = ("apply_retention", "sweep_expired", "report_stalled_pipeline")
+#: `report_overdue_erasures` (P6.5) is the sharpest of the four: the condition it watches
+#: CANNOT self-heal at all — `execute_deletion_request` is enqueued once, in the request's
+#: own transaction, with no poller behind it — so a tick lost to a transient database
+#: error is a DPDP §12 request that stays invisible until the next hour, or forever if
+#: every tick loses the same way.
+_CRONS_NEEDING_A_LADDER = (
+    "apply_retention",
+    "sweep_expired",
+    "report_stalled_pipeline",
+    "report_overdue_erasures",
+)
 
 
 def test_every_cron_that_cannot_self_heal_carries_its_own_retry_ladder() -> None:

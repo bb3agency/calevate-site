@@ -11,6 +11,7 @@ coordination: whoever wins the row publishes it, everyone else moves on.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -21,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.reliability.service import (
     claim_outbox_batch,
     defer_outbox_claim,
@@ -249,4 +250,129 @@ async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
     return f"stalled={total} unreached={unreached}"
 
 
-__all__ = ["dispatch_outbox", "report_stalled_pipeline", "sweep_expired"]
+#: How long a filed erasure may stay open before it is a machinery failure rather than a
+#: queue that is busy.
+#:
+#: **DERIVED, and it is NOT a legal deadline** — `docs/SECURITY-COMPLIANCE.md` §4 states no
+#: hour or day figure for DPDP §12, and inventing one here would put a commitment in a
+#: constant that nobody made. What this number is: the outer bound of every mechanism on
+#: the path. The request row and its outbox job are written in ONE transaction
+#: (`compliance/deletion.request_erasure`), `dispatch_outbox` runs every 10 seconds, and
+#: the worker's ladder is `WORKER_MAX_TRIES` attempts with a defer measured in tens of
+#: seconds. An hour is therefore two orders of magnitude past any healthy path: a request
+#: still open at it did not fail slowly, it never ran.
+ERASURE_OVERDUE_AFTER = timedelta(hours=1)
+
+#: Open erasure requests past the bound, for ONE tenant. Counts only — never the number,
+#: never `subject_ref`, which is a hash of the number and is exactly what an alert body
+#: must not carry (hard rule 6, and `deletion.py` argues it at length about the status
+#: page).
+_OVERDUE_ERASURES = """
+SELECT count(*) FROM deletion_requests
+WHERE completed_at IS NULL AND requested_at < :cutoff
+"""
+
+#: Every organization, and NOT `_callable_tenants()`.
+#:
+#: Reusing the stall probe's tenant list was the obvious move and it is wrong twice over.
+#: That list is `SELECT DISTINCT tenant_id FROM engine_agent_routes` — tenants with a
+#: PUBLISHED AGENT. A client can file a DPDP §12 request having never published one, and a
+#: churned client's routes are torn down by `tenant_erasure` while their subjects' requests
+#: stay open. So the tenants most likely to be holding a forgotten erasure are precisely
+#: the ones that set excludes, and the alarm would have been blind exactly where it matters.
+#:
+#: NO `deleted_at IS NULL` either, which is where this departs from `qa_sampling._DIRECTORY`
+#: rather than copying it: sampling a soft-deleted tenant's calls would be work for nobody,
+#: but an erasure filed against a tenant that was later soft-deleted is the one with the
+#: least chance of anybody noticing it by hand.
+_ERASURE_DIRECTORY = "SELECT id FROM organizations ORDER BY id"
+
+
+async def _all_tenants() -> list[UUID]:
+    """Tenant ids for the erasure probe. `ORDER BY` for `_callable_tenants`' reason.
+
+    `admin_session`, and NOT `untenanted_session` — which is what this was first written
+    with, and it returned zero tenants on a real database every time. `organizations`
+    carries its own FORCEd policy matching on `id`, so a session with no GUC set sees no
+    clients at all: the alarm would have swept an empty fleet and reported a healthy one
+    forever. Exactly the fail-closed-into-silence shape `report_stalled_pipeline` was
+    fixed for, arrived at from the other direction.
+
+    `app.admin` widens `USING` on `organizations` and NOTHING else (migration
+    `b57e2f9c4a13`) — the per-tenant probe below still enters each client through a
+    normal `tenant_session`, so hard rule 1 holds: this reads the directory, not the
+    data. Same pairing `qa_sampling` and `campaign_dispatch` already use, followed rather
+    than re-invented.
+    """
+    async with admin_session() as session:
+        rows = (await session.execute(text(_ERASURE_DIRECTORY))).scalars().all()
+    return [UUID(str(row)) for row in rows]
+
+
+async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
+    """A DPDP erasure that was filed and never executed, surfaced (P6.5).
+
+    **NOTHING WATCHED THIS.** `deletion_requests` rows sat `completed_at IS NULL` forever:
+    no cron, no alert, no ops query. `report_stalled_pipeline` exists for calls, whose
+    worst case is a lead a client did not see; the equivalent for the one workflow with a
+    STATUTORY right behind it did not. A data principal exercised DPDP §12, the row was
+    written, the job was lost to a deploy or a dead worker, and the only signal was a
+    status page nobody was watching returning `pending` indefinitely.
+
+    It cannot self-heal, and that is why it needs an alarm rather than a retry: the job is
+    enqueued once, in the request's own transaction, and `execute_deletion_request` has no
+    poller behind it the way the post-call pipeline has `reconcile_executions`. Once its
+    ladder is spent the request is simply open forever.
+
+    Same cross-tenant shape as `report_stalled_pipeline` — `deletion_requests` is
+    FORCE-RLS'd, so an untenanted probe would return zero rows for every tenant and report
+    a clean fleet no matter how many erasures were stuck. Same per-tenant isolation too,
+    and for the same reason: an aborted sweep produces a smaller count and reads as
+    healthy. Different tenant SOURCE, though — see `_ERASURE_DIRECTORY`.
+    """
+    del ctx
+    cutoff = datetime.now(UTC) - ERASURE_OVERDUE_AFTER
+    total = 0
+    tenants_affected = 0
+    unreached = 0
+    tenants = await _all_tenants()
+    for tenant_id in tenants:
+        try:
+            async with tenant_session(tenant_id) as session:
+                overdue = int(
+                    (await session.execute(text(_OVERDUE_ERASURES), {"cutoff": cutoff})).scalar()
+                    or 0
+                )
+        except Exception:
+            log.exception("overdue_erasure_probe_failed", extra={"tenant_id": str(tenant_id)})
+            unreached += 1
+            continue
+        if overdue:
+            total += overdue
+            tenants_affected += 1
+    if total or unreached:
+        alert(
+            "WORKER_STALL",
+            "erasure_requests_overdue",
+            detail=(
+                f"{total} filed erasure request(s) across {tenants_affected} tenant(s) "
+                f"have been open longer than {ERASURE_OVERDUE_AFTER}. The job is enqueued "
+                "once with the request row and has no poller behind it, so these do not "
+                "recover on their own — re-queue them"
+                + (
+                    f". {unreached} of {len(tenants)} tenant(s) could not be probed, so "
+                    "the count is a floor"
+                    if unreached
+                    else ""
+                )
+            ),
+        )
+    return f"overdue_erasures={total} unreached={unreached}"
+
+
+__all__ = [
+    "dispatch_outbox",
+    "report_overdue_erasures",
+    "report_stalled_pipeline",
+    "sweep_expired",
+]

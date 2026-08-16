@@ -1764,10 +1764,66 @@ settled so nothing will come back for them. Its grace is the poller's own
 
 ## Stage 3 — Close the things that mislead an operator
 
-P5.2 (rollback), P5.7 (dev compose file), P5.8 (nginx install-before-test), P5.12
-(restore drill), P5.13 + P2.1 (delete the two `/healthz/` lines from the hooks vhost — this
-closes the ack-path finding at the edge), P6.5 (the phantom DLQ), P2.2/P2.3 (the two escaping
-exceptions), P3.3 (disclosure), P7.1 (paused queries), P7.4 (campaign launch confirmation).
+| # | Fix | Part | State |
+|---|---|---|---|
+| 16 | The three DLQ docstrings say what actually happens; the three drift sweeps get the ladder the other six have; an overdue-erasure probe exists | P6.5 | done |
+| 17 | `response.json()` and `httpx.URL(candidate)` guarded, plus a scan over the whole engine layer | P2.2 / P2.3 | done |
+| 18 | Rollback, dev compose file, nginx install-before-test, restore drill, the two `/healthz/` lines | P5.2 / P5.7 / P5.8 / P5.12 / P5.13 + P2.1 | in flight |
+| 19 | Disclosure | P3.3 | open |
+| 20 | Paused queries, campaign launch confirmation | P7.1 / P7.4 | in flight |
+
+**P6.5 was three findings wearing one number, and the third is the one with a statute
+behind it.**
+
+- **There is no arq DLQ, and four docstrings promised one.** An exhausted job is `zrem`'d
+  off the queue and written to a result key nothing in `apps/` or `scripts/` reads. The
+  only dead-letter queue in this repository is the outbox's `status='failed'`, which
+  covers the ENQUEUE leg and not the execution leg — so for a job that fails while
+  RUNNING, the last attempt's `alert()` is the dead-letter mechanism, and a job without
+  one fails in silence. `workers/settings.py`, `billing.py` and the three drift sweeps now
+  say that.
+- **The three drift sweeps had no last-attempt alert**, while their six neighbours did.
+  `qa_sampling`, `kb_reconciliation` and `engine_reconciliation` now carry the same
+  `attempt < WORKER_MAX_TRIES: raise Retry(...)` / else `alert(...)` and raise — copied
+  from `issue_one_time_charges` rather than designed, because a second shape for one
+  problem is how the two stop agreeing. Two of their existing tests ENCODED the defect
+  (asserting `Retry` still on the last attempt) and were rewritten.
+- **Nothing watched `deletion_requests`.** Rows sat `completed_at IS NULL` forever with no
+  cron, no alert and no ops query — `report_stalled_pipeline` had existed for months for
+  calls, whose worst case is a lead a client did not see, while the one workflow with a
+  DPDP §12 right behind it had no equivalent. `report_overdue_erasures` is that
+  equivalent, hourly, with the ladder its neighbours have.
+
+**Two things about the probe are not obvious and both were arrived at by being wrong
+first.** Its bound is DERIVED and is not a legal deadline — SECURITY-COMPLIANCE §4 states
+no figure, so inventing one in a constant would put a commitment in the code that nobody
+made; an hour is the outer bound of every mechanism on the path (one transaction, a
+10-second dispatcher, a ladder measured in tens of seconds), which makes a request still
+open at it one that never ran rather than one running slowly. And it walks
+ORGANIZATIONS, not `_callable_tenants()`: that list is `SELECT DISTINCT tenant_id FROM
+engine_agent_routes` — tenants with a PUBLISHED AGENT — so a client who never went live and
+a churned client whose routes `tenant_erasure` tore down are both outside it. Those are
+precisely the tenants most likely to be holding a forgotten erasure, and reusing the list
+would have produced an alarm that reads green exactly where it is needed. It reads that
+directory under `admin_session`, because the first attempt used `untenanted_session` and
+returned ZERO tenants on a real database: `organizations` carries its own FORCEd policy, so
+the sweep would have walked an empty fleet and reported a healthy one forever.
+
+**P2.2 and P2.3 are one mistake in two spellings: an exception type in no `except` clause
+on the path.** `json.JSONDecodeError` is a `ValueError` — not a `ProblemError`, not an
+`httpx.HTTPError` — so a 2xx with a non-JSON body (a WAF challenge, a proxy interstitial)
+reached `create_agent` as a raw 500 and DLQ'd both the pipeline and the poller.
+`httpx.InvalidURL`'s MRO does not include `httpx.HTTPError` either, so `_next_link` could
+not have been caught even inside `_request`'s handler. Both are now measured rather than
+assumed — `tests/adapter_escaping_exception_test.py` pins both MRO facts, so the day a
+library change makes either comment false, a test says so instead of a paragraph quietly
+going stale.
+
+**The structural test is the one that matters here.** This repository had ALREADY solved
+P2.2 twice — in `billing/payments.py` and in `engine/cartesia.py` — before the adapter
+actually going to production missed it. A defect that recurs across three modules is not
+one a per-instance test can hold, so the suite AST-scans every file in `apps/api/engine/`
+for a `.json()` outside any `try`, including the adapters that do not exist yet.
 
 ## Stage 4 — Guards, drift and the rest
 

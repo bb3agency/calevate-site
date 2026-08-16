@@ -44,6 +44,7 @@ from apps.api.agents.reconciliation import (
 )
 from apps.api.agents.service import publish_agent
 from apps.api.core.errors import ProblemError
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
@@ -627,15 +628,31 @@ async def test_a_tick_that_runs_out_of_budget_stops_rather_than_overrunning() ->
         assert await sweep_engine_drift({}) == "checked=3 drifted=0"
 
 
-async def test_a_sweep_that_cannot_run_at_all_asks_for_the_retry_ladder() -> None:
+async def test_a_sweep_that_cannot_run_at_all_climbs_a_ladder_and_then_shouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """arq 0.28 retries a job for `arq.Retry` and for NOTHING else, so a sweep that fails
-    on its batch read must raise `Retry` explicitly or the platform goes unwatched until
-    the next half hour with nothing marked wrong. The defer climbs with the attempt.
+    on its batch read must raise `Retry` explicitly, or every client's live agent is
+    unwatched until the next half hour with nothing marked wrong. The defer climbs.
 
-    Distinct from a VENDOR failure, which `_reconcile_one` records as `unreachable` for
-    that one agent and does not escalate — re-running the whole sweep because one agent's
-    engine was slow would spend the other twenty-four's budget twice.
+    **THE LAST ATTEMPT IS DIFFERENT, AND THIS TEST USED TO ASSERT OTHERWISE** (P6.5). It
+    drove `job_try=3` and expected a third `Retry` — but `WORKER_MAX_TRIES` is 3, so that
+    IS the last attempt, and arq does not honour a `Retry` on it: the job finishes with
+    `JobExecutionFailed` and a `logger.warning` nothing reads. The docstring promised
+    "three attempts, then the DLQ", and there is no DLQ — an exhausted arq job is
+    `zrem`'d off the queue and written to a result key nothing in this repository reads.
+    So the alert on the final attempt IS the dead-letter mechanism, and the test that
+    pinned the old shape was pinning the silence.
+
+    Distinct from a VENDOR failure, which is recorded as `unreachable` for that one agent
+    and does not escalate.
     """
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        engine_reconciliation,
+        "alert",
+        lambda stage, code, **kw: fired.append((stage, code)),
+    )
     original = engine_reconciliation.claim_drift_batch
 
     async def broken_claim(session: Any, **kw: Any) -> Any:
@@ -646,15 +663,23 @@ async def test_a_sweep_that_cannot_run_at_all_asks_for_the_retry_ladder() -> Non
         with _engine(RecordingEngine()):
             with pytest.raises(Retry) as first:
                 await sweep_engine_drift({"job_try": 1})
-            with pytest.raises(Retry) as third:
-                await sweep_engine_drift({"job_try": 3})
+            with pytest.raises(Retry) as second:
+                await sweep_engine_drift({"job_try": 2})
+            # NOT a Retry: the ladder is spent, so the job raises the original error and
+            # the alert is what carries the incident out of the worker.
+            with pytest.raises(RuntimeError, match="the database went away"):
+                await sweep_engine_drift({"job_try": WORKER_MAX_TRIES})
     finally:
         engine_reconciliation.claim_drift_batch = original  # type: ignore[assignment]
 
-    assert first.value.defer_score is not None and third.value.defer_score is not None
-    assert third.value.defer_score > first.value.defer_score, (
+    assert first.value.defer_score is not None and second.value.defer_score is not None
+    assert second.value.defer_score > first.value.defer_score, (
         "the retry ladder is flat, so three sweeps hit a restarting database in ninety "
         "seconds instead of backing off"
+    )
+    assert fired == [("WORKER_TERMINAL", "engine_drift_sweep_abandoned")], (
+        "the exhausted sweep finished in silence — there is no DLQ to land in, so an "
+        "alert on the last attempt is the only thing that tells anybody"
     )
 
 

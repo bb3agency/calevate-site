@@ -652,7 +652,42 @@ class BolnaEngine:
             # empty body, and a delete that "failed" only because the vendor said
             # nothing is the worst possible lie on this particular path.
             return {}
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError:
+            # A 2xx WITH A NON-JSON BODY (P2.2). The `>= 400` branch above raises first,
+            # so what reaches here is a success status carrying something that is not
+            # JSON: a WAF challenge, a proxy interstitial, a CDN maintenance page. Those
+            # are the ordinary failure modes of an API behind an edge, and they are
+            # indistinguishable from a real answer until the parse fails.
+            #
+            # `json.JSONDecodeError` is a `ValueError` — NOT a `ProblemError` and NOT an
+            # `httpx.HTTPError` — so it was caught by nothing. It surfaced as a raw 500
+            # with no code and no remediation on `create_agent`; it made
+            # `verify_publish`'s "never raises for a vendor-side failure" docstring
+            # false; and it DLQ'd the post-call pipeline and the reconciliation poller,
+            # which is D-31's guarantee of record.
+            #
+            # This repository had already solved it twice — `billing/payments.py` catches
+            # `ValueError` and `payment_order_test` pins it by name, and
+            # `engine/cartesia.py` has the guard. The adapter actually going to
+            # production is the one that missed it.
+            #
+            # RAISED rather than returning `{}` like Cartesia's, and the difference is
+            # deliberate: an empty dict here would flow on to callers that read fields
+            # out of it and fail somewhere further from the cause. The body is never
+            # echoed — it is not our vocabulary and it is not user-safe.
+            log.warning(
+                "engine_non_json_success",
+                extra={"status": response.status_code, "route": path},
+            )
+            raise ProblemError(
+                kind="dependency",
+                code="engine_bad_response",
+                title="Voice engine returned an unreadable response",
+                detail="The voice platform answered successfully with a body we could not read.",
+                failure_stage="CORE_LOGIC",
+            ) from None
         return payload if isinstance(payload, dict) else {"data": payload}
 
     # --- agent lifecycle -----------------------------------------------------
@@ -1218,7 +1253,31 @@ class BolnaEngine:
             candidate = value.strip()
             if candidate.startswith("/"):
                 return candidate
-            parsed = httpx.URL(candidate)
+            try:
+                parsed = httpx.URL(candidate)
+            except httpx.InvalidURL:
+                # A VENDOR-SUPPLIED STRING THAT IS NOT A URL AT ALL (P2.3), and the
+                # docstring three lines above already promised this outcome: "anything
+                # else is dropped — dropping degrades to `explicit_more`, which is loud".
+                # It was not true, because `httpx.URL()` raises before any of the checks
+                # below run.
+                #
+                # MEASURED, not assumed: `httpx.InvalidURL`'s MRO does NOT include
+                # `httpx.HTTPError`, so `_request`'s handler would not have caught it even
+                # if this call were inside one — and it is not. A zero-width space in a
+                # host (`http://a​.com`) is enough to raise.
+                #
+                # `list_executions`' only caller is `reconcile_executions`, which under
+                # D-31 IS the guarantee of record. An exception there retries three times
+                # and DLQs, and every execution whose webhook was lost stops being
+                # recoverable until somebody reads a dead-letter queue. Dropping the link
+                # costs one page and reports `explicit_more`, which is exactly what the
+                # poller is built to see.
+                log.warning(
+                    "engine_listing_next_link_rejected",
+                    extra={"engine": "bolna", "reason": "unparseable"},
+                )
+                continue
             if parsed.scheme == "https" and parsed.host == httpx.URL(self._base_url).host:
                 return candidate
             log.warning(

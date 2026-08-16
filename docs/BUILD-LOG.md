@@ -3628,6 +3628,64 @@ Refusing to invent a price was right; refusing to COUNT the refusals was the def
 `snapshot.billable_ready and cost is None` alerts, the adapter logs its own refusal, and
 `calls_unmetered` is a sixth signal on the admin health board at `stop` severity.
 
+## §72 — Stage 3's backend half: a dead-letter queue that never existed, and the erasure nobody was watching
+
+**Every job in this repository promised a DLQ it did not have.** `WorkerSettings`'
+docstring, `billing.py`'s header and three drift sweeps all said "3 retries then DLQ".
+arq has no dead-letter queue: an exhausted job is `zrem`'d off the queue and written to a
+result key that nothing in `apps/` or `scripts/` reads. The only DLQ in this codebase is
+the OUTBOX's `status='failed'`, and it covers the ENQUEUE leg — a job that fails while
+RUNNING never touches it. So for nine cron jobs, the last attempt's `alert()` **is** the
+dead-letter mechanism, and the three that had no such alert were failing into silence
+while their docstrings said an operator would be told. Six neighbours already had the
+right shape; the three were given it by copying `issue_one_time_charges`, not by
+designing a second one. **Two of their existing tests encoded the defect**, asserting that
+`job_try=3` still raises `Retry` — which is the attempt arq does not honour, logging
+`JobExecutionFailed` at warning and dropping it.
+
+**The third part of that finding is the one with a statute behind it.** `deletion_requests`
+rows sat `completed_at IS NULL` forever: no cron, no alert, no ops query.
+`report_stalled_pipeline` had existed for months for CALLS — worst case, a lead a client
+did not see — while the one workflow carrying a DPDP §12 right had no equivalent. It
+cannot self-heal, either: `execute_deletion_request` is enqueued once, in the request's
+own transaction, with no poller behind it the way the post-call pipeline has
+`reconcile_executions`. A deploy that cancelled the in-flight job left the request open
+permanently, and the only signal was a status page returning `pending` to a data principal
+nobody was watching.
+
+**`report_overdue_erasures` was written wrong twice before it was written right, and both
+mistakes are the interesting part.** The obvious move was to reuse the stall alarm's
+tenant list — and that list is `SELECT DISTINCT tenant_id FROM engine_agent_routes`,
+i.e. tenants with a PUBLISHED AGENT. A client can file a §12 request having never
+published one, and a churned client's routes are torn down by `tenant_erasure` while their
+subjects' requests stay open, so the tenants that list excludes are precisely the ones most
+likely to be holding a forgotten erasure: the alarm would have read green exactly where it
+was needed. The second attempt walked `organizations` under `untenanted_session` and
+returned **zero tenants on a real database** — that table carries its own FORCEd policy —
+so the sweep would have covered an empty fleet and reported a healthy one forever. Both are
+now pinned by tests that fail on the wrong version, and the bound (an hour) is derived from
+the mechanisms on the path and documented as NOT a legal deadline, because
+SECURITY-COMPLIANCE §4 states no figure and a constant is not the place to invent a
+commitment nobody made.
+
+**Stage 3's other half was one mistake in two spellings: an exception type in no `except`
+clause on the path.** `json.JSONDecodeError` is a `ValueError` — not a `ProblemError`, not
+an `httpx.HTTPError` — so a 2xx with a non-JSON body (a WAF challenge, a proxy
+interstitial) reached `create_agent` as a raw 500 with no code and no remediation, made
+`verify_publish`'s "never raises for a vendor-side failure" docstring false, and DLQ'd both
+the post-call pipeline and the reconciliation poller. `httpx.InvalidURL`'s MRO does not
+include `httpx.HTTPError` either, so `_next_link` could not have been caught even from
+inside `_request`'s handler. Both MRO facts are now pinned as MEASUREMENTS rather than
+restated as reasoning, so a library change that invalidates either comment fails a test
+instead of leaving two paragraphs that quietly stopped being true.
+
+**The scan is the part that will still be earning in a year.** This repository had ALREADY
+solved the unguarded-`.json()` problem twice — in `billing/payments.py` and in
+`engine/cartesia.py` — before the adapter actually going to production missed it. A defect
+that recurs across three modules is not one a per-instance test can hold, so
+`tests/adapter_escaping_exception_test.py` AST-scans every file in `apps/api/engine/` for a
+`.json()` call outside any `try`, and covers the adapters that do not exist yet.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

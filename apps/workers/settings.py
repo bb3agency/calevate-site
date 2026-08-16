@@ -2,9 +2,28 @@
 
 Run: uv run arq apps.workers.settings.WorkerSettings
 
-Every job is idempotent and keyed (post-call work is keyed by call_id), retries 3
-times with exponential backoff, and lands in a DLQ with an alert on exhaustion
-(TRD §8).
+Every job is idempotent and keyed (post-call work is keyed by call_id) and retries 3 times
+with exponential backoff.
+
+**THERE IS NO ARQ DEAD-LETTER QUEUE, and this docstring used to say there was** (P6.5).
+The sentence promised "lands in a DLQ with an alert on exhaustion", and two more modules
+repeated it. What actually exists is the OUTBOX's `status='failed'`, which is fully wired
+— an ops replay action, a depth metric, an audit note — but that covers the ENQUEUE leg.
+On the EXECUTION leg, an arq job that exhausts its ladder is `zrem`'d off the queue,
+written to a result key for `keep_result` seconds, and gone: nothing in `apps/` or
+`scripts/` reads an arq result key, a job status or a failed-job set.
+
+**So the alert is not a property of the queue; it is a property of each job**, and the
+shape every job that matters uses is the one `billing.issue_one_time_charges` spells out —
+`if attempt < WORKER_MAX_TRIES: raise Retry(...)`, else `alert(...)` and then RAISE, because
+returning would file the tick as a success with a number in it that nobody reads. A job
+that does not make that pair of gestures fails in silence, whatever this file says.
+
+Building a real DLQ was weighed and is not what P6.5 asked for: it would mean a second
+durable store for failures beside the outbox we already have, and "one way per problem"
+says the answer is to make the nine jobs alert rather than to add a tenth mechanism. The
+one thing a DLQ would have bought that per-job alerting does not is REPLAY, and the jobs
+here are crons — the next tick is the replay.
 
 **Tolerant boot** (BACKEND-PATTERNS §2): workers hard-require only DB + Redis. A
 missing provider key must NOT crash-loop every queue — the extractor falls back to the
@@ -32,7 +51,12 @@ from apps.api.core.settings import (
 )
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
-from apps.workers.dispatcher import dispatch_outbox, report_stalled_pipeline, sweep_expired
+from apps.workers.dispatcher import (
+    dispatch_outbox,
+    report_overdue_erasures,
+    report_stalled_pipeline,
+    sweep_expired,
+)
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
@@ -105,6 +129,18 @@ CRON_JOBS = [
     # that gives up on its first transient database error is silent for exactly as long
     # as the incident it exists to report. Half an hour of that is not free.
     cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    # The DPDP §12 equivalent of the line above, and the reason it exists is that there
+    # WAS no equivalent: an erasure request whose job was lost to a deploy sat open
+    # forever with nothing watching (P6.5). Hourly rather than half-hourly because
+    # `ERASURE_OVERDUE_AFTER` is an hour — a tighter cadence would re-report the same
+    # request without shortening the time to notice it.
+    #
+    # `max_tries` for its neighbour's reason, and more sharply: unlike the pipeline
+    # stall, this condition CANNOT self-heal between ticks. `execute_deletion_request`
+    # is enqueued once, in the request's own transaction, with no poller behind it — so
+    # the alarm going quiet on a transient database error is the whole failure, not a
+    # delay in reporting it.
+    cron(traced_job(report_overdue_erasures), minute={25}, max_tries=WORKER_MAX_TRIES),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
     # 'before the next dispatch tick' — this cron IS that tick.
     #
