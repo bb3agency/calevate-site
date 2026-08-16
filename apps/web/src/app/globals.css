@@ -125,3 +125,41 @@ h6 {
   background-color: var(--color-ink-faint);
   border-radius: 20px;
 }
+/*
+ * MARKETING PAGES SCROLL THE DOCUMENT, and nothing else in this app does.
+ *
+ * The rule above pins `html, body { height: 100%; overflow: hidden }` because every
+ * route under /c and /admin renders inside a `fixed inset-0` shell whose sidebar and
+ * main panel scroll independently. That is load-bearing and is not being relaxed.
+ *
+ * Lenis (D-161) drives smooth scrolling from the WINDOW scroller, so it needs the
+ * document to be scrollable — and a marketing page that scrolls an inner div instead
+ * would also break ScrollTrigger's defaults, browser scroll restoration, and the
+ * address-bar collapse on mobile.
+ *
+ * `:has()` scopes the override to the presence of the marketing root itself, so it is
+ * IMPOSSIBLE for it to reach an app-shell route: no marketing root in the tree, no
+ * override. The alternative — a class toggled on <body> by a client effect — flashes
+ * on first paint and leaks if a route forgets to clean up.
+ */
+html:has([data-marketing-root]),
+html:has([data-marketing-root]) body {
+  height: auto;
+  overflow: visible;
+}
+
+/*
+ * The reveal primitive's resting state. Elements start visible and GSAP animates FROM
+ * a displaced state — never the reverse. A `.reveal { opacity: 0 }` rule is the classic
+ * way to ship a page that is permanently blank when JavaScript fails, when a bundle is
+ * blocked, or when a crawler renders without executing scripts, and it is exactly the
+ * failure `prefers-reduced-motion` users would otherwise hit too.
+ */
+@media (prefers-reduced-motion: reduce) {
+  html:has([data-marketing-root]) * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

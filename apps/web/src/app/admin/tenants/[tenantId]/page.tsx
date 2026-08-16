@@ -672,7 +672,13 @@ function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
   ];
   return (
     <div className="mt-4 border-t border-line pt-3">
-      <h4 className="text-[13px] font-medium text-ink-muted">Cost by TTS rung</h4>
+      {/* h3, not h4: this panel sits inside a `Card`, whose title is an <h2>, so an h4
+          skips a level. Pre-existing and previously invisible to the axe sweep — jsdom
+          implements no `matchMedia`, and without it axe cannot resolve media-query
+          visibility, so it was not evaluating this heading at all. The stub added in
+          tests/setup.ts for the marketing page's reduced-motion check made the sweep
+          able to see it. Size is carried by the class, so nothing moves on screen. */}
+      <h3 className="text-[13px] font-medium text-ink-muted">Cost by TTS rung</h3>
       <dl className="mt-2 grid gap-3 sm:grid-cols-3">
         {rungs.map((rung) => (
           <div key={rung.label} className="rounded-card border border-line bg-surface px-4 py-3">
