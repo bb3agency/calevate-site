@@ -399,8 +399,11 @@ async def test_the_month_roll_cannot_zero_the_spend_on_a_statement(
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 10, :spend, false, now(), now())"
+                # The panel reads `billed_inr` (P1.3), so that is the column this test's
+                # subject — "did the live counter survive the month roll" — lives in.
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 10, :spend, :spend, false, now(), now())"
             ),
             {"t": tenant_id, "m": month, "spend": Decimal("41.7700")},
         )
@@ -627,8 +630,9 @@ async def test_a_call_finishing_cannot_un_press_the_clients_stop_button() -> Non
         )
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 100, 500, false, now(), now())"
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 100, 500, 500, false, now(), now())"
             ),
             {"t": tenant_id, "m": month},
         )
@@ -658,6 +662,11 @@ async def test_a_call_finishing_cannot_un_press_the_clients_stop_button() -> Non
                     "month": month,
                     "minutes": Decimal("1"),
                     "spend": Decimal("1"),
+                    # The client's number, which is the one the cap is compared against
+                    # (P1.3). Equal to `spend` here because this test is about the LOCK
+                    # and not about the markup — but it has to be supplied, because the
+                    # statement no longer accumulates one column and caps on another.
+                    "billed": Decimal("1"),
                 },
             )
 
@@ -680,36 +689,25 @@ async def test_a_call_finishing_cannot_un_press_the_clients_stop_button() -> Non
     )
 
 
-async def test_the_clients_own_spend_figure_is_our_supplier_cost_not_their_bill() -> None:
-    """**A SECOND OPEN FINDING, PINNED FOR THE SAME REASON AS THE ONE ABOVE.**
+async def test_the_clients_own_spend_figure_is_their_bill_and_not_our_supplier_cost() -> None:
+    """**THE PIN THAT USED TO STATE THE DEFECT, INVERTED BECAUSE IT IS FIXED (P1.3).**
 
-    `spend_state.spend_used` accumulates `cost.total_inr` — what the ENGINE charged US
-    for the call. Three things read it and only two of them should:
+    It read: *"NOT fixed here. Both remedies are product decisions rather than
+    refactors — publish the client's BILLED spend beside a cap denominated the same way
+    (which needs a billed counter that survives included minutes and two rungs), or drop
+    the field from the client realm and leave the cap as an admin instrument. This test
+    states today's behaviour so whichever is chosen arrives as a deliberate edit."*
 
-    * `over_cap_sql`, so the admin's `hard_cap_spend` bounds an unrecoverable supplier
-      bill. Correct, and the reason the column holds cost;
-    * the admin margin and health panels. Correct, and admin-realm;
-    * `usage_summary["spend_used_inr"]`, which `UsagePanelOut` publishes to the CLIENT
-      and `/c/<slug>/usage` prints as "Used so far: N min · ₹X" beside their own cap.
+    The first remedy was chosen and this is the deliberate edit. `spend_state.billed_inr`
+    is that counter: the meter writes it at the CLIENT's rate — list price for a prepaid
+    tier, the plan's marginal rate on the minutes past `included_min` for a managed one —
+    `over_cap_sql` compares the cap against it, and `usage_summary` publishes it. Our
+    supplier cost stays in `spend_used`, where the admin margin panel reads it.
 
-    Two consequences, and the second is the expensive one:
-
-    1. **It is our supplier pricing on the client's screen.** `billing/service.py` states
-       the rule three paragraphs above the query that breaks it — "the client panel never
-       shows `unit_cost_paid` ... a client who can see it is a client negotiating against
-       it" — and ₹X ÷ N minutes is exactly that number. D-137 already caught one half of
-       this (an absorbed AI row reaching a closed month's `spend_used_inr`) and closed the
-       AI half; the call half was never the AI rows.
-    2. **The client's own cap is denominated in OUR cost, not in their bill.** A client
-       who types "stop at ₹5,000" is capping supplier spend, and at a ₹7.125/min overage
-       against a ~₹0.80/min metered cost that is roughly ₹44,000 of billing before their
-       stop button fires. The cap they set and the bill they get are different currencies.
-
-    NOT fixed here. Both remedies are product decisions rather than refactors — publish
-    the client's BILLED spend beside a cap denominated the same way (which needs a billed
-    counter that survives included minutes and two rungs), or drop the field from the
-    client realm and leave the cap as an admin instrument. This test states today's
-    behaviour so whichever is chosen arrives as a deliberate edit.
+    The assertion is therefore the exact opposite of the one it replaces: the number a
+    client reads as "used so far" and the number they are invoiced must now AGREE. This
+    fixture is a managed plan with no included minutes, so every metered minute is
+    overage and the panel's figure is exactly the overage the invoice will print.
     """
     tenant_id, agent_id = await _tenant()
     await _plan(tenant_id, monthly_fee="9999.00", included_min=0)
@@ -717,21 +715,34 @@ async def test_the_clients_own_spend_figure_is_our_supplier_cost_not_their_bill(
     metered_cost = to_paise(Decimal("600.0000") * _TELEPHONY_UNIT_COST)
 
     async with tenant_session(tenant_id) as session:
+        # The meter writes both columns; this fixture writes them by hand because it is
+        # about what the PANEL reads, not about how the meter fills them.
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 10, :spend, false, now(), now())"
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 10, :spend, :billed, false, now(), now())"
             ),
-            {"t": tenant_id, "m": current_billing_month(), "spend": metered_cost},
+            {
+                "t": tenant_id,
+                "m": current_billing_month(),
+                "spend": metered_cost,
+                # 10 minutes of premium overage at the plan's rate — the same arithmetic
+                # `_meter` does, and the same one the invoice will do.
+                "billed": Decimal("10") * _PREMIUM_RATE,
+            },
         )
         summary = await usage_summary(session, tenant_id=tenant_id)
 
-    billed = summary["monthly_fee_inr"] + summary["overage_cost_inr"]
-    assert summary["spend_used_inr"] == metered_cost == Decimal("7.98")
-    assert billed == Decimal("10070.25")
-    assert summary["spend_used_inr"] != billed, (
-        "the figure a client reads as 'used so far' and the figure they are invoiced are "
-        "the same number now — if that is deliberate, delete this pin and say so"
+    assert summary["spend_used_inr"] == to_paise(Decimal("10") * _PREMIUM_RATE)
+    assert summary["spend_used_inr"] == summary["overage_cost_inr"], (
+        "the figure a client reads as 'used so far' is not the overage they will be "
+        "invoiced for — the live counter and the ledger are pricing the same minutes "
+        "differently"
+    )
+    assert summary["spend_used_inr"] != metered_cost, (
+        "the client panel is publishing our supplier cost again — `usage_summary` reads "
+        "`spend_state.spend_used` rather than `billed_inr` (P1.3)"
     )
 
 

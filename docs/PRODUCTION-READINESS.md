@@ -1643,15 +1643,58 @@ happens to be set is the mistake D-49 exists for.
 
 ## Stage 2 — Do not lose money or break the law on day one
 
-| # | Fix | Part |
-|---|---|---|
-| 9 | `charge_for_call` bills at the CLIENT rate, not our supplier cost | P1.1 |
-| 10 | Alert + count completed calls with no usage row; conformance clause for `billable_ready` without cost | P1.2 / P2.5 |
-| 11 | `campaign_contacts` in both erasure paths, `status='dnc_blocked'`, counted in the proof | P3.1 |
-| 12 | `spend_state.billed_inr` at the client rate; cap and client panel read it | P1.3 |
-| 13 | `job_completion_wait`; `max_tries` on `apply_retention` + `sweep_expired`; per-tenant isolation | P6.1 / P6.2 |
-| 14 | `await asyncio.to_thread` on the SMTP send, outside the transaction | P6.3 |
-| 15 | Fourth expected artefact so the poller re-drives the CRM fan-out | P6.4 |
+| # | Fix | Part | State |
+|---|---|---|---|
+| 9 | `charge_for_call` bills at the CLIENT rate, not our supplier cost | P1.1 | done |
+| 10 | Alert + count completed calls with no usage row | P1.2 | done |
+| 11 | `campaign_contacts` in both erasure paths, `status='dnc_blocked'`, counted in the proof | P3.1 | |
+| 12 | `spend_state.billed_inr` at the client rate; cap and client panel read it | P1.3 | done |
+| 13 | `job_completion_wait`; `max_tries` on `apply_retention` + `sweep_expired`; per-tenant isolation | P6.1 / P6.2 | |
+| 14 | `await asyncio.to_thread` on the SMTP send, outside the transaction | P6.3 | |
+| 15 | Fourth expected artefact so the poller re-drives the CRM fan-out | P6.4 | |
+
+**The money cluster (9, 10, 12) landed as one change, because it is one arithmetic.**
+`billing/rates.py::client_billed_inr` is the single answer to "what does the CLIENT owe
+for these minutes", reached from two call sites in the same transaction — the wallet
+debit and the `spend_state` accrual — and `cost.total_inr` never appears in either again.
+Migration `c4f18a6b90e2` adds `spend_state.billed_inr`; the compliance gate, the client's
+cap route, the client usage panel and the admin health panel's cap utilisation all read
+it, while `spend_used` stays exactly where the margin panel needs it. Both writes are
+sabotage-verified, and so is the third writer nothing else could see: swapping
+`_RECOMPUTE_CAPPED` back to `spend_used` passed every existing test, because their
+fixtures put both numbers on the same side of the ceiling — `tests/client_rate_billing_test.py`
+now puts the cap between them.
+
+**Three decisions inside it are worth carrying forward, because each was a fork:**
+
+- **A managed tenant with no quoted rate accrues NOTHING**, and the platform list price
+  is deliberately not substituted. It was, briefly, on the argument that an absent
+  `plans` row is the common state and a client's own cap needs something to bite on.
+  That loses to `b1d5c8e73f04`'s settled rule — this repository does not invent a price
+  a plan does not quote — because the same rate prices the panel, the cap AND the
+  invoice, and a counter accruing ₹6/min beside an invoice charging ₹0 is two documents
+  about one month. `warn_no_plan_in_effect` is what makes the missing plan visible.
+- **The included allowance is netted off, per month rather than per call.** The meter
+  computes `over(minutes_before + minutes) - over(minutes_before)` under the lock it
+  already holds, so the increment is exact and independent of the order calls meter in.
+  A client's retainer minutes accrue nothing towards their own cap, which is what the
+  invoice will say too.
+- **`_spend_used`'s closed-month branch changed as well**, and it had the same defect: it
+  summed `unit_cost_paid` from the ledger, which is our supplier cost re-derived. It now
+  takes the caller's client-side figure — list rate x minutes for a prepaid tier, the
+  invoice's own `overage_cost` for a managed one — so the panel and the statement cannot
+  disagree by a paisa.
+
+P1.2's alert is on `snapshot.billable_ready and snapshot.cost is None`, which is the
+discriminator that makes it signal rather than noise: a snapshot that is not YET billable
+has no cost because the vendor is still settling, and the poller will come back for it.
+One the adapter has declared billable and cannot price is the adapter and the vendor
+disagreeing about the payload, and no amount of waiting fixes that. The Bolna adapter
+also logs its own refusal now, and `calls_unmetered` is a sixth signal on the admin
+client-health board — `stop` severity, because these calls are already billed to us, are
+invisible to every client-facing figure, and `_pipeline_settled` has already called them
+settled so nothing will come back for them. Its grace is the poller's own
+`PIPELINE_STALL_AFTER`, imported rather than restated.
 
 ## Stage 3 — Close the things that mislead an operator
 

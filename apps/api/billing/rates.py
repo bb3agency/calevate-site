@@ -53,7 +53,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
-from typing import Literal
+from typing import Final, Literal
 
 from apps.api.agents.voices import VoiceTier, get_voice
 from apps.api.billing.models import MONEY
@@ -177,6 +177,80 @@ def billable_tier(voice_id: str | None) -> tuple[TtsTier, TierSource]:
     return tier, "agent_config"
 
 
+#: The plan tiers whose every minute is charged at a published list price, with no
+#: included allowance in front of it. Spelled once because three places branch on it —
+#: the meter's `charge_for_call`, the runway framing and `client_billed_inr` — and a
+#: fourth tier added to one of them and not the others is a wallet that stops draining.
+PREPAID_TIERS: Final = ("self_serve", "trial")
+
+
+def client_billed_inr(
+    *,
+    plan_tier: str | None,
+    minutes: Decimal,
+    self_serve_rate: Decimal,
+    marginal_rate: Decimal | None,
+) -> Decimal:
+    """What the CLIENT is charged for `minutes` of calling. Never what we paid for it.
+
+    THE DEFECT THIS EXISTS FOR (P1.1/P1.3). `charge_for_call` was debiting the prepaid
+    wallet with `cost.total_inr` — the engine's charge to US, ~₹2/min — while the runway
+    framing on the client's own screen priced the same minute at `self_serve_inr_per_min`
+    (₹6.00). The balance drained at a third of the advertised rate and Calevate booked
+    zero gross margin on the entire self-serve motion. `spend_state.spend_used` had the
+    same two-numbers-in-one-column problem one layer up, where it is the ceiling a client
+    sets for themselves and the figure we print for them.
+
+    So: THIS answers "what does the client owe", `cost.total_inr` answers "what did we
+    pay", and they are never the same variable again. `unit_cost_paid` on the ledger row
+    and the admin margin panel keep the second, because margin is the difference and a
+    deployment that overwrote the paid side could never compute it, including
+    retrospectively.
+
+    **PREPAID TIERS (`self_serve`, `trial`) are exact.** Every minute is charged at the
+    list price — there is no included allowance to net off — so this IS their bill, and
+    it is priced from the same config value the runway and the top-up flow read, which is
+    what `config.py` already promised and only two of the three honoured.
+
+    **MANAGED tiers get their plan's MARGINAL rate**, and the caller is the one that
+    decides how many minutes are marginal — this function is deliberately not given the
+    monthly allowance. A managed client's bill is a retainer plus overage, and where the
+    included allowance runs out is a fact about the month rather than about this call;
+    `_meter` computes the incremental overage minutes from the counter it is already
+    holding a lock on, and hands only those minutes here. Passing the whole month's
+    arithmetic in would have made this function need `plans`, `spend_state` and the
+    rung-splitting rule, i.e. a second copy of `usage_summary`.
+
+    **A MANAGED TENANT WITH NO QUOTED RATE ACCRUES NOTHING, and the list price is
+    deliberately NOT substituted for one.** It was, briefly, on the argument that an
+    absent `plans` row is the COMMON state (nothing in this codebase creates one) and
+    that a client's own rupee cap needs something to bite on. That argument loses to a
+    stronger one: the same rate has to price the panel, the cap AND the invoice, and
+    `b1d5c8e73f04` already settled that this repository does not invent a price for a
+    plan that quotes none — "what the schema owes the founder is somewhere to put the
+    number they decide; it does not owe them the decision". A live counter accruing at
+    ₹6/min beside an invoice charging ₹0 would be two documents about one month.
+
+    So an unpriced tenant is an unpriced tenant on every surface, which is what
+    `read_caps` already concludes for the ceiling and what `warn_no_plan_in_effect`
+    already logs on the money path as the operator error it is. Their `spend_used` still
+    accumulates, so the margin panel still knows what they cost us.
+
+    Quantized ONCE, at the end, with the explicit mode — the rate is a per-minute price
+    with more precision than a rupee amount has, and rounding the multiplication rather
+    than the rate is what keeps `rate x minutes` reading back as the product it was.
+    """
+    if minutes <= 0:
+        return Decimal("0").quantize(MONEY_Q, rounding=ROUNDING)
+    rate = self_serve_rate if plan_tier in PREPAID_TIERS else marginal_rate
+    if rate is None or rate <= 0:
+        # `None` is the unpriced managed tenant argued above. `<= 0` is a plan row that
+        # quotes zero, which is a real thing an operator can write (a pilot on the house)
+        # and reads as exactly what it says.
+        return Decimal("0").quantize(MONEY_Q, rounding=ROUNDING)
+    return (rate * minutes).quantize(MONEY_Q, rounding=ROUNDING)
+
+
 def tier_correction_inr(*, chars: int, billed_tier: TtsTier, actual_tier: TtsTier) -> Decimal:
     """What must be ADDED to the ledger so the TTS leg reads at the tier that ran.
 
@@ -191,12 +265,14 @@ __all__ = [
     "ENGINE_REPORTS_TTS_MODEL",
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
     "MONEY_Q",
+    "PREPAID_TIERS",
     "ROUNDING",
     "TTS_INR_PER_10K_CHARS",
     "UNPROVEN_TIER",
     "TierSource",
     "TtsTier",
     "billable_tier",
+    "client_billed_inr",
     "tier_correction_inr",
     "tier_of_voice",
     "tts_cost_inr",

@@ -99,26 +99,42 @@ async def _tenant(label: str) -> tuple[UUID, UUID, str]:
     return tenant_id, outbound_agent_id, agent_ref
 
 
+#: The overage rate every plan below quotes. Named because the rupee-ceiling tests now
+#: have to reason in the CLIENT's currency: the cap is compared against
+#: `spend_state.billed_inr`, which the meter accrues at this rate on the minutes past
+#: `included_min` (P1.3). Before that it was compared against our supplier cost, so those
+#: tests could pick any ceiling and any `spend=` and the two never had to relate.
+_OVERAGE_RATE = Decimal("8.0000")
+
+
 async def _plan(
     tenant_id: UUID,
     *,
     cap_min: int | None = None,
     cap_spend: str | None = None,
     age_days: int = 0,
+    included_min: int = 100,
 ) -> None:
     """One plan row. `age_days` backdates `created_at`, because `plans` is
-    effective-dated and a tenant that changed plan has several rows — newest wins."""
+    effective-dated and a tenant that changed plan has several rows — newest wins.
+
+    `included_min` defaults to the allowance every other test here wants and is set to 0
+    by the rupee-ceiling tests: a minute inside the allowance is a minute the client has
+    already paid a retainer for, so it accrues nothing towards their cap, and a rupee
+    ceiling can only be exercised by minutes that are actually charged for."""
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "
                 "hard_cap_min, hard_cap_spend, concurrency_ceiling, created_at, updated_at) "
-                "VALUES (:i, :t, 9999.00, 100, 8.0000, :cmin, :cspend, 10, "
+                "VALUES (:i, :t, 9999.00, :inc, :rate, :cmin, :cspend, 10, "
                 "now() - CAST(:age AS interval), now())"
             ),
             {
                 "i": uuid7(),
                 "t": tenant_id,
+                "inc": included_min,
+                "rate": _OVERAGE_RATE,
                 "cmin": cap_min,
                 "cspend": Decimal(cap_spend) if cap_spend is not None else None,
                 "age": f"{age_days} days",
@@ -171,19 +187,25 @@ async def _bill(
     await _meter(tenant_id, call_id, _snapshot(seconds=seconds, spend=spend, ended=ended))
 
 
-async def _spend_state(tenant_id: UUID) -> tuple[str, Decimal, Decimal, bool]:
+async def _spend_state(tenant_id: UUID) -> tuple[str, Decimal, Decimal, bool, Decimal]:
+    """`(month, minutes_used, spend_used, capped, billed_inr)`.
+
+    Both money columns, because they are different facts: `spend_used` is the engine's
+    charge to US and `billed_inr` is what the client owes at their own rate. The cap is
+    compared against the second (P1.3), so a test that reads only the first can no longer
+    explain why the flag is where it is."""
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT month, minutes_used, spend_used, capped FROM spend_state "
-                    "WHERE tenant_id = :t"
+                    "SELECT month, minutes_used, spend_used, capped, billed_inr "
+                    "FROM spend_state WHERE tenant_id = :t"
                 ),
                 {"t": tenant_id},
             )
         ).first()
     assert row is not None, "metering must leave a spend_state row"
-    return str(row[0]), row[1], row[2], bool(row[3])
+    return str(row[0]), row[1], row[2], bool(row[3]), row[4]
 
 
 async def _gate(tenant_id: UUID, agent_id: UUID) -> DispatchDecision:
@@ -230,7 +252,7 @@ async def test_crossing_the_minute_cap_refuses_the_next_dial() -> None:
 
     await _bill(tenant_id, agent_id, seconds=180, spend="12.0000", ended=THIS_MONTH)
 
-    month, minutes, spend, capped = await _spend_state(tenant_id)
+    month, minutes, spend, capped, _billed = await _spend_state(tenant_id)
     assert minutes == Decimal("3.0000")
     assert capped is True, "3 minutes used against a 2-minute cap is capped"
 
@@ -249,13 +271,13 @@ async def test_minutes_accumulate_across_calls_before_the_cap_bites() -> None:
 
     for _ in range(2):
         await _bill(tenant_id, agent_id, seconds=120, spend="8.0000", ended=THIS_MONTH)
-    _month, minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert minutes == Decimal("4.0000")
     assert capped is False, "4 minutes against a 5-minute cap is still under"
     assert (await _gate(tenant_id, agent_id)).allowed
 
     await _bill(tenant_id, agent_id, seconds=120, spend="8.0000", ended=THIS_MONTH)
-    _month, minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert minutes == Decimal("6.0000")
     assert capped is True
     assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
@@ -268,16 +290,22 @@ async def test_crossing_the_spend_cap_refuses_the_next_dial() -> None:
     """`hard_cap_spend` had no reader at ALL — not the gate, not the panel. A tenant on
     a rupee ceiling with no minute ceiling was completely unprotected."""
     tenant_id, agent_id, _ = await _tenant("capspend")
-    await _plan(tenant_id, cap_spend="50.0000")
+    # No allowance, so every metered minute is charged and the ceiling is reachable.
+    # ₹12 sits between one minute of overage (₹8) and two (₹16).
+    await _plan(tenant_id, cap_spend="12.0000", included_min=0)
 
     await _bill(tenant_id, agent_id, seconds=60, spend="49.5000", ended=THIS_MONTH)
     assert (await _gate(tenant_id, agent_id)).allowed, "under the rupee ceiling"
 
     await _bill(tenant_id, agent_id, seconds=60, spend="1.0000", ended=THIS_MONTH)
 
-    _month, _minutes, spend, capped = await _spend_state(tenant_id)
+    _month, _minutes, spend, capped, billed = await _spend_state(tenant_id)
+    # Both columns, because the whole point of P1.3 is that they are different numbers:
+    # `spend` is what the engine charged US for these two calls and `billed` is what the
+    # client owes for the same two minutes. Only the second one is compared to the cap.
     assert spend == Decimal("50.5000")
-    assert capped is True, "₹50.50 spent against a ₹50 cap is capped"
+    assert billed == Decimal("2") * _OVERAGE_RATE
+    assert capped is True, "₹16 billed against a ₹12 cap is capped"
     assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
 
 
@@ -285,13 +313,14 @@ async def test_either_ceiling_alone_is_enough_to_cap() -> None:
     """Both ceilings matter independently: a tenant well inside its minute allowance can
     still be burning money (a long-form agent on an expensive voice), and the reverse."""
     tenant_id, agent_id, _ = await _tenant("capeither")
-    await _plan(tenant_id, cap_min=1000, cap_spend="10.0000")
+    # ₹5 is under one minute of overage at ₹8, so one call crosses it.
+    await _plan(tenant_id, cap_min=1000, cap_spend="5.0000", included_min=0)
 
     await _bill(tenant_id, agent_id, seconds=60, spend="25.0000", ended=THIS_MONTH)
 
-    _month, minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert minutes == Decimal("1.0000"), "nowhere near the 1000-minute ceiling"
-    assert capped is True, "but well over the ₹10 one"
+    assert capped is True, "but well over the ₹5 one"
     assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
 
 
@@ -310,7 +339,7 @@ async def test_a_tenant_with_no_plan_row_is_never_capped() -> None:
 
     await _bill(tenant_id, agent_id, seconds=600_000, spend="99999.0000", ended=THIS_MONTH)
 
-    _month, _minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, _minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert capped is False, "no plan row is not a zero cap"
     assert (await _gate(tenant_id, agent_id)).allowed
 
@@ -323,7 +352,7 @@ async def test_a_plan_with_null_ceilings_is_not_a_cap() -> None:
 
     await _bill(tenant_id, agent_id, seconds=600_000, spend="99999.0000", ended=THIS_MONTH)
 
-    _month, _minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, _minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert capped is False
     assert (await _gate(tenant_id, agent_id)).allowed
 
@@ -341,7 +370,7 @@ async def test_the_newest_plan_row_decides_the_cap() -> None:
 
     await _bill(tenant_id, agent_id, seconds=180, spend="12.0000", ended=THIS_MONTH)
 
-    _month, _minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, _minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert capped is False, "3 minutes is over the OLD 2-minute cap, far under the new one"
     assert (await _gate(tenant_id, agent_id)).allowed
 
@@ -355,7 +384,7 @@ async def test_a_downgrade_lowers_the_cap_that_applies() -> None:
 
     await _bill(tenant_id, agent_id, seconds=180, spend="12.0000", ended=THIS_MONTH)
 
-    _month, _minutes, _spend, capped = await _spend_state(tenant_id)
+    _month, _minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert capped is True
     assert (await _gate(tenant_id, agent_id)).rule == "spend_cap"
 
@@ -371,14 +400,14 @@ async def test_the_cap_clears_when_the_billing_month_rolls_over() -> None:
     await _plan(tenant_id, cap_min=2)
 
     await _bill(tenant_id, agent_id, seconds=180, spend="12.0000", ended=LAST_MONTH)
-    _stale_month, _m, _s, armed = await _spend_state(tenant_id)
+    _stale_month, _m, _s, armed, _billed = await _spend_state(tenant_id)
     assert armed is True, "the meter arms the flag in the month the usage belongs to"
 
     # The first call of the new month — inbound calls are never gated, which is how a
     # capped tenant still meters something after the rollover.
     await _bill(tenant_id, agent_id, seconds=60, spend="4.0000", ended=THIS_MONTH)
 
-    month, minutes, spend, capped = await _spend_state(tenant_id)
+    month, minutes, spend, capped, _billed = await _spend_state(tenant_id)
     assert month == current_billing_month()
     assert minutes == Decimal("1.0000"), (
         "last month's minutes do not follow the tenant into this one"
@@ -397,7 +426,7 @@ async def test_a_new_month_that_is_already_over_the_cap_stays_capped() -> None:
     await _bill(tenant_id, agent_id, seconds=180, spend="12.0000", ended=LAST_MONTH)
     await _bill(tenant_id, agent_id, seconds=600, spend="40.0000", ended=THIS_MONTH)
 
-    month, minutes, _spend, capped = await _spend_state(tenant_id)
+    month, minutes, _spend, capped, _billed = await _spend_state(tenant_id)
     assert month == current_billing_month()
     assert minutes == Decimal("10.0000")
     assert capped is True
@@ -415,7 +444,7 @@ async def test_the_post_call_pipeline_arms_the_cap_end_to_end() -> None:
     ₹1 ceiling is one call away from closed.
     """
     tenant_id, outbound_agent_id, agent_ref = await _tenant("e2e")
-    await _plan(tenant_id, cap_spend="1.0000")
+    await _plan(tenant_id, cap_spend="1.0000", included_min=0)
 
     execution_id = f"exec_{uuid.uuid4().hex[:12]}"
     get_engine().seed_inbound_call(  # type: ignore[attr-defined]
@@ -443,7 +472,7 @@ async def test_the_post_call_pipeline_arms_the_cap_end_to_end() -> None:
         },
     )
 
-    _month, _minutes, spend, capped = await _spend_state(tenant_id)
+    _month, _minutes, spend, capped, _billed = await _spend_state(tenant_id)
     assert spend > Decimal("1.0000"), "the sample call costs more than the ceiling"
     assert capped is True
     decision = await _gate(tenant_id, outbound_agent_id)

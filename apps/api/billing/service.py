@@ -53,7 +53,12 @@ from apps.api.billing.plans import (
     plan_in_effect_sql,
     warn_no_plan_in_effect,
 )
-from apps.api.billing.rates import ROUNDING, TtsTier, tier_correction_inr
+from apps.api.billing.rates import (
+    PREPAID_TIERS,
+    ROUNDING,
+    TtsTier,
+    tier_correction_inr,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -975,7 +980,11 @@ async def usage_summary(
     # up a paisa apart on one panel. `_tier_totals` now returns paise-exact minutes that
     # sum to the month's total, so the total IS their sum and there is nothing left to
     # disagree.
-    tier_minutes, tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    # The COST half is deliberately dropped here now: this panel is the client's, and
+    # `_tier_totals`' second return is `unit_cost_paid` — our supplier cost, which
+    # `_spend_used` used to publish for a closed month (P1.3). `tier_usage` still reads
+    # both for the ADMIN margin panel, which is what that number is for.
+    tier_minutes, _tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
     row = (
         await session.execute(
@@ -1136,13 +1145,40 @@ async def usage_summary(
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
         "capped": capped,
-        "spend_used_inr": to_paise(_spend_used(period, today, counters.spend_used, tier_cost)),
+        # THE CLIENT'S OWN SPEND, in the client's own currency (P1.3). See `_spend_used`
+        # for what each branch reads and why neither of them is `spend_used` any more.
+        "spend_used_inr": to_paise(
+            _spend_used(
+                period,
+                today,
+                counters.billed_inr,
+                closed_month_billed=(
+                    (get_settings().self_serve_inr_per_min * minutes)
+                    if tier in PREPAID_TIERS
+                    else overage_cost
+                ),
+            )
+        ),
     }
 
 
-def _spend_used(period: str, today: str, live: Decimal, tier_cost: dict[str, Decimal]) -> Decimal:
+def _spend_used(period: str, today: str, live: Decimal, *, closed_month_billed: Decimal) -> Decimal:
     """What this tenant spent in `period` — from the counter while it is live, from the
     ledger once it is not.
+
+    **BOTH BRANCHES ARE THE CLIENT'S PRICE, and neither used to be** (P1.3). The live one
+    read `spend_state.spend_used` — the engine's charge to US — and the closed one summed
+    `tier_cost`, which is the same supplier cost re-derived from `usage_events
+    .unit_cost_paid`. So this panel published our supplier pricing to the client, on a
+    screen three functions below the comment stating that it never does. The margin panel
+    still reads both sides; nothing was removed, the two just stopped being one number.
+
+    The closed-month figure is computed by the caller because the caller has already done
+    the arithmetic: for a PREPAID tier it is the list rate times the month's minutes, and
+    for a MANAGED tier it is `overage_cost` — the sum of the very rungs the invoice will
+    print, so the statement and the panel cannot disagree by a paisa. The retainer is
+    deliberately not in it: `monthly_fee_inr` is published as its own field and adding it
+    here would double it on any screen that shows both.
 
     `spend_state` is ONE row per tenant (PK `tenant_id`), stamped with the month it is
     counting and reset by the meter on rollover. It has no history whatsoever, so it can
@@ -1152,18 +1188,15 @@ def _spend_used(period: str, today: str, live: Decimal, tier_cost: dict[str, Dec
     actually asked about. Two numbers, two months, one panel.
 
     OPEN month → the live counter, because that is the exact column the cap is enforced
-    against (`caps.over_cap_sql` compares it), so the panel and the gate can never tell a
-    client two different stories about the same rupees.
+    against (`caps.over_cap_sql` compares `billed_inr`), so the panel and the gate can
+    never tell a client two different stories about the same rupees.
 
-    CLOSED month → `_tier_totals`' cost for that month: the ledger, summed by the query
-    this function has already run, so there is no second definition of spend and no
-    second round trip. The two sources agree by construction — both are the per-call
-    `cost.total_inr` the pipeline metered, one accumulated live and one re-summed from
-    the `usage_events` rows written in the same transaction. The known exception is the
-    ledger's own arithmetic: a leg whose `qty` is zero is priced whole (`_unit_price`)
-    and contributes nothing to `qty * unit_cost_paid`, so a zero-duration call reads a
-    few paise lighter here. That is the same arithmetic the invoice and the margin panel
-    are built on, which is the right thing for a closed month to agree with.
+    CLOSED month → the caller's figure, priced from the ledger's minutes at the client's
+    own rate. `spend_state` keeps no history whatsoever — it is ONE row per tenant, reset
+    by the meter on rollover — so it can only answer for the current billing month, and
+    `usage_summary` is reachable with `?month=2026-07`, where the live row's rupees were
+    being reported on a closed month's statement beside minutes correctly read from
+    `usage_events`. Two numbers, two months, one panel.
 
     `today` is passed in rather than read from the clock here, and it is the SAME
     reading `read_spend_counters` was given. Taking a second reading is what makes the
@@ -1175,7 +1208,7 @@ def _spend_used(period: str, today: str, live: Decimal, tier_cost: dict[str, Dec
     """
     if period == today:
         return live
-    return sum(tier_cost.values(), Decimal("0"))
+    return closed_month_billed
 
 
 # --- the TTS tier ladder (SURFACES §2b, D-36) ----------------------------------

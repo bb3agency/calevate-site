@@ -297,16 +297,21 @@ def _refuse_looser(*, kind: str, admin: Decimal | int | None, client: Decimal | 
 
 # The recompute. `minutes_used` / `spend_used` are the counters ALREADY in the row —
 # this statement reads them and writes only the flag, so it can never move a total.
+# `billed_inr`, not `spend_used`, and it must match the meter's own upsert exactly — the
+# whole point of three writers sharing `over_cap_sql` is that they cannot disagree, and
+# two of them comparing different COLUMNS would be a disagreement the shared expression
+# could not see. The client's cap is denominated in the client's currency (P1.3).
 _RECOMPUTE_CAPPED = f"""
 WITH caps AS ({CAPS_CTE})
 UPDATE spend_state
-SET capped = {over_cap_sql("minutes_used", "spend_used")}, updated_at = now()
+SET capped = {over_cap_sql("minutes_used", "billed_inr")}, updated_at = now()
 WHERE tenant_id = :tid AND month = :month
 RETURNING capped
 """
 
 _SPEND_STATE_SELECT = (
-    "SELECT minutes_used, spend_used, capped, month FROM spend_state WHERE tenant_id = :tid"
+    "SELECT minutes_used, spend_used, capped, month, billed_inr "
+    "FROM spend_state WHERE tenant_id = :tid"
 )
 
 
@@ -323,11 +328,19 @@ class SpendCounters:
     """
 
     minutes_used: Decimal
+    #: OUR supplier cost. The margin panel's, and never a client's — `billing/service.py`
+    #: states the rule: "The client panel never shows `unit_cost_paid`. Our supplier
+    #: pricing is commercially ours."
     spend_used: Decimal
     capped: bool
+    #: What the CLIENT owes for the same month, at their own published rate. This is the
+    #: figure the cap is compared against and the one the client panel publishes; the two
+    #: were one column until P1.3, which meant a client capping at ₹5,000 was stopped at
+    #: ₹5,000 of OUR cost and shown our supplier pricing to explain it.
+    billed_inr: Decimal
 
 
-NO_SPEND_THIS_MONTH = SpendCounters(Decimal("0"), Decimal("0"), False)
+NO_SPEND_THIS_MONTH = SpendCounters(Decimal("0"), Decimal("0"), False, Decimal("0"))
 
 
 async def read_spend_counters(
@@ -349,7 +362,9 @@ async def read_spend_counters(
     row = (await session.execute(text(_SPEND_STATE_SELECT), {"tid": tenant_id})).first()
     if row is None or str(row[3]) != (month or current_billing_month()):
         return NO_SPEND_THIS_MONTH
-    return SpendCounters(Decimal(str(row[0])), Decimal(str(row[1])), bool(row[2]))
+    return SpendCounters(
+        Decimal(str(row[0])), Decimal(str(row[1])), bool(row[2]), Decimal(str(row[4]))
+    )
 
 
 async def recompute_capped(session: AsyncSession, *, tenant_id: UUID) -> bool | None:

@@ -3542,6 +3542,92 @@ ratchet itself refuses to vouch for. On a fresh database with Redis flushed:
 voice-runtime-ack and platform-credentials at 100%, redaction the weakest at 97.9%.
 
 
+## §71 — a seven-agent audit, then the two stages that make a deploy possible and honest
+
+The wave that stopped adding features and asked whether the thing could ship.
+
+**Seven agents in parallel, one subsystem each: 34 findings, 12 BLOCKER, 17 SERIOUS.** The
+headline is not any single one — it is that **the first deploy on a fresh host could not
+have completed, for six independent reasons**, none of which any test could see because
+every one of them is about a step that had never been run. Two findings were reached
+independently by two agents each (a call billed to us and to nobody; pm2 plus the browser
+environment), which is the strongest evidence in the set. `docs/PRODUCTION-READINESS.md`
+carries all 34 with a five-stage fix sequence; the sequence is dependency order, not a
+schedule.
+
+**Stage 1 — the deploy.** `alembic/env.py` passed no `transaction_per_migration`, and
+alembic defaults it to False: one transaction for the whole `upgrade head`, so a failure
+at revision 40 discarded the 39 before it — while three operator-facing documents told
+the reader the opposite in the three places they are read at 3am. Three revisions use
+`autocommit_block()` for `CREATE INDEX CONCURRENTLY`, which alembic's own docstring names
+as the case that setting exists for, so a failed run could leave an INVALID unique index
+on `credit_ledger` behind a commit boundary. Nothing had ever inserted an `admin_users`
+row, so a fresh deploy came up green with an empty allowlist and every admin request
+403ing — a deployment with no way in, which is why `scripts/bootstrap_admin.py` exists.
+`vps-deploy.sh` reloaded a pm2 app nothing had ever started, brought up no redis (every
+swap passes `--no-deps`, which is exactly the flag that skips `depends_on`), and ran
+`scripts/seed.py` nowhere, so production would have had no reserved slugs and no retention
+defaults. All eight items are closed.
+
+**Three of the eight were not what the finding said, and the corrections outlast the
+fixes.** P5.6 claimed botocore raises `NoRegionError` without a region; measured, **for
+s3 it does not** — it falls back to `us-east-1` and signs with it, so this was never a
+crash, it was every request scoped to a region nobody chose. The credential half was real
+and larger: with no `AWS_ACCESS_KEY_ID` every object-store path fails, including
+`retention._erase_*`, where a store that will not answer stands between an erasure and a
+certificate claiming a deletion that did not happen. And the fix as written said to add
+the three variables to `.env.example` — which `tests/env_example_bootstrap_floor_test`
+correctly refuses, because that file is the set a process needs to BOOT and a
+credential-less process boots perfectly well.
+
+**Two more defects were inside the eight lines P5.6 pointed at.** `_client()` used
+`boto3.client(...)`, which resolves through a process-global `DEFAULT_SESSION` — the exact
+defect D-106 found and fixed in `apply_lifecycle.py`, in the copy that never got it. It
+**reproduced live during the sabotage check**: with the global session restored, a test
+that had deleted both credentials from the environment still presigned successfully,
+signing with a key an earlier test had cached. And the client was rebuilt per call: ~90ms
+of botocore service-model loading, on the API event loop, for every recording playback.
+One cached client per process, keyed on a digest of (endpoint, region, credentials).
+
+**Stage 2's money cluster: the platform was giving its own margin away.** `charge_for_call`
+debited the prepaid wallet with `cost.total_inr` — the ENGINE's charge to US, ~₹2/min —
+while `self_serve_inr_per_min` (₹6.00) was read in exactly one place, to render the
+runway string on the client's own screen. The wallet drained at a third of the advertised
+rate and **the self-serve motion booked zero gross margin**. One layer up,
+`spend_state.spend_used` had the same two-facts-in-one-column problem: the compliance
+gate's ceiling, the client's own cap route and the client usage panel all read our
+supplier cost, so a client capping at ₹5,000 was stopped at ₹5,000 of OUR cost and shown
+our pricing to explain it — three functions below the comment stating that the client
+panel never shows it.
+
+`billing/rates.py::client_billed_inr` is now the one answer to "what does the client owe",
+migration `c4f18a6b90e2` gives it a column, and `cost.total_inr` appears in neither write.
+**The forks inside it are the interesting part.** A managed tenant with no quoted rate
+accrues NOTHING rather than being priced at the list rate — tried, then rejected, because
+the same rate prices the panel, the cap AND the invoice, and `b1d5c8e73f04` already
+settled that this repository does not invent a price a plan does not quote. The included
+allowance is netted off per MONTH rather than per call, computed against the counter under
+the lock the meter already holds, so the increment does not depend on the order calls
+meter in.
+
+**The third writer of `capped` is what no existing test could see.** Swapping
+`_RECOMPUTE_CAPPED` back to `spend_used` passed the entire suite, because every fixture
+put both numbers on the same side of the ceiling. `tests/client_rate_billing_test.py`
+puts the cap between them — ₹1.90 of cost, ₹8.00 billed, capped at ₹5.00 — and it is the
+only thing standing between the client's stop button and the meter disagreeing about what
+"over cap" means.
+
+**And a call that completed and could not be priced was a non-event.** `_meter` returned
+0: no usage row, no charge, no counter — and `_pipeline_settled` only expects a usage
+artefact when a cost exists, so the reconciliation poller, D-31's *guarantee of record*,
+classified the call `settled` and never came back. Since every client-facing money figure
+derives from `usage_events` rather than from `calls`, the blast radius of the vendor
+spelling `total_cost` differently on the live account is every panel reading ₹0.00, every
+invoice empty, no cap arming, no wallet debited — **and nothing anywhere going red.**
+Refusing to invent a price was right; refusing to COUNT the refusals was the defect. Now
+`snapshot.billable_ready and cost is None` alerts, the adapter logs its own refusal, and
+`calls_unmetered` is a sixth signal on the admin health board at `stop` severity.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

@@ -59,9 +59,9 @@ async def _capped_tenant(month: str) -> tuple[uuid.UUID, uuid.UUID]:
         )
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 500, CAST(:s AS numeric), true, now(), "
-                "now())"
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, billed_inr, "
+                "capped, created_at, updated_at) VALUES (:t, :m, 500, CAST(:s AS numeric), "
+                "CAST(:s AS numeric), true, now(), now())"
             ),
             {"t": tenant_id, "m": month, "s": Decimal("5000.0000")},
         )
@@ -208,8 +208,20 @@ async def test_a_closed_month_query_is_answered_from_the_ledger_not_the_live_row
 
     assert summary["month"] == closed
     assert summary["minutes_used"] == Decimal("2.00"), "the minutes come from the ledger"
-    assert summary["spend_used_inr"] == Decimal("60.00"), (
-        "the closed month reported the live row's ₹5000 instead of its own ₹60"
+    # **₹0.00, NOT THE ₹5000 IN THE LIVE ROW AND NOT THE ₹60 THE LEDGER COST US.**
+    #
+    # The first is what this test is about: `spend_state` is one row per tenant with no
+    # history, so its rupees belong to whatever month the meter last stamped and can
+    # never be a closed month's answer. ₹5000 here would be the defect.
+    #
+    # ₹60 was the OLD right answer and is now the wrong one (P1.3): it is 120 seconds at
+    # ₹0.50 of SUPPLIER cost, which is what the engine charged us, on the client's own
+    # panel. This tenant has no `plans` row, so nothing quotes a price for their minutes
+    # and `client_billed_inr` refuses to invent one — the panel, the cap and the invoice
+    # all say ₹0 together, and `warn_no_plan_in_effect` is what makes the missing plan
+    # visible instead.
+    assert summary["spend_used_inr"] == Decimal("0.00"), (
+        "the closed month reported the live row's ₹5000 instead of its own figure"
     )
 
 

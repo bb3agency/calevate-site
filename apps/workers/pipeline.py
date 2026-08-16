@@ -42,7 +42,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.billing.caps import CAPS_CTE, lock_tenant_spend_state, over_cap_sql
-from apps.api.billing.rates import MONEY_Q, ROUNDING, billable_tier
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.rates import (
+    MONEY_Q,
+    PREPAID_TIERS,
+    ROUNDING,
+    billable_tier,
+    client_billed_inr,
+)
 from apps.api.billing.service import charge_for_call, plan_tier_of
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
@@ -60,6 +67,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
@@ -1346,25 +1354,38 @@ _ACC_SPEND = (
     "THEN spend_state.spend_used + EXCLUDED.spend_used "
     "ELSE EXCLUDED.spend_used END"
 )
+# The CLIENT's currency, accumulated beside ours (P1.3). `spend_used` is what the engine
+# charged us and stays the margin panel's; this is what the client owes and is what the
+# cap below is compared against. Same reset-on-rollover rule as the two above — a
+# client's allowance does not carry into the next month any more than their minutes do.
+_ACC_BILLED = (
+    "CASE WHEN spend_state.month = EXCLUDED.month "
+    "THEN spend_state.billed_inr + EXCLUDED.billed_inr "
+    "ELSE EXCLUDED.billed_inr END"
+)
 
 
 _SPEND_STATE_UPSERT = f"""
 WITH caps AS ({CAPS_CTE})
 INSERT INTO spend_state (
-    tenant_id, month, minutes_used, spend_used, capped, created_at, updated_at
+    tenant_id, month, minutes_used, spend_used, billed_inr, capped, created_at, updated_at
 )
 SELECT
     CAST(:tid AS uuid), CAST(:month AS text),
-    CAST(:minutes AS numeric), CAST(:spend AS numeric),
-    {over_cap_sql("CAST(:minutes AS numeric)", "CAST(:spend AS numeric)")},
+    CAST(:minutes AS numeric), CAST(:spend AS numeric), CAST(:billed AS numeric),
+    -- THE CAP IS COMPARED AGAINST THE CLIENT'S NUMBER, not ours. It used to read
+    -- `:spend`, so a client who capped themselves at ₹5,000 was stopped at ₹5,000 of
+    -- CALEVATE's supplier cost — roughly ₹20,000 of their own bill.
+    {over_cap_sql("CAST(:minutes AS numeric)", "CAST(:billed AS numeric)")},
     now(), now()
 ON CONFLICT (tenant_id) DO UPDATE SET
     minutes_used = {_ACC_MINUTES},
     spend_used = {_ACC_SPEND},
+    billed_inr = {_ACC_BILLED},
     -- Recomputed, never carried: on a month rollover the counters above reset, and a
     -- flag left at its old value is a tenant capped in July who can never dial in
     -- August — the counters would read one minute used and the gate would still refuse.
-    capped = {over_cap_sql(_ACC_MINUTES, _ACC_SPEND)},
+    capped = {over_cap_sql(_ACC_MINUTES, _ACC_BILLED)},
     month = EXCLUDED.month,
     updated_at = now()
 """
@@ -1410,6 +1431,38 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     """
     cost = snapshot.cost
     if cost is None:
+        # A CALL THAT COMPLETED AND CANNOT BE PRICED IS NOT A NON-EVENT (P1.2).
+        #
+        # `return 0` on its own wrote no usage row, took no credit, moved no
+        # `spend_state` — and `_pipeline_settled` only expects a usage artefact when
+        # `snapshot.cost is not None`, so the reconciliation poller, which is D-31's
+        # GUARANTEE OF RECORD, classified the call `settled` and never came back for it.
+        # Every client-facing money figure derives from `usage_events` rather than from
+        # `calls`, so the blast radius of the vendor spelling `total_cost` differently on
+        # the live account is: every usage panel reads 0 calls / ₹0.00, every invoice
+        # renders empty, no cap ever arms, no wallet is ever debited — and nothing
+        # anywhere goes red. That last clause is the defect; refusing to invent a price
+        # is correct and stays.
+        #
+        # `billable_ready` is the discriminator, and it is what makes this an alert
+        # rather than noise. A snapshot that is not yet billable has no cost because the
+        # engine has not finished settling it (`engine.py`: the vendor may take minutes
+        # after disconnect), and the poller WILL come back for that one. A snapshot the
+        # adapter has declared billable and cannot price is the adapter and the vendor
+        # disagreeing about the payload, which no amount of waiting fixes.
+        if snapshot.billable_ready:
+            alert(
+                "WORKER_TERMINAL",
+                "call_billable_without_cost",
+                detail=(
+                    "engine reported the execution as billable and the adapter could not "
+                    "read a cost from it: metered nothing, charged nothing, and the "
+                    "reconciliation poller will call this call settled. Check the "
+                    "adapter's cost keys against a live payload (pilot gate 7)."
+                ),
+                call_id=str(call_id),
+                tenant_id=str(tenant_id),
+            )
         return 0
     async with tenant_session(tenant_id) as session:
         await lock_call_writes(session, call_id)
@@ -1502,12 +1555,64 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 },
             )
 
+        # WHAT THE CLIENT OWES FOR THIS CALL, which is not what it cost us (P1.1/P1.3).
+        #
+        # `cost.total_inr` is the ENGINE's charge to US. It used to be the amount debited
+        # from the prepaid wallet as well, so the balance drained at roughly ₹2/min while
+        # the runway framing on the client's own screen priced the same minute at
+        # `self_serve_inr_per_min` (₹6.00) — the platform booking zero gross margin on the
+        # entire self-serve motion, from one variable doing two jobs.
+        #
+        # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
+        # re-read under the lock: `plan_in_effect_sql` is what `caps.CAPS_CTE` already
+        # resolves in the upsert, and a second reading could land on a different row if an
+        # operator changed the plan between the two statements — the wallet debit and the
+        # counter would then disagree about the price of one call.
+        plan_rates = (
+            await session.execute(
+                text(
+                    plan_in_effect_sql(
+                        "COALESCE(included_min, 0) AS included_min, "
+                        "overage_rate, overage_rate_value",
+                        at=NOW_SQL,
+                    )
+                ),
+                {"tid": tenant_id},
+            )
+        ).first()
+        # WHICH RUNG THIS CALL'S MARGINAL MINUTES ARE PRICED ON. The rate card has two,
+        # and the call already resolved its own `tts_tier` above — so the marginal minute
+        # is priced on the rung the call ran on, which is the same honesty rule
+        # `billable_tier` applies: an unproven call resolved to `value` and is charged the
+        # cheaper rate here too. `usage_summary` allocates the month's INCLUDED allowance
+        # to the dearer rung first, which is a month-level decision this per-call counter
+        # deliberately does not try to reproduce — see `client_billed_inr`.
+        marginal_rate: Decimal | None = None
+        if plan_rates is not None:
+            premium_rate = plan_rates[1]
+            value_rate = plan_rates[2]
+            chosen = (
+                value_rate if (tts_tier == "value" and value_rate is not None) else premium_rate
+            )
+            marginal_rate = Decimal(str(chosen)) if chosen is not None else None
+
         # Prepaid credits move with the metering, keyed by call_id so a pipeline
         # re-run cannot double-charge (D-39). Managed tenants are invoiced against a
         # retainer instead, which `charge_for_call` reads from plan_tier.
-        if tier in ("self_serve", "trial"):
+        #
+        # PREPAID HAS NO ALLOWANCE, so the debit needs no month arithmetic and can be
+        # taken before the `spend_state` lock: every minute is charged at the list price.
+        if tier in PREPAID_TIERS:
             await charge_for_call(
-                session, tenant_id=tenant_id, call_id=call_id, amount_inr=cost.total_inr
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                amount_inr=client_billed_inr(
+                    plan_tier=tier,
+                    minutes=minutes,
+                    self_serve_rate=get_settings().self_serve_inr_per_min,
+                    marginal_rate=marginal_rate,
+                ),
             )
 
         # spend_state is the pre-dispatch gate (TRD §9): caps are enforced BEFORE a
@@ -1531,16 +1636,92 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # which is the only order anything takes the two in.
         await lock_tenant_spend_state(session, tenant_id)
         month = _ist_month(snapshot.ended_at or datetime.now(UTC))
+        billed = await _billed_for_this_call(
+            session,
+            tenant_id=tenant_id,
+            plan_tier=tier,
+            month=month,
+            minutes=minutes,
+            included_min=Decimal(str(plan_rates[0])) if plan_rates is not None else Decimal("0"),
+            marginal_rate=marginal_rate,
+        )
         await session.execute(
             text(_SPEND_STATE_UPSERT),
             {
                 "tid": tenant_id,
                 "month": month,
-                "minutes": duration_s / Decimal(60),
+                "minutes": minutes,
                 "spend": cost.total_inr,
+                "billed": billed,
             },
         )
     return len(rows)
+
+
+async def _billed_for_this_call(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    plan_tier: str | None,
+    month: str,
+    minutes: Decimal,
+    included_min: Decimal,
+    marginal_rate: Decimal | None,
+) -> Decimal:
+    """This call's contribution to `spend_state.billed_inr` — the CLIENT's currency.
+
+    **MUST be called with `lock_tenant_spend_state` held**, and every line below is why:
+    the managed branch reads the month's running minutes and then writes a figure derived
+    from them, which is the read-then-write over money CLAUDE.md's concurrency rule names.
+    The lock is already taken by the only caller for the upsert's own sake, so this costs
+    nothing and adds no second lock to reason about.
+
+    PREPAID (`self_serve`, `trial`): every minute is charged, so there is no month to
+    consult and the answer is the same one `charge_for_call` was just given. Deliberately
+    computed twice from one function rather than threaded through as a variable — the two
+    are the same NUMBER but not the same FACT, and a future tier with a wallet discount
+    would want the debit and the accrual to diverge without either quietly following the
+    other.
+
+    MANAGED: only the minutes BEYOND the plan's included allowance are charged, and which
+    minutes those are is a fact about the month rather than about this call. The counter
+    already holds the month's running total, so the increment is exact and independent of
+    the order calls happen to meter in:
+
+        billed(this call) = over(minutes_before + minutes) - over(minutes_before)
+        where over(m)     = max(0, m - included_min)
+
+    A CLOSED-MONTH ROW COUNTS AS ZERO MINUTES SO FAR, matching the upsert immediately
+    below, which resets rather than accumulates when `spend_state.month` differs. Reading
+    a stale row's minutes as "already used" would spend the new month's allowance on the
+    old month's calls — a client's first call in August charged at the overage rate.
+    """
+    if plan_tier in PREPAID_TIERS:
+        return client_billed_inr(
+            plan_tier=plan_tier,
+            minutes=minutes,
+            self_serve_rate=get_settings().self_serve_inr_per_min,
+            marginal_rate=marginal_rate,
+        )
+    row = (
+        await session.execute(
+            text("SELECT minutes_used, month FROM spend_state WHERE tenant_id = :tid"),
+            {"tid": tenant_id},
+        )
+    ).first()
+    used_before = Decimal(str(row[0])) if row is not None and str(row[1]) == month else Decimal("0")
+    over_before = max(Decimal("0"), used_before - included_min)
+    over_after = max(Decimal("0"), used_before + minutes - included_min)
+    return client_billed_inr(
+        plan_tier=plan_tier,
+        minutes=over_after - over_before,
+        # Unread on this branch — `client_billed_inr` reaches for the list price only
+        # for a PREPAID tier, and a managed tenant with no quoted rate accrues nothing
+        # rather than being priced at a number nobody agreed. Passed as the real value
+        # anyway so the call site does not carry a lie about what it means.
+        self_serve_rate=get_settings().self_serve_inr_per_min,
+        marginal_rate=marginal_rate,
+    )
 
 
 async def _maybe_notify_hot_lead(

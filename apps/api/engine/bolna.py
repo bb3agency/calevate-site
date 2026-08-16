@@ -1021,6 +1021,20 @@ class BolnaEngine:
         """
         total = payload.get("total_cost")
         if total is None:
+            # SILENT UNTIL P1.2. `total_cost` is a HAND-MAINTAINED CLAIM about a vendor
+            # that publishes no OpenAPI spec (TRD §5, pilot gate 7), so "the key is not
+            # there" and "the key is spelled differently on the live account" are the same
+            # observation from here — and the second one means every completed call meters
+            # nothing, every usage panel reads ₹0.00, no cap ever arms and no wallet is
+            # ever debited. Refusing to fabricate a cost is right; refusing to COUNT the
+            # refusals is what made it undetectable. The pipeline turns this into an alert
+            # (`_meter`); this line makes it visible in the adapter's own logs, where the
+            # execution id is the thing an operator can look up. Ids only, never the
+            # payload (hard rule 6).
+            log.warning(
+                "engine_cost_absent",
+                extra={"engine": "bolna", "execution_id": str(payload.get("id") or "")},
+            )
             return None
 
         stated = payload.get("currency") or payload.get("cost_currency")

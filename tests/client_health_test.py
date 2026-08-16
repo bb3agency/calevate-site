@@ -396,8 +396,11 @@ async def test_a_cap_about_to_bite_warns_and_a_cap_that_has_bitten_does_not() ->
         )
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 0, 900, false, now(), now())"
+                # `billed_inr` is the column the cap and this panel now read (P1.3);
+                # `spend_used` is our supplier cost and stays the margin panel's.
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 0, 900, 900, false, now(), now())"
             ),
             {"t": account.tenant_id, "m": current_billing_month()},
         )
@@ -433,8 +436,9 @@ async def test_money_stays_numeric_in_the_service_and_becomes_a_string_on_the_wi
         )
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 0, 900.5000, false, now(), now())"
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 0, 900.5000, 900.5000, false, now(), now())"
             ),
             {"t": account.tenant_id, "m": current_billing_month()},
         )

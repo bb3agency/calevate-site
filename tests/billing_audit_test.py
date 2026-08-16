@@ -677,8 +677,9 @@ async def test_the_runway_never_promises_minutes_the_compliance_gate_will_refuse
         )
         await session.execute(
             text(
-                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, capped, "
-                "created_at, updated_at) VALUES (:t, :m, 120, 960, true, now(), now()) "
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 120, 960, 960, true, now(), now()) "
                 "ON CONFLICT (tenant_id) DO UPDATE SET capped = true"
             ),
             {"t": tenant_id, "m": billing.current_billing_month()},
