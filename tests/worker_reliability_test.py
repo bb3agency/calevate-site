@@ -277,27 +277,32 @@ def test_a_call_that_did_not_complete_owes_nothing() -> None:
     assert "crm_fanout" not in expected
 
 
-def test_the_probe_and_the_writer_match_the_same_outbox_row() -> None:
+def test_the_probe_and_the_writer_read_one_column_not_two_spellings_of_a_scan() -> None:
     """Two spellings of "has this call been fanned out" is how a probe and a writer stop
-    agreeing.
+    agreeing — and this pin has now survived the question being asked a third way.
 
-    THIS USED TO COMPARE TWO LITERALS, which is the weaker form of the same idea: it
-    proved the two strings were equal on the day it ran and would have kept passing if
-    somebody changed one to a constant and the other to a different constant of the same
-    value. Both now reference `pipeline.OUTBOUND_WEBHOOK_JOB` — the probe interpolates it
-    into its SQL, the writer passes it to `enqueue_outbox` — so they agree BY
-    CONSTRUCTION, and what is left to pin is that neither has quietly gone back to a
-    literal of its own.
+    FIRST it compared two SQL literals, which proved they were equal on the day it ran.
+    THEN it required both to name `OUTBOUND_WEBHOOK_JOB`, which made them agree by
+    construction while both still containment-scanned the outbox. NEITHER is what the
+    code does now: P6.7 replaced both scans with `calls.crm_notified_at`, one column
+    written by `_mark_crm_notified` in the fan-out's own transaction and read by the
+    poller off a row it already holds.
+
+    So the invariant this file has always been protecting is unchanged and its evidence
+    moves with the code: there is ONE fact, and neither side reconstructs it. What would
+    now be a regression is either side going back to matching on the outbox payload —
+    which is also the shape the nightly prune (`retention.prune_reliability_tables`)
+    would silently break, by turning every call older than the floor into a permanent
+    "unfinished pipeline".
     """
     from apps.workers import pipeline
 
     probe = inspect.getsource(pipeline._pipeline_settled)
     writer = inspect.getsource(pipeline._post_call_stages)
-    assert "OUTBOUND_WEBHOOK_JOB" in probe and "OUTBOUND_WEBHOOK_JOB" in writer, (
-        "the probe and the writer must name the job through the one constant; two "
-        "literals agree only until somebody edits one of them"
-    )
-    assert '"deliver_outbound_webhook"' not in probe + writer, (
-        "a literal came back beside the constant — that is two names for one job again"
-    )
-    assert "'call.completed'" in probe and '"call.completed"' in writer
+    assert "crm_notified_at" in probe, "the poller must read the column, not rebuild it"
+    assert "_mark_crm_notified" in writer, "the fan-out must stamp the column it is read by"
+    for source, where in ((probe, "the poller probe"), (writer, "the fan-out writer")):
+        assert "outbox_messages" not in source, (
+            f"{where} went back to scanning the outbox — unindexable, and wrong the "
+            "moment the nightly prune removes a published row (P6.7)"
+        )

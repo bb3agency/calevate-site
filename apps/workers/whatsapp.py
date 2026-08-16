@@ -141,7 +141,7 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
-from apps.api.reliability.service import enqueue_outbox
+from apps.api.reliability.service import enqueue_outbox_once
 
 log = get_logger(__name__)
 
@@ -715,36 +715,27 @@ async def enqueue_hot_lead_whatsapp(
     below (`enqueue_campaign_escalation`, which is not gated and records its refusal):
     that path has no second channel, this one has email as its channel of record.
 
-    Queued once per (lead, call) — the outbox is never deleted from, so it is also the
-    right place to ask "did a previous run already promise this?", which is what keeps
-    a pipeline replay from pinging a client twice (same doctrine as
-    `pipeline._already_enqueued`).
+    Queued once per (lead, call), and that is now a UNIQUE index rather than a scan
+    followed by an insert (P6.7). The key is its own — `hot-lead-whatsapp:` rather than
+    the email leg's `hot-lead:` — because the two channels are separately queued and a
+    shared key would make whichever ran first silently suppress the other.
     """
     if not get_settings().whatsapp_enabled:
         return False
-    matcher = {"lead_id": str(lead_id), "call_id": str(call_id)}
-    existing = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM outbox_messages WHERE job = :job "
-                "AND payload @> CAST(:matcher AS jsonb) LIMIT 1"
-            ),
-            {"job": JOB_NAME, "matcher": _json(matcher)},
+    return (
+        await enqueue_outbox_once(
+            session,
+            job=JOB_NAME,
+            payload={
+                "tenant_id": str(tenant_id),
+                "lead_id": str(lead_id),
+                "call_id": str(call_id),
+                "triggers": triggers,
+            },
+            dedupe_key=f"hot-lead-whatsapp:{lead_id}:{call_id}",
         )
-    ).first()
-    if existing is not None:
-        return False
-    await enqueue_outbox(
-        session,
-        job=JOB_NAME,
-        payload={
-            "tenant_id": str(tenant_id),
-            "lead_id": str(lead_id),
-            "call_id": str(call_id),
-            "triggers": triggers,
-        },
+        is not None
     )
-    return True
 
 
 # --- campaign escalation: the follow-up after the dial ladder is spent --------
@@ -1133,9 +1124,10 @@ async def enqueue_campaign_escalation(
     enough on its own: `_reap_stuck_dialing` returns a stranded contact to `pending`
     with its attempt count intact and no ceiling, so the same person can reach
     "exhausted" more than once — and messaging them again about one enquiry is exactly
-    the behaviour that gets a WABA reported. The outbox is never deleted from, which is
-    what makes it a durable answer to "did a previous run already promise this?" (same
-    doctrine as `enqueue_hot_lead_whatsapp` and `pipeline._already_enqueued`).
+    the behaviour that gets a WABA reported. `enqueue_outbox_once` makes that a UNIQUE
+    index on `campaign-escalation:{contact_id}`, so "once per contact" holds even without
+    a lock around the read (P6.7) — which matters here, because unlike the hot-lead path
+    this one has no `lock_call_writes` above it.
 
     NOT gated on `whatsapp_enabled`, unlike the hot-lead alert: that alert has email as
     its channel of record, so a disabled WhatsApp leg loses nothing. This escalation has
@@ -1143,28 +1135,19 @@ async def enqueue_campaign_escalation(
     refusal, which is how "we never followed up" stays visible instead of never
     happening at all.
     """
-    matcher = {"contact_id": str(contact_id)}
-    existing = (
-        await session.execute(
-            text(
-                "SELECT 1 FROM outbox_messages WHERE job = :job "
-                "AND payload @> CAST(:matcher AS jsonb) LIMIT 1"
-            ),
-            {"job": ESCALATION_JOB_NAME, "matcher": _json(matcher)},
+    return (
+        await enqueue_outbox_once(
+            session,
+            job=ESCALATION_JOB_NAME,
+            payload={
+                "tenant_id": str(tenant_id),
+                "campaign_id": str(campaign_id),
+                "contact_id": str(contact_id),
+            },
+            dedupe_key=f"campaign-escalation:{contact_id}",
         )
-    ).first()
-    if existing is not None:
-        return False
-    await enqueue_outbox(
-        session,
-        job=ESCALATION_JOB_NAME,
-        payload={
-            "tenant_id": str(tenant_id),
-            "campaign_id": str(campaign_id),
-            "contact_id": str(contact_id),
-        },
+        is not None
     )
-    return True
 
 
 def _json(value: Any) -> str:

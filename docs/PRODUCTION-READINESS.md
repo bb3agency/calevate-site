@@ -1366,7 +1366,34 @@ it already exists, and thousands of calls is exactly where it bites.** `TimeoutE
 pages inside one thread hop), then either an explicit `timeout=` or the resumable cursor the
 comment already names.
 
-### P6.7 — `_already_enqueued` sequential-scans a never-pruned table, twice per call, under the per-call lock · SERIOUS · OURS
+### P6.7 — `_already_enqueued` sequential-scans a never-pruned table, twice per call, under the per-call lock · SERIOUS · OURS · **FIXED**
+
+**Closed, in the two shapes the four call sites actually needed** (migration `e83b5d1a4c07`):
+
+- **`calls.crm_notified_at`** for the CRM fan-out, in the pipeline AND in the poller's
+  `has_crm_fanout`. That side effect writes one outbox row per subscribed endpoint, so it has
+  no single row to key on — and the fact belongs on the call, which both askers already hold.
+- **`enqueue_outbox_once` + a PARTIAL UNIQUE index on `outbox_messages.dedupe_key`** for the
+  three sites that write exactly one row (hot-lead email, hot-lead WhatsApp, campaign
+  escalation). Stronger than the indexed probe this finding asked for: `ON CONFLICT DO NOTHING`
+  makes once-only a database fact rather than a check-then-write that is correct only while
+  every caller remembers `lock_call_writes` — which `enqueue_campaign_escalation`, having no
+  call to lock, never did. `tests/outbox_probe_and_prune_test.py` forces a real race and its
+  negative control **measures the old shape writing two rows through the same harness**.
+
+**Both tables are now pruned** by `retention.prune_reliability_tables` (nightly, 04:10, after
+`apply_retention`), at a 90-day floor equal to `RECORDING_FLOOR_DAYS`. `failed` and `pending`
+outbox rows are never touched — that is the DLQ an operator replays from — and neither are
+unprocessed inbox rows, which are what a client's ingest screen offers a re-drive from. The
+half of this nothing else addressed: an outbox payload carries a lead's name, number and call
+summary, so an un-pruned outbox was an unbounded copy of tenant personal data sitting outside
+every retention policy a tenant can set, and outside the DPDP erasure path, which walks
+tenant-scoped tables. **Pruning would have silently broken the old poller probe** — every call
+past the floor would have read as an unfinished pipeline forever; the two halves are therefore
+tested together in `poller_guarantee_test`.
+
+The original finding follows.
+
 
 `outbox_messages` has exactly one index — `(status, created_at)` — nothing on `job`, no GIN on
 `payload`. And **nothing anywhere deletes from it.** So every completed call runs two unindexed
@@ -1881,7 +1908,7 @@ is the only place it CAN be verified.
 | 24 | `AnnAssign` constants read; the literal check looks where the job name actually sits per callee; two literals promoted | P6.9 | done |
 | 25 | `enqueue_outbox` stops taking a `queue` nothing routes on (two-step, D-162) | P6.8 | done |
 | 26 | Eight unmapped columns declared (the eighth was created while fixing the seven), plus `check_metadata_columns` in both gates | P4.3 | done |
-| 27 | `_already_enqueued`'s unindexed scan; neither outbox table is ever pruned | P6.7 | open |
+| 27 | `crm_notified_at` + a partial-unique `dedupe_key` replace four containment scans; both infra tables pruned nightly at a 90-day floor | P6.7 | done |
 | 28 | Contract and guard drift bundle | P2.6 | open |
 | 29 | nginx realm isolation (two `server` blocks) | P7.3 | external to `apps/` |
 

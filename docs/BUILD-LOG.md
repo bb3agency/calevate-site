@@ -3851,6 +3851,42 @@ autogenerate round-trip hazard three times before and every one of them only che
 a REMOVED thing stayed removed. In `make guardrails` and in CI, with negative controls that
 doctor the real model set by exactly one column in each direction.
 
+**And P6.7, the last open finding with a runtime cost.** Four places asked "did a previous
+run already promise this side effect?" as `WHERE job = :job AND payload @> :matcher` —
+against a table whose only index is `(status, created_at)` and which nothing ever deleted
+from. Every one was a sequential scan; the worst ran twice per completed call, holding
+`lock_call_writes`, on the 2-minute SLO path, contending with a dispatcher that claims every
+ten seconds. `LIMIT 1` bought nothing, because the common case is "no prior enqueue", which
+reads every row before it can say so.
+
+The four sites are not asking one question, so the fix is not one shape. The CRM fan-out
+writes one outbox row PER SUBSCRIBED ENDPOINT and has no single row to key on, so its answer
+moved onto the call: `calls.crm_notified_at`, stamped in the fan-out's own transaction, read
+by the pipeline and by the poller off rows they already hold. The other three write exactly
+one row, so they got `enqueue_outbox_once` and a **partial unique index** — which is stronger
+than the indexed probe the finding asked for, because `ON CONFLICT DO NOTHING` makes once-only
+the database's decision instead of a check-then-write that is correct only while every caller
+remembers to take the lock first. `enqueue_campaign_escalation` never did; it has no call to
+lock. The test that pins this forces a real race through a barrier, and its negative control
+runs the OLD shape through the same harness and **measures it writing two rows** — which is
+what makes the harness evidence rather than decoration.
+
+**The pruning half is a compliance fix wearing a performance fix's clothes.** Neither
+`outbox_messages` nor `webhook_inbox_events` has a `tenant_id`, so the tenant retention sweep
+is structurally blind to both — and an outbox payload carries a lead's name, number and call
+summary. An outbox nothing prunes is an unbounded copy of tenant personal data sitting outside
+every retention policy a tenant can set, and outside the DPDP erasure path, which walks
+tenant-scoped tables. `prune_reliability_tables` runs nightly at a 90-day floor, and what it
+must NEVER delete is the load-bearing part: a `failed` outbox row IS the DLQ an operator
+replays from, and an unprocessed inbox row is what a client's own ingest screen offers a
+re-drive from. Neither is prunable at any age.
+
+The two halves are coupled, which is why they land together: pruning would have silently
+broken the old poller probe, whose whole justification was that outbox rows are immortal.
+Every call past the floor would have scored as an unfinished pipeline and been re-driven
+forever — a billed model round trip and a re-notified client, on every tick. The regression
+test deletes a settled call's outbox rows and asserts the verdict does not move.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

@@ -309,6 +309,69 @@ async def enqueue_outbox(
     return message_id
 
 
+async def enqueue_outbox_once(
+    session: AsyncSession,
+    *,
+    job: str,
+    payload: dict[str, Any],
+    dedupe_key: str,
+) -> UUID | None:
+    """`enqueue_outbox`, but this exact side effect happens AT MOST ONCE, ever.
+
+    Returns the new message id, or `None` if the promise was already on the books.
+
+    WHAT THIS REPLACED, AND WHY THE REPLACEMENT IS STRONGER (P6.7). Three call sites used
+    to ask `SELECT 1 FROM outbox_messages WHERE job = :job AND payload @> :matcher` and
+    then insert if it came back empty. Two problems, and the cheap one is the visible one:
+
+      * `outbox_messages` has no index on `job` and no GIN on `payload`, so every probe
+        was a sequential scan of a table nothing prunes, and `LIMIT 1` does not help
+        because the common case — no prior enqueue — reads every row before it can say so.
+      * it is a check-then-write, correct only for as long as every caller remembers to
+        hold `lock_call_writes` first. `ON CONFLICT DO NOTHING` against a UNIQUE index is
+        correct without that, because the database is the one deciding.
+
+    The lock stays where it is: it serializes the OTHER read-then-writes in the same
+    transaction (`_meter`'s append-only ledger, the lead status flip), and this key is not
+    a reason to remove it. What changed is that this promise no longer depends on it.
+
+    THE KEY IS THE CALLER'S, and it must name the side effect rather than the row — a
+    key containing a fresh uuid is a key that dedupes nothing. Existing keyspaces:
+    `hot-lead:{lead_id}:{call_id}`, `hot-lead-whatsapp:{lead_id}:{call_id}`,
+    `campaign-escalation:{contact_id}`. Prefix a new one so a reader of the column can
+    tell what promised it.
+
+    NOT FOR FAN-OUT. A side effect that legitimately writes several rows (the CRM fan-out
+    writes one per subscribed endpoint) uses `enqueue_outbox` and answers "already done?"
+    from its own domain row — `calls.crm_notified_at` is that answer for the CRM path.
+    """
+    message_id = uuid7()
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO outbox_messages (id, queue, job, payload, dedupe_key, status, "
+                "attempt_count, created_at, updated_at) VALUES (:id, :queue, :job, "
+                "CAST(:payload AS jsonb), :dedupe_key, 'pending', 0, now(), now()) "
+                # The conflict target is the PARTIAL index, so it must be spelled as the
+                # same predicate: naming the column alone does not match a partial index
+                # and Postgres answers with "no unique or exclusion constraint matching
+                # the ON CONFLICT specification"
+                # (postgresql.org/docs/16/sql-insert.html#SQL-ON-CONFLICT).
+                "ON CONFLICT (dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING "
+                "RETURNING id"
+            ),
+            {
+                "id": message_id,
+                "queue": OUTBOX_FLEET,
+                "job": job,
+                "payload": json.dumps(payload),
+                "dedupe_key": dedupe_key,
+            },
+        )
+    ).first()
+    return message_id if row is not None else None
+
+
 @dataclass(frozen=True, slots=True)
 class OutboxMessageRow:
     id: UUID

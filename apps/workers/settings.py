@@ -68,6 +68,7 @@ from apps.workers.retention import (
     apply_retention,
     execute_deletion_request,
     execute_tenant_erasure,
+    prune_reliability_tables,
 )
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
@@ -200,6 +201,20 @@ CRON_JOBS = [
     # `apply_retention` also alerts on a non-zero failure count now, because a retry
     # ladder that runs out still has to tell somebody.
     cron(traced_job(apply_retention), hour={3}, minute={40}, max_tries=WORKER_MAX_TRIES),
+    # The two infra tables `apply_retention` structurally cannot reach, because neither
+    # has a `tenant_id` to sweep inside (P6.7). Until this existed nothing anywhere
+    # deleted a row from `outbox_messages` or `webhook_inbox_events` — an unbounded copy
+    # of lead names, numbers and call summaries sitting outside every retention policy a
+    # tenant can set. AFTER `apply_retention` and not before: an outbox row is the
+    # promise of a side effect, and pruning promises before the sweep that may still be
+    # making them is an ordering nobody would be able to reason about at 03:00.
+    # `max_tries` EXPLICIT for the reason its neighbour above spells out at length.
+    cron(
+        traced_job(prune_reliability_tables),
+        hour={4},
+        minute={10},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE DRIFT SWEEP (D-123). `engine_drift_for` was on-demand only, so the two
     # divergences a publish-time read-back structurally cannot see — an agent edited in
     # the VENDOR'S dashboard, and a publish that failed on our side after the vendor

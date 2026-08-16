@@ -41,6 +41,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers import pipeline
@@ -758,3 +759,59 @@ async def test_a_stall_sweep_that_reached_nobody_still_alerts(
 
 async def _only(tenant_id: UUID) -> list[UUID]:
     return [tenant_id]
+
+
+# ================================ 8. the prune sweep must not resurrect the poller's work
+
+
+async def test_a_settled_call_stays_settled_after_its_outbox_rows_are_pruned() -> None:
+    """P6.7's coupling, and the reason the CRM probe moved off the outbox entirely.
+
+    `_pipeline_settled` used to answer "was this call fanned out to the client's CRM" by
+    containment-scanning `outbox_messages`, on the stated grounds that rows are never
+    deleted from it. The nightly prune this release adds makes that premise false: past
+    the floor, a published row is gone, and the old probe would have scored every call
+    older than the floor as an unfinished pipeline — re-running extraction (a billed model
+    round trip) and re-notifying the client, forever, on every tick.
+
+    So the two halves of the fix are tested TOGETHER rather than apart. The call is driven
+    to settled, every outbox row it produced is deleted, and the verdict must not move.
+    """
+    tenant_id, agent_ref, execution_id = await _staged("pruned")
+    await pipeline.ingest_engine_event(
+        {}, {"engine": "fake", "execution_id": execution_id, "engine_agent_ref": agent_ref}
+    )
+    state = await _artifacts(tenant_id, execution_id)
+    await pipeline.run_post_call_pipeline(
+        {},
+        {
+            "tenant_id": str(tenant_id),
+            "call_id": str(state["call"]),
+            "engine": "fake",
+            "execution_id": execution_id,
+        },
+    )
+    await _age(tenant_id, execution_id, minutes=18)
+    snapshot = await get_engine().get_execution(execution_id)
+    assert await pipeline._pipeline_settled("fake", snapshot) == "settled", "premise"
+
+    # The prune, at its most destructive for THIS call: every outbox row that names it,
+    # aged or not. Scoped by call id rather than `DELETE FROM outbox_messages`, which
+    # would delete other suites' pending work on the shared database — the whole-database
+    # mutation defect this repo has now found three times.
+    async with untenanted_session() as session:
+        deleted = rowcount_of(
+            await session.execute(
+                text(
+                    "DELETE FROM outbox_messages WHERE payload::text LIKE :needle "
+                    "OR dedupe_key LIKE :needle"
+                ),
+                {"needle": f"%{state['call']}%"},
+            )
+        )
+    assert deleted > 0, "premise: this call's pipeline wrote outbox rows there were to prune"
+
+    assert await pipeline._pipeline_settled("fake", snapshot) == "settled", (
+        "the verdict followed the outbox rather than the call, so forgetting a delivered "
+        "promise re-opened a finished call (P6.7)"
+    )
