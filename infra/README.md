@@ -17,7 +17,7 @@ Three modules describe an object-store lifecycle rule as the thing that deletes 
 
 | Where | What it promises |
 |---|---|
-| `apps/workers/storage.py` → `recording_key()` | Keys are tenant-prefixed "so a bucket policy or **a lifecycle rule** can be scoped per tenant". Keys are `recordings/{tenant_id}/{YYYY}/{MM}/{call_id}.wav`. |
+| `apps/workers/storage.py` → `recording_key()` | Keys are tenant-prefixed "so a bucket policy or **a lifecycle rule** can be scoped per tenant". Keys are `recordings/{tenant_id}/{call_id}.wav` — the `{YYYY}/{MM}` segment this line used to name was removed by D-148, because a key that depended on WHEN the copy ran gave one call two keys across a month boundary and left the second unreachable by the erasure. Nothing here depends on it: the rule is scoped to the `recordings/` prefix and expires on object age. |
 | `apps/workers/retention.py` → `_apply_one()`, recording branch | "Clearing the pointer is the local half; **the object-store lifecycle rule removes the bytes**." The pointer clock is `max(policy ttl_days, 90)`, i.e. per-tenant and floored. |
 | `apps/api/compliance/deletion.py` → `ERASURE_LIMITATIONS[0]` | "The stored audio itself is removed by **the object-store lifecycle rule, which is floored at 90 days**." This text is returned on every deletion-request response and is forwarded to a data principal. |
 | `docs/SECURITY-COMPLIANCE.md` §4 | Names the same rule, and then says plainly that it is not built. |
