@@ -253,5 +253,8 @@ async def test_a_healthy_pipeline_raises_no_stall_alarm(monkeypatch: pytest.Monk
 
     result = await dispatcher.report_stalled_pipeline({})
 
-    assert result == "stalled=0", result
+    # `unreached=0` is asserted alongside, because a sweep that failed for every tenant
+    # would also report zero stalled calls — the two together are what "healthy" means
+    # (P6.2).
+    assert result == "stalled=0 unreached=0", result
     assert fired == [], "an extracted call is not a stall, and a false page is a lost alarm"

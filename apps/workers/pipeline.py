@@ -1820,7 +1820,9 @@ EXTRACTION_OWED_SQL = (
 )
 
 
-def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -> tuple[str, ...]:
+def _expected_artifacts(
+    snapshot: ExecutionSnapshot, *, extraction_owed: bool, crm_fanout_owed: bool
+) -> tuple[str, ...]:
     """What a FINISHED pipeline must have left behind for THIS execution.
 
     The whole trick of the probe below, and the reason it needs no schema column. Asked
@@ -1831,7 +1833,7 @@ def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -
     whether this execution had a cost and whether it had a transcript, and an artefact
     the engine's data implies is one the pipeline owed.
 
-    Three artefacts, each gated on the condition the pipeline itself gates on:
+    Four artefacts, each gated on the condition the pipeline itself gates on:
 
     - `transcript_turns` — `_persist_transcript` upserts one row per turn and returns
       early only on an empty transcript.
@@ -1841,6 +1843,36 @@ def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -
     - `extraction` — owed exactly when `needs_extraction` would be true, which the
       caller resolves with `EXTRACTION_OWED_SQL` because half of it lives in the
       database rather than in the snapshot.
+    - `crm_fanout` — the D-23 outbound sync, step 8 and therefore LAST. See below.
+
+    **THE FOURTH ONE CLOSES THE HOLE THAT MADE THIS LIST A GUARANTEE OF THE FIRST FIVE
+    STEPS RATHER THAN OF THE PIPELINE** (P6.4). `_post_call_stages` has eight steps and
+    this list covered three, all of them at or before step 5. Steps 6, 7 and 8 — the
+    hot-lead notification, the campaign-contact resolution and the CRM fan-out — run
+    AFTER metering, each in its own transaction. So a pipeline that died between step 5's
+    commit and step 8 left `usage_events` written, this probe answered `settled`, and the
+    poller never came back: **the client's CRM was never told about that call, and nothing
+    anywhere recorded that it was not told.** `report_stalled_pipeline` could not see it
+    either — `EXTRACTION_OWED_SQL` asks only about extraction.
+
+    The justification this docstring used to carry ("a pipeline that reached metering
+    reached the lead upsert") is true, and true of step 4, which PRECEDES metering. It
+    proves nothing about 6-8, and the two sentences had been read as one.
+
+    **WHY THE CRM FAN-OUT AND NOT ALL THREE.** It is the last step, so its presence
+    implies 6 and 7 ran; and it is the only one of the three with a durable artefact that
+    is not conditional on something this function cannot see. Step 6's notification is
+    skipped for a lead that is not hot, and step 7's is a no-op for a call that was not a
+    campaign dial — both legitimately leave nothing, which is exactly the ambiguity that
+    makes an artefact useless as a probe.
+
+    **AND WHY IT NEEDS `has_crm_endpoint`.** `integrations.enqueue_events` writes one
+    outbox row per SUBSCRIBED ACTIVE ENDPOINT and returns 0 when there are none — which
+    is most tenants, most of the time. Expecting the artefact unconditionally would make
+    every call on every tenant without a CRM integration read as `unfinished_pipeline`
+    forever, re-driving a whole pipeline (including a billed extraction) on every tick.
+    That is precisely the failure this function's first paragraph exists to prevent, one
+    artefact later.
 
     NOT a lead: `_upsert_lead` returns None when the other party has no number, and that
     is invisible from here without re-deriving the direction rule. Its absence is
@@ -1853,6 +1885,10 @@ def _expected_artifacts(snapshot: ExecutionSnapshot, *, extraction_owed: bool) -
         expected.append("usage")
     if extraction_owed:
         expected.append("extraction")
+    # Step 8 gates on exactly this status, so this list does too — a call that did not
+    # complete was never owed a fan-out.
+    if snapshot.status == "completed" and crm_fanout_owed:
+        expected.append("crm_fanout")
     return tuple(expected)
 
 
@@ -1905,8 +1941,8 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
     (a model round trip, billed) alongside one that is about to finish. Past it, the
     pipeline is late by the SLO's own definition and the poller is what repairs it.
 
-    Costs one extra statement per completed execution and no extra round trip: both
-    EXISTS probes ride the same SELECT as the call row.
+    Costs one extra statement per completed execution and no extra round trip: every
+    EXISTS probe rides the same SELECT as the call row.
     """
     async with untenanted_session() as session:
         resolved = await _resolve_agent(session, engine_name, snapshot.engine_agent_ref)
@@ -1923,6 +1959,25 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     "  EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) AS has_usage, "
                     "  EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
                     "    AS has_extraction, "
+                    # STEP 8's artefact (P6.4). Matched on the outbox payload the way
+                    # `_already_enqueued` matches it — same job name, same `@>` containment
+                    # on (event, call_id) — because two spellings of "has this call been
+                    # fanned out" is how the probe and the writer stop agreeing. Rows are
+                    # never deleted from the outbox (`mark_outbox_published` only moves
+                    # status), so presence is durable proof and not a race with the
+                    # dispatcher.
+                    "  EXISTS (SELECT 1 FROM outbox_messages o "
+                    "    WHERE o.job = 'deliver_outbound_webhook' "
+                    "    AND o.payload @> jsonb_build_object("
+                    "      'event', 'call.completed', "
+                    "      'data', jsonb_build_object('call_id', c.id::text))) AS has_crm_fanout, "
+                    # And whether one was OWED at all. Mirrors
+                    # `integrations.enqueue_events`' own endpoint predicate, because a
+                    # tenant with no subscribed active endpoint gets zero outbox rows from
+                    # a perfectly healthy pipeline — and expecting the artefact anyway
+                    # would re-drive every call on every tick forever.
+                    "  EXISTS (SELECT 1 FROM outbound_webhooks w WHERE w.active = true "
+                    "    AND 'call.completed' = ANY(w.events)) AS crm_fanout_owed, "
                     f"  {EXTRACTION_OWED_SQL} AS extraction_owed "
                     "FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
@@ -1937,15 +1992,28 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
         # No completed call row at all: the original question, and still the common case
         # — a webhook that never arrived.
         return "missing_call"
-    ended_at, has_transcript, has_usage, has_extraction, extraction_owed = row
+    (
+        ended_at,
+        has_transcript,
+        has_usage,
+        has_extraction,
+        has_crm_fanout,
+        crm_fanout_owed,
+        extraction_owed,
+    ) = row
     present = {
         "transcript": bool(has_transcript),
         "usage": bool(has_usage),
         "extraction": bool(has_extraction),
+        "crm_fanout": bool(has_crm_fanout),
     }
     missing = [
         name
-        for name in _expected_artifacts(snapshot, extraction_owed=bool(extraction_owed))
+        for name in _expected_artifacts(
+            snapshot,
+            extraction_owed=bool(extraction_owed),
+            crm_fanout_owed=bool(crm_fanout_owed),
+        )
         if not present[name]
     ]
     if not missing:

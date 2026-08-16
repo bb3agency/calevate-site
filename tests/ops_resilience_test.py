@@ -200,8 +200,13 @@ async def test_a_stalled_call_is_counted_and_alerted(monkeypatch: pytest.MonkeyP
     fired = _capture_alerts(monkeypatch, dispatcher)
     result = await dispatcher.report_stalled_pipeline({})
 
-    count = int(result.split("=")[1])
+    # Parsed by KEY, not by position: the job now also reports `unreached`, the tenants
+    # its per-tenant isolation could not probe (P6.2), and a positional split reads the
+    # next field as part of this number.
+    fields = dict(pair.split("=", 1) for pair in result.split())
+    count = int(fields["stalled"])
     assert count >= 1, f"a stalled call must be visible to the alarm, got {result}"
+    assert fields["unreached"] == "0", f"every tenant should have been probed: {result}"
     assert [code for _stage, code, _detail in fired] == ["postcall_pipeline_stalled"]
     assert fired[0][0] == "WORKER_STALL"
 

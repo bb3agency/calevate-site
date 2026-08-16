@@ -1649,9 +1649,9 @@ happens to be set is the mistake D-49 exists for.
 | 10 | Alert + count completed calls with no usage row | P1.2 | done |
 | 11 | `campaign_contacts` in both erasure paths, `status='dnc_blocked'`, counted in the proof | P3.1 | done |
 | 12 | `spend_state.billed_inr` at the client rate; cap and client panel read it | P1.3 | done |
-| 13 | `job_completion_wait`; `max_tries` on `apply_retention` + `sweep_expired`; per-tenant isolation | P6.1 / P6.2 | |
-| 14 | `await asyncio.to_thread` on the SMTP send, outside the transaction | P6.3 | |
-| 15 | Fourth expected artefact so the poller re-drives the CRM fan-out | P6.4 | |
+| 13 | `job_completion_wait`; `max_tries` on `apply_retention` + `sweep_expired`; per-tenant isolation | P6.1 / P6.2 | done |
+| 14 | `await asyncio.to_thread` on the SMTP send | P6.3 | done |
+| 15 | Fourth expected artefact so the poller re-drives the CRM fan-out | P6.4 | done |
 
 **The money cluster (9, 10, 12) landed as one change, because it is one arithmetic.**
 `billing/rates.py::client_billed_inr` is the single answer to "what does the CLIENT owe
@@ -1715,6 +1715,41 @@ a DPDP §8(7) storage-limitation exposure erring in the dangerous direction. The
 a DPA commitment to the client rather than an engineering default, so it is a third entry
 in `tests/dpdp_known_gaps_test.py`, whose probe reads the live constraint and whose
 equality assertion forces the entry's deletion on the day it is widened.
+
+**The worker quartet (13, 14, 15) shares one failure shape: each produced LESS output
+rather than a red job.** A healthy fleet and a broken one looked the same from outside.
+
+- **P6.1** turned on one keyword's truthiness. arq picks its signal handler with
+  `if self._job_completion_wait:` — `0` installs the hard cancel — so `compose.prod.yml`'s
+  60-second grace, DEPLOYMENT §4b's "in-flight work finishes" and BACKEND-PATTERNS §10's
+  "drain-then-quit" were all describing a process that had already thrown its work away.
+  45s, strictly under the grace because that grace ends in SIGKILL, and the headroom
+  covers the shutdown hooks that run after the drain returns.
+- **P6.2** got all three halves plus one the finding did not separate out. `max_tries`
+  now reaches `apply_retention`, `sweep_expired` AND `report_stalled_pipeline` — the last
+  self-heals in 30 minutes but is the ALARM, and an alarm that gives up on its first
+  transient error is silent for exactly as long as the incident it reports.
+  `sweep_tenants` and `report_stalled_pipeline` isolate per tenant with a counter, both
+  tenant lists gained `ORDER BY tenant_id`, and `apply_retention` alerts on a non-zero
+  failure count. **The stall alarm was the quietest of the lot**: it fires on a total, so
+  an aborted sweep produced a smaller number and read exactly like a healthy fleet — it
+  now reports the tenants it could not probe and fires on that alone.
+- **P6.3 was taken half-way, deliberately.** The `to_thread` is in; the send is NOT moved
+  out of the `tenant_session`, and the reason is the atomicity the surrounding code argues
+  for at length: the delivery record and the WhatsApp enqueue must land together, and the
+  dedupe check at the top of that transaction is what stops two concurrent runs both
+  sending. What the open transaction costs is one pooled connection out of sixteen, with
+  no row lock held, for the length of the send. What it used to cost was the event loop —
+  every job in the process, including the campaign tick hard rule 5's DNC deadline is
+  defined against. Those are not the same order of problem.
+- **P6.4** needed a second column, not just a fourth artefact.
+  `integrations.enqueue_events` writes one outbox row per SUBSCRIBED ACTIVE endpoint and
+  returns 0 when there are none — which is most tenants — so expecting `crm_fanout`
+  unconditionally would have re-driven every call on every tick forever, including a
+  billed extraction. `crm_fanout_owed` mirrors that endpoint predicate. The probe matches
+  the same outbox row `_already_enqueued` writes, by the same job name and the same `@>`
+  containment, because two spellings of one question is how a probe and a writer stop
+  agreeing.
 
 P1.2's alert is on `snapshot.billable_ready and snapshot.cost is None`, which is the
 discriminator that makes it signal rather than noise: a snapshot that is not YET billable

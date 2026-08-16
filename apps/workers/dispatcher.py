@@ -143,7 +143,14 @@ async def _callable_tenants() -> list[UUID]:
     """
     async with untenanted_session() as session:
         rows = (
-            (await session.execute(text("SELECT DISTINCT tenant_id FROM engine_agent_routes")))
+            (
+                await session.execute(
+                    # ORDER BY for `retention._due_tenants`' reason: without it the order
+                    # is planner-dependent, so which tenants a partially failing sweep
+                    # reached changed from tick to tick.
+                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY tenant_id")
+                )
+            )
             .scalars()
             .all()
         )
@@ -199,22 +206,47 @@ async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
     one the reconciliation poller took — resolve the tenants, then ask each of them —
     and NOT an RLS exemption, which would trade a blind alarm for a blind spot in
     isolation.
+
+    ONE TENANT'S FAILURE IS NOT THE TICK'S (P6.2). This loop had no `try`, so a single
+    tenant's database error ended the alarm's sweep for every tenant after it — and the
+    result was not a red job but a QUIETER one: the alert fires on the total, so an
+    aborted sweep produces a smaller number, or none, and reads exactly like a healthy
+    fleet. An alarm that fails towards silence is worse than no alarm. Same shape as
+    `retention.sweep_tenants` and `qa_sampling.draw_for_tenants`, and the unreached count
+    rides the alert body so the number it quotes can be read for what it is.
     """
     total = 0
     tenants_affected = 0
-    for tenant_id in await _callable_tenants():
-        async with tenant_session(tenant_id) as session:
-            stalled = await _count_stalled(session)
+    unreached = 0
+    tenants = await _callable_tenants()
+    for tenant_id in tenants:
+        try:
+            async with tenant_session(tenant_id) as session:
+                stalled = await _count_stalled(session)
+        except Exception:
+            # The id, never the exception's payload: a psycopg error string can quote the
+            # row that broke it, and these rows are calls (hard rule 6).
+            log.exception("stall_probe_failed", extra={"tenant_id": str(tenant_id)})
+            unreached += 1
+            continue
         if stalled:
             total += stalled
             tenants_affected += 1
-    if total:
+    if total or unreached:
         alert(
             "WORKER_STALL",
             "postcall_pipeline_stalled",
-            detail=f"{total} calls across {tenants_affected} tenants",
+            detail=(
+                f"{total} calls across {tenants_affected} tenants"
+                + (
+                    f"; {unreached} of {len(tenants)} tenant(s) could not be probed, so "
+                    "the count is a floor rather than a total"
+                    if unreached
+                    else ""
+                )
+            ),
         )
-    return f"stalled={total}"
+    return f"stalled={total} unreached={unreached}"
 
 
 __all__ = ["dispatch_outbox", "report_stalled_pipeline", "sweep_expired"]

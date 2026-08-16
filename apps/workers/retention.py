@@ -320,7 +320,17 @@ async def _due_tenants() -> list[UUID]:
     """
     async with untenanted_session() as session:
         rows = (
-            (await session.execute(text("SELECT DISTINCT tenant_id FROM engine_agent_routes")))
+            (
+                await session.execute(
+                    # ORDER BY, and it is not cosmetic (P6.2). Without it the order is
+                    # planner-dependent, so WHICH tenants a sweep reaches before it hits
+                    # its row budget — or, before the isolation below existed, before an
+                    # error aborted the rest — varied night to night for reasons nobody
+                    # could reproduce. A stable order makes "tenant X was not swept" a
+                    # question with an answer.
+                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY tenant_id")
+                )
+            )
             .scalars()
             .all()
         )
@@ -372,25 +382,75 @@ FROM retention_policies r
 
 
 async def apply_retention(ctx: dict[str, Any]) -> str:
-    """Nightly. Sweeps the tenants that can hold data, under each one's own policies."""
+    """Nightly. Sweeps the tenants that can hold data, under each one's own policies.
+
+    **THIS IS A LEGAL OBLIGATION ON A 24-HOUR CADENCE, and it used to fail in silence**
+    (P6.2). Three things compounded: `max_tries` defaulted to 1, one tenant's error
+    aborted every tenant after it, and the failure raised something that is not
+    `arq.Retry` — so arq finished the job after one attempt with a `logger.exception` and
+    nothing alerted. A deploy at 03:40 UTC or one bad row and the night's sweep was gone
+    until tomorrow, with the only trace a stack trace in a log stream.
+
+    All three are closed here and in `settings.CRON_JOBS`. What this function now
+    guarantees is that a tenant that fails is ONE tenant that failed: the sweep continues,
+    the count comes back, and a non-zero count alerts.
+    """
     tenants = await _due_tenants()
     totals = await sweep_tenants(tenants)
     log.info("retention_sweep", extra={**totals, "tenants_scanned": len(tenants)})
+    failed = totals.get("tenants_failed", 0)
+    if failed:
+        # AFTER the sweep, not instead of it. The tick did what it could for everybody
+        # else, and this says how much of tonight's obligation went undischarged — which
+        # is the number an operator needs and the one a `logger.exception` per tenant
+        # cannot give them. Counts and no ids: the failing tenant's id is already in the
+        # per-tenant log line, and an alert body is forwarded further than a log is.
+        alert(
+            "WORKER_TERMINAL",
+            "retention_sweep_incomplete",
+            detail=(
+                f"{failed} of {len(tenants)} tenant(s) did not complete tonight's "
+                "retention sweep. Their expired recordings, transcripts, leads and "
+                "extractions are still held; the sweep runs again in 24 hours and will "
+                "retry them, so this is a deadline slipping rather than data lost."
+            ),
+        )
     return json.dumps(totals)
 
 
 async def sweep_tenants(tenant_ids: Iterable[UUID]) -> dict[str, int]:
     """One tick over an explicit tenant list. Split out from `apply_retention` so the
-    resolution step and the sweeping step can be exercised — and costed — separately."""
+    resolution step and the sweeping step can be exercised — and costed — separately.
+
+    **A FAILED TENANT DOES NOT FAIL THE TICK** (P6.2). This loop had no `try`, so a single
+    tenant's database error — a lock timeout, a storage refusal, one malformed policy row
+    — ended the sweep for every tenant that had not been reached yet. With no `ORDER BY`
+    on the tenant list, which ones those were changed from night to night.
+
+    The shape is `qa_sampling.draw_for_tenants`', which was split out of its own job to
+    match this function and got the isolation this one did not: same try, same counter,
+    same rule that the id goes in the log and the exception's payload does not — a psycopg
+    error string can quote the row that broke it, and these rows name calls (hard rule 6).
+    """
     totals = dict(_EMPTY_TOTALS)
     swept = 0
+    failed = 0
+    scanned = 0
     for tenant_id in tenant_ids:
-        counts = await sweep_tenant(tenant_id)
+        scanned += 1
+        try:
+            counts = await sweep_tenant(tenant_id)
+        except Exception:  # one tenant's failure is not the tick's — see the docstring
+            log.exception("retention_sweep_tenant_failed", extra={"tenant_id": str(tenant_id)})
+            failed += 1
+            continue
         if any(counts.values()):
             swept += 1
         for key, value in counts.items():
             totals[key] += value
     totals["tenants_swept"] = swept
+    totals["tenants_failed"] = failed
+    totals["tenants_scanned"] = scanned
     return totals
 
 
