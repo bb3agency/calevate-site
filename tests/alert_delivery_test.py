@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.api.core import alerting
+from apps.api.core import alert_admission, alerting
 from apps.api.core.settings import get_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -167,17 +167,43 @@ def test_repeat_occurrences_inside_the_window_collapse_into_one_delivery(
     assert "outbound_webhook_exhausted" in message["subject"]
 
 
+def _freeze_clock(monkeypatch: pytest.MonkeyPatch, start: float = 1_000.0) -> dict[str, float]:
+    """Hold BOTH alerting clocks still, and move them together.
+
+    There are two, and they are different on purpose: `alerting._now` is
+    `time.monotonic()` (per-process, seconds) and `alert_admission._now_ms` is
+    `time.time()` in milliseconds, because the shared window is compared across processes
+    and a monotonic epoch is meaningless there (D-160).
+
+    They are patched TOGETHER from one dict because patching one is a silent wrong answer,
+    not a failure: a test that advanced only the local clock past the 15-minute window
+    would watch the alarm stay suppressed by the Redis marker and read as "re-notification
+    is broken". Returning the dict — rather than exposing two setters — makes advancing
+    one without the other impossible to express.
+    """
+    clock = {"t": start}
+    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+    monkeypatch.setattr(alert_admission, "_now_ms", lambda: clock["t"] * 1000.0)
+    return clock
+
+
 def test_the_next_delivery_after_the_window_reports_what_was_suppressed(
     transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Alertmanager's `repeat_interval` shape: the alarm re-notifies once the window
     passes, and the count of what was swallowed is part of the message — otherwise
     "still broken, 199 times" reads identically to "happened once"."""
-    clock = {"t": 1_000.0}
-    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+    clock = _freeze_clock(monkeypatch)
 
     for _ in range(200):
         _fire()
+    # DRAIN BEFORE MOVING TIME. The two windows are stamped at different moments: the
+    # in-process one when `alert()` is called, the shared one when the delivery thread
+    # actually sends (D-160) — "a human has been told" is true at send time, not at queue
+    # time. So a clock advanced while a notice is still queued lands BOTH stamps on the
+    # same instant and the second alert reads as a repeat. Flushing first makes the test
+    # assert the window rather than the scheduler.
+    assert alerting.flush_alerts(timeout=5.0)
     clock["t"] += alerting.ALERT_REPEAT_INTERVAL_S + 1
     _fire()
 
@@ -192,8 +218,7 @@ def test_a_storm_of_distinct_codes_is_capped_by_the_rate_limit(
     """Dedupe alone does not survive a bad deploy: 500 DIFFERENT codes are 500
     different fingerprints. The token bucket is the second bound, and what it drops is
     counted and reported rather than vanishing."""
-    clock = {"t": 1_000.0}
-    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+    clock = _freeze_clock(monkeypatch)
 
     for index in range(500):
         _fire(code=f"code_{index}")
@@ -223,8 +248,7 @@ def test_the_bucket_names_the_alarms_it_ate(
     empty the burst, and the refill is one token every three minutes. The codes have to
     ride along.
     """
-    clock = {"t": 1_000.0}
-    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+    clock = _freeze_clock(monkeypatch)
 
     for index in range(alerting.ALERT_BURST):
         _fire(code=f"attacker_probe_{index}")  # drains the bucket
@@ -252,11 +276,17 @@ def test_the_named_dropped_codes_are_bounded(
     """The dict that holds them is a module global and the thing that fills it is a
     storm — unbounded here would be the memory leak the queue cap already refuses. The
     TOTAL is still reported for everything the list could not name."""
-    clock = {"t": 1_000.0}
-    monkeypatch.setattr(alerting, "_now", lambda: clock["t"])
+    clock = _freeze_clock(monkeypatch)
 
     for index in range(200):
         _fire(code=f"code_{index}")
+    # DRAIN BEFORE MOVING TIME. The two windows are stamped at different moments: the
+    # in-process one when `alert()` is called, the shared one when the delivery thread
+    # actually sends (D-160) — "a human has been told" is true at send time, not at queue
+    # time. So a clock advanced while a notice is still queued lands BOTH stamps on the
+    # same instant and the second alert reads as a repeat. Flushing first makes the test
+    # assert the window rather than the scheduler.
+    assert alerting.flush_alerts(timeout=5.0)
 
     clock["t"] += 3600.0 / alerting.ALERT_BUDGET_PER_HOUR + 1
     _fire(code="after")
