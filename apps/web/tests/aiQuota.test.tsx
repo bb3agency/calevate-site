@@ -171,6 +171,26 @@ describe("at the ceiling", () => {
     expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
   });
 
+  it("says the month is nearly over rather than offering a block that expires with it", async () => {
+    // `month_ending` is the server refusing to sell the last hour of an IST month: the
+    // block does not carry over, so ₹500 for ten minutes is arithmetically the same
+    // bargain the screen describes and not the same bargain at all. The refusal exists
+    // on the POST (`ai_extra_month_ending`); this is it said BEFORE the click, which is
+    // the whole reason `extra_unavailable_reason` is published at all.
+    await renderClientPage(<AiAssistPage />, {
+      "/v1/me": ME,
+      "/v1/billing/ai-quota": quota({
+        state: "ceiling_reached",
+        extra_available: false,
+        extra_unavailable_reason: "month_ending",
+      }),
+    });
+
+    await screen.findByText(/This month is nearly over/);
+    expect(screen.getByText(/comes back within the hour/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
+  });
+
   it("disables the offer for a person who cannot spend, with the reason beside it", async () => {
     await renderClientPage(<AiAssistPage />, {
       "/v1/me": OWNER_NO_MANAGE,

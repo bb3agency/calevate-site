@@ -201,12 +201,15 @@ decision). The `reason` is not a column — it travels into the audit log stream
 is what answers "on whose instruction" a year later, so write the ticket reference.
 The response is counts only.
 
-Lifting one is the mirror, and it needs its own confirmation so a header captured for a
-suppression cannot release one:
+Lifting one is the mirror, and it needs its own confirmation — a different verb from the
+suppression, and **carrying the id of the row being released**, so that neither a header
+captured for a suppression nor one captured for a different row can lift this one. Retype
+the suffix for every entry; a curl re-run with a new `{entry_id}` and the old header is
+refused:
 
 ```
 DELETE /v1/ops/dnc/global/{entry_id}
-X-Confirm-Action: release_number_platform_wide
+X-Confirm-Action: release_number_platform_wide:{entry_id}
 ```
 
 `GET /v1/ops/dnc/global` lists them, masked. Both writes land an `audit_log` entry

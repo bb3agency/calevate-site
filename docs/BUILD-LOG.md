@@ -125,7 +125,10 @@ three fields needed to dedupe). `webhook_routes.py` verifies → dedupes (Redis 
 - `extraction.py` — Sarvam (D-36; and per D-127 G-7 the permanent runner of the first
   post-call extraction, because that pass reads the raw transcript) / Offline
   deterministic / `VertexGeminiExtractor` on Vertex AI `asia-south1` for the
-  user-triggered assist over the REDACTED copy. `GEMINI_EXTRACTION_DEFAULT is False`.
+  user-triggered assist over the REDACTED copy. `GEMINI_EXTRACTION_DEFAULT is False`, and
+  `GEMINI_MODEL_CONFIRMED_IN_REGION is False` — a 404 on the first real call is the answer
+  to the one vendor fact nobody here could read, and the client logs it as
+  `vertex_model_not_served_in_region` rather than as `HTTPStatusError` (D-142).
   No silent failover between providers — and `assist_capability()` is the one place that
   decides between a DISCLOSED Sarvam fallback and a refusal with a remediation (G-6).
 - `pipeline.py` — `ingest_engine_event` (re-fetches the truth, resolves tenant, upserts

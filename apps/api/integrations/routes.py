@@ -363,7 +363,13 @@ async def create_endpoint(
             "kind": service.WEBHOOK_KIND,
             "host": destination.host,
             "port": destination.port,
-            "events": list(payload.events),
+            # JOINED, not a list, and for the reason `core.health` joins its missing-key
+            # names: `logging.redact_mapping` renders ANY list extra as "[N items]", so
+            # this field reached the audit stream as the COUNT of the events subscribed
+            # and never one of their names. "Who pointed our leads outward, and where" is
+            # the question this row exists to answer, and half of "where" is which events
+            # start flowing. Sorted so two identical registrations record identically.
+            "events": ",".join(sorted(payload.events)),
         },
     )
     return CreateEndpointOut(
@@ -531,8 +537,19 @@ async def create_sheets_endpoint(
         ip=client_request_ip(request),
         summary={
             "kind": service.SHEET_KIND,
+            # Left as-is deliberately. `redact_mapping` masks any run of nine or more
+            # digits as `[phone]`, which a Drive id could in principle trip — measured at
+            # roughly one registration in a million, since these are 44 characters from a
+            # 64-symbol alphabet. Re-judged rather than inherited: it is acceptable
+            # because this row is not the only copy. `object_id` names the endpoint,
+            # `outbound_webhooks.url` holds the id in full, and no route updates that
+            # column — so an investigator who reads `[phone]` here is one join away from
+            # the answer. Loosening the shared masker to protect a field that is already
+            # recoverable would trade a certainty (no phone number in a log) for a
+            # convenience.
             "spreadsheet_id": spreadsheet_id,
-            "events": list(payload.events),
+            # Joined for the reason the webhook route's is — see there.
+            "events": ",".join(sorted(payload.events)),
         },
     )
     return SheetEndpointOut(

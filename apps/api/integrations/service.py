@@ -537,7 +537,7 @@ async def deliver(
     the retry ladder would only delay the alert.
     """
     try:
-        await assert_public_http_url(url)
+        vetted = await assert_public_http_url(url)
     except EgressRefusedError as exc:
         # `exc.code` is one of OUR authored refusal codes (`record_delivery`'s rule for
         # `reason`), never vendor prose and never anything off the payload.
@@ -556,7 +556,11 @@ async def deliver(
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=DELIVERY_TIMEOUT_S, follow_redirects=False)
     try:
-        response = await http.post(url, content=body, headers=headers, follow_redirects=False)
+        # `vetted.url`, not `url`: the guard parsed and judged the trimmed string, and
+        # posting to the untrimmed one would send somewhere it never looked at.
+        response = await http.post(
+            vetted.url, content=body, headers=headers, follow_redirects=False
+        )
         ok = 200 <= response.status_code < 300
         return DeliveryResult(
             delivered=ok,

@@ -778,6 +778,63 @@ def _impersonation_slug(request: Request) -> str | None:
     return slug
 
 
+#: Set on the ASGI scope by the first dependency that resolves a principal for this
+#: request. See `_memoised_principal`.
+_PRINCIPAL_MEMO = "calevate_principal"
+
+
+def _memoised_principal(request: Request, realm: Realm) -> Principal | None:
+    """The principal an earlier dependency on THIS request already resolved — but only
+    if it is one this realm's resolver would itself have produced.
+
+    WHY A MEMO AND NOT FastAPI's DEPENDENCY CACHE. `requires()` calls `current_admin` /
+    `current_principal` DIRECTLY rather than through `Depends`, and it has to: the
+    permission it enforces is a closure argument, so the dependency FastAPI caches is
+    `requires._dep`, not the resolver inside it. A route carrying both
+    `Depends(requires(...))` and `Depends(tenant_of)` therefore reaches the resolver
+    through two different callables and resolves a principal TWICE — which is most
+    tenant-scoped routes in this app (`Session` → `db` → `tenant_of` → `current_any`).
+
+    WHAT THE SECOND RESOLUTION COST, measured rather than assumed (see
+    `tests/principal_resolution_test.py`): a second token verification, and for the
+    client realm a second `resolve_mirrored_user` (a query, and a call to Clerk's Backend
+    API when the mirror is behind) plus a second membership query. On the admin realm it
+    was worse — a second `admin_session` transaction, a second `admin_users` lookup, a
+    second directory lookup, a second `verify_grant`, and a SECOND ATTEMPT AT THE
+    `admin.impersonation_read` LEDGER ROW. That last one only ever produced one row
+    because the Redis dedupe marker absorbed the duplicate; when Redis is unavailable
+    `_record_impersonated_read` deliberately fails TOWARDS recording, so every
+    impersonated request wrote the D-22 page-view row twice, with the same grant, the
+    same instant, and nothing to tell an investigator they were one read.
+
+    D-131 patched the symptom it could see — the tenant rate-limit charge, memoised on
+    the same scope — and named the double resolution as the cause. This is the cause.
+
+    `request.scope` rather than `request.state`: the scope is the one object every
+    `Request` wrapper built for a request shares, and FastAPI builds several.
+
+    KEYED BY REALM so the memo can only return what the caller asked for. A client-realm
+    resolver never receives an admin principal, whatever order the dependencies ran in,
+    which keeps this an optimisation rather than a second place realms are decided.
+
+    WHAT IS GIVEN UP, stated because it is a real property: the second within-request
+    re-read of `is_active` / membership / `admin_users`. §7 requires deactivation to take
+    effect on the next REQUEST, not twice inside one, and nothing observes the principal
+    between the two resolutions.
+    """
+    principal = request.scope.get(_PRINCIPAL_MEMO)
+    if isinstance(principal, Principal) and principal.realm == realm:
+        return principal
+    return None
+
+
+def _remember_principal(request: Request, principal: Principal) -> Principal:
+    """Publish a freshly resolved principal to the rest of the request."""
+    request.scope[_PRINCIPAL_MEMO] = principal
+    principal_var.set(principal)
+    return principal
+
+
 async def current_principal(request: Request) -> Principal:
     """The client-realm dependency. Admin routes use `current_admin` instead.
 
@@ -811,9 +868,13 @@ async def current_principal(request: Request) -> Principal:
                 "or ask someone signed in to the account to do it."
             ),
         )
+    memoised = _memoised_principal(request, "client")
+    if memoised is not None:
+        return memoised
     verified = await verify_token(_bearer(request), "client")
-    principal = await _load_client_principal(verified, request.headers.get(ORG_HEADER))
-    principal_var.set(principal)
+    principal = _remember_principal(
+        request, await _load_client_principal(verified, request.headers.get(ORG_HEADER))
+    )
     await charge_tenant_quota(request, principal)
     return principal
 
@@ -832,13 +893,15 @@ async def charge_tenant_quota(request: Request, principal: Principal) -> None:
     unauthenticated request and exhaust that tenant's bucket. It is charged at the first
     instant the tenant is a verified fact: the resolved principal.
 
-    WHY IT IS MEMOISED ON THE SCOPE. `requires()` calls `current_principal`/`current_admin`
-    DIRECTLY rather than through `Depends`, so FastAPI's per-request dependency cache does
-    not cover it: a route carrying both `Depends(requires(...))` and `Depends(tenant_of)`
-    resolves a principal twice. Charging twice would make the effective limit depend on
-    which dependencies a route happens to declare, which is the same class of defect as
-    the per-process `hash()` seed it replaces — a limiter that does not mean what it says.
-    `request.scope` is the one object shared by every `Request` wrapper for a request.
+    WHY IT IS MEMOISED ON THE SCOPE, AND HOW THAT RELATES TO `_memoised_principal`.
+    They are two invariants, not one guard written twice. `_memoised_principal` makes the
+    principal RESOLVE once per request; this makes the tenant budget be SPENT once per
+    request, which is the narrower promise and the one that has to survive a second
+    caller of this function appearing (it is exported, and a route may charge explicitly).
+    Charging twice would make the effective limit depend on which dependencies a route
+    happens to declare — the same class of defect as the per-process `hash()` seed D-131
+    replaced: a limiter that does not mean what it says. `request.scope` is the one object
+    shared by every `Request` wrapper for a request.
 
     Fails open on a Redis outage (`ratelimit.consume`), like every other dimension.
     """
@@ -929,6 +992,11 @@ async def current_admin(request: Request) -> Principal:
     always good for. Refusing it would be a rule with no threat behind it, breaking any
     caller that attaches the header uniformly.
     """
+    memoised = _memoised_principal(request, "admin")
+    if memoised is not None:
+        # Including the `admin.impersonation_read` row: one REQUEST is one presence in
+        # the ledger, not one per dependency that happened to ask who the caller is.
+        return memoised
     verified = await verify_token(_bearer(request), "admin")
     principal = await _load_admin_principal(
         verified,
@@ -937,7 +1005,7 @@ async def current_admin(request: Request) -> Principal:
         ip=client_request_ip(request),
         route=_route_template(request),
     )
-    principal_var.set(principal)
+    _remember_principal(request, principal)
     # A no-op on the admin surface itself (`admin_api` declares no tenant dimension — an
     # operator acting on a tenant must not be throttled by that tenant's own dashboard
     # traffic), and a real charge when a view-as session reads a CLIENT route, where the

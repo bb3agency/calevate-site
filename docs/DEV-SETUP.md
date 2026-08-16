@@ -12,6 +12,23 @@ D-127 disqualifies for having no data-residency guarantee), Clerk (two applicati
 calevate-admin, calevate-client), Cloudflare R2 or DO Spaces (local dev uses MinIO
 instead).
 
+> ⚠ **READ BEFORE YOU SPEND AN HOUR ON THE GCP CONSOLE.**
+> `GEMINI_MODEL_CONFIRMED_IN_REGION is False` — nobody has verified that `asia-south1`
+> serves `calevate_shared.engine.GEMINI_DEFAULT_LLM`, and as of 16 Aug 2026 the public
+> evidence leans the other way: the Gemini 3.x family is reported on the GLOBAL endpoint
+> and the `us`/`eu` multi-region endpoints, and what search places in Mumbai is the 2.5
+> class. **The first `generateContent` you make is the test.** A 404 is the answer "no",
+> and the worker logs `vertex_model_not_served_in_region` naming the region, the model
+> and this flag rather than the bare word `HTTPStatusError`.
+>
+> When it is a 404, change `GEMINI_DEFAULT_LLM` to a model `asia-south1` does serve and
+> flip this flag. **Do NOT widen the region and do NOT reach for `locations/global`** —
+> Google's own words on the global endpoint are that you cannot control or know which
+> region processes the request, which is the sentence D-127 disqualifies AI Studio over.
+> `scripts/check_model_residency.py` will refuse the commit either way.
+> Nothing is blocked meanwhile: `assist_capability()` answers `provider_unavailable` and
+> the disclosed Sarvam fallback carries the dashboard assistant (OPERATIONS §2).
+
 ## 2. Bootstrap
 
 ```bash

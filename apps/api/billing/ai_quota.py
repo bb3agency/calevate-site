@@ -69,23 +69,38 @@ When it is spent the feature blocks again and the client is told the month is fi
 not offered a second modal. So the worst case for a client who mis-clicks is one block,
 and the worst case for US is the included quota plus one block per tenant.
 
+AND NOT IN THE LAST HOUR OF ONE (`LAST_SALEABLE_MINUTES`). The block expires with the
+month, so on the 31st at 23:59 it is the same bargain arithmetically and not the same
+bargain at all — and the same guard closes a race in which the debit lands under a month
+key the next read no longer looks for.
+
 **Prepaid tiers only** (`self_serve`, `trial`), which is the split
 `billing.service.charge_for_call` and the top-up panel already make: a managed client is
 invoiced against a retainer, their wallet is not the mechanism that pays for anything
 (`usage_summary`: "their wallet must not shorten their runway any more than it blocks a
 dial"), and this product has no way to put an ad-hoc charge on a DERIVED invoice without
 inventing an invoice line nobody priced. A managed client at the ceiling is therefore
-refused with their account manager named — bounded, visible, and closed by a founder
-pricing AI overage on a retainer, not by code.
+told the reset date and offered a CONVERSATION with their account manager — not an
+add-on, because the add-on does not exist. Closed by a founder pricing AI overage on a
+retainer, not by code.
+
+THE METERING KEY IS OURS (`new_assist_ref`, `ASSIST_REF_PREFIX`). The writer's
+idempotency is a switch that turns metering OFF, so a key a request could carry in is a
+way to spend our credential for free; double-click protection belongs at the endpoint and
+before the model is called.
 
 Money is NUMERIC INR throughout (hard rule 7). No float is constructed in this module,
-and every rupee that reaches a response goes through `billing.service.to_paise`.
+every rupee that reaches a response goes through `billing.service.to_paise`, and the
+per-token prices this all rests on are in ONE table with their source
+(`ASSIST_LIST_PRICE_INR_PER_KTOK`) rather than typed into four unfalsifiable constants.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -94,7 +109,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
-from apps.api.billing.plans import parse_billing_month
+from apps.api.billing.plans import ist_month_end, parse_billing_month
 from apps.api.billing.service import (
     _IST_MONTH,
     current_billing_month,
@@ -104,6 +119,7 @@ from apps.api.billing.service import (
     record_entry,
     to_paise,
 )
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -130,16 +146,95 @@ AI_QUOTA_INR: Final[dict[str, Decimal]] = {
     "trial": Decimal("25.00"),
 }
 
+#: One thousand tokens — the unit `ai_assist_ktok_*` counts, because a per-token price is
+#: not representable in NUMERIC(12,4) (`billing/models.py::AI_ASSIST_UNIT_TYPES`).
+TOKENS_PER_KTOK: Final = Decimal("1000")
+
+
+def ktok(tokens: int) -> Decimal:
+    """Tokens as thousands, exactly. `Decimal` division by a `Decimal` — never `/ 1000.0`,
+    which would put a metering quantity through a binary float."""
+    return Decimal(tokens) / TOKENS_PER_KTOK
+
+
+#: THE PUBLISHED LIST PRICE of the assist model, in rupees per THOUSAND tokens — the
+#: unit `ai_assist_ktok_*` counts (`billing/models.py::AI_ASSIST_UNIT_TYPES`).
+#:
+#: `gemini-3.1-flash-lite` (D-134's `GEMINI_DEFAULT_LLM`) lists at **$0.25 / $1.50 per 1M
+#: tokens** in/out; at ₹95.66 to the dollar (RBI reference, 16 Aug 2026) that is ₹0.0239
+#: and ₹0.1435 per 1,000 tokens. Both figures are 4dp because `unit_cost_paid` is
+#: NUMERIC(12,4) and a price this ledger cannot store is a price it cannot honour.
+#:
+#: ⚠ **A LIST PRICE IS A VENDOR CLAIM, AND `docs.cloud.google.com` is refused by this
+#: environment's egress proxy** (the same limit D-134 records against the model's GA
+#: date), so these rest on independent search summaries agreeing rather than on the
+#: price page. They are the ESTIMATE's input and nothing else: the ledger stores what a
+#: caller says it actually paid, and the day a GCP invoice exists it is the truth — an
+#: OPERATIONS §2 gate on the day the project exists, not an engineering unknown.
+#:
+#: ⚠ **A 1 Jan 2027 price cliff is already known** on the Flash tier. When it lands this
+#: table moves and `AI_ASSIST_NOMINAL_INR` moves with it, which is the entire reason the
+#: nominal is derived below rather than typed.
+ASSIST_LIST_PRICE_INR_PER_KTOK: Final[dict[str, Decimal]] = {
+    "in": Decimal("0.0239"),
+    "out": Decimal("0.1435"),
+}
+
+#: The reference assist this estimate is built on: tokens in, tokens out. Deliberately
+#: generous on BOTH legs. Input carries the response schema as well as the prompt and the
+#: transcript (`build_vertex_response_schema` says so in its own docstring — a 30-field
+#: schema with descriptions is not free), and OUTPUT carries Gemini 3's thinking tokens,
+#: which are billed as output and are the leg a 2.5-era estimate would have missed
+#: entirely.
+REFERENCE_ASSIST_TOKENS: Final = {"in": 5_000, "out": 1_500}
+
+#: How much dearer than the reference assist the published count assumes an assist is.
+#: The error has a CHEAP direction and an expensive one and they are not symmetric: too
+#: LOW a nominal prints "about 555 assists" for a month that turns out to hold 300, which
+#: is a promise on a screen; too high prints 200 for a month that holds 550, which is a
+#: pleasant surprise. So the margin is over-statement, and it is a factor rather than a
+#: rounding so that it survives a price change.
+NOMINAL_ASSIST_MARGIN: Final = Decimal("1.5")
+
+
+def reference_assist_cost_inr() -> Decimal:
+    """What one REFERENCE assist costs at list price, exactly. Not a charge — the input
+    to the published estimate, and the number `tests/ai_quota_test.py` holds every
+    product constant in this module to within an order of magnitude of."""
+    return (
+        ktok(REFERENCE_ASSIST_TOKENS["in"]) * ASSIST_LIST_PRICE_INR_PER_KTOK["in"]
+        + ktok(REFERENCE_ASSIST_TOKENS["out"]) * ASSIST_LIST_PRICE_INR_PER_KTOK["out"]
+    )
+
+
 #: The reference cost of one assist, used ONLY to turn a rupee ceiling into the "about N
 #: assists" a person can plan around. It is not a price, nothing is charged at it, and no
 #: rupee figure on any screen is derived from it — the estimate it feeds is rendered with
-#: the word "about" beside it. Grounded on a Flash-Lite-class call of a few thousand
-#: tokens in and a few hundred out; the real per-assist cost is metered per row.
-AI_ASSIST_NOMINAL_INR: Final = Decimal("0.50")
+#: the word "about" beside it.
+#:
+#: DERIVED, NOT TYPED, and that is the fix rather than the value: it shipped as a bare
+#: `Decimal("0.50")` whose only justification was the phrase "a few thousand tokens in
+#: and a few hundred out", which is unfalsifiable — it is equally consistent with ₹0.05
+#: and ₹5.00, and a ceiling wrong by 100 times is a product defect nobody would have caught by
+#: reading it. It now comes out of the published price and a stated reference assist, so
+#: the arithmetic is on the page and the number moves when the price does. (At today's
+#: numbers it evaluates to ₹0.50 — the original was sound, and now it is checkable.)
+AI_ASSIST_NOMINAL_INR: Final = to_paise(reference_assist_cost_inr() * NOMINAL_ASSIST_MARGIN)
 
-#: What the modal offers past the ceiling, debited once per tenant-month. Chosen to be
-#: worth buying (two blocks' worth of assists on the smallest tier) and small enough that
-#: a mis-click is a bad afternoon rather than a dispute.
+#: What the modal offers past the ceiling, debited once per tenant-month.
+#:
+#: WHAT IT ACTUALLY BUYS, stated because the note here used to say "two blocks' worth of
+#: assists on the smallest tier" and that is not a description of any quantity: at the
+#: nominal above it is about 1,000 assists — five times a `self_serve` month's whole
+#: allowance and twenty times a `trial` one. So it is not a small top-up on the small
+#: tiers, and it comes out of the CALLING credit, which is the balance that dials.
+#:
+#: ⚠ **A trial tenant can therefore convert twenty months of AI allowance out of the
+#: credit they need to make calls, in one click.** `record_entry(allow_negative=False)`
+#: stops the wallet going under and the modal states the amount, so nothing here is
+#: hidden or unbounded — but the size of the block relative to the smallest tier is a
+#: PRICE, and a price is the founder's. It is left where they set it rather than quietly
+#: scaled per tier by an agent; what is fixed here is the claim about it.
 AI_OVERAGE_BLOCK_INR: Final = Decimal("500.00")
 
 #: The brake on OUR key, across every tenant, per IST billing month. Independent of every
@@ -151,11 +246,26 @@ AI_OVERAGE_BLOCK_INR: Final = Decimal("500.00")
 #: month rolls over, and before that ONLY by raising this constant — a code change with a
 #: review. There is deliberately no button. A spend brake a console can lift is a spend
 #: brake, and the run that tripped it is exactly the run nobody wants a tired person
-#: waving through; when it fires, every refusal is a 503 and this repo's error ladder
-#: already alerts on 5xx with a `failure_stage`, so an operator learns about it without a
-#: screen of its own. What a released brake costs is bounded by the same constant on the
+#: waving through. What a released brake costs is bounded by the same constant on the
 #: next tick, which is not true of a switch.
 PLATFORM_AI_BRAKE_INR: Final = Decimal("25000.00")
+
+#: How full the month may get before an operator is told, as a fraction of the brake.
+#:
+#: THE BRAKE USED TO ANNOUNCE ITSELF ONLY BY REFUSING SOMEBODY. That claim was checked
+#: and it is true as far as it goes — `require_ai_assist` raises `kind="transient"`,
+#: which `core/errors.install_error_handlers` turns into a 503 and an `alert()` — but it
+#: is REACTIVE twice over: the first operator signal is a client already being refused,
+#: and it never fires at all on a quiet weekend when the spend is a runaway worker rather
+#: than a person clicking. The number an operator actually needs is "how close are we",
+#: and nothing anywhere read `platform_ai_spend`.
+#:
+#: So the WRITER announces it, on the bump that crosses the line, using the counter's own
+#: returned total: crossed-exactly-once needs no extra state and no second table, because
+#: "was it under before and over after" is a fact the UPDATE already knows. At 80% there
+#: is a fifth of the month's budget left to investigate in, which is the difference
+#: between an operator with a decision and an operator with an incident.
+PLATFORM_BRAKE_WARN_AT: Final = Decimal("0.80")
 
 #: The `credit_ledger.ref` namespace for the one overage row per tenant-month. `reason`
 #: is part of the key too (`find_entry_by_ref`), so this cannot collide with the call ids
@@ -167,16 +277,48 @@ OVERAGE_REF_PREFIX: Final = "ai_assist"
 OVERAGE_META_KIND: Final = "ai_assist_overage"
 ASSIST_META_KIND: Final = "ai_assist"
 
-#: One thousand tokens — the unit `ai_assist_ktok_*` counts, because a per-token price is
-#: not representable in NUMERIC(12,4) (`billing/models.py::AI_ASSIST_UNIT_TYPES`).
-TOKENS_PER_KTOK: Final = Decimal("1000")
-
 PREPAID_TIERS: Final = ("self_serve", "trial")
 
 QuotaState = Literal["within", "ceiling_reached", "exhausted", "platform_paused"]
 
 #: Why the extra block is not on offer. `None` means it IS.
-ExtraUnavailable = Literal["not_at_ceiling", "already_purchased", "not_prepaid", "platform_paused"]
+ExtraUnavailable = Literal[
+    "not_at_ceiling", "already_purchased", "not_prepaid", "platform_paused", "month_ending"
+]
+
+#: The refusal each reason produces when a caller posts anyway: (code, detail,
+#: remediation). ONE table, so "the screen never offers a purchase the route refuses" is a
+#: mapping a test can walk rather than a sentence in a docstring, and so the wording
+#: cannot drift between the reason and the refusal. Every entry ends by saying that
+#: nothing has been charged, because that is the first thing a person wants to know when
+#: a money dialog answers with an error.
+EXTRA_REFUSAL: Final[dict[str, tuple[str, str, str]]] = {
+    "platform_paused": (
+        "ai_paused_platform_wide",
+        "AI help is paused across Calevate right now, so there is nothing to add to. "
+        "Nothing has been charged.",
+        "Try again later, or ask your account manager for an update.",
+    ),
+    "month_ending": (
+        "ai_extra_month_ending",
+        "This month's AI help is about to reset, so there is no point adding to it now. "
+        "Nothing has been charged.",
+        "Wait for the new month to start — the included allowance comes back within the "
+        "hour, and it is larger than this.",
+    ),
+    "not_prepaid": (
+        "ai_extra_not_available",
+        "Extra AI help is not something this account can buy directly — it is billed "
+        "with your plan. Nothing has been charged.",
+        "Talk to your account manager to add more AI help this month.",
+    ),
+    "not_at_ceiling": (
+        "ai_quota_not_reached",
+        "This account still has included AI help left this month, so there is nothing to "
+        "add yet. Nothing has been charged.",
+        "Use the included allowance first; we will ask again at the limit.",
+    ),
+}
 
 
 def overage_ref(month: str) -> str:
@@ -218,6 +360,10 @@ class AiQuota:
     extra_purchased_inr: Decimal
     #: The platform-wide brake, which overrides everything below it.
     platform_paused: bool
+    #: Too little of this month is left to sell an allowance for it — a stored fact rather
+    #: than a property that reads the clock, so a quota object answers the same question
+    #: twice the same way and a test can construct the state it wants to assert about.
+    month_ending: bool = False
 
     @property
     def allowance_inr(self) -> Decimal:
@@ -252,19 +398,29 @@ class AiQuota:
 
     @property
     def extra_unavailable(self) -> ExtraUnavailable | None:
-        """Why the modal's button is not on offer — checked in the order the SERVER
-        refuses in, so the screen's explanation and the route's refusal cannot disagree.
+        """Why the modal's button is not on offer.
 
-        Published rather than left for the browser to infer from three other fields: a
+        Published rather than left for the browser to infer from four other fields: a
         client who cannot buy needs the reason, and a second copy of this precedence in
         TypeScript is a second place for it to drift.
+
+        THE GUARANTEE, stated precisely because the note here used to claim more than it
+        delivered ("checked in the order the SERVER refuses in") while ordering
+        `not_prepaid` ahead of `already_purchased` and `purchase_ai_overage` doing the
+        opposite: whenever this returns a reason OTHER than `already_purchased`,
+        `purchase_ai_overage` refuses with `EXTRA_REFUSAL_CODE[reason]`. The exception is
+        deliberate and is the one case that is not a refusal at all — a block already
+        bought is a REPLAY, so the purchase returns it and charges nothing rather than
+        raising. `tests/ai_quota_test.py` walks the mapping.
         """
         if self.platform_paused:
             return "platform_paused"
-        if self.plan_tier not in PREPAID_TIERS:
-            return "not_prepaid"
+        if self.month_ending:
+            return "month_ending"
         if self.extra_purchased_inr > 0:
             return "already_purchased"
+        if self.plan_tier not in PREPAID_TIERS:
+            return "not_prepaid"
         if not self.at_ceiling:
             return "not_at_ceiling"
         return None
@@ -327,6 +483,7 @@ async def read_ai_quota(
         requests_used=requests,
         extra_purchased_inr=extra,
         platform_paused=await platform_brake_tripped(session, month=period),
+        month_ending=month_is_ending(period),
     )
 
 
@@ -385,7 +542,52 @@ ON CONFLICT (month) DO UPDATE
    SET spend_inr = platform_ai_spend.spend_inr + EXCLUDED.spend_inr,
        requests  = platform_ai_spend.requests  + EXCLUDED.requests,
        updated_at = now()
+RETURNING spend_inr
 """
+
+
+def _announce_platform_headroom(*, month: str, spend_after: Decimal, added: Decimal) -> None:
+    """Tell an operator on the bump that CROSSES a line, and only then.
+
+    `spend_after - added` is the total before this assist, so "under before, over after"
+    is decided from the UPDATE's own return value — exactly-once per month with no second
+    table and no read-modify-write to race. Two lines, most-severe first, and a `break`
+    because one large assist can cross both and two alerts about one event is noise on a
+    phone at the moment it needs to be legible.
+
+    Never raises: `alert()` is documented not to, and a metered assist must not be undone
+    by a failure to talk about it.
+    """
+    spend_before = spend_after - added
+    for threshold, code, detail in (
+        (
+            PLATFORM_AI_BRAKE_INR,
+            "ai_platform_brake_tripped",
+            "Dashboard AI is now PAUSED for every tenant: this month's platform-wide AI "
+            "spend crossed the brake. Calls, campaigns and leads are unaffected. It "
+            "clears on the IST month roll; releasing it sooner is a code change to "
+            "PLATFORM_AI_BRAKE_INR.",
+        ),
+        (
+            PLATFORM_AI_BRAKE_INR * PLATFORM_BRAKE_WARN_AT,
+            "ai_platform_brake_near",
+            "Platform-wide dashboard-AI spend passed 80% of this month's brake. At 100% "
+            "AI help stops for every tenant. Check for a tenant or a loop spending "
+            "unusually before it does.",
+        ),
+    ):
+        if spend_before < threshold <= spend_after:
+            alert(
+                "CORE_LOGIC",
+                code,
+                detail=detail,
+                # Rupees and a month. No tenant, because the tenant whose assist happened
+                # to cross the line is not the finding — the month's total is.
+                month=month,
+                spend_inr=str(to_paise(spend_after)),
+                brake_inr=str(to_paise(PLATFORM_AI_BRAKE_INR)),
+            )
+            break
 
 
 # --- metering an assist -----------------------------------------------------------
@@ -405,34 +607,78 @@ ON CONFLICT (month) DO UPDATE
 # which must be a no-op. `RETURNING id` is what tells the two apart at the call site.
 INDEX_PREDICATE: Final = "ref IS NOT NULL AND call_id IS NULL"
 
+# `RETURNING` carries the ROW'S OWN billing month, not just its id, and that is a
+# two-clock fix rather than a convenience. `occurred_at` is the DATABASE's `now()`;
+# `current_billing_month()` is the API PROCESS's `datetime.now(UTC)`. Those are two
+# clocks, and near an IST month boundary they disagree — not hypothetically, but by
+# whatever NTP skew exists between an app container and its database, which is routinely
+# seconds and is unbounded when one of them drifts. The counter that the platform brake
+# reads would then be incremented against a month the `usage_events` rows are not in, and
+# the two would never reconcile: the brake would guard a month that had spent nothing
+# while the month that actually spent it went unguarded. One clock — Postgres's, the one
+# the row is stamped with — and the disagreement is unrepresentable.
 _INSERT_USAGE = f"""
 INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, unit_cost_paid,
                           ref, occurred_at, meta, created_at)
 VALUES (:id, :tid, NULL, :unit, :qty, :cost, :ref, now(), CAST(:meta AS jsonb), now())
 ON CONFLICT (tenant_id, unit_type, ref) WHERE {INDEX_PREDICATE}
 DO NOTHING
-RETURNING id
+RETURNING id, {_IST_MONTH}
 """
+
+
+#: The `usage_events.ref` namespace this module owns, and the shape it will accept.
+#:
+#: **THE REF IS THE METER'S OFF SWITCH, SO IT IS NOT THE CLIENT'S TO CHOOSE.** The insert
+#: below is `ON CONFLICT … DO NOTHING`: a `ref` that has been seen before meters NOTHING,
+#: moves no quota and moves no platform counter. That is exactly right for a retry of one
+#: server-side attempt and exactly wrong for anything a caller can pick — a browser
+#: allowed to send its own key sends `"1"` forever, and every assist after the first runs
+#: on Calevate's credential, past a ceiling that can no longer move, invisible to the
+#: brake. `billing/models.py` used to describe this as "the caller mints one `ref` per
+#: request", which is true and ambiguous about which caller; this makes it structural.
+#:
+#: So the writer owns the namespace and will only accept `assist:<uuid>` from
+#: `new_assist_ref()`. Two things follow that a bare prefix check would not give:
+#:
+#: - a value from ANOTHER feature's key space cannot be passed in by mistake — the
+#:   column is shared with nothing today, but `ref` is a generic column on a shared
+#:   ledger and the next writer of it is a matter of time; and
+#: - a caller cannot pass a value it received from a browser, because a browser has no
+#:   way to produce one that has not already been spent.
+#:
+#: WHERE DOUBLE-CLICK PROTECTION GOES INSTEAD, since this is where it used to be: at the
+#: ENDPOINT, before the model is called, keyed on the client's own idempotency key and
+#: answering with the stored result. Deduping AFTER the provider has already been paid
+#: does not save the money — it only hides that we spent it.
+ASSIST_REF_PREFIX: Final = "assist"
+_ASSIST_REF_RE: Final = re.compile(
+    rf"^{ASSIST_REF_PREFIX}:[0-9a-f]{{8}}-[0-9a-f]{{4}}-[0-9a-f]{{4}}-"
+    r"[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
+def new_assist_ref() -> str:
+    """A fresh metering key for ONE assist attempt. Minted by the server, per attempt.
+
+    uuid7 rather than uuid4 for the reason everything else in this repo uses it: the key
+    sorts by the instant it was minted, so a `ref` found in a ledger row a year later
+    still says when the attempt happened even if `occurred_at` is being doubted.
+    """
+    return f"{ASSIST_REF_PREFIX}:{uuid7()}"
 
 
 @dataclass(frozen=True, slots=True)
 class AssistMetered:
     """What `record_ai_assist_usage` did.
 
-    `recorded` is False for a replay — the same `ref` already metered — which is the
-    normal outcome of a double-click and not an error. `cost_inr` is what was actually
-    added to the ledgers on THIS call, so a replay reports zero and a caller can never
-    charge the platform counter twice for one assist.
+    `recorded` is False for a replay — the same `ref` already metered. With a server-minted
+    key that is a RETRY of one attempt, never a second click, so `cost_inr` is zero and the
+    caller can never charge the platform counter twice for one assist.
     """
 
     recorded: bool
     cost_inr: Decimal
-
-
-def ktok(tokens: int) -> Decimal:
-    """Tokens as thousands, exactly. `Decimal` division by a `Decimal` — never `/ 1000.0`,
-    which would put a metering quantity through a binary float."""
-    return Decimal(tokens) / TOKENS_PER_KTOK
 
 
 async def record_ai_assist_usage(
@@ -451,26 +697,42 @@ async def record_ai_assist_usage(
 
     THE ONLY WRITER of `ai_assist_ktok_*`. It is idempotent on `ref` in the DATABASE
     (`ux_usage_events_tenant_unit_ref`), not in a reader's `if`, because the failure it
-    has to survive is a second click — and a check-then-write would let two clicks both
-    read "not metered yet". That is the same hole `charge_for_call` takes an advisory
-    lock to close; here the unique index closes it with no lock at all, which is what a
-    natural key buys.
+    has to survive is the same attempt arriving twice — and a check-then-write would let
+    both copies read "not metered yet". That is the same hole `charge_for_call` takes an
+    advisory lock to close; here the unique index closes it with no lock at all, which is
+    what a natural key buys.
+
+    `ref` MUST come from `new_assist_ref()`. It is validated rather than trusted, and the
+    reason is on `ASSIST_REF_PREFIX`: this function's idempotency is a switch that turns
+    metering off, so a key any caller could have taken from a request body is a way to
+    spend our credential for free.
 
     The platform counter is bumped ONLY for rows that actually landed, so a replay adds
     nothing to the brake. Both halves commit in the CALLER's transaction: a metered
-    assist whose platform total did not move is not a reachable state.
+    assist whose platform total did not move is not a reachable state. The month it is
+    bumped for is the month the ROW landed in, read back from the row (`_INSERT_USAGE`),
+    never the app process's own clock.
 
     `model` and `feature` go into `meta` so that "which surface spent this" is a query.
     No prompt, no completion, no transcript and no identifier of a person is written
     here (hard rule 6) — a token COUNT is not content.
     """
+    if not _ASSIST_REF_RE.match(ref):
+        # A programming error, not a user's: raised rather than refused politely, because
+        # every reachable caller mints its key from `new_assist_ref()` and one that did
+        # not is a caller that has invented its own idempotency scheme.
+        raise ValueError(
+            f"an assist metering key must come from new_assist_ref() "
+            f"({ASSIST_REF_PREFIX}:<uuid>), never from a request"
+        )
+
     meta = json.dumps({"kind": ASSIST_META_KIND, "model": model, "feature": feature, "ref": ref})
     rows = (
         ("ai_assist_ktok_in", ktok(tokens_in), price_in_inr_per_ktok),
         ("ai_assist_ktok_out", ktok(tokens_out), price_out_inr_per_ktok),
     )
     landed = Decimal("0")
-    recorded = False
+    landed_month: str | None = None
     for unit, qty, price in rows:
         inserted = (
             await session.execute(
@@ -487,26 +749,47 @@ async def record_ai_assist_usage(
             )
         ).first()
         if inserted is not None:
-            recorded = True
+            # The FIRST row's month wins if the two straddle a boundary. They are
+            # microseconds apart and both are honest; what must not happen is the two
+            # halves of one assist paying into two different months' brakes.
+            landed_month = landed_month or str(inserted[1])
             landed += qty * price
 
-    if recorded:
-        await session.execute(
-            text(_BUMP_PLATFORM_SQL),
-            {"month": current_billing_month(), "amount": landed, "requests": 1},
+    if landed_month is None:
+        # Not an error and not silence either. With a server-minted key this means the
+        # same attempt was written twice — a retried transaction — so the money is
+        # already on the ledger. It is logged because the alternative is a path where we
+        # paid a provider and recorded nothing, and the two look identical from here.
+        log.warning(
+            "ai_assist_replayed",
+            extra={"tenant_id": str(tenant_id), "ref": ref, "model": model, "feature": feature},
         )
-        log.info(
-            "ai_assist_metered",
-            # Ids, a model name and a rupee total. No tenant name, no prompt, no output.
-            extra={
-                "tenant_id": str(tenant_id),
-                "ref": ref,
-                "model": model,
-                "feature": feature,
-                "cost_inr": str(landed),
-            },
+        return AssistMetered(recorded=False, cost_inr=Decimal("0"))
+
+    spend_after = Decimal(
+        str(
+            (
+                await session.execute(
+                    text(_BUMP_PLATFORM_SQL),
+                    {"month": landed_month, "amount": landed, "requests": 1},
+                )
+            ).scalar_one()
         )
-    return AssistMetered(recorded=recorded, cost_inr=landed)
+    )
+    _announce_platform_headroom(month=landed_month, spend_after=spend_after, added=landed)
+    log.info(
+        "ai_assist_metered",
+        # Ids, a model name and a rupee total. No tenant name, no prompt, no output.
+        extra={
+            "tenant_id": str(tenant_id),
+            "ref": ref,
+            "model": model,
+            "feature": feature,
+            "month": landed_month,
+            "cost_inr": str(landed),
+        },
+    )
+    return AssistMetered(recorded=True, cost_inr=landed)
 
 
 # --- the gate ----------------------------------------------------------------------
@@ -557,14 +840,38 @@ async def require_ai_assist(session: AsyncSession, *, tenant_id: UUID) -> AiQuot
         )
 
     if quota.plan_tier not in PREPAID_TIERS:
+        # A MANAGED tenant cannot be offered the block: their wallet is not what pays for
+        # anything, and there is no priced AI-overage line on a derived invoice to put
+        # this on. The remediation used to say "talk to your account manager to add more
+        # AI help to this month's plan", which names an action nobody at Calevate can
+        # currently perform — the line does not exist. Promising a purchase that cannot
+        # be made is worse than naming the wait, so it names the wait, and asking is
+        # offered as what it is: a conversation, not a transaction. "Your account
+        # manager" is this console's established phrase for that conversation (the
+        # verification, invoice and usage screens all use it) rather than a support
+        # address this product does not publish anywhere.
+        #
+        # This is the ONE refusal in this module that is closed by something outside the
+        # repo: a founder pricing AI overage on a retainer.
         raise ProblemError.business_rule(
             "ai_quota_exceeded_invoiced",
             (
                 "This account has used all of this month's included AI help. It resets "
                 "at the start of next month."
             ),
-            remediation=("Talk to your account manager to add more AI help to this month's plan."),
+            remediation=(
+                "Your calls, campaigns and leads are unaffected. If you need AI help "
+                "before the reset, raise it with your account manager — extra AI help is "
+                "not something we can add to an invoiced plan from the console."
+            ),
         )
+
+    if quota.extra_unavailable is not None:
+        # Prepaid, at the ceiling, nothing bought, platform running — the only reason
+        # left is that the month is nearly over. Read from the ONE ladder rather than
+        # re-derived, so this cannot start promising a modal the purchase route refuses.
+        code, detail, remediation = EXTRA_REFUSAL[quota.extra_unavailable]
+        raise ProblemError.business_rule(code, detail, remediation=remediation)
 
     raise ProblemError.business_rule(
         "ai_quota_exceeded",
@@ -593,6 +900,44 @@ class ExtraPurchase:
     quota: AiQuota
 
 
+#: How little of an IST month may remain and the block still be sold. Below this the
+#: purchase is REFUSED and nothing is charged.
+#:
+#: THE BLOCK EXPIRES WITH THE MONTH. Its whole shape — one fixed amount, once per
+#: tenant-month, unused part not refunded and not carried over — is stated on the screen
+#: and is a fair bargain on the 3rd. On the 31st at 23:59:50 it is ₹500 for ten seconds
+#: of allowance, which is the same bargain arithmetically and not the same bargain at
+#: all. Nothing in the code stopped it: `at_ceiling` is true all month once the ceiling
+#: is hit, so the modal was on offer right up to the roll.
+#:
+#: IT ALSO CLOSES A RACE, and that is the half that is a correctness bug rather than a
+#: product one. `read_ai_quota` resolves the month, and `record_entry` writes
+#: `ai_assist:<that month>` some milliseconds later. If the roll happens between them the
+#: debit lands under LAST month's key, which next month's `read_ai_quota` does not look
+#: for: the client is ₹500 down, holds no extra allowance, and — because
+#: `extra_purchased_inr` reads 0 — is immediately offered the block again. An hour-wide
+#: refusal makes that interval unreachable instead of merely unlikely; a re-read after
+#: the write would only have detected it, and detecting a debit is not undoing one.
+#:
+#: SIXTY MINUTES rather than a smaller number nobody could feel: the value being bought is
+#: "AI help for the rest of the month", and under an hour there is no rest of the month to
+#: sell. It is short enough to cost a real buyer nothing (the allowance resets in that
+#: same hour and is then larger than the block on every tier) and long enough that no
+#: plausible clock skew reopens the race.
+LAST_SALEABLE_MINUTES: Final = 60
+
+
+def month_is_ending(month: str, *, now: datetime | None = None) -> bool:
+    """Is there too little of `month` left to sell an allowance for it?
+
+    True for a month already over, which is the same statement and the reason this takes
+    a month rather than reading the clock twice: `read_ai_quota` can be asked about July
+    in September, and nobody may buy an allowance for July.
+    """
+    moment = now or datetime.now(UTC)
+    return ist_month_end(month) - moment <= timedelta(minutes=LAST_SALEABLE_MINUTES)
+
+
 async def purchase_ai_overage(
     session: AsyncSession, *, tenant_id: UUID, accepted_amount_inr: Decimal
 ) -> ExtraPurchase:
@@ -607,14 +952,19 @@ async def purchase_ai_overage(
     ORDER OF CHECKS IS THE ORDER OF HARM. The lock is taken FIRST — before the read that
     decides whether to write at all — because a dedupe check outside it is the
     check-then-write hole two clicks walk straight through (`lock_tenant_credits`). Then
-    the replay check, so a second click returns the first click's block instead of buying
-    another; then the tier and the ceiling, which are refusals; then the debit, which is
-    the only step that moves money.
+    the replay, so a second click returns the first click's block instead of buying
+    another AND so a retry stays idempotent whatever else has changed since. Then the ONE
+    reason ladder, which is `AiQuota.extra_unavailable` itself rather than a second copy
+    of it — three hand-written refusals in this function used to BE that second copy, and
+    they had already drifted from it by one position. Then the debit, the only step that
+    moves money.
 
     `record_entry(allow_negative=False)`: this is a PURCHASE and not the recording of a
     cost already incurred, so an empty wallet must refuse it rather than overdraw. That
     is the opposite of `charge_for_call`, and the difference is exactly that a call has
     already happened.
+
+    AND IT WILL NOT SELL THE LAST HOUR OF A MONTH — see `LAST_SALEABLE_MINUTES`.
     """
     if accepted_amount_inr != AI_OVERAGE_BLOCK_INR:
         raise ProblemError.business_rule(
@@ -628,39 +978,18 @@ async def purchase_ai_overage(
 
     if quota.extra_purchased_inr > 0:
         # A replay, not an error: the block is already on the wallet and nothing moves.
-        # Reported as `charged=False` so the caller writes no second audit row.
+        # Reported as `charged=False` so the caller writes no second audit row. Checked
+        # ahead of every refusal so that a retry of a request that SUCCEEDED answers the
+        # same way it did the first time, even if the platform has paused since.
         return ExtraPurchase(charged=False, amount_inr=quota.extra_purchased_inr, quota=quota)
 
     reason = quota.extra_unavailable
-    if reason == "platform_paused":
-        raise ProblemError.business_rule(
-            "ai_paused_platform_wide",
-            (
-                "AI help is paused across Calevate right now, so there is nothing to "
-                "add to. Nothing has been charged."
-            ),
-            remediation="Try again later, or ask your account manager for an update.",
-        )
-    if reason == "not_prepaid":
-        raise ProblemError.business_rule(
-            "ai_extra_not_available",
-            (
-                "Extra AI help is not something this account can buy directly — it is "
-                "billed with your plan. Nothing has been charged."
-            ),
-            remediation="Talk to your account manager to add more AI help this month.",
-        )
-    if reason == "not_at_ceiling":
-        # Refused rather than allowed early: money leaving a wallet for an allowance
-        # nobody has run out of is the one outcome G-5 rules out.
-        raise ProblemError.business_rule(
-            "ai_quota_not_reached",
-            (
-                "This account still has included AI help left this month, so there is "
-                "nothing to add yet. Nothing has been charged."
-            ),
-            remediation="Use the included allowance first; we will ask again at the limit.",
-        )
+    if reason is not None:
+        # `already_purchased` is unreachable here — it is the branch above — so every
+        # remaining reason has a refusal in the table, and mypy's exhaustiveness is not
+        # what guarantees that: `tests/ai_quota_test.py` walks `ExtraUnavailable`.
+        code, detail, remediation = EXTRA_REFUSAL[reason]
+        raise ProblemError.business_rule(code, detail, remediation=remediation)
 
     await record_entry(
         session,
@@ -734,17 +1063,26 @@ __all__ = [
     "AI_ASSIST_NOMINAL_INR",
     "AI_OVERAGE_BLOCK_INR",
     "AI_QUOTA_INR",
+    "ASSIST_LIST_PRICE_INR_PER_KTOK",
     "ASSIST_META_KIND",
+    "ASSIST_REF_PREFIX",
+    "EXTRA_REFUSAL",
     "INDEX_PREDICATE",
+    "LAST_SALEABLE_MINUTES",
+    "NOMINAL_ASSIST_MARGIN",
     "OVERAGE_META_KIND",
     "OVERAGE_REF_PREFIX",
     "PLATFORM_AI_BRAKE_INR",
+    "PLATFORM_BRAKE_WARN_AT",
     "PREPAID_TIERS",
+    "REFERENCE_ASSIST_TOKENS",
     "AiQuota",
     "AssistMetered",
     "ExtraPurchase",
     "PlatformAiSpend",
     "ktok",
+    "month_is_ending",
+    "new_assist_ref",
     "overage_ref",
     "platform_brake_tripped",
     "purchase_ai_overage",
@@ -752,5 +1090,6 @@ __all__ = [
     "read_ai_quota",
     "read_platform_ai_spend",
     "record_ai_assist_usage",
+    "reference_assist_cost_inr",
     "require_ai_assist",
 ]

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from scripts import check_model_residency as guard
 
 # One correctly pinned Vertex call, written the way Part 13 should write it: the region
@@ -399,3 +400,99 @@ def test_the_guards_own_region_constant_is_the_one_the_decision_row_pins() -> No
         "D-127 no longer pins the region this guard enforces — one of the two moved"
     )
     assert guard.SELF in row, "D-127 no longer names the guardrail that enforces it"
+
+
+# --- the two exemptions, and whether either is still doing work -------------------
+
+
+def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
+    """It was not when it shipped, and it is now — which is a fact worth pinning rather
+    than a note worth leaving stale.
+
+    `_templates` skips docstrings because the guard's whole subject is a host that has to
+    be NAMED in order to be banned. When Part 12 landed, the only file naming one in a
+    docstring was the guard itself, which was skipped for the endpoint checks anyway — so
+    the exemption could have been deleted and the CLI would have stayed green, and an
+    exemption nobody can watch fail is one nobody has evidence is connected.
+
+    Part 13 changed that: `VertexGeminiExtractor`'s docstring explains why the AI Studio
+    host is disqualified, by name, in a file this guard scans. So turning the exemption
+    off now REPORTS THAT EXPLANATION AS THE OFFENCE — which is exactly the failure mode
+    the exemption exists to prevent, and this test is the evidence.
+
+    If this test ever fails, the honest fix is to say so here rather than to delete the
+    exemption: the subject may have moved, and the machinery is still right.
+    """
+    subjects = [
+        reference.path for reference in guard.url_references() if reference.path != guard.SELF
+    ]
+    assert subjects == ["apps/workers/extraction.py"], subjects
+
+    original = guard._docstrings
+    try:
+        guard._docstrings = lambda tree: set()  # type: ignore[assignment]
+        references = guard.url_references()
+        failures = guard.endpoint_failures(references, guard.frozen_region_constants())
+    finally:
+        guard._docstrings = original  # type: ignore[assignment]
+
+    # Two subjects now, and the SHIPPED one is the point. The guard's own prose is the
+    # second — it explains both bans at length — and it only shows up here because the
+    # self-exemption stopped being a whole-file skip; before that narrowing this list
+    # would have held the client alone.
+    offenders = {failure.split(":", 1)[0] for failure in failures}
+    assert "apps/workers/extraction.py" in offenders, failures
+    assert offenders == {"apps/workers/extraction.py", guard.SELF}, offenders
+    assert any(guard.AI_STUDIO_HOST in failure for failure in failures)
+
+    # And with the exemption restored, the same tree is clean — otherwise the assertion
+    # above would be evidence of a broken tree rather than of a working exemption.
+    assert guard.endpoint_failures(guard.url_references(), guard.frozen_region_constants()) == []
+
+
+def test_the_guard_judges_its_own_file_apart_from_the_two_host_declarations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The single-file hole, narrowed from a whole file to two literals.
+
+    The guard has to name both hosts to ban them, so SOMETHING here must be exempt. It
+    used to be the entire module, which made the one place in `apps/`, `packages/` and
+    `scripts/` where a `us-central1` URL passed the check the very file a person edits
+    when they are relaxing the check. Now the exemption is `_host_definition`: a template
+    that IS one of the two host strings and nothing else.
+
+    Driven through a DOCTORED file standing in for `SELF`, because the real one cannot be
+    made to offend without editing the guard — and a test that could not watch the
+    exemption fail would be asserting about a `continue`.
+    """
+    stand_in = tmp_path / "check_model_residency.py"
+    stand_in.write_text(
+        "from typing import Final\n"
+        # The two declarations, exactly as the real file writes them.
+        f'AI_STUDIO_HOST: Final = "{guard.AI_STUDIO_HOST}"\n'
+        f'VERTEX_HOST: Final = "{guard.VERTEX_HOST}"\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(guard, "SELF", guard._rel(stand_in))
+    assert _failures(tmp_path) == [], "the guard cannot declare the hosts it bans"
+
+    stand_in.write_text(
+        "from typing import Final\n"
+        f'AI_STUDIO_HOST: Final = "{guard.AI_STUDIO_HOST}"\n'
+        f'VERTEX_HOST: Final = "{guard.VERTEX_HOST}"\n'
+        # A URL, in the guard's own file. Under the old whole-file skip this passed.
+        'FALLBACK = "https://us-central1-aiplatform.googleapis.com/v1/projects/p"\n',
+        encoding="utf-8",
+    )
+    failures = _failures(tmp_path)
+    assert len(failures) == 1, failures
+    assert "us-central1" in failures[0]
+
+
+def test_the_real_guard_names_the_hosts_only_as_declarations() -> None:
+    """The other side of the same rule, against the real file rather than a stand-in: no
+    reference the scan produces comes from `SELF`, because the only two literals there
+    that could produce one are the declarations. A URL added to this file would appear
+    here AND fail `test_the_real_tree_is_clean`."""
+    assert [r for r in guard.url_references() if r.path == guard.SELF] == []
+    assert guard.AI_STUDIO_HOST in (guard.REPO_ROOT / guard.SELF).read_text(encoding="utf-8")

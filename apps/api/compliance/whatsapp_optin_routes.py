@@ -65,6 +65,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.admin.service import tenant_exists
 from apps.api.compliance import whatsapp_optin
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.models import ALERT_OPTIN_OPERATOR, ALERT_OPTIN_SELF_SERVE
@@ -205,7 +206,17 @@ async def _owner_of(session: AsyncSession, tenant_id: UUID) -> tuple[UUID, str]:
     Deliberately the same shape rather than a convenient variation: the operator surface
     must record the opt-in against exactly the person the worker would send to, or an
     operator could evidence one human's agreement and the alert would reach another.
+
+    "THE TENANT IS NOT THERE" IS ANSWERED FIRST, and separately. Without it a mistyped
+    tenant uuid — the id an operator copies off a console URL — fell through the join to
+    `alert_optin_no_owner_with_a_number`: a 422 telling them to "add a mobile number to
+    the owner's profile" of an account that does not exist. That is D-133's
+    `number_taken` defect in another module (a real refusal, correct for the state it was
+    written for, misdirecting for the state it actually met), and it is answered with the
+    one predicate every other surface that names a tenant in its path uses.
     """
+    if not await tenant_exists(session, tenant_id):
+        raise ProblemError.not_found("Client")
     row = (
         await session.execute(
             text(

@@ -82,7 +82,10 @@ environment variable, or returned by a vendor SDK that builds its own URL is inv
 it — which is why check 3 exists and why it is a name-and-default check on `Settings`
 rather than a URL check: if the value never appears in the tree, the tree cannot be
 asked, and the only remaining defence is that there is nowhere console-editable for it to
-live. The non-Python half is a LINE scan (`.ts`, `.json`, shell, nginx): a line naming
+live. It also cannot judge the two literals that DEFINE the banned hosts in this file,
+which is the whole of its self-exemption now — see `SELF` and `_host_definition`; a URL
+written anywhere else in this file is judged like any other file's. The non-Python half
+is a LINE scan (`.ts`, `.json`, shell, nginx): a line naming
 either host becomes a reference and is then judged by the same host and `locations/`
 rules, so a `us-central1` URL in a TypeScript file is caught — but with no AST there is no
 way to tell code from a `//` comment, so a comment naming a banned host in one of those
@@ -152,10 +155,18 @@ TEXT_SUFFIXES: Final[frozenset[str]] = frozenset(
     {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".json", ".yaml", ".yml", ".sh", ".conf", ".sql"}
 )
 
-#: This file names both banned hosts because it bans them. Skipped for the ENDPOINT
-#: checks only — the provenance scan (check 3) still reads it, which is what makes
-#: `VERTEX_REGION` above a usable canary. Same shape as
-#: `sarvam_model_identifier_test.CANONICAL_HOME`.
+#: This file names both banned hosts because it bans them. Same shape as
+#: `sarvam_model_identifier_test.CANONICAL_HOME` — but NARROWER than that one, and
+#: narrower than this entry was when it shipped.
+#:
+#: IT USED TO SKIP THE WHOLE FILE for the endpoint checks, which made the guard the one
+#: module in `apps/`, `packages/` and `scripts/` where a `us-central1` URL would have
+#: passed. That is a poor place for the single hole: a guardrail is edited by whoever is
+#: relaxing it. The file has to name the two hosts to ban them, and `_host_definition`
+#: below says exactly what that costs — a template that IS one of the two host strings
+#: and nothing else. Every other literal in this file is judged like any other file's,
+#: so the sentence "the guard exempts itself" is now false by two lines rather than
+#: true by a `continue`.
 SELF: Final = "scripts/check_model_residency.py"
 
 #: `Settings` field-name fragments that would put a model region under console control.
@@ -303,14 +314,31 @@ def _templates(path: Path) -> Iterator[tuple[str, int]]:
             yield node.value, node.lineno
 
 
+def _host_definition(template: str) -> bool:
+    """Is this template the DECLARATION of a banned host rather than a use of one?
+
+    Exactly the two host strings, standing alone. `AI_STUDIO_HOST: Final = "generative…"`
+    is the name this file bans things BY; judging it would report the ban as the
+    violation, and the bare `aiplatform.googleapis.com` constant would trip check 1 as a
+    region-less global endpoint every single run.
+
+    Applied ONLY inside `SELF` (see that constant). Tree-wide it would be a real hole —
+    `HOST = "aiplatform.googleapis.com"` followed by `f"https://{HOST}/…"` is precisely
+    the runtime-assembly shape "what this check cannot see" already admits to, and
+    exempting the first half by name would turn an admitted blind spot into a supported
+    idiom.
+    """
+    return template in (AI_STUDIO_HOST, VERTEX_HOST)
+
+
 def url_references(roots: Iterable[Path] | None = None) -> list[Reference]:
     """Every literal in the tree that mentions a Google model host, Python and text alike."""
     references: list[Reference] = []
     for path in _files(roots, frozenset({".py"})):
         relative = _rel(path)
-        if relative == SELF:
-            continue
         for template, line in _templates(path):
+            if relative == SELF and _host_definition(template):
+                continue
             if AI_STUDIO_HOST in template or VERTEX_HOST in template:
                 references.append(Reference(relative, line, template))
     for path in _files(roots, TEXT_SUFFIXES):

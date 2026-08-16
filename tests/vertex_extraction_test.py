@@ -30,6 +30,7 @@ generated per run and never leaves the process.
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -61,7 +62,11 @@ from apps.workers.extraction import (
     vertex_generate_url,
 )
 from apps.workers.google_oauth import parse_service_account
-from calevate_shared.engine import GEMINI_DEFAULT_LLM, VERTEX_LOCATION
+from calevate_shared.engine import (
+    GEMINI_DEFAULT_LLM,
+    GEMINI_MODEL_CONFIRMED_IN_REGION,
+    VERTEX_LOCATION,
+)
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -89,6 +94,9 @@ SPEC = ExtractionSchemaSpec(
 # Already through `redact()`: a phone number is `[REDACTED]`, which is what `run_assist`
 # requires and what `transcript_turns.text_redacted` holds.
 REDACTED_TRANSCRIPT = "caller: naa peru Ravi, 3BHK kavali\nagent: sari andi"
+
+#: What a Vertex error body says, in this file. Google's real ones echo the request.
+VENDOR_BODY_MARKER = "vendor-error-body-must-never-be-logged"
 
 
 def _key_pair() -> str:
@@ -150,6 +158,14 @@ class FakeVertex:
         }
         #: Set to return a safety block — `candidates: []`, which is an ordinary response.
         self.blocked = False
+        #: Vertex's own token count. `None` returns a body WITHOUT the block, which is
+        #: how "we do not know what this cost" is spelled — distinct from zero.
+        self.usage: dict[str, Any] | None = {
+            "promptTokenCount": 1_200,
+            "candidatesTokenCount": 300,
+            "thoughtsTokenCount": 500,
+            "totalTokenCount": 2_000,
+        }
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == "oauth2.googleapis.com":
@@ -161,17 +177,22 @@ class FakeVertex:
             )
         self.generate_requests.append(request)
         if self.generate_status != 200:
-            return httpx.Response(self.generate_status, json={"error": {"message": "no"}})
+            # A distinctive marker, because Google's real error bodies QUOTE the request
+            # — and the request on this path is a call transcript. The only way to prove
+            # none of it reaches a log line is to make the body findable.
+            return httpx.Response(
+                self.generate_status, json={"error": {"message": VENDOR_BODY_MARKER}}
+            )
         if self.blocked:
             return httpx.Response(200, json={"candidates": []})
-        return httpx.Response(
-            200,
-            json={
-                "candidates": [
-                    {"content": {"role": "model", "parts": [{"text": json.dumps(self.answer)}]}}
-                ]
-            },
-        )
+        body: dict[str, Any] = {
+            "candidates": [
+                {"content": {"role": "model", "parts": [{"text": json.dumps(self.answer)}]}}
+            ]
+        }
+        if self.usage is not None:
+            body["usageMetadata"] = self.usage
+        return httpx.Response(200, json=body)
 
     def client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(self.handler))
@@ -257,7 +278,8 @@ async def test_the_bearer_is_an_rfc7523_assertion_scoped_to_cloud_platform() -> 
 
     A bearer minted for the Sheets scope would be accepted by our own code and refused by
     Vertex with a 403 that names neither the scope nor the cache it came from — which is
-    exactly why `google_oauth` keys its cache on (account, scope) rather than on account.
+    exactly why `google_oauth` keys its cache on (account, KEY, scope) rather than on the
+    account. `tests/google_oauth_test.py` owns the cache's own properties.
     """
     google = FakeVertex()
     extractor = VertexGeminiExtractor(_account(), PROJECT, client=google.client())
@@ -596,3 +618,390 @@ def test_the_url_builder_pins_both_halves_from_one_constant() -> None:
     )
     assert "generativelanguage.googleapis.com" not in url
     assert url.count(VERTEX_LOCATION) == 2, "the region appears in the host AND the path"
+
+
+# --- 6. the response schema, and the shapes a client can author -------------------
+
+
+def test_a_client_field_named_like_a_fixed_one_does_not_duplicate_the_ordering() -> None:
+    """`ExtractionField.key` permits every one of the five fixed keys, and "Summary of
+    complaint" is an ordinary column for a client to author with `summary` as its key.
+
+    `properties` always resolved the collision correctly — `.update()` lets the fixed
+    definition win, and the fixed five are what `ExtractionOutput` promises. The ORDER
+    list did not: it named the colliding key twice, and a `propertyOrdering` naming one
+    property two times is a malformed OpenAPI object. So one client's choice of field
+    name turned every assist for that tenant into a 400 that `extract_call` could only
+    report as the word `HTTPStatusError`.
+    """
+    colliding = ExtractionSchemaSpec(
+        version=1,
+        fields=[
+            ExtractionField(key="summary", label="Summary of complaint", type="text"),
+            ExtractionField(key="callback_requested", label="Callback requested", type="bool"),
+            ExtractionField(key="ward", label="Ward", type="text"),
+        ],
+    )
+
+    schema = build_vertex_response_schema(colliding)
+    ordering = schema["propertyOrdering"]
+
+    assert len(ordering) == len(set(ordering)), ordering
+    assert set(ordering) == set(schema["properties"]), (
+        "propertyOrdering and properties disagree about which keys exist"
+    )
+    # The fixed definition wins, and it is not nullable — those five are `required`.
+    assert schema["properties"]["summary"] == {"type": "STRING"}
+    assert "nullable" not in schema["properties"]["callback_requested"]
+    # The tenant's own field still leads, because generation is left-to-right and the
+    # model must read for facts before it writes the summary that would anchor them.
+    assert ordering.index("ward") < ordering.index("summary")
+
+
+def test_every_extraction_field_type_has_a_vertex_spelling() -> None:
+    """A sixth member of `FieldType` would otherwise be a `KeyError` inside
+    `_vertex_property` — caught by `extract_call`'s ladder, reported as the word
+    `KeyError`, and silently costing that tenant every assist. `validate_extraction`
+    makes the same closure argument on its own match; this is the Vertex half of it."""
+    from typing import get_args
+
+    from calevate_shared.extraction import FieldType
+
+    assert set(get_args(FieldType)) == set(extraction_module._VERTEX_TYPES), (
+        "a field type exists with no Vertex spelling, or a spelling with no field type"
+    )
+
+
+# --- 7. a 404 is the answer to the one thing nobody could verify ------------------
+
+
+async def test_a_404_names_the_region_the_model_and_the_flag_that_was_never_confirmed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """THE GATE, at the only moment anyone is looking at it.
+
+    `check_model_residency` can prove the URL is regional. Nothing in this repository can
+    prove `asia-south1` SERVES `GEMINI_DEFAULT_LLM` — `GEMINI_MODEL_CONFIRMED_IN_REGION`
+    is the greppable form of that, and a 404 from a host that unambiguously belongs to
+    our project is the answer arriving. Before this the whole diagnosis reached the log
+    as the single word `HTTPStatusError`, indistinguishable from a 401, a 429 or a 503.
+    """
+    google = FakeVertex()
+    google.generate_status = 404
+    extractor = VertexGeminiExtractor(_account(), PROJECT, client=google.client())
+
+    with caplog.at_level(logging.DEBUG), pytest.raises(httpx.HTTPStatusError):
+        await extractor.run(SPEC, REDACTED_TRANSCRIPT)
+
+    record = next(
+        (r for r in caplog.records if r.getMessage() == "vertex_model_not_served_in_region"), None
+    )
+    assert record is not None, (
+        "a 404 from Vertex left no named line — the one vendor answer this build cannot "
+        f"get any other way arrived as {[r.getMessage() for r in caplog.records]}"
+    )
+    assert record.levelno == logging.ERROR
+    assert record.__dict__["region"] == VERTEX_LOCATION
+    assert record.__dict__["model"] == GEMINI_DEFAULT_LLM
+    assert record.__dict__["confirmed_in_region"] is GEMINI_MODEL_CONFIRMED_IN_REGION
+    assert "locations/global" in record.__dict__["remedy"], (
+        "the remedy does not name the wrong fix, which is the tempting one"
+    )
+    # Hard rule 6: Google's error bodies quote the request, and the request is a
+    # transcript. Nothing from the body may reach any record.
+    assert VENDOR_BODY_MARKER not in "\n".join(f"{r.__dict__}" for r in caplog.records)
+
+
+async def test_any_other_refusal_logs_the_status_rather_than_the_exception_name(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """401 is the key, 403 is the IAM grant, 429 is quota, 503 is Google. One word for all
+    four is not a diagnosis, and the status is the whole of it."""
+    for status in (401, 403, 429, 503):
+        caplog.clear()
+        google = FakeVertex()
+        google.generate_status = status
+        extractor = VertexGeminiExtractor(_account(), PROJECT, client=google.client())
+
+        with caplog.at_level(logging.DEBUG), pytest.raises(httpx.HTTPStatusError):
+            await extractor.run(SPEC, REDACTED_TRANSCRIPT)
+
+        record = next(r for r in caplog.records if r.getMessage() == "vertex_request_refused")
+        assert record.__dict__["status"] == status
+        assert record.__dict__["model"] == GEMINI_DEFAULT_LLM
+        blob = "\n".join(f"{r.__dict__}" for r in caplog.records)
+        assert VENDOR_BODY_MARKER not in blob, f"the vendor's error body reached the log: {blob}"
+
+
+# --- 8. what the assist cost, in Vertex's own count -------------------------------
+
+
+async def test_the_assist_carries_vertexs_token_count_with_thinking_folded_into_output(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`record_ai_assist_usage` (D-137) needs `tokens_in`/`tokens_out` and there was
+    nowhere to get them: the client read `candidates` and threw the rest of the body away,
+    so the meter D-137 built could not be filled by the runner D-134 built.
+
+    THOUGHTS COUNT AS OUTPUT. Gemini 3.x bills thinking tokens at the output rate and
+    reports them separately from `candidatesTokenCount`, so counting only the latter
+    under-meters exactly the calls that cost the most — a structured-output request to a
+    reasoning model spends most of its budget there.
+    """
+    google = FakeVertex()
+    monkeypatch.setattr(
+        extraction_module,
+        "VertexGeminiExtractor",
+        lambda account, project: VertexGeminiExtractor(account, project, client=google.client()),
+    )
+
+    result = await run_assist(SPEC, REDACTED_TRANSCRIPT)
+
+    assert result.usage == extraction_module.TokenUsage(prompt_tokens=1_200, output_tokens=800)
+    # The schema is INPUT and is counted in that 1,200 — which is the reason the number
+    # comes from Vertex rather than from anything this repo could add up.
+    assert "responseSchema" in google.body["generationConfig"]
+
+
+async def test_a_body_with_no_usage_block_meters_nothing_rather_than_zero(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ "We do not know what this cost" and "it was free" must not meter the same. Zero
+    would give one tenant a silent free assist and move the platform brake by nothing."""
+    google = FakeVertex()
+    google.usage = None
+    monkeypatch.setattr(
+        extraction_module,
+        "VertexGeminiExtractor",
+        lambda account, project: VertexGeminiExtractor(account, project, client=google.client()),
+    )
+
+    result = await run_assist(SPEC, REDACTED_TRANSCRIPT)
+
+    assert result.capability.provider == GEMINI_PROVIDER
+    assert result.usage is None
+
+
+async def test_a_disclosed_sarvam_fallback_reports_no_usage(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The units are `ai_assist_ktok_*` and they price GEMINI, the leg that spends
+    Calevate's rupees. D-36 prices the Sarvam leg at zero, so metering a fallback would
+    charge a tenant for the substitution they were told about."""
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+
+    async def _sarvam_run(
+        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
+    ) -> dict[str, Any]:
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+
+    async def _vertex_run(
+        self: VertexGeminiExtractor, spec: ExtractionSchemaSpec, transcript: str
+    ) -> dict[str, Any]:
+        raise httpx.ConnectError("vertex is unreachable")
+
+    monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
+    monkeypatch.setattr(VertexGeminiExtractor, "run", _vertex_run)
+
+    result = await run_assist(SPEC, REDACTED_TRANSCRIPT)
+
+    assert result.capability.provider == SARVAM_PROVIDER
+    assert result.usage is None
+
+
+# --- 9. the ceiling reaches the runner --------------------------------------------
+
+
+async def test_the_quota_verdict_reaches_the_runner_and_discloses_the_substitution(
+    configured: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-137 built the ceiling (`require_ai_assist`) and D-134 built the runner, and
+    nothing joined them: `run_assist` called `assist_capability()` with no arguments, so a
+    caller holding the verdict had no way to state it and the ceiling could not reach the
+    one function that runs an assist. A gate with no door.
+
+    The verdict is an ARGUMENT and not a read, because answering it needs a session and a
+    tenant and this module has neither — the same split `assist_capability` already made.
+    """
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+
+    reached: list[str] = []
+
+    async def _sarvam_run(
+        self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
+    ) -> dict[str, Any]:
+        reached.append("sarvam")
+        return {"summary": "from sarvam", "sentiment": "neutral", "outcome_tag": "resolved"}
+
+    async def _vertex_run(
+        self: VertexGeminiExtractor, spec: ExtractionSchemaSpec, transcript: str
+    ) -> dict[str, Any]:  # pragma: no cover - reaching this IS the failure
+        reached.append("gemini")
+        return {}
+
+    monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
+    monkeypatch.setattr(VertexGeminiExtractor, "run", _vertex_run)
+
+    result = await run_assist(SPEC, REDACTED_TRANSCRIPT, quota_exhausted=True)
+
+    assert reached == ["sarvam"], "a tenant at its ceiling still spent Calevate's key"
+    assert result.capability.fallback_reason == QUOTA_EXHAUSTED_REASON
+    assert "used up" in (result.capability.disclosure or "")
+    assert result.usage is None
+
+
+async def test_a_tenant_at_its_ceiling_with_no_sarvam_key_is_refused_not_served(
+    configured: Any,
+) -> None:
+    """The other end of the same ladder, and the one G-5's modal hangs off."""
+    with pytest.raises(ProblemError) as caught:
+        await run_assist(SPEC, REDACTED_TRANSCRIPT, quota_exhausted=True)
+
+    assert caught.value.code == f"assist_{QUOTA_EXHAUSTED_REASON}"
+
+
+# --- 10. nothing about this path is console-editable except the project ------------
+
+
+def test_only_the_project_id_is_console_editable_on_the_whole_vertex_path() -> None:
+    """The half a reviewer waves through, proved by enumeration rather than by reading.
+
+    `platform_config.managed_fields()` DERIVES the console's editable set from
+    `Settings.model_fields`, so "is this constant safe from the console" is not a question
+    about the constant — it is a question about whether a `Settings` field could stand in
+    for it. Two things settle it, and both are mechanical:
+
+      1. **Nothing on this path reads a setting except the four named below.** The set is
+         read out of the AST, so a new `settings.vertex_something` fails this test on the
+         commit that adds it rather than on the day someone edits it in a web form.
+      2. **No `Settings` field, managed or not, DEFAULTS to any of the frozen values.**
+         `check_model_residency` check 3 catches a field whose NAME says region; this
+         catches one whose name says nothing and whose value is the region anyway.
+
+    `gcp_project_id` IS console-editable, deliberately: it is not a secret, it appears in
+    every URL, and it is the value an operator gets wrong first.
+    """
+    import ast
+    from pathlib import Path
+
+    from apps.api.core.platform_config import managed_fields
+    from calevate_shared.config import Settings
+
+    read: set[str] = set()
+    for module in (extraction_module, google_oauth):
+        source = Path(str(module.__file__)).read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            # `settings.<attr>` / `cfg.<attr>` / `get_settings().<attr>` — every shape
+            # this repo spells a config read in.
+            if not isinstance(node, ast.Attribute):
+                continue
+            base = node.value
+            named = isinstance(base, ast.Name) and base.id in {"settings", "cfg"}
+            called = isinstance(base, ast.Call) and getattr(base.func, "id", "") == "get_settings"
+            if (named or called) and node.attr in Settings.model_fields:
+                read.add(node.attr)
+
+    assert read == {
+        "sarvam_api_key",
+        "gemini_api_key",
+        "gcp_project_id",
+        "gcp_service_account_json",
+    }, read
+
+    managed = set(managed_fields())
+    assert read & managed == {"gcp_project_id"}, (
+        "a credential on this path became console-editable as a plaintext row"
+    )
+
+    # Values, not names — `check_model_residency` check 3 already catches a field whose
+    # NAME says region. `GEMINI_MODEL_CONFIRMED_IN_REGION` is deliberately absent: it is
+    # a boolean, every boolean setting defaults to False, and a value check on one would
+    # pass or fail for reasons that have nothing to do with it. Point 1 above is what
+    # covers it — nothing on this path reads a fifth setting, so no console field can
+    # stand in for a flag the code never looks up.
+    frozen: dict[str, object] = {
+        "VERTEX_LOCATION": VERTEX_LOCATION,
+        "GEMINI_DEFAULT_LLM": GEMINI_DEFAULT_LLM,
+        "VERTEX_SCOPE": VERTEX_SCOPE,
+        "TOKEN_URL": google_oauth.TOKEN_URL,
+        "JWT_BEARER_GRANT": google_oauth.JWT_BEARER_GRANT,
+        "TOKEN_TTL_S": google_oauth.TOKEN_TTL_S,
+        "TOKEN_REFRESH_SKEW_S": google_oauth.TOKEN_REFRESH_SKEW_S,
+    }
+    defaults = {name: field.default for name, field in Settings.model_fields.items()}
+    for constant, value in frozen.items():
+        collisions = [name for name, default in defaults.items() if default == value]
+        assert collisions == [], f"Settings.{collisions} can stand in for {constant}"
+
+
+def test_every_frozen_constant_on_this_path_is_annotated_final() -> None:
+    """`Final` is what mypy strict — a CI gate here — refuses to let anything rebind, so
+    it is the annotation that turns a convention into an enforced one. Asserted from the
+    AST because the runtime cannot see an annotation that was deleted."""
+    import ast
+    from pathlib import Path
+
+    from calevate_shared import engine as engine_module
+
+    expected = {
+        engine_module: {
+            "VERTEX_LOCATION",
+            "GEMINI_DEFAULT_LLM",
+            "GEMINI_MODEL_CONFIRMED_IN_REGION",
+        },
+        extraction_module: {"VERTEX_SCOPE", "GEMINI_EXTRACTION_DEFAULT", "ASSIST_QUOTA_ENFORCED"},
+        google_oauth: {"TOKEN_URL", "JWT_BEARER_GRANT", "TOKEN_TTL_S", "TOKEN_REFRESH_SKEW_S"},
+    }
+    for module, names in expected.items():
+        tree = ast.parse(Path(str(module.__file__)).read_text(encoding="utf-8"))
+        final_names = {
+            node.target.id
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and "Final" in ast.unparse(node.annotation)
+        }
+        assert names <= final_names, f"{module.__name__}: {names - final_names} lost `Final`"
+
+
+def test_the_ai_studio_key_is_read_in_exactly_one_place_and_only_for_the_sentence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`gemini_api_key`'s comment says it is read once, to turn "no credential" into "the
+    WRONG KIND of credential". That comment used to ALSO claim step one of hard rule 8's
+    two-step was done — "nothing in the tree does [read it]" — three lines above saying it
+    is read in exactly one place, which cannot both be true.
+
+    The field is kept permanently and this is what makes the surviving half checkable: one
+    reader, in the selector, and no URL, header or query parameter anywhere can carry the
+    value. A second reader is what would turn this from an error message into a
+    credential, and D-127 disqualifies the endpoint it opens.
+    """
+    import ast
+    from pathlib import Path
+
+    readers: list[str] = []
+    for path in sorted((Path(__file__).resolve().parents[1] / "apps").rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Attribute) and node.attr == "gemini_api_key":
+                readers.append(f"{path.name}:{node.lineno}")
+
+    assert len(readers) == 1, readers
+    assert readers[0].startswith("extraction.py"), readers
+
+    # And the one read only ever chooses a reason code.
+    settings = get_settings()
+    monkeypatch.setattr(settings, "gemini_api_key", "AIza-an-ai-studio-key", raising=False)
+    monkeypatch.setattr(settings, "gcp_project_id", None, raising=False)
+    monkeypatch.setattr(settings, "gcp_service_account_json", None, raising=False)
+    monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
+
+    capability = assist_capability()
+
+    assert capability.available is False
+    assert capability.reason == AI_STUDIO_KEY_REASON
+    problem = assist_unavailable(capability)
+    assert "AI Studio" in (problem.remediation or "")
+    assert "AIza-an-ai-studio-key" not in f"{problem.detail} {problem.remediation}"

@@ -76,8 +76,33 @@ TenantOperator = Annotated[Principal, Depends(requires("admin:tenants", realm="a
 #: `runbooks/dnc-complaint.md`, and changing it has to be a deliberate edit that fails a
 #: test rather than a reformat that leaves a runbook printing a header the API refuses.
 SUPPRESS_GLOBALLY_CONFIRMATION = "suppress_number_platform_wide"
-#: ...and for taking one back off.
+#: ...and the stem for taking one back off. `release_globally_confirmation` is what a
+#: caller sends; this bare form is exported because the runbook and the console both
+#: build the full string from it, and one place has to own the spelling.
 RELEASE_GLOBALLY_CONFIRMATION = "release_number_platform_wide"
+
+
+def release_globally_confirmation(entry_id: UUID) -> str:
+    """The step-up string for lifting ONE platform-wide suppression, bound to that row.
+
+    Bound for the reason `preference_scrub_confirmation` below is, `core/stepup.py`
+    states as the whole point of the header ("the confirmation captured for one action
+    cannot be replayed against another"), and every other subject-bearing confirmation in
+    this repo follows — `spend_cap_confirmation`, `spend_ceiling_confirmation`,
+    `tenant_erasure_confirmation`, `config_confirmation`, `secret_confirmation`. This was
+    the ONE per-subject destructive route that took a bare constant, and it is the one
+    whose effect is to re-permit dialling somebody who asked not to be dialled: an
+    operator holding a header they typed for one row could release any other row in the
+    list, including from a copied curl in `runbooks/dnc-complaint.md` §6.
+
+    **The hard-rule-6 objection applies to the SIBLING, not to this route.** Binding
+    `SUPPRESS_GLOBALLY_CONFIRMATION` would put phone numbers in a request header, where
+    access logs and browser history would carry them — that argument is sound and that
+    string stays bare, because its subject is a list of numbers in the body. This route's
+    subject is `entry_id`, a uuid that is ALREADY the last segment of the request path,
+    so the suffix discloses nothing the access log does not already hold.
+    """
+    return f"{RELEASE_GLOBALLY_CONFIRMATION}:{entry_id}"
 
 
 def preference_scrub_confirmation(campaign_id: UUID) -> str:
@@ -263,8 +288,10 @@ async def release_globally(
 ) -> None:
     """204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
     holds a phone number, and the response to "stop suppressing this" is not the place
-    to repeat it. The `source` this reads is for the audit row."""
-    require_step_up(x_confirm_action, RELEASE_GLOBALLY_CONFIRMATION)
+    to repeat it. The `source` this reads is for the audit row.
+
+    The confirmation names THIS row — see `release_globally_confirmation`."""
+    require_step_up(x_confirm_action, release_globally_confirmation(entry_id))
     source = await dnc.remove_global_entry(session, entry_id=entry_id)
     await write_audit(
         session,
@@ -366,4 +393,5 @@ __all__ = [
     "campaign_router",
     "global_router",
     "preference_scrub_confirmation",
+    "release_globally_confirmation",
 ]

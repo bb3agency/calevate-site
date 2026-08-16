@@ -30,12 +30,14 @@ real public endpoints. Tests here override that per test to script the answer th
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from typing import Any
 
 import httpx
 import pytest
+from apps.api.core.logging import JsonFormatter
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -133,6 +135,244 @@ async def test_the_guard_asks_the_resolver_for_the_host_and_port_it_was_given(
     assert resolver.calls == [("hooks.crm.example", 443)], "lowercased host, scheme's port"
     assert vetted.host == "hooks.crm.example"
     assert vetted.addresses == (PUBLIC,)
+
+
+# --------------------------------------------------- the parser, which is not the race
+#
+# D-129 weighed IP pinning against a TOCTOU window and kept the window. Underneath that
+# trade was a hole needing no race at all: the guard decided the destination with
+# `urlsplit` + `getaddrinfo` while the request was made by httpx, and the two do not
+# encode a hostname the same way. `socket.getaddrinfo` runs a `str` host through the
+# STDLIB `idna` codec (IDNA 2003); httpx runs it through the `idna` package (IDNA 2008 /
+# UTS-46). Where they disagree, the name we vetted is not the name we connect to.
+
+
+def test_the_two_idna_standards_really_do_disagree_and_this_is_the_premise() -> None:
+    """THE MECHANISM, pinned separately from the behaviour.
+
+    If a future interpreter or a future httpx makes these agree, the guard's parser check
+    becomes a no-op — and a suite that only asserted "the guard refuses `faß…`" would go
+    on passing while proving nothing. This test is the one that would go red and say the
+    premise moved, which is the honest place to learn it.
+    """
+    ours = egress_guard._wire_host("faß.example.com")
+    theirs = httpx.URL("https://faß.example.com/hook").raw_host
+    assert ours == b"fass.example.com", "IDNA 2003 folds ß to ss — what our lookup asks for"
+    assert theirs == b"xn--fa-hia.example.com", "IDNA 2008 keeps it — what httpx connects to"
+    assert ours != theirs, "the whole reason the check below exists"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("https://crm.example/hook", (b"crm.example", 443)),
+        ("http://crm.example/hook", (b"crm.example", 80)),
+        ("https://crm.example:8443/hook", (b"crm.example", 8443)),
+        # httpx drops a default port from `.port`; the comparison is against the port the
+        # connection USES, so the default has to be filled back in or every plain
+        # `https://host/` URL would look like a disagreement.
+        ("https://crm.example:443/hook", (b"crm.example", 443)),
+        ("https://faß.example.com/hook", (b"xn--fa-hia.example.com", 443)),
+        # None means "the transport will not connect at all", which the caller must treat
+        # as a refusal and never as agreement. Three ways to get there:
+        ("http://0177.0.0.1/hook", None),  # httpx will not parse it
+        ("https:///hook", None),  # parses, names no host
+        ("gopher://crm.example/hook", None),  # a scheme with no port we know
+    ],
+)
+def test_the_transport_target_is_read_off_the_transport_and_fails_closed(
+    raw: str, expected: tuple[bytes, int] | None
+) -> None:
+    """Every branch of the thing the agreement check compares against.
+
+    Unit-level on purpose: the last three are unreachable through
+    `assert_public_http_url` — the scheme and host clauses refuse them earlier — so a
+    behaviour test could never show that they answer None rather than something that
+    would read as agreement. A fail-closed branch nobody exercises is a fail-open branch
+    waiting for its first caller.
+    """
+    assert egress_guard._transport_target(raw) == expected
+
+
+def test_a_host_we_cannot_encode_is_not_silently_treated_as_agreeing() -> None:
+    """`_wire_host` returns None for a label the IDNA encoder rejects, and None can never
+    equal a `(bytes, int)` tuple — so an unencodable host is a refusal by construction
+    rather than by a clause somebody has to remember to write."""
+    assert egress_guard._wire_host("a" * 64) is None
+    assert egress_guard._wire_host("crm.example") == b"crm.example"
+
+
+async def test_a_host_two_parsers_read_as_two_names_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The bypass, end to end, with the attacker's own DNS scripted.
+
+    `fass.example.com` is public (so the address judgement is satisfied and cannot be the
+    thing doing the refusing) and `xn--fa-hia.example.com` is the attacker's — 127.0.0.1,
+    never looked at, and where the lead would have gone. Deterministic: no TTL, no race,
+    no second lookup. The refusal has to come from the parser check or not at all.
+    """
+    _deployed(monkeypatch)
+    resolver = _resolves(monkeypatch, (PUBLIC,))
+    with pytest.raises(EgressRefusedError) as excinfo:
+        await assert_public_http_url("https://faß.example.com/hook")
+    assert excinfo.value.code == "webhook_url_ambiguous"
+    assert resolver.calls == [("faß.example.com", 443)], (
+        "the address WAS judged and passed — this refusal is the parser's, not the classifier's"
+    )
+    assert excinfo.value.as_problem()["fields"][0]["rule"] == "ambiguous"
+
+
+async def test_a_url_the_transport_will_not_parse_is_refused_here_rather_than_thrown_later(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An embedded tab: `urlsplit` strips it (CPython does this deliberately, bpo-43882),
+    httpx raises. Two reasons this must be OUR refusal:
+
+    `httpx.InvalidURL` is NOT an `httpx.HTTPError` — asserted below rather than asserted
+    about — so neither `deliver`'s `except httpx.HTTPError` nor `copy_recording`'s catches
+    it. Left to the transport it is an unhandled exception on tenant- or vendor-supplied
+    input: a 500 on one path and a dead worker job on the other.
+    """
+    assert not issubclass(httpx.InvalidURL, httpx.HTTPError), (
+        "the reason this cannot be left to the caller's except clause"
+    )
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, (PUBLIC,))
+    with pytest.raises(EgressRefusedError) as excinfo:
+        await assert_public_http_url("https://crm.example\t/hook")
+    assert excinfo.value.code == "webhook_url_ambiguous"
+
+
+async def test_an_ambiguous_destination_never_reaches_the_socket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Asserted on what was ASKED. A refusal after the request is not a refusal, and a
+    guard test that passes because no request was ever possible proves nothing — so the
+    transport here is live and would have answered 200."""
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, (PUBLIC,))
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await service.deliver(
+            url="https://faß.example.com/hook",
+            secret=SECRET,
+            event="lead.created",
+            envelope={"id": str(uuid7()), "data": {"phone": "+919876500001"}},
+            client=client,
+        )
+
+    assert asked == [], "the lead was posted to a host the guard never resolved"
+    assert result.error == "webhook_url_ambiguous"
+    assert result.transient is False and result.sent_body is None
+
+
+async def test_a_label_too_long_to_encode_is_refused_and_is_not_a_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`UnicodeError` out of the resolver is refused, not raised past.
+
+    A DNS label over 63 bytes makes `socket.getaddrinfo` raise from its IDNA encoder
+    before a nameserver is contacted — and `UnicodeError` is a `ValueError`, NOT an
+    `OSError`, so it used to walk straight past the fail-closed clause and out of the
+    route as a 500. An unhandled exception on a tenant-supplied string is the defect class
+    this whole module exists to remove rather than relocate.
+
+    Scripted the way `test_a_name_we_cannot_resolve_fails_closed` scripts its `OSError`,
+    and the FIRST assertion is why that substitution is honest: the error really is what
+    the stdlib encoder raises for this host. Written as a `.example` URL against the real
+    resolver instead, this test would have passed through the suite's session double —
+    which answers reserved names without calling `getaddrinfo` at all — and proved nothing
+    about the clause it is named after.
+    """
+    too_long = "a" * 64
+    with pytest.raises(UnicodeError):
+        f"{too_long}.example".encode("idna")
+
+    async def encoder_refuses(host: str, port: int) -> tuple[str, ...]:
+        raise UnicodeError("label empty or too long")
+
+    monkeypatch.setattr(egress_guard, "resolve_addresses", encoder_refuses)
+    with pytest.raises(EgressRefusedError) as excinfo:
+        await assert_public_http_url(f"https://{too_long}.example/hook")
+    assert excinfo.value.code == "webhook_url_unresolvable"
+
+
+async def test_what_was_vetted_is_the_string_that_is_requested(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The guard trims before it parses, so a caller posting the UNTRIMMED original would
+    hand httpx a string the guard never looked at. `VettedDestination.url` closes that by
+    construction rather than by everyone remembering to `.strip()`."""
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, (PUBLIC,))
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(str(request.url))
+        return httpx.Response(200, json={"ok": True})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await service.deliver(
+            url="  https://crm.example/hooks/calevate  ",
+            secret=SECRET,
+            event="lead.created",
+            envelope={"id": str(uuid7()), "data": {"lead_id": "1"}},
+            client=client,
+        )
+    assert result.delivered is True
+    assert asked == ["https://crm.example/hooks/calevate"]
+
+
+async def test_a_public_ipv6_only_answer_is_a_destination_we_will_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every IPv6 case above is a REFUSAL, and a classifier that refused all of them would
+    satisfy the lot. A name that answers only AAAA is ordinary and must still work."""
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, ("2606:2800:220:1:248:1893:25c8:1946",))
+    vetted = await assert_public_http_url("https://v6.example/hook")
+    assert vetted.addresses == ("2606:2800:220:1:248:1893:25c8:1946",)
+
+
+async def test_the_guard_vets_a_name_and_the_caller_connects_by_that_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE KNOWN LIMIT, asserted rather than only described.
+
+    `egress_guard`'s PINNING paragraph says the residual is the gap between our
+    `getaddrinfo` and httpx's — and that sentence is only true while callers connect by
+    NAME. This pins both halves of it: the vetted addresses exist, and none of them is
+    what goes on the wire. The day someone implements pinning, this test is what tells
+    them the docstring is now wrong, which is the whole reason a limit gets a test rather
+    than a paragraph.
+    """
+    _deployed(monkeypatch)
+    _resolves(monkeypatch, (PUBLIC,))
+    asked: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    vetted = await assert_public_http_url("https://crm.example/hook")
+    assert vetted.addresses == (PUBLIC,), "an address WAS proved public"
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        await service.deliver(
+            url="https://crm.example/hook",
+            secret=SECRET,
+            event="lead.created",
+            envelope={"id": str(uuid7()), "data": {"lead_id": "1"}},
+            client=client,
+        )
+    assert [r.url.host for r in asked] == ["crm.example"], "connected by name — the residual"
+    assert PUBLIC not in str(asked[0].url), "and not by the address that was vetted"
 
 
 # ------------------------------------------------------------------ refusal classes
@@ -288,6 +528,25 @@ def test_the_codes_the_integration_contract_publishes_are_the_codes_we_raise() -
     ):
         assert code in contract, f"{code} is raised but not published"
         assert f'code="{code}"' in source, f"{code} is published but not raised"
+
+
+def test_the_resolver_seam_is_substituted_by_tests_and_by_nothing_that_ships() -> None:
+    """`resolve_addresses` exists as a module-level function so a test can replace it, and
+    a seam is only safe while nothing in the shipped tree uses it as one.
+
+    Asserted over `apps/` rather than argued: `conftest`'s session fixture and this file
+    are the substitution sites, and a monkeypatch is a test tool. A production module
+    reaching for this name would be a bypass wearing a seam's clothes — the "bypass for
+    testing" hard rule 5 forbids in those words, arriving from the other direction.
+    """
+    import pathlib
+
+    callers = sorted(
+        str(path)
+        for path in pathlib.Path("apps").rglob("*.py")
+        if path.name != "egress_guard.py" and "resolve_addresses" in path.read_text("utf-8")
+    )
+    assert callers == [], f"the resolver seam is reachable from shipped code: {callers}"
 
 
 async def test_a_name_we_cannot_resolve_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -617,6 +876,11 @@ async def test_registering_a_real_endpoint_is_audited_and_records_the_host_never
     assert summary.host == "hooks.crm.example.com"  # type: ignore[attr-defined]
     assert summary.port == 443  # type: ignore[attr-defined]
     assert summary.kind == service.WEBHOOK_KIND  # type: ignore[attr-defined]
+    # Through `JsonFormatter`, which is where `redact_mapping` actually runs — reading the
+    # LogRecord alone would pass for a field shipping "[1 items]", which is what this
+    # summary used to carry. Half of "where did the leads go" is WHICH events go there.
+    emitted = json.loads(JsonFormatter().format(summary))
+    assert emitted["events"] == "lead.created", emitted
     rendered = str(summary.__dict__)
     assert "super-secret-value" not in rendered, "the query is a credential, not an audit field"
     assert "/calevate?" not in rendered, "the path is not recorded either — the host is the fact"

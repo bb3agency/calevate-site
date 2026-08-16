@@ -101,7 +101,11 @@ Models (per-agent config, BYOK):
   extraction permanently**, because that pass reads the RAW transcript and G-2 forbids raw
   PII reaching Google. **Gemini 3.x Flash-Lite** ($0.25/$1.50 per M for `3.1-flash-lite`)
   runs the USER-TRIGGERED dashboard AI over the redacted copy, through Vertex AI
-  `asia-south1` and never the AI Studio Developer API. Which model extracts BETTER is still
+  `asia-south1` and never the AI Studio Developer API — but
+  **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`**: the 16 Aug 2026 re-search places the
+  3.x family on the global and `us`/`eu` multi-region endpoints and places only the 2.5
+  class in Mumbai, so whether Mumbai serves the identifier we ship is OPERATIONS §2 gate
+  14 and not a settled fact (D-142). Which model extracts BETTER is still
   unmeasured and still blocked on a Sarvam key and egress (§7's golden-transcript
   fixtures). Availability of either on Bolna is UNVERIFIED (pilot;
   fallback = their listed LLMs or an OpenAI-compatible endpoint if offered). Sarvam's

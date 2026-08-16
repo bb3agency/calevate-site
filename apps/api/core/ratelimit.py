@@ -312,7 +312,16 @@ def bucket_subject(raw: str | None) -> str:
 
 
 def fingerprint(value: str) -> str:
-    """A stable pseudonym for a secret — a bearer token, a Clerk user id.
+    """A stable pseudonym for a LIVE CREDENTIAL, and for nothing else.
+
+    ONE CALLER, ON PURPOSE: the bearer token in `core.middleware.RateLimitMiddleware.
+    _subjects`. A token is the one bucket subject in this platform that must not reach
+    Redis in the clear, because a Redis dump would then be a set of usable sessions.
+    Identifiers and addresses are NOT that — they go through `bucket_subject` — and the
+    signup quota used to hash both of its subjects here on a privacy argument that could
+    not hold: an unkeyed hash of an IPv4 address is an encoding of a 32-bit space, and the
+    same address is written in the clear by the caller dimension of this very module and
+    kept permanently in `audit_log.ip` (SEC-COMP §5). See `tenancy/signup.py::_consume`.
 
     `blake2s`, NOT the builtin `hash()`. `str.__hash__` is salted per PROCESS (PEP 456,
     on by default since 3.3), and this deployment runs uvicorn with two workers: one
@@ -321,10 +330,17 @@ def fingerprint(value: str) -> str:
     which is ~77k tokens to a 50% collision by the birthday bound — one tenant consuming
     another tenant's limiter bucket.
 
+    `digest_size=16` — 128 bits, so the birthday bound is 2^64 distinct live tokens
+    before an even chance of one collision, against a bucket population bounded by the
+    limiter's own window. Not 32 bytes: the digest is a Redis key component on every
+    request, and doubling it buys nothing the threat model can use.
+
     Unkeyed rather than an HMAC: the input is a high-entropy credential, so there is no
     dictionary to walk, and a key here would be a fourth secret to rotate for no gain in
     the threat model this defends (BACKEND-PATTERNS §4 keys the IDEMPOTENCY fingerprint
-    because that one pseudonymises a low-entropy tenant/user id).
+    because that one pseudonymises a low-entropy tenant/user id). That argument is a
+    property of the INPUT, which is why the docstring now names the one input it is true
+    of rather than the shape of a caller.
     """
     return hashlib.blake2s(value.encode("utf-8"), digest_size=16).hexdigest()
 
@@ -338,8 +354,18 @@ class Decision:
     #: Collapsing them would put "the counter is down" in front of a user as a rate limit
     #: they did not hit.
     reason: str = "ok"
+    #: True when this call CREATED the counter — the first request in this window for
+    #: this bucket. `RateLimitMiddleware` charges the MINTING of a per-token bucket to the
+    #: address that minted it (see `_subjects` there), which is what stops a stranger
+    #: opting out of the per-caller dimension by inventing a credential. Reported as a
+    #: boolean rather than as the raw count on purpose: the counter's value is this
+    #: module's business, "was this bucket new" is the only part a caller may act on.
+    first_in_window: bool = False
 
 
+#: The answer when NOTHING WAS COUNTED — an unlimited profile, or a counter we could not
+#: reach. `first_in_window` is false here by construction: no bucket was created, so
+#: nothing may be charged for having created one.
 _ALLOWED = Decision(allowed=True, retry_after_s=0)
 
 
@@ -386,7 +412,7 @@ async def consume(
         return Decision(allowed=False, retry_after_s=retry_after, reason="unavailable")
 
     if count <= limit:
-        return _ALLOWED
+        return Decision(allowed=True, retry_after_s=0, first_in_window=count == 1)
     return Decision(allowed=False, retry_after_s=retry_after, reason="over_limit")
 
 

@@ -553,16 +553,32 @@ SECURITY-COMPLIANCE.
 unauthenticated POST from a customer's website or ad platform, so it is internet-facing
 with a per-agent token and nothing else.
 
-Required before self-serve opens (all at the Cloudflare edge, which we already run):
-- **Rate limits** on `signup`, `org-create`, and per-token limits on lead intake. The
-  intake limit is per *agent token*, not per IP — the caller is a customer's server.
+Required before self-serve opens. This list used to say "all at the Cloudflare edge,
+which we already run", and that is no longer where most of it lives: D-131 built the
+app-level half in `apps/api/core/ratelimit.py` and D-144 finished it. What is still
+external is marked **[edge]** and is a Cloudflare dashboard change, not a code change.
+
+- **Rate limits** on `signup`, `org-create`, and per-token limits on lead intake — **in
+  the repo now.** `PROFILES["auth"]` bounds `POST /v1/auth/signup` per minute and
+  `tenancy/signup.py`'s hourly quota bounds it per identity and per real caller address
+  (`SIGNUPS_PER_USER_PER_HOUR`, `SIGNUPS_PER_IP_PER_HOUR`), failing CLOSED when Redis is
+  gone because nothing else bounds an unattended tenant factory. Lead intake is
+  `PROFILES["webhook_ingest"]`, keyed on the `webhook_id` in the path — which is the
+  per-*source* dimension this bullet asked for, since the caller is a customer's server
+  and its address is not a tenant. **[edge]** zones stay as the outer bound (§5).
 - **Bot protection (Turnstile) on signup only.** Never on lead intake: it is a
   machine-to-machine endpoint and a challenge there silently breaks a client's funnel.
+  **[edge]** — nothing in the repo can turn this on.
 - **WAF + DDoS** stays on for `app.` and `api.`. `hooks.calevate.tech` keeps its
-  never-gated policy (§5) — engine webhooks must not meet a challenge page.
-- **Per-tenant resource ceilings enforced in-app, not just at the edge**: concurrency cap
-  and spend cap checked pre-dispatch (`spend_state`, fail-closed). Edge limits protect the
-  box; only app-level caps protect *client #1 from tenant #47*.
+  never-gated policy (§5) — engine webhooks must not meet a challenge page. **[edge]**.
+- **Per-tenant resource ceilings enforced in-app, not just at the edge.** Three of them
+  exist: the per-tenant REQUEST ceiling (`LimitProfile.per_tenant`, charged in
+  `core/auth.charge_tenant_quota` at the first instant the tenant is a verified fact
+  rather than a header a stranger typed), the spend cap checked pre-dispatch
+  (`spend_state`, fail-closed) and the concurrency cap. Edge limits protect the box; only
+  app-level caps protect *client #1 from tenant #47*, and the edge structurally cannot do
+  per-tenant at all because it keys on `$binary_remote_addr` and one SMB behind one NAT
+  is the ordinary case.
 - **A noisy-neighbour budget**: workers already run in Compose, so cap the ARQ worker
   concurrency rather than letting a bulk campaign saturate the host and starve the
   webhook receiver's <500ms ack.

@@ -13,7 +13,10 @@ voice engine (Bolna primary per D-31) with BYOK models — **canonical stack per
 Sarvam Saaras STT · **Sarvam 105B LLM (free per token, all-India residency)** · Sarvam
 Bulbul v3 TTS (v2 = value tier). Gemini 3.x Flash-Lite runs the USER-TRIGGERED dashboard
 AI through Vertex AI `asia-south1` (D-127 supersedes D-36's LLM leg for that surface
-only); the first post-call extraction stays on Sarvam permanently because it reads the raw
+only) — **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`, so that sentence is a decision and
+not yet an observation**: nobody has confirmed Mumbai serves that model identifier and the
+public evidence leans against it (OPERATIONS §2 gate 14, D-142). The first post-call
+extraction stays on Sarvam permanently because it reads the raw
 transcript — `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`. Our
 code = admin console, client dashboards,
 schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance

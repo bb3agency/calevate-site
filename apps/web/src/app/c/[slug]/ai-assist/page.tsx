@@ -273,6 +273,11 @@ function unavailableSentence(quota: AiQuota): string {
       return "You have already added extra AI help this month.";
     case "not_at_ceiling":
       return "There is still included AI help left this month.";
+    // The block expires with the billing month, so within the last hour of one there is
+    // nothing left to sell: the server refuses the purchase (`ai_extra_month_ending`)
+    // and this is that refusal said BEFORE the click rather than after it.
+    case "month_ending":
+      return "This month is nearly over, so there is nothing worth adding to it — your included AI help comes back within the hour, and it is larger than what you would be buying.";
     default:
       return "More AI help cannot be added from here right now — talk to your account manager.";
   }

@@ -288,16 +288,54 @@ VERTEX_LOCATION: Final = "asia-south1"
 #: the named replacement for `gemini-2.5-flash-lite`; and the retirement date for the 2.5
 #: family is 16 Oct 2026.
 #:
-#: ⚠ WHAT IS NOT CONFIRMED, said here rather than discovered later: that `asia-south1`
-#: SERVES this identifier. Search could establish regional availability for the 2.5 Flash
-#: class in Mumbai and could not establish it for 3.1 Flash-Lite, so this is an
-#: OPERATIONS §2-class vendor gate on the day the GCP project exists, not an engineering
-#: unknown. The failure direction is the safe one: a model a region does not serve answers
-#: 404 from a host that is unambiguously ours, `VertexGeminiExtractor` maps it to the
-#: authored reason `provider_unavailable`, and G-6's disclosed Sarvam fallback carries the
-#: work. The alternative — silently widening the region until something answers — is the
-#: residency inversion this whole guardrail exists to prevent.
+#: ⚠ WHETHER `VERTEX_LOCATION` SERVES IT is a separate fact with its own constant —
+#: `GEMINI_MODEL_CONFIRMED_IN_REGION` below. Read that before believing this one works.
 GEMINI_DEFAULT_LLM: Final = "gemini-3.1-flash-lite"
+
+#: Has anyone confirmed that `VERTEX_LOCATION` serves `GEMINI_DEFAULT_LLM`? No.
+#:
+#: A greppable boolean rather than a paragraph, for `GEMINI_EXTRACTION_DEFAULT`'s reason
+#: and `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA`'s shape: the claim "Gemini 3.x Flash-Lite
+#: runs on Vertex AI `asia-south1`" is currently in eight documents, and until it names a
+#: constant `check_docs_drift` §5 cannot tell those eight sentences from the truth.
+#:
+#: EVIDENCE STANDING: **REPORTED, NOT READ**, re-searched 16 Aug 2026 and the picture got
+#: WORSE, not merely no better. `docs.cloud.google.com`, `firebase.google.com`,
+#: `discuss.google.dev`, `www.promptfoo.dev`, `modelavailability.com` and
+#: `docs.litellm.ai` are every one of them refused by this environment's egress proxy, so
+#: what follows is independent search summaries agreeing, never a page fetched here:
+#:
+#: * The GA date holds — `gemini-3.1-flash-lite`, 7 May 2026.
+#: * Where it is served, nobody reports `asia-south1`. What IS reported is the GLOBAL
+#:   endpoint plus the `us` and `eu` multi-region REP endpoints
+#:   (`aiplatform.{us,eu}.rep.googleapis.com`, named in a third-party adapter's own issue
+#:   tracker), and at least one report that it is absent from `us-central1` — i.e. the
+#:   3.x generation appears to be launching global-first, which is the pattern Google
+#:   documents ("some models are only available in the global region, especially on
+#:   initial release").
+#: * What search DOES place in Mumbai is the 2.5 Flash / 2.5 Flash-Lite class — the
+#:   family that RETIRES 16 Oct 2026 (BRD R-04). So this is a gate with a calendar on it.
+#:
+#: WHAT SURVIVED THE RE-SEARCH, and it is the leg D-127 actually rests on: `asia-south1`
+#: is in Vertex's own ML-processing-location table (with Tokyo, Singapore, Sydney, Seoul),
+#: and Google states ML processing occurs in the region the request is made in for the
+#: regions that table lists. The REGION is not in doubt; the MODEL is. That asymmetry is
+#: why this constant is about the model and `VERTEX_LOCATION` above carries no such flag.
+#:
+#: WHY THE ANSWER IS NOT "USE THE GLOBAL ENDPOINT". Google's own words on it are "you
+#: can't control or know which region your ML processing requests are sent to", which is
+#: the exact sentence D-127 disqualifies AI Studio over. `check_model_residency` refuses
+#: `locations/global` for that reason and must keep refusing it.
+#:
+#: WHAT CLOSES IT: one `generateContent` against `vertex_generate_url()` on the day the
+#: GCP project exists (OPERATIONS §2). A 404 is the answer "no", and it is a LOUD answer —
+#: `VertexGeminiExtractor` logs `vertex_model_not_served_in_region` naming this constant,
+#: `assist_capability()` answers `provider_unavailable`, and G-6's disclosed Sarvam
+#: fallback carries the work meanwhile. If the answer is no, the decision is a MODEL
+#: change (the newest Gemini `asia-south1` does serve) and never a REGION change — the
+#: second is the residency inversion this whole guardrail exists to prevent, and it is
+#: nine characters away at all times.
+GEMINI_MODEL_CONFIRMED_IN_REGION: Final = False
 
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
 #: scans for them for the reason it scans for the Sarvam ones.

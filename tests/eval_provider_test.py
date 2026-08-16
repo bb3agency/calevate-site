@@ -39,6 +39,7 @@ from scripts.eval import (
     WRONG,
     CaseResult,
     EvidenceLeakError,
+    FieldScore,
     ProviderRun,
     field_scorecard,
     main_async,
@@ -340,3 +341,31 @@ def test_the_committed_scorecard_matches_what_the_harness_writes_today() -> None
     # The caveat that stops this file being read as a licence to move extraction to
     # Gemini, which D-127 G-7 forbids for the raw-PII pass whatever the numbers say.
     assert "GEMINI_EXTRACTION_DEFAULT is False" in document
+
+
+def test_a_verdict_the_scorecard_cannot_hold_is_an_error_not_a_lost_column() -> None:
+    """The five verdict constants are bound to `FieldScore`'s five fields by string
+    identity and nothing else, so `record()` must REFUSE a name it does not hold.
+
+    The failure this rules out is silent: a verdict counted into an attribute nobody
+    reads is missing from `asked`, missing from `withheld`, and printed by `cell()` as
+    `_not measured_` — a field that WAS measured reported as evidence nobody gathered, in
+    the document that feeds a residency decision. The one-character edit that would
+    produce it is `getattr(self, verdict, 0)`, which reads like defensive programming.
+
+    Also pinned: the five constants ARE the five fields, so renaming one on its own is
+    caught here rather than in a scorecard three months from now.
+    """
+    score = FieldScore()
+    with pytest.raises(AttributeError):
+        score.record("rihgt")
+    for verdict in (RIGHT, MISSED, WRONG, INVENTED, "restrained"):
+        score.record(verdict)
+    assert score.asked == 3 and score.withheld == 2, "a verdict landed nowhere"
+    assert vars(score) == {
+        "right": 1,
+        "missed": 1,
+        "wrong": 1,
+        "invented": 1,
+        "restrained": 1,
+    }, "a verdict landed on an attribute no reader of the scorecard consults"

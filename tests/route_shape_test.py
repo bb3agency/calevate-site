@@ -468,6 +468,89 @@ async def test_no_admin_realm_route_lives_outside_the_admin_path_space() -> None
     )
 
 
+async def test_no_route_in_the_admin_path_space_admits_a_client_realm_principal() -> None:
+    """The CONVERSE of the rule above, and the backstop the two behavioural refusals lean
+    on once their routes moved into `/v1/admin`.
+
+    The test above answers "is every admin-realm route inside the admin path space".
+    Nothing answered the other direction — "is everything inside the admin path space
+    admin-realm" — and that gap sits directly under the two behavioural refusals for
+    publish and voice.
+
+    THE REASON THOSE TWO CANNOT COVER IT, measured rather than assumed: downgrade
+    `voice_routes.VoiceSetter` to `realm="client"` and
+    `agent_voice_test::test_a_client_realm_principal_cannot_set_the_voice` stays GREEN,
+    because both handlers also take `session: AdminSession` and `core.deps.admin_db`
+    depends on `current_admin` — so the client token meets the same 401 from the session
+    dependency. Two locks on one door is good; a test that cannot tell which one is
+    holding is not, because the day a handler stops needing an admin session the
+    declaration is all that is left. So the declaration is asserted HERE, off the route
+    table, where the downgrade is the failure rather than an unchanged status code.
+
+    The four mechanisms that read the prefix (see the sibling test) all assume the space
+    is admin-only, and `RateLimitMiddleware`'s `/v1/admin` profile is the sharpest: a
+    client-realm route living there would take the operator limiter, which is sized for a
+    handful of staff rather than for every tenant's users.
+    """
+    offenders = []
+    for route in iter_api_routes(app):
+        if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
+            continue
+        if not any(route.path.startswith(space) for space in ADMIN_PATH_SPACES):
+            continue
+        realms = {realm for _permission, realm in _enforced(route)}
+        if realms == {"admin"}:
+            continue
+        offenders.append(f"{sorted(route.methods or [])} {route.path} -> {sorted(realms)}")
+    assert not offenders, (
+        f"routes under {ADMIN_PATH_SPACES} that do not enforce realm='admin': {offenders}. "
+        "The admin path space is reached with an admin token and nothing else — a route "
+        "here that accepts a client principal takes the operator rate-limit profile and "
+        "the load-shed exemption while serving client traffic. Move it out, or declare "
+        'realm="admin".'
+    )
+    # Non-vacuity: a broken walk must go red rather than report a clean sweep.
+    admin_space = [
+        route
+        for route in iter_api_routes(app)
+        if any(route.path.startswith(space) for space in ADMIN_PATH_SPACES)
+        and not any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+    ]
+    assert len(admin_space) >= 60, f"only {len(admin_space)} admin-space routes found"
+
+
+async def test_a_client_token_is_refused_the_admin_space_as_a_realm_answer() -> None:
+    """The behavioural half, with the positive control that makes the 401 mean something.
+
+    `test_a_client_token_cannot_reach_the_publish_endpoint` asserts a 401, and a 401 on
+    its own is indistinguishable from a bad token. So the SAME token is sent to a
+    client-realm route in the same breath: it is accepted there, which leaves exactly one
+    explanation for the refusal — the route is admin-realm and this credential is not.
+
+    `agent_voice_test::test_a_client_realm_principal_cannot_set_the_voice` is the twin of
+    this for the voice write and carries the same control.
+    """
+    org = await _make_org()
+    tenant_id = uuid.UUID(str(org["id"]))
+    token = await _make_member(tenant_id, role="owner")
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": str(org["slug"])}
+
+    async with _client() as http:
+        refused = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/agents/{org['agent_id']}/publish", headers=headers
+        )
+        accepted = await http.get(f"/v1/agents/{org['agent_id']}", headers=headers)
+
+    assert accepted.status_code == 200, (
+        f"the control failed: this client token is not usable at all ({accepted.text}), "
+        "so the refusal below proves nothing about realms"
+    )
+    assert refused.status_code == 401, refused.text
+    body = refused.json()
+    assert body["kind"] == "auth", body
+    assert "realm" in body["detail"].lower(), body
+
+
 async def test_the_voice_write_moved_and_the_old_path_is_gone() -> None:
     """The instance, both halves — a breaking URL change stated as a test rather than
     left for someone to find by diffing the OpenAPI snapshot.

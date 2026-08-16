@@ -116,6 +116,20 @@ import { beforeAll, describe, expect, it } from "vitest";
  *   per-query, per-declaring-function, and it is satisfied by a single `isError` read.
  *   That is the price of not computing branch dominance, and it is why rules 1 and 2
  *   stay ungated: the shapes with no honest reading at all keep firing regardless.
+ *
+ *   RE-MEASURED, so the next reader inherits the evidence and not the conclusion:
+ *   removing the gate on this tree gives **43 hits**, and the reason it is not a
+ *   narrowing problem is visible in them — several are the LADDER ITSELF
+ *   (`c/[slug]/campaign-review:152 if (hold.error || !hold.data) return <ProblemNotice/>`,
+ *   `…/prompt:939 catalogue.error || !catalogue.data ? <ProblemNotice/>`,
+ *   `…/[tenantId]:554 agents.isLoading || !agents.data ? <Skeleton/>`). An ungated rule
+ *   would flag its own remedy, which is worse than a rule with a known hole. And
+ *   "dominance" is the wrong shape of analysis for this codebase's idiom anyway: the
+ *   correct spelling here is a `ProblemNotice` rendered as a SIBLING of the data branch,
+ *   not before it, so nothing dominates anything and the property to compute would be
+ *   mutual exclusion across JSX children — with the refusal frequently living in a child
+ *   component the scan cannot follow. What actually closes it is the screen's own test,
+ *   which is where D-132 said the two escaping sabotages were caught.
  * * **`if (!data) return null`** — §52 names it, and it is not distinguishable from a
  *   legitimate early return without knowing what the caller renders instead.
  * * **A determined evasion.** Copy `q.data` into an `any`, or into a helper in another

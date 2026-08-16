@@ -46,6 +46,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.admin.service import tenant_exists
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.first_campaign import (
     read_first_campaign_review,
@@ -201,6 +202,15 @@ async def decide(
         )
 
     async with tenant_session(tenant_id) as scoped:
+        # A mistyped tenant uuid is a 404, not a 500. `first_campaign_reviews.tenant_id`
+        # carries `fk_first_campaign_reviews_tenant_id_organizations`, so an id no
+        # organization holds reached the upsert and surfaced as `internal_error` — the
+        # operator was told "the team has been alerted" for a typo they could fix
+        # themselves, and the team WAS alerted for it. Same predicate and same reason as
+        # `record_kyc_verification`, whose shape this route's docstring already claims
+        # (D-133 fixed that family and this member was not in it yet).
+        if not await tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
         if payload.reviewed_campaign_id is not None:
             # RLS scopes this read to the tenant, so naming another tenant's campaign as
             # the evidence for this release is a 404 rather than a stored cross-tenant

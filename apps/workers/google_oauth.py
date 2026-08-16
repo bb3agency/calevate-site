@@ -131,20 +131,40 @@ def parse_service_account(raw: str) -> ServiceAccount | None:
 @dataclass(frozen=True, slots=True)
 class _CachedToken:
     value: str
+    #: A `time.monotonic()` instant, NEVER a wall-clock one, and the two are not
+    #: interchangeable here. `iat`/`exp` inside the assertion must be wall clock because
+    #: Google validates them against real time; a CACHE deadline must not be, because a
+    #: wall clock steps. An NTP correction after a VPS resume moves `time.time()`
+    #: backwards by minutes, and a deadline compared against a clock that went backwards
+    #: reports an expired token as fresh — which is a 401 on every assist until real time
+    #: catches up, from a cache that believes it is doing the right thing.
     expires_at: float
 
 
+#: One cached bearer per (account address, KEY, scope).
+#:
 #: Module-level rather than instance-level because both callers build a fresh transport
 #: per unit of work (they re-read settings so a config change takes effect, which is
 #: right) — a token cached on the instance would be minted per lead and per assist, and
 #: would spend a network round-trip and an RS256 signature on every one.
 #:
-#: KEYED ON (client_email, scope), NOT ON THE EMAIL ALONE, and that is the one behaviour
-#: this extraction had to ADD rather than move. One service account can now be used for
-#: two different scopes; a cache keyed on identity alone would hand the Vertex caller a
-#: token minted for `.../auth/spreadsheets`, which Google answers with a 403 that names
-#: neither the scope nor the cache — a bug that would look like a broken IAM grant.
-_TOKENS: dict[tuple[str, str], _CachedToken] = {}
+#: THE SCOPE IS IN THE KEY because one service account now serves two of them. A cache
+#: keyed on identity alone would hand the Vertex caller a token minted for
+#: `.../auth/spreadsheets`, which Google answers with a 403 that names neither the scope
+#: nor the cache — a bug that would look like a broken IAM grant.
+#:
+#: THE KEY ID IS IN THE KEY for the same argument one step further, and it is what makes
+#: `platform_config`'s `AppliesRule(LIVE)` on `gcp_service_account_json` true rather than
+#: caveated. Rotating a service account's KEY while keeping its ADDRESS is the ordinary
+#: rotation — Google's own console mints the new key on the same account — and with the
+#: address alone as the identity every worker kept sending a bearer minted from the
+#: retired key for up to fifty-five minutes, self-healing only by a restart or by an
+#: operator remembering a Python function. `private_key_id` is Google's own name for
+#: "which key signed this" (it is the assertion's `kid` already), it is not secret, and
+#: a key file always carries one; when it is absent the tuple degrades to the previous
+#: behaviour rather than to a new failure. The superseded slot is DROPPED on the next
+#: successful mint, so rotation cannot grow this dict.
+_TOKENS: dict[tuple[str, str | None, str], _CachedToken] = {}
 
 
 def reset_token_cache() -> None:
@@ -183,8 +203,9 @@ async def access_token(
     deliberately does not raise, because the one thing that must never happen is a
     credential landing in a traceback.
     """
-    now = time.time()
-    cache_key = (account.client_email, scope)
+    # Two clocks, one job each — see `_CachedToken.expires_at`.
+    now = time.monotonic()
+    cache_key = (account.client_email, account.private_key_id, scope)
     cached = _TOKENS.get(cache_key)
     if cached is not None and cached.expires_at - TOKEN_REFRESH_SKEW_S > now:
         return cached.value
@@ -193,7 +214,7 @@ async def access_token(
             account.token_uri,
             data={
                 "grant_type": JWT_BEARER_GRANT,
-                "assertion": _assertion(account, scope=scope, now=int(now)),
+                "assertion": _assertion(account, scope=scope, now=int(time.time())),
             },
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
@@ -211,6 +232,16 @@ async def access_token(
     except (ValueError, KeyError, TypeError):
         log.warning("google_token_malformed")
         return None
+    # The retired key's slot goes when the new key's first token lands, so a rotation
+    # leaves one entry per (address, scope) rather than one per key ever installed. Done
+    # HERE and not on `parse_service_account`, because until a token actually comes back
+    # we do not know the new key works and dropping the old one would be an outage.
+    for stale in [
+        key
+        for key in _TOKENS
+        if key[0] == account.client_email and key[2] == scope and key[1] != account.private_key_id
+    ]:
+        del _TOKENS[stale]
     _TOKENS[cache_key] = _CachedToken(value=token, expires_at=now + ttl)
     return token
 

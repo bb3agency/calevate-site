@@ -337,18 +337,51 @@ async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dicta
 async def test_a_client_realm_principal_cannot_set_the_voice() -> None:
     """D-21's boundary: clients read, admins change engine-facing config. The realms do
     not share session logic (TRD §11), so a client token is not an admin token even for
-    an owner — and the agent row must be untouched afterwards."""
+    an owner — and the agent row must be untouched afterwards.
+
+    `in (401, 403)` USED TO BE THE ASSERTION and it accepted two different worlds: 401 is
+    "wrong realm" and 403 is "right realm, missing permission". It is now the exact
+    answer, with a POSITIVE CONTROL beside it — the same token is accepted on the
+    client-realm voice READ in the same breath — so the refusal cannot be a broken or
+    expired credential, which is the only thing a bare 401 proves on its own.
+
+    **WHAT THIS TEST STILL CANNOT SEE, MEASURED RATHER THAN ASSUMED.** Changing
+    `VoiceSetter` to `realm="client"` and re-running this case leaves it GREEN, because
+    the handler also takes `session: AdminSession`, and `core.deps.admin_db` depends on
+    `current_admin` — so the client token meets a second, identical 401 from the session
+    dependency. That is a real backstop rather than a coincidence (every admin-realm
+    handler in this repo opens `admin_db` or `tenant_session` under an admin principal),
+    but it means no request-level assertion can distinguish "this route declares
+    `realm="admin"`" from "this route happens to need an admin session".
+
+    So the DECLARATION is pinned where it can be read directly:
+    `route_shape_test::test_no_route_in_the_admin_path_space_admits_a_client_realm_principal`
+    walks the live route table and fails on exactly that downgrade — verified by making
+    it and watching that assertion, and only that assertion, name this path.
+    """
     tenant_id, agent_id, slug, token = await _tenant()
     before = await _stored_voice(tenant_id, agent_id)
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
 
     async with _client(_app()) as http:
         response = await http.patch(
             f"/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
             json={"voice_id": "bulbul:v2"},
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            headers=headers,
         )
+        # The catalogue read D-21 deliberately leaves open to a client, on the same
+        # credential: if THIS fails the token is simply not working and the refusal above
+        # is evidence of nothing.
+        control = await http.get("/v1/agents/voices", headers=headers)
 
-    assert response.status_code in (401, 403), response.text
+    assert control.status_code == 200, (
+        f"the control failed: this client token is not usable at all ({control.text}), "
+        "so the refusal below proves nothing about realms"
+    )
+    assert response.status_code == 401, response.text
+    body = response.json()
+    assert body["kind"] == "auth", body
+    assert "realm" in body["detail"].lower(), body
     assert await _stored_voice(tenant_id, agent_id) == before, "a refused write wrote nothing"
 
 

@@ -34,7 +34,14 @@ FastAPI `Depends()` — no globals, no singletons; async `AsyncSession` per requ
 4. App build: body limit, **log redaction path list** (authorization, cookie,
    `*token*`, `*secret*`, phone fields), trust-proxy as a CIDR-driven predicate
 5. Middleware/plugins in FIXED order: security headers → CORS → auth → rate limit →
-   error handler → observability (correlation id) → routes
+   error handler → observability (correlation id) → routes.
+   **AMENDED (D-144): the correlation id is OUTERMOST, not last before routes.** Three
+   responses are produced by layers above it and never reach a route — the body limit's
+   413, the limiter's 429 and the load-shed 503 — so with observability innermost they
+   carried no `X-Correlation-Id` even when the caller sent one, `trace_id: null`, and no
+   request log line. §3 promises the id on *every* response; this order is what makes
+   that true. Auth remains a per-route `Depends` for the OpenAPI reason recorded in
+   `apps/api/core/middleware.py`, which is the file both departures are argued in.
 6. **Raw-body preservation for webhook routes** (voice-runtime): HMAC must see exact
    bytes, so the JSON parser keeps the raw buffer for `hooks.*` paths — raghava does
    this for exactly 3 webhook paths; we do it for the engine webhook path

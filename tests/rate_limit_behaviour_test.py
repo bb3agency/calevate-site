@@ -157,6 +157,61 @@ async def test_one_address_flooding_does_not_refuse_another(tight: None) -> None
     assert neighbour.status_code == 401, "a neighbour's address inherited the flood"
 
 
+async def test_a_stranger_cannot_buy_a_fresh_bucket_by_inventing_a_credential(
+    tight: None,
+) -> None:
+    """THE HALF D-131 NAMED AND LEFT: pre-auth, nothing can tell a credential from a guess.
+
+    The per-caller bucket keys on the bearer token when there is one, so `Bearer <random>`
+    on every request minted a brand-new bucket every time and an anonymous caller opted
+    out of this dimension entirely — while every honest anonymous caller stayed inside it,
+    and while each crafted token drove one JWKS refetch in `core.auth._signing_key_for`.
+
+    The rule is now that presenting a credential never buys more room than presenting
+    none, so a rotating flood is refused at exactly the ceiling an unauthenticated flood
+    from the same address meets. `per_client=3` here, and the fourth request is refused
+    whether or not it carries an `Authorization` header.
+    """
+    async with _client(_trusted_peer()) as http:
+        edge = {"CF-Connecting-IP": _address()}
+        for _ in range(4):
+            last = await http.get(
+                "/v1/agents",
+                headers={**edge, "Authorization": f"Bearer {uuid.uuid4().hex}"},
+            )
+    assert last.status_code == 429, (
+        f"a rotating bearer token minted an unlimited number of buckets: {last.status_code}"
+    )
+    assert last.headers.get("Retry-After")
+
+
+async def test_an_office_behind_one_address_is_not_throttled_for_being_several_people(
+    tight: None,
+) -> None:
+    """The control on the fix above, and the reason MINTING is charged and not requests.
+
+    Two staff on two sessions behind one NAT — the ordinary Indian SMB, and the case the
+    tenant dimension exists for. Six requests, `per_client=3`: each session spends its own
+    three, and the shared address pays TWO units, one per session created, so nothing is
+    refused. Charge the address per REQUEST instead — the obvious alternative — and the
+    fourth request here is a 429 for a caller that did nothing wrong. That is what this
+    test fails on; the status of the individual calls is not its business (an unverified
+    token is refused by the verifier, and which refusal depends on how Clerk is
+    configured), only that none of them is a rate limit.
+    """
+    one, two = uuid.uuid4().hex, uuid.uuid4().hex
+    async with _client(_trusted_peer()) as http:
+        edge = {"CF-Connecting-IP": _address()}
+        codes = [
+            (
+                await http.get("/v1/agents", headers={**edge, "Authorization": f"Bearer {token}"})
+            ).status_code
+            for _ in range(3)
+            for token in (one, two)
+        ]
+    assert 429 not in codes, f"a shared address was throttled for holding two sessions: {codes}"
+
+
 async def test_two_callers_behind_the_same_edge_are_told_apart(tight: None) -> None:
     """THE DEFECT, at the limiter rather than at the signup quota.
 

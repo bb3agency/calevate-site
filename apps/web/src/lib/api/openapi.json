@@ -20650,7 +20650,7 @@
     },
     "/v1/ops/dnc/global/{entry_id}": {
       "delete": {
-        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. The `source` this reads is for the audit row.",
+        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. The `source` this reads is for the audit row.\n\nThe confirmation names THIS row \u2014 see `release_globally_confirmation`.",
         "operationId": "release_globally_v1_ops_dnc_global__entry_id__delete",
         "parameters": [
           {

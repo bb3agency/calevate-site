@@ -41,17 +41,39 @@ CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
 #
 # **`ktok`, NOT `tok`, and that is a MONEY decision, not a naming one.** `unit_cost_paid`
 # is NUMERIC(12,4) and every reader multiplies it by `qty`, so the smallest non-zero
-# price this ledger can express is ₹0.0001 per unit of qty. A Gemini Flash-class input
-# token costs on the order of ₹0.000008, which stores as 0.0000 — a per-TOKEN qty would
-# have metered every dashboard assist at exactly zero rupees and the quota would never
-# have moved. Per THOUSAND tokens the same price is ₹0.0083, which the column holds.
-# What the ₹0.0001/1k quantum costs is stated where it lands: it bounds the error on OUR
-# OWN absorbed cost (≤0.6% at the cheapest rung we might buy), and no client-visible
-# rupee is ever derived from it — past the quota a client is charged a FIXED block
-# (`billing/ai_quota.py`), never a token count.
+# price this ledger can express is ₹0.0001 per unit of qty. `gemini-3.1-flash-lite`
+# input is $0.25 per 1M tokens — ₹0.0000239 a token at ₹95.66/USD — which stores as
+# 0.0000, so a per-TOKEN qty would meter the input leg of every dashboard assist at
+# exactly zero rupees. The OUTPUT leg is the one worth spelling out because it looks
+# survivable and is not: ₹0.0001435 a token stores as 0.0001, which is not zero and is
+# 30% of the price discarded. Per THOUSAND tokens the two are ₹0.0239 and ₹0.1435, which
+# the column holds with digits to spare. What the ₹0.0001/1k quantum costs is stated
+# where it lands: it bounds the error on OUR OWN absorbed cost at 0.42% of the input
+# rung, and no client-visible rupee is ever derived from it — past the quota a client is
+# charged a FIXED block (`billing/ai_quota.py`), never a token count. The prices
+# themselves live in ONE place, `billing/ai_quota.py::ASSIST_LIST_PRICE_INR_PER_KTOK`,
+# with their source; `tests/ai_quota_test.py` holds this paragraph to the arithmetic.
 AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
 
-UNIT_TYPES = (
+# WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has
+# to answer, and until now the only place it was answered was a NEGATIVE predicate in
+# `billing/service.py` (`_NOT_AI_UNITS`). Negative is the safe DIRECTION — a unit added
+# tomorrow lands in the client's own cost rather than vanishing out of it, and a client
+# under-charged is recoverable where a client over-charged is a dispute — but it is
+# also silent: the author of the eleventh unit type never has to decide, and the default
+# they get by saying nothing may be the wrong one for what they added.
+#
+# So the enum is DERIVED from the classification instead of the classification being
+# derived from the enum. There is no longer a place to add a unit type without saying
+# which side of the money it falls on, which is the whole of the guarantee — an
+# `assert` further down the file would only have said so after the fact.
+#
+# Order is preserved exactly as it was: `UNIT_TYPES` is rendered verbatim into
+# `ck_usage_events_unit_type_enum`, and reordering it would make every autogenerate diff
+# propose rewriting a CHECK constraint for nothing.
+
+#: Units a CLIENT is billed for and sees in their own spend, margin and invoice.
+CLIENT_BILLED_UNIT_TYPES = (
     "telephony_s",
     "stt_s",
     "tts_chars",
@@ -60,8 +82,46 @@ UNIT_TYPES = (
     "platform_min",
     "number_rental",
     "other",
-    *AI_ASSIST_UNIT_TYPES,
 )
+
+#: Units CALEVATE absorbs (D-127 G-3): metered per tenant so "which client is expensive"
+#: stays a query, and excluded from every client-facing rupee figure.
+PLATFORM_ABSORBED_UNIT_TYPES = AI_ASSIST_UNIT_TYPES
+
+
+def assert_units_are_disjoint(billed: tuple[str, ...], absorbed: tuple[str, ...]) -> None:
+    """A unit type may be billed to a client OR absorbed by us, never both.
+
+    Both lists would put it in the CHECK constraint twice, and — the half that costs
+    money — `_tier_totals`'s split would count it on both sides of the margin.
+
+    A FUNCTION rather than the `if` that used to sit here at module scope. That `if` was
+    unreachable while the two tuples are disjoint, so it could only be written with a
+    coverage-exclusion comment — and the ratchet counts an excluded unit AS uncovered,
+    precisely so that suppressing a branch is not a way to stop owning it (D-29). The
+    rule is the same either way; what changes is that a test can now hand it a colliding
+    pair and watch it raise, on a `ledgers-and-money` surface whose budget is 1 and where
+    an unproved guard is worth very little.
+
+    (This paragraph does not spell that comment out, and that is not squeamishness:
+    `coverage`'s `exclude_lines` is a regex over SOURCE LINES and does not care that it
+    is reading a docstring, so naming the marker here excluded this very function and
+    put the ratchet back where it started — the same trap `check_model_residency` hit
+    when its docstring named the hosts it bans, and the reason that guard parses an AST
+    rather than grepping.)
+
+    Raised rather than asserted: `python -O` strips an assert, and this one is a money
+    boundary. Still called at import, so a bad edit fails the process rather than the
+    first invoice of the month.
+    """
+    both = sorted(set(billed) & set(absorbed))
+    if both:
+        raise RuntimeError(f"a usage unit type is both client-billed and platform-absorbed: {both}")
+
+
+UNIT_TYPES = (*CLIENT_BILLED_UNIT_TYPES, *PLATFORM_ABSORBED_UNIT_TYPES)
+
+assert_units_are_disjoint(CLIENT_BILLED_UNIT_TYPES, PLATFORM_ABSORBED_UNIT_TYPES)
 
 MONEY = Numeric(12, 4)
 
@@ -109,11 +169,19 @@ class UsageEvent(PKMixin, Base):
     unit_type: Mapped[str] = mapped_column(String, nullable=False)
     qty: Mapped[Decimal] = mapped_column(Numeric(14, 4), nullable=False)
     unit_cost_paid: Mapped[Decimal | None] = mapped_column(MONEY)
-    # THE IDEMPOTENCY KEY for a row that has no call to be keyed by. These are console
-    # BUTTON presses, so the realistic duplicate is a double-click and not an ARQ retry:
-    # the caller mints one `ref` per request and re-sends it, and the partial unique
-    # index above makes the second insert a no-op in the DATABASE rather than in a
-    # reader's `if` — the same doctrine `ux_one_time_charges_tenant_kind_ref` states.
+    # THE IDEMPOTENCY KEY for a row that has no call to be keyed by, and it is minted by
+    # the SERVER, once per attempt (`billing/ai_quota.py::new_assist_ref`). The partial
+    # unique index above makes a second write of the same attempt a no-op in the DATABASE
+    # rather than in a reader's `if` — the same doctrine
+    # `ux_one_time_charges_tenant_kind_ref` states.
+    #
+    # This note used to read "the caller mints one `ref` per request and re-sends it",
+    # meaning a browser could supply it so that a double-click deduped. That is a hole
+    # rather than a feature: no-op-on-duplicate means NOT METERED, so a caller that
+    # chooses its own key can spend Calevate's AI credential without moving its quota or
+    # the platform brake. Double-click protection belongs at the endpoint and BEFORE the
+    # model runs; deduping after the provider is paid hides the spend, it does not save
+    # it. `ASSIST_REF_PREFIX` enforces the shape so the ambiguity is not re-readable.
     #
     # NULL on every call row, deliberately: a call already has a stronger key
     # (`call_id`), and a second one would be two ways to say one thing.

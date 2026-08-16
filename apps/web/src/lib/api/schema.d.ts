@@ -3082,6 +3082,8 @@ export interface paths {
          * @description 204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
          *     holds a phone number, and the response to "stop suppressing this" is not the place
          *     to repeat it. The `source` this reads is for the audit row.
+         *
+         *     The confirmation names THIS row — see `release_globally_confirmation`.
          */
         delete: operations["release_globally_v1_ops_dnc_global__entry_id__delete"];
         options?: never;
