@@ -534,7 +534,17 @@ async def test_the_sql_behind_the_money_never_returns_a_float() -> None:
     divided into minutes, and qty * our supplier unit cost. Postgres keeps both in
     `numeric` — assert it, because `60.0` reads like a float literal and the next
     person to "fix" it into `::float8` would break every rupee downstream in a way no
-    other test in this file would notice."""
+    other test in this file would notice.
+
+    THE FIRST EXPRESSION NO LONGER LIVES IN `billing/service.py` and this test is kept
+    anyway. The seconds-to-minutes division moved into Python (`_SECONDS_PER_MINUTE`,
+    a `Decimal`) because the per-rung minutes have to be allocated against their own
+    total and two SQL divisions of the same seconds are two roundings — see
+    `tests/money_walk_test.py`. What the SQL still returns is the SUM of `telephony_s`,
+    and `numeric / numeric` is what a reader will reach for the moment a second caller
+    wants minutes out of the database; the day it comes back a float, the Python side
+    would build a `Decimal` from binary error. So the assertion outlives the call site
+    it was written for, on purpose."""
     async with untenanted_session() as session:
         minutes_type = (
             await session.execute(

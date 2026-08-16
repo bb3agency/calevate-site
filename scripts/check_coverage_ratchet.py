@@ -273,6 +273,7 @@ import importlib
 import inspect
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -460,7 +461,7 @@ class Measurement:
     missing_lines: int
     partial_branches: int
     branches: int
-    excluded: int
+    suppressed: int
 
     @property
     def uncovered(self) -> int:
@@ -471,14 +472,23 @@ class Measurement:
         shape. `num_partial_branches` is exactly the increment branch coverage adds over
         line coverage, and it is the column coverage.py itself prints as "BrPart".
 
-        EXCLUDED lines are counted as uncovered, which is not what coverage.py does and
-        is the point: `# pragma: no cover` deletes a line from both the numerator and the
+        SUPPRESSED lines are counted as uncovered, which is not what coverage.py does and
+        is the point: a no-cover comment deletes a line from both the numerator and the
         denominator, so inside a guarded surface it is the quietest possible way to lower
         this number — one comment, no baseline diff, no reviewer prompt. Counting it
         keeps the only route downward the one this file is built around: cover the
         branch, or argue the raise in `RAISED_BUDGETS`.
+
+        `suppressed` is NOT coverage.py's `excluded_lines`, and the difference is the
+        whole of `_suppressed_lines`. coverage 7 excludes `...`-bodied stubs and
+        `if TYPE_CHECKING:` blocks BY DEFAULT — nothing an author of the guarded file
+        decided — and it sweeps the blank lines around an excluded clause into the same
+        set. Counting those made a four-line `Protocol` declaration cost four units in a
+        hard-rule surface, three of them whitespace, under a message naming a pragma that
+        was not in the file. A guard that charges for the repo's own typing idiom pushes
+        authors toward untyped callables, which is the opposite of its purpose.
         """
-        return self.missing_lines + self.partial_branches + self.excluded
+        return self.missing_lines + self.partial_branches + self.suppressed
 
     @property
     def percent(self) -> float:
@@ -520,19 +530,53 @@ def _matches(area: Area, path: str) -> bool:
     return any(PurePosixPath(path).match(pattern) for pattern in area.patterns)
 
 
+#: A no-cover comment, by SHAPE. Deliberately not `coverage`'s own `exclude_list[0]`
+#: imported from the config: that list also holds the two structural defaults this
+#: function exists to stop charging for, and reading it would re-introduce them the next
+#: time coverage adds a third. Spelled so this line is not itself a match — a checker
+#: whose own source trips it is a defect this repo has now shipped four times.
+_NO_COVER = re.compile(r"#\s*pragma[:\s]\s*no\s*cover", re.IGNORECASE)
+
+
+def _suppressed_lines(name: str, entry: Mapping[str, Any]) -> int:
+    """How many of this file's excluded lines an AUTHOR asked to be excluded.
+
+    coverage reports one `excluded_lines` set with two very different things in it:
+    lines the author suppressed with a comment, and lines coverage's own defaults remove
+    (`...` stubs, `if TYPE_CHECKING:`) along with the blank lines swept up around each
+    excluded clause. Only the first is a decision anyone made about THIS repo's coverage,
+    and only the first is what the ratchet's doctrine is aimed at.
+
+    Reads the source. An unreadable file counts as zero rather than raising: a coverage
+    report can outlive a deleted file, and a missing source is not a suppression — the
+    file's other numbers are already gone from the report with it.
+    """
+    excluded = entry.get("excluded_lines") or []
+    if not excluded:
+        return 0
+    try:
+        lines = (REPO_ROOT / name).read_text(encoding="utf-8", errors="ignore").splitlines()
+    except OSError:
+        return 0
+    return sum(
+        1 for number in excluded if 0 < number <= len(lines) and _NO_COVER.search(lines[number - 1])
+    )
+
+
 def measure(report: Mapping[str, Any], areas: Iterable[Area] | None = None) -> list[Measurement]:
     """Fold the per-file report into one row per area."""
     files: Mapping[str, Any] = report.get("files", {})
     rows: list[Measurement] = []
     for area in AREAS if areas is None else areas:
         matched = [
-            entry["summary"]
+            (name, entry)
             for name, entry in files.items()
             if _matches(area, name.replace("\\", "/"))
         ]
+        summaries = [entry["summary"] for _, entry in matched]
 
-        def total(key: str, summaries: list[Any] = matched) -> int:
-            return sum(int(summary.get(key, 0)) for summary in summaries)
+        def total(key: str, rows: list[Any] = summaries) -> int:
+            return sum(int(summary.get(key, 0)) for summary in rows)
 
         rows.append(
             Measurement(
@@ -543,7 +587,7 @@ def measure(report: Mapping[str, Any], areas: Iterable[Area] | None = None) -> l
                 missing_lines=total("missing_lines"),
                 partial_branches=total("num_partial_branches"),
                 branches=total("num_branches"),
-                excluded=total("excluded_lines"),
+                suppressed=sum(_suppressed_lines(name, entry) for name, entry in matched),
             )
         )
     return rows
@@ -1182,9 +1226,12 @@ def uncovered_detail(report: Mapping[str, Any], area: Area) -> list[str]:
             continue
         marks = [str(line) for line in entry.get("missing_lines", [])]
         marks += [f"{start}->{end}" for start, end in entry.get("missing_branches", [])]
-        excluded = int(entry["summary"].get("excluded_lines", 0))
-        if excluded:
-            marks.append(f"{excluded} excluded by pragma")
+        # The COUNTED figure, not coverage's `excluded_lines` — see `_suppressed_lines`.
+        # This line used to print the latter and say "excluded by pragma", which sent a
+        # reader to look through a file for a comment that was not in it.
+        suppressed = _suppressed_lines(name, entry)
+        if suppressed:
+            marks.append(f"{suppressed} suppressed by a no-cover comment")
         if marks:
             shown = ", ".join(marks[:DETAIL_MARKS])
             more = f" …+{len(marks) - DETAIL_MARKS}" if len(marks) > DETAIL_MARKS else ""

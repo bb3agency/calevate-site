@@ -26,7 +26,10 @@ Checks, in the order that fails cheapest-first:
    was verified out of band before we bought their number, and is already gated at
    dial time by `pe_registration_*`. Provisioning a NEW number is gated for every
    tier — that gate is in `campaigns/provisioning.py` and has no tier test at all.
-3. **Calling hours** — per-tenant window in IST (SEC-COMP §3).
+3. **Calling hours** — the PLATFORM window, 09:00-21:00 IST (SEC-COMP §2.5). India is
+   one timezone, so there is nothing per-tenant to resolve; a campaign may NARROW its
+   own window, and because that is a campaign fact rather than a number fact it is
+   asked by `campaigns.service.campaign_dialable_now` at the same per-dial moment.
 4. **DNC** — global + tenant entries, read LIVE. Additions must take effect before the
    next dispatch tick (hard rule 5), so this must never be cached.
 5. **Disclosure line** — an agent without one may not dial at all.
@@ -81,6 +84,25 @@ NO_CREDITS_REASON = "This account has no calling credit left."
 #: refusal, so a status added to `CONSENT_STATUSES` tomorrow blocks by default and has to
 #: be argued INTO the allowed set, which is the safe direction on a compliance gate.
 DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {"granted"}
+
+#: The refusals that are facts about the PERSON, not about the account, the agent, the
+#: paperwork or the clock — the ones that do not become false by waiting.
+#:
+#: A batch dialler has to know the difference, because it decides whether a refused
+#: contact is SETTLED or goes back on the retry ladder. `dnc` was the dispatcher's own
+#: hardcoded answer to that question and `no_consent` (D-117) was added to the gate
+#: without it, so a person who had explicitly withdrawn permission was re-claimed,
+#: re-gated and refused again every thirty minutes for as long as the campaign
+#: existed — and because the contact never left `pending`, the campaign never
+#: auto-completed and its `campaign.completed` event never fired.
+#:
+#: Named HERE, beside the rules that produce it, rather than in the dispatcher: a
+#: consumer of this gate must not hold its own opinion about which of our refusals are
+#: permanent, and the next per-person rule added to `check_dispatch` has one obvious
+#: place to declare itself. Membership is deliberately conservative — everything not
+#: listed is treated as transient and retried, which is the safe direction for a
+#: SETTLEMENT decision (a retried contact is re-gated; a wrongly-settled one is not).
+PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -454,8 +476,10 @@ __all__ = [
     "ACCOUNT_CLOSED_REASON",
     "ACCOUNT_SUSPENDED_REASON",
     "DEFAULT_WINDOW",
+    "DIAL_REFUSING_CONSENT_STATUSES",
     "IST",
     "NO_CREDITS_REASON",
+    "PERSON_LEVEL_REFUSALS",
     "SELF_SERVE_TIERS",
     "SPEND_CAP_REASON",
     "DispatchDecision",

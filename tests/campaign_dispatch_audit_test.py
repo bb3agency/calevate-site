@@ -59,6 +59,7 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
+from apps.api.core import loadshed
 from apps.api.core.loadshed import set_platform_status
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -871,3 +872,304 @@ async def test_no_phone_number_reaches_the_logs_on_the_dispatch_path(
             assert digit not in rendered, (
                 f"{record.name}/{record.levelname} logged a phone number: {record.getMessage()}"
             )
+
+
+# --------------------------------------- the CAMPAIGN's own switches, live, mid-batch
+
+
+def _ist(hour: int, minute: int) -> datetime:
+    """An instant whose IST wall clock is `hour:minute`.
+
+    Built the way `compliance.service.ist_now` builds it — `now(UTC) + 5:30`, so the
+    `.time()` of the returned value IS the IST clock. Spelled once here because two
+    tests below judge the same campaign against two different hours.
+    """
+    return datetime(2026, 8, 11, hour, minute, tzinfo=UTC)
+
+
+async def test_a_pause_landing_mid_batch_stops_the_contacts_behind_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pause button's twin of the big red switch test above, and it did not hold.
+
+    The campaign's status IS re-read on the dispatch path — but inside the CLAIMING
+    statement, which is the wrong side of the commit. The claim then commits and the
+    batch dials one contact at a time with an engine round trip between each, so a pause
+    pressed while the batch is in flight rang every remaining contact anyway. FLOWS §5's
+    mid-campaign safeties (a complaint spike, a cap breach) auto-pause for precisely the
+    moment when stopping fast is the point, and a stop that dials two more people is not
+    a stop.
+
+    The pause is committed from ANOTHER connection from inside the first dial, so the
+    contacts under test are ones this tick has already claimed.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(
+        phones=("9876660001", "9876660002", "9876660003"), slider=3
+    )
+    original = FakeEngine.start_outbound_call
+    dialled: list[str] = []
+
+    async def pause_after_first(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        handle = await original(self, ref, to, ctx)
+        dialled.append(to)
+        if len(dialled) == 1:
+            async with tenant_session(tenant_id) as other:
+                await campaigns.set_campaign_status(
+                    other, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
+                )
+        return handle
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", pause_after_first)
+    result = await _tick_one_campaign(tenant_id, campaign_id)
+
+    # The POSITIVE half: contact one WAS dialable and rang. Without it, a pass here
+    # would be indistinguishable from a fixture that could never have dialled anybody.
+    assert dialled == ["+919876660001"], f"the pause did not beat the rest of the batch: {dialled}"
+    assert result["dialled"] == 1 and result["blocked"] == 2, result
+    assert await _calls_placed(tenant_id) == 1
+    assert await _contacts(tenant_id, campaign_id) == [
+        ("dialing", 1),
+        ("pending", 0),
+        ("pending", 0),
+    ], "the two behind it wait, unpenalised — a pause is not a failed attempt"
+
+
+async def test_a_campaign_window_that_closed_before_the_dial_stops_the_batch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`calling_hours` may only NARROW the platform's 09:00-21:00 IST window
+    (`_validated_window`), so `check_dispatch` refusing outside the PLATFORM window
+    cannot honour it. The narrowed window was read once, in `_run_tick`, before any
+    tenant dialled — and the dial itself is a whole dial phase later, bounded only by
+    the 300s job timeout.
+
+    Both halves are asserted against the SAME campaign and the SAME two contacts: at
+    12:05 IST — five minutes past a window the client closed at 12:00, and still well
+    inside the platform's, so nothing else can be doing the refusing — nothing is
+    dialled; at 11:00 IST both are.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876670001", "9876670002"))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaigns SET calling_hours = CAST(:w AS jsonb) WHERE id = :c"),
+            {"w": '{"start": "09:00", "end": "12:00"}', "c": campaign_id},
+        )
+
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: _ist(12, 5))
+    after_hours = await _tick_one_campaign(tenant_id, campaign_id)
+    assert after_hours == {"dialled": 0, "blocked": 2, "exhausted": 0}, (
+        "the campaign's own narrowed window was not re-asked at dial time and the batch "
+        f"rang five minutes past the hour the client set: {after_hours}"
+    )
+    assert await _calls_placed(tenant_id) == 0
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)]
+
+    # THE POSITIVE CONTROL: the identical two contacts, inside the window, ring.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaign_contacts SET next_attempt_at = NULL WHERE campaign_id = :c"),
+            {"c": campaign_id},
+        )
+    monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: _ist(11, 0))
+    in_hours = await _tick_one_campaign(tenant_id, campaign_id)
+    assert in_hours["dialled"] == 2, in_hours
+    assert await _calls_placed(tenant_id) == 2
+
+
+async def test_a_withdrawn_consent_settles_the_contact_rather_than_re_claiming_it_forever() -> None:
+    """D-117 gave the gate a per-PERSON refusal and the dispatcher never learned it.
+
+    `no_consent` says this person never agreed to be called, or withdrew the permission
+    — a fact about them, not about our account, our agent or the clock. The dispatcher's
+    only terminal rule was the literal `"dnc"`, so such a contact went back to `pending`
+    with its attempt REFUNDED every thirty minutes, forever: the ladder can never
+    exhaust it, `_reap_stuck_dialing` never sees it, and because a `pending` row
+    survives, `complete_or_rearm` never completes the campaign — so the
+    `campaign.completed` event a client subscribed to never fires either.
+
+    Asserted as the whole loop: the contact is settled terminally, AND the campaign it
+    was holding open finishes once the dialable contact resolves.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876680001", "9876680002"))
+    async with tenant_session(tenant_id) as session:
+        # Written the way the front door writes it: `ingest.service` records exactly this
+        # row for a lead-ad fill whose form carried no opt-in question (D-117).
+        await session.execute(
+            text(
+                "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status, "
+                "consent_source, captured_at, created_at) VALUES (:id, :tid, :p, 'callback', "
+                "'withdrawn', 'web_form_optin', now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "p": "+919876680002"},
+        )
+
+    result = await _tick_one_campaign(tenant_id, campaign_id)
+
+    # POSITIVE half: the other contact on the same list was dialable and rang, so the
+    # refusal below is about the consent row rather than about the fixture.
+    assert result["dialled"] == 1 and result["blocked"] == 1, result
+    async with tenant_session(tenant_id) as session:
+        statuses = dict(
+            (
+                await session.execute(
+                    text("SELECT phone_e164, status FROM campaign_contacts WHERE campaign_id = :c"),
+                    {"c": campaign_id},
+                )
+            ).all()
+        )
+    assert statuses["+919876680002"] == "dnc_blocked", (
+        "a person who withdrew permission is settled, not put back on the ladder"
+    )
+
+    # …and the campaign can now finish. Resolve the one real dial the way the post-call
+    # pipeline does, then let the next tick close the campaign out.
+    async with tenant_session(tenant_id) as session:
+        call_id = (
+            await session.execute(
+                text("SELECT id FROM calls WHERE to_e164 = :p"), {"p": "+919876680001"}
+            )
+        ).scalar()
+        await campaign_dispatch.resolve_campaign_contact(
+            session, tenant_id=tenant_id, call_id=uuid.UUID(str(call_id)), call_status="completed"
+        )
+    await _tick_one_campaign(tenant_id, campaign_id)
+    async with tenant_session(tenant_id) as session:
+        final = (
+            await session.execute(
+                text("SELECT status FROM campaigns WHERE id = :c"), {"c": campaign_id}
+            )
+        ).scalar()
+    assert final == "completed", "the consent-refused contact was holding the campaign open forever"
+
+
+async def test_every_blocked_dial_records_the_rule_the_runbook_sends_operators_to(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`runbooks/campaign-stall.md` §8 tells an operator that "a blocked dial increments
+    the tick's `blocked=` count and the `compliance_blocks` metric (labelled by rule)".
+    Only the first half was true: `record_compliance_block` fired for the once-per-
+    campaign `dispatch_blockers` refusal and never for the per-DIAL one, so the metric
+    was silent for the commonest stall there is and `blocked=2` named no desk.
+
+    Both refusal shapes are driven through the real dispatcher, in the order the
+    dispatcher asks them and therefore in two ticks: the per-contact one (DNC) on a
+    campaign that is dialling normally, and the campaign-level one (a pause landing
+    mid-batch) — which OUTRANKS the per-number question, so nothing refused by it is
+    ever also refused by DNC. They settle through one helper and must stay labelled
+    together.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(
+        phones=("9876690001", "9876690002", "9876690003"), slider=3
+    )
+    async with tenant_session(tenant_id) as session:
+        await add_to_dnc(
+            session, tenant_id=tenant_id, phone_e164="+919876690002", source="call_optout"
+        )
+
+    def _rules() -> list[str]:
+        return [
+            str(record.rule)
+            for record in caplog.records
+            if record.name == "calevate.metric"
+            and getattr(record, "metric", None) == "compliance_blocks"
+        ]
+
+    with caplog.at_level(logging.INFO, logger="calevate.metric"):
+        # Tick one: two dialable, one suppressed. The dials are the positive control.
+        first = await _tick_one_campaign(tenant_id, campaign_id)
+        assert first == {"dialled": 2, "blocked": 1, "exhausted": 0}, first
+        assert _rules() == ["dnc"], _rules()
+
+        # Tick two: the same campaign, paused from another connection mid-batch.
+        caplog.clear()
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "UPDATE campaign_contacts SET status = 'pending', attempts = 0, "
+                    "next_attempt_at = NULL WHERE campaign_id = :c AND status = 'dialing'"
+                ),
+                {"c": campaign_id},
+            )
+        original = FakeEngine.start_outbound_call
+        dialled: list[str] = []
+
+        async def pause_after_first(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+            handle = await original(self, ref, to, ctx)
+            dialled.append(to)
+            if len(dialled) == 1:
+                async with tenant_session(tenant_id) as other:
+                    await campaigns.set_campaign_status(
+                        other,
+                        campaign_id=campaign_id,
+                        to_status="paused",
+                        from_statuses=("running",),
+                    )
+            return handle
+
+        monkeypatch.setattr(FakeEngine, "start_outbound_call", pause_after_first)
+        second = await _tick_one_campaign(tenant_id, campaign_id)
+
+    assert second == {"dialled": 1, "blocked": 1, "exhausted": 0}, second
+    assert _rules() == [campaigns.CAMPAIGN_STOPPED_RULE], _rules()
+
+
+async def test_the_halt_still_stops_the_dial_when_redis_is_unreachable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The big red switch's fast path is a Redis hash. A gate that fails OPEN when that
+    hash is unreachable is not a gate — it is a switch that stops working during exactly
+    the kind of afternoon somebody reaches for it.
+
+    Failing open here is a natural thing to write, and this repo does it deliberately one
+    layer up: `_tick_lease` yields True on a Redis error, because a tick that refuses to
+    run is a campaign that stops dialling and the claim CAS still prevents a double dial.
+    The halt is the opposite trade and the reason is the direction of the mistake — a
+    lease that fails open costs a shared line, a halt that fails open dials a stranger
+    during an incident. `loadshed.get_platform_status` therefore treats an unreachable
+    cache as a MISS and reads `platform_state`; nothing pinned that, and nothing would
+    have noticed it being "simplified" into a swallowed exception returning `normal`.
+
+    Nothing global is written: the durable read is STUBBED and the cache key is private,
+    so a halt cannot leak into another suite sharing this Postgres.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876700001", "9876700002"))
+
+    class _DeadRedis:
+        """Every path `get_platform_status` can take to Redis, refused."""
+
+        def pipeline(self, *args: Any, **kwargs: Any) -> Any:
+            raise ConnectionError("redis is unreachable")
+
+        async def delete(self, *args: Any, **kwargs: Any) -> int:
+            raise ConnectionError("redis is unreachable")
+
+    halted = True
+
+    async def _durable() -> loadshed.PlatformStatus:
+        return loadshed.PlatformStatus(mode="normal", outbound_halted=halted)
+
+    monkeypatch.setattr(loadshed, "_REDIS_KEY", f"calevate:test:{uuid.uuid4().hex}")
+    monkeypatch.setattr(loadshed, "_memo", None)
+    monkeypatch.setattr(loadshed, "_read_durable", _durable)
+    monkeypatch.setattr(loadshed, "get_redis", _DeadRedis)
+
+    blocked = await _tick_one_campaign(tenant_id, campaign_id)
+    assert blocked == {"dialled": 0, "blocked": 2, "exhausted": 0}, (
+        f"the halt failed OPEN while Redis was unreachable and the tick dialled: {blocked}"
+    )
+    assert await _calls_placed(tenant_id) == 0, "a dial went out through the halt"
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 0), ("pending", 0)], (
+        "a halt is not a failed attempt — the ladder must not be spent on it"
+    )
+
+    # THE POSITIVE CONTROL: the same unreachable Redis, the same two contacts, the switch
+    # released. Without it, a gate that refused everything for any reason would pass.
+    halted = False
+    monkeypatch.setattr(loadshed, "_memo", None)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaign_contacts SET next_attempt_at = NULL WHERE campaign_id = :c"),
+            {"c": campaign_id},
+        )
+    released = await _tick_one_campaign(tenant_id, campaign_id)
+    assert released["dialled"] == 2, released

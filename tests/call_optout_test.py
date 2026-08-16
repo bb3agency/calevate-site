@@ -771,3 +771,50 @@ async def test_an_unusable_number_is_refused_rather_than_suppressed_under_a_bad_
                 signal=tool_signal(reason="remove me", language="en"),
             )
     assert raised.value.code == "optout_phone_invalid"
+
+
+async def test_an_unknown_detection_source_is_refused_before_anything_is_written() -> None:
+    """`detected_by` lands verbatim in `consent_ledger`, which is append-only (hard rule
+    4): a typo'd source is a permanent row that no DPDP audit can attribute to a detector,
+    and there is no UPDATE that could ever repair it.
+
+    Ordering is the real assertion. The refusal has to come BEFORE the `dnc_list` insert,
+    or the number is suppressed under evidence naming a detector that does not exist —
+    the halfway state `record_call_optout`'s whole shared-transaction design exists to
+    prevent. So the counts are read afterwards and must both be zero.
+
+    This branch carried a coverage exclusion reading "programmer error", which described
+    who causes it rather than whether it can be driven. It takes one call.
+    """
+    tenant_id, _agent, _campaign = await _ready_campaign(phones=())
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ValueError, match="unknown opt-out detection source"):
+            await record_call_optout(
+                session,
+                tenant_id=tenant_id,
+                raw_phone="+919000000123",
+                call_id=None,
+                detected_by="detected_by_vibes",
+                signal=tool_signal(reason="remove me", language="en"),
+            )
+
+    async with tenant_session(tenant_id) as session:
+        suppressed = (
+            await session.execute(
+                text("SELECT count(*) FROM dnc_list WHERE phone_e164 = :p"),
+                {"p": "+919000000123"},
+            )
+        ).scalar_one()
+        evidence = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM consent_ledger WHERE tenant_id = :t AND phone_e164 = :p"
+                ),
+                {"t": tenant_id, "p": "+919000000123"},
+            )
+        ).scalar_one()
+    assert (suppressed, evidence) == (0, 0), (
+        "the refusal must precede both writes — a suppression whose evidence names a "
+        "detector that does not exist cannot be explained to the client on the DLT "
+        "registration, and the ledger row cannot be deleted"
+    )

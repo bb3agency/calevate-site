@@ -437,6 +437,64 @@ def campaign_window_open(calling_hours: dict[str, Any] | None, now_ist: datetime
     return start <= now_ist.time() <= end
 
 
+# The two rules `campaign_dialable_now` can return. Named constants because a runbook,
+# a metric label and a test all cite them, and because they join the vocabulary
+# `dispatch_blockers` and `check_dispatch` already share.
+CAMPAIGN_STOPPED_RULE = "campaign_not_running"
+CAMPAIGN_WINDOW_CLOSED_RULE = "campaign_window_closed"
+
+
+async def campaign_dialable_now(
+    session: AsyncSession, *, campaign_id: UUID, now_ist: datetime
+) -> str | None:
+    """The CAMPAIGN facts that must still hold at the instant of EACH dial, or the rule
+    that stops it. `None` means this campaign may place its next call.
+
+    **Both of these were checked once per tick and then not again, and a tick is not an
+    instant.** `_dispatch_for_campaign` claims a batch in one transaction and then dials
+    it one contact at a time, each in its own short transaction with an engine round
+    trip in the middle; `_run_tick` chooses every tenant's campaigns BEFORE any of them
+    dials, so the gap between "this campaign may dial" and "this contact is dialling"
+    spans every earlier tenant's dials too — bounded only by the 300s job timeout. Two
+    things fall through that gap:
+
+    - **the client's pause button.** The campaign's status IS re-read, but inside the
+      claiming statement, which is exactly the wrong side of the commit: a pause landing
+      while the batch is mid-flight let every remaining contact ring. The mid-campaign
+      safeties in FLOWS §5 (a complaint spike, a cap breach) auto-pause for the moment
+      when stopping fast is the whole point, and the big red switch already stops a batch
+      mid-flight because `check_dispatch` re-reads it per contact. This is the same
+      property for the per-campaign switch.
+    - **the campaign's own narrowed calling window.** `calling_hours` may only SHRINK the
+      platform's 09:00-21:00 IST (`_validated_window`), so `check_dispatch` refusing
+      outside the platform window is not enough to honour it: a campaign restricted to
+      09:00-12:00 whose window check passed at 11:59 dialled at 12:05, because nothing
+      asked again.
+
+    ONE statement, and `status = 'running'` is in the WHERE clause rather than compared
+    in Python: paused, cancelled, completed, deleted and another tenant's id are five
+    ways of saying the same thing to a dialler — this campaign is not dialling — and
+    folding them into the absence of a row means there is no branch that can answer any
+    of them differently. Absent therefore fails CLOSED, like every other read on this
+    path.
+
+    Asked by the dispatcher and deliberately NOT by `check_dispatch`: that gate is also
+    the D-21 single-lead button and the instant callback, neither of which has a
+    campaign — the same line `dispatch_blockers` draws for the same reason.
+    """
+    row = (
+        await session.execute(
+            text("SELECT calling_hours FROM campaigns WHERE id = :cid AND status = 'running'"),
+            {"cid": campaign_id},
+        )
+    ).first()
+    if row is None:
+        return CAMPAIGN_STOPPED_RULE
+    if not campaign_window_open(row[0], now_ist):
+        return CAMPAIGN_WINDOW_CLOSED_RULE
+    return None
+
+
 async def create_campaign(
     session: AsyncSession,
     *,
@@ -1155,12 +1213,15 @@ async def campaign_progress(session: AsyncSession, campaign_id: UUID) -> dict[st
 
 
 __all__ = [
+    "CAMPAIGN_STOPPED_RULE",
+    "CAMPAIGN_WINDOW_CLOSED_RULE",
     "DEFAULT_RETRY_POLICY",
     "NO_PROVENANCE_REASON",
     "PURCHASED_LIST_REASON",
     "SERIES_FOR_CLASSIFICATION",
     "LaunchBlocker",
     "add_contacts",
+    "campaign_dialable_now",
     "campaign_progress",
     "campaign_window_open",
     "create_campaign",

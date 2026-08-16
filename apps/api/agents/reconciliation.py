@@ -249,9 +249,11 @@ async def read_engine_drift(session: AsyncSession, *, engine: str) -> EngineDrif
             ),
             {"engine": engine, "out_of_sync": sorted(DRIFT_STATES_OUT_OF_SYNC)},
         )
-    ).first()
-    if row is None:  # pragma: no cover - an aggregate with no GROUP BY always returns one row
-        raise AssertionError("a bare aggregate returned no row")
+    ).one()
+    # `.one()` rather than `.first()` plus an unreachable `row is None`: a bare aggregate
+    # always returns exactly one row, so the guard could only ever be excluded from
+    # coverage — and an excluded branch is one nobody will see fail. SQLAlchemy raises
+    # `NoResultFound` if the impossible happens, pointing at this line.
     return EngineDriftSummary(
         live_agents=int(row[0]),
         never_checked=int(row[1]),

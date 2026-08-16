@@ -118,9 +118,28 @@ def _client() -> Any:
 
 def recording_key(tenant_id: UUID, call_id: UUID) -> str:
     """Tenant-prefixed so a bucket policy or a lifecycle rule can be scoped per tenant,
-    and so an accidental cross-tenant read is visible in the key itself."""
-    stamp = datetime.now(UTC).strftime("%Y/%m")
-    return f"recordings/{tenant_id}/{stamp}/{call_id}.wav"
+    and so an accidental cross-tenant read is visible in the key itself.
+
+    **A PURE FUNCTION OF (tenant, call), and the wall clock is deliberately not an input
+    any more (D-148).** This used to interpolate `datetime.now(UTC).strftime("%Y/%m")`, which made
+    the key for one call depend on WHEN the copy ran. Two copies of one call therefore
+    landed under two keys whenever they straddled a month boundary — and they can: the
+    pipeline crashes between the PUT and the `calls.recording_url` commit, or an operator
+    replays a call that ended at 23:58 on the 31st. The database holds ONE key, so the
+    other object is unreachable by every mechanism that works from it: the retention
+    sweep (`WHERE recording_url IS NOT NULL`) and, worse, the DPDP erasure — which would
+    destroy one copy of the caller's voice and issue a certificate saying the recording
+    was destroyed while the other copy sat in the bucket. Only the bucket's own lifecycle
+    rule would ever reach it, on a clock nobody asked about.
+
+    The date segment bought nothing, and `payload_key` already removed its own for the
+    same reason, stated there: the lifecycle rule expires on object AGE, not on a key, and
+    `LastModified` answers "when was this written" more honestly than a path an uploader
+    chose. The `recordings/` prefix every lifecycle rule is scoped to is unchanged
+    (`object_lifecycle_test` pins that), and the key still names the tenant and the call,
+    which is what an erasure enumerates by.
+    """
+    return f"recordings/{tenant_id}/{call_id}.wav"
 
 
 ENGINE_PAYLOAD_PREFIX = "engine-payloads"

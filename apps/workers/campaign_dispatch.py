@@ -92,13 +92,17 @@ from sqlalchemy import text
 from apps.api.agents.service import dispatch_call
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
-from apps.api.campaigns.service import campaign_window_open, dispatch_blockers
+from apps.api.campaigns.service import (
+    campaign_dialable_now,
+    campaign_window_open,
+    dispatch_blockers,
+)
 
 # Module import (not `from ... import ist_now`) so tests that pin the compliance
 # clock pin THIS check too — the campaign window and the per-dial gate must agree
 # on what time it is.
 from apps.api.compliance import service as compliance_service
-from apps.api.compliance.service import check_dispatch
+from apps.api.compliance.service import PERSON_LEVEL_REFUSALS, check_dispatch
 from apps.api.core.alerting import alert, metrics_log, record_compliance_block
 from apps.api.core.errors import InvalidStatusTransitionError
 from apps.api.core.loadshed import get_platform_status
@@ -624,6 +628,20 @@ async def _dispatch_for_campaign(
 
     for contact_id, phone, name, _custom, attempts in claimed:
         async with tenant_session(tenant_id) as session:
+            # THE CAMPAIGN's own two live facts, re-read per contact for exactly the
+            # reason the big red switch is: the claim COMMITTED, and everything after it
+            # is a phone ringing. A pause the client pressed — or one of FLOWS §5's
+            # auto-pause safeties — must stop the contacts behind the one in flight, and
+            # a campaign whose narrowed window closed mid-batch must stop too. Both were
+            # decided once per tick, up to a whole dial phase earlier.
+            stopped = await campaign_dialable_now(
+                session, campaign_id=campaign_id, now_ist=compliance_service.ist_now()
+            )
+            if stopped is not None:
+                await _refuse_contact(session, contact_id, rule=stopped)
+                blocked += 1
+                continue
+
             # THE per-dial gate (hard rule 5). This tick is "the next dispatch tick"
             # DNC additions must precede. Its DNC read is uncached and per contact, so
             # an opt-out committed by another connection while this batch is mid-flight
@@ -632,25 +650,7 @@ async def _dispatch_for_campaign(
                 session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)), phone_e164=phone
             )
             if not decision.allowed:
-                terminal = decision.rule == "dnc"
-                await session.execute(
-                    text(
-                        "UPDATE campaign_contacts SET status = :status, updated_at = now() "
-                        "WHERE id = :id"
-                    ),
-                    {"status": "dnc_blocked" if terminal else "pending", "id": contact_id},
-                )
-                if not terminal:
-                    # Not lawful right now (hours, caps, a halt pulled mid-batch): try
-                    # again next window.
-                    await session.execute(
-                        text(
-                            "UPDATE campaign_contacts SET next_attempt_at = now() + "
-                            "interval '30 minutes', attempts = attempts - 1, updated_at = now() "
-                            "WHERE id = :id"
-                        ),
-                        {"id": contact_id},
-                    )
+                await _refuse_contact(session, contact_id, rule=decision.rule or "unknown")
                 blocked += 1
                 continue
 
@@ -849,6 +849,45 @@ async def resolve_campaign_contact(
         extra={"tenant_id": str(tenant_id), "call_status": call_status},
     )
     return "failed" if spent else "pending"
+
+
+async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
+    """Settle one claimed contact the gate would not let us dial.
+
+    TERMINAL or BACK ON THE LADDER, and the difference is `PERSON_LEVEL_REFUSALS` —
+    owned by the gate module, not decided here. A refusal about the PERSON (`dnc`,
+    `no_consent`) will not become false by waiting, so the contact is finished with;
+    everything else — the halt, the account's lifecycle, the agent, the caps, the hour,
+    the campaign's own pause or window — is a condition that clears, so the contact goes
+    back to `pending` with its attempt refunded and a thirty-minute wait.
+
+    The refund is what makes the retry ladder mean "we tried to reach this person and
+    could not" rather than "we were not allowed to try": a blocked dial never rang a
+    phone, and burning a rung for it would exhaust a reachable lead into `failed` on
+    three refusals that were about us.
+
+    `record_compliance_block` fires HERE, on the per-dial refusal, and it did not
+    before — `runbooks/campaign-stall.md` §8 tells an operator that "a blocked dial
+    increments the tick's `blocked=` count and the `compliance_blocks` metric (labelled
+    by rule)", and only the first half of that sentence was true. The rule label is the
+    whole diagnostic value of the metric on this path: `blocked=7` says a campaign is
+    stalled, `compliance_blocks{rule="dnc"}` versus `{rule="spend_cap"}` says which desk
+    it belongs on. One writer, both refusal shapes, so they can never diverge again.
+    """
+    record_compliance_block(rule=rule)
+    terminal = rule in PERSON_LEVEL_REFUSALS
+    await session.execute(
+        text("UPDATE campaign_contacts SET status = :status, updated_at = now() WHERE id = :id"),
+        {"status": "dnc_blocked" if terminal else "pending", "id": contact_id},
+    )
+    if not terminal:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET next_attempt_at = now() + interval '30 minutes', "
+                "attempts = attempts - 1, updated_at = now() WHERE id = :id"
+            ),
+            {"id": contact_id},
+        )
 
 
 async def _reap_stuck_dialing(session: Any, campaign_id: UUID) -> int:

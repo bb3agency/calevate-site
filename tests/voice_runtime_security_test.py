@@ -26,10 +26,12 @@ Notes for whoever reads this next:
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import time
 import uuid
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -37,13 +39,13 @@ import webhook_routes
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.api.reliability.service import InboxClaim, body_hash
 from calevate_shared.client_address import client_ip, is_trusted_peer
-from engine_intake import KNOWN_ENGINES, verify_source
+from engine_intake import KNOWN_ENGINES, execution_key, verify_source
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 # RFC 5737 documentation ranges: unroutable, so a copy-paste of any of these into a real
 # config is inert rather than dangerous.
@@ -436,8 +438,16 @@ async def test_a_repeated_delivery_yields_one_inbox_row_and_one_job(
     assert second.json()["status"] == "duplicate", "the Redis fast path must absorb a retry"
 
     # Now take the fast path away and prove the durable claim stands on its own.
-    fast_path_key = f"calevate:wh:bolna:{execution_id}:{body_hash(body)[:16]}"
-    await get_redis().delete(fast_path_key)
+    #
+    # The key is the TRANSITION — `{engine}:{execution_id}:{raw_status}`, the same unit of
+    # work the inbox claims and `job_id_for` keys the job on. It used to carry a digest of
+    # the delivery body as well, which made the cache and the claim disagree about what a
+    # duplicate is: a replay with one byte changed missed the cache and opened a Postgres
+    # transaction every time (D-147).
+    fast_path_key = f"calevate:wh:bolna:{execution_id}:{status}"
+    assert await get_redis().delete(fast_path_key) == 1, (
+        "the key the receiver wrote is not the one this test knows about"
+    )
 
     async with _client(EDGE_PROXY_IP) as http:
         third = await http.post(HOOK, json=body, headers=headers)
@@ -750,8 +760,15 @@ async def test_the_same_transition_with_a_different_body_is_deduped_not_conflict
 
     async with _client(EDGE_PROXY_IP) as http:
         first = await http.post(HOOK, json=body, headers=headers)
-        # Different bytes, so a different fast-path key: this reaches the DURABLE claim
-        # rather than being absorbed by Redis, which is the layer under test.
+        # THE FAST-PATH KEY IS DELETED ON PURPOSE, so the second delivery reaches the
+        # DURABLE claim — the layer under test. It used to reach it by accident, because
+        # the Redis key carried a digest of the delivery body and a doctored body missed
+        # the cache. That was itself the defect (D-147): the cache and the claim disagreed
+        # about what a duplicate is, so any body-varying replay opened a Postgres
+        # transaction. Now the key is the transition, the cache absorbs the replay — and
+        # this test would pass without ever exercising the claim if it did not do this.
+        deleted = await get_redis().delete(f"calevate:wh:bolna:{execution_id}:{status}")
+        assert deleted == 1, "the fast path did not settle the first delivery"
         second = await http.post(HOOK, json=doctored, headers=headers)
 
     assert first.json()["status"] == "accepted"
@@ -923,14 +940,16 @@ def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled(
 
     assert "twilio" not in KNOWN_ENGINES
     labels: list[str] = []
-    with pytest.MonkeyPatch.context() as patched:
-        patched.setattr(
-            webhook_routes,
-            "record_webhook_ack_ms",
-            lambda elapsed, provider: labels.append(provider),
-        )
-        webhook_routes._refuse(time.perf_counter(), "twilio")
-        webhook_routes._refuse(time.perf_counter(), "bolna")
+    # Through a spy METER rather than by patching the module's recorder: which series an
+    # ack lands in is now a property of the `AckMeter` the endpoint carries (the receiver's
+    # `webhook_ack_ms`, the in-call tool endpoint's `tool_ack_ms`), so the meter is the
+    # seam that decides and therefore the seam a test must drive.
+    spy = replace(
+        webhook_routes.WEBHOOK_ACK,
+        record=lambda elapsed, *, provider: labels.append(provider),
+    )
+    webhook_routes._refuse(time.perf_counter(), "twilio", meter=spy)
+    webhook_routes._refuse(time.perf_counter(), "bolna", meter=spy)
     assert labels == ["unknown", "bolna"], "a stranger's engine name must not become a label"
 
 
@@ -983,3 +1002,203 @@ async def test_a_body_with_no_declared_length_is_still_cut_off_at_the_cap() -> N
     assert response.json()["type"].endswith("/payload_too_large")
     assert "X-Ack-Ms" in response.headers
     assert await _counts(execution_id=execution_id, event_type=status) == (0, 0)
+
+
+# --- 14. the dedupe key is the TRANSITION, in both layers ----------------------
+
+
+async def test_a_replay_whose_body_changed_is_absorbed_without_touching_postgres(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The Redis fast path exists so a burst of duplicates never reaches Postgres. It only
+    did that for BYTE-IDENTICAL duplicates, and that is not the duplicate population.
+
+    The key used to be `{engine}:{execution_id}:{body_hash(payload)[:16]}` while the inbox
+    claim keyed on `{execution_id}:{raw_status}` and hashed only that. `_claim_and_enqueue`
+    already argues why the durable hash must be a pure function of the key — "two
+    deliveries of the SAME transition can still differ in body (a retry with a fuller
+    payload)" — and the cache was left hashing the delivery. So the two layers disagreed
+    about what a duplicate IS: every replay whose body moved by one byte missed the cache
+    and opened a transaction.
+
+    At an unsigned endpoint (D-31) the caller controls the whole body, so that is a
+    Postgres-round-trip amplifier available to anyone past the source check — and on a
+    `fake`-engine deployment, which every developer machine and CI box runs, the source
+    check is nothing at all.
+
+    Asserted as a COUNT OF STATEMENTS, which is exact on any machine at any speed. Measured
+    before the fix: 15 statements for the five replays below. After: zero.
+
+    AND THE DIVERGENCE IS STILL SEEN, which is the half that makes this an improvement
+    rather than a trade. The cache absorbs the replay AND counts that its bytes differed
+    (`webhook_replay_divergence`), so an unsigned endpoint gains the replay signal it never
+    had — the old body-keyed version merely spent three statements arriving at an inbox
+    whose `payload_hash` is a pure function of the key and therefore had nothing to say.
+    Both directions are asserted: a rewritten replay counts, an identical one does not.
+    """
+    statements: list[str] = []
+    divergences: list[str] = []
+    engine = get_engine().sync_engine
+
+    def _on_execute(_conn: Any, _cursor: Any, statement: str, *_rest: Any) -> None:
+        statements.append(statement.split(None, 1)[0].upper())
+
+    monkeypatch.setattr(
+        webhook_routes,
+        "record_webhook_replay_divergence",
+        lambda *, provider: divergences.append(provider),
+    )
+
+    execution_id, status, body = _event()
+    headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
+
+    async with _client(EDGE_PROXY_IP) as http:
+        first = await http.post(HOOK, json=body, headers=headers)
+        assert first.json()["status"] == "accepted", first.text
+        event.listen(engine, "before_cursor_execute", _on_execute)
+        try:
+            # The control first: a byte-identical replay is a duplicate and NOT a
+            # divergence. Without it, a counter that fired on every cache hit would pass
+            # the assertion below and be worthless.
+            identical = await http.post(HOOK, json=body, headers=headers)
+            assert identical.json()["status"] == "duplicate", identical.text
+            assert divergences == [], "an identical replay is not a divergence"
+
+            for attempt in range(5):
+                # One ignored field, a different value each time — the cheapest possible
+                # way to make a replay look like a new delivery to a body-keyed cache.
+                replay = await http.post(HOOK, json={**body, "junk": attempt}, headers=headers)
+                assert replay.json()["status"] == "duplicate", replay.text
+        finally:
+            event.remove(engine, "before_cursor_execute", _on_execute)
+
+    assert statements == [], (
+        "a settled transition must be answered from Redis however the body varies; these "
+        f"replays reached Postgres {len(statements)} times: {statements}"
+    )
+    assert divergences == ["bolna"] * 5, (
+        "each rewritten replay must be counted where it is absorbed; a cache that hides "
+        f"the divergence is worse than the round trip it saves: {divergences}"
+    )
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+async def test_a_padded_execution_id_is_the_same_unit_of_work_not_a_second_one() -> None:
+    """`"exec_1 "` and `"exec_1"` are one call, and they must be one inbox row.
+
+    Both fields are concatenated verbatim into `webhook_inbox_events.event_key` and into
+    the ARQ job id, so surrounding whitespace used to buy a second unit of work for the
+    same transition: two claims, two jobs, and the post-call pipeline running twice on a
+    call whose `usage_events` are append-only (hard rule 4 — a double charge there is
+    uncorrectable by construction, which is the whole reason the execution id is the unit
+    of work).
+
+    `raw_status` was already half-normalised — `extract` lowercases it — and a
+    half-normalisation is exactly what leaves this behind. Padding costs an attacker
+    nothing to produce at an unsigned endpoint, so stripping is a control, not a courtesy.
+    """
+    execution_id, status, body = _event()
+    headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
+
+    async with _client(EDGE_PROXY_IP) as http:
+        first = await http.post(HOOK, json=body, headers=headers)
+        assert first.json()["status"] == "accepted", first.text
+        padded = await http.post(
+            HOOK,
+            json={"execution_id": f"  {execution_id}\t", "status": f" {status.upper()} "},
+            headers=headers,
+        )
+
+    assert padded.status_code == 202, padded.text
+    assert padded.json()["status"] == "duplicate", (
+        "whitespace around a key field bought a second claim on one transition"
+    )
+    assert padded.json()["execution_id"] == execution_id, "the ack must echo the stored key"
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+async def test_the_same_transition_from_many_connections_at_once_enqueues_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The race the fast path cannot cover, run as a race.
+
+    Every dedupe test in this file delivers sequentially, so all of them are satisfied by
+    the Redis key alone — the layer that is explicitly NOT the guarantee. Deliveries that
+    arrive while the first one's transaction is still open all miss that key (it is written
+    past the commit, deliberately) and land on the durable claim together. That is the only
+    moment the `ON CONFLICT (provider, event_key) DO NOTHING` in `claim_inbox_event` is
+    load-bearing, and a double claim there is a double-metered call.
+
+    Released at one event-loop tick through an `asyncio.Barrier`, for the reason
+    `webhook_storm_test.py` records: without it each task reaches its first await before
+    the next begins and nothing ever contends.
+    """
+    enqueued: list[str] = []
+    real_enqueue = webhook_routes.enqueue
+
+    async def _spy(job: str, *args: Any, **kwargs: Any) -> str | None:
+        enqueued.append(str(kwargs.get("job_id")))
+        return await real_enqueue(job, *args, **kwargs)
+
+    monkeypatch.setattr(webhook_routes, "enqueue", _spy)
+
+    execution_id, status, body = _event()
+    headers = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
+    width = 8
+    gate = asyncio.Barrier(width)
+    outcomes: list[str] = []
+
+    async def _one() -> None:
+        async with _client(EDGE_PROXY_IP) as http:
+            await gate.wait()
+            response = await http.post(HOOK, json=body, headers=headers)
+            assert response.status_code == 202, response.text
+            outcomes.append(response.json()["status"])
+
+    async with asyncio.TaskGroup() as group:
+        for _ in range(width):
+            group.create_task(_one())
+
+    assert sorted(outcomes) == ["accepted"] + ["duplicate"] * (width - 1), outcomes
+    assert len(enqueued) == 1, f"a concurrent burst enqueued {len(enqueued)} jobs: {enqueued}"
+    assert await _counts(execution_id=execution_id, event_type=status) == (1, 1)
+
+
+def test_every_spelling_of_the_execution_id_is_tried_not_just_the_first_truthy_one() -> None:
+    """The tool payload's shape is an ASSUMPTION about the engine's custom-function
+    mechanism (OPERATIONS §2 gate 8), not a verified contract — which is why three
+    spellings are accepted at all. The fallback then has to survive the case it exists for.
+
+    It did not. `payload.get("execution_id") or payload.get("id") or payload.get("call_id")`
+    stops at the first TRUTHY value and only then checks it is a string, so a vendor that
+    numbers its executions in one field and names them in another was answered `unkeyable`
+    with a usable key sitting one field to the right. On the webhook path that is a call
+    handed to the 10-minute poller; on the TOOL path it is a 422 at a caller who just asked
+    to be removed from the list, and there is no poller behind that one.
+
+    Whitespace is stripped rather than rejected for the reason the padded-transition test
+    above gives: the value becomes a durable key, and `"exec_1 "` must not be a second unit
+    of work. `"   "` is not an id at all and stays unkeyable.
+    """
+    # The regression: a truthy non-string first, a usable id second.
+    assert execution_key({"execution_id": 12345, "call_id": "exec_from_call_id"}) == (
+        "exec_from_call_id"
+    )
+    assert execution_key({"execution_id": {"nested": 1}, "id": "exec_from_id"}) == "exec_from_id"
+    # A first field we refuse to STORE also falls through, not just a mistyped one.
+    assert execution_key({"execution_id": "bad\x00id", "call_id": "exec_ok"}) == "exec_ok"
+    assert execution_key({"execution_id": "e" * 200, "call_id": "exec_ok"}) == "exec_ok"
+
+    # Order is preference, not merely presence.
+    three = {"execution_id": "exec_a", "id": "exec_b", "call_id": "exec_c"}
+    assert execution_key(three) == "exec_a"
+    assert execution_key({"id": "exec_b", "call_id": "exec_c"}) == "exec_b"
+
+    # Trimmed, and nothing else is.
+    assert execution_key({"execution_id": "  exec_pad\t"}) == "exec_pad"
+    assert execution_key({"execution_id": "exec mid space"}) == "exec mid space"
+
+    # And the shapes that genuinely name nothing.
+    for empty in ({}, {"execution_id": ""}, {"execution_id": "   "}, {"execution_id": None}):
+        assert execution_key(empty) is None, empty
+    assert execution_key({"id": ["exec_a"]}) is None, "a list is not an id"

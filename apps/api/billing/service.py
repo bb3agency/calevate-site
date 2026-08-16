@@ -33,7 +33,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import ROUND_FLOOR, Decimal
 from typing import Any, Final, Literal, NamedTuple
 from uuid import UUID
 
@@ -86,11 +86,72 @@ LOW_BALANCE_INR = Decimal("200.00")
 # fact — the DISPLAY quantum, two decimals, not the four `MONEY_Q` stores at.
 PAISE = Decimal("0.01")
 
+# Zero, AT THE PAISE SCALE, and the scale is the whole reason it is named.
+#
+# Every money and minute figure in a billing response crosses the wire as the digits
+# `str(Decimal)` produces, so `Decimal("0")` serializes as `"0"` where `Decimal("0.00")`
+# serializes as `"0.00"` — the same number and a different string, on a field a browser
+# renders verbatim. `max(Decimal("0"), x)` returns the FIRST argument when the two are
+# equal, so a bare zero in a floor expression silently changes the shape of a field that
+# is two decimals everywhere else. Nothing rounds; the literal simply carries the scale.
+_ZERO_PAISE = Decimal("0.00")
+
 
 def to_paise(value: Decimal) -> Decimal:
     """The ONE place a rupee amount is rounded. Every money field in every billing
     response goes through it, so no two surfaces can round the same number differently."""
     return value.quantize(PAISE, rounding=ROUNDING)
+
+
+def allocate_paise(parts: Sequence[Decimal], total: Decimal) -> tuple[Decimal, ...]:
+    """Quantize `parts` to two decimals so they add up to EXACTLY `total`.
+
+    **The defect this exists for.** `to_paise` applied to each part independently does
+    not sum to `to_paise` of the whole: two rungs of 5.005 and 4.995 minutes are a total
+    of 10.00, and rounding each gives 5.01 + 5.00 = 10.01. Every surface in this module
+    publishes both a breakdown and its total, and every one of them promised in a
+    docstring that the parts add up. They did not, and the paisa came out on the client's
+    invoice as a line reading "5.00 min at ₹3.75/min" beside an amount of ₹18.69.
+
+    **The method is LARGEST REMAINDER** (the Hare-quota apportionment rule, and what
+    every invoicing system that has to split a total across lines ends up using): floor
+    every part to paise, then hand the paise still owed to the parts with the biggest
+    discarded fraction, one each, ties by position. Two properties follow and both are
+    what the callers need — the parts sum to `total` exactly, and no part is more than
+    one paisa away from its own exact value.
+
+    `ROUND_FLOOR` here is not a second money-rounding decision competing with
+    `ROUNDING`: nothing is left rounded down. The floor is the first half of an
+    allocation whose remainder is distributed in full, so the OUTPUT is exact and the
+    mode is an implementation detail of getting there. It is passed explicitly for the
+    reason every quantize in this repo is (`billing/rates.ROUNDING`) — the ambient
+    `decimal` context is process-global and mutable.
+
+    Rejected: deriving the last part by subtraction, which is the idiom `split_overage`
+    already uses for TWO parts and which is correct there. It does not survive three:
+    three buckets of 0.005 minutes total 0.01, and `total - to_paise(a) - to_paise(b)`
+    is **-0.01** — a negative minute count on a panel.
+
+    Raises when `total` is not the parts' own total (a caller pairing a breakdown with a
+    figure summed from somewhere else), because the alternative is to silently return
+    parts that do not add up — the exact failure this function was written to end.
+    """
+    if not parts:
+        return ()
+    floors = [part.quantize(PAISE, rounding=ROUND_FLOOR) for part in parts]
+    owed = int((total - sum(floors, Decimal("0"))) / PAISE)
+    if not 0 <= owed <= len(parts):
+        raise ValueError(
+            f"allocate_paise: {total} is not the total of the {len(parts)} parts given "
+            f"(it differs from their sum by more than rounding can explain)"
+        )
+    # Biggest discarded fraction first; `index` breaks ties so the result depends on the
+    # caller's own order and never on set/dict iteration.
+    order = sorted(range(len(parts)), key=lambda index: (floors[index] - parts[index], index))
+    allocated = list(floors)
+    for index in order[:owed]:
+        allocated[index] += PAISE
+    return tuple(allocated)
 
 
 def rate_to_display(rate: Decimal) -> Decimal:
@@ -147,7 +208,14 @@ async def _newest_balance(session: AsyncSession, tenant_id: UUID) -> Decimal:
             {"tid": tenant_id},
         )
     ).scalar()
-    return Decimal(amount) if amount is not None else Decimal("0")
+    # `Decimal(str(...))`, never `Decimal(...)` — the one convention every other NUMERIC
+    # read in this tree keeps, and this was the single site that did not. psycopg maps
+    # `numeric` to `Decimal` today, so the two agree; the day a driver, a pool wrapper or
+    # a type adapter hands back a float instead, `Decimal(2500.10)` is
+    # 2500.0999999999999090505298227071762084960937500 and the wallet balance carries the
+    # binary error for ever, while `Decimal(str(2500.10))` is the amount. One character
+    # of insurance on the hottest money read in the product (hard rule 7).
+    return Decimal(str(amount)) if amount is not None else Decimal("0")
 
 
 async def get_balance(session: AsyncSession, *, tenant_id: UUID) -> Balance:
@@ -674,6 +742,11 @@ _IST_MONTH = "to_char(occurred_at + interval '5 hours 30 minutes', 'YYYY-MM')"
 # cannot appear in a client's spend by omission.
 _NOT_AI_UNITS = "unit_type <> ALL(ARRAY[" + ", ".join(f"'{u}'" for u in AI_ASSIST_UNIT_TYPES) + "])"
 
+# `telephony_s` is metered in SECONDS and every client-facing figure is in MINUTES. The
+# divisor is a `Decimal` and named, so the conversion happens in exactly one place and
+# cannot be spelled `60.0` (a float) by the next person to need it.
+_SECONDS_PER_MINUTE = Decimal("60")
+
 
 def current_billing_month() -> str:
     """Now, as an IST billing month. The offset lives in `plans.ist_billing_month` so
@@ -699,6 +772,14 @@ def split_overage(
     charged on. That matters more than it sounds: the invoice promises that every line
     multiplies out and that the lines sum to the subtotal.
 
+    **The inputs are already paise-quantized** (`_tier_totals` allocates them, and
+    `overage_min` is derived from their sum), so this arithmetic neither rounds nor
+    needs to: subtraction of two-decimal Decimals is exact and the outputs are the
+    figures the invoice prints and prices. That was NOT true when the tier minutes
+    arrived unquantized — the caller rounded the pair for display AFTER this function
+    had guaranteed their sum, which is precisely how a guaranteed identity stopped
+    holding on the surface that publishes it.
+
     **A plan with no value rate puts everything on the single rate.** `rate_value is
     None` returns `(overage_min, 0)`, which reproduces the pre-`b1d5c8e73f04` arithmetic
     bit for bit — that is what makes the column safe to add to every existing plan.
@@ -713,15 +794,21 @@ def split_overage(
     premium one; the rule is about price, not about the label.
     """
     if rate_value is None:
-        return overage_min, Decimal("0")
+        return overage_min, _ZERO_PAISE
 
     dearer_is_premium = rate >= rate_value
     dearer = billable_premium if dearer_is_premium else billable_value
     covered = min(included_min, dearer)
-    dearer_overage = max(Decimal("0"), dearer - covered)
-    # Clamped into [0, overage_min]: the tier sums and the telephony total are two
-    # roundings of the same underlying seconds, so they can differ in the last place.
-    # The TOTAL is the number that was priced, so it is the one that wins.
+    dearer_overage = max(_ZERO_PAISE, dearer - covered)
+    # Clamped into [0, overage_min]. It cannot bind on the path `usage_summary` takes —
+    # the rungs are allocated FROM the same total `overage_min` is derived from, so the
+    # dearer rung's overage is bounded by construction — and it is kept anyway because
+    # this function is exported and takes its three quantities as arguments: a caller
+    # that pairs a breakdown with a total from somewhere else must still get two
+    # non-negative figures that add up, not a negative minute count. That is a PROVED
+    # guard rather than an unreachable one — `tests/value_tier_rate_test.py::
+    # test_the_two_rungs_always_add_to_the_overage_total` hands it exactly such a pair,
+    # which is the shape `models.assert_units_are_disjoint` argues for.
     dearer_overage = min(dearer_overage, overage_min)
     cheaper_overage = overage_min - dearer_overage
     if dearer_is_premium:
@@ -729,15 +816,83 @@ def split_overage(
     return cheaper_overage, dearer_overage
 
 
+@dataclass(frozen=True, slots=True)
+class OverageRung:
+    """One rung of the overage, priced: what it charges for, at what rate, for how much.
+
+    `label` is the rung's identity (`premium` / `value`), not its wording — the invoice
+    supplies the words, because "value voice" is a phrase on a client's document and
+    this module has no business choosing it.
+    """
+
+    label: TtsTier
+    minutes: Decimal
+    rate_inr: Decimal
+    amount_inr: Decimal
+
+
+def overage_rungs(
+    *,
+    premium_min: Decimal,
+    value_min: Decimal,
+    rate: Decimal,
+    rate_value: Decimal | None,
+) -> tuple[OverageRung, ...]:
+    """THE one place a rung's money is computed. Both surfaces that state it call this.
+
+    `usage_summary` sums these into `overage_cost_inr` and `build_invoice` prints them
+    as lines, so **the panel's total is the sum of the printed lines by construction** —
+    it is the same numbers added in the same order, not two computations reconciled
+    afterwards.
+
+    What that replaces is worth naming, because the replaced version looked correct.
+    The panel priced the whole overage in ONE quantization (`to_paise(premium * rate +
+    value * value_rate)`) while the invoice quantized each line, so the two disagreed by
+    a paisa and `invoice._reconcile_overage` bent the LAST LINE to close the gap. On
+    round rates that hid; on `_tier_totals`' unquantized minutes it did not, and a real
+    invoice printed "5.00 min at ₹3.75/min ... ₹18.69". A line that does not multiply
+    out is the first thing an accountant checks, and no amount of internal consistency
+    survives it.
+
+    A plan with no value rate has ONE rung carrying every overage minute, which is the
+    shape every invoice had before `plans.overage_rate_value` existed — and `rate_value
+    is None` is "this plan quotes no separate value rate", never "the value rung is
+    free".
+    """
+    if rate_value is None:
+        both = premium_min + value_min
+        return (OverageRung("premium", both, rate, to_paise(both * rate)),)
+    return (
+        OverageRung("premium", premium_min, rate, to_paise(premium_min * rate)),
+        OverageRung("value", value_min, rate_value, to_paise(value_min * rate_value)),
+    )
+
+
 async def _tier_totals(
     session: AsyncSession, *, tenant_id: UUID, month: str
 ) -> tuple[dict[str, Decimal], dict[str, Decimal]]:
-    """(minutes, our cost) per TTS rung for one billing month, UNQUANTIZED.
+    """(minutes, our cost) per TTS rung for one billing month.
 
     THE one definition of "how many minutes ran on which rung". `tier_usage` presents
     it to two panels and `usage_summary` prices against it; a second query would let the
     panel and the bill disagree about the same month, which is the exact defect
     `billing/rates.py` exists to prevent one layer down.
+
+    **THE MINUTES COME BACK ALREADY QUANTIZED TO PAISE, AND SUMMING TO THE MONTH'S
+    TOTAL EXACTLY** (`allocate_paise`). They used to come back unquantized and every
+    caller rounded its own copy, which meant the three rungs added to a minute count
+    one paisa away from the one `usage_summary` published — and, once the overage was
+    priced off those rounded rungs, to an invoice line that did not multiply out. There
+    is now ONE set of minute figures in the system: these. Everything downstream is
+    paise-exact arithmetic on them, so nothing below this function rounds a minute
+    again.
+
+    The SQL sums SECONDS and the division happens here, once per bucket, for the same
+    reason: `SUM(a)/60 + SUM(b)/60` and `SUM(a+b)/60` are two roundings of one number
+    and Postgres picks the result scale, so dividing per bucket in SQL would put the
+    parts and the total a hair apart before the allocation could even see them. The cost
+    side stays a NUMERIC sum in SQL — it is already exact there, being a sum of
+    products rather than a quotient.
 
     The keys are `premium`, `value` and `""` — the third being rows written before tier
     attribution existed, or by a path that could not attribute one. Reporting keeps that
@@ -756,11 +911,11 @@ async def _tier_totals(
     """
     rows = (
         await session.execute(
-            # `/ 60.0` is a NUMERIC literal in Postgres, exactly as in `usage_summary`;
-            # nothing on this path becomes a float (hard rule 7).
+            # NUMERIC end to end — a SUM of NUMERIC columns and a SUM of their products.
+            # Nothing on this path becomes a float (hard rule 7).
             text(
                 "SELECT COALESCE(meta->>'tts_tier', ''), "
-                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
+                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0), "
                 "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
                 f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month "
                 f"AND {_NOT_AI_UNITS} "
@@ -770,14 +925,19 @@ async def _tier_totals(
         )
     ).all()
 
-    minutes = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
+    seconds = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
     cost = {"premium": Decimal("0"), "value": Decimal("0"), "": Decimal("0")}
-    for label, mins, spent in rows:
+    for label, secs, spent in rows:
         # An unrecognised label is treated as unattributed rather than trusted: a tier
         # this module does not know is not a tier it can price.
         key = str(label) if str(label) in ("premium", "value") else ""
-        minutes[key] += Decimal(str(mins or 0))
+        seconds[key] += Decimal(str(secs or 0))
         cost[key] += Decimal(str(spent or 0))
+
+    buckets = ("premium", "value", "")
+    exact = [seconds[key] / _SECONDS_PER_MINUTE for key in buckets]
+    total = to_paise(sum(seconds.values(), Decimal("0")) / _SECONDS_PER_MINUTE)
+    minutes = dict(zip(buckets, allocate_paise(exact, total), strict=True))
     return minutes, cost
 
 
@@ -790,11 +950,33 @@ async def usage_summary(
     are inputs to OUR cost and are deliberately not shown as separate line items,
     because a client cannot act on "llm_tok_out" and does not buy tokens from us.
     """
-    period = month or current_billing_month()
+    # WHICH MONTH IS "NOW", read ONCE and then handed to everything that needs it.
+    #
+    # Three places below ask whether the month on screen is the open one — the default
+    # for `period`, the staleness test on `spend_state`, and `_spend_used`'s choice
+    # between the live counter and the ledger — and each used to take its own reading of
+    # the clock. Across 00:00:00 IST on the 1st those readings straddle the roll: the
+    # counter row is judged stale against September while `_spend_used` still believes
+    # August is open, so it reports the (now zeroed) live counter and August's statement
+    # shows ₹0.00 spent beside minutes read correctly from the ledger. The window is one
+    # instant a month and the answer is wrong by the whole month, which is the trade
+    # that makes a single reading worth passing around.
+    today = current_billing_month()
+    period = month or today
     # WHICH INSTANT THIS MONTH IS PRICED AT, resolved (and the month validated) BEFORE
     # any query runs — a month we cannot parse is a month we cannot pick a plan for, and
     # a 422 up front beats a ₹0.00 statement for `?month=july`.
     priced_at = month_pricing_instant(period)
+    # THE MINUTES AND THE RUNGS COME FROM ONE READ, and it is `_tier_totals`.
+    #
+    # This function used to sum `telephony_s` itself, in its own query, and then read the
+    # per-rung split from `_tier_totals` — two aggregates over the same rows, each
+    # rounded on its own. That is how `minutes_used` and the three rungs beside it ended
+    # up a paisa apart on one panel. `_tier_totals` now returns paise-exact minutes that
+    # sum to the month's total, so the total IS their sum and there is nothing left to
+    # disagree.
+    tier_minutes, tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    minutes = sum(tier_minutes.values(), _ZERO_PAISE)
     row = (
         await session.execute(
             # `tenant_id` is named in the predicate, not left to RLS alone: the plan,
@@ -803,20 +985,17 @@ async def usage_summary(
             # tenant's minutes. RLS still fails the query closed; this makes the answer
             # depend on the argument rather than on which session it was handed.
             #
-            # `/ 60.0` is a NUMERIC literal in Postgres, so this stays numeric end to
-            # end (hard rule 7) — asserted in tests/billing_audit_test.py, because it
-            # reads like a float literal and would be a silent disaster as one.
+            # Deliberately NOT filtered to call rows: a dashboard-assist row carries no
+            # `call_id` and `COUNT(DISTINCT)` ignores NULLs, so the AI ledger cannot
+            # inflate a client's call count and does not need a predicate to say so.
             text(
-                "SELECT "
-                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0) / 60.0, "
-                "  COUNT(DISTINCT call_id) "
+                "SELECT COUNT(DISTINCT call_id) "
                 f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month"
             ),
             {"tid": tenant_id, "month": period},
         )
     ).first()
-    minutes = to_paise(Decimal(str(row[0] if row else 0)))
-    calls = int(row[1] or 0) if row else 0
+    calls = int(row[0] or 0) if row else 0
 
     # WHICH PLAN PRICES THIS MONTH. Not the newest row — the row whose valid-time
     # window contains `priced_at` (`billing/plans.py`). For a closed month that instant
@@ -848,8 +1027,7 @@ async def usage_summary(
     # NULL is not zero: "this plan quotes no separate value rate" (bill everything at
     # `overage_rate`) and "the value rung is free" are different plans.
     value_rate = Decimal(str(plan[5])) if plan and plan[5] is not None else None
-    overage_min = max(Decimal("0"), minutes - included)
-    tier_minutes, tier_cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
+    overage_min = max(_ZERO_PAISE, minutes - included)
     overage_premium, overage_value = split_overage(
         overage_min=overage_min,
         billable_premium=tier_minutes["premium"],
@@ -860,12 +1038,23 @@ async def usage_summary(
         rate=overage_rate,
         rate_value=value_rate,
     )
-    # The UNROUNDED rates are what the client is charged at — they are the plan terms.
-    # The rates published beside the cost are `rate_to_display`, which are the same
-    # numbers, so the invoice lines' qty * unit reproduce this amount exactly.
-    overage_cost = to_paise(
-        overage_premium * overage_rate + overage_value * (value_rate or overage_rate)
+    # PRICED THROUGH THE SHARED RUNG FUNCTION, and summed rather than quantized once.
+    # `build_invoice` calls the same function with the same (published) arguments to
+    # build its lines, so this total is literally the sum of the lines that will be
+    # printed — the identity the invoice promises, held by construction instead of by a
+    # reconciliation that bent the last line to fit.
+    #
+    # The rates go in UNROUNDED because they are the plan terms; `rate_to_display`
+    # publishes numbers equal to them (paise when the rate is a whole number of paise,
+    # full precision otherwise — never a rounded rate), which is what lets the invoice
+    # re-price from the published figures and land on the same paisa.
+    charged = overage_rungs(
+        premium_min=overage_premium,
+        value_min=overage_value,
+        rate=overage_rate,
+        rate_value=value_rate,
     )
+    overage_cost = sum((rung.amount_inr for rung in charged), _ZERO_PAISE)
 
     # THE LIVE COUNTERS, through the one month-aware reader (`billing/caps.py`) that the
     # compliance gate, the admin directory and the health panel already read. The month
@@ -879,7 +1068,7 @@ async def usage_summary(
     # of the same row WITHOUT it — one predicate, applied to one of the two columns it
     # was written for. That is why the shared reader exists rather than a shared
     # `if`: it returns the counters TOGETHER, so a caller cannot take half the check.
-    counters = await read_spend_counters(session, tenant_id=tenant_id)
+    counters = await read_spend_counters(session, tenant_id=tenant_id, month=today)
     # Deliberately the LIVE flag even when an older `?month=` is being viewed: "outgoing
     # calls are paused" is a fact about the account right now, not about the month on
     # screen, and it is what `minutes_left` below has to respect.
@@ -922,12 +1111,15 @@ async def usage_summary(
         "minutes_used": minutes,
         "calls": calls,
         "included_minutes": included,
-        "overage_minutes": to_paise(overage_min),
+        "overage_minutes": overage_min,
         # The two rungs the overage was actually split across. They add to
-        # `overage_minutes` exactly, by construction (`split_overage`), so a client
-        # checking the invoice by hand never finds a stray paisa.
-        "overage_minutes_premium": to_paise(overage_premium),
-        "overage_minutes_value": to_paise(overage_value),
+        # `overage_minutes` exactly, and PUBLISHED AS THEY WERE PRICED — not re-rounded
+        # here, which is what used to break the identity this comment claims: the pair
+        # summed exactly inside `split_overage` and then `to_paise` on each half turned
+        # 5.005 + 4.995 into 5.01 + 5.00 on the way out. Nothing on this path rounds a
+        # minute; `_tier_totals` did it once, for all of them, so that they add up.
+        "overage_minutes_premium": overage_premium,
+        "overage_minutes_value": overage_value,
         "overage_cost_inr": overage_cost,
         # The rate the overage was priced at, published so the invoice does not have to
         # re-read `plans` and risk picking a different row than this computation did.
@@ -944,11 +1136,11 @@ async def usage_summary(
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
         "capped": capped,
-        "spend_used_inr": to_paise(_spend_used(period, counters.spend_used, tier_cost)),
+        "spend_used_inr": to_paise(_spend_used(period, today, counters.spend_used, tier_cost)),
     }
 
 
-def _spend_used(period: str, live: Decimal, tier_cost: dict[str, Decimal]) -> Decimal:
+def _spend_used(period: str, today: str, live: Decimal, tier_cost: dict[str, Decimal]) -> Decimal:
     """What this tenant spent in `period` — from the counter while it is live, from the
     ledger once it is not.
 
@@ -972,8 +1164,16 @@ def _spend_used(period: str, live: Decimal, tier_cost: dict[str, Decimal]) -> De
     and contributes nothing to `qty * unit_cost_paid`, so a zero-duration call reads a
     few paise lighter here. That is the same arithmetic the invoice and the margin panel
     are built on, which is the right thing for a closed month to agree with.
+
+    `today` is passed in rather than read from the clock here, and it is the SAME
+    reading `read_spend_counters` was given. Taking a second reading is what makes the
+    IST month roll a data bug rather than a scheduling curiosity: the counter is judged
+    stale against the new month (so `live` is zero) while this test still believes the
+    old month is open (so it returns `live`), and the closed month's statement prints
+    ₹0.00 spent. Both halves must be asked at one instant or neither answer is about the
+    same month.
     """
-    if period == current_billing_month():
+    if period == today:
         return live
     return sum(tier_cost.values(), Decimal("0"))
 
@@ -1002,8 +1202,21 @@ async def tier_usage(
     premium voice is never charged the premium rate. Reporting keeps the distinction;
     pricing resolves it in the client's favour.
 
-    Minutes come from `telephony_s` — the same unit `usage_summary` bills on — so the
-    three buckets always add up to that panel's `minutes_used` for the same month.
+    Minutes come from `telephony_s` — the same unit `usage_summary` bills on — and they
+    are the SAME allocated figures that panel publishes, so the three buckets add up to
+    its `minutes_used` for the same month exactly. That sentence was here before
+    `_tier_totals` allocated them and it was false: each bucket was rounded on its own,
+    so two buckets of 5.005 and 4.995 minutes reported 10.01 against a usage panel
+    reading 10.00. Nothing is rounded here now — `to_paise` on these would be a no-op
+    and its absence is the point.
+
+    Read by ONE caller: `GET /v1/admin/tenants/{id}/margin`, which nests it under
+    `tiers` so the rungs sit beside the `cost_inr` they partition. Admin realm only, for
+    the same reason the margin card is — these are OUR supplier costs. It had no caller
+    at all for two waves, which is what the note here used to record; a reporting surface
+    nobody mounts is a defect that looks like progress, so it was mounted rather than
+    re-noted. `usage_summary` and `margin_for_tenant` consume `_tier_totals` directly,
+    so the arithmetic below is also exercised through them.
     """
     period = month or current_billing_month()
     # Validated for the same reason `usage_summary` validates it, and by the same
@@ -1013,12 +1226,12 @@ async def tier_usage(
 
     return {
         "month": period,
-        "minutes_premium": to_paise(minutes["premium"]),
-        "minutes_value": to_paise(minutes["value"]),
-        "minutes_unattributed": to_paise(minutes[""]),
+        "minutes_premium": minutes["premium"],
+        "minutes_value": minutes["value"],
+        "minutes_unattributed": minutes[""],
         # What a bill may charge at each rung: unproven never reaches the premium side.
-        "minutes_billable_premium": to_paise(minutes["premium"]),
-        "minutes_billable_value": to_paise(minutes["value"] + minutes[""]),
+        "minutes_billable_premium": minutes["premium"],
+        "minutes_billable_value": minutes["value"] + minutes[""],
         "cost_premium_inr": to_paise(cost["premium"]),
         "cost_value_inr": to_paise(cost["value"]),
         "cost_unattributed_inr": to_paise(cost[""]),
@@ -1228,8 +1441,10 @@ __all__ = [
     "CorrectableEntry",
     "CreditReason",
     "LedgerEntryRef",
+    "OverageRung",
     "RecordedPayment",
     "adjustment_ref",
+    "allocate_paise",
     "charge_for_call",
     "current_billing_month",
     "find_entry_by_ref",
@@ -1237,6 +1452,7 @@ __all__ = [
     "get_balance",
     "lock_tenant_credits",
     "margin_for_tenant",
+    "overage_rungs",
     "plan_tier_of",
     "rate_to_display",
     "read_correctable_entry",

@@ -428,6 +428,43 @@ def record_webhook_ack_ms(ms: float, *, provider: str) -> None:
     _record("webhook_ack_ms", ms, provider=provider)
 
 
+def record_tool_ack_ms(ms: float, *, provider: str) -> None:
+    """The IN-CALL tool endpoint's ack, against TRD §6.2's 100ms budget.
+
+    A SECOND SERIES RATHER THAN A SECOND LABEL ON THE FIRST. `apps/voice-runtime/
+    tool_routes.py` leaves through the receiver's `_ack`, so until this existed every
+    in-call tool call was recorded as `webhook_ack_ms{provider=...}` — the same series as
+    the post-call webhook receiver, distinguishable by nothing. They are different
+    endpoints with different budgets (100ms against 500ms) and an order-of-magnitude
+    different cost (0 database statements against 3), so the pooled p95 was a blend of two
+    populations: a burst of cheap tool calls DILUTED the receiver's p95 and could hide a
+    regression in it, and the tool endpoint's own budget could not be read off the series
+    at all. A `surface=` label on one series would have kept the dilution — a percentile
+    is computed over the series, not over the label.
+    """
+    _record("tool_ack_ms", ms, provider=provider)
+
+
+def record_webhook_replay_divergence(*, provider: str) -> None:
+    """A settled transition re-delivered with DIFFERENT body bytes.
+
+    THE ONLY REPLAY SIGNAL AN UNSIGNED ENGINE CAN GIVE US, and until this counter existed
+    there was none anywhere. Bolna signs nothing (D-31) and its delivery is at-most-once
+    with no retry [TRD §5, verified in the OSS delivery code], so a SECOND delivery of one
+    `{execution_id}:{raw_status}` is already a replay rather than a vendor retry — and one
+    whose bytes differ from the delivery we settled is somebody composing payloads, not a
+    network echo.
+
+    A COUNTER AND NOT AN ALERT, deliberately. `webhook_routes._claim_and_enqueue` argues
+    the case for the inbox hash and it applies here unchanged: an engine that DOES retry
+    can legitimately re-deliver one transition with a fuller body, and an alarm that fires
+    on healthy traffic is one nobody reads when a real one arrives. What the endpoint must
+    never do is act on the divergence either — the payload is a hint, the authenticated Get
+    Execution is the truth — so this records and moves on.
+    """
+    _record("webhook_replay_divergence", 1, provider=provider)
+
+
 def record_pipeline_lag(seconds: float, *, stage: str) -> None:
     """Post-call SLO: lead visible within 2 minutes of hangup (OPERATIONS §4)."""
     _record("pipeline_lag_seconds", seconds, stage=stage)
@@ -483,6 +520,8 @@ __all__ = [
     "record_pipeline_lag",
     "record_reconciliation_listing_incomplete",
     "record_reconciliation_repair",
+    "record_tool_ack_ms",
     "record_webhook_ack_ms",
+    "record_webhook_replay_divergence",
     "reset_alerts",
 ]

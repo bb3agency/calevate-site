@@ -7333,6 +7333,9 @@
           "revenue_inr": {
             "title": "Revenue Inr",
             "type": "string"
+          },
+          "tiers": {
+            "$ref": "#/components/schemas/TierSplitOut"
           }
         },
         "required": [
@@ -7342,7 +7345,8 @@
           "revenue_inr",
           "cost_inr",
           "margin_inr",
-          "margin_pct"
+          "margin_pct",
+          "tiers"
         ],
         "title": "MarginOut",
         "type": "object"
@@ -12033,6 +12037,46 @@
           "payload"
         ],
         "title": "TestWebhookIn",
+        "type": "object"
+      },
+      "TierSplitOut": {
+        "additionalProperties": false,
+        "description": "The margin's cost side, split by the TTS rung each minute was metered on (D-36).\n\nNested inside the margin card rather than mounted as its own route because it answers\na question about THAT card's `cost_inr`: an operator seeing a thin margin needs to\nknow whether the cost is premium voice or the value rung before they can act on it,\nand a second endpoint means a second round trip to learn one number's composition.\n`billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs\nadd up to `cost_inr` exactly \u2014 they are a partition of it, not a parallel estimate.\n\n`unattributed` is the honest third bucket: rows a path could not attribute a rung to.\nIt is reported separately because \"we know this ran on the value rung\" and \"we never\nknew\" are different facts, and a bill resolves that ambiguity in the CLIENT's favour\n(`minutes_billable_value` folds it in) while this report must not.\n\nEvery field is required on the wire. A Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the\nserver never emits \u2014 a trap this repo has now been bitten by four times.",
+        "properties": {
+          "cost_premium_inr": {
+            "title": "Cost Premium Inr",
+            "type": "string"
+          },
+          "cost_unattributed_inr": {
+            "title": "Cost Unattributed Inr",
+            "type": "string"
+          },
+          "cost_value_inr": {
+            "title": "Cost Value Inr",
+            "type": "string"
+          },
+          "minutes_premium": {
+            "title": "Minutes Premium",
+            "type": "string"
+          },
+          "minutes_unattributed": {
+            "title": "Minutes Unattributed",
+            "type": "string"
+          },
+          "minutes_value": {
+            "title": "Minutes Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "minutes_premium",
+          "minutes_value",
+          "minutes_unattributed",
+          "cost_premium_inr",
+          "cost_value_inr",
+          "cost_unattributed_inr"
+        ],
+        "title": "TierSplitOut",
         "type": "object"
       },
       "TmRegistrationIn": {

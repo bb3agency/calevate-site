@@ -111,6 +111,14 @@ function healthy(): Routes {
       cost_inr: "2001.00",
       margin_inr: "3001.40",
       margin_pct: "59.99",
+      tiers: {
+        minutes_premium: "600.00",
+        minutes_value: "200.00",
+        minutes_unattributed: "12.00",
+        cost_premium_inr: "1500.00",
+        cost_value_inr: "480.00",
+        cost_unattributed_inr: "21.00",
+      },
     },
   };
 }

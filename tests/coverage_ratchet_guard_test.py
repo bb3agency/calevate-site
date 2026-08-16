@@ -67,6 +67,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+import coverage
 import pytest
 from scripts import check_coverage_ratchet as ratchet
 
@@ -84,16 +85,85 @@ PER_FILE = {
 }
 
 
-def _report(**overrides: Any) -> dict[str, Any]:
-    """A coverage JSON report shaped like the real one, over the REAL guarded files."""
+def _report(_excluded: dict[str, list[int]] | None = None, **overrides: Any) -> dict[str, Any]:
+    """A coverage JSON report shaped like the real one, over the REAL guarded files.
+
+    `_excluded` maps a repo-relative path to the line numbers coverage excluded there.
+    It is a TOP-LEVEL key rather than a summary count because that is where the real
+    report puts the numbers, and `_suppressed_lines` needs the numbers to read the source.
+    """
     summary = {**PER_FILE, **overrides}
+    planted = _excluded or {}
     return {
         "meta": {"branch_coverage": True, "format": 3},
         "files": {
-            path.relative_to(REPO_ROOT).as_posix(): {"summary": dict(summary)}
-            for path in ratchet._guarded_sources()
+            name: {"summary": dict(summary), "excluded_lines": planted.get(name, [])}
+            for name in (
+                path.relative_to(REPO_ROOT).as_posix() for path in ratchet._guarded_sources()
+            )
         },
     }
+
+
+#: A module whose every exclusion is one COVERAGE chose: a `...`-bodied Protocol method
+#: and a `TYPE_CHECKING` import guard. Nobody wrote a suppression here, so the ratchet
+#: must charge nothing for it.
+_STRUCTURAL_SOURCE = """\
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:
+    from decimal import Decimal
+
+
+class Recorder(Protocol):
+    def __call__(self, ms: float, *, provider: str) -> None: ...
+
+
+def rate() -> int:
+    return 1
+"""
+
+#: The same shape plus ONE deliberate suppression. Exactly one unit is owed.
+_SUPPRESSED_SOURCE = """\
+from typing import Protocol
+
+
+class Recorder(Protocol):
+    def __call__(self, ms: float) -> None: ...
+
+
+def rate(flag: bool) -> int:
+    if flag:  # pragma: no cover
+        return 0
+    return 1
+"""
+
+
+_PROBE_NAME = "probe.py"
+
+
+def _coverage_excluded(tmp_path: Path, source: str) -> set[int]:
+    """Which lines COVERAGE excludes from `source`, measured by running it.
+
+    A subprocess with this repo's own config, because the two structural defaults under
+    test are version-dependent behaviour of the INSTALLED coverage — the thing a test may
+    not take on faith from a changelog. The module is left on disk at `tmp_path` so the
+    caller can point `_suppressed_lines` at the very file these numbers describe.
+    """
+    module = tmp_path / _PROBE_NAME
+    module.write_text(source, encoding="utf-8")
+    data = tmp_path / ".coverage"
+    completed = subprocess.run(
+        [sys.executable, "-m", "coverage", "run", "--data-file", str(data), str(module)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    cov = coverage.Coverage(data_file=str(data))
+    cov.load()
+    return set(cov._analyze(str(module)).excluded)
 
 
 #: A manifest describing the run every trust test starts from: the whole suite, green,
@@ -330,16 +400,70 @@ class TestRatchet:
         )
         assert any("dial-path" in f and "no budget recorded" in f for f in failures)
 
-    def test_a_pragma_no_cover_does_not_lower_the_number(self) -> None:
-        """`# pragma: no cover` deletes a line from coverage's numerator AND its
+    def test_a_no_cover_comment_does_not_lower_the_number(self) -> None:
+        """A no-cover comment deletes a line from coverage's numerator AND its
         denominator, so inside a guarded surface it is the quietest possible way to move
-        this number — one comment, no baseline diff. Counting excluded lines as uncovered
-        is what closes that door."""
-        excluded = ratchet.measure(_report(missing_lines=0, excluded_lines=3, covered_lines=40))
-        plain = ratchet.measure(_report(missing_lines=0, excluded_lines=0, covered_lines=40))
-        by_area = {row.area: row.uncovered for row in excluded}
-        for row in plain:
-            assert by_area[row.area] > row.uncovered
+        this number — one comment, no baseline diff. Charging for suppressed lines is
+        what closes that door, and this is the arithmetic that does it.
+
+        The other half — that `suppressed` counts an author's comment and not coverage's
+        own structural exclusions — is `TestOnlyAnAuthorsSuppressionIsCharged`.
+        """
+        row = ratchet.measure(_report(missing_lines=0, covered_lines=40))[0]
+        assert replace(row, suppressed=row.suppressed + 3).uncovered == row.uncovered + 3
+
+
+class TestOnlyAnAuthorsSuppressionIsCharged:
+    """The line between "somebody chose to hide this" and "coverage does not consider
+    this executable code", drawn against coverage's ACTUAL behaviour rather than a
+    remembered version of it.
+
+    It matters because `uncovered` charges for the first and must not charge for the
+    second: coverage 7 excludes `...`-bodied stubs and `if TYPE_CHECKING:` blocks by
+    default, and sweeps the blank lines around each excluded clause into the same set. A
+    four-line `Protocol` — this repo's own typing idiom, the shape `VoiceEngine` is
+    written in — cost four units in a hard rule 3 surface under a message naming a pragma
+    that was not in the file. A guard that charges for good typing gets worked around.
+    """
+
+    def test_coverage_really_does_exclude_a_stub_and_a_type_checking_block(
+        self, tmp_path: Path
+    ) -> None:
+        """READ AT SOURCE. Everything below rests on this being coverage's behaviour, so
+        it is measured from a real run rather than asserted from the changelog."""
+        excluded = _coverage_excluded(tmp_path, _STRUCTURAL_SOURCE)
+        body = _STRUCTURAL_SOURCE.splitlines()
+        hit = {body[n - 1].strip() for n in excluded}
+        assert any(line.endswith("...") for line in hit), f"no stub excluded: {sorted(hit)}"
+        assert any("TYPE_CHECKING" in line for line in hit), f"no guard excluded: {sorted(hit)}"
+        assert "" in hit, "the blank lines around an excluded clause are swept in too"
+
+    def test_none_of_those_lines_is_charged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole point: the author of that file suppressed nothing, so it owes nothing."""
+        excluded = _coverage_excluded(tmp_path, _STRUCTURAL_SOURCE)
+        assert excluded, "the fixture must actually produce exclusions or this proves nothing"
+        monkeypatch.setattr(ratchet, "REPO_ROOT", tmp_path)
+        charged = ratchet._suppressed_lines(_PROBE_NAME, {"excluded_lines": sorted(excluded)})
+        assert charged == 0, f"charged {charged} units for exclusions nobody asked for"
+
+    def test_a_comment_in_the_same_file_still_is(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The precision control. A fix that charged nothing at all would be a hole, not a
+        fix — so a file carrying one deliberate suppression owes exactly one, and the
+        stub and blank lines beside it still owe nothing."""
+        excluded = _coverage_excluded(tmp_path, _SUPPRESSED_SOURCE)
+        assert len(excluded) > 1, "the fixture must also carry structural exclusions"
+        monkeypatch.setattr(ratchet, "REPO_ROOT", tmp_path)
+        charged = ratchet._suppressed_lines(_PROBE_NAME, {"excluded_lines": sorted(excluded)})
+        assert charged == 1, f"expected exactly the one commented line, charged {charged}"
+
+    def test_a_deleted_file_owes_nothing_rather_than_raising(self) -> None:
+        """A report can outlive the file it describes; a missing source is not a
+        suppression, and a guardrail that raises on one refuses every run after a delete."""
+        assert ratchet._suppressed_lines("apps/api/gone.py", {"excluded_lines": [1, 2]}) == 0
 
 
 # ============================================================================

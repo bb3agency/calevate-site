@@ -36,7 +36,7 @@ from decimal import Decimal
 from typing import Any
 
 from apps.api.admin import service as admin_service
-from apps.api.admin.routes import MarginOut
+from apps.api.admin.routes import MarginOut, TierSplitOut
 from apps.api.agents import prompts
 from apps.api.agents.prompt_routes import PromptVersionOut
 from apps.api.billing import service as billing
@@ -704,12 +704,14 @@ async def test_the_margin_panel_answers_a_declared_model_with_money_as_strings()
     admin = await _admin_headers()
 
     async with tenant_session(tenant_id) as session:
-        expected = MarginOut.model_validate(
-            {
-                k: (str(v) if isinstance(v, Decimal) else v)
-                for k, v in (await billing.margin_for_tenant(session, tenant_id=tenant_id)).items()
-            }
-        )
+        margin = await billing.margin_for_tenant(session, tenant_id=tenant_id)
+        tiers = await billing.tier_usage(session, tenant_id=tenant_id, month=str(margin["month"]))
+    expected = MarginOut.model_validate(
+        {
+            **{k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()},
+            "tiers": {name: str(tiers[name]) for name in TierSplitOut.model_fields},
+        }
+    )
 
     async with _client() as http:
         response = await http.get(f"/v1/admin/tenants/{tenant_id}/margin", headers=admin)
@@ -725,6 +727,25 @@ async def test_the_margin_panel_answers_a_declared_model_with_money_as_strings()
     assert body["margin_inr"] == "6559.00"
     assert body["margin_pct"] == "64.6"
     assert body["minutes_used"] == "120.00"
+
+    # The rung split is a PARTITION of `cost_inr`, not a parallel estimate — both sides
+    # come from `_tier_totals`, and the panel prints them on one card. Summed as Decimal
+    # from the wire strings, because that is the arithmetic a reader does by eye and the
+    # only one hard rule 7 permits on money.
+    split = body["tiers"]
+    assert set(split) == set(TierSplitOut.model_fields)
+    assert sum(
+        Decimal(split[f"cost_{rung}_inr"]) for rung in ("premium", "value", "unattributed")
+    ) == Decimal(body["cost_inr"]), split
+    assert sum(
+        Decimal(split[f"minutes_{rung}"]) for rung in ("premium", "value", "unattributed")
+    ) == Decimal(body["minutes_used"]), split
+    # `_seed_billing` writes telephony rows with no `tts_tier`, so every minute lands in
+    # the honest third bucket. Asserted rather than assumed: if attribution ever starts
+    # stamping these rows, this line is where a reader learns the fixture changed meaning.
+    assert split["cost_unattributed_inr"] == "3600.00"
+    assert split["cost_premium_inr"] == "0.00"
+    assert split["cost_value_inr"] == "0.00"
 
 
 async def test_margin_percent_is_null_over_the_wire_before_anything_is_billed() -> None:

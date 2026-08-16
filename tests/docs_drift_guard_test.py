@@ -26,12 +26,18 @@ pinned here as tests that must report NOTHING.
 
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 
 from scripts import check_docs_drift as guard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+#: A decision id BY SHAPE. Spelled with an explicit character class rather than `\d` so
+#: this line is not itself a citation — the guard scans this file too, and a literal
+#: number here would have to be a real row forever.
+_DECISION_SHAPE = re.compile(r"D-[0-9]+")
 
 
 # --- helpers ------------------------------------------------------------------
@@ -281,6 +287,33 @@ class TestDecisionReferences:
         identifiers = guard.decision_ids()
         failures = guard.dangling_decisions(ids=[i for i in identifiers if i != "D-31"])
         assert any("D-31" in f for f in failures), failures
+
+    def test_the_hint_names_the_real_highest_row_and_never_a_placeholder(self) -> None:
+        """The "the log runs to D-nnn" hint is what a reader uses to pick the next free
+        number, so it has to be a number the log actually carries.
+
+        This asserts BOTH halves of a bug that shipped: `max()` over the strings answered
+        the largest FIRST DIGIT for a log running past a hundred rows, and the empty-log
+        fallback was a hard-coded zeroth decision — which this very file scans for, so the
+        checker reported ITSELF as a dangling citation. The empty case must therefore
+        produce no decision-shaped token at all. Neither number is written out here for
+        the same reason: prose quoting the token is indistinguishable from a citation.
+        """
+        identifiers = guard.decision_ids()
+        highest = f"D-{max(int(i.split('-')[1]) for i in identifiers)}"
+        failures = guard.dangling_decisions(ids=[i for i in identifiers if i != "D-31"])
+        assert failures, "the shortened log must surface D-31"
+        assert all(f"the log runs to {highest})" in f for f in failures), failures[:2]
+
+        # An empty log: every citation dangles, and the hint must degrade to prose.
+        empty = guard.dangling_decisions(ids=[])
+        assert empty, "with no rows at all, every citation in the tree is unfollowable"
+        assert all("the log is empty" in f for f in empty), empty[:2]
+        # Everything after the §6 marker is the hint, and it must carry no number a reader
+        # could mistake for a row. Asserted by SHAPE because writing the placeholder out
+        # here as a literal would plant the same dangling citation this test is about.
+        hints = [f.partition("§6")[2] for f in empty]
+        assert not any(_DECISION_SHAPE.search(hint) for hint in hints), hints[:2]
 
     def test_catches_a_duplicate_decision_id(self) -> None:
         """Two branches both appending the next number is the likeliest collision on a

@@ -93,8 +93,16 @@ function margin(over: Partial<Margin> = {}): Margin {
     cost_inr: "402350.50",
     margin_inr: "613549.50",
     margin_pct: "60.39",
+    tiers: {
+      minutes_premium: "900.00",
+      minutes_value: "280.00",
+      minutes_unattributed: "24.50",
+      cost_premium_inr: "300000.00",
+      cost_value_inr: "90000.00",
+      cost_unattributed_inr: "12350.50",
+    },
     ...over,
-  } as Margin;
+  };
 }
 
 function source(over: Partial<KbSource> = {}): KbSource {

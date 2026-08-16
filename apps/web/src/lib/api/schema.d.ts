@@ -6527,6 +6527,7 @@ export interface components {
             month: string;
             /** Revenue Inr */
             revenue_inr: string;
+            tiers: components["schemas"]["TierSplitOut"];
         };
         /** MeOut */
         MeOut: {
@@ -8445,6 +8446,40 @@ export interface components {
             payload: {
                 [key: string]: unknown;
             };
+        };
+        /**
+         * TierSplitOut
+         * @description The margin's cost side, split by the TTS rung each minute was metered on (D-36).
+         *
+         *     Nested inside the margin card rather than mounted as its own route because it answers
+         *     a question about THAT card's `cost_inr`: an operator seeing a thin margin needs to
+         *     know whether the cost is premium voice or the value rung before they can act on it,
+         *     and a second endpoint means a second round trip to learn one number's composition.
+         *     `billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs
+         *     add up to `cost_inr` exactly — they are a partition of it, not a parallel estimate.
+         *
+         *     `unattributed` is the honest third bucket: rows a path could not attribute a rung to.
+         *     It is reported separately because "we know this ran on the value rung" and "we never
+         *     knew" are different facts, and a bill resolves that ambiguity in the CLIENT's favour
+         *     (`minutes_billable_value` folds it in) while this report must not.
+         *
+         *     Every field is required on the wire. A Pydantic default here would generate an
+         *     OPTIONAL TypeScript property and the screen would have to branch on a case the
+         *     server never emits — a trap this repo has now been bitten by four times.
+         */
+        TierSplitOut: {
+            /** Cost Premium Inr */
+            cost_premium_inr: string;
+            /** Cost Unattributed Inr */
+            cost_unattributed_inr: string;
+            /** Cost Value Inr */
+            cost_value_inr: string;
+            /** Minutes Premium */
+            minutes_premium: string;
+            /** Minutes Unattributed */
+            minutes_unattributed: string;
+            /** Minutes Value */
+            minutes_value: string;
         };
         /** TmRegistrationIn */
         TmRegistrationIn: {

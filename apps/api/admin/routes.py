@@ -1011,6 +1011,36 @@ async def publish_kb(
     return PublishOut(source_id=source_id, version=version, status="live")
 
 
+class TierSplitOut(BaseModel):
+    """The margin's cost side, split by the TTS rung each minute was metered on (D-36).
+
+    Nested inside the margin card rather than mounted as its own route because it answers
+    a question about THAT card's `cost_inr`: an operator seeing a thin margin needs to
+    know whether the cost is premium voice or the value rung before they can act on it,
+    and a second endpoint means a second round trip to learn one number's composition.
+    `billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs
+    add up to `cost_inr` exactly — they are a partition of it, not a parallel estimate.
+
+    `unattributed` is the honest third bucket: rows a path could not attribute a rung to.
+    It is reported separately because "we know this ran on the value rung" and "we never
+    knew" are different facts, and a bill resolves that ambiguity in the CLIENT's favour
+    (`minutes_billable_value` folds it in) while this report must not.
+
+    Every field is required on the wire. A Pydantic default here would generate an
+    OPTIONAL TypeScript property and the screen would have to branch on a case the
+    server never emits — a trap this repo has now been bitten by four times.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    minutes_premium: str
+    minutes_value: str
+    minutes_unattributed: str
+    cost_premium_inr: str
+    cost_value_inr: str
+    cost_unattributed_inr: str
+
+
 class MarginOut(BaseModel):
     """Per-client margin (D-12).
 
@@ -1030,6 +1060,7 @@ class MarginOut(BaseModel):
     # None rather than "0.0" when nothing has been billed: "0% margin" and "nothing
     # billed yet" are different facts, and an operator acts differently on each.
     margin_pct: str | None
+    tiers: TierSplitOut
 
 
 @router.get(
@@ -1061,10 +1092,21 @@ async def tenant_margin(
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=month)
+        # Asked for the month the MARGIN resolved, never the request's `month` — that
+        # argument is None on the common call and the two reads would then be free to
+        # land either side of a month boundary, publishing a cost total and a rung split
+        # for different months on one card.
+        tiers = await billing.tier_usage(scoped, tenant_id=tenant_id, month=str(margin["month"]))
     del session
-    return MarginOut.model_validate(
-        {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
-    )
+    flat = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
+    # Projected through the response model's OWN field list rather than a prefix filter:
+    # `tier_usage` also returns `month` (already on the card) and the two
+    # `minutes_billable_*` figures, which are a PRICING rule and not a partition of
+    # `cost_inr` — publishing them beside it would invite a reader to reconcile two
+    # things that are not meant to add up. Naming the fields once means a field added to
+    # either side is a KeyError here, not a silently missing tile.
+    flat["tiers"] = {name: str(tiers[name]) for name in TierSplitOut.model_fields}
+    return MarginOut.model_validate(flat)
 
 
 # --------------------------------------------------------- campaign prerequisites

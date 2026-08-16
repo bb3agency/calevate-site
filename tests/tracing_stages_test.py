@@ -61,6 +61,10 @@ TRANSCRIPT = "caller: naa number 9876543210, naa peru Ravi"
 # The stage spans this file is about. Names, not a count: a renamed span is a dashboard
 # and an alert that quietly stop matching, which is worth failing a test over.
 PIPELINE_STAGES = (
+    # The only stage that waits on a THIRD PARTY's network, so it owns the missing
+    # minutes more often than anything below it — and its `outcome` attribute is how an
+    # operator tells "fetched the audio" from "we already had it" on a re-drive.
+    "pipeline.recording_copy",
     "pipeline.transcript_persist",
     "pipeline.extract",
     "pipeline.extraction_persist",

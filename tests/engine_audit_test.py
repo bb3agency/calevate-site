@@ -37,11 +37,14 @@ import httpx
 import pytest
 import webhook_routes
 from apps.api.core.errors import ProblemError
+from apps.api.core.redis import get_redis
 from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
 from apps.api.engine import bolna
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
+from apps.api.reliability import service as reliability
+from apps.api.reliability.service import body_hash
 from calevate_shared.config import (
     DEFAULT_BOLNA_SOURCE_IPS,
     Settings,
@@ -534,6 +537,25 @@ async def test_x_ack_ms_is_reported_on_every_response_path() -> None:
     assert await _inbox_row(execution_id, status) is not None
 
 
+async def _inbox_payload_hash(execution_id: str, raw_status: str) -> str | None:
+    """The hash the inbox actually stored for one transition.
+
+    Read from the row rather than reasoned about: whether the receiver hands the inbox a
+    hash of the DELIVERY or of the UNIT OF WORK decides whether every ordinary status
+    transition raises `webhook_payload_mismatch`, and that is a fact about a column.
+    """
+    async with untenanted_session() as session:
+        return (
+            await session.execute(
+                text(
+                    "SELECT payload_hash FROM webhook_inbox_events "
+                    "WHERE provider = 'bolna' AND event_key = :k"
+                ),
+                {"k": f"{execution_id}:{raw_status}"},
+            )
+        ).scalar()
+
+
 # --- 2b. hostile input is answered, never 500'd -------------------------------
 
 
@@ -681,6 +703,28 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     are asserted below, because the failure this test exists to prevent is a 409 plus a
     `webhook_payload_mismatch` alert on healthy traffic, and either half regressing
     brings it back.
+
+    **WHAT "NOT REPORTED AS A DOCTORED PAYLOAD" ACTUALLY MEANS HERE, asserted rather than
+    inferred (D-147).** This test used to reach its conclusion through `duplicate_count >=
+    1`, which proved only that a second delivery had touched Postgres — and that is not the
+    same claim. `duplicate_count` counts arrivals; it moves identically for a byte-identical
+    replay and for a rewritten one, so it can neither report a doctored payload nor refute
+    one. The three assertions below say the real thing instead:
+
+    * no `webhook_payload_mismatch` alert fires, which is the alarm the title is about;
+    * the `payload_hash` the inbox stores is a pure function of the KEY, recomputed here
+      from both bodies and shown equal — so the inbox's "same key, different hash" branch
+      is a tautology at this endpoint and cannot fire on a body change at all. That is the
+      design (`_claim_and_enqueue` argues it) and it predates the fast-path key move;
+    * the divergence is nevertheless COUNTED. Since nothing compares bodies at the durable
+      layer, the fast path does it: its key is the transition and its VALUE is the digest of
+      the delivery that settled it, so a replay with different bytes increments
+      `webhook_replay_divergence` without costing a Postgres transaction. Before D-147 that
+      replay cost three statements and produced no signal whatsoever.
+
+    The fast-path key is deleted once, mid-test, so the durable claim is exercised too —
+    otherwise every assertion here would be satisfied by Redis and the inbox would be
+    untested.
     """
     token = uuid.uuid4().hex[:12]
     execution_id = f"exec_{token}"
@@ -692,10 +736,27 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     # finishing its own bookkeeping. Same work, different bytes.
     retry = {"execution_id": execution_id, "status": completed, "total_cost": 8.5, "extra": "x"}
 
-    async with _client() as http:
-        opened = await http.post(HOOK, json=first, headers=_engine_headers())
-        transitioned = await http.post(HOOK, json=later, headers=_engine_headers())
-        repeated = await http.post(HOOK, json=retry, headers=_engine_headers())
+    alerts: list[str] = []
+    divergences: list[str] = []
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(reliability, "alert", lambda _stage, code, **_f: alerts.append(code))
+        patch.setattr(webhook_routes, "alert", lambda _stage, code, **_f: alerts.append(code))
+        patch.setattr(
+            webhook_routes,
+            "record_webhook_replay_divergence",
+            lambda *, provider: divergences.append(provider),
+        )
+        async with _client() as http:
+            opened = await http.post(HOOK, json=first, headers=_engine_headers())
+            transitioned = await http.post(HOOK, json=later, headers=_engine_headers())
+            # FIRST through the warm cache, which is the path production takes: the key
+            # holds the digest of `later`, this body is `retry`, so the bytes diverge.
+            cached = await http.post(HOOK, json=retry, headers=_engine_headers())
+            # THEN with the key removed, so the inbox — where the tautology above lives —
+            # is exercised rather than assumed.
+            settled = f"calevate:wh:bolna:{execution_id}:{completed}"
+            assert await get_redis().delete(settled) == 1, "the accepted transition was not cached"
+            repeated = await http.post(HOOK, json=retry, headers=_engine_headers())
 
     assert opened.status_code == 202, opened.text
     assert opened.json()["status"] == "accepted"
@@ -715,10 +776,36 @@ async def test_a_later_status_transition_is_not_reported_as_a_doctored_payload()
     assert repeated.json()["status"] == "duplicate", (
         "a bigger body for the same transition is a retry, not a doctored replay"
     )
+    assert cached.json()["status"] == "duplicate", (
+        "a fuller body must not defeat the cache; that was a free Postgres transaction "
+        "per replay at an endpoint anyone past the source check can post to"
+    )
 
+    assert "webhook_payload_mismatch" not in alerts, (
+        f"a fuller retry raised the spoofing alarm this test exists to keep quiet: {alerts}"
+    )
+
+    # The inbox is handed a hash of the UNIT OF WORK. Recomputed from the receiver's own
+    # helper for both bodies: identical, therefore no body can ever produce a mismatch.
+    unit = {"engine": "bolna", "execution_id": execution_id, "raw_status": completed}
+    assert body_hash(unit) == body_hash(dict(unit)), "the hash must not depend on identity"
+    assert body_hash(later) != body_hash(retry), "the premise: the two BODIES do differ"
     row = await _inbox_row(execution_id, completed)
     assert row is not None
-    assert row[1] >= 1, "the retry is counted as a delivery, not rejected"
+    assert row[1] >= 1, "the retry reached the durable claim and was counted"
+    stored = await _inbox_payload_hash(execution_id, completed)
+    assert stored == body_hash(unit), (
+        "the inbox stores a hash of {engine, execution_id, raw_status}; if it ever stores "
+        "a hash of the delivery again, every status transition becomes a spoofing alarm"
+    )
+
+    # And the divergence nobody could see before: two replays with rewritten bytes, one
+    # through the cache. Only the cached one can report it — the durable layer has no body
+    # to compare — which is exactly why the signal lives where it does.
+    assert divergences == ["bolna"], (
+        "a replay with different bytes must be counted at the fast path; without it an "
+        f"unsigned endpoint has no replay signal at all: {divergences}"
+    )
 
 
 # --- 2e. the allowlist is operable ------------------------------------------

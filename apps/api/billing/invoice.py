@@ -36,7 +36,7 @@ from apps.api.core.settings import get_settings
 
 from .charges import one_time_charge_lines
 from .gst import Gstin, parse_gstin, resolve_place_of_supply, split_tax, supplier_identity
-from .service import to_paise, usage_summary
+from .service import overage_rungs, to_paise, usage_summary
 
 # 18% GST on SaaS/telecom services. A constant (greppable by name) until pricing config
 # ships. WHICH HEADS it lands under is no longer "an invoicing detail the accountant
@@ -144,10 +144,47 @@ GST_RATE_PCT = Decimal("18")
 #   `billing.service._IST_MONTH`): a UTC boundary would file every document issued between
 #   00:00 and 05:30 IST on 1 April into the year that closed.
 #
+# --------------------------------------------------------------------------------
+# THE CORRECTION PATH, WHICH IS THE HALF THIS BLOCK USED TO OMIT (re-verified Aug 2026)
+# --------------------------------------------------------------------------------
+#
+# A DERIVED statement corrects itself by being re-rendered. An ISSUED tax invoice may not:
+# once a document has gone to a registered recipient, the lawful correction is a CREDIT
+# NOTE under **s.34, CGST Act**, referencing the original invoice — not a quiet re-render
+# under the same number. That is a direct tension with D-46's "recompute, never store",
+# and it is the reason the registry above cannot be designed for invoices alone.
+#
+# Three findings from the same reading, all **REPORTED, NOT READ** (the three-rung ladder
+# in `billing/payments.py`; `taxinformation.cbic.gov.in` and `cleartax.in` are both
+# refused by this environment's egress proxy, so no first-party fetch was made — the
+# claims below are ones several independent secondaries state identically):
+#
+# - **Rule 53 puts the SAME serial rule on the correction.** A credit or debit note under
+#   s.34, and a revised tax invoice, each need "a consecutive serial number not exceeding
+#   sixteen characters, in one or multiple series ... unique for a financial year" — the
+#   words of 46(b), repeated. So `issued_invoices` is misnamed as designed: the registry
+#   has to allocate for notes as well, either in the one series or in a second declared
+#   one, and `UNIQUE (financial_year, series, serial_no)` is the key that admits both.
+# - **A credit note has a DEADLINE, and it is not the invoice's.** Its GST effect requires
+#   the note to be declared in a return by 30 November following the financial year of the
+#   supply, or the annual return for that year, whichever is earlier. A statement that can
+#   be re-rendered for ever has no such horizon, so the horizon has to be modelled rather
+#   than inherited: after it passes, a month is corrected commercially and not fiscally.
+# - **From 1 October 2025 the supplier cannot reduce output tax on a credit note unless
+#   the recipient has reversed the matching input credit** (Finance Act 2025). That is a
+#   fact about the RECIPIENT, which this system does not hold and cannot derive — so an
+#   automatic credit note is not a thing this product can issue unattended.
+#
+# One more that bears on WHEN, not on numbering: **Rule 47** gives thirty days from the
+# supply of a taxable service to issue the invoice, while **s.31(5)** governs a continuous
+# supply of services — which is exactly what a monthly retainer is — and ties the invoice
+# to the due date of payment in the contract. Nothing here schedules an issuance today,
+# because nothing here issues; when `issue_invoice` lands it inherits that clock.
+#
 # WHAT THE FOUNDER MUST DECIDE, precisely: whether an `issued_invoices` registry — a stored
-# invoice serial, minted once, never recomputed — is accepted against D-46's
-# "recompute, never store". Everything above follows from a yes; nothing above is safe to
-# build on a no.
+# invoice serial, minted once, never recomputed, and covering credit notes as well as
+# invoices — is accepted against D-46's "recompute, never store". Everything above follows
+# from a yes; nothing above is safe to build on a no.
 #
 # `tests/invoice_gst_test.py` pins BOTH failing halves so neither can be half-fixed: a
 # sixteen-character serial that is still a hash fails there, and so does a consecutive
@@ -192,24 +229,11 @@ def _tenant_serial_suffix(tenant_id: UUID) -> str:
     return hashlib.blake2s(tenant_id.bytes, digest_size=_TENANT_SUFFIX_HEX // 2).hexdigest()
 
 
-def _reconcile_overage(rungs: list[dict[str, Any]], overage_cost: Decimal) -> None:
-    """Make the per-rung overage lines sum to the total the client was already shown.
-
-    `usage_summary` prices the whole overage in ONE quantization — `to_paise(premium *
-    rate + value * value_rate)` — while the invoice has to show each rung on its own
-    line, which is two quantizations. Those can differ by a paisa. The panel's number is
-    the one the client has seen and the one `margin_for_tenant` uses, so it wins, and the
-    LAST line absorbs the difference: a rounding remainder has to land somewhere, and
-    putting it on the final line is what a hand-checker expects.
-
-    Mutates in place because the caller is building the list; it is private to this
-    module for exactly that reason.
-    """
-    if not rungs:
-        return
-    drift = overage_cost - sum((item["amount_inr"] for item in rungs), start=Decimal("0"))
-    if drift != 0:
-        rungs[-1]["amount_inr"] = to_paise(rungs[-1]["amount_inr"] + drift)
+#: How each TTS rung is described on a client's statement. The wording lives HERE and
+#: not in `billing/service.py` because it is a phrase on a legal document; the rung's
+#: identity and its money come from `overage_rungs`, which has no business choosing
+#: words.
+_RUNG_WORDING: dict[str, str] = {"premium": "premium voice", "value": "value voice"}
 
 
 async def build_invoice(
@@ -304,15 +328,31 @@ async def build_invoice(
         # the invoice could quote a rate it did not bill at. One source, one rate.
         rate: Decimal = usage["overage_rate_inr"]
         value_rate: Decimal | None = usage["overage_rate_value_inr"]
+        # THE SAME FUNCTION THAT PRICED THE PANEL, re-run on the PUBLISHED figures.
+        # `usage_summary` summed exactly these rungs into `overage_cost_inr`, so the
+        # lines below sum to it with nothing to reconcile — where the previous shape
+        # priced the whole overage in one quantization, quantized each line separately,
+        # and bent the last line to close the gap. That bend was visible: a real invoice
+        # printed "5.00 min at ₹3.75/min" beside ₹18.69, six paise off the multiplication
+        # a client does by hand.
+        rungs = overage_rungs(
+            premium_min=usage["overage_minutes_premium"],
+            value_min=usage["overage_minutes_value"],
+            rate=rate,
+            rate_value=value_rate,
+        )
         if value_rate is None:
             # ONE rate, ONE line — the shape every invoice had before plans could quote
             # a value rate, and the shape every plan that does not quote one still has.
+            (only,) = rungs
             line_items.append(
                 {
-                    "description": f"Extra calling minutes ({overage_minutes} min at ₹{rate}/min)",
-                    "qty": overage_minutes,
-                    "unit_inr": rate,
-                    "amount_inr": overage_cost,
+                    "description": (
+                        f"Extra calling minutes ({only.minutes} min at ₹{only.rate_inr}/min)"
+                    ),
+                    "qty": only.minutes,
+                    "unit_inr": only.rate_inr,
+                    "amount_inr": only.amount_inr,
                 }
             )
         else:
@@ -321,26 +361,19 @@ async def build_invoice(
             # rates — and "every line multiplies out" is the arithmetic promise a client
             # actually checks. A rung with no minutes gets no line, for the same reason a
             # ₹0.00 overage gets none: a zero line invites a dispute about nothing.
-            #
-            # The two amounts are computed here and the LAST one absorbs the rounding,
-            # so the lines still sum to exactly the `overage_cost_inr` the usage panel
-            # already showed the client. Rounding each independently could leave the
-            # invoice a paisa away from the panel, and that paisa is a support ticket.
-            rungs: list[dict[str, Any]] = [
+            line_items.extend(
                 {
-                    "description": f"Extra calling minutes, {label} ({qty} min at ₹{unit}/min)",
-                    "qty": qty,
-                    "unit_inr": unit,
-                    "amount_inr": to_paise(qty * unit),
+                    "description": (
+                        f"Extra calling minutes, {_RUNG_WORDING[rung.label]} "
+                        f"({rung.minutes} min at ₹{rung.rate_inr}/min)"
+                    ),
+                    "qty": rung.minutes,
+                    "unit_inr": rung.rate_inr,
+                    "amount_inr": rung.amount_inr,
                 }
-                for label, qty, unit in (
-                    ("premium voice", usage["overage_minutes_premium"], rate),
-                    ("value voice", usage["overage_minutes_value"], value_rate),
-                )
-                if qty > 0
-            ]
-            _reconcile_overage(rungs, overage_cost)
-            line_items.extend(rungs)
+                for rung in rungs
+                if rung.minutes > 0
+            )
 
     supplier = supplier_identity(get_settings())
     recipient_gstin = await _recipient_gstin(session, tenant_id=tenant_id)

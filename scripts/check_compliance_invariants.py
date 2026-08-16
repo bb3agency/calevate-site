@@ -121,7 +121,17 @@ from pathlib import Path
 from sqlalchemy import Engine, create_engine, text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCAN_ROOTS: tuple[Path, ...] = (REPO_ROOT / "apps", REPO_ROOT / "packages")
+# `scripts/` is in here, and it is not padding. It was the ONE directory containing code
+# that reaches `VoiceEngine.start_outbound_call` and that neither this guardrail nor
+# `tests/platform_audit_test.py::test_every_outbound_path_passes_the_compliance_gate`
+# could see — both walked `apps/` only, so the pilot harness's two live dial sites were
+# invisible to the census that claims to enumerate every way this repo can ring a phone.
+# The harness is legitimate (see ENGINE_REACH_EXEMPTIONS), which is exactly the point:
+# the exemption is now WRITTEN DOWN and re-verified on every run, and the next script
+# that dials fails the build instead of being unenumerated. This file's own premise is
+# that "the path somebody adds next week is the whole failure mode"; a scan root that
+# excludes the directory people add one-off operational scripts to contradicts it.
+SCAN_ROOTS: tuple[Path, ...] = (REPO_ROOT / "apps", REPO_ROOT / "packages", REPO_ROOT / "scripts")
 
 # The module that OWNS the gate. Every function defined in it is treated as gate-bearing
 # for section 4, because a weakening there weakens every dial at once. Resolved from the
@@ -141,6 +151,28 @@ ENGINE_REACH_EXEMPTIONS: dict[str, str] = {
         "audit trail exist once rather than once per surface, and section 2 of this "
         "guardrail has a single place to point at. Its own callers are what section 2 "
         "judges; adding a second entry here is how that stops being true"
+    ),
+    "scripts/pilot/gates_api.py::run_gate_2": (
+        "The pilot harness, which OPERATIONS §2 gate 2 requires to place a call through "
+        "our own adapter, and which cannot pass the gate because it holds no database "
+        "session to pass it with — `scripts/pilot/safety.py` calls that absence its "
+        "fourth defence and `tests/pilot_safety_test.py` asserts it against the package "
+        "source, so the harness structurally cannot enumerate contacts or discover any "
+        "number other than the single `--to` an operator typed. In place of the gate it "
+        "carries: dry run by default behind `--yes-place-real-calls-and-spend-money`, a "
+        "mandatory `--max-calls` under a hard ceiling of 25 enforced at "
+        "`GateContext.spend_a_call`, and a refusal to run at all against a "
+        "production-shaped configuration. CLOSED BY: the harness growing a session, a "
+        "contact list, or any destination it was not handed — at which point it is a "
+        "dialler and takes the gate like every other"
+    ),
+    "scripts/pilot/concurrency.py::dial": (
+        "The same harness, same controls, same budget counter — OPERATIONS §2 gate 13 "
+        "ramps concurrent calls to the SAME single `--to` destination to find the line "
+        "ceiling, and hangs each probe up immediately. Exempt for the reason "
+        "`run_gate_2` is and closed by the same change; listed separately rather than "
+        "per-module because a module-level entry would cover the next function somebody "
+        "adds to it"
     ),
 }
 
@@ -885,10 +917,15 @@ def main() -> int:
         print("\nFix it in a migration (reversible, RLS included — hard rule 8).")
         return 1
 
+    # The engine-reach count is READ, never asserted as 1: the chokepoint is one of
+    # several legitimate reaches now that `scripts/` is scanned, and a hardcoded "1"
+    # would have been a sentence this file could print while its own exemption list said
+    # otherwise. What section 1 actually guarantees is that every reach is exempted BY
+    # NAME with a reviewable reason, which is what this number counts.
     print(
         f"COMPLIANCE INVARIANTS: OK ({len(dial_sites())} dial sites all gated and obeying "
-        f"the decision, 1 engine chokepoint, {len(SCHEMA_INVARIANTS)} schema invariants "
-        "verified against pg_catalog)"
+        f"the decision, {len(_engine_sites())} engine reaches all accounted for, "
+        f"{len(SCHEMA_INVARIANTS)} schema invariants verified against pg_catalog)"
     )
     return 0
 

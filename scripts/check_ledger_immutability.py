@@ -13,9 +13,14 @@ than records. Three independent failure modes, so three checks:
    `ondelete="CASCADE"` or cascading relationship that would delete ledger rows as a
    side effect of deleting something else. AST, not grep — the docstring of the old
    version claimed ORM coverage that the regex never had.
-3. **Database**: each ledger carries a trigger that ACTUALLY BLOCKS — enabled,
-   row-level, covering both UPDATE and DELETE, running a function that raises. A
-   trigger that merely exists (or exists and is DISABLEd) is decoration.
+3. **Database**: each ledger carries trigger cover that ACTUALLY BLOCKS — enabled,
+   raising, and firing on every verb that can remove a row: UPDATE, DELETE and
+   TRUNCATE. A trigger that merely exists (or exists and is DISABLEd) is decoration.
+   The cover must also be `ENABLE ALWAYS`, not the default ORIGIN: an ORIGIN trigger
+   stops firing under `SET session_replication_role = replica`, and a guarantee a
+   plain `SET` can switch off is not a guarantee. Both of those were missing until
+   migration a2e9f31c605d, and this check stayed green through both because it asked
+   about exactly the two verbs it already knew were covered.
 
 ONE bounded exception exists and it is registered rather than hidden — see
 `BOUNDED_MUTATIONS`. It is not a weakening of rule 4: the DATABASE still refuses every
@@ -96,7 +101,7 @@ _MUTATION_RE = re.compile(
 
 # Trigger type bits (see pg_trigger.tgtype in the PostgreSQL catalogs). BEFORE vs AFTER
 # is deliberately not required: either aborts the transaction when the function raises.
-_TG_ROW, _TG_DELETE, _TG_UPDATE = 1 << 0, 1 << 3, 1 << 4
+_TG_ROW, _TG_DELETE, _TG_UPDATE, _TG_TRUNCATE = 1 << 0, 1 << 3, 1 << 4, 1 << 5
 
 
 def ledger_model_classes(tables: list[str] | None = None) -> dict[str, str]:
@@ -298,6 +303,8 @@ class TriggerFacts:
     row_level: bool
     on_update: bool
     on_delete: bool
+    on_truncate: bool
+    always: bool
     function: str
     raises: bool
 
@@ -312,6 +319,15 @@ class TriggerFacts:
             row_level=bool(tgtype & _TG_ROW),
             on_update=bool(tgtype & _TG_UPDATE),
             on_delete=bool(tgtype & _TG_DELETE),
+            # TRUNCATE triggers are STATEMENT-level by definition — there are no rows to
+            # fire per, which is why the row-level mutation trigger never sees the verb
+            # that empties the table fastest (migration a2e9f31c605d).
+            on_truncate=bool(tgtype & _TG_TRUNCATE),
+            # 'A' = ENABLE ALWAYS. An 'O' (ORIGIN, the default) trigger stops firing
+            # under `SET session_replication_role = replica`, which is a plain SET, needs
+            # no DDL, leaves no schema diff, and is what `pg_restore --disable-triggers`
+            # emits. A guarantee a SET can switch off is not a guarantee.
+            always=enabled == "A",
             function=fn,
             raises="RAISE EXCEPTION" in (src or "").upper(),
         )
@@ -334,16 +350,24 @@ def fetch_triggers(engine: Engine, tables: list[str] | None = None) -> list[Trig
 
 
 def evaluate_triggers(triggers: list[TriggerFacts], tables: list[str] | None = None) -> list[str]:
-    """A ledger is protected only if some ENABLED, row-level, RAISEing trigger covers
-    UPDATE and some covers DELETE. Presence alone proved nothing."""
+    """A ledger is protected only if an ENABLEd, RAISEing trigger covers every verb that
+    can remove a row, and no plain `SET` can switch that trigger off.
+
+    Presence alone proved nothing, and neither did UPDATE+DELETE: this check asked about
+    exactly the two verbs the trigger it was looking at happened to cover, so it stayed
+    green while `TRUNCATE audit_log` emptied the hash chain and
+    `session_replication_role = replica` turned every one of the eight triggers off.
+    Migration a2e9f31c605d closes both; these assertions are what stop them re-opening.
+    """
     failures: list[str] = []
     for table in tables or APPEND_ONLY_TABLES:
         candidates = [t for t in triggers if t.table == table]
         if not candidates:
             failures.append(f"{table}: no immutability trigger at all")
             continue
-        blocking = [t for t in candidates if t.enabled and t.row_level and t.raises]
-        if not blocking:
+        blocking = [t for t in candidates if t.enabled and t.raises]
+        row_blocking = [t for t in blocking if t.row_level]
+        if not row_blocking:
             reasons = ", ".join(
                 f"{t.name}(enabled={t.enabled}, row_level={t.row_level}, raises={t.raises})"
                 for t in candidates
@@ -353,14 +377,29 @@ def evaluate_triggers(triggers: list[TriggerFacts], tables: list[str] | None = N
         uncovered = [
             verb
             for verb, covered in (
-                ("UPDATE", any(t.on_update for t in blocking)),
-                ("DELETE", any(t.on_delete for t in blocking)),
+                ("UPDATE", any(t.on_update for t in row_blocking)),
+                ("DELETE", any(t.on_delete for t in row_blocking)),
+                # Statement-level, so it is read off `blocking` rather than
+                # `row_blocking` — a TRUNCATE trigger can never be FOR EACH ROW.
+                ("TRUNCATE", any(t.on_truncate for t in blocking)),
             )
             if not covered
         ]
         if uncovered:
             verbs = ", ".join(uncovered)
-            failures.append(f"{table}: immutability trigger does not fire on {verbs}")
+            failures.append(
+                f"{table}: no enabled, RAISEing trigger fires on {verbs} — the ledger can "
+                f"be emptied by that verb"
+            )
+            continue
+        origin_only = [t.name for t in blocking if not t.always]
+        if origin_only:
+            failures.append(
+                f"{table}: trigger(s) {', '.join(sorted(origin_only))} are ENABLE ORIGIN, "
+                "so `SET session_replication_role = replica` switches them off and the "
+                "ledger becomes mutable with no DDL and no schema diff. Use "
+                "`ALTER TABLE ... ENABLE ALWAYS TRIGGER ...` in a migration."
+            )
     return failures
 
 
@@ -414,7 +453,8 @@ def main() -> int:
 
     print(
         f"LEDGER IMMUTABILITY: OK ({len(APPEND_ONLY_TABLES)} ledgers, triggers verified "
-        "enabled+raising on UPDATE and DELETE, no mutating statements in app code)"
+        "ENABLE ALWAYS + raising on UPDATE, DELETE and TRUNCATE, no mutating statements "
+        "in app code)"
     )
     return 0
 

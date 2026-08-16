@@ -454,7 +454,11 @@ working:
 
 - **The campaign's own calling window.** `campaign_window_open` skips a campaign outside
   its narrowed window entirely — no attempts burned, no refund. A window may only narrow
-  the platform's 09:00–21:00 IST, never widen it (`_validated_window`).
+  the platform's 09:00–21:00 IST, never widen it (`_validated_window`). That check runs
+  BEFORE the claim, once per tick; `campaign_dialable_now` asks the same question again
+  per contact after the claim has committed, because the dial is a whole dial phase
+  later, and a contact refused there does burn and refund an attempt
+  (`campaign_window_closed` in `campaign-stall.md` §8).
 - **Everything is waiting on backoff.** See `campaign-stall.md` §7; that runbook owns
   the dispatcher's own failure modes (pool exhaustion, per-tenant ceiling, stuck
   `dialing` rows) and this one should not duplicate them.

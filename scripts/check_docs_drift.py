@@ -469,6 +469,22 @@ def package_scripts(root: Path | None = None) -> dict[str, tuple[Path, frozenset
     return packages
 
 
+def _highest(ids: Iterable[str]) -> str | None:
+    """The largest decision id BY NUMBER, or None for an empty log. `max()` on these
+    strings is not it — see the comment in `dangling_decisions`, which is the message
+    that read wrong.
+
+    Returning None rather than a zeroth-decision sentinel is not fussiness: this file is
+    itself scanned for citations, so a decision-shaped literal in the checker IS a
+    dangling citation and the checker reported itself. The alternative — splicing the
+    string so the pattern misses it — hides the literal from the guard instead of
+    removing it, which is the move this whole file exists to catch. That also rules out
+    NAMING the old sentinel in this docstring; prose that quotes the banned token trips
+    the guard exactly as source does, which is how it was found.
+    """
+    return max(ids, key=lambda identifier: int(identifier.removeprefix("D-")), default=None)
+
+
 def decision_ids(roadmap: Path | None = None) -> list[str]:
     """The decision log's ids, IN ORDER — order is what makes duplicates visible."""
     return _DECISION_ROW.findall((roadmap or ROADMAP).read_text(encoding="utf-8"))
@@ -614,7 +630,14 @@ def dangling_decisions(
     appended.
     """
     known = set(decision_ids() if ids is None else ids)
+    highest = _highest(known)
+    # An empty log makes "the log runs to ..." a lie, so the hint is dropped rather than
+    # filled with a placeholder — see `_highest` for why the placeholder was the bug.
+    runs_to = f" (the log runs to {highest})" if highest else " (the log is empty)"
     failures: list[str] = []
+    # `max(known)` was a STRING max, so a log running to D-148 reported itself as running
+    # to "D-99" — `'9' > '1'`. The number in this message is the one a reader uses to pick
+    # the next free decision id, so a wrong one sends them to a number already taken.
     for path in _citation_files(roots):
         for line_number, line in enumerate(
             path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1
@@ -623,8 +646,8 @@ def dangling_decisions(
                 if reference not in known:
                     failures.append(
                         f"{_rel(path)}:{line_number} cites {reference}, which is not a row "
-                        f"in {_rel(ROADMAP)} §6 (the log runs to {max(known)}). Append the "
-                        "decision or fix the reference."
+                        f"in {_rel(ROADMAP)} §6{runs_to}. Append the decision or fix the "
+                        "reference."
                     )
     return failures
 
