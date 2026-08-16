@@ -38,9 +38,9 @@ function me(over: Partial<Me> = {}): Me {
     role: "owner",
     permissions: ["calls:read", "calls:read_raw", "leads:read"],
     impersonating: false,
-    organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
+    organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
     ...over,
-  } as unknown as Me;
+  };
 }
 
 /** The staff role: `calls:read` but never `calls:read_raw` (core/rbac.py). */
@@ -72,7 +72,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
       { idx: 1, speaker: "caller", text: "My number is [redacted].", redacted: true },
     ],
     ...over,
-  } as unknown as CallDetail;
+  };
 }
 
 const page = <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />;
@@ -191,7 +191,11 @@ describe("the call detail screen", () => {
     const { container, calls } = await renderClientPage(
       page,
       routes(detail({ has_recording: true }), {
-        "/v1/calls/c1/recording": { url: "https://cdn.example.test/rec.mp3?sig=abc", expires_in_s: 600 },
+        "/v1/calls/c1/recording": {
+          url: "https://cdn.example.test/rec.mp3?sig=abc",
+          expires_in_s: 600,
+          duration_s: 300,
+        },
       }),
     );
 
@@ -201,7 +205,11 @@ describe("the call detail screen", () => {
     expect(calls.some((c) => c.path === "/v1/calls/c1/recording")).toBe(false);
 
     fireEvent.click(listen);
-    expect(await screen.findByText(/stops working in about 10 minutes/)).toBeTruthy();
+    // The player, not the browser's default element. The old assertion here read
+    // "stops working in about 10 minutes" — a sentence that told the listener their
+    // link would die and left them to do something about it. The link is now sized to
+    // the audio and refreshed on expiry, so the sentence it replaces says that.
+    expect(await screen.findByText(/refreshed automatically while you listen/)).toBeTruthy();
     // In an <audio>, not an <a href>: a signed URL in a link is a credential handed to
     // history and to the next page's referrer.
     expect(container.querySelector("audio")?.getAttribute("src")).toContain("rec.mp3");

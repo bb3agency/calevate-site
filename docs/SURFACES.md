@@ -71,6 +71,16 @@ Dashboard (role-adaptive; the 2026 pattern is "prioritized operating surface")
 Trust surfaces (our differentiators made visible)
 - Per-call: transcript (redacted by default), recording player, AI summary, extracted
   fields, latency badge.
+  - The player and the transcript are ONE instrument, not two panels: every turn
+    carrying `start_ms` is a seek target, and the turn being spoken is highlighted as
+    the audio runs. Reviewing a call means reading and listening at the same time, and
+    a transcript you cannot click is a transcript you scroll while guessing.
+  - The audio is always OUR copy, reached by a presigned link whose life is derived from
+    the call's own duration (D-153) and refreshed in place if it still expires. The
+    engine's URL never reaches a browser (hard rule 2), and every link minted writes an
+    `audit_log` row — "who listened to this call" is answerable.
+  - Recordings are kept for at least 90 days because TRAI requires it; that floor is
+    enforced in the schema, not by policy, and DPDP erasure defers rather than breaks it.
 - Monthly QA report (D-15) rendered in-app, not just PDF.
 - "Why customers call" themes and knowledge-gap-driven "your agent couldn't answer
   these" list — turns T4 refusals into KB update requests.

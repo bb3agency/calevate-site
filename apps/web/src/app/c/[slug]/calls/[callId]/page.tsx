@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useState } from "react";
+import { use, useCallback, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -26,6 +26,11 @@ import {
   formatIST,
 } from "@/components/ui";
 import { AssistCard } from "./AssistCard";
+import {
+  CallAudioPlayer,
+  formatClock,
+  type CallAudioPlayerHandle,
+} from "@/components/callAudioPlayer";
 import { useClientRealm } from "@/lib/api/session";
 import { apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -98,6 +103,12 @@ export default function CallDetailPage({
   const [showRaw, setShowRaw] = useState(false);
   const raw = useRawTranscript(session, callId, showRaw && rawAccess.allowed);
   const recording = useRecordingLink(session, callId);
+  // Shared between the two panels: the player publishes where it is, the transcript
+  // reads it to highlight the turn being spoken and writes back when a turn is clicked.
+  const playerRef = useRef<CallAudioPlayerHandle>(null);
+  const [playhead, setPlayhead] = useState<number | null>(null);
+  const seekToMs = useCallback((ms: number) => playerRef.current?.seekTo(ms / 1000), []);
+  const audioLoaded = recording.data != null;
 
   if (call.isLoading) return <Skeleton rows={8} />;
   if (call.error) return <ProblemNotice error={call.error} onRetry={() => void call.refetch()} />;
@@ -287,7 +298,14 @@ export default function CallDetailPage({
         </Card>
       )}
 
-      {detail.has_recording && <RecordingCard recording={recording} />}
+      {detail.has_recording && (
+        <RecordingCard
+          recording={recording}
+          playerRef={playerRef}
+          onTimeUpdate={setPlayhead}
+          durationS={detail.duration_s ?? null}
+        />
+      )}
 
       <Card
         title="Transcript"
@@ -324,11 +342,30 @@ export default function CallDetailPage({
 
           {turns.length ? (
             <ol className="space-y-3">
-              {turns.map((turn) => {
+              {turns.map((turn, i) => {
                 const speaker = lookup(SPEAKERS, turn.speaker);
                 const Icon = speaker?.icon ?? User;
-                return (
-                  <li key={turn.idx} className="flex gap-3">
+                // A turn is seekable only once the audio is actually loaded AND this
+                // turn carries a timestamp. Both halves matter: `start_ms` is nullable
+                // (an engine that gives us no per-turn offsets is a supported engine),
+                // and offering to seek audio that is not playing yet is a control that
+                // does nothing. Where either is missing the turn renders as plain text
+                // rather than as a dead button.
+                const at = turn.start_ms;
+                const seekable = audioLoaded && at !== null && at !== undefined;
+                // "Being spoken now" = this turn has started and the next has not. The
+                // NEXT turn's start is the right boundary rather than this turn's
+                // `end_ms`, which is nullable independently and would leave gaps
+                // un-highlighted between two turns that are actually adjacent.
+                const nextAt = turns[i + 1]?.start_ms;
+                const active =
+                  playhead !== null &&
+                  at !== null &&
+                  at !== undefined &&
+                  playhead * 1000 >= at &&
+                  (nextAt === null || nextAt === undefined || playhead * 1000 < nextAt);
+                const body = (
+                  <>
                     <span
                       className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                         speaker?.medallion ?? "bg-black/5 text-ink-muted dark:bg-white/10"
@@ -336,12 +373,37 @@ export default function CallDetailPage({
                     >
                       <Icon className="h-3.5 w-3.5" />
                     </span>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                    <div className="min-w-0 flex-1">
+                      <p className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
                         {speaker?.label ?? turn.speaker}
+                        {at !== null && at !== undefined && (
+                          <span className="font-normal normal-case tabular-nums">
+                            {formatClock(at / 1000)}
+                          </span>
+                        )}
                       </p>
                       <p className="text-sm text-ink">{turn.text}</p>
                     </div>
+                  </>
+                );
+                const highlight = active
+                  ? "bg-brand-strong/10 dark:bg-brand-bright/10"
+                  : "bg-transparent";
+                return (
+                  <li key={turn.idx}>
+                    {seekable ? (
+                      <button
+                        type="button"
+                        onClick={() => seekToMs(at)}
+                        aria-label={`Play from ${formatClock(at / 1000)}, ${speaker?.label ?? turn.speaker}`}
+                        aria-current={active ? "true" : undefined}
+                        className={`flex w-full gap-3 rounded-md p-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${highlight}`}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div className={`flex gap-3 rounded-md p-1.5 ${highlight}`}>{body}</div>
+                    )}
                   </li>
                 );
               })}
@@ -398,26 +460,41 @@ function DisclosureNotice({ played }: { played: boolean | null | undefined }) {
  */
 function RecordingCard({
   recording,
+  playerRef,
+  onTimeUpdate,
+  durationS,
 }: {
   recording: ReturnType<typeof useRecordingLink>;
+  playerRef: React.Ref<CallAudioPlayerHandle>;
+  onTimeUpdate: (seconds: number) => void;
+  durationS: number | null;
 }) {
   return (
     <Card title="Recording">
       {recording.error && <ProblemNotice error={recording.error} />}
       {recording.data ? (
         <div className="space-y-2">
-          {/* No <track>: the transcript above IS this recording's caption track, in the
-              same view, and a second copy behind a control nobody opens is a copy that
-              drifts. Disabled at the SITE rather than in eslint.config.mjs, so the next
-              <audio>/<video> added anywhere still has to answer the rule — the reason
-              here ("the captions are already on screen, as text") is specific to this
-              panel and does not generalise.
-              WCAG 1.2.2 is met by the transcript, not by the absence of a track. */}
-          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-          <audio controls src={recording.data.url} className="w-full" />
+          <CallAudioPlayer
+            ref={playerRef}
+            src={recording.data.url}
+            fallbackDurationS={recording.data.duration_s ?? durationS}
+            onTimeUpdate={onTimeUpdate}
+            onExpired={async () => {
+              // Mint a replacement rather than surfacing the browser's bare media error.
+              // `mutateAsync` REJECTS on failure, so the catch is what turns "we could
+              // not get you a new link" into the player's own refusal instead of an
+              // unhandled rejection in the console.
+              try {
+                const fresh = await recording.mutateAsync();
+                return fresh.url;
+              } catch {
+                return null;
+              }
+            }}
+          />
           <p className="text-xs text-ink-faint">
-            This link stops working in about {Math.max(1, Math.round(recording.data.expires_in_s / 60))}{" "}
-            minutes. Ask again to get a fresh one.
+            Opening this recording was recorded in your audit log. The link is private to this
+            page and is refreshed automatically while you listen.
           </p>
         </div>
       ) : (

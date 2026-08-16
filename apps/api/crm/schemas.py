@@ -71,8 +71,23 @@ class CallDetailOut(CallSummaryOut):
 
 
 class RecordingLinkOut(Strict):
+    """A short-lived link to OUR copy of a call's audio, and what the player needs to
+    render before a single byte of it has arrived.
+
+    `duration_s` is the CALL's metered length, which is what the seek bar is drawn from
+    on first paint — `<audio>` reports `duration` as `NaN` until enough of the file has
+    been fetched to know, and a scrubber that appears a second after the play button is
+    a scrubber people click through. It is nullable because a call the poller never
+    resolved has no metered length, and inventing one would put a wrong end on the bar.
+
+    `expires_in_s` is DERIVED from that duration (`recording_link_ttl_s`), not a
+    constant: a link shorter than its own audio expires mid-playback and the browser
+    reports it as an unexplained network error.
+    """
+
     url: str
     expires_in_s: int
+    duration_s: int | None
 
 
 class LeadOut(Strict):

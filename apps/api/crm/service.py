@@ -15,7 +15,7 @@ import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal, get_args
+from typing import Any, Literal, NamedTuple, get_args
 from uuid import UUID
 
 from calevate_shared.extraction import ExtractionField
@@ -270,17 +270,37 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
     )
 
 
-async def recording_key_for(session: AsyncSession, call_id: UUID) -> str:
+class RecordingRef(NamedTuple):
+    """Where OUR copy of a call's audio is, and how long it plays for.
+
+    The duration travels WITH the key because the caller needs both to mint a link that
+    outlives the audio, and reading them in two queries would let a retention sweep
+    delete the row between them — answering with a key whose duration is a guess.
+    """
+
+    key: str
+    duration_s: int | None
+
+
+async def recording_ref_for(session: AsyncSession, call_id: UUID) -> RecordingRef:
+    """The object key for this call's recording, or a 404 that says WHICH thing is absent.
+
+    Two different 404s on purpose (the D-65 discriminator applied to a read): a call id
+    that names nothing is "Call", and a real call that was never recorded — or whose
+    audio a retention sweep has already destroyed — is "Recording". An owner who mistyped
+    a URL and an owner whose 90 days elapsed need different next actions.
+    """
     row = (
         await session.execute(
-            text("SELECT recording_url FROM calls WHERE id = :cid"), {"cid": call_id}
+            text("SELECT recording_url, duration_s FROM calls WHERE id = :cid"),
+            {"cid": call_id},
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Call")
     if not row[0]:
         raise ProblemError.not_found("Recording")
-    return str(row[0])
+    return RecordingRef(key=str(row[0]), duration_s=int(row[1]) if row[1] is not None else None)
 
 
 # --- leads --------------------------------------------------------------------
@@ -2122,6 +2142,7 @@ __all__ = [
     "FieldFilters",
     "LeadExport",
     "LeadPage",
+    "RecordingRef",
     "dashboard",
     "emit_lead_updated",
     "export_leads_csv",
@@ -2137,7 +2158,7 @@ __all__ = [
     "list_leads_page",
     "mask_phone",
     "plan_callback",
-    "recording_key_for",
+    "recording_ref_for",
     "redacted_summary",
     "set_lead_name",
     "update_lead",

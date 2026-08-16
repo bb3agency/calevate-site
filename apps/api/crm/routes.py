@@ -18,6 +18,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
@@ -103,6 +104,46 @@ async def get_calls(
     )
 
 
+#: The floor on a recording link's life, and the value every link used to get.
+#: Enough to start playing a short call on a slow connection.
+RECORDING_LINK_FLOOR_S = 300
+#: The ceiling. `CALL_CAP_MAX_S` is one hour, so twice a maximal call plus the floor is
+#: the longest link this can ever mint — stated as its own constant so the widest
+#: credential window this route can open is a number a reviewer can read, not one they
+#: have to derive from an arithmetic expression.
+RECORDING_LINK_CEILING_S = 2 * CALL_CAP_MAX_S + RECORDING_LINK_FLOOR_S
+
+
+def recording_link_ttl_s(duration_s: int | None) -> int:
+    """How long this call's presigned link must live: derived from the audio, not guessed.
+
+    **THE DEFECT THIS CLOSES.** Every link was minted for a flat 300 seconds while
+    `CALL_CAP_MAX_S` lets a call run for 3600. S3 rejects the request the moment the
+    signature expires, and a browser mid-playback reports that as a bare `MEDIA_ERR_
+    NETWORK` on the `<audio>` element — so a twenty-minute call played for five minutes
+    and then stopped, with no message, and the owner's reasonable conclusion was that we
+    had only recorded the first five minutes. The link has to outlive the thing it points
+    at or it is not a link to that thing.
+
+    **Twice the duration, not once.** A listener pauses, rewinds, re-reads a turn and
+    scrubs back; a link sized to exactly one pass expires on anyone who does more than
+    press play and wait. Doubling is the cheapest allowance that covers ordinary review
+    behaviour, and it is bounded above by a constant either way.
+
+    **Why not simply raise `PRESIGN_TTL_S`?** Because that constant is shared with every
+    other presigned artefact, and the signature IS the credential — widening it globally
+    would hand a longer window to objects that need seconds. Deriving it per call keeps
+    the window proportional to the only thing that justifies it.
+
+    An unknown duration (a call the poller never resolved) gets the floor rather than the
+    ceiling: guessing long on a recording whose length we do not know is the wrong
+    direction to be generous in, and the screen re-mints when a link expires.
+    """
+    if duration_s is None or duration_s <= 0:
+        return RECORDING_LINK_FLOOR_S
+    return min(max(RECORDING_LINK_FLOOR_S, duration_s * 2), RECORDING_LINK_CEILING_S)
+
+
 @router.get(
     "/calls/{call_id}",
     response_model=CallDetailOut,
@@ -153,7 +194,7 @@ async def get_recording(
     request: Request,
     principal: Principal = Depends(requires("calls:read")),
 ) -> RecordingLinkOut:
-    key = await service.recording_key_for(session, call_id)
+    ref = await service.recording_ref_for(session, call_id)
     await write_audit(
         session,
         action="recording.read",
@@ -165,9 +206,10 @@ async def get_recording(
     )
     # Imported here, not at module scope: the presigner lives in the workers package
     # and pulling boto3 into every API import would slow cold starts for one route.
-    from apps.workers.storage import PRESIGN_TTL_S, presigned_url
+    from apps.workers.storage import presigned_url
 
-    url = presigned_url(key)
+    ttl_s = recording_link_ttl_s(ref.duration_s)
+    url = presigned_url(ref.key, ttl_s=ttl_s)
     if url is None:
         raise ProblemError(
             kind="dependency",
@@ -175,7 +217,7 @@ async def get_recording(
             title="Recording unavailable",
             detail="The recording could not be retrieved right now.",
         )
-    return RecordingLinkOut(url=url, expires_in_s=PRESIGN_TTL_S)
+    return RecordingLinkOut(url=url, expires_in_s=ttl_s, duration_s=ref.duration_s)
 
 
 @router.post(

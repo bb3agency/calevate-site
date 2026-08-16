@@ -9371,7 +9371,19 @@
       },
       "RecordingLinkOut": {
         "additionalProperties": false,
+        "description": "A short-lived link to OUR copy of a call's audio, and what the player needs to\nrender before a single byte of it has arrived.\n\n`duration_s` is the CALL's metered length, which is what the seek bar is drawn from\non first paint \u2014 `<audio>` reports `duration` as `NaN` until enough of the file has\nbeen fetched to know, and a scrubber that appears a second after the play button is\na scrubber people click through. It is nullable because a call the poller never\nresolved has no metered length, and inventing one would put a wrong end on the bar.\n\n`expires_in_s` is DERIVED from that duration (`recording_link_ttl_s`), not a\nconstant: a link shorter than its own audio expires mid-playback and the browser\nreports it as an unexplained network error.",
         "properties": {
+          "duration_s": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration S"
+          },
           "expires_in_s": {
             "title": "Expires In S",
             "type": "integer"
@@ -9383,7 +9395,8 @@
         },
         "required": [
           "url",
-          "expires_in_s"
+          "expires_in_s",
+          "duration_s"
         ],
         "title": "RecordingLinkOut",
         "type": "object"
