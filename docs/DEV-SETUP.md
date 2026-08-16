@@ -14,15 +14,23 @@ instead).
 
 > ⚠ **READ BEFORE YOU SPEND AN HOUR ON THE GCP CONSOLE.**
 > `GEMINI_MODEL_CONFIRMED_IN_REGION is False` — nobody has verified that `asia-south1`
-> serves `calevate_shared.engine.GEMINI_DEFAULT_LLM`, and as of 16 Aug 2026 the public
-> evidence leans the other way: the Gemini 3.x family is reported on the GLOBAL endpoint
-> and the `us`/`eu` multi-region endpoints, and what search places in Mumbai is the 2.5
-> class. **The first `generateContent` you make is the test.** A 404 is the answer "no",
-> and the worker logs `vertex_model_not_served_in_region` naming the region, the model
-> and this flag rather than the bare word `HTTPStatusError`.
+> serves `calevate_shared.engine.GEMINI_DEFAULT_LLM`, which is **`gemini-2.5-flash`**. As
+> of 16 Aug 2026 the public evidence points the RIGHT way for the first time (search
+> places the 2.5 class in Mumbai and no 3.x model there, which is why the model moved to
+> 2.5), but every page that would settle it is refused by this environment's egress proxy,
+> so the flag stays False. **The first `generateContent` you make is the test.** A 404 is
+> the answer "no", and the worker logs `vertex_model_not_served_in_region` naming the
+> region, the model and this flag rather than the bare word `HTTPStatusError`.
 >
-> When it is a 404, change `GEMINI_DEFAULT_LLM` to a model `asia-south1` does serve and
-> flip this flag. **Do NOT widen the region and do NOT reach for `locations/global`** —
+> ⏰ **AND IT HAS A DEADLINE.** `gemini-2.5-flash` retires **16 Oct 2026** (BRD R-04) —
+> the cost of picking the model Mumbai serves over the one with a longer life.
+> `GEMINI_DEFAULT_LLM_RETIRES` holds that date and CI goes red on 16 Sep 2026 asking for
+> the replacement. See OPERATIONS §2 gate 14b before you plan any work that assumes this
+> identifier is still answering.
+>
+> When it is a 404, try `gemini-2.5-flash-lite` (the founder's stated fallback), then
+> whatever `asia-south1` does serve — and flip this flag when one answers 200.
+> **Do NOT widen the region and do NOT reach for `locations/global`** —
 > Google's own words on the global endpoint are that you cannot control or know which
 > region processes the request, which is the sentence D-127 disqualifies AI Studio over.
 > `scripts/check_model_residency.py` will refuse the commit either way.

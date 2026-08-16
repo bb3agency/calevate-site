@@ -246,6 +246,11 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/campaigns/*/contacts", "bulk_write", _m("POST")),
     # --- cost-weighted: a vendor round trip, an LLM call, or an email --------------
     Rule("/v1/leads/*/call", "costly", _m("POST")),
+    # The dashboard assist (D-127). `costly` for the reason that profile names — it is
+    # literally "an LLM call" — and it is the one route in this family that also holds a
+    # pooled Postgres connection for the length of the vendor round trip, because the
+    # tenant GUC is transaction-local (`crm/assist.py` argues the whole departure).
+    Rule("/v1/calls/*/assist", "costly", _m("POST")),
     Rule("/v1/campaigns/*/launch", "costly", _m("POST")),
     Rule("/v1/numbers/purchase", "costly", _m("POST")),
     Rule("/v1/billing/topups/intent", "costly", _m("POST")),

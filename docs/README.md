@@ -94,9 +94,11 @@ specific things, and neither has been run:
 
 Bolna (engine, adapter-isolated — D-31) + the **D-36 canonical all-Sarvam BYOK stack**
 (Saaras STT · Sarvam 105B LLM, free + sovereign · Bulbul v3 TTS default, v2 as the value
-tier) — **Gemini 3.x Flash-Lite runs the user-triggered dashboard AI on Vertex AI
-`asia-south1` (D-127), with `GEMINI_MODEL_CONFIRMED_IN_REGION is False` because nobody has
-verified Mumbai serves that identifier (D-142, OPERATIONS §2 gate 14);
+tier) — **Gemini 2.5 Flash runs the user-triggered dashboard AI on Vertex AI
+`asia-south1` (D-127) — 2.5 because Mumbai is the only permitted region and no 3.x model
+is reported there, so BRD R-04's 16 Oct 2026 retirement is LIVE for this leg
+(`GEMINI_DEFAULT_LLM_RETIRES`) — with `GEMINI_MODEL_CONFIRMED_IN_REGION is False` because
+nobody has yet made the one call that verifies it (OPERATIONS §2 gate 14);
 `GEMINI_EXTRACTION_DEFAULT is False`, so the first post-call
 extraction stays on Sarvam. D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
 Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · Clerk (two realms) ·

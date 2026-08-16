@@ -36,21 +36,33 @@ question is the same question — does shipped code name a model identifier the 
 refuse — and one home for it beats two files that drift.
 
 THE GEMINI HALF DIFFERS IN ONE WAY WORTH STATING: those identifiers are not dead yet.
-`gemini-2.5-flash-lite` — which `workers/extraction.py` defaulted to before Part 13 —
-RETIRES 16 Oct 2026 (BRD R-04), and Google names `gemini-3.1-flash-lite` as its
-replacement. Banning it now rather than on the day is the whole value: a name that dies
-on a schedule costs a post-call pipeline returning empty extractions with a 404 nobody is
-watching for, and the only cheap moment to act is the one where the identifier is being
-written.
+The 2.5 family RETIRES 16 Oct 2026 (BRD R-04). Banning a name now rather than on the day
+is the whole value: a name that dies on a schedule costs a pipeline returning empty
+answers with a 404 nobody is watching for, and the only cheap moment to act is the one
+where the identifier is being written.
+
+AND THE SHIPPED MODEL IS NOW ONE OF THEM, which is why this file grew two tests. The
+founder chose `gemini-2.5-flash` over a 3.x model with the date in front of them, because
+`asia-south1` is the only region D-127 permits and no 3.x model is reported there
+(`calevate_shared.engine.GEMINI_DEFAULT_LLM` records the whole argument). A scan that bans
+the name we ship is incoherent, so the name came OUT of `GEMINI_RETIRED_LLMS` — and both
+things it was doing had to land somewhere else rather than be lost: the LITERAL ban became
+`test_no_shipped_module_spells_the_gemini_default`, and the DATE became
+`GEMINI_DEFAULT_LLM_RETIRES` plus `test_the_shipped_gemini_model_has_runway_left`, the one
+mechanism in this repository that will raise the subject on a day when nobody is thinking
+about Gemini.
 """
 
 from __future__ import annotations
 
 import ast
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 from calevate_shared.engine import (
     GEMINI_DEFAULT_LLM,
+    GEMINI_DEFAULT_LLM_RETIRES,
     GEMINI_RETIRED_LLMS,
     SARVAM_DEFAULT_LLM,
     SARVAM_RETIRED_LLMS,
@@ -66,6 +78,23 @@ SCANNED_TREES: tuple[str, ...] = ("apps", "packages/shared/src", "scripts")
 
 #: The module that owns the answer, and the only file allowed to spell these names.
 CANONICAL_HOME = "packages/shared/src/calevate_shared/engine.py"
+
+#: How much warning the build gives itself before `GEMINI_DEFAULT_LLM` stops answering.
+#:
+#: THIRTY DAYS, and the number is argued rather than picked. What it has to buy is not a
+#: project — it is the WORK, and the work is one constant plus one `generateContent` call
+#: (OPERATIONS §2 gate 14). The external input that call needs, a GCP project with a
+#: service-account key, is already gate 14's precondition and already blocks the assist
+#: entirely: with no project there is no Gemini leg to retire, the Sarvam fallback is
+#: serving (D-127 G-6), and this test is asking for a decision that costs a line.
+#:
+#: LONGER WOULD BE WORSE, not safer, and this is the part worth writing down: the founder
+#: shipped this model on 16 Aug 2026, 61 days out. Any runway of 61 days or more makes the
+#: build red on the day the decision lands, and a gate that is red on arrival is a gate
+#: somebody deletes — which would cost the deadline itself, not just the warning. Thirty
+#: days puts the first red build on 16 Sep 2026, a month before the model dies, with the
+#: assist still working the whole time.
+RETIREMENT_RUNWAY_DAYS: Final = 30
 
 
 def _string_literals(path: Path) -> set[str]:
@@ -175,13 +204,70 @@ def test_no_shipped_module_sends_a_retired_gemini_model() -> None:
 def test_the_gemini_default_is_not_itself_retired() -> None:
     """The same blind spot as the Sarvam one, and the same reason it is not hypothetical:
     `gemini-2.5-flash-lite` WAS the migration target for the 2.0 family before it acquired
-    a retirement date of its own."""
+    a retirement date of its own.
+
+    This used to also assert `startswith("gemini-3")`. That assertion encoded D-134's
+    answer to a question the founder has since re-decided on new evidence — no 3.x model
+    is reported in `asia-south1`, which is the only region D-127 permits — so keeping it
+    would have been a test pinning a superseded decision. What survives the change is the
+    part that is true whatever the family: the identifier we SEND cannot be one the scan
+    above BANS, because then the two disagree and only one of them reaches Google.
+    """
     assert GEMINI_DEFAULT_LLM not in GEMINI_RETIRED_LLMS, (
         f"{GEMINI_DEFAULT_LLM} is in the retired set and is also what this repo sends on "
         "every user-triggered assist"
     )
-    assert GEMINI_DEFAULT_LLM.startswith("gemini-3"), (
-        "D-127 and BRD R-04 require a 3.x Flash-Lite: the 2.5 family retires 16 Oct 2026"
+
+
+def test_no_shipped_module_spells_the_gemini_default() -> None:
+    """The literal ban `GEMINI_RETIRED_LLMS` stopped providing for the shipped name.
+
+    Before the founder's 2.5 decision, `"gemini-2.5-flash"` written anywhere in `apps/`,
+    `packages/` or `scripts/` was a red build. Taking it out of the retired set — which it
+    had to be, since it is what we send — would have quietly given that back, and the
+    thing it was protecting against is exactly D-105's defect: a model identifier as a
+    literal at a call site, correct on the day it was typed and unfixable in one place
+    afterwards. So the ban is restated as a rule about the DEFAULT rather than about one
+    string, which also means it keeps working when the default moves.
+    """
+    offenders = {
+        path.relative_to(REPO_ROOT).as_posix(): {GEMINI_DEFAULT_LLM}
+        for path in _shipped_python()
+        if path.relative_to(REPO_ROOT).as_posix() != CANONICAL_HOME
+        and GEMINI_DEFAULT_LLM in _string_literals(path)
+    }
+    assert not offenders, (
+        "these modules spell the Gemini model identifier instead of importing "
+        f"`calevate_shared.engine.GEMINI_DEFAULT_LLM`: {ChainMapLike(offenders)}. A "
+        "second spelling is a site the next retirement will not reach."
+    )
+
+
+def test_the_shipped_gemini_model_has_runway_left() -> None:
+    """The deadline the founder's decision bought, made executable (BRD R-04, D-127).
+
+    THE ONLY TEST HERE THAT DEPENDS ON THE CALENDAR, and it is deliberate. Every other
+    guard in this repository answers a question about the SHAPE of the tree; this one
+    answers "is the model we ship still going to be there next month", which nothing about
+    the tree can settle. `gemini-2.5-flash` retires on a date, the symptom on that date is
+    a 404 at the far end of a user-triggered assist, and the only cheap moment to act is
+    before it — so the build has to be what raises it, on a day when the diff under test
+    has nothing to do with Gemini.
+
+    WHEN THIS GOES RED, THE FIX IS NOT TO MOVE THE NUMBER. It is OPERATIONS §2 gate 14
+    against the newest Gemini `asia-south1` serves, then `GEMINI_DEFAULT_LLM` and
+    `GEMINI_DEFAULT_LLM_RETIRES` moved together. Widening `RETIREMENT_RUNWAY_DAYS` buys
+    nothing but a quieter 404.
+    """
+    remaining = (GEMINI_DEFAULT_LLM_RETIRES - datetime.now(UTC).date()).days
+    assert remaining > RETIREMENT_RUNWAY_DAYS, (
+        f"{GEMINI_DEFAULT_LLM} retires {GEMINI_DEFAULT_LLM_RETIRES.isoformat()} — "
+        f"{remaining} day(s) away, inside the {RETIREMENT_RUNWAY_DAYS}-day runway. This is "
+        "the cost of shipping the 2.5 family so that `asia-south1` would serve it "
+        "(D-127; the region does not move). Run OPERATIONS §2 gate 14 against the newest "
+        "Gemini Mumbai serves, then move GEMINI_DEFAULT_LLM and GEMINI_DEFAULT_LLM_RETIRES "
+        "together in calevate_shared/engine.py. Do NOT widen the region, do NOT use "
+        "locations/global, and do NOT widen RETIREMENT_RUNWAY_DAYS."
     )
 
 

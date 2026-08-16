@@ -409,7 +409,7 @@ def test_the_capability_constant_is_the_greppable_form_of_g7() -> None:
     """`check_docs_drift` §5 judges prose that quotes this name by value. It is only worth
     minting if it says what the code does, so this is the tie between the two."""
     assert extraction_module.GEMINI_EXTRACTION_DEFAULT is False
-    assert extraction_module.ASSIST_QUOTA_ENFORCED is False
+    assert extraction_module.ASSIST_QUOTA_ENFORCED is True
 
 
 async def test_run_assist_refuses_text_that_has_not_been_redacted(configured: Any) -> None:
@@ -743,7 +743,8 @@ async def test_the_assist_carries_vertexs_token_count_with_thinking_folded_into_
     nowhere to get them: the client read `candidates` and threw the rest of the body away,
     so the meter D-137 built could not be filled by the runner D-134 built.
 
-    THOUGHTS COUNT AS OUTPUT. Gemini 3.x bills thinking tokens at the output rate and
+    THOUGHTS COUNT AS OUTPUT. Every Gemini generation this repo has shipped bills thinking
+    tokens at the output rate — 2.5 Flash as much as the 3.x tier it replaced — and
     reports them separately from `candidatesTokenCount`, so counting only the latter
     under-meters exactly the calls that cost the most — a structured-output request to a
     reasoning model spends most of its budget there.
@@ -947,6 +948,11 @@ def test_every_frozen_constant_on_this_path_is_annotated_final() -> None:
         engine_module: {
             "VERTEX_LOCATION",
             "GEMINI_DEFAULT_LLM",
+            # The retirement date is on this path for the same reason the model is: the
+            # founder's `asia-south1` decision made BRD R-04 live for this leg, and a
+            # deadline something can rebind is a deadline that moves under whoever is
+            # inconvenienced by it.
+            "GEMINI_DEFAULT_LLM_RETIRES",
             "GEMINI_MODEL_CONFIRMED_IN_REGION",
         },
         extraction_module: {"VERTEX_SCOPE", "GEMINI_EXTRACTION_DEFAULT", "ASSIST_QUOTA_ENFORCED"},

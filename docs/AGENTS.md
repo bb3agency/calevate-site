@@ -8,10 +8,14 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
 D-31) + BYOK models — canonical stack per D-36: Sarvam Saaras STT, **Sarvam 105B LLM
-(free, all-India)**, Sarvam Bulbul v3 TTS (v2 = value tier); Gemini 3.x Flash-Lite serves
-the user-triggered dashboard AI through Vertex AI `asia-south1` (D-127) —
-`GEMINI_MODEL_CONFIRMED_IN_REGION is False`, so that is a decision and not an observation
-(D-142) — and `GEMINI_EXTRACTION_DEFAULT is False`: the first post-call extraction stays on
+(free, all-India)**, Sarvam Bulbul v3 TTS (v2 = value tier); **Gemini 2.5 Flash** serves
+the user-triggered dashboard AI through Vertex AI `asia-south1` (D-127) — 2.5 because no
+3.x model is reported in Mumbai and the region does not move, which makes BRD R-04's
+**16 Oct 2026 retirement live for this leg** (`GEMINI_DEFAULT_LLM_RETIRES`, and the build
+goes red 30 days out) —
+`GEMINI_MODEL_CONFIRMED_IN_REGION is False`, so that is still a decision and not an
+observation (OPERATIONS §2 gate 14) — and `GEMINI_EXTRACTION_DEFAULT is False`: the first
+post-call extraction stays on
 Sarvam because it reads raw transcript text. Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,

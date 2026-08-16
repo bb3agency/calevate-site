@@ -1550,6 +1550,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/calls/{call_id}/assist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-summarise this call with the assistant model — metered, quota-gated (D-127)
+         * @description Runs the dashboard assistant over this call's REDACTED transcript and returns a fresh summary. Nothing is stored: the call's own summary and captured fields are the first pass over the raw transcript and are left alone. Refused before any model is called when the account is past its included AI allowance — the screen opens the wallet dialog on `ai_quota_exceeded`. A `Idempotency-Key` header is REQUIRED so a double-click is paid for once. Requires `org:manage`.
+         */
+        post: operations["assist_call_v1_calls__call_id__assist_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls/{call_id}/callback": {
         parameters: {
             query?: never;
@@ -3720,6 +3740,30 @@ export interface components {
             address: string;
             /** Label */
             label: string;
+        };
+        /**
+         * CallAssistOut
+         * @description One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).
+         *
+         *     **EVERY FIELD IS REQUIRED — none carries a Pydantic default.** A default here
+         *     generates an OPTIONAL property in the client this repo generates from OpenAPI, and
+         *     all three of these are facts the screen has to state rather than shapes it may skip:
+         *     an absent `disclosure` would render a Sarvam answer as the assistant's own (the one
+         *     outcome G-6 rules out), and an absent `metered` would render "this cost you nothing"
+         *     as the default for an assist that cost the allowance.
+         *
+         *     Nothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw
+         *     transcript; this is a second reading over the redacted copy, held for as long as the
+         *     person is looking at it (`crm/assist.py` argues why overwriting one with the other
+         *     would degrade the lead and rewrite history).
+         */
+        CallAssistOut: {
+            /** Disclosure */
+            disclosure: string | null;
+            /** Metered */
+            metered: boolean;
+            /** Summary */
+            summary: string;
         };
         /** CallCapOut */
         CallCapOut: {
@@ -11536,6 +11580,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallDetailOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    assist_call_v1_calls__call_id__assist_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                call_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallAssistOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

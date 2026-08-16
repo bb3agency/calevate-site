@@ -525,6 +525,43 @@ class CallbackEligibilityOut(Strict):
     follow_up_number: int | None = None
 
 
+class CallAssistOut(Strict):
+    """One user-triggered re-summarise of a call (D-127 G-2/G-5/G-6).
+
+    **EVERY FIELD IS REQUIRED — none carries a Pydantic default.** A default here
+    generates an OPTIONAL property in the client this repo generates from OpenAPI, and
+    all three of these are facts the screen has to state rather than shapes it may skip:
+    an absent `disclosure` would render a Sarvam answer as the assistant's own (the one
+    outcome G-6 rules out), and an absent `metered` would render "this cost you nothing"
+    as the default for an assist that cost the allowance.
+
+    Nothing here is persisted. The stored `calls.summary` is the FIRST pass, over the raw
+    transcript; this is a second reading over the redacted copy, held for as long as the
+    person is looking at it (`crm/assist.py` argues why overwriting one with the other
+    would degrade the lead and rewrite history).
+    """
+
+    #: Transcript-DERIVED prose, and therefore treated exactly like `calls.summary`: it
+    #: goes out through `crm.service.redacted_summary`, the same `redact()` pass that
+    #: produced the `text_redacted` the model was given. Belt and braces — the model
+    #: never saw an unredacted digit to copy — and the reason the redaction guardrail's
+    #: entry for this field can say the same sentence as `CallDetailOut.summary`'s.
+    #:
+    #: MAY BE EMPTY, and the screen states that rather than rendering blankness: an
+    #: assist that returned nothing is an outcome the client paid for and §52 does not
+    #: let an empty state stand in for it.
+    summary: str
+    #: G-6. Non-null EXACTLY when something other than the assistant model answered, and
+    #: the sentence is the one `AssistCapability.disclosure` composes — written once, so
+    #: two surfaces cannot say different things about the same substitution.
+    disclosure: str | None
+    #: Did this reach `usage_events`? False for a disclosed Sarvam fallback (D-36 prices
+    #: that leg at zero) and for a Gemini answer Vertex did not count. The screen says
+    #: "this did not use any of your allowance" only when this is False, because saying
+    #: it when it is True would be a claim about a client's money that is not true.
+    metered: bool
+
+
 class DashboardDayOut(Strict):
     """One IST calendar day of the dashboard's 7-day call chart.
 

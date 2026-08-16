@@ -329,11 +329,13 @@ def _vertex_usage(body: dict[str, Any]) -> TokenUsage | None:
     free assist and move the platform brake by nothing. `record_ai_assist_usage` is
     therefore never called on a None, and that is the caller's rule to keep.
 
-    `thoughtsTokenCount` is folded into OUTPUT. Gemini 3.x bills thinking tokens at the
-    output rate, and a reasoning model asked for structured JSON spends most of its
-    budget there — counting only `candidatesTokenCount` would under-meter the very calls
-    that cost the most. It is added rather than replaced because Google reports the two
-    separately and `candidatesTokenCount` does not include it.
+    `thoughtsTokenCount` is folded into OUTPUT. Every Gemini generation this repo has
+    shipped bills thinking tokens at the output rate — 2.5 Flash (`GEMINI_DEFAULT_LLM`
+    since the founder's `asia-south1` decision) as much as the 3.x tier it replaced — and
+    a reasoning model asked for structured JSON spends most of its budget there, so
+    counting only `candidatesTokenCount` would under-meter the very calls that cost the
+    most. It is added rather than replaced because Google reports the two separately and
+    `candidatesTokenCount` does not include it.
     """
     raw = body.get("usageMetadata")
     if not isinstance(raw, dict):
@@ -961,21 +963,27 @@ AI_STUDIO_KEY_REASON: Final = "ai_studio_key_disqualified"
 GEMINI_PROVIDER: Final = "gemini"
 SARVAM_PROVIDER: Final = "sarvam"
 
-#: Is a per-tenant assist quota enforced on a path a client can reach? No — and the gap
-#: has MOVED since this constant was minted, which is why the paragraph moved with it.
+#: Is a per-tenant assist quota enforced on a path a client can reach? YES, since D-146.
 #:
-#: What was missing is now built. D-137 landed `billing/ai_quota.py`: `require_ai_assist`
-#: is the ceiling, `record_ai_assist_usage` the idempotent writer, `platform_ai_spend` the
-#: brake on our own key, and `POST /v1/billing/ai-quota/extra` the audited acceptance.
-#: `run_assist(quota_exhausted=…)` and `AssistResult.usage` are this module's two ends of
-#: that wire, added so neither half is unreachable from the other.
+#: This constant spent its whole life False and the paragraph under it moved twice, which
+#: is the argument for having minted it. D-137 built the ceiling (`require_ai_assist`),
+#: the idempotent writer (`record_ai_assist_usage`), the brake on our own key
+#: (`platform_ai_spend`) and the audited acceptance (`POST /v1/billing/ai-quota/extra`);
+#: D-142 added this module's two ends of the wire, `run_assist(quota_exhausted=…)` and
+#: `AssistResult.usage`. Every piece worked and nothing was enforced, because no route
+#: joined them — the state a greppable boolean exists to stop a document describing as
+#: "quota enforcement".
 #:
-#: WHAT IS STILL MISSING IS THE MIDDLE: no route calls `require_ai_assist`, hands its
-#: verdict to `run_assist`, and meters `AssistResult.usage` back. Until one does, every
-#: piece works and nothing is enforced — which is exactly the state a greppable boolean
-#: exists to stop a document from describing as "quota enforcement". CLOSED BY: the
-#: user-triggered dashboard-AI endpoint (PLAN Part 15), whose three lines are named above.
-ASSIST_QUOTA_ENFORCED: Final = False
+#: `POST /v1/calls/{call_id}/assist` (`apps/api/crm/routes.py::assist_call`) is the middle.
+#: It calls `require_ai_assist` BEFORE the provider is paid, hands the verdict to
+#: `run_assist`, and meters `AssistResult.usage` back through `crm/assist.py::meter_assist`
+#: — the three lines this comment named as its own closing condition, in that order.
+#:
+#: What True does NOT claim, because the next reader will ask: an assist whose token count
+#: Vertex did not return is money spent that no ceiling can see. It is refused a ledger row
+#: rather than given a fabricated one, and it fires `ai_assist_unmeterable` so an operator
+#: learns the meter stopped. Enforcement is real; it is not omniscient.
+ASSIST_QUOTA_ENFORCED: Final = True
 
 #: What each fallback reason means, in the words the client reads. One sentence per code,
 #: written once: a disclosure composed at each surface is a disclosure that eventually
@@ -1090,7 +1098,7 @@ def assist_capability(
 
     `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than reads. Neither
     is knowable from configuration: the first is a per-tenant month-to-date sum that
-    `usage_events` owns (PLAN Part 14 — `ASSIST_QUOTA_ENFORCED is False` until it lands),
+    `usage_events` owns (`require_ai_assist`, reached through `crm/routes.py::assist_call`),
     and the second is only knowable by having just tried. Passing them in keeps this
     function a pure function of its inputs, which is what lets one test drive all six
     states without a database.
@@ -1183,12 +1191,17 @@ async def run_assist(
     `transcript_turns.text_redacted`, not `text`. This costs one regex sweep per assist
     and removes the whole class.
 
-    THE REFUSAL IS UNREACHABLE TODAY, and saying so is not an argument for deleting it:
-    this function has no production caller at all (`ASSIST_QUOTA_ENFORCED` above names
-    what is missing), so the only text it has ever been handed came from a test. The
-    guard is here BEFORE the caller for `check_model_residency`'s reason — the mistake it
-    catches is one line of a route handler that nobody would re-read, and the moment to
-    make it impossible is before the handler exists rather than after it ships.
+    THE REFUSAL WAS UNREACHABLE UNTIL D-146, and the paragraph that said so is worth
+    keeping in its corrected form rather than deleting. This guard was written BEFORE any
+    caller existed, for `check_model_residency`'s reason — the mistake it catches is one
+    line of a route handler that nobody would re-read, and the moment to make it
+    impossible is before the handler exists rather than after it ships.
+
+    That bet paid immediately. `crm/routes.py::assist_call` is now the caller, and the
+    sabotage that swaps `text_redacted` for `text` in `crm/assist.py`'s one SQL string
+    does not first fail an assertion about bytes — it fails HERE, with
+    `assist_input_not_redacted`, from inside the function the route calls. The guard
+    catches the exact mistake its author predicted, in the exact place predicted.
 
     THE FALLBACK IS DISCLOSED, NEVER SILENT. Gemini failing mid-flight re-asks the ONE
     selector with `provider_unavailable=True` rather than deciding locally, so a surface

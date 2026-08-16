@@ -13,7 +13,7 @@ or omits it — it never leaks its own shape upward.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Final, Literal, Protocol, runtime_checkable
 
@@ -274,23 +274,81 @@ VERTEX_LOCATION: Final = "asia-south1"
 
 #: The Gemini model the dashboard-AI path sends (D-127; PLAN Part 13).
 #:
-#: 3.x, not 2.5, and the date is the reason: `gemini-2.5-flash-lite` — which
-#: `workers/extraction.py` defaulted to before Part 13 — RETIRES 16 Oct 2026 (BRD R-04),
-#: and Google's own migration target for it is `gemini-3.1-flash-lite`. Shipping a model
-#: identifier with eight weeks of life left is D-105 again with a calendar attached.
+#: **2.5 Flash, and it is the FOUNDER'S CALL taken with the retirement date in front of
+#: them** — the trade is stated here rather than in a commit nobody re-reads. D-134 chose
+#: `gemini-3.1-flash-lite` to get out from under BRD R-04's 16 Oct 2026 date; D-142 then
+#: found that nothing places any 3.x model in `asia-south1` (global plus the `us`/`eu`
+#: multi-region REP endpoints only) while the 2.5 class IS reported in Mumbai. So the two
+#: candidates were: a model with a long life that the only permitted region may not serve,
+#: or a model the region serves that dies on a date. D-127 will not move the REGION — that
+#: is the residency leg the whole product rests on — so the choice is between a feature
+#: that 404s and a feature with a deadline, and a deadline is a thing an operator can meet.
 #:
-#: EVIDENCE STANDING: **REPORTED, NOT READ** — searched 15 Aug 2026;
-#: `docs.cloud.google.com` is refused by this environment's egress proxy (the same wall
-#: `check_model_residency`'s docstring records), so nothing below was fetched from this
-#: repository. Multiple independent search summaries agree on three facts: Gemini 3.1
-#: Flash-Lite went generally available 7 May 2026 as the efficiency tier of the Gemini 3.1
-#: generation, at $0.25/$1.50 per 1M input/output tokens with a 1M-token context; it is
-#: the named replacement for `gemini-2.5-flash-lite`; and the retirement date for the 2.5
-#: family is 16 Oct 2026.
+#: WHAT IT COSTS, AND WHERE THAT COST IS RECORDED: this leg is now exposed to BRD R-04 for
+#: real. `GEMINI_DEFAULT_LLM_RETIRES` below is that date as DATA, the build goes red with
+#: runway to spare (`tests/sarvam_model_identifier_test.py`), and OPERATIONS §2 gate 14
+#: carries the operator-facing version. 3.x would have avoided all of it; it may also have
+#: 404'd on the first call.
 #:
-#: ⚠ WHETHER `VERTEX_LOCATION` SERVES IT is a separate fact with its own constant —
-#: `GEMINI_MODEL_CONFIRMED_IN_REGION` below. Read that before believing this one works.
-GEMINI_DEFAULT_LLM: Final = "gemini-3.1-flash-lite"
+#: NOT Flash-LITE, which was the founder's stated fallback and is not needed: search
+#: places `gemini-2.5-flash` itself in Mumbai, and the fallback exists for the case where
+#: only the Lite tier is served there. If gate 14 comes back 404 on this identifier, that
+#: fallback — `gemini-2.5-flash-lite`, same family, same retirement date — is the next
+#: thing to try, and it has to come out of `GEMINI_RETIRED_LLMS` when it does.
+#:
+#: EVIDENCE STANDING: **REPORTED, NOT READ**, searched 16 Aug 2026. Every host that would
+#: settle it is refused by this environment's egress proxy — `docs.cloud.google.com`,
+#: `discuss.ai.google.dev`, `modelavailability.com`, `innfactory.ai`, `gcloud-compute.com`,
+#: `openrouter.ai`, `pricepertoken.com` were each ATTEMPTED and each returned
+#: EGRESS_BLOCKED — so what follows is independent search summaries agreeing, never a page
+#: fetched here:
+#:
+#: * Google's own data-residency table is summarised as listing, for Mumbai
+#:   (`asia-south1`), Gemini 2.5 Flash (1M and 128k), 2.5 Pro, 2.5 Flash-Lite, 2.5 Flash
+#:   Image, 2.0 Flash and 2.0 Flash-Lite — with ML processing in-region. That is the same
+#:   list a separate search returned before this decision was taken.
+#: * A Google developer-forum thread is titled "Is there any model available (or planned)
+#:   in the `asia-south1` region on Vertex AI that is MORE CAPABLE than Gemini 2.5 Flash?"
+#:   — a user treating 2.5 Flash as the region's ceiling, which is corroboration of a
+#:   different kind from a docs summary and points the same way.
+#: * Nothing found in either search places a 3.x model in `asia-south1`.
+#:
+#: The one thing actually READ from this repository is the PRICE, and only because
+#: `raw.githubusercontent.com` is not blocked: LiteLLM's `model_prices_and_context_window.
+#: json` (main, fetched 16 Aug 2026) gives `gemini-2.5-flash` under `vertex_ai-language-
+#: models` as `input_cost_per_token` 3e-07 and `output_cost_per_token` 2.5e-06 — $0.30 and
+#: $2.50 per 1M. The same file gives `gemini-3.1-flash-lite` as $0.25/$1.50, which is
+#: exactly what `billing/ai_quota.py` priced from, so the table is the right one.
+#:
+#: ⚠ WHETHER `VERTEX_LOCATION` SERVES IT is STILL a separate fact with its own constant —
+#: `GEMINI_MODEL_CONFIRMED_IN_REGION` below, and it is still False. A search summary is
+#: not a 200. Read that before believing this one works.
+GEMINI_DEFAULT_LLM: Final = "gemini-2.5-flash"
+
+#: The day `GEMINI_DEFAULT_LLM` stops answering — BRD R-04's retirement of the Gemini 2.5
+#: family, 16 Oct 2026.
+#:
+#: A `date` RATHER THAN A SENTENCE, and that is the entire point of the line. The cost of
+#: the decision above is a deadline, and a deadline recorded in prose is a deadline whose
+#: enforcement is "whoever read it last" — the failure mode CLAUDE.md's hard rule 4 note
+#: and this file's own D-105 history are both about. As data it can be asserted on:
+#: `tests/sarvam_model_identifier_test.py::test_the_shipped_gemini_model_has_runway_left`
+#: turns the build red `RETIREMENT_RUNWAY_DAYS` before it, which is the only mechanism in
+#: this repository that will speak up on a day when nobody is thinking about Gemini.
+#:
+#: WHEN IT FIRES the fix is one constant and one call, in this order: run OPERATIONS §2
+#: gate 14 against the newest Gemini `asia-south1` serves, then move `GEMINI_DEFAULT_LLM`
+#: to it and this date with it. NOT a region change, and not `locations/global` —
+#: `check_model_residency` refuses both and D-127 is why.
+#:
+#: EVIDENCE STANDING: **REPORTED, NOT READ** — the 16 Oct 2026 date is the one fact D-134,
+#: D-142 and this decision have all inherited from search summaries of Google's deprecation
+#: schedule rather than from the page. A wrong date here fails SAFE in one direction only:
+#: too early and the build asks for a migration nobody needed, too late and the assist 404s
+#: with `vertex_model_not_served_in_region` in the log (`workers/extraction.py`) and a
+#: disclosed Sarvam fallback carrying the work (G-6). That asymmetry is why the runway
+#: below is generous rather than tight.
+GEMINI_DEFAULT_LLM_RETIRES: Final = date(2026, 10, 16)
 
 #: Has anyone confirmed that `VERTEX_LOCATION` serves `GEMINI_DEFAULT_LLM`? No.
 #:
@@ -299,22 +357,27 @@ GEMINI_DEFAULT_LLM: Final = "gemini-3.1-flash-lite"
 #: runs on Vertex AI `asia-south1`" is currently in eight documents, and until it names a
 #: constant `check_docs_drift` §5 cannot tell those eight sentences from the truth.
 #:
-#: EVIDENCE STANDING: **REPORTED, NOT READ**, re-searched 16 Aug 2026 and the picture got
-#: WORSE, not merely no better. `docs.cloud.google.com`, `firebase.google.com`,
-#: `discuss.google.dev`, `www.promptfoo.dev`, `modelavailability.com` and
-#: `docs.litellm.ai` are every one of them refused by this environment's egress proxy, so
-#: what follows is independent search summaries agreeing, never a page fetched here:
+#: EVIDENCE STANDING: **REPORTED, NOT READ**, re-searched 16 Aug 2026 with the model
+#: changed under it. `docs.cloud.google.com`, `discuss.ai.google.dev`,
+#: `modelavailability.com`, `innfactory.ai`, `gcloud-compute.com`, `openrouter.ai` and
+#: `pricepertoken.com` were each attempted from this repository and each refused by the
+#: egress proxy, so what follows is independent search summaries agreeing, never a page
+#: fetched here:
 #:
-#: * The GA date holds — `gemini-3.1-flash-lite`, 7 May 2026.
-#: * Where it is served, nobody reports `asia-south1`. What IS reported is the GLOBAL
-#:   endpoint plus the `us` and `eu` multi-region REP endpoints
-#:   (`aiplatform.{us,eu}.rep.googleapis.com`, named in a third-party adapter's own issue
-#:   tracker), and at least one report that it is absent from `us-central1` — i.e. the
-#:   3.x generation appears to be launching global-first, which is the pattern Google
-#:   documents ("some models are only available in the global region, especially on
-#:   initial release").
-#: * What search DOES place in Mumbai is the 2.5 Flash / 2.5 Flash-Lite class — the
-#:   family that RETIRES 16 Oct 2026 (BRD R-04). So this is a gate with a calendar on it.
+#: * The evidence about the SHIPPED model has REVERSED, and that is why this constant did
+#:   not change with it. When `GEMINI_DEFAULT_LLM` was `gemini-3.1-flash-lite`, search
+#:   placed the 3.x family on the GLOBAL endpoint and the `us`/`eu` multi-region REP
+#:   endpoints and nowhere near Mumbai — the flag was False AND the news was bad. Now that
+#:   the shipped model is `gemini-2.5-flash`, search places it squarely in Mumbai (a
+#:   summary of Google's data-residency table listing 2.5 Flash, 2.5 Pro, 2.5 Flash-Lite,
+#:   2.5 Flash Image, 2.0 Flash and 2.0 Flash-Lite there with ML processing; a developer
+#:   forum thread asking for anything in `asia-south1` "more capable than Gemini 2.5
+#:   Flash"). The flag is False and the news is GOOD.
+#: * **A better expectation is not a confirmation, and the difference is this constant's
+#:   whole job.** D-142 minted it precisely because a search summary of an unreadable page
+#:   is not evidence a request will succeed; flipping it now on a summary of the SAME
+#:   unreadable page, merely because the summary is flattering this time, would be that
+#:   argument run backwards. Nothing has been read, nothing has been called.
 #:
 #: WHAT SURVIVED THE RE-SEARCH, and it is the leg D-127 actually rests on: `asia-south1`
 #: is in Vertex's own ML-processing-location table (with Tokyo, Singapore, Sydney, Seoul),
@@ -327,31 +390,44 @@ GEMINI_DEFAULT_LLM: Final = "gemini-3.1-flash-lite"
 #: the exact sentence D-127 disqualifies AI Studio over. `check_model_residency` refuses
 #: `locations/global` for that reason and must keep refusing it.
 #:
-#: WHAT CLOSES IT: one `generateContent` against `vertex_generate_url()` on the day the
-#: GCP project exists (OPERATIONS §2). A 404 is the answer "no", and it is a LOUD answer —
-#: `VertexGeminiExtractor` logs `vertex_model_not_served_in_region` naming this constant,
-#: `assist_capability()` answers `provider_unavailable`, and G-6's disclosed Sarvam
-#: fallback carries the work meanwhile. If the answer is no, the decision is a MODEL
-#: change (the newest Gemini `asia-south1` does serve) and never a REGION change — the
-#: second is the residency inversion this whole guardrail exists to prevent, and it is
-#: nine characters away at all times.
+#: WHAT CLOSES IT, and NOTHING ELSE DOES: one `generateContent` against
+#: `vertex_generate_url(project, GEMINI_DEFAULT_LLM)` with a service-account bearer,
+#: returning 200 — OPERATIONS §2 gate 14, on the day the GCP project exists. That project
+#: is the external blocker, by name: a Google Cloud account and a service-account key.
+#: There is no engineering work between here and the answer. A 404 is the answer "no", and
+#: it is a LOUD answer — `VertexGeminiExtractor` logs `vertex_model_not_served_in_region`
+#: naming this constant, `assist_capability()` answers `provider_unavailable`, and G-6's
+#: disclosed Sarvam fallback carries the work meanwhile. If the answer is no, the decision
+#: is a MODEL change (`gemini-2.5-flash-lite` first — the founder's stated fallback, same
+#: family, same retirement date — then the newest Gemini `asia-south1` does serve) and
+#: never a REGION change: the second is the residency inversion this whole guardrail exists
+#: to prevent, and it is nine characters away at all times.
 GEMINI_MODEL_CONFIRMED_IN_REGION: Final = False
 
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
 #: scans for them for the reason it scans for the Sarvam ones.
 #:
-#: These are DATED rather than already dead, which is the difference from
-#: `SARVAM_RETIRED_LLMS` and is why they are banned now: 16 Oct 2026 is a date somebody
-#: has to act before, and the only cheap moment to act is the one where the identifier is
-#: being written. A name that dies on a schedule and is caught on the day it dies costs a
-#: post-call pipeline returning empty extractions with a 404 nobody is watching for.
+#: MOST OF THESE ARE DATED RATHER THAN ALREADY DEAD, which is the difference from
+#: `SARVAM_RETIRED_LLMS`: 16 Oct 2026 is a date somebody has to act before, and the only
+#: cheap moment to act is the one where the identifier is being written. A name that dies
+#: on a schedule and is caught on the day it dies costs a pipeline returning empty answers
+#: with a 404 nobody is watching for.
+#:
+#: `gemini-2.5-flash` IS NO LONGER IN THIS SET, and the omission is the founder's decision
+#: rather than an oversight: it is `GEMINI_DEFAULT_LLM`, so a set that both banned it and
+#: shipped it would be incoherent (`test_the_gemini_default_is_not_itself_retired` says so
+#: by failing). What the set therefore stopped guarding — a stray `"gemini-2.5-flash"`
+#: literal somewhere other than this file — is guarded instead by
+#: `test_no_shipped_module_spells_the_gemini_default`, and the DATE it stopped guarding is
+#: carried by `GEMINI_DEFAULT_LLM_RETIRES` above. Neither half was dropped on the floor.
+#: Its Lite sibling stays banned because it is not what we ship; if gate 14 makes it the
+#: fallback, it moves out of here in that same change.
 GEMINI_RETIRED_LLMS: Final = frozenset(
     {
         "gemini-1.5-flash",
         "gemini-1.5-pro",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
-        "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
     }

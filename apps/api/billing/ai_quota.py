@@ -16,11 +16,17 @@ absorbs the cost. Three things follow from that sentence and this module is all 
 
 WHY THE SCREEN SHOWS BOTH A COUNT AND A CEILING, AND WHICH ONE IS REAL
 ----------------------------------------------------------------------
-A rupee ceiling does the work; "82 of about 500 assists used" is what an owner can plan
+A rupee ceiling does the work; "82 of about 333 assists used" is what an owner can plan
 around. Nobody can reason about ₹41.7 of ₹250 of language-model inference. So the count
 is published as an ESTIMATE and says so — `requests_included` is the ceiling divided by
 `AI_ASSIST_NOMINAL_INR`, a reference price, and the word "about" is in the copy on the
 screen rather than only in this comment. The number that blocks is always the rupee one.
+
+(That 333 is `managed`'s ceiling at today's price and it USED TO READ 500. It moved when
+the model did — 3.1 Flash-Lite to 2.5 Flash, a 50% dearer reference assist — which is
+exactly the drift a worked example in prose accumulates while the code stays right. It is
+recomputed here rather than generalised away because the sentence is about what a person
+can plan around, and "the ceiling divided by a reference price" is not that sentence.)
 
 WHERE THE CEILING LIVES, AND THE MECHANISM THIS DELIBERATELY DOES NOT DUPLICATE
 -------------------------------------------------------------------------------
@@ -140,10 +146,31 @@ log = get_logger(__name__)
 #: Included dashboard-AI allowance per tenant per IST billing month, in rupees, by plan
 #: tier. Managed clients get the most because they pay the most; a trial gets enough to
 #: form an opinion of the feature and not enough to be a business's whole workload.
+#:
+#: **`trial` MOVED FROM ₹25 TO ₹40, AND THE TEST IS WHY.** Moving to `gemini-2.5-flash`
+#: raised `reference_assist_cost_inr()` from ₹0.33475 to ₹0.50230 — a 50% increase on one
+#: model change — and ₹25 then bought 49.77 assists against the 50 that
+#: `test_no_product_constant_is_out_by_an_order_of_magnitude` calls "enough to form an
+#: opinion". The test was right and the constant was wrong: a prospect being told the
+#: trial is over halfway through evaluating the feature is the one failure a trial tier
+#: cannot have. Clearing the assertion by a rupee was available and is not what was done.
+#:
+#: ₹40 buys **79.6 assists — 1.6x the floor**, and the headroom is the point rather than
+#: the number. Two price moves are already DATED: `gemini-2.5-flash` retires 16 Oct 2026
+#: (`GEMINI_DEFAULT_LLM_RETIRES`) and the Flash tier's introductory pricing ends 1 Jan
+#: 2027, and neither replacement is likely to be cheaper. ₹40 stays above the floor until
+#: an assist costs ₹0.80 — a **59% increase**, which is more than the 50% this change just
+#: absorbed. ₹25 would have survived none of it, and a value tuned to clear 50.0 exactly
+#: is one revision from being back here.
+#:
+#: WHAT A TRIAL TENANT SEES is `requests_included`, which divides by the NOMINAL (₹0.75,
+#: the reference cost times the over-statement margin) and therefore reads **about 53** —
+#: deliberately below the 79.6 the floor is computed against, because the margin exists to
+#: under-promise. Both numbers clear 50, which is what makes the screen and the gate agree.
 AI_QUOTA_INR: Final[dict[str, Decimal]] = {
     "managed": Decimal("250.00"),
     "self_serve": Decimal("100.00"),
-    "trial": Decimal("25.00"),
+    "trial": Decimal("40.00"),
 }
 
 #: One thousand tokens — the unit `ai_assist_ktok_*` counts, because a per-token price is
@@ -160,32 +187,49 @@ def ktok(tokens: int) -> Decimal:
 #: THE PUBLISHED LIST PRICE of the assist model, in rupees per THOUSAND tokens — the
 #: unit `ai_assist_ktok_*` counts (`billing/models.py::AI_ASSIST_UNIT_TYPES`).
 #:
-#: `gemini-3.1-flash-lite` (D-134's `GEMINI_DEFAULT_LLM`) lists at **$0.25 / $1.50 per 1M
-#: tokens** in/out; at ₹95.66 to the dollar (RBI reference, 16 Aug 2026) that is ₹0.0239
-#: and ₹0.1435 per 1,000 tokens. Both figures are 4dp because `unit_cost_paid` is
+#: `gemini-2.5-flash` (`GEMINI_DEFAULT_LLM`) lists at **$0.30 / $2.50 per 1M tokens**
+#: in/out; at ₹95.66 to the dollar (RBI reference, 16 Aug 2026) that is ₹0.0287 and
+#: ₹0.2392 per 1,000 tokens. Both figures are 4dp because `unit_cost_paid` is
 #: NUMERIC(12,4) and a price this ledger cannot store is a price it cannot honour.
 #:
-#: ⚠ **A LIST PRICE IS A VENDOR CLAIM, AND `docs.cloud.google.com` is refused by this
-#: environment's egress proxy** (the same limit D-134 records against the model's GA
-#: date), so these rest on independent search summaries agreeing rather than on the
-#: price page. They are the ESTIMATE's input and nothing else: the ledger stores what a
-#: caller says it actually paid, and the day a GCP invoice exists it is the truth — an
-#: OPERATIONS §2 gate on the day the project exists, not an engineering unknown.
+#: ⚠ **THE MODEL MOVED AND THE PRICE MOVED WITH IT, WHICH IS WHAT THIS TABLE IS FOR.**
+#: These numbers were `gemini-3.1-flash-lite`'s ($0.25/$1.50) until the founder shipped
+#: 2.5 Flash instead — no source places any 3.x model in `asia-south1`. The output leg is
+#: 67% dearer and one reference assist went from ₹0.33475 to ₹0.50230, a **50% increase
+#: absorbed by editing two literals**, because everything downstream (`AI_ASSIST_NOMINAL_INR`,
+#: every `requests_*` figure on every screen) is derived. That is the whole argument for
+#: deriving them, and it has now been exercised rather than asserted.
 #:
-#: ⚠ **A 1 Jan 2027 price cliff is already known** on the Flash tier. When it lands this
-#: table moves and `AI_ASSIST_NOMINAL_INR` moves with it, which is the entire reason the
-#: nominal is derived below rather than typed.
+#: ⚠ **A LIST PRICE IS A VENDOR CLAIM**, and this one's standing is unusually good and
+#: says so precisely because the rest of this repo's Google evidence is not: it was READ,
+#: not summarised — LiteLLM's `model_prices_and_context_window.json` fetched from
+#: `raw.githubusercontent.com` and PARSED LOCALLY on 16 Aug 2026, where `gemini-2.5-flash`
+#: under `vertex_ai-language-models` gives `input_cost_per_token` 3e-07 and
+#: `output_cost_per_token` 2.5e-06. `docs.cloud.google.com` is still refused by this
+#: environment's proxy. **Do not trust a fetch SUMMARY of that file**: an earlier one
+#: misread the row as 7.5e-08/3e-07, which is a different vendor's Flash-Lite entry in the
+#: same 1.7 MB document — a summariser answering about the wrong row is indistinguishable
+#: from an answer, and this one would have under-priced every assist eightfold.
+#:
+#: They are the ESTIMATE's input and nothing else: the ledger stores what a caller says it
+#: actually paid, and the day a GCP invoice exists it is the truth — an OPERATIONS §2 gate
+#: on the day the project exists, not an engineering unknown.
+#:
+#: ⚠ **TWO MORE MOVES ARE ALREADY DATED**: `gemini-2.5-flash` retires 16 Oct 2026
+#: (`GEMINI_DEFAULT_LLM_RETIRES`) and the Flash tier's introductory pricing ends 1 Jan
+#: 2027. When either lands this table moves and everything derived from it follows.
 ASSIST_LIST_PRICE_INR_PER_KTOK: Final[dict[str, Decimal]] = {
-    "in": Decimal("0.0239"),
-    "out": Decimal("0.1435"),
+    "in": Decimal("0.0287"),
+    "out": Decimal("0.2392"),
 }
 
 #: The reference assist this estimate is built on: tokens in, tokens out. Deliberately
 #: generous on BOTH legs. Input carries the response schema as well as the prompt and the
 #: transcript (`build_vertex_response_schema` says so in its own docstring — a 30-field
-#: schema with descriptions is not free), and OUTPUT carries Gemini 3's thinking tokens,
-#: which are billed as output and are the leg a 2.5-era estimate would have missed
-#: entirely.
+#: schema with descriptions is not free), and OUTPUT carries THINKING TOKENS, which Gemini
+#: bills at the output rate and which `_vertex_usage` folds into `output_tokens` rather
+#: than dropping. On 2.5 Flash that leg is now 8.3x the input rate, so an estimate that
+#: missed thinking tokens would be wrong in the expensive direction.
 REFERENCE_ASSIST_TOKENS: Final = {"in": 5_000, "out": 1_500}
 
 #: How much dearer than the reference assist the published count assumes an assist is.
@@ -217,20 +261,22 @@ def reference_assist_cost_inr() -> Decimal:
 #: and a few hundred out", which is unfalsifiable — it is equally consistent with ₹0.05
 #: and ₹5.00, and a ceiling wrong by 100 times is a product defect nobody would have caught by
 #: reading it. It now comes out of the published price and a stated reference assist, so
-#: the arithmetic is on the page and the number moves when the price does. (At today's
-#: numbers it evaluates to ₹0.50 — the original was sound, and now it is checkable.)
+#: the arithmetic is on the page and the number moves when the price does. **It has now
+#: moved**: it evaluated to ₹0.50 on 3.1 Flash-Lite prices and evaluates to ₹0.75 on 2.5
+#: Flash's, which is a typed constant silently going 50% stale in one model decision and
+#: is the argument for deriving it, run for real.
 AI_ASSIST_NOMINAL_INR: Final = to_paise(reference_assist_cost_inr() * NOMINAL_ASSIST_MARGIN)
 
 #: What the modal offers past the ceiling, debited once per tenant-month.
 #:
 #: WHAT IT ACTUALLY BUYS, stated because the note here used to say "two blocks' worth of
 #: assists on the smallest tier" and that is not a description of any quantity: at the
-#: nominal above it is about 1,000 assists — five times a `self_serve` month's whole
-#: allowance and twenty times a `trial` one. So it is not a small top-up on the small
-#: tiers, and it comes out of the CALLING credit, which is the balance that dials.
+#: nominal above it is about 666 assists — five times a `self_serve` month's whole
+#: allowance and about thirteen times a `trial` one. So it is not a small top-up on the
+#: small tiers, and it comes out of the CALLING credit, which is the balance that dials.
 #:
-#: ⚠ **A trial tenant can therefore convert twenty months of AI allowance out of the
-#: credit they need to make calls, in one click.** `record_entry(allow_negative=False)`
+#: ⚠ **A trial tenant can therefore convert about a year's worth of AI allowance out of
+#: the credit they need to make calls, in one click.** `record_entry(allow_negative=False)`
 #: stops the wallet going under and the modal states the amount, so nothing here is
 #: hidden or unbounded — but the size of the block relative to the smallest tier is a
 #: PRICE, and a price is the founder's. It is left where they set it rather than quietly

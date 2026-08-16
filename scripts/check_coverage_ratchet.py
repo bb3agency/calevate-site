@@ -158,9 +158,11 @@ WHAT IT CANNOT SEE, SAID PLAINLY:
   process, look exactly like a real change. The counts and the commonest reasons are
   recorded in the manifest and printed with every verdict so the divergence is at least
   VISIBLE; they are not gated on, because skip counts legitimately differ between a laptop
-  and CI (this repo's own `test_reads_the_real_coverage_data` skips only where no previous
-  run left a `.coverage`), and a rule that fires on that would cry wolf on every push —
-  which is how a guardrail gets ignored.
+  and CI (a `@pytest.mark.skipif` on a service, a fixture that gave up), and a rule that
+  fires on that would cry wolf on every push — which is how a guardrail gets ignored.
+  (The example that used to stand here was this gate's OWN parser test skipping when no
+  previous run had left a `.coverage`. It does not skip any more: it builds its own
+  measurement, for the reason `DATA_FILE`'s comment gives.)
 * a store that is empty but differs in some other way — a different migration head, a
   hand-edited global row. `alembic upgrade head` owns migration state and CI runs it
   immediately before the suite.
@@ -281,6 +283,26 @@ from typing import Any, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "tests" / "fixtures" / "coverage_baseline.json"
+
+#: Where `coverage run` writes by default, and therefore what this gate scores when the
+#: CLI is given no `--data-file`. IT IS A DEFAULT, NOT A DESTINATION, and the difference
+#: is enforced below: every READER in this module (`load_report`, `manifest_path`,
+#: `unvouched_run`, `blind_spots`) takes the path as a REQUIRED argument, so this name is
+#: reachable from exactly two places — `main()`'s argparse default, which is the one
+#: decision about which run is being scored, and the plugin's fallback when coverage was
+#: not tracing at all (`pytest_sessionfinish`, which must invalidate a stale file rather
+#: than let it inherit credibility).
+#:
+#: WHY IT IS NOT A DEFAULT ARGUMENT ANY MORE. `.coverage` is a mutable file at a
+#: well-known path that nothing here owns: any partial `coverage run` — an agent
+#: measuring its own module, a developer measuring one file — overwrites it, and a
+#: partial one has no `apps/voice-runtime/*.py` in it at all (coverage's source walk
+#: skips directories with no `__init__.py`, and D-18 makes that directory hyphenated).
+#: A helper that quietly read this path turned any such leftover into a failure of
+#: whatever test called it, twice in one session, each time costing a full gate cycle and
+#: reading exactly like a real regression. A caller that wants THIS file now has to say
+#: so, which is the whole fix: the coupling is visible in the call rather than in a
+#: default nobody sees.
 DATA_FILE = REPO_ROOT / ".coverage"
 
 #: 1 = the ratchet reached a verdict and the verdict is bad. 2 = it declined to reach one.
@@ -466,16 +488,19 @@ class Measurement:
         return 100.0 * covered / total if total else 100.0
 
 
-def load_report(data_file: Path | None = None) -> dict[str, Any]:
-    """The coverage JSON report for the run recorded in `.coverage`.
+def load_report(data_file: Path) -> dict[str, Any]:
+    """The coverage JSON report for the run recorded in `data_file`.
 
     Generated here rather than shelled out to `coverage json` so the check reads the same
     data file the suite wrote, with this repo's `[tool.coverage.*]` config applied, and so
     a missing measurement is one clear error instead of a subprocess exit code.
+
+    The path is REQUIRED — see `DATA_FILE`. Which run is being scored is a decision, and
+    it is made once, in `main()`.
     """
     import coverage
 
-    path = DATA_FILE if data_file is None else data_file
+    path = data_file
     if not path.exists():
         raise FileNotFoundError(path)
 
@@ -550,15 +575,14 @@ PAIRING_OLDER_SECONDS = 5.0
 TOP_SKIP_REASONS = 5
 
 
-def manifest_path(data_file: Path | None = None) -> Path:
+def manifest_path(data_file: Path) -> Path:
     """Where the run that produced `data_file` recorded what it did.
 
     Derived from the data file rather than fixed at the repo root, so `--data-file`
     points the trust check at the same run it points the measurement at — including in
     the negative controls, which build both in a scratch directory.
     """
-    path = DATA_FILE if data_file is None else data_file
-    return path.with_name(path.name + "-run.json")
+    return data_file.with_name(data_file.name + "-run.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -741,9 +765,9 @@ def _stale_state(name: str, state: Mapping[str, Any]) -> list[str]:
     ]
 
 
-def unvouched_run(data_file: Path | None = None) -> list[str]:
+def unvouched_run(data_file: Path) -> list[str]:
     """`vouch()` against the manifest on disk, plus the two ways it can be missing."""
-    path = DATA_FILE if data_file is None else data_file
+    path = data_file
     where = manifest_path(path)
     if not where.exists():
         return [
@@ -771,7 +795,7 @@ def unvouched_run(data_file: Path | None = None) -> list[str]:
 def blind_spots(
     report: Mapping[str, Any],
     measurements: Iterable[Measurement],
-    data_file: Path | None = None,
+    data_file: Path,
 ) -> list[str]:
     """Reasons to refuse to score, loudly, instead of reporting a number.
 
@@ -784,7 +808,7 @@ def blind_spots(
     re-baseline past — so it says which of the four it is and scores nothing.
     """
     failures: list[str] = []
-    path = DATA_FILE if data_file is None else data_file
+    path = data_file
 
     if not report.get("meta", {}).get("branch_coverage"):
         failures.append(

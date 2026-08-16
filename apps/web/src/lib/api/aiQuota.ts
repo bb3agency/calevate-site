@@ -40,10 +40,21 @@ export function aiQuotaKey(orgSlug: string) {
   return ["ai-quota", orgSlug] as const;
 }
 
-export function useAiQuota(session: Session): UseQueryResult<AiQuota> {
+/**
+ * `enabled` exists for the CALL DETAIL screen, which needs these figures only once a
+ * client has actually met the ceiling — the dialog re-reads this route rather than
+ * rendering the amount out of the refusal body (`billing/ai_quota.require_ai_assist`
+ * says why: one computation of what a block costs). Defaulting to true keeps the AI-help
+ * screen, which is ABOUT the allowance, exactly as it was.
+ */
+export function useAiQuota(
+  session: Session,
+  options: { enabled?: boolean } = {},
+): UseQueryResult<AiQuota> {
   return useQuery({
     queryKey: aiQuotaKey(session.orgSlug),
     queryFn: () => apiRequest<AiQuota>(session, PATH),
+    enabled: options.enabled ?? true,
     // An allowance moves when an assist runs, not on a timer, and this screen is where
     // someone comes to decide whether to spend money — a figure that refreshes under
     // them mid-decision is worse than one that is a minute old.

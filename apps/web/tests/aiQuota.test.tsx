@@ -56,11 +56,15 @@ function quota(over: Partial<AiQuota> = {}): AiQuota {
     allowance_inr: "100.00",
     remaining_inr: "58.30",
     requests_used: 82,
-    requests_included: 200,
-    requests_remaining: 116,
+    // Producible by the SERVER at today's price: ₹100 included ÷ the ₹0.75 nominal
+    // is 133, and ₹58.30 remaining is 77. These were 200/116 while the nominal was
+    // ₹0.50, and a fixture no server can answer with is a wrong number with a
+    // fixture's authority.
+    requests_included: 133,
+    requests_remaining: 77,
     extra_purchased_inr: null,
     extra_block_inr: "500.00",
-    extra_block_requests: 1000,
+    extra_block_requests: 666,
     extra_available: false,
     extra_unavailable_reason: "not_at_ceiling",
     ...over,
@@ -89,7 +93,7 @@ describe("the allowance panel", () => {
     await screen.findByText("How AI help is billed");
     // The count an owner plans around, and the word that keeps it honest.
     expect(screen.getByText("82")).toBeTruthy();
-    expect(screen.getByText(/of about 200 this month/)).toBeTruthy();
+    expect(screen.getByText(/of about 133 this month/)).toBeTruthy();
     // The rupee figures as the SERVER's digits, grouped and never parsed — read off the
     // whole screen because the allowance legitimately appears twice (the tile and the
     // table), and `getByText` would fail on the duplication rather than on the digits.
@@ -267,7 +271,7 @@ describe("the money dialog (G-5)", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("₹500.00");
-    expect(dialog.textContent).toContain("about 1,000 more uses");
+    expect(dialog.textContent).toContain("about 666 more uses");
     expect(dialog.textContent).toContain("not refunded and does not carry into next month");
     expect(dialog.textContent).toContain("Nothing has been charged yet.");
     // The accept button quotes the amount too, so the last thing a person reads before

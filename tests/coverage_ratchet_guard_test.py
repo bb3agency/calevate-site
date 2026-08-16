@@ -46,15 +46,23 @@ and therefore needs a real measurement to feed it. It builds one: a subprocess t
 every guarded module under `coverage run`, into a scratch directory (~2s, once per module).
 Not the repo's own `.coverage`, which does not exist on a fresh CI checkout — a negative
 control that skips exactly where it matters is not a control.
+
+`TestReportParsing` reads that same scratch measurement, and it did not always. It read
+`REPO_ROOT/.coverage`, which is a mutable file at a well-known path that no test owns: any
+partial `coverage run` left behind by anything failed it, twice in one session, on a
+surface the change under test had never touched. That class's docstring records the
+mechanism and `partial_coverage_at_the_repo_root` plants the poison to prove it is over.
 """
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -716,6 +724,69 @@ def _module_name(path: Path) -> str:
     return ".".join(relative.parts)
 
 
+@pytest.fixture
+def partial_coverage_at_the_repo_root(tmp_path: Path) -> Iterator[Path]:
+    """Plant the artefact that has broken this file twice, exactly where it broke it.
+
+    A REAL one-module `coverage run` — the shape a developer measuring one file or an
+    agent checking its own module leaves behind — copied over `REPO_ROOT/.coverage`, with
+    whatever was there restored byte-for-byte (and mtime-for-mtime) afterwards. Real
+    rather than a doctored file because the poison has to be poisonous in the way the
+    original was: coverage's source walk skips directories with no `__init__.py`, and
+    D-18 makes `apps/voice-runtime` hyphenated, so a partial run's data file contains no
+    line of hard rule 3's service and `voice-runtime-ack` matches nothing.
+
+    MUTATING THE REAL TREE, in the doctrine `test_catches_a_new_ledger_module_nobody_
+    guarded` already uses: a control that plants the poison somewhere the code does not
+    look proves only that the code does not look there. It is safe to do mid-suite even
+    when the suite is itself under `coverage run`, and that was MEASURED rather than
+    assumed: `coverage run` erases the data file at START and holds no handle on it until
+    the process saves at exit, so a file written and removed in between is overwritten by
+    that save and cannot reach the gate's own measurement.
+    """
+    poison = tmp_path / ".coverage"
+    script = tmp_path / "measure_one_module.py"
+    script.write_text(
+        # REPO_ROOT only — deliberately NOT apps/voice-runtime, because a partial run is
+        # exactly one that never reaches it. One guarded module, imported and called.
+        f"import sys\nsys.path.insert(0, {str(REPO_ROOT)!r})\n"
+        "from apps.workers.redaction import redact\n\n"
+        'redact("call me back on 9876543210")\n',
+        encoding="utf-8",
+    )
+    completed = subprocess.run(
+        [sys.executable, "-m", "coverage", "run", "--data-file", str(poison), str(script)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, f"could not build a partial run:\n{completed.stderr}"
+
+    # The control's own precondition. If a partial run stops being able to break the old
+    # test, the control below is passing for the wrong reason and must say so HERE, where
+    # the reason is visible, rather than by going quietly green.
+    blinded = [row.area for row in ratchet.measure(ratchet.load_report(poison)) if not row.files]
+    assert blinded, (
+        "the planted measurement matches every guarded area, so it is not the poison this "
+        "control exists to survive — rebuild it from a genuinely partial run"
+    )
+
+    live = ratchet.DATA_FILE
+    before = live.read_bytes() if live.exists() else None
+    stat = live.stat() if live.exists() else None
+    try:
+        live.write_bytes(poison.read_bytes())
+        yield live
+    finally:
+        if before is None:
+            live.unlink(missing_ok=True)
+        else:
+            live.write_bytes(before)
+            if stat is not None:
+                os.utime(live, (stat.st_atime, stat.st_mtime))
+
+
 class TestRefusalReachesTheExitCode:
     """End to end: `main()`, a real measurement, and a manifest that says what happened.
 
@@ -959,16 +1030,72 @@ class TestTheRefusalCannotBeSkippedPast:
 
 
 class TestReportParsing:
-    def test_reads_the_real_coverage_data(self) -> None:
-        """Wiring: coverage.py's JSON shape is what `measure()` reads, so read the real
-        one. Skips on a fresh checkout, where no run has happened yet — the gate itself
-        covers that case, and it runs one step after the suite."""
-        try:
-            report = ratchet.load_report()
-        except FileNotFoundError:
-            pytest.skip("no .coverage in the tree — `make coverage-ratchet` writes one")
+    """`measure()` against coverage.py's REAL output — and against nobody else's file.
 
+    WHY A REAL ARTEFACT. The JSON shape `measure()` reads is coverage.py's
+    (`meta.branch_coverage`, `files.<name>.summary.num_partial_branches`), and a
+    hand-written fixture of that shape can drift from what `coverage` actually writes
+    while every test here stays green. So these read a data file a genuine `coverage run`
+    produced, with this repo's own `[tool.coverage.*]` config applied.
+
+    WHY NOT THE TREE'S OWN `.coverage`, WHICH IS WHAT THIS USED TO READ. That path is
+    mutable, well known, and owned by nobody: any partial `coverage run` replaces it, and
+    a partial one carries no `apps/voice-runtime/*.py` at all — coverage's source walk
+    skips directories without `__init__.py` and D-18 makes that directory hyphenated — so
+    `voice-runtime-ack` matches nothing and this test failed on work it knew nothing
+    about. It happened TWICE in one session (a 17-file run, then a single-test-file run),
+    each time costing a full gate cycle and reading like a real regression in a hard-rule
+    surface. The property worth keeping was "real coverage output"; the coupling to a path
+    this test does not own was never part of it, and `real_run` already gives the first
+    without the second — at no extra cost, since it is module-scoped and built anyway.
+
+    The gate itself still reads that path, and is right to: it is scoring a RUN, and
+    `unvouched_run()` makes it refuse one it cannot pair with a manifest. A TEST has no
+    such evidence available — inside the suite the newest manifest describes the PREVIOUS
+    run — which is the second reason the answer here is "bring your own measurement"
+    rather than "learn to recognise a whole-suite `.coverage`".
+    """
+
+    def _assert_it_parses(self, report: dict[str, Any]) -> None:
+        """The wiring claim, in one place so both callers below make the same one."""
         assert report["meta"]["branch_coverage"] is True, "pyproject sets branch = true"
         rows = ratchet.measure(report)
         assert {row.area for row in rows} == {area.name for area in ratchet.AREAS}
         assert all(row.files for row in rows), "every area must match measured files"
+
+    def test_reads_real_coverage_output(self, real_run: _RealRun) -> None:
+        """No skip, deliberately: this now runs on a fresh CI checkout too, where the old
+        version skipped and therefore proved nothing exactly where nothing else did."""
+        self._assert_it_parses(ratchet.load_report(real_run.data))
+
+    def test_a_partial_coverage_at_the_repo_root_cannot_fail_it(
+        self, real_run: _RealRun, partial_coverage_at_the_repo_root: Path
+    ) -> None:
+        """THE control for the fragility above: the poison is present and irrelevant.
+
+        The fixture has already proved the planted file IS poisonous (an area matching no
+        file), so this failing would mean the parser test had been re-coupled to the
+        well-known path — by a `load_report()` with no argument, or by one naming
+        `DATA_FILE` explicitly. Both are caught here; the first is also unrepresentable,
+        which the structural test below pins.
+        """
+        assert partial_coverage_at_the_repo_root == ratchet.DATA_FILE, "planted off-target"
+        self._assert_it_parses(ratchet.load_report(real_run.data))
+
+    def test_no_reader_defaults_to_the_repo_root_data_file(self) -> None:
+        """The structural half. `.coverage` is where `coverage run` writes, not a default
+        any helper may quietly adopt: WHICH run is scored is one decision and it is
+        `main()`'s argparse default. A reader that re-grows a `data_file=None` default
+        re-grows the coupling for every future caller, silently."""
+        for reader in (
+            ratchet.load_report,
+            ratchet.manifest_path,
+            ratchet.unvouched_run,
+            ratchet.blind_spots,
+        ):
+            parameter = inspect.signature(reader).parameters["data_file"]
+            assert parameter.default is inspect.Parameter.empty, (
+                f"{reader.__name__} defaults its data file to {parameter.default} — a "
+                "reader that falls back to the repo-root `.coverage` scores whatever "
+                "partial run last touched it"
+            )

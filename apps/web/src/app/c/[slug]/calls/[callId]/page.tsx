@@ -25,6 +25,7 @@ import {
   formatDuration,
   formatIST,
 } from "@/components/ui";
+import { AssistCard } from "./AssistCard";
 import { useClientRealm } from "@/lib/api/session";
 import { apiRequest, type CallDetail, type Session } from "@/lib/api/client";
 import type { components } from "@/lib/api/schema";
@@ -257,6 +258,14 @@ export default function CallDetailPage({
           )}
         </Card>
       )}
+
+      {/* D-127. Rendered UNCONDITIONALLY, above the transcript and below the summary it
+          offers a second reading of — not hidden behind "the extraction failed", because
+          the reasons a person wants another reading are not knowable from this row: a
+          summary that is thin, a call they are about to ring back, a lead they are
+          writing up. The card carries its own refusals; nothing about it depends on a
+          read this page has not made. */}
+      <AssistCard session={session} callId={callId} />
 
       {Object.keys(detail.extraction ?? {}).length > 0 && (
         <Card title="Captured details">

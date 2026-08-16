@@ -1040,11 +1040,16 @@ async def test_a_tenant_under_its_ceiling_is_let_through_with_its_quota() -> Non
 def test_the_reference_assist_costs_what_the_published_price_says_it_does() -> None:
     """The arithmetic under `AI_ASSIST_NOMINAL_INR`, spelled out once.
 
-    `gemini-3.1-flash-lite` at $0.25/$1.50 per 1M tokens and ₹95.66/USD is ₹0.0239 and
-    ₹0.1435 per 1,000 tokens; 5,000 in and 1,500 out is ₹0.33475. If the price table
-    moves and this does not, one of the two is a typo.
+    `gemini-2.5-flash` at $0.30/$2.50 per 1M tokens and ₹95.66/USD is ₹0.0287 and ₹0.2392
+    per 1,000 tokens; 5,000 in and 1,500 out is ₹0.50230. If the price table moves and
+    this does not, one of the two is a typo.
+
+    It has moved once: ₹0.33475 on `gemini-3.1-flash-lite`, which no source places in
+    `asia-south1`. The 50% jump is why this assertion is an EQUALITY on the exact paise
+    rather than a band — a band wide enough to have absorbed that change silently would
+    have carried the stale `AI_ASSIST_NOMINAL_INR` and every screen figure with it.
     """
-    assert ai_quota.reference_assist_cost_inr() == Decimal("0.33475")
+    assert ai_quota.reference_assist_cost_inr() == Decimal("0.50230")
     # Derived, never typed: the constant IS the arithmetic, so a price change carries the
     # published "about N assists" with it instead of leaving it a month behind.
     assert (ai_quota.reference_assist_cost_inr() * ai_quota.NOMINAL_ASSIST_MARGIN).quantize(
@@ -1061,16 +1066,34 @@ def test_every_price_in_the_table_is_expressible_in_the_column_that_stores_it() 
         assert price == price.quantize(Decimal("0.0001")), f"{leg} price loses digits at 4dp"
         assert price > 0, leg
         # And the per-TOKEN price genuinely does NOT survive, which is the claim
-        # `billing/models.py` makes to justify counting in thousands. Input rounds to
-        # 0.0000 outright; output rounds to 0.0001, which is not zero and is still 30%
-        # of the price thrown away. Asserted as relative error rather than as "== 0"
-        # because the second case is the one a reader would assume was fine.
+        # `billing/models.py` makes to justify counting in thousands. At `gemini-2.5-flash`
+        # prices the input leg rounds to 0.0000 outright (100% lost) and the output leg
+        # rounds from ₹0.0002392 to ₹0.0002 (16.4% lost) — not zero, and still a sixth of
+        # the price thrown away. Asserted as relative error rather than as "== 0" because
+        # the output case is the one a reader would assume was fine.
+        #
+        # THE THRESHOLD MOVED FROM 0.25 TO 0.15 AND THAT IS A REAL WEAKENING, recorded
+        # rather than smoothed over: 3.1 Flash-Lite's output leg lost 30%, 2.5 Flash's
+        # loses 16.4%, and the loss shrinks as the output price rises. The claim survives
+        # — the INPUT leg still loses everything, which alone makes per-token metering
+        # meter half of every assist at zero — but the output half of the argument is
+        # getting thinner with each price rise, and the day it drops under this floor the
+        # right move is to re-argue `billing/models.py`'s paragraph, not to lower the
+        # number again.
         per_token = price / Decimal("1000")
         lost = (per_token - per_token.quantize(Decimal("0.0001"))).copy_abs() / per_token
-        assert lost >= Decimal("0.25"), (
-            f"{leg} survives per-token storage with only {lost:.0%} lost — the reason "
+        assert lost >= Decimal("0.15"), (
+            f"{leg} survives per-token storage with only {lost:.1%} lost — the reason "
             "this ledger counts in thousands has changed"
         )
+    # The input leg is the load-bearing half of that claim, so it is pinned separately:
+    # a threshold satisfied only by the output leg would let the input price rise into
+    # survivability with this test still green.
+    input_per_token = ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["in"] / Decimal("1000")
+    assert input_per_token.quantize(Decimal("0.0001")) == Decimal("0.0000"), (
+        "the input leg now survives per-token storage — `billing/models.py`'s ktok "
+        "argument rests on it storing as exactly zero"
+    )
 
 
 def test_no_product_constant_is_out_by_an_order_of_magnitude() -> None:

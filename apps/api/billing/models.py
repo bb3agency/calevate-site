@@ -41,18 +41,25 @@ CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
 #
 # **`ktok`, NOT `tok`, and that is a MONEY decision, not a naming one.** `unit_cost_paid`
 # is NUMERIC(12,4) and every reader multiplies it by `qty`, so the smallest non-zero
-# price this ledger can express is ₹0.0001 per unit of qty. `gemini-3.1-flash-lite`
-# input is $0.25 per 1M tokens — ₹0.0000239 a token at ₹95.66/USD — which stores as
-# 0.0000, so a per-TOKEN qty would meter the input leg of every dashboard assist at
-# exactly zero rupees. The OUTPUT leg is the one worth spelling out because it looks
-# survivable and is not: ₹0.0001435 a token stores as 0.0001, which is not zero and is
-# 30% of the price discarded. Per THOUSAND tokens the two are ₹0.0239 and ₹0.1435, which
-# the column holds with digits to spare. What the ₹0.0001/1k quantum costs is stated
-# where it lands: it bounds the error on OUR OWN absorbed cost at 0.42% of the input
-# rung, and no client-visible rupee is ever derived from it — past the quota a client is
-# charged a FIXED block (`billing/ai_quota.py`), never a token count. The prices
-# themselves live in ONE place, `billing/ai_quota.py::ASSIST_LIST_PRICE_INR_PER_KTOK`,
-# with their source; `tests/ai_quota_test.py` holds this paragraph to the arithmetic.
+# price this ledger can express is ₹0.0001 per unit of qty. `gemini-2.5-flash` input is
+# $0.30 per 1M tokens — ₹0.0000287 a token at ₹95.66/USD — which stores as 0.0000, so a
+# per-TOKEN qty would meter the input leg of every dashboard assist at exactly zero
+# rupees. The OUTPUT leg is the one worth spelling out because it looks survivable and is
+# not: ₹0.0002392 a token stores as 0.0002, which is not zero and is 16% of the price
+# discarded. Per THOUSAND tokens the two are ₹0.0287 and ₹0.2392, which the column holds
+# with digits to spare. What the ₹0.0001/1k quantum costs is stated where it lands: it
+# bounds the error on OUR OWN absorbed cost at 0.35% of the input rung, and no
+# client-visible rupee is ever derived from it — past the quota a client is charged a
+# FIXED block (`billing/ai_quota.py`), never a token count.
+#
+# THE FIGURES ABOVE MOVED ONCE ALREADY — they were 3.1 Flash-Lite's ($0.25/$1.50, 30%
+# discarded on the output leg) until the founder shipped 2.5 Flash — and the survivable-
+# looking case moved WITH them, from 30% lost to 16%. That is the direction that matters:
+# the argument for counting in thousands gets weaker as the output price rises, and the
+# day a model's output rounds to within a few percent this paragraph has to be re-argued
+# rather than re-stated. The prices themselves live in ONE place,
+# `billing/ai_quota.py::ASSIST_LIST_PRICE_INR_PER_KTOK`, with their source;
+# `tests/ai_quota_test.py` holds this paragraph to the arithmetic.
 AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

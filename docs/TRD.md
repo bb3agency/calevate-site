@@ -99,22 +99,29 @@ Models (per-agent config, BYOK):
   (all-India residency, no transcript text leaves India), and one vendor for STT+LLM+TTS.
   **`GEMINI_EXTRACTION_DEFAULT is False` (D-127 G-7): Sarvam runs the first post-call
   extraction permanently**, because that pass reads the RAW transcript and G-2 forbids raw
-  PII reaching Google. **Gemini 3.x Flash-Lite** ($0.25/$1.50 per M for `3.1-flash-lite`)
-  runs the USER-TRIGGERED dashboard AI over the redacted copy, through Vertex AI
-  `asia-south1` and never the AI Studio Developer API — but
-  **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`**: the 16 Aug 2026 re-search places the
-  3.x family on the global and `us`/`eu` multi-region endpoints and places only the 2.5
-  class in Mumbai, so whether Mumbai serves the identifier we ship is OPERATIONS §2 gate
-  14 and not a settled fact (D-142). Which model extracts BETTER is still
+  PII reaching Google. **Gemini 2.5 Flash** ($0.30/$2.50 per M) runs the USER-TRIGGERED
+  dashboard AI over the redacted copy, through Vertex AI `asia-south1` and never the AI
+  Studio Developer API. **2.5 AND NOT 3.x, ON PURPOSE**: the 16 Aug 2026 re-search placed
+  the 3.x family on the global and `us`/`eu` multi-region endpoints and placed the 2.5
+  class in Mumbai, and D-127 will not move the region — so the founder took the model that
+  the only permitted region serves, and with it **BRD R-04's 16 Oct 2026 retirement, LIVE
+  for this leg** (`calevate_shared.engine.GEMINI_DEFAULT_LLM_RETIRES`; the build turns red
+  30 days out). **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`** even so: the evidence now
+  points the right way but nothing here has read a page or made a call, so whether Mumbai
+  serves the identifier we ship is OPERATIONS §2 gate 14 and not a settled fact. Which
+  model extracts BETTER is still
   unmeasured and still blocked on a Sarvam key and egress (§7's golden-transcript
   fixtures). Availability of either on Bolna is UNVERIFIED (pilot;
   fallback = their listed LLMs or an OpenAI-compatible endpoint if offered). Sarvam's
   **rate limits (60/200/1,000 rpm by plan) are a concurrency input**, not a price input —
   size the plan at pilot gate 13.
-  R-04: 2.5 family retires 16 Oct 2026 → migration target 3.x Flash-Lite; LLM id is a
-  config string on the agent, changing it is a config edit + regression run. COST NOTE
-  [verified Aug 2026]: 3.1 Flash-Lite is $0.25/$1.50 and 3.5 is $0.30/$2.50 — the
-  forced migration moves the LLM leg from ~₹0.15–0.20 to ~₹0.55–0.65/min (§10).
+  R-04: the 2.5 family retires 16 Oct 2026, and **the dashboard-AI leg now runs on it**,
+  so this is a dated obligation rather than a risk we routed around — migration target is
+  whatever Gemini `asia-south1` serves on the day (gate 14 answers that; the region does
+  not move). LLM id is a config string on the agent, so changing it is a config edit +
+  regression run. COST NOTE [verified Aug 2026]: 2.5 Flash is $0.30/$2.50, 3.1 Flash-Lite
+  is $0.25/$1.50 and 3.5 is $0.30/$2.50 — the migration is roughly cost-neutral if it
+  lands on a Flash tier and cheaper if a Lite tier reaches Mumbai by then (§10).
 - TTS: **Sarvam Bulbul V3** (11 Indian languages) — their docs list only V3; Bulbul v2
   may no longer be offered, which moves the TTS cost line to the v3 band (₹30/10K,
   ~₹1.20–1.35/min) [docs-verified; cost model §10 updated]. Ear-test at verification
