@@ -865,3 +865,354 @@ not code"* — is right about the shape and **wrong by two rows**: both are ours
 and the first means a successful deploy still cannot onboard client #1.
 
 ---
+
+## PART 5 — Everything needed to actually run this
+
+**Read this part before attempting a deploy.** Six findings here stop the first deploy or
+silently break it, and three places in the operator-facing documents state facts that are
+wrong rather than merely incomplete.
+
+**The headline is structural.** This register said one thing had never run (terraform). In
+this area **nothing has ever run, and no gate could have caught it**: `scripts/vps-deploy.sh`
+(621 lines), `compose.prod.yml`, `Dockerfile` and `infra/nginx/` have **no CI step, no
+`bash -n`, no shellcheck, no `docker compose config`, no `docker build`**. `.github/workflows/ci.yml`
+never mentions any of them, `.pre-commit-config.yaml` has no shell hook, and `make check` does
+not either. A repo with thirteen executable guardrails has **zero on the artefact that puts it
+in production.**
+
+### P5.1 — Nothing ever starts `redis`. The first deploy cannot succeed. · BLOCKER · OURS
+
+`ALL_COMPONENTS=(api voice-runtime workers web nginx)` (`vps-deploy.sh:87`). `redis` is not a
+component, not in the path map, and every swap is `compose up -d --no-deps "$service"` (`:459`)
+— and `--no-deps` is precisely the flag telling compose **not** to start `depends_on`, so
+`redis: {condition: service_healthy}` is never evaluated and the container is never created.
+
+On the first `--all` run: workers start with no queue, `api` is swapped, `wait_healthy` polls
+`/healthz` which does a Redis PING (`core/health.py:133`) and returns **503**. `curl -fsS`
+fails for 90×2s and the deploy dies at `swap api` — **after migrations have already run.**
+
+Nothing documents `docker compose -f compose.prod.yml up -d redis`; worse,
+`compose.prod.yml:16` actively warns operators off running compose by hand, and
+`runbooks/deploy-failed.md` §4 lists only `logs` and `curl`.
+
+**FIX:** bring `redis` up as a first-class step before the swap loop (without `--no-deps`), or
+make it an explicit numbered pre-step in DEPLOYMENT §9. The `--no-deps` reasoning is right for
+*swaps* and wrong as the *only* way the stack is ever brought up.
+
+### P5.2 — The documented rollback aborts at the migration step, in exactly the case it exists for · BLOCKER · OURS
+
+Both `vps-deploy.sh:575` and `runbooks/deploy-failed.md:110` give the rollback as
+`git checkout <previous-sha>` then `vps-deploy.sh --all --no-pull`. `--all` puts api/workers/
+voice-runtime in the plan, so `run_migrations` runs `alembic upgrade head` **from the older
+image**. If the failed deploy carried a migration — the case §4 is written for — the DB is at a
+revision whose script **does not exist in the older image**, and alembic resolves the stored
+`alembic_version` against the script directory before computing a path: `ResolutionError`, not
+a no-op. **The rollback dies before swapping a single container, with production still running
+the broken release.**
+
+Compounding: `compose.prod.yml:30` tags every build `calevate/app:${CALEVATE_IMAGE_TAG:-local}`
+and **nothing ever sets that variable**. There is no per-SHA image, so "rollback" is always a
+full rebuild — serial `docker build` + `pnpm install` + the >2GB `next build` — on a degraded
+production host, during an incident. A second consequence of the shared mutable tag: an
+api-only build replaces the image `voice-runtime` uses on its next recreate, so hard rule 3's
+decoupling holds at the container level and **not at the artefact level**.
+
+**FIX:** (a) `run_migrations` must skip when the target image's head is an ancestor of the
+current DB revision, or the rollback path must exclude migrations explicitly and the runbook
+must say so; (b) tag images `calevate/app:<sha>` and record it in `.deploy-state/history` so a
+rollback is `up -d` against an existing artefact.
+
+### P5.3 — Migrations are NOT one transaction per revision, and three documents state a failure model the configuration does not implement · BLOCKER · OURS
+
+`alembic/env.py:57` never passes `transaction_per_migration`. Verified against the installed
+alembic: it defaults to `False`, so with PostgreSQL's transactional DDL the
+`with context.begin_transaction():` at `env.py:61` opens **one transaction spanning the entire
+`upgrade head` run**. All three of these are therefore wrong:
+
+- `docs/DEPLOYMENT.md:270` — "alembic runs each revision in its own transaction, so a failure
+  leaves the database at the last revision that fully applied"
+- `scripts/vps-deploy.sh:397` — the same sentence
+- `runbooks/deploy-failed.md:58` — "there is no half-applied revision"
+
+Real behaviour: a failure rolls back **every** revision since the last commit point, and the
+only commit points are three `autocommit_block()` calls. Alembic's own docstring says it:
+*"It is recommended that when an application includes migrations with 'autocommit' blocks, that
+`transaction_per_migration` be used."* This repo has such blocks and does not set it.
+
+**The half-migrated state is real and lands on a money table.** `f9c2b41a8e57:167` builds
+`CREATE UNIQUE INDEX CONCURRENTLY ux_credit_ledger_tenant_reason_ref`; a failed CONCURRENTLY
+build leaves an **INVALID** index — never used for reads, still enforcing uniqueness on
+inserts. The migration's own docstring documents this; `deploy-failed.md` §3, the file an
+operator actually opens, does not mention invalid indexes and tells them the state is clean.
+
+**FIX:** set `transaction_per_migration=True` — which makes the three documents TRUE rather
+than editing them to describe a worse property — and add
+`SELECT indexrelid::regclass FROM pg_index WHERE NOT indisvalid` to `deploy-failed.md` §3.
+
+### P5.4 — `pm2 reload calevate-web` fails on a host where it was never started, and the runbook's fix names a file that does not exist · BLOCKER · OURS
+
+`vps-deploy.sh:480` runs `pm2 reload calevate-web`, which exits non-zero on an unknown process.
+**Nothing in this repo ever runs `pm2 start`**, there is no ecosystem file, and DEPLOYMENT §2
+says only "`pm2 startup` once". So DEPLOYMENT §9's `--all` aborts at `deploy web`. Then
+`runbooks/deploy-failed.md:144` says to start it *"from the ecosystem definition"* — **there is
+none**; `runbooks/database-restore.md:338` says `pm2 start calevate-web`, which cannot work
+without one.
+
+Secondary: `deploy_web` checks for `pnpm` and `pm2` at `:468` — **after** migrations have run
+and all three containers have been swapped. Those are preflight checks living in step 9.
+
+**FIX:** commit `apps/web/ecosystem.config.cjs`, make the step
+`pm2 describe calevate-web >/dev/null || pm2 start ecosystem.config.cjs`, and move the
+`command -v` checks into `preflight()`.
+
+### P5.5 — The web build has no configuration source, ships green, and is unusable · BLOCKER · OURS
+
+`apps/web/.env.example:1` states it: Next loads `.env*` from the **package** directory, every
+`NEXT_PUBLIC_*` is inlined at build time, and a missing key *"compiles to the empty string,
+ships, and fails as a broken screen in front of a client"*.
+
+**`apps/web/.env.local` is placed by nothing.** The deploy preflights only `$ROOT/.env` and
+never mentions the web file; DEPLOYMENT §9's go-live order never mentions it. So the first
+`pnpm -C apps/web build` inlines empty strings and:
+
+- `NEXT_PUBLIC_API_BASE_URL` unset → every browser at `app.calevate.tech` calls **its own
+  localhost:8000**;
+- both `NEXT_PUBLIC_CLERK_*_PUBLISHABLE_KEY` empty → every realm renders "sign-in is not
+  configured";
+- `resolveAuthMode` correctly resolves to `clerk` and **does not throw**, so `next build`
+  succeeds.
+
+`wait_healthy web` curls `/`, which the landing page answers 200. **The deploy prints DEPLOYED.**
+
+This also breaks §9's central promise: step 10a says the remaining ~50 keys are set from
+`admin.calevate.tech/ops` live — but the **publishable** keys the browser needs are build-time,
+and you cannot reach `/ops` to fix anything until the admin realm's publishable key is already
+baked in. A circular dependency the go-live order does not name.
+
+**FIX:** add `apps/web/.env.local` to `preflight()` as a hard refusal alongside `.env`; add it
+as a numbered item in §9 step 4; and fail the production build when either publishable key is
+empty, the way it already fails on `AUTH_MODE=dev`.
+
+### P5.6 — The object store has no credentials and no region, so recordings and raw payloads cannot be written · BLOCKER · OURS
+
+`workers/storage.py:110` constructs the S3 client with `endpoint_url` and a `Config` — **no
+`aws_access_key_id`, no `aws_secret_access_key`, no `region_name`**. botocore requires a
+resolvable region for sigv4; without `AWS_DEFAULT_REGION`/`AWS_REGION` the constructor raises
+`NoRegionError` before any request.
+
+Those three variables appear **nowhere** in `.env.example` (which says "eight variables, and
+deliberately nothing else"), nowhere in `compose.prod.yml`, nowhere in DEPLOYMENT §6 or §9, and
+are not `Settings` fields — so they are also not among the "50 keys" the ops console manages.
+The only place in the repo that gets this right is the **unapplied** lifecycle applier
+(`infra/object-lifecycle/apply_lifecycle.py:181` passes `region_name`). Two constructions of the
+same client, one correct, one shipping.
+
+And the obvious operator fix is a trap: `Settings` is `extra="forbid"` with `env_file=".env"`,
+so pasting `AWS_ACCESS_KEY_ID` into `/var/www/calevate/.env` **crashes any process that reads
+it as a dotenv** — the same failure this register already records for `RAZORPAY_KEY_SECRET`
+(P1.9). `/healthz/ready` does not probe object storage, so the deploy is green and the failure
+surfaces as recording-copy retries and DLQ entries.
+
+**FIX:** give `_client()` an explicit `region_name` sourced the way `apply_lifecycle.py` does,
+add the three variables to `.env.example` and DEPLOYMENT §6 tier 1 (**the floor is not 8**), and
+add an object-store probe to `/healthz/ready`.
+
+### P5.7 — `docker compose up -d` in the deploy directory recreates production redis from the DEV file · SERIOUS · OURS
+
+`compose.prod.yml:24` declares `name: calevate`. `docker-compose.yml` declares **no** project
+name, so it defaults to the directory basename — `/var/www/calevate` → `calevate`. **Both files
+address the same compose project and both define a service named `redis`.**
+
+A bare `docker compose up -d` (the default file is `docker-compose.yml`) recreates production
+redis from the dev definition: `redis:7-alpine` with `ports: "6380:6379"`, **no `--appendonly
+yes`, and no `redis-data` volume** — destroying the ARQ queue and the webhook dedupe keys that
+`compose.prod.yml:50` exists to protect. It also starts Postgres on `0.0.0.0:5433` with
+`POSTGRES_PASSWORD: calevate` and MinIO on `0.0.0.0:9000`. A bare `docker compose down -v`
+removes the whole project, prod containers included.
+
+**Docker's published ports bypass `ufw`** (its rules sit in nat/FORWARD, not INPUT), so
+DEPLOYMENT §2's "ufw inbound 22/80/443 only" does not contain any of it.
+
+**FIX:** give `docker-compose.yml` `name: calevate-dev`, and refuse its presence in
+`preflight()`. Independently, §2's hardening list needs the Docker/ufw caveat named.
+
+### P5.8 — nginx config is installed BEFORE `nginx -t`, so a bad render survives on disk · SERIOUS · OURS
+
+`vps-deploy.sh:535` installs the snippets and conf files, then runs `nginx -t`. If the test
+fails the ERR trap stops the script — **with the broken files already in `/etc/nginx/conf.d/`**.
+The running nginx is fine; the **next** reload is not, and those are triggered by Debian's daily
+logrotate and by certbot's renewal hook. `deploy-failed.md:140` tells the operator "nothing was
+reloaded — nginx keeps the previous config", which is true and misses the time bomb on disk.
+
+**FIX:** back up the existing `.conf` set into staging, install, `nginx -t`, and
+restore-then-fail on a bad test.
+
+### P5.9 — Five variables the nginx step needs are checked at the very last step, and no human-facing document names them · SERIOUS · OURS
+
+`render_nginx` requires `ROOT_DOMAIN`, `TLS_LIVE_DIR`, `ORIGIN_CERT_PATH`, `ORIGIN_KEY_PATH`
+(`:489`). The script **never sources `.env`** and none is a `Settings` field, so they must be
+exported in the operator's shell. The CD workflow supplies them from repo Variables; the human
+first-deploy path has nothing. So §9's `--all` runs migrations, swaps three containers, does the
+>2GB build — **and then dies on `ROOT_DOMAIN must be set`.**
+
+Plus an undocumented chicken-and-egg: the config references `${TLS_LIVE_DIR}/fullchain.pem`,
+`nginx -t` fails when a referenced certificate does not exist, and the ACME webroot location
+certbot needs lives **inside that same file**. §9 step 5 lists "nginx render + certbot certonly"
+in that order without resolving it.
+
+**FIX:** move the five checks into `preflight()`, document the exports in §9 step 4, and add the
+certificate bootstrap order (Cloudflare Origin CA cert first — it needs no ACME).
+
+### P5.10 — `SENTRY_DSN` is a console field with no SDK behind it · SERIOUS · OURS
+
+`core/observability.py:1021` guards `import sentry_sdk` with
+`except ImportError: log.warning("sentry_dsn_set_but_sdk_missing")`. **`sentry-sdk` is not a
+dependency of any package** — it appears in `pyproject.toml:130` only as a mypy override, and
+**not once in `uv.lock`**. Meanwhile `sentry_dsn` is a real `Settings` field and the ops console
+offers `sentry_` as a managed prefix. An operator sets the DSN on the go-live screen, sees it
+accepted, and gets a log warning and no error reporting. DEPLOYMENT:594's "Sentry is hosted —
+nothing to run on the VPS" reads as *configured* rather than *absent*.
+
+**FIX:** add `sentry-sdk` to `apps/api` and `apps/workers` (**not** voice-runtime — hard rule 3),
+or remove it from the console's managed set and say error reporting is unbuilt.
+
+### P5.11 — The host backup alert path has no transport under the documented "simple shape" · SERIOUS · OURS
+
+`infra/backup/README.md:189` offers the `postgres` user "either the repo's `.env` (simple shape)
+or `/etc/calevate/alerts.env` (hardened)". **The simple shape cannot work**: `.env` is the
+bootstrap eight and holds no `SMTP_*` and no `ALERTS_EMAIL` — those are console-managed, i.e. in
+the database, and `host_alert.py:38` deliberately opens no DB connection. So under the
+documented primary route the relay exits 78 (`EX_CONFIG`) forever.
+
+Beyond the wrong doc: `SMTP_PASSWORD` must exist as a **second copy** on the database host,
+outside the console DEPLOYMENT §6 calls the one place — and rotating it in the console silently
+breaks the host relay. The external dead man covers a *failing* check; a healthy-backups /
+broken-relay state pings normally and nobody learns until the night it is needed.
+
+**FIX:** make `/etc/calevate/alerts.env` the only documented shape, and add "rotate
+`SMTP_PASSWORD` in the console AND in `/etc/calevate/alerts.env`" to OPERATIONS §6.
+
+### P5.12 — The restore-drill harness is unreachable and names a Makefile target that does not exist · SERIOUS · OURS (harness) / EXTERNAL (the real chain)
+
+`docs/evidence/` contains no `restore-drill-*.md`, so OPERATIONS §8's "backups verified" is
+un-tickable — which the docs say honestly. What this register did **not** record:
+`scripts/restore_drill.py` (69KB, D-92, *"the executable half of
+runbooks/backup-restore-drill.md"*) is wired to nothing.
+
+- Its own usage block says `make restore-drill`. **There is no such target.** A committed file
+  naming a command that does not exist.
+- `runbooks/backup-restore-drill.md` never mentions `restore_drill` — zero hits. The runbook it
+  is the executable half of does not know it exists.
+- It is in no CI step and no `make check`.
+
+So the one part of the backup design exercisable **without a cloud account** — whose whole point
+is proving the verifier goes red — has, by the same reasoning this register applies to terraform,
+almost certainly never run.
+
+**FIX:** add the `restore-drill` target, cite it from the runbook, run it once, commit the output.
+Everything in `infra/backup/` §8 steps 1-11 remains genuinely EXTERNAL.
+
+### P5.13 — `/healthz/ready` is called "the GO-LIVE GATE" and nothing polls it · SERIOUS · OURS
+
+`core/health.py:7` names it the go-live gate and `runtime_config_missing_keys` is the
+completeness check for nine credentials. `grep -rn "healthz/ready" scripts/ .github/ infra/
+Makefile` returns **exactly one hit — a comment**. The deploy polls `/healthz`; compose polls
+`/healthz/live`; OPERATIONS §8's checklist does not name it. The gate is a route nothing calls.
+
+**FIX:** add `GET /healthz/ready` (with an `ops:manage` credential so the `fields[]` detail is
+readable) as the last numbered item of §8's pre-launch checklist.
+
+**Confirming P2.1 from the nginx side:** `calevate.conf.template:160` proxies both `= /healthz`
+and `^~ /healthz/` on the **hooks** vhost. `hooks.` needs no health route at all — the deploy
+polls `127.0.0.1:8100` and compose's healthcheck is in-container. **Deleting those two lines
+removes the public path onto the vendor-adapter import entirely**, independent of the app-side
+fix.
+
+### P5.14 — A production role password is committed, and the production role/grant procedure is undocumented · SERIOUS · OURS
+
+`05bba2f3c19c:593`, executed against the production cluster, does
+`CREATE ROLE calevate_app LOGIN PASSWORD 'calevate_app'`. The comment says "staging/prod set it
+from the secrets manager" and **nothing enforces it**; the `IF NOT EXISTS` guard makes this safe
+only if a human created the role first. DEPLOYMENT §9 step 3 is one clause naming neither role,
+neither attribute set, nor the owner role `ALEMBIC_DATABASE_URL` connects as, nor the
+`GRANT ALL ON SCHEMA public` that CI shows is required.
+
+Since Postgres is on the host and containers reach it over the docker bridge, `pg_hba.conf` must
+admit that CIDR — and Docker's published ports bypass ufw (P5.7). A role whose password is in a
+public repo is one hop away.
+
+**FIX:** put the exact `CREATE ROLE`/`CREATE DATABASE`/`GRANT` sequence in §9 step 3 with
+"generate both passwords from the secrets manager", and refuse startup when `DATABASE_URL`
+carries the literal `calevate_app:calevate_app` outside `local`.
+
+### P5.15 — Four irrecoverable-data points, and only two are guarded · SERIOUS · OURS
+
+1. **Losing `PLATFORM_KEK`** — every console-stored credential becomes permanently
+   undecryptable. Guarded **only by prose**; it is not in `BOOTSTRAP_REQUIRED` and not in
+   `runtime_config_missing_keys`, so a deploy that never had it looks healthy. **Unguarded in
+   code.**
+2. **Losing the `age` identity** — every offsite dump unreadable. Guarded by a quarterly drill
+   that has never run.
+3. **`docker compose down -v` in the deploy directory** — P5.7. **Unguarded.**
+4. **A short expiry on the recordings prefix** — guarded in four independent layers (DB CHECK,
+   `RECORDING_FLOOR_DAYS` clamp, applier exit 2, terraform precondition). **Exemplary.**
+
+Also: `runbooks/database-restore.md`'s "a restore un-erases" step depends on reading the
+preserved pre-restore `PGDATA`. That is one `rm -rf` from making a DPDP erasure replay
+impossible, and the runbook is the only thing forbidding it.
+
+### P5.16 — Preconditions the deploy assumes and never verifies · SERIOUS · OURS
+
+`preflight()` verifies: git/docker/curl/envsubst, compose v2, `compose.prod.yml` + `Dockerfile`,
+`.env` present (mode 600 **warn only**), clean checkout, ≥3GB free, Cloudflare stamp <180d.
+
+**Assumed and never checked:** redis container exists (P5.1) · `pnpm`/`pm2` installed (checked at
+step 9 of 11) · `calevate-web` pm2 process exists (P5.4) · `apps/web/.env.local` (P5.5) · the five
+nginx exports (P5.9) · `sudo` non-interactive · nginx installed and its dirs exist · TLS certs
+exist · host Postgres reachable and roles exist (P5.14) · `PLATFORM_KEK` present and 32 bytes ·
+`AWS_*` (P5.6) · **Postgres `max_connections ≥ 200`** — §2a's budget totals ~101 against a default
+of 100 · **host has ≥4 vCPU** for `VOICE_RUNTIME_WORKERS=4`, which §2a says must never exceed
+vCPU · 2GB swap (the `next build` OOM is `deploy-failed.md` §5's first cause).
+
+### P5.17 — Silent-on-absence environment variables · SERIOUS · OURS
+
+**Loud (process refuses, re-run inside the new image before any swap):** `APP_ENV`,
+`DATABASE_URL`, `REDIS_URL`, `OBJECT_STORE_ENDPOINT`, `OBJECT_STORE_BUCKET`.
+**Loud but late** (not in `BOOTSTRAP_REQUIRED`, dies at the migrate step): `ALEMBIC_DATABASE_URL`.
+**Silent — deploy reports DEPLOYED:** `PLATFORM_KEK` (fails only at the first secret read) ·
+`AWS_*` · `CALEVATE_IMAGE_TAG` · `API_WORKERS`/`VOICE_RUNTIME_WORKERS`/`*_DB_POOL_SIZE` (defaults
+sized for ≥4 vCPU and `max_connections=200`; a smaller box silently oversubscribes both) · every
+`NEXT_PUBLIC_*` · `ALERTS_EMAIL`/`SMTP_*` on the database host.
+**Red on `/healthz/ready`, which nothing polls** (P5.13): the nine credentials.
+
+### Checked and clean (ops/deploy)
+
+**No secret is readable from a committed file** except the two named in P5.14 and P5.7. `.env`
+is correctly untracked and excluded by both `.gitignore` and `.dockerignore`. Secrets-to-logs
+discipline is good: `secret_routes.py:8` refuses a read-back route by construction,
+`health.py:191` logs key NAMES only, and `vps-deploy.sh` prints no value anywhere. `preflight()`
+re-runs `validate_bootstrap_env` **inside the new image** before any swap, which is the right
+place. Swap order (workers → api → voice-runtime) correctly puts the only costly gap last, and
+the webhook rate zone is sized for the post-gap catch-up. **The container swap does drop
+in-flight webhooks and the docs are honest about it** — the 10-minute reconciliation tick absorbs
+it, so leads appear late rather than never; note the gap is **unmeasured** and "a few seconds" is
+a guess, and the 180s health wait can extend it well past the swap.
+
+### Corrections to this register
+
+1. **"`scripts/vps-deploy.sh` and `compose.prod.yml` exist and are complete"** — they are not.
+   No way to start redis, no way to start web, no configuration source for the browser bundle,
+   no object-store credentials. "Never run" was right; **"complete" is the claim that would have
+   made the first deploy a surprise.**
+2. **Section C is missing two rows of the terraform class:** the deploy artefacts have no CI gate
+   of any kind, and `scripts/restore_drill.py` is reachable from nothing.
+3. **Three operator-facing documents state a migration failure model the configuration does not
+   implement** (P5.3) — not a gap in this register, a wrong fact in the three places an operator
+   reads at 3am.
+
+Minor drift, one commit each: `.env.example:86` says `OBJECT_STORE_*` are not in
+`BOOTSTRAP_REQUIRED` (they have been since `settings.py:64`); `calevate.conf.template:12` lists
+three substituted variables and the script substitutes five; `core/bootstrap.py:50` ships
+`http://localhost:3000` in `DEFAULT_CORS_ORIGINS` unconditionally, including production.
+
+---
