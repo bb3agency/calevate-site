@@ -2,18 +2,23 @@ import Link from "next/link";
 import {
   ArrowRight,
   BadgeCheck,
+  Building2,
   Clock,
   Database,
   FileAudio,
+  GraduationCap,
   Languages,
   Megaphone,
   PhoneIncoming,
   ShieldCheck,
+  Stethoscope,
   Table2,
+  Umbrella,
   Webhook,
 } from "lucide-react";
 
 import { CallDemo } from "@/components/marketing/callDemo";
+import { Faq } from "@/components/marketing/faq";
 import { HeroStagger, Reveal, SmoothScroll } from "@/components/marketing/motion";
 import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
 
@@ -48,6 +53,29 @@ import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
  * invariant enforced on the dispatch path (hard rule 5), not a policy page. The recording
  * and key-moments card is D-153/D-156, both shipped. The retention line is the TRAI
  * 90-day floor, enforced by a database CHECK rather than by intent.
+ *
+ * ## The sections added after the redesign, and what each one is reading from
+ *
+ * - **Verticals.** The field lists are COPIED from `scripts/seed.py`'s
+ *   `VERTICAL_TEMPLATES`, label for label, so the page shows the columns a new agent
+ *   really starts with rather than a plausible-looking set. Which two have a scenario
+ *   suite behind them is stated rather than implied: `tests/fixtures/
+ *   golden_transcripts.json` carries `cl_*` and `re_*` cases and nothing for the other
+ *   two, and BRD §3 calls insurance and education fast-follow.
+ * - **Languages.** Three, because three is what the product offers — `Language` in
+ *   `apps/api/agents/voices.py` and `CreateOrgIn.language` in `apps/api/admin/routes.py`
+ *   are `te-IN | hi-IN | en-IN` — and Telugu leads because `agents.language_primary`
+ *   server-defaults to it. No comprehension or naturalness figure: D-36 records Telugu
+ *   extraction quality as UNMEASURED, and TRD §5 records Bulbul's wider language count
+ *   without a list, which is why the page names three and not eleven.
+ * - **Quality.** D-15's client-facing report, which is a shipped screen
+ *   (`/c/<slug>/quality`, `GET /v1/quality/reports`). The section says what the report
+ *   REFUSES to print, because that is the differentiating part and it is enforced in
+ *   `lib/api/quality.ts` rather than promised here.
+ * - **FAQ** — see `components/marketing/faq.tsx`, which carries its own answer-by-answer
+ *   backing, including why the cost answer names a structure and no number.
+ * - **A closing invitation** rather than a closing claim. It repeats the doors' honesty
+ *   about how an account is actually opened instead of introducing a new promise.
  *
  * ## Motion
  *
@@ -133,6 +161,71 @@ const COMPLIANCE: { icon: typeof Clock; title: string; body: string }[] = [
     body:
       "The TRAI floor is enforced by the database itself, so a shorter retention policy " +
       "cannot be set — not by you and not by us.",
+  },
+];
+
+/**
+ * The extraction-schema starting points the product ships (`scripts/seed.py`).
+ *
+ * `fields` are the seed's own labels, in the seed's own order. Copied rather than
+ * paraphrased on purpose: this grid's whole value to a buyer is that it is the actual
+ * first screen of their agent, and a prettier label here would be a small lie that only
+ * shows up on the day they log in. `suite` marks the two the golden-transcript fixtures
+ * cover today (`cl_*`, `re_*`) — stated on the card rather than left to be assumed of
+ * all four.
+ */
+const VERTICALS: {
+  icon: typeof Stethoscope;
+  name: string;
+  fields: string[];
+  suite: boolean;
+}[] = [
+  {
+    icon: Stethoscope,
+    name: "Clinics",
+    fields: ["Symptom / reason", "Preferred doctor", "Urgency", "Preferred slot", "Insurance"],
+    suite: true,
+  },
+  {
+    icon: Building2,
+    name: "Property offices",
+    fields: ["Budget (lakhs)", "Location", "BHK", "Timeline", "Site visit"],
+    suite: true,
+  },
+  {
+    icon: Umbrella,
+    name: "Insurance",
+    fields: ["Policy type", "Sum assured", "Renewal due", "Existing insurer"],
+    suite: false,
+  },
+  {
+    icon: GraduationCap,
+    name: "Coaching and colleges",
+    fields: ["Course", "Class / year", "Fee concern", "Demo booked"],
+    suite: false,
+  },
+];
+
+/** What the quality report does, including the two things it refuses to do. */
+const QUALITY: { term: string; detail: string }[] = [
+  {
+    term: "Your agent is run against a scenario suite",
+    detail:
+      "A booking that goes to plan, a caller who talks over the agent, a wrong number, " +
+      "an angry caller, a silent line, someone asking to be taken off the list — each " +
+      "scored on whether the details reached your leads list correctly.",
+  },
+  {
+    term: "The report is a screen you open, not a file you ask us for",
+    detail:
+      "It sits in your dashboard beside the calls it was scored on, month by month, with " +
+      "the previous months still there to compare against.",
+  },
+  {
+    term: "It states its own limits",
+    detail:
+      "Where too few calls were scored to support a figure, it prints the count and says " +
+      "so instead. The fields the agent is known to struggle with are listed by name.",
   },
 ];
 
@@ -274,6 +367,109 @@ export default function Home() {
             </div>
           </section>
 
+          {/* --- Verticals --------------------------------------------------------- */}
+          <section id="verticals" className="mx-auto w-full max-w-5xl scroll-mt-20 px-6 py-20">
+            <Reveal>
+              <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                It starts with the questions your line of work actually asks
+              </h2>
+              <p className="mt-4 max-w-2xl text-base text-ink-muted">
+                A clinic needs to know what hurts and how soon. A property office needs a
+                budget and an area. These are the field lists a new agent starts from —
+                and then you change them, because the columns are yours rather than ours.
+              </p>
+            </Reveal>
+            <div className="mt-10 grid gap-4 sm:grid-cols-2">
+              {VERTICALS.map(({ icon: Icon, name, fields, suite }, index) => (
+                <Reveal
+                  as="section"
+                  key={name}
+                  delay={(index % 2) * 0.06}
+                  className="rounded-card border border-line bg-surface p-5"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
+                      <Icon aria-hidden className="h-5 w-5" />
+                    </span>
+                    <h3 className="text-[17px] font-semibold text-ink">{name}</h3>
+                  </div>
+                  <ul className="mt-4 flex flex-wrap gap-2">
+                    {fields.map((field) => (
+                      <li
+                        key={field}
+                        className="rounded-full border border-line px-2.5 py-1 text-xs text-ink-muted"
+                      >
+                        {field}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-4 text-xs text-ink-faint">
+                    {suite
+                      ? "Built against first, with its own suite of test calls behind it."
+                      : "The field list ships; the test calls for it are still being written."}
+                  </p>
+                </Reveal>
+              ))}
+            </div>
+            <Reveal delay={0.12}>
+              <p className="mt-8 max-w-2xl text-sm text-ink-faint">
+                Nothing is locked to a line of work. If yours is not one of these, you
+                write the list of things the agent has to find out, and that is the whole
+                setup — the same as it is for the four above.
+              </p>
+            </Reveal>
+          </section>
+
+          {/* --- Languages --------------------------------------------------------- */}
+          <section className="border-y border-line bg-surface/50">
+            <div className="mx-auto w-full max-w-5xl px-6 py-20">
+              <Reveal>
+                <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                  Telugu first, and not as a setting somebody remembered at the end
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-ink-muted">
+                  Your callers do not switch to English for your convenience, and a
+                  receptionist who makes them is one they hang up on. This was built for
+                  Andhra Pradesh and Telangana before it was built for anywhere else.
+                </p>
+              </Reveal>
+              <dl className="mt-10 grid gap-8 sm:grid-cols-3">
+                {[
+                  {
+                    term: "Telugu is where an agent starts",
+                    detail:
+                      "A newly created agent is a Telugu agent until somebody changes it. " +
+                      "That is the default in the database, not a suggestion in a guide.",
+                  },
+                  {
+                    term: "Hindi and English are the other two",
+                    detail:
+                      "Three languages are offered, and only three, because those are the " +
+                      "ones we are willing to put a client's callers in front of.",
+                  },
+                  {
+                    term: "The whole agent moves with the language",
+                    detail:
+                      "The opening line that says it is an AI, the script and the material " +
+                      "it answers from are all in the language it speaks.",
+                  },
+                ].map(({ term, detail }, index) => (
+                  <Reveal key={term} delay={index * 0.08}>
+                    <dt className="text-[17px] font-semibold text-ink">{term}</dt>
+                    <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
+                  </Reveal>
+                ))}
+              </dl>
+              <Reveal delay={0.2}>
+                <p className="mt-10 max-w-2xl text-sm text-ink-faint">
+                  We publish no score for how well it understands any of them, because a
+                  number we cannot show you the working for is worth nothing. What we do
+                  publish, for your own agent, is the report below.
+                </p>
+              </Reveal>
+            </div>
+          </section>
+
           {/* --- Compliance -------------------------------------------------------- */}
           <section className="mx-auto w-full max-w-5xl px-6 py-20">
             <Reveal>
@@ -346,6 +542,45 @@ export default function Home() {
                   destroyed and when.
                 </p>
               </Reveal>
+            </div>
+          </section>
+
+          {/* --- Quality ----------------------------------------------------------- */}
+          <section id="quality" className="mx-auto w-full max-w-5xl scroll-mt-20 px-6 py-20">
+            <Reveal>
+              <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                We test your agent, and you read the same report we do
+              </h2>
+              <p className="mt-4 max-w-2xl text-base text-ink-muted">
+                An agent that sounds good on the demo call and loses a detail on the
+                fortieth one is the ordinary failure of this whole category. So the
+                testing is not a promise we make on this page — it is a screen in your
+                dashboard, and it is allowed to say bad news.
+              </p>
+            </Reveal>
+            <dl className="mt-10 grid gap-8 sm:grid-cols-3">
+              {QUALITY.map(({ term, detail }, index) => (
+                <Reveal key={term} delay={index * 0.08}>
+                  <dt className="text-[17px] font-semibold text-ink">{term}</dt>
+                  <dd className="mt-1.5 text-sm text-ink-muted">{detail}</dd>
+                </Reveal>
+              ))}
+            </dl>
+          </section>
+
+          {/* --- Questions --------------------------------------------------------- */}
+          <section id="faq" className="scroll-mt-20 border-y border-line bg-surface/50">
+            <div className="mx-auto w-full max-w-5xl px-6 py-20">
+              <Reveal>
+                <h2 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                  Questions people ask us first
+                </h2>
+              </Reveal>
+              {/* Not wrapped in a Reveal: the answers change the page height when they
+                  open, and animating the container that contains the thing doing the
+                  resizing is how a reveal ends up half-played. The list is the trigger's
+                  own concern — `Faq` refreshes ScrollTrigger on toggle. */}
+              <Faq />
             </div>
           </section>
 
@@ -424,6 +659,48 @@ export default function Home() {
                     .
                   </p>
                 )}
+              </Reveal>
+            </div>
+          </section>
+
+          {/* --- Closing invitation ------------------------------------------------ */}
+          {/*
+           * A last section that ASKS rather than claims. The temptation at the bottom of
+           * a landing page is one more superlative; there is nothing left to say that is
+           * both true and new, so this repeats the offer in the buyer's own terms and
+           * hands over the same two doors as above. The signup flag is read here for the
+           * same reason the doors read it: a button whose label the deployment cannot
+           * honour is the exact defect this page is written against.
+           */}
+          <section className="border-y border-line bg-surface/50">
+            <div className="mx-auto w-full max-w-5xl px-6 py-20">
+              <Reveal>
+                <h2 className="max-w-3xl text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
+                  The calls you missed today are not on any report
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-ink-muted">
+                  Tell us what your callers ring about and what you need written down
+                  about each one. We build the agent with you, in your language, on your
+                  own price list and timings — and nothing dials anybody until you say so.
+                </p>
+                <div className="mt-8 flex flex-wrap items-center gap-3">
+                  <Link
+                    href="/signup"
+                    className="inline-flex items-center gap-2 rounded-md bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
+                  >
+                    {SIGNUP_OPEN ? "Create a workspace" : "Start a conversation"}
+                    <ArrowRight aria-hidden className="h-4 w-4" />
+                  </Link>
+                  {/* Only when there is an address to give — an invented one bounces. */}
+                  {SIGNUP_CONTACT_EMAIL && (
+                    <a
+                      href={`mailto:${SIGNUP_CONTACT_EMAIL}`}
+                      className="inline-flex items-center gap-2 rounded-md border border-line px-5 py-2.5 text-sm font-semibold text-ink hover:bg-black/5 dark:hover:bg-white/5"
+                    >
+                      Write to us
+                    </a>
+                  )}
+                </div>
               </Reveal>
             </div>
           </section>

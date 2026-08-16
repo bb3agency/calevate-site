@@ -1,5 +1,9 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { fireEvent, render, screen } from "@testing-library/react";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+import { describe, expect, it, vi } from "vitest";
 
 import Home from "@/app/page";
 
@@ -90,5 +94,95 @@ describe("the landing page's claims", () => {
     // And it must be the OUTERMOST element, because `:has()` on <html> only frees the
     // document when the marketing root is genuinely in this page's tree.
     expect(container.firstElementChild?.hasAttribute("data-marketing-root")).toBe(true);
+  });
+});
+
+/**
+ * The verticals grid shows the field list a new agent REALLY starts with, so the page
+ * and `scripts/seed.py` have to agree — and the way that agreement dies is a seed edit
+ * nobody carries over, leaving a landing page advertising a column the product stopped
+ * shipping. The chips are read back out of the rendered DOM and matched against the
+ * seed's own labels rather than against a second copy in this file, which would only
+ * move the drift one file along.
+ */
+const SEED = readFileSync(resolve(process.cwd(), "..", "..", "scripts", "seed.py"), "utf8");
+
+/** Every `"label": "…"` inside one vertical's list in `VERTICAL_TEMPLATES`, in order. */
+function seedLabels(vertical: string): string[] {
+  const templates = SEED.slice(SEED.indexOf("VERTICAL_TEMPLATES: dict"));
+  const start = templates.indexOf(`    "${vertical}": [`);
+  expect(start, `seed.py has no ${vertical} template`).toBeGreaterThan(-1);
+  // The list ends at the next entry's indentation — `    ],` on its own line.
+  const body = templates.slice(start, start + templates.slice(start).indexOf("\n    ],"));
+  return [...body.matchAll(/"label": "([^"]+)"/g)].map((m) => m[1]);
+}
+
+/** The card heading on the page → the key it is describing in the seed. */
+const CARD_TO_SEED: [string, string][] = [
+  ["Clinics", "clinic"],
+  ["Property offices", "real_estate"],
+  ["Insurance", "insurance"],
+  ["Coaching and colleges", "education"],
+];
+
+describe("the verticals section", () => {
+  it.each(CARD_TO_SEED)("shows %s the columns seed.py actually ships", (card, vertical) => {
+    render(<Home />);
+    const heading = screen.getByRole("heading", { name: card, level: 3 });
+    const section = heading.closest("section");
+    expect(section).not.toBeNull();
+    const chips = [...(section?.querySelectorAll("li") ?? [])].map((li) => li.textContent);
+    expect(chips).toEqual(seedLabels(vertical));
+  });
+
+  it("does not imply a tested scenario suite behind all four", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    // Only `cl_*` and `re_*` cases exist in `tests/fixtures/golden_transcripts.json`, so
+    // exactly two cards may make the stronger claim and the other two must say plainly
+    // that their test calls are not written.
+    expect(text.match(/with its own suite of test calls behind it/g)).toHaveLength(2);
+    expect(text.match(/the test calls for it are still being written/g)).toHaveLength(2);
+  });
+});
+
+describe("the questions section", () => {
+  it("answers every question it asks", () => {
+    const { container } = render(<Home />);
+    const items = [...container.querySelectorAll("details")];
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      // Closed by default: an FAQ that renders open is a wall of text, and the reveal
+      // below it would be measured against a height that changes on first interaction.
+      expect(item.open).toBe(false);
+      // A question is a heading inside the summary, and an answer is prose after it.
+      expect(item.querySelector("summary h3")?.textContent ?? "").not.toBe("");
+      expect(item.querySelector("p")?.textContent ?? "").not.toBe("");
+    }
+  });
+
+  it("uses the platform's own disclosure widget, so it works with no script at all", () => {
+    const { container } = render(<Home />);
+    // The whole page's rule is that it is finished without its bundle. A hand-built
+    // accordion (button + aria-expanded + hidden panel) renders answers nobody can reach
+    // when the bundle fails; `<details>` is keyboard-operable and announced without it.
+    const summaries = container.querySelectorAll("summary");
+    expect(summaries.length).toBe(container.querySelectorAll("details").length);
+    expect(container.querySelectorAll("[aria-expanded]").length).toBe(0);
+  });
+
+  it("touches no animation for a reader who asked for none", () => {
+    // `tests/setup.ts` reports `prefers-reduced-motion: reduce`, so no ScrollTrigger was
+    // ever created and refreshing them on toggle would be work done for nothing — the
+    // same rule `Reveal` and `SmoothScroll` follow.
+    const refresh = vi.spyOn(ScrollTrigger, "refresh");
+    const { container } = render(<Home />);
+    const first = container.querySelector("details");
+    expect(first).not.toBeNull();
+    // `toggle` does not bubble, so there is no `fireEvent.toggle` helper — React attaches
+    // this listener to the element itself and a plain event dispatched at it is what the
+    // browser would deliver.
+    fireEvent(first as HTMLDetailsElement, new Event("toggle"));
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
