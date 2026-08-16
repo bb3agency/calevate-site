@@ -37,8 +37,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 /** 24 IST buckets, as the API always sends them — silent hours are 0, not absent. */
 const HOURS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 3, 1, 0, 0, 4, 6, 9, 12, 7, 2, 0, 0, 0];
@@ -55,7 +55,7 @@ function performance(over: Partial<Performance> = {}): Performance {
     outcomes: { appointment_booked: 14, no_answer: 8, enquiry: 29 },
     busiest_hours_ist: HOURS,
     ...over,
-  } as unknown as Performance;
+  };
 }
 
 /** Nothing has happened yet — the state most likely to be rendered as failure. */

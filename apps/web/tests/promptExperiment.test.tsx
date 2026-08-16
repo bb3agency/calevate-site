@@ -112,11 +112,11 @@ function experiment(over: Partial<Experiment> = {}): Experiment {
     attributed_directions: ["outbound"],
     coverage_note: "",
     ...over,
-  } as Experiment;
+  };
 }
 
 function state(over: Partial<ExperimentState> = {}): ExperimentState {
-  return { agent_id: AGENT, rules: RULES, experiment: null, ...over } as ExperimentState;
+  return { agent_id: AGENT, rules: RULES, experiment: null, ...over };
 }
 
 const VERSIONS = [

@@ -30,8 +30,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 const AGENT: Agent = {
   id: "agent-1",
@@ -39,7 +39,13 @@ const AGENT: Agent = {
   published: true,
   status: "live",
   direction: "inbound",
-} as unknown as Agent;
+  // Hard rule 5: an agent ALWAYS carries a non-null disclosure line. These fixtures had
+  // none — `as unknown as Agent` is why nobody noticed.
+  language_primary: "te-IN",
+  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  engine: "bolna",
+  extraction_fields: [],
+};
 
 const COLUMNS = [
   { key: "name", label: "Name", kind: "fixed", type: "text" },
@@ -48,7 +54,7 @@ const COLUMNS = [
   { key: "updated_at", label: "Updated", kind: "fixed", type: "date" },
 ];
 
-const LEAD = {
+const LEAD: Lead = {
   id: "lead-a",
   name: "Ramesh Kumar",
   phone_masked: "+9198••••3210",
@@ -63,7 +69,7 @@ const LEAD = {
   updated_at: "2026-08-13T04:30:00Z",
   assigned_to: null,
   assigned_to_name: null,
-} as unknown as Lead;
+};
 
 function leadList(over: Record<string, unknown> = {}) {
   return {

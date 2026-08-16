@@ -42,7 +42,7 @@ const OWNER = {
   role: "owner",
   permissions: [...PERMISSIONS, "calls:read_raw"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
 /** Same screen, a reader without the raw-data permission. */
@@ -57,7 +57,7 @@ const ENDPOINTS: Endpoint[] = [
     active: true,
     secret_fingerprint: "abc12345",
     created_at: "2026-08-01T10:00:00Z",
-  } as Endpoint,
+  },
 ];
 
 function delivery(over: Partial<Delivery> = {}): Delivery {
@@ -70,7 +70,7 @@ function delivery(over: Partial<Delivery> = {}): Delivery {
     last_at: "2026-08-13T10:00:00Z",
     payload_stored: true,
     ...over,
-  } as Delivery;
+  };
 }
 
 const BODY = '{"id":"d1","data":{"name":"Priya","phone":"+91XXXXXX0001"}}';

@@ -56,10 +56,10 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "self_serve" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
-const STAFF: Me = { ...ME, permissions: ["calls:read"] } as unknown as Me;
+const STAFF: Me = { ...ME, permissions: ["calls:read"] };
 
 const AT_CEILING: AiQuota = {
   month: "2026-08",

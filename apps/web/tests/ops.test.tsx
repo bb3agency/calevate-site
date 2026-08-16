@@ -86,7 +86,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000c1",
     role: permissions.includes("ops:manage") ? "superadmin" : "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const SUPERADMIN = me([
@@ -1164,7 +1164,7 @@ describe("what the voice platform is running", () => {
     delete withoutDrift.engine_drift;
     const { container } = renderAdminPage(
       <OpsPage />,
-      routes(withoutDrift as unknown as PlatformState, SUPERADMIN),
+      routes(withoutDrift, SUPERADMIN),
     );
 
     await screen.findByText("We do not know what the voice platform is running");

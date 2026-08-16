@@ -36,8 +36,8 @@ const ME: Me = {
   role: "staff",
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 /** A blocked lead with no captured name: the API sends the MASKED number as the title. */
 const BLOCKED: AttentionItem = {
@@ -48,7 +48,7 @@ const BLOCKED: AttentionItem = {
   rule: "dnc",
   occurred_at: "2026-08-13T04:30:00Z",
   href: "/leads",
-} as unknown as AttentionItem;
+};
 
 const STALLED: AttentionItem = {
   kind: "campaign_stalled",
@@ -58,7 +58,7 @@ const STALLED: AttentionItem = {
   rule: "paused",
   occurred_at: "2026-08-12T11:00:00Z",
   href: "/campaigns",
-} as unknown as AttentionItem;
+};
 
 function queue(over: Partial<AttentionQueue> = {}): AttentionQueue {
   return {
@@ -66,7 +66,7 @@ function queue(over: Partial<AttentionQueue> = {}): AttentionQueue {
     counts: { lead_blocked: 1, campaign_stalled: 1 },
     items: [BLOCKED, STALLED],
     ...over,
-  } as unknown as AttentionQueue;
+  };
 }
 
 const page = <AttentionPage params={Promise.resolve({ slug: "acme" })} />;
@@ -161,18 +161,30 @@ describe("the needs-attention queue", () => {
   });
 
   it("lists an item whose kind this build has never heard of", async () => {
-    const unknown = {
+    // A payload our GENERATED types cannot describe, on purpose: the whole point of the
+    // test is a server newer than this build. It therefore stays off the typed path and
+    // rides the route map as `unknown`, which is what an unrecognised value IS to us.
+    // The rejected spelling was `kind: "number_suspended" as AttentionItem["kind"]` — an
+    // assertion that says the union ALREADY CONTAINS this kind, which is the opposite of
+    // what is being tested, and which would keep compiling on the day somebody deletes a
+    // kind from the union for real.
+    const unrecognised = {
       ...BLOCKED,
-      kind: "number_suspended" as AttentionItem["kind"],
+      kind: "number_suspended",
       title: "Your number was suspended",
       detail: "Your telecom operator suspended the line.",
       href: null,
-    } as unknown as AttentionItem;
+    };
 
     const { container } = await renderClientPage(
       page,
       routes({
-        "/v1/attention": queue({ total: 1, counts: { number_suspended: 1 }, items: [unknown] }),
+        // Spread the CHECKED envelope, then override the one field that is deliberately
+        // off-contract — so everything except the unknown kind is still type-checked.
+        "/v1/attention": {
+          ...queue({ total: 1, counts: { number_suspended: 1 } }),
+          items: [unrecognised],
+        },
       }),
     );
 

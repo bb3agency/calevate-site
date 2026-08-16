@@ -52,7 +52,7 @@ const OWNER = {
     "kb:write",
   ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
 function agent(over: Partial<Agent> = {}): Agent {
@@ -67,11 +67,18 @@ function agent(over: Partial<Agent> = {}): Agent {
     published: true,
     extraction_fields: [],
     ...over,
-  } as Agent;
+  };
 }
 
 /** One voice as `GET /v1/agents/{id}/pending` returns it, catalogue entry and all. */
-function storedVoice(id: string, label: string): NonNullable<PendingState["voice"]["live"]> {
+type TtsModel = NonNullable<NonNullable<PendingState["voice"]["live"]>["catalog"]>["tts_model"];
+
+/**
+ * `id` is the TTS MODEL, and the wire type is a closed two-value union — not a string.
+ * It was typed `string` here and reconciled with `as NonNullable<…>`, so a fixture naming
+ * a model this build does not ship would have compiled.
+ */
+function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voice"]["live"]> {
   return {
     voice_id: id,
     provider: "sarvam",
@@ -87,7 +94,7 @@ function storedVoice(id: string, label: string): NonNullable<PendingState["voice
       is_default: false,
       verified: false,
     },
-  } as NonNullable<PendingState["voice"]["live"]>;
+  };
 }
 
 /** No staged edit, and the engine holds the voice the row names: the state an agent
@@ -116,7 +123,7 @@ function settled(over: Partial<PendingState> = {}): PendingState {
       headline: "The voice platform was read back and is running this script and voice.",
     },
     ...over,
-  } as PendingState;
+  };
 }
 
 /**
@@ -159,7 +166,7 @@ const LANES: Lanes = {
   call_cap_default_s: 600,
   call_cap_min_s: 60,
   call_cap_max_s: 3600,
-} as Lanes;
+};
 
 const page = <AgentsPage params={Promise.resolve({ slug: "acme" })} />;
 

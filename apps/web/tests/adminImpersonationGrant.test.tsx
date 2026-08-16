@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ADMIN_ME_PATH } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
-import { IMPERSONATION_GRANT_PATH, clearImpersonationGrants } from "@/lib/api/admin";
+import {
+  IMPERSONATION_GRANT_PATH,
+  clearImpersonationGrants,
+  type Margin,
+} from "@/lib/api/admin";
 import { apiRequest, type Session } from "@/lib/api/client";
 import type { Routes } from "./harness";
 
@@ -76,7 +80,7 @@ function routes(): Routes {
         cost_value_inr: "90000.00",
         cost_unattributed_inr: "12350.50",
       },
-    },
+    } satisfies Margin,
     "/v1/kb/sources?status=pending_approval": [],
     "/v1/kb/sources?status=approved": [],
     "/v1/agents": [],

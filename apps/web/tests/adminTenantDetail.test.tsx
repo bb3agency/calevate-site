@@ -60,7 +60,7 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
     holds: [],
     capped: false,
     ...over,
-  } as TenantSummary;
+  };
 }
 
 /**
@@ -79,7 +79,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000cc",
     role: "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 const OPERATOR = me(["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"]);
@@ -117,7 +117,7 @@ function source(over: Partial<KbSource> = {}): KbSource {
     is_active: false,
     published_at: null,
     ...over,
-  } as KbSource;
+  };
 }
 
 /** Everything green, so each test can break exactly one thing. */

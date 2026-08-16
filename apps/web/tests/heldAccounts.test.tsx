@@ -53,7 +53,7 @@ function tenant(over: Partial<HeldTenant> = {}): HeldTenant {
     signed_up_at: daysAgo(1),
     holds: ["kyc_missing"],
     ...over,
-  } as HeldTenant;
+  };
 }
 
 describe("the hold queue", () => {

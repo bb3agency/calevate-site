@@ -107,7 +107,7 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     total_inr: "1198762.00",
     usage: { minutes_used: "220.5", calls: 118, included_minutes: 200 },
     ...over,
-  } as Invoice;
+  };
 }
 
 async function render(answer: unknown) {

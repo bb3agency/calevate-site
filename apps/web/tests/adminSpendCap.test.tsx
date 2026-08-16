@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
-import { spendCapConfirmation, type TenantSummary } from "@/lib/api/admin";
+import { spendCapConfirmation, type Margin, type TenantSummary } from "@/lib/api/admin";
 import type { Caps } from "@/lib/api/caps";
 
 import { problem, type Routes } from "./harness";
@@ -50,7 +50,7 @@ function me(permissions: string[]): AdminMe {
     user_id: "0192f0aa-7777-7000-8000-0000000000cc",
     role: permissions.includes("ops:manage") ? "superadmin" : "operator",
     permissions,
-  } as AdminMe;
+  };
 }
 
 /** Holds `ops:manage`, so the panel is live. */
@@ -72,7 +72,7 @@ function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
     holds: [],
     capped: false,
     ...over,
-  } as TenantSummary;
+  };
 }
 
 /** A client stopped by their own ceiling: ₹5,002.40 spent against a ₹5,000.00 limit. */
@@ -89,7 +89,7 @@ function caps(over: Partial<Caps> = {}): Caps {
     spend_used_inr: "5002.40",
     capped: true,
     ...over,
-  } as Caps;
+  };
 }
 
 /** Everything else on this screen green, so each case breaks exactly one thing. */
@@ -119,7 +119,7 @@ function healthy(): Routes {
         cost_value_inr: "480.00",
         cost_unattributed_inr: "21.00",
       },
-    },
+    } satisfies Margin,
   };
 }
 

@@ -49,7 +49,7 @@ const OWNER = {
   role: "owner",
   permissions: ["org:read", "org:manage", "calls:read_raw"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
 /**

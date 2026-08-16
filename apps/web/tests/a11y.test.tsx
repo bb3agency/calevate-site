@@ -1,6 +1,7 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { Margin } from "@/lib/api/admin";
 import AdminSignInPage from "@/app/(auth)/admin/sign-in/[[...sign-in]]/page";
 import AdminLayout from "@/app/admin/layout";
 import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
@@ -83,7 +84,7 @@ import { renderClientPage, type Routes } from "./harness";
  * given a reason in `UNSWEPT_SCREENS`.
  */
 
-const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" };
+const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" };
 
 /** An owner: the role that can see the most, and therefore renders the most markup. */
 const ME = {
@@ -520,7 +521,7 @@ const TENANT_ROUTES: Routes = {
       cost_value_inr: "90000.00",
       cost_unattributed_inr: "12350.50",
     },
-  },
+  } satisfies Margin,
   "/v1/kb/sources?status=pending_approval": [],
   "/v1/kb/sources?status=approved": [],
   "/v1/agents": [AGENT],

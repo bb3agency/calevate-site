@@ -40,11 +40,11 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "self_serve" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
-const STAFF: Me = { ...ME, permissions: ["calls:read"] } as unknown as Me;
-const OWNER_NO_MANAGE: Me = { ...ME, permissions: ["billing:read"] } as unknown as Me;
+const STAFF: Me = { ...ME, permissions: ["calls:read"] };
+const OWNER_NO_MANAGE: Me = { ...ME, permissions: ["billing:read"] };
 
 function quota(over: Partial<AiQuota> = {}): AiQuota {
   return {

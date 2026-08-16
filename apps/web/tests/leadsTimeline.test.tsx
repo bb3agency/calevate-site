@@ -37,8 +37,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["leads:read", "leads:write", "calls:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 const MEMBERS: Member[] = [
   { id: "u1", name: "Priya Nair", role: "owner" },
@@ -60,7 +60,7 @@ const LEAD: Lead = {
   updated_at: "2026-08-13T04:30:00Z",
   assigned_to: "u2",
   assigned_to_name: "Kiran Babu",
-} as Lead;
+};
 
 function event(over: Partial<LeadTimelineEvent> = {}): LeadTimelineEvent {
   return {
@@ -73,11 +73,11 @@ function event(over: Partial<LeadTimelineEvent> = {}): LeadTimelineEvent {
     detail: null,
     call_id: null,
     ...over,
-  } as LeadTimelineEvent;
+  };
 }
 
 function timeline(items: LeadTimelineEvent[], over: Partial<LeadTimeline> = {}): LeadTimeline {
-  return { items, total: items.length, limit: 50, offset: 0, ...over } as LeadTimeline;
+  return { items, total: items.length, limit: 50, offset: 0, ...over };
 }
 
 function routes(over: Record<string, unknown> = {}) {

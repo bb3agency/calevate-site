@@ -33,8 +33,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "managed" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 function call(over: Partial<CallSummary> = {}): CallSummary {
   return {
@@ -51,7 +51,7 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
     summary: "Caller asked for a Tuesday slot.",
     lead_id: null,
     ...over,
-  } as unknown as CallSummary;
+  };
 }
 
 const page = <CallsPage params={Promise.resolve({ slug: "acme" })} />;
@@ -125,7 +125,10 @@ describe("the call log", () => {
   it("renders a status it has never seen rather than dropping the row", async () => {
     const { container } = await renderClientPage(
       page,
-      routes([call({ status: "abandoned" as CallSummary["status"] })]),
+      // No assertion: `CallSummaryOut.status` is an open `string` on the wire, so
+      // `as CallSummary["status"]` asserted `string` to `string` and bought nothing but a
+      // place for the compiler to stop looking.
+      routes([call({ status: "abandoned" })]),
     );
 
     await screen.findByText("+9198765•••10");

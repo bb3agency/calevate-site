@@ -35,8 +35,8 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", plan_tier: "self_serve" },
-} as unknown as Me;
+  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+};
 
 const CAPS: Caps = {
   capped: false,
@@ -72,7 +72,7 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     plan_tier: "self_serve",
     spend_used_inr: "72.00",
     ...over,
-  } as unknown as UsagePanel;
+  };
 }
 
 const CAPABILITY = "/v1/billing/topups/capability";
