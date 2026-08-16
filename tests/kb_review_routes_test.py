@@ -31,7 +31,9 @@ What is asserted here, in the order it matters:
    `agents:read` — the D-22 lesson from `impersonation_reads_test`, pinned as
    behaviour rather than as a route-table property: `staff`, who cannot write
    knowledge at all, can still see what the agent would learn, and another tenant's
-   source id previews nothing rather than leaking chunks.
+   source id is **404, the same answer as a uuid nobody minted**. It used to be
+   `200 []`, which leaked nothing and told the console nothing either — a neighbour's
+   source, a deleted one and a real source with no chunks were one response.
 
 CONCURRENCY: every case mints its own tenant and asserts only on rows it created, so
 this file runs beside the other suites on the shared Postgres.
@@ -363,19 +365,71 @@ async def test_staff_can_preview_exactly_what_the_agent_would_learn() -> None:
     assert "".join(c["content"] for c in chunks).replace("\n", " ").startswith("A consultation")
 
 
-async def test_a_neighbours_source_previews_nothing() -> None:
-    """The chunk table is RLS'd, so a foreign id is an empty preview rather than another
-    client's price list. Asserted through the ROUTE because the tenant here comes from
-    the session, and a handler that took it from the path would leak."""
+async def test_a_neighbours_source_is_not_found_rather_than_empty() -> None:
+    """The chunk table is RLS'd, so a foreign id can never yield another client's price
+    list. What it used to yield was `200 []`, and that is the half this fixes.
+
+    THE DISCRIMINATOR DOCTRINE this repo already applies everywhere else — "absent or
+    invisible = 404" — is stated in `kb.service.approve_source`'s own docstring, about
+    this very table: "an id no visible source has is a 404 … told an operator a source
+    EXISTS when the id was another tenant's". The preview beside it answered 200 with an
+    empty body for a foreign id, for a deleted id, and for a uuid nobody ever minted,
+    and a client console cannot tell any of those from a real source whose chunking
+    produced nothing.
+
+    Asserted through the ROUTE because the tenant here comes from the session, and a
+    handler that took it from the path would leak. The two cases are driven together so
+    the answers cannot drift apart: an invisible source and an absent one are ONE answer,
+    which is what keeps the 404 from being an existence oracle.
+    """
     tenant_id, _ = await _tenant_with_published_agent()
     other_id, other_agent = await _tenant_with_published_agent()
     stranger = await _submit(other_id, other_agent, name="Neighbour fees")
     token = await _make_member(tenant_id, role="owner")
     slug = await _slug(tenant_id)
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
     async with _client() as http:
-        response = await http.get(
-            PREVIEW.format(source_id=stranger),
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        foreign = await http.get(PREVIEW.format(source_id=stranger), headers=headers)
+        absent = await http.get(PREVIEW.format(source_id=uuid.uuid4()), headers=headers)
+
+    for response in (foreign, absent):
+        assert response.status_code == 404, response.text
+        assert response.json()["type"].endswith("/not_found"), response.text
+    assert foreign.json()["detail"] == absent.json()["detail"], (
+        "a neighbour's source and a uuid nobody minted must be indistinguishable, or "
+        "the 404 is an oracle for which source ids exist"
+    )
+
+
+async def test_a_status_filter_the_column_cannot_hold_is_refused_not_answered_empty() -> None:
+    """An empty approval queue is a claim, and a typo must not be able to make it.
+
+    `GET /v1/kb/sources?status=...` is how a console shows what is waiting for review.
+    An unknown value used to produce `WHERE status = 'pendng_approval'`, zero rows and a
+    200 — indistinguishable from "nothing is waiting", which is the answer a reviewer
+    acts on by closing the tab. The same input arriving from the generated client means
+    a status was renamed on one side only, and that is exactly the case that must be
+    loud rather than empty.
+
+    The valid filter is driven in the same test so the refusal cannot be bought by
+    breaking the filter itself.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    await _submit(tenant_id, agent_id)
+    token = await _make_member(tenant_id, role="owner")
+    slug = await _slug(tenant_id)
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+
+    async with _client() as http:
+        refused = await http.get("/v1/kb/sources", params={"status": "pendng"}, headers=headers)
+        listed = await http.get(
+            "/v1/kb/sources", params={"status": "pending_approval"}, headers=headers
         )
-    assert response.status_code == 200, response.text
-    assert response.json() == []
+
+    assert refused.status_code == 422, refused.text
+    body = refused.json()
+    assert body["type"].endswith("/kb_status_unknown"), body
+    assert "pending_approval" in body["remediation"], body
+
+    assert listed.status_code == 200, listed.text
+    assert [row["status"] for row in listed.json()] == ["pending_approval"]

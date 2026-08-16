@@ -237,7 +237,29 @@ def install_error_handlers(app: FastAPI) -> None:
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         # Full detail server-side (the logger redacts), generic body to the client.
         log.exception("unhandled_exception", extra={"path": request.url.path})
-        alert("ROUTE_HANDLER", "unhandled_exception", detail=type(exc).__name__)
+        # THE EXCEPTION TYPE IS PART OF THE ALERT'S IDENTITY, not a detail hanging off
+        # it. `alerting._admit` fingerprints on `stage:code` and suppresses repeats for
+        # fifteen minutes, so one code shared by every crash in the service means the
+        # FIRST crash class to fire silences every other one for a quarter of an hour.
+        # That is not hypothetical: an uncaught `ClientDisconnect` — free, from anywhere,
+        # indistinguishable from a flaky mobile network — held the voice-runtime
+        # receiver's crash alarm down until it was caught at the one site it arose from
+        # (`webhook_routes._read_bounded`, D-147). Catching it was right and it fixed one
+        # instance; this fixes the class, for every exception type in both services,
+        # including the ones nobody has met yet.
+        #
+        # Still a STABLE code and not a formatted string (the module docstring's rule):
+        # `__name__` is a class name from our own import graph, low-cardinality and
+        # unmintable by a caller, so it behaves like an Alertmanager label rather than
+        # like the millisecond counts that must never enter a fingerprint. It also gives
+        # the lock-screen subject the one fact worth waking up for, and
+        # `code=unhandled_exception` still substring-matches in a log search.
+        alert(
+            "ROUTE_HANDLER",
+            f"unhandled_exception:{type(exc).__name__}",
+            detail="an exception escaped every handler; the response was a generic 500",
+            path=request.url.path,
+        )
         problem = ProblemError(
             kind="internal",
             code="internal_error",

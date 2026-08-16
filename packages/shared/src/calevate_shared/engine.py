@@ -17,7 +17,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Final, Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
 
@@ -679,6 +679,39 @@ class ExecutionSnapshot(BaseModel):
     billable_ready_at: datetime | None = None
     engine_extracted: dict[str, Any] = Field(default_factory=dict)
     engine: str = "fake"
+    #: The vendor's OWN answer for this execution, serialized — the ONE thing in this
+    #: contract that is not in our vocabulary, and the reason it is `bytes`.
+    #:
+    #: **WHY IT EXISTS.** D-126 built the erasure arm for an archive of raw vendor
+    #: documents (`storage.archive_payload`, `calls.engine_payload_ref`) and deliberately
+    #: built it BEFORE the producer, because after the producer the unreachable objects
+    #: already exist. The producer needs a raw document, and there was no way for one to
+    #: reach a worker: `get_execution` returns this model, this model was entirely
+    #: normalized, and hard rule 2 forbids the worker importing an adapter to go and get
+    #: the payload itself. So the archive had no caller, the erasure guarded an object
+    #: nothing created, and TRD §5's "raw vendor payloads go to object storage refs"
+    #: described a store that was always empty.
+    #:
+    #: **WHY BYTES AND NOT `dict[str, Any]`.** A dict crosses the boundary carrying the
+    #: vendor's field NAMES, and `payload["telephony_data"]` needs no import for anyone to
+    #: write — which is exactly the leak an import-linter contract cannot see. Bytes carry
+    #: the same information and offer no key to read: the only thing a caller can do with
+    #: them is store them, which is the only thing a caller is allowed to do with them.
+    #: (`tests/engine_audit_test.py` scans the tree for vendor key reads, so the type makes
+    #: the leak awkward and the guard makes it caught. Neither alone is enough.)
+    #:
+    #: **NOT DUMPED AND NOT REPR'D**, and that is hard rule 6 rather than tidiness: this
+    #: document holds the caller's number and the transcript verbatim. `exclude=True`
+    #: keeps it out of `model_dump()`/`model_dump_json()`, so a snapshot serialized into a
+    #: span, a job payload or a log line cannot carry it; `repr=False` keeps it out of the
+    #: exception messages a repr ends up inside. It still travels through `model_copy`,
+    #: which is how the pipeline receives it.
+    #:
+    #: Absent (`None`) is a legitimate answer for a LISTING snapshot — the poller does not
+    #: archive, and holding a document per row for twenty pages would be a cost with no
+    #: reader. `get_execution` is the path the archive runs on, and the conformance suite
+    #: requires one there.
+    raw_document: bytes | None = Field(default=None, repr=False, exclude=True)
 
 
 #: Why an adapter could not promise the listing was the whole window. Values are a
@@ -733,11 +766,46 @@ class ExecutionListing(BaseModel):
     snapshots: list[ExecutionSnapshot] = Field(default_factory=list)
     #: True only when the adapter has positive grounds to believe it read the whole
     #: window. False means "possibly truncated" — never "definitely".
-    complete: bool = True
+    #:
+    #: **NO DEFAULT, deliberately, for `EngineCapabilities`' reason.** This field carried
+    #: `= True`, so `ExecutionListing(snapshots=rows)` — the shortest thing anyone writes —
+    #: minted the exact claim the docstring above forbids: completeness asserted because
+    #: nothing was checked. A required field makes an adapter answer the question in
+    #: writing, which is the only version of "never the fallback for 'we did not look'"
+    #: that a type can enforce.
+    complete: bool
     incomplete_reason: ListingIncompleteReason | None = None
     #: How many responses were read. 1 for a single-page vendor; >1 proves the
     #: continuation path actually ran, which is the only way a pilot can see it work.
-    pages_fetched: int = 1
+    #: At least 1: an adapter that returns a listing read something.
+    pages_fetched: int = Field(default=1, ge=1)
+
+    @model_validator(mode="after")
+    def _verdict_and_reason_agree(self) -> ExecutionListing:
+        """The two fields are one answer, so they may not contradict each other.
+
+        Both directions cost something real and neither is caught anywhere else:
+
+        * `complete=False` with NO reason leaves `reconcile_executions` alerting
+          `unknown` — and the reason is a closed enum precisely so the alert has a stable
+          deduplication key an operator can route on (BACKEND-PATTERNS §8). "Possibly
+          truncated, cause unstated" is the one alert nobody can act on.
+        * `complete=True` WITH a reason is an adapter that found evidence of truncation
+          and published the all-clear anyway. The poller reads `complete` and stays
+          silent, so the reason it did record is seen by nobody — which is worse than not
+          having noticed, because it looks like diligence.
+        """
+        if not self.complete and self.incomplete_reason is None:
+            raise ValueError(
+                "an incomplete listing must name its reason: the poller alerts on it and "
+                "the enum is the alert's deduplication key"
+            )
+        if self.complete and self.incomplete_reason is not None:
+            raise ValueError(
+                f"a listing reported complete may not also carry `{self.incomplete_reason}` — "
+                "the poller reads `complete` and would stay silent about it"
+            )
+        return self
 
 
 class WebhookVerdict(BaseModel):
@@ -919,7 +987,21 @@ class VoiceEngine(Protocol):
         ...
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
-        """The authenticated read. This — not the webhook — is what we persist."""
+        """The authenticated read. This — not the webhook — is what we persist.
+
+        **IT MUST CARRY `raw_document`.** The post-call pipeline archives the vendor's own
+        answer for the call (D-126), and this is the only method that has one to give: the
+        webhook payload is a hint the receiver throws away, and the poller's listing rows
+        are summaries. An adapter that returns `None` here does not merely skip a debug
+        aid — it makes `calls.engine_payload_ref` a column nothing writes and
+        `retention._erase_engine_payloads` an erasure arm guarding nothing, which is the
+        state D-126 shipped and this clause exists to keep closed.
+
+        The document is the VENDOR'S, not a re-rendering of the snapshot above: an adapter
+        that serialized its own `ExecutionSnapshot` would archive our normalization and
+        lose the one thing the archive is for — reading what the vendor actually said when
+        our mapping turns out to be wrong.
+        """
         ...
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:

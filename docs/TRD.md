@@ -234,7 +234,10 @@ class VoiceEngine(Protocol):
     async def list_kb(self, ref) -> list[EngineKBRef]         # what the agent actually holds —
         # the only adapter-independent way to prove a detach did anything
     async def get_execution(self, call_id: str) -> ExecutionSnapshot   # the authenticated
-        # read; THIS, not the webhook, is what we persist
+        # read; THIS, not the webhook, is what we persist. It must also carry the vendor's
+        # OWN document as `raw_document: bytes` — the archive below has no other source,
+        # and bytes rather than a dict because a dict would hand a worker the vendor's
+        # field names, which is the leak an import contract cannot see (hard rule 2)
     async def list_executions(self, *, since: datetime) -> ExecutionListing  # backs the
         # reconciliation poller (D-31: guarantee of record, not a safety net). Returns the
         # snapshots AND whether they are all of them: a bare list cannot distinguish "a
@@ -252,7 +255,9 @@ status, started_at, ended_at, from, to, recording_url, cost_raw, engine="bolna",
 engine_payload_ref}; TranscriptTurn{call_id, idx, speaker, text, start_ms, end_ms, lang}.
 Raw vendor payloads are archived to object storage for debugging but NEVER read by app code —
 under `engine-payloads/{tenant}/{call}/…` so a DPDP erasure can enumerate one subject's copies
-(D-126); the reference is committed before the object is written, and nothing archives yet.
+(D-126); the reference is committed before the object is written. The post-call pipeline is
+the writer: one document per completed call, carried out of the adapter as opaque bytes so
+"never read by app code" is a property of the TYPE and not a promise (D-157).
 Adapter conformance test suite runs against the `bolna` and `fake` adapters in CI
 (mocked) — the second adapter exists to keep the first one honest.
 

@@ -5990,6 +5990,46 @@ export interface components {
             minutes_used: string;
         };
         /**
+         * KbDriftOut
+         * @description How far the KNOWLEDGE on the voice platform has drifted from what we approved
+         *     (D-158) — the same measurement as `EngineDriftOut`, on the other object.
+         *
+         *     WHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly —
+         *     one read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring
+         *     `ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that
+         *     entries are how that list "quietly becomes a hole").
+         *
+         *     WHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on
+         *     different schedules over different objects and each `oldest_checked_at` is its OWN
+         *     sweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp
+         *     vouch for a KB sweep that had died — which is precisely the "lying by omission" the
+         *     pulse field exists to prevent.
+         *
+         *     THE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It
+         *     carries more weight here than on the agent panel: an empty knowledge listing is
+         *     ambiguous between "the documents are gone" and "the vendor's listing does not attribute
+         *     rows to agents" (pilot gate 8, open), so a large `undetermined` is a real and
+         *     actionable signal about the VENDOR rather than a count of drifted clients.
+         *
+         *     COUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.
+         */
+        KbDriftOut: {
+            /** In Sync */
+            in_sync: number;
+            /** Live Agents */
+            live_agents: number;
+            /** Never Checked */
+            never_checked: number;
+            /** Oldest Checked At */
+            oldest_checked_at: string | null;
+            /** Oldest Drift At */
+            oldest_drift_at: string | null;
+            /** Out Of Sync */
+            out_of_sync: number;
+            /** Undetermined */
+            undetermined: number;
+        };
+        /**
          * KekOut
          * @description The key-management panel's read (§8 panel 4): which KEK is live, and what is
          *     still wrapped under something else.
@@ -7045,6 +7085,7 @@ export interface components {
             engine_drift: components["schemas"]["EngineDriftOut"];
             /** Halt Reason */
             halt_reason: string | null;
+            kb_drift: components["schemas"]["KbDriftOut"];
             /** Load Shed Mode */
             load_shed_mode: string;
             /** Outbound Halted */

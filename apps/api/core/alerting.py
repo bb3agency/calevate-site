@@ -47,8 +47,19 @@ the established shape rather than invented:
   https://developer.pagerduty.com/docs/events-api-v2/trigger-events/)
 * **A global token bucket**, because dedupe alone does not survive a bad deploy: 500
   distinct codes are 500 distinct fingerprints. Bucket = `ALERT_BURST` tokens refilled
-  at `ALERT_BUDGET_PER_HOUR`. What the bucket drops is counted and reported on the
-  next delivery, so the toll is visible instead of silent.
+  at `ALERT_BUDGET_PER_HOUR`. What the bucket drops is counted AND NAMED on the next
+  delivery, so the toll is visible instead of silent.
+
+  Naming it is not a nicety. The bucket is one shared resource and the codes drawing on
+  it are not equally important: `webhook_source_rejected` and
+  `clerk_webhook_bad_signature` fire from anywhere on the internet with no credential,
+  while `postcall_pipeline_stalled` is the alarm the whole system exists to raise. A
+  stranger cannot silence the second — dedupe means their repeats are free, so they
+  cost at most one token per code per window — but they CAN empty the burst at a moment
+  of their choosing, and the refill is one token every three minutes. "12 other alerts
+  were dropped" left the operator with no way to know which; the codes ride along now,
+  so a dropped `postcall_pipeline_stalled` is a thing they read rather than a thing
+  they infer.
 
 Metrics are NAMED DOMAIN RECORDERS, not ad-hoc counters — the recorder names become
 the SLO rule vocabulary (OPERATIONS §4), so adding one is a deliberate act.
@@ -116,6 +127,12 @@ ALERT_QUEUE_MAX = 256
 # One retry, on the delivery thread, for the blip case (a refused TCP connection, a
 # greylisting 4xx). Longer than this belongs to the operator, not to a daemon thread.
 DELIVERY_RETRY_DELAY_S = 5.0
+# How many DISTINCT dropped codes the next delivery names before it stops listing them.
+# Bounded because the state it feeds is a module global and the thing that fills it is a
+# storm: an unbounded dict here would be the memory leak the queue cap already refuses.
+# Twelve is more codes than one message can usefully carry on a phone, and the total
+# count is reported whether or not every code fits.
+ALERT_DROPPED_CODES_MAX = 12
 
 
 @dataclass(frozen=True)
@@ -129,6 +146,9 @@ class AlertNotice:
     ids: dict[str, str]
     suppressed: int
     rate_limited: int
+    #: (code, occurrences) for what the bucket refused since the last delivery, most
+    #: frequent first. A tuple because this crosses a thread boundary frozen.
+    rate_limited_codes: tuple[tuple[str, int], ...] = ()
 
 
 _service = "api"
@@ -136,6 +156,7 @@ _state_lock = threading.Lock()
 _last_sent: dict[str, float] = {}
 _suppressed: dict[str, int] = {}
 _rate_limited = 0
+_rate_limited_codes: dict[str, int] = {}
 _tokens = float(ALERT_BURST)
 _tokens_refilled_at = 0.0
 _queue: queue.Queue[AlertNotice | None] = queue.Queue(maxsize=ALERT_QUEUE_MAX)
@@ -175,10 +196,10 @@ def _dispatch(stage: FailureStage, code: str, detail: str | None, ids: dict[str,
     if not recipient:
         _warn_unconfigured_once()
         return
-    verdict = _admit(f"{stage}:{code}")
+    verdict = _admit(f"{stage}:{code}", code)
     if verdict is None:
         return
-    suppressed, rate_limited = verdict
+    suppressed, rate_limited, rate_limited_codes = verdict
     notice = AlertNotice(
         stage=stage,
         code=code,
@@ -186,6 +207,7 @@ def _dispatch(stage: FailureStage, code: str, detail: str | None, ids: dict[str,
         ids=dict(ids),
         suppressed=suppressed,
         rate_limited=rate_limited,
+        rate_limited_codes=rate_limited_codes,
     )
     try:
         _queue.put_nowait(notice)
@@ -205,8 +227,8 @@ def _warn_unconfigured_once() -> None:
     log.warning("alert_delivery_unconfigured", extra={"service": _service})
 
 
-def _admit(fingerprint: str) -> tuple[int, int] | None:
-    """The two bounds. Returns (suppressed, rate_limited) to report, or None to drop.
+def _admit(fingerprint: str, code: str) -> tuple[int, int, tuple[tuple[str, int], ...]] | None:
+    """The two bounds. Returns (suppressed, rate_limited, dropped_codes), or None to drop.
 
     The lock is taken NON-BLOCKING on purpose. `apps/api/core/bootstrap.py` installs a
     SIGTERM handler that calls `alert()`, and a signal handler runs on the main thread
@@ -217,7 +239,7 @@ def _admit(fingerprint: str) -> tuple[int, int] | None:
     """
     global _rate_limited
     if not _state_lock.acquire(blocking=False):
-        return (0, 0)
+        return (0, 0, ())
     try:
         now = _now()
         last = _last_sent.get(fingerprint)
@@ -226,11 +248,18 @@ def _admit(fingerprint: str) -> tuple[int, int] | None:
             return None
         if not _take_token(now):
             _rate_limited += 1
+            # Named, not just counted — and only up to the cap, so a storm of distinct
+            # codes cannot grow this dict without bound. Once the cap is reached the
+            # already-named codes keep counting; the total above covers the rest.
+            if code in _rate_limited_codes or len(_rate_limited_codes) < ALERT_DROPPED_CODES_MAX:
+                _rate_limited_codes[code] = _rate_limited_codes.get(code, 0) + 1
             return None
         _last_sent[fingerprint] = now
         suppressed = _suppressed.pop(fingerprint, 0)
         rate_limited, _rate_limited = _rate_limited, 0
-        return (suppressed, rate_limited)
+        dropped = tuple(sorted(_rate_limited_codes.items(), key=lambda item: (-item[1], item[0])))
+        _rate_limited_codes.clear()
+        return (suppressed, rate_limited, dropped)
     finally:
         _state_lock.release()
 
@@ -376,6 +405,11 @@ def _body(notice: AlertNotice) -> str:
             f"note:    {notice.rate_limited} other alert(s) were dropped by the rate "
             f"limit ({ALERT_BUDGET_PER_HOUR:.0f}/hour) since the last delivery"
         )
+        if notice.rate_limited_codes:
+            named = ", ".join(f"{code} x{count}" for code, count in notice.rate_limited_codes)
+            # The codes are ours, not a caller's, so they need no redaction — and they
+            # are the only way the operator learns WHICH alarm the bucket ate.
+            lines.append(f"dropped: {named}")
     lines.append("")
     lines.append(f"Search the logs for code={notice.code} for the full context.")
     return "\n".join(lines)
@@ -400,6 +434,7 @@ def reset_alerts() -> None:
     with _state_lock:
         _last_sent.clear()
         _suppressed.clear()
+        _rate_limited_codes.clear()
         _rate_limited = 0
         _tokens = float(ALERT_BURST)
         _tokens_refilled_at = 0.0
@@ -506,6 +541,7 @@ def record_compliance_block(*, rule: str) -> None:
 __all__ = [
     "ALERT_BUDGET_PER_HOUR",
     "ALERT_BURST",
+    "ALERT_DROPPED_CODES_MAX",
     "ALERT_QUEUE_MAX",
     "ALERT_REPEAT_INTERVAL_S",
     "AlertNotice",

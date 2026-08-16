@@ -297,13 +297,29 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     return key
 
 
-def archive_payload(
-    *, tenant_id: UUID, call_id: UUID, engine: str, execution_id: str, payload: dict[str, Any]
+async def archive_payload(
+    *, tenant_id: UUID, call_id: UUID, engine: str, execution_id: str, document: bytes
 ) -> str | None:
     """Best-effort archive of the raw vendor payload. Returns the key, or None.
 
     Best-effort on purpose: this is a debugging aid. Failing a call's pipeline because
     a debug artifact could not be written would be the tail wagging the dog.
+
+    **`document` IS BYTES, NOT A DICT, AND THAT IS HARD RULE 2 RATHER THAN A CONVENIENCE.**
+    The only caller is `apps/workers/pipeline`, which may not see a vendor field name; a
+    `dict[str, Any]` parameter would put the vendor's keys in a worker's hands and
+    `payload["telephony_data"]` needs no import for anyone to write. The adapter seals the
+    document (`apps.api.engine.document.engine_document`, which also bounds its size) and
+    what crosses is bytes this function does nothing to but store. That also removes the
+    serializer from here, where it had no business deciding what a vendor payload is.
+
+    **AWAITED, because boto3 blocks and this runs in an async worker.** The ARQ worker is
+    one event loop running many jobs; a synchronous `put_object` stalls every other job for
+    the round trip. `asyncio.to_thread` covers the client construction too — `_client()`
+    builds a botocore session, which reads config files. (The rest of this module is still
+    called synchronously from async code, which is the same defect at older call sites; it
+    is not fixed here because moving them is a change to `retention`, `outbound_webhooks`
+    and two route modules at once. What is not shipped here is a NEW instance of it.)
 
     THE TENANT AND CALL ARE REQUIRED ARGUMENTS, and that is a deliberate constraint on
     whoever wires the first caller. The payload is personal data (D-126); an archive
@@ -331,21 +347,24 @@ def archive_payload(
     erasure reaches calls, not archives — so here the reference is the index and it is
     written first.
     """
-    settings = get_settings()
     key = payload_key(
         tenant_id=tenant_id, call_id=call_id, engine=engine, execution_id=execution_id
     )
-    try:
+
+    def _put() -> None:
         _client().put_object(
-            Bucket=settings.object_store_bucket,
+            Bucket=get_settings().object_store_bucket,
             Key=key,
-            Body=json.dumps(payload, default=str).encode(),
+            Body=document,
             ContentType="application/json",
             ServerSideEncryption="AES256",
         )
+
+    try:
+        await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError):
-        # Ids and an engine name. Never one byte of the payload — the thing that could
-        # not be written is a phone number and a transcript (hard rule 6).
+        # Ids, an engine name and nothing else. Never one byte of the document — the thing
+        # that could not be written is a phone number and a transcript (hard rule 6).
         log.warning("payload_archive_failed", extra={"engine": engine, "call_id": str(call_id)})
         return None
     return key

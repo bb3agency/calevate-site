@@ -51,6 +51,7 @@ from uuid import UUID
 
 import jwt
 from calevate_shared.client_address import client_ip
+from calevate_shared.config import Settings
 from fastapi import Depends, Request
 from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientConnectionError
@@ -240,6 +241,59 @@ def jwks_url(realm: Realm) -> str:
     )
     host = _host_from_publishable_key(publishable) or settings.clerk_frontend_api
     return f"https://{host or 'accounts.calevate.tech'}/.well-known/jwks.json"
+
+
+#: The environment variables that decide which Clerk application each realm verifies
+#: against. Named here because `runtime_config_missing_keys` reports them and the
+#: operator has to be told what to set.
+REALM_PUBLISHABLE_KEY_VARS: dict[Realm, str] = {
+    "admin": "CLERK_ADMIN_PUBLISHABLE_KEY",
+    "client": "CLERK_CLIENT_PUBLISHABLE_KEY",
+}
+
+
+def missing_realm_separation_keys(settings: Settings) -> list[str]:
+    """The publishable keys a deployment must set for the two realms to BE two realms.
+
+    `jwks_url` above argues why one JWKS for both realms is not a tidiness issue: the
+    admin verifier accepts a signature minted by the client application, and
+    `admin_users` membership becomes the only thing between a client token and the
+    operator console — an authorization check standing in for an authentication one.
+    That argument was written and then not checked anywhere, and the gap was reachable
+    by an ordinary deploy rather than by a mistake: `runtime_config_missing_keys`
+    demanded both SECRET keys and neither PUBLISHABLE one, so a prod host with both
+    secrets, no publishable keys and a `CLERK_FRONTEND_API` — the documented
+    single-application fallback — resolved BOTH realms to one host and reported
+    `/healthz/ready` green.
+
+    So the check is on the PROPERTY, not on presence: two realms must resolve to two
+    hosts. That is what permits the legitimate custom-domain deployment (both keys set,
+    two hosts) while refusing the two arrangements that collapse the separation — both
+    keys absent, and, the nastier one, the CLIENT key set with the admin's forgotten so
+    the admin realm silently adopts the client application's signing keys.
+
+    Reported rather than raised, and reported through the readiness gate rather than at
+    boot, because that is where this repo puts "legitimately absent at boot, required to
+    serve" (`runtime_config_missing_keys`). Returns the variable names to set — both,
+    because either one can be the one that is wrong and the operator has to look at the
+    pair.
+
+    `local` is the caller's business, not this function's: it answers about the settings
+    it is handed. `runtime_config_missing_keys` scopes it, exactly as it scopes the
+    Clerk secret checks, because a local box has no Clerk at all.
+    """
+    hosts = {
+        realm: _host_from_publishable_key(
+            settings.clerk_admin_publishable_key
+            if realm == "admin"
+            else settings.clerk_client_publishable_key
+        )
+        for realm in REALM_PUBLISHABLE_KEY_VARS
+    }
+    resolved = {realm: host or settings.clerk_frontend_api for realm, host in hosts.items()}
+    if resolved["admin"] and resolved["client"] and resolved["admin"] != resolved["client"]:
+        return []
+    return list(REALM_PUBLISHABLE_KEY_VARS.values())
 
 
 #: How long we will wait for Clerk's JWKS endpoint, in seconds.
@@ -1094,6 +1148,7 @@ __all__ = [
     "JWKS_FETCH_TIMEOUT_S",
     "MFA_REQUIRED_REALMS",
     "ORG_HEADER",
+    "REALM_PUBLISHABLE_KEY_VARS",
     "SECOND_FACTOR_CLAIM",
     "PermissionDependency",
     "VerifiedToken",
@@ -1104,6 +1159,7 @@ __all__ = [
     "current_identity",
     "current_principal",
     "jwks_url",
+    "missing_realm_separation_keys",
     "requires",
     "tenant_of",
     "verify_token",

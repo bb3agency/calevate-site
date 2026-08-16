@@ -46,6 +46,7 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 from apps.api.billing.rates import ROUNDING
 from apps.api.core.errors import ProblemError
 from apps.api.engine.capabilities import require_capability, require_speech_leg
+from apps.api.engine.document import engine_document
 
 # A short code-mixed exchange: Telugu with English clinical terms, which is what
 # real calls sound like and what the extraction fixtures must cope with.
@@ -486,11 +487,23 @@ class FakeEngine:
                 "status": "failed",
                 "duration_s": 0,
             }
-        return self._snapshot_from(call_id, call)
+        # THE DOCUMENT IS THIS ENGINE'S OWN ANSWER, and this adapter IS its own vendor —
+        # so the archive is exercised offline (DEV-SETUP §3) rather than only against a
+        # transport stub. It carries the execution id because a document that is identical
+        # for two different calls is an archive that describes neither, which the
+        # conformance suite refuses; `_calls` alone does not hold the id.
+        return self._snapshot_from(call_id, call).model_copy(
+            update={
+                "raw_document": engine_document({"execution_id": call_id, **call}, engine=self.name)
+            }
+        )
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
-        """Paginates for real, because a fake that never truncates cannot keep the
-        contract honest.
+        """TRUNCATES for real, because a fake that never truncates cannot keep the
+        contract honest. (It does not PAGE — there is no continuation to follow in
+        memory, and `pages_fetched` stays an honest 1. Its predecessor's first line said
+        "paginates", which describes a mechanism this adapter does not have and would
+        make `pages_fetched == 1` read as a bug rather than as the truth.)
 
         The whole point of the second adapter is that a behaviour the contract requires
         gets exercised somewhere other than the vendor's imagination. `ExecutionListing.
@@ -502,6 +515,16 @@ class FakeEngine:
         adapter's private business and the contract exposes no cursor (hard rule 2), so
         a truncated window here is exactly what the caller must cope with from any
         adapter that cannot see past page one.
+
+        **THE REASON IS `page_cap_reached`, NOT `full_page_suspected`, and the difference
+        is what an operator does next.** `full_page_suspected` means "nothing PROVES
+        truncation; the adapter refuses to claim completeness" — a heuristic, which is the
+        honest answer for a vendor that publishes no pagination contract. This engine is
+        its own vendor and enumerated its own store, so truncation here is not suspected,
+        it is KNOWN: our own bound stopped a walk that had more to give, which is exactly
+        what `page_cap_reached` is defined as. Reporting the weaker label would make the
+        one adapter that cannot be wrong about this the one adapter that understates it,
+        and each reason is a distinct alert an operator routes on.
         """
         rows = [
             self._snapshot_from(cid, call)
@@ -513,7 +536,7 @@ class FakeEngine:
         return ExecutionListing(
             snapshots=rows[: self.listing_page_size],
             complete=False,
-            incomplete_reason="full_page_suspected",
+            incomplete_reason="page_cap_reached",
         )
 
     # --- webhooks ------------------------------------------------------------

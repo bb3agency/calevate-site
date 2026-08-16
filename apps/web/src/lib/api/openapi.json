@@ -6117,6 +6117,67 @@
         "title": "InvoiceUsageOut",
         "type": "object"
       },
+      "KbDriftOut": {
+        "additionalProperties": false,
+        "description": "How far the KNOWLEDGE on the voice platform has drifted from what we approved\n(D-158) \u2014 the same measurement as `EngineDriftOut`, on the other object.\n\nWHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly \u2014\none read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring\n`ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that\nentries are how that list \"quietly becomes a hole\").\n\nWHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on\ndifferent schedules over different objects and each `oldest_checked_at` is its OWN\nsweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp\nvouch for a KB sweep that had died \u2014 which is precisely the \"lying by omission\" the\npulse field exists to prevent.\n\nTHE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It\ncarries more weight here than on the agent panel: an empty knowledge listing is\nambiguous between \"the documents are gone\" and \"the vendor's listing does not attribute\nrows to agents\" (pilot gate 8, open), so a large `undetermined` is a real and\nactionable signal about the VENDOR rather than a count of drifted clients.\n\nCOUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.",
+        "properties": {
+          "in_sync": {
+            "title": "In Sync",
+            "type": "integer"
+          },
+          "live_agents": {
+            "title": "Live Agents",
+            "type": "integer"
+          },
+          "never_checked": {
+            "title": "Never Checked",
+            "type": "integer"
+          },
+          "oldest_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Checked At"
+          },
+          "oldest_drift_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oldest Drift At"
+          },
+          "out_of_sync": {
+            "title": "Out Of Sync",
+            "type": "integer"
+          },
+          "undetermined": {
+            "title": "Undetermined",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "live_agents",
+          "never_checked",
+          "out_of_sync",
+          "in_sync",
+          "undetermined",
+          "oldest_drift_at",
+          "oldest_checked_at"
+        ],
+        "title": "KbDriftOut",
+        "type": "object"
+      },
       "KekOut": {
         "additionalProperties": false,
         "description": "The key-management panel's read (\u00a78 panel 4): which KEK is live, and what is\nstill wrapped under something else.\n\n`pending` is the number that decides whether a rotation is FINISHED. While it is\nabove zero the retired KEK must stay in the environment, because removing it would\nmake those rows permanently unreadable \u2014 and that is a decision an operator makes\nfrom this number, so it is published rather than implied.",
@@ -8590,6 +8651,9 @@
             ],
             "title": "Halt Reason"
           },
+          "kb_drift": {
+            "$ref": "#/components/schemas/KbDriftOut"
+          },
           "load_shed_mode": {
             "title": "Load Shed Mode",
             "type": "string"
@@ -8611,7 +8675,8 @@
           "halt_reason",
           "tm_registration",
           "outbox_dead_letters",
-          "engine_drift"
+          "engine_drift",
+          "kb_drift"
         ],
         "title": "PlatformStateOut",
         "type": "object"

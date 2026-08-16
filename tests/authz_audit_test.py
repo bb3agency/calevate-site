@@ -26,7 +26,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
 from apps.api.core import auth as auth_module
-from apps.api.core.auth import requires
+from apps.api.core.auth import current_any, requires
 from apps.api.core.context import Principal, principal_var
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import (
@@ -38,6 +38,7 @@ from apps.api.core.rbac import (
     iter_api_routes,
     permission_meta,
 )
+from apps.api.core.settings import runtime_config_missing_keys
 from apps.api.db.session import tenant_session, untenanted_session, user_session
 from apps.api.main import app
 from fastapi import Depends, FastAPI
@@ -51,6 +52,14 @@ from tests.impersonation_grant_test import view_as_headers
 # for any module that is not a `routes.py`.
 OpsManager = Annotated[Principal, Depends(requires("ops:manage"))]
 AgentReader = Annotated[Principal, Depends(requires("agents:read"))]
+# An IDENTITY with no permission behind it — the `GET /v1/me` shape. MODULE LEVEL is
+# load-bearing beyond lint: this file has `from __future__ import annotations`, so a
+# route handler's annotation is a STRING that FastAPI resolves against the module
+# globals. An alias defined inside a test function does not resolve, the parameter is
+# dropped, and the route ends up with NO dependency at all — which the registry catches
+# for a different reason ("authenticates nobody"), turning the test below green while
+# testing nothing.
+AnyIdentity = Annotated[Principal, Depends(current_any)]
 
 
 def _client() -> AsyncClient:
@@ -154,6 +163,80 @@ async def test_the_two_realms_do_not_share_one_signing_key_source(
     assert admin_url == "https://admin-clerk.calevate.tech/.well-known/jwks.json"
     assert client_url == "https://app-clerk.calevate.tech/.well-known/jwks.json"
     assert admin_url != client_url, "one JWKS for both realms is not two realms"
+
+
+def _prod_settings(**update: object) -> object:
+    """A deployment that satisfies every OTHER readiness key, so anything reported here
+    came from the realm-separation clause and nowhere else."""
+    return auth_module.get_settings().model_copy(
+        update={
+            "app_env": "prod",
+            "engine": "fake",
+            "sarvam_api_key": "sk-sarvam",
+            "clerk_admin_secret_key": "sk-admin",
+            "clerk_client_secret_key": "sk-client",
+            "impersonation_grant_secret": "i" * 32,
+            "audit_chain_secret": "a" * 32,
+            "idempotency_scope_secret": "d" * 32,
+            **update,
+        }
+    )
+
+
+async def test_a_prod_deployment_whose_realms_share_one_jwks_is_not_ready() -> None:
+    """The other half of the test above, and the half that decides whether it MEANS
+    anything in a deployment nobody hand-configured.
+
+    `jwks_url` argues that one JWKS for both realms leaves `admin_users` membership as
+    "the only thing between a client token and the admin console — an authorization check
+    standing in for an authentication one". Nothing measured whether a real deployment
+    could be in that state, and it could: `runtime_config_missing_keys` demanded both
+    SECRET keys and neither PUBLISHABLE key, so a prod host with both secrets, no
+    publishable keys and a `CLERK_FRONTEND_API` (the documented single-application
+    fallback) resolved both realms to one host and answered `/healthz/ready` with `[]`.
+
+    The nastier arrangement is the second one below — the CLIENT application's
+    publishable key set and the admin's forgotten, so the ADMIN verifier silently adopts
+    the client application's signing keys. Nothing in the configuration looks empty.
+    """
+    both_absent = _prod_settings(
+        clerk_admin_publishable_key=None,
+        clerk_client_publishable_key=None,
+        clerk_frontend_api="accounts.calevate.tech",
+    )
+    admin_forgotten = _prod_settings(
+        clerk_admin_publishable_key=None,
+        clerk_client_publishable_key=_publishable_key("app-clerk.calevate.tech"),
+        clerk_frontend_api="app-clerk.calevate.tech",
+    )
+    for settings in (both_absent, admin_forgotten):
+        missing = runtime_config_missing_keys(settings)  # type: ignore[arg-type]
+        assert "CLERK_ADMIN_PUBLISHABLE_KEY" in missing, missing
+        assert "CLERK_CLIENT_PUBLISHABLE_KEY" in missing, missing
+
+
+async def test_two_distinct_clerk_applications_are_ready() -> None:
+    """The control. A readiness probe that is red for a correct deployment is an outage
+    of its own, so the shape a real two-application deploy has must report nothing."""
+    settings = _prod_settings(
+        clerk_admin_publishable_key=_publishable_key("admin-clerk.calevate.tech"),
+        clerk_client_publishable_key=_publishable_key("app-clerk.calevate.tech"),
+    )
+    assert runtime_config_missing_keys(settings) == []  # type: ignore[arg-type]
+
+
+async def test_local_is_untouched_by_the_realm_separation_check() -> None:
+    """`local` has no Clerk at all — that is what the dev-token path is for — so the
+    check must not turn every developer's `/healthz/ready` red."""
+    settings = auth_module.get_settings().model_copy(
+        update={
+            "app_env": "local",
+            "engine": "fake",
+            "clerk_admin_publishable_key": None,
+            "clerk_client_publishable_key": None,
+        }
+    )
+    assert runtime_config_missing_keys(settings) == []  # type: ignore[arg-type]
 
 
 async def test_jwks_host_falls_back_to_the_configured_frontend_api(
@@ -326,6 +409,44 @@ async def test_the_registry_catches_a_declaration_that_disagrees_with_the_check(
 
     with pytest.raises(MissingPolicyError, match="drifted"):
         assert_policy_registry_complete(drifted)
+
+
+async def test_the_registry_catches_a_declaration_with_only_an_identity_behind_it() -> None:
+    """The third shape of "a label with no lock", and the one the boot gate used to pass.
+
+    Its two siblings above cover a declaration with NO auth dependency and a declaration
+    that names a DIFFERENT permission than the lock. Between them sits the shape this
+    repo has actually shipped: `Depends(current_any)` — which resolves an identity and
+    checks no permission — beside `permission_meta("ops:manage")`. That is what `GET
+    /v1/me` was, and the docstring of `test_a_declared_permission_is_a_permission_the_
+    route_checks` below records it.
+
+    `assert_policy_registry_complete` PASSED it. The clause was
+    `elif enforced and declared not in enforced`, so an EMPTY enforcement set was
+    exempted from the comparison rather than being its worst case — a route whose label
+    says `ops:manage` and whose lock is "be signed in".
+
+    MEASURED, not deduced. Driven against a throwaway app on the shipped code, a `staff`
+    member of one tenant reached the `ops:manage` route (200, `role=staff`) and an
+    `operator` reached the `platform:secrets` route (200, `role=operator`) — the two
+    permissions in this table that exist precisely to be held by almost nobody. The boot
+    assertion reported both routes as guarded.
+
+    The live app has no such route (`test_a_declared_permission_is_a_permission_the_
+    route_checks` sweeps it), which is why this is written against a throwaway one: the
+    property under test is what the BOOT GATE refuses, not what today's table happens to
+    contain. A test of the table would go green on its own the day the table is right and
+    say nothing about the next route.
+    """
+    labelled = FastAPI()
+
+    @labelled.get("/v1/big-red-switch", openapi_extra=permission_meta("ops:manage"))
+    async def _labelled(_: AnyIdentity) -> dict[str, str]:
+        return {"ok": "ok"}
+
+    with pytest.raises(MissingPolicyError, match="big-red-switch") as raised:
+        assert_policy_registry_complete(labelled)
+    assert "ops:manage" in str(raised.value), "the failure must name the permission to lock"
 
 
 async def test_the_registry_accepts_a_route_that_declares_and_enforces_the_same_thing() -> None:

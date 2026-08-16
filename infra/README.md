@@ -29,7 +29,8 @@ partly unkept — and, worse, the certificate's limitation text described a 90-d
 if a mechanism were enforcing it.
 
 `engine-payloads/` is the quieter half of the same hole, and it is now half closed.
-Raw vendor payloads are written by `archive_payload()` and they contain phone numbers and
+Raw vendor payloads are written by `archive_payload()` — once per completed call, from the
+post-call pipeline — and they contain phone numbers and
 transcript text. **No `retention_policies` category covers them** (the enum is
 `recording|transcript|lead|consent_log`), so this bucket rule remains their only clock and
 the number below is still a decision a human owes (§5, item 5). What changed in D-126 is the

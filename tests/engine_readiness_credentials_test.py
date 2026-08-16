@@ -29,12 +29,26 @@ be reporting about a deployment that does not exist.
 
 from __future__ import annotations
 
+import base64
 from typing import Any
 
 import pytest
 from apps.api.core.settings import Settings, runtime_config_missing_keys
 from apps.api.engine import build_engine, get_engine, missing_engine_credential_keys
 from calevate_shared.config import SELECTABLE_ENGINES
+
+
+def _publishable_key(host: str) -> str:
+    """Clerk's publishable-key format: `pk_<env>_<base64(host + '$')>`.
+
+    Two DISTINCT hosts are part of "every non-engine requirement satisfied": readiness
+    now also reports a deployment whose two realms would verify against ONE Clerk
+    application (`core/auth.py::missing_realm_separation_keys`, driven in
+    `tests/authz_audit_test.py`). Without these the fixture would describe a deployment
+    that cannot separate its realms, and every assertion below would carry two extra keys
+    it is not about.
+    """
+    return "pk_test_" + base64.b64encode(f"{host}$".encode()).decode().rstrip("=")
 
 
 def _settings(**overrides: Any) -> Settings:
@@ -58,6 +72,8 @@ def _settings(**overrides: Any) -> Settings:
         "sarvam_api_key": "sk-sarvam",
         "clerk_client_secret_key": "sk-client",
         "clerk_admin_secret_key": "sk-admin",
+        "clerk_admin_publishable_key": _publishable_key("admin-clerk.calevate.tech"),
+        "clerk_client_publishable_key": _publishable_key("app-clerk.calevate.tech"),
         "impersonation_grant_secret": "i" * 32,
         "audit_chain_secret": "a" * 32,
         "idempotency_scope_secret": "d" * 32,

@@ -46,6 +46,13 @@ RAW_PAYLOAD = {
 }
 
 
+def _document(phone: str) -> bytes:
+    """The archive takes BYTES, not a dict (hard rule 2): the only caller is a worker, and
+    a dict parameter would hand it the vendor's field names. Sealed here exactly as an
+    adapter seals one, so this fixture exercises the real argument type."""
+    return json.dumps({**RAW_PAYLOAD, "from": phone}).encode()
+
+
 async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     created = await admin_service.create_organization(
         name="Payload Clinic",
@@ -97,12 +104,12 @@ async def _call_with_archived_payload(
             ),
             {"id": call_id, "t": tenant_id, "a": agent_id, "e": execution_id, "phone": phone},
         )
-    key = storage.archive_payload(
+    key = await storage.archive_payload(
         tenant_id=tenant_id,
         call_id=call_id,
         engine="fake",
         execution_id=execution_id,
-        payload={**RAW_PAYLOAD, "from": phone},
+        document=_document(phone),
     )
     assert key is not None, "fixture precondition: the archive was written"
     assert key in s3.objects, "fixture precondition: the payload starts in the store"
@@ -231,12 +238,12 @@ async def test_a_sibling_archive_no_column_names_is_erased_too(s3: FakeS3) -> No
     call_id, named = await _call_with_archived_payload(
         s3, tenant_id=tenant_id, agent_id=agent_id, phone=phone
     )
-    unnamed = storage.archive_payload(
+    unnamed = await storage.archive_payload(
         tenant_id=tenant_id,
         call_id=call_id,
         engine="fake",
         execution_id=f"exec_{uuid.uuid4().hex[:16]}",
-        payload={**RAW_PAYLOAD, "from": phone},
+        document=_document(phone),
     )
     assert unnamed is not None and unnamed in s3.objects and unnamed != named
 

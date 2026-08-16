@@ -69,6 +69,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import require_capability, require_speech_leg
+from apps.api.engine.document import engine_document
 
 log = get_logger(__name__)
 
@@ -1056,7 +1057,16 @@ class BolnaEngine:
         )
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
-        return self._snapshot(await self._request("GET", f"/executions/{call_id}"))
+        """Their execution, normalized — plus their own document, sealed as bytes.
+
+        The document rides on `get_execution` and NOT on `_snapshot`, so `list_executions`
+        does not build one per row: a twenty-page poll would serialize two thousand
+        documents that nothing archives. This is the one path the archive runs on.
+        """
+        payload = await self._request("GET", f"/executions/{call_id}")
+        return self._snapshot(payload).model_copy(
+            update={"raw_document": engine_document(payload, engine=self.name)}
+        )
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """The guarantee of record (D-31) — and an honest account of what it covered.

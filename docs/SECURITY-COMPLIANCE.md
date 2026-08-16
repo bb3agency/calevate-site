@@ -208,9 +208,11 @@ is personal data whatever it is kept for. Its key was
 no erasure could enumerate one person's copies. It is now
 `engine-payloads/{tenant}/{call}/…` and `_erase_engine_payloads` destroys every object
 under the erased calls' prefixes, on the per-subject path and the tenant path alike, with
-the count in the proof's `actions`. Two limits stated rather than implied: **nothing
-writes this archive yet** (the arm exists BEFORE the producer, because after the producer
-the unreachable objects already exist), and **no retention category expires it** — the
+the count in the proof's `actions`. The archive now HAS a producer — the post-call
+pipeline writes one document per completed call, committing `engine_payload_ref` before
+the PUT so no object can exist that an erasure has no reason to look for — which makes
+the arm above a live guarantee rather than a prepared one, and leaves one limit standing
+rather than two: **no retention category expires it** — the
 enum is `recording|transcript|lead|consent_log`, so for anyone who has NOT filed an
 erasure the only clock is the bucket's 90-day `engine-payloads/` lifecycle rule, which
 has never been applied to a real bucket (infra/README §5). Giving the archive its own
