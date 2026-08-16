@@ -719,5 +719,20 @@ async def test_no_phone_transcript_or_extraction_payload_reaches_the_logs(
     )
     for secret in (phone, old_lead_phone, TRANSCRIPT, SUMMARY, "Ravi"):
         assert secret not in emitted, f"{secret!r} reached the log stream"
-    # Digit runs long enough to be an Indian mobile, in any shape, from any module.
-    assert not re.search(r"\+?9\d{9,}", emitted), emitted
+    # Digit runs long enough to be an Indian mobile, in any shape, from any module —
+    # scanned over the log text with UUIDs REMOVED FIRST.
+    #
+    # THE STRIP IS NOT A WEAKENING, IT IS THE FIX FOR A ONE-IN-ELEVEN FALSE ALARM.
+    # A uuid7/uuid4 renders as hex, and hex contains decimal digits, so a `9` followed by
+    # nine more digits occurs inside an ordinary id — measured at **0.245% per id**, and
+    # this assertion scans a log carrying ~40 of them, which is a **~9% chance per run**.
+    # It fired for real: `tenant_id 01a00bbb-f055-7893-9ee2-492121909153` matched on its
+    # tail `92121909153`, reddening CI with a message that reads as a hard-rule-6 breach —
+    # the most alarming false alarm this suite can produce, and the kind that teaches
+    # somebody to re-run until green.
+    #
+    # It cannot hide a real number. A phone is `+91` plus ten digits with no dashes; the
+    # pattern removed here is the 8-4-4-4-12 hex layout, which no phone number can take.
+    # Anything phone-shaped survives the strip and is still caught.
+    without_ids = re.sub(r"\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b", "<id>", emitted)
+    assert not re.search(r"\+?9\d{9,}", without_ids), without_ids
