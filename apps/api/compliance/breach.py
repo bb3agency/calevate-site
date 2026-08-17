@@ -77,6 +77,8 @@ from dataclasses import dataclass, fields
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
+from apps.api.compliance.service import IST
+
 # WHEN, and the three numbers named once.
 #
 # `CLIENT_NOTIFICATION_HOURS` is OUR contractual promise (`/legal/dpa` §7) and is the
@@ -203,8 +205,13 @@ def _timeline(facts: BreachFacts) -> str:
 
 def _stamp(moment: datetime) -> str:
     """UTC on the wire, IST beside it — the edge convention, and the one an Indian
-    regulator and an Indian client both read without converting."""
-    ist = moment.astimezone(UTC) + timedelta(hours=5, minutes=30)
+    regulator and an Indian client both read without converting.
+
+    `IST` is imported rather than redeclared: this package already owns exactly one
+    definition of that offset (`compliance/service.py`), and a second copy in the module
+    that prints statutory deadlines is the last place to keep a duplicate.
+    """
+    ist = moment.astimezone(UTC) + IST
     return f"{moment.astimezone(UTC):%Y-%m-%d %H:%M} UTC ({ist:%Y-%m-%d %H:%M} IST)"
 
 
