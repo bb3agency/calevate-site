@@ -248,7 +248,7 @@ function OnFile({ record }: { record: KycRecord }) {
 
 /** Every input on this form, in one place — the design language, not per-field taste. */
 const FIELD =
-  "w-full max-w-md rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full max-w-md rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 const STATUSES = Object.keys(KYC_STATUS_COPY) as KycStatus[];
 const DOCUMENT_KIND_VALUES = Object.keys(DOCUMENT_KINDS) as KycDocumentKind[];
