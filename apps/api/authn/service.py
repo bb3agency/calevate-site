@@ -1,4 +1,4 @@
-"""The flows: sign in, sign out, reset, verify, enrol (D-166).
+"""The flows: sign in, sign out, reset, verify, enrol (D-170).
 
 Everything below this module is a mechanism — a hash, a row, a counter, a code. This is
 where they are composed into the six things a person actually does, and where the two
@@ -19,7 +19,7 @@ properties that cut across all of them are enforced:
 
 ═══ WHAT "MFA" MEANS HERE, WHICH IS LESS THAN A READER WILL ASSUME ═══
 
-**The second factor is an emailed six-digit code, and nothing else** (D-166). There is no
+**The second factor is an emailed six-digit code, and nothing else** (D-170). There is no
 TOTP, no authenticator app, no shared secret, no QR code and no recovery-code sheet — those
 were designed and then deliberately removed, so a reader who goes looking for them is
 looking for something this system does not have. "The admin realm requires MFA" means
@@ -28,7 +28,7 @@ is answer `POST /v1/auth/admin/login/otp`. Everything else refuses it.
 
 The honest cost: the strength of that factor is the strength of the operator's mailbox. It
 defends against a stolen password and not against a compromised email account, which a TOTP
-secret would. ROADMAP §6 D-166 records that trade rather than leaving it to be discovered.
+secret would. ROADMAP §6 D-170 records that trade rather than leaving it to be discovered.
 
 ═══ WHY A PASSWORD PRODUCES A SESSION EVEN WHEN A SECOND FACTOR IS REQUIRED ═══
 
@@ -276,13 +276,13 @@ async def complete_second_factor(
 ) -> IssuedSession:
     """Finish a sign-in by answering the emailed challenge. Rotates the session on success.
 
-    ═══ THIS IS THE WHOLE OF "MFA" IN THIS PRODUCT (D-166) ═══
+    ═══ THIS IS THE WHOLE OF "MFA" IN THIS PRODUCT (D-170) ═══
 
     There is no authenticator app, no shared secret, no QR code and no recovery-code sheet.
     The second factor is POSSESSION OF THE MAILBOX ON FILE, demonstrated by a six-digit code
     with a ten-minute life, a five-guess budget on the row and a five-failure budget in
     Redis. A reader looking for TOTP will not find it, and that is the design rather than a
-    gap — the founder's decision, recorded in ROADMAP §6 D-166.
+    gap — the founder's decision, recorded in ROADMAP §6 D-170.
 
     What that buys and what it costs, said plainly: it is one mechanism instead of three
     (secret storage, enrolment, recovery), it needs no device and no enrolment step, and an

@@ -1,4 +1,4 @@
-"""The second factor, which is an emailed one-time code and nothing else (D-166).
+"""The second factor, which is an emailed one-time code and nothing else (D-170).
 
 **Read this before looking for TOTP.** There is no authenticator app, no shared secret, no
 QR provisioning URI and no recovery-code sheet in this system. "The admin realm requires
@@ -402,7 +402,7 @@ def test_the_challenge_lifetime_and_budgets_are_the_documented_ones() -> None:
 
 
 def test_no_totp_or_recovery_code_surface_survives() -> None:
-    """TOTP and recovery codes were built and then REMOVED (D-166). This fails if either
+    """TOTP and recovery codes were built and then REMOVED (D-170). This fails if either
     comes back as an unmounted module, an orphan table or a stray route — the half-wired
     shape CLAUDE.md names, and the exact thing a reader would waste an hour looking for."""
     import pathlib

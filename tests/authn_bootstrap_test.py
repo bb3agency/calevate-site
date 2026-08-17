@@ -1,4 +1,4 @@
-"""The first administrator (D-167): the one act that turns a bare deployment into a usable one.
+"""The first administrator (D-171): the one act that turns a bare deployment into a usable one.
 
 Four properties the coordinator named, plus the ones that make them mean something:
 
@@ -292,7 +292,7 @@ async def test_the_bootstrapped_account_can_actually_sign_in(
     )
     assert outcome.subject_id == result.admin_id
     # The admin realm mandates a second factor, so a correct password is NOT a finished
-    # sign-in — it is a session that opens exactly one door: the emailed code (D-166).
+    # sign-in — it is a session that opens exactly one door: the emailed code (D-170).
     assert outcome.status == "otp_required"
     assert outcome.session.token
 

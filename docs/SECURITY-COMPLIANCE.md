@@ -430,7 +430,7 @@ audit_log. Redaction runs BEFORE any transcript leaves our system (exports, noti
 Identity & access
 - Two auth realms (admin vs client), separate cookies/domains; MFA mandatory on admin.
   - **WHAT "MFA" MEANS HERE, because a reader will otherwise assume an authenticator app:
-    a six-digit code emailed to the address on file, and nothing else** (D-166). TOTP,
+    a six-digit code emailed to the address on file, and nothing else** (D-170). TOTP,
     shared secrets and recovery codes were designed and then deliberately not built. A
     correct admin password issues a session with `mfa_verified_at IS NULL` that can reach
     exactly one route — `POST /v1/auth/admin/login/otp` — and answering it rotates the

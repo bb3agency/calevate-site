@@ -29,7 +29,7 @@ under the same idea: a verifier SHALL limit consecutive failed attempts on one a
 no more than 100, and lower limits are permitted. It also names the mitigation for the DoS
 side — an increasing wait rather than a hard stop — and requires rate limiting outright
 whenever an authenticator output carries fewer than 64 bits of entropy, which is exactly
-the OTP case below — and, since the OTP IS this product's second factor (D-166), the single
+the OTP case below — and, since the OTP IS this product's second factor (D-170), the single
 most important budget in this file.
 
 **So the design here is: a decaying counter with an increasing delay, never a durable
@@ -99,7 +99,7 @@ class Budget:
 #: 40 guesses an hour, short enough that a locked-out owner is not phoning anybody.
 PASSWORD_BUDGET: Final = Budget("password", threshold=10, window_s=900)
 
-#: EMAILED OTP — AND THIS PRODUCT'S ONLY SECOND FACTOR (D-166). Five guesses per account
+#: EMAILED OTP — AND THIS PRODUCT'S ONLY SECOND FACTOR (D-170). Five guesses per account
 #: per ten minutes.
 #:
 #: This one is the arithmetic that matters, because the secret is ~20 bits. Five guesses

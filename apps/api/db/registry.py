@@ -278,8 +278,8 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "user-agent, no PII."
     ),
     "auth_email_tokens": (
-        "D-166's single-use emailed secrets — email verification, password reset, "
-        "invitation set-password, and the first-administrator bootstrap (D-167). Not "
+        "D-170's single-use emailed secrets — email verification, password reset, "
+        "invitation set-password, and the first-administrator bootstrap (D-171). Not "
         "tenant-scoped for the same reason as the two above: it names a SUBJECT (a person "
         "across every tenant they belong to) or an `invitations` row, never a tenant. "
         "Migration b3d9f6a2c815 gives it the identical FORCEd deny-by-default policy on "
@@ -290,7 +290,7 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "MAC's domain, so a verification token cannot be redeemed as a password reset."
     ),
     "auth_otp_challenges": (
-        "D-166's one-time codes — and since the second factor IS the emailed code rather "
+        "D-170's one-time codes — and since the second factor IS the emailed code rather "
         "than TOTP, this is the table the admin realm's MFA rests on. Not tenant-scoped "
         "for the same reason as its three siblings above (it names a subject, not a "
         "tenant) and carries the same FORCEd deny-by-default `app.auth` policy. It is "

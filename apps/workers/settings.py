@@ -114,7 +114,7 @@ FUNCTIONS: list[Any] = [
         # dropped by arq, and only recovered by the post-call transcript pass minutes
         # later — the exact silent-degradation shape `job_registration_test.py` guards.
         record_in_call_optout,
-        # D-166. Every one-time secret `apps/api/authn` mints is delivered by this job, so
+        # D-170. Every one-time secret `apps/api/authn` mints is delivered by this job, so
         # an unregistered one means a reset link that is promised, queued, DLQ'd and never
         # sent — while the sign-in screen truthfully reports that an email was on its way.
         deliver_auth_email,

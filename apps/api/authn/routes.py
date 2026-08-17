@@ -1,4 +1,4 @@
-"""`/v1/auth/{admin,client}/**` — the first-party authentication surface (D-166).
+"""`/v1/auth/{admin,client}/**` — the first-party authentication surface (D-170).
 
 ═══ TWO ROUTERS, BUILT BY ONE FACTORY, AND WHY THAT IS NOT THE THING §3 WARNS ABOUT ═══
 
@@ -22,7 +22,7 @@ hash domain, it is in the `WHERE` clause beside it, it selects the cookie name, 
 ═══ WHY EVERY ROUTE IS MOUNTED EVEN WHEN THE FLAG IS OFF ═══
 
 `Settings.first_party_auth_enabled` defaults to **True** — this is the only authentication
-this product has (D-166), so the flag is a kill switch rather than a cutover gate, and a
+this product has (D-170), so the flag is a kill switch rather than a cutover gate, and a
 deployment that came up with it off would have no way for anybody to sign in.
 
 When it IS off the routes stay mounted and refuse with `first_party_auth_disabled`, rather
@@ -97,7 +97,7 @@ class LoginOut(BaseModel):
     #: `authenticated` means the cookie is usable now. `otp_required` means a code has just
     #: been emailed and the session opens exactly one door — `POST .../login/otp` — until it
     #: is answered. There is no third value: this product's second factor is the emailed
-    #: code and nothing else (D-166), so there is no "enrol an authenticator" branch for a
+    #: code and nothing else (D-170), so there is no "enrol an authenticator" branch for a
     #: console to handle.
     status: Literal["authenticated", "otp_required"]
 
@@ -313,7 +313,7 @@ def _realm_router(realm: str) -> APIRouter:
     ) -> SessionOut:
         """Takes a session that has proved a password but not the second factor.
 
-        THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole
+        THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole
         mechanism, so there is no sibling route for an authenticator app and no route for a
         recovery code. Rotates the session on success, which is OWASP's session-fixation
         defence applied at the privilege change.
@@ -478,7 +478,7 @@ def _realm_router(realm: str) -> APIRouter:
             summary="Set the first administrator's password from a bootstrap setup link",
         )
         async def bootstrap_confirm(payload: BootstrapConfirmIn, request: Request) -> Response:
-            """The redemption half of `scripts/bootstrap_admin.py` (D-167).
+            """The redemption half of `scripts/bootstrap_admin.py` (D-171).
 
             UNAUTHENTICATED, necessarily — it is how a deployment acquires its first
             operator, and there is nobody to authenticate as until it succeeds. What stands

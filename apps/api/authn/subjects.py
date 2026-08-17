@@ -1,4 +1,4 @@
-"""Who a credential belongs to, and whether that person may still sign in (D-166).
+"""Who a credential belongs to, and whether that person may still sign in (D-170).
 
 Everything else in this package works on a `(realm, subject_id)` pair and never asks what
 is on the other end of it. This module is the one that asks, and it exists as its own file

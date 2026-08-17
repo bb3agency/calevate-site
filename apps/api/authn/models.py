@@ -175,7 +175,7 @@ EMAIL_TOKEN_PURPOSES = (
     # An invitation's set-your-password leg. Distinct from `password_reset` because it is
     # issued to somebody who has no account yet and is bound to an `invitations` row.
     "invite_password",
-    # THE FIRST ADMINISTRATOR (D-167). Its own purpose rather than a `password_reset`
+    # THE FIRST ADMINISTRATOR (D-171). Its own purpose rather than a `password_reset`
     # with a longer clock, because the two differ in more than duration: this one is
     # minted by a script with database credentials rather than by a request, it is the
     # single most privileged act in a deployment's life, and it is redeemed by an endpoint
@@ -189,7 +189,7 @@ EMAIL_TOKEN_PURPOSES = (
 #: ~20-bit secret, so every purpose added here is a new surface that needs the throttle in
 #: `throttle.py` to be correct.
 #:
-#: `login_challenge` IS THIS PRODUCT'S SECOND FACTOR (D-166). There is no authenticator app,
+#: `login_challenge` IS THIS PRODUCT'S SECOND FACTOR (D-170). There is no authenticator app,
 #: no shared secret and no recovery-code sheet: on a realm that requires a second factor, a
 #: correct password issues a session that can do exactly one thing — answer an emailed code.
 #: See `service.py` on why that is the whole of "MFA" here.

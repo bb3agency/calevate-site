@@ -1,4 +1,4 @@
-"""Redeeming an invitation without a vendor in the middle (D-166).
+"""Redeeming an invitation without a vendor in the middle (D-170).
 
 ═══ THE URL CONTRACT THIS HAS TO FIT ═══
 

@@ -1,4 +1,4 @@
-"""Delivering the one-time secrets `apps/api/authn` mints (D-166).
+"""Delivering the one-time secrets `apps/api/authn` mints (D-170).
 
 A reset link nobody receives is a password nobody can change, so this job is the other half
 of every flow in `authn/service.py` that ends in `_enqueue_auth_email`. It is deliberately

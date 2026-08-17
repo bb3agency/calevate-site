@@ -2,7 +2,7 @@
 
 `tests/authn_rls_test.py` does this for `auth_credentials` and `auth_sessions`; this is its
 twin for the two that hold the material which RESETS those two — reset tokens that mint
-passwords, and the one-time codes that ARE this product's second factor (D-166).
+passwords, and the one-time codes that ARE this product's second factor (D-170).
 
 The property is the one hard rule 1 asks for, reached from the other side. None of these
 carry a `tenant_id` — identity crosses tenants — so "tenant A sees none of tenant B's rows"

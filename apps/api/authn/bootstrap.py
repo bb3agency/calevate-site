@@ -1,4 +1,4 @@
-"""The first administrator: how a bare deployment acquires somebody who can use it (D-167).
+"""The first administrator: how a bare deployment acquires somebody who can use it (D-171).
 
 ═══ THE PROBLEM, WHICH IS SPECIFIC AND TOTAL ═══
 

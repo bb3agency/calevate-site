@@ -2,12 +2,12 @@
 
 Version 2.0 · 17 Aug 2026 · **BUILT AND MOUNTED. This is now the only authentication this
 product has.** Clerk's code paths still exist and still pass their tests; they are dead
-weight awaiting deletion, not a live peer. See ROADMAP §6 D-166 / D-167.
+weight awaiting deletion, not a live peer. See ROADMAP §6 D-170 / D-171.
 
 > **If you are looking for TOTP, stop.** The second factor is a six-digit code emailed to
 > the address on file, and nothing else — no authenticator app, no shared secret, no QR
 > code, no recovery codes. All of that was built and then removed on the founder's
-> decision (D-166). §2.3 and §7 carry what that trade costs.
+> decision (D-170). §2.3 and §7 carry what that trade costs.
 
 This document is the plan for removing Clerk from Calevate and the acceptance criteria
 for that removal. §1 is the criteria: a capability missing from that table is a
@@ -81,7 +81,7 @@ table is a regression nobody will notice until a customer does.**
 | C-05 | Session expiry, idle and absolute | Clerk session settings (a dashboard checkbox, unassertable from this repo) | `REALM_TIMEOUTS`, enforced server-side on the row, different per realm | **shipped:** both bounds have their own negative control |
 | C-06 | Rotate the session identifier on privilege change | Clerk internal | `sessions.rotate_session`, CAS on `superseded_at`, lifetime carried forward | **shipped** |
 | C-07 | Detect a stolen/replayed session | Not available from Clerk to us | Replay of a superseded token revokes the family (`reuse_detected`) | **shipped** |
-| C-08 | Mandatory MFA on the admin realm | `fva` claim on Clerk's default session token; gate in `verify_token` (D-68) | **An emailed six-digit code, and nothing else (D-166).** A correct admin password issues a session with `mfa_verified_at IS NULL` that can reach exactly one route — `POST /v1/auth/admin/login/otp` — and answering it ROTATES the session. `MFA_REQUIRED_REALMS` is asserted equal to `core/auth.py`'s copy so the sign-in path and the verifier cannot disagree | **shipped:** `tests/authn_mfa_test.py` — password alone yields `otp_required`, the pre-code token dies on rotation, the client realm needs no code (the control), and no TOTP/recovery surface survives anywhere. This is task #66 closed |
+| C-08 | Mandatory MFA on the admin realm | `fva` claim on Clerk's default session token; gate in `verify_token` (D-68) | **An emailed six-digit code, and nothing else (D-170).** A correct admin password issues a session with `mfa_verified_at IS NULL` that can reach exactly one route — `POST /v1/auth/admin/login/otp` — and answering it ROTATES the session. `MFA_REQUIRED_REALMS` is asserted equal to `core/auth.py`'s copy so the sign-in path and the verifier cannot disagree | **shipped:** `tests/authn_mfa_test.py` — password alone yields `otp_required`, the pre-code token dies on rotation, the client realm needs no code (the control), and no TOTP/recovery surface survives anywhere. This is task #66 closed |
 | C-09 | Step-up confirmation for high-risk admin acts | `X-Confirm-Action` (ours) + Clerk re-auth | Unchanged for the header half. The re-auth half is **NOT BUILT**: `mfa_verified_at` is the carrier it would read, and no route re-checks its age yet | **TODO** — the header half is unchanged and still tested |
 | C-10 | Mirror identity into our Postgres | `tenancy/clerk_webhooks.py` (Svix HMAC) + `core/clerk_identity.py` JIT reconcile (D-124) | **Deleted, not replaced.** There is no upstream to mirror: `users` becomes the origin of an identity rather than its shadow. The whole `identity_mirror_pending` transient-refusal path and its race disappear with it | **TODO:** delete `tests/identity_mirror_race_test.py`, `tests/clerk_mirror_security_test.py` and the `/hooks/v1/clerk` rate-limit rule in the same change |
 | C-11 | Self-serve signup (account, then workspace) | Clerk hosted `/sign-up` mints the account; `POST /v1/auth/signup` creates the org | One flow, ours: email + password + verification → `users` row → `POST /v1/auth/signup` unchanged. `current_identity` keeps its shape (a verified identity with no membership yet) | **TODO** |
@@ -89,7 +89,7 @@ table is a regression nobody will notice until a customer does.**
 | C-13 | Password reset | Clerk | Single-use keyed-hash token, 1 h, revokes every session on use AND invalidates every other outstanding reset (ASVS V7). The request answers 202 with an empty body for known and unknown addresses alike | **shipped:** `tests/authn_enumeration_test.py` — including the deleted-account refusal and the measured timing equalisation |
 | C-14 | Team invitations | **Already ours.** `invitations` table, 72 h, hash-at-rest, burned by CAS on `used_at`, read under `app.invite_hash` | **`POST /v1/auth/client/invitations/accept`** takes `{token, password, name}` and does what two calls used to: creates the `users` row, sets the password, burns the invitation through the EXISTING `admin_service.accept_invitation`, and issues a session. The address comes from the INVITATION and never from the request — strictly stronger than the old comparison, and it removes `invitation_wrong_recipient` from this path entirely. The `/invite?token=` page contract is unchanged | **shipped:** `apps/api/authn/invitations.py`; the Clerk `POST /v1/invitations/accept` is untouched and still passes `tests/member_invitations_test.py` |
 | C-15 | Client staff roles | **Already ours.** `memberships.role`, `core/rbac.py` policy registry validated at boot | Unchanged | **existing:** `tests/rbac_registry_test.py` |
-| C-16 | Operator allowlist | **Already ours.** `admin_users`, ops-managed, never auto-created (`clerk_identity.py` is explicit that auto-creating one is "privilege escalation wearing a race condition's clothes") | `admin_users` gains `email` (unique on `lower(email)`); `clerk_user_id` drops NOT NULL. `scripts/bootstrap_admin.py` takes `--email` and mails a single-use setup link — **the first administrator now arrives by invite** (D-167, §11) | **shipped:** `tests/authn_bootstrap_test.py` (12 cases); `tests/admin_identity_test.py` unchanged |
+| C-16 | Operator allowlist | **Already ours.** `admin_users`, ops-managed, never auto-created (`clerk_identity.py` is explicit that auto-creating one is "privilege escalation wearing a race condition's clothes") | `admin_users` gains `email` (unique on `lower(email)`); `clerk_user_id` drops NOT NULL. `scripts/bootstrap_admin.py` takes `--email` and mails a single-use setup link — **the first administrator now arrives by invite** (D-171, §11) | **shipped:** `tests/authn_bootstrap_test.py` (12 cases); `tests/admin_identity_test.py` unchanged |
 | C-17 | Instant deactivation despite a cached session | `users.deactivated_at` re-read on every request (BACKEND-PATTERNS §7) | Unchanged — and strictly better, because the session itself is now revocable rather than only the authorization built on it | **existing:** `tests/api_security_test.py` |
 | C-18 | D-22 impersonation and its audit trail | **Already ours.** `core/impersonation.py` mints an RFC-8693-shaped grant signed with `IMPERSONATION_GRANT_SECRET`; `_load_admin_principal` verifies it and writes `admin.impersonation_read` | Unchanged. The grant is deliberately NOT a credential — it is presented alongside the operator's own session — so replacing what that session IS changes nothing about it | **existing:** `tests/impersonation_grant_test.py`, `tests/impersonation_audit_test.py` |
 | C-19 | Per-caller rate limiting | `RateLimitMiddleware._caller` keys on `bearer_token(...)` | Same function, now reading the session cookie as well as the header. **The bucket key must become the session id, not the raw token** — a rotated session must not get a fresh bucket | **TODO**, with a test that rotation does not reset the bucket |
@@ -165,7 +165,7 @@ preserve. Orphans are not reachable through the application: `users` is soft-del
 
 | Table / column | Holds | Notes |
 |---|---|---|
-| `auth_email_tokens` | `purpose`, `realm`, `subject_id` XOR `invitation_id`, `token_hash`, `expires_at`, `used_at` | **Four** purposes — `email_verify` (24 h), `password_reset` (1 h), `invite_password` (72 h), `admin_bootstrap` (60 min, D-167). The purpose is INSIDE the hash domain, so a verification token presented at the reset endpoint is not "the wrong purpose", it is 32 bytes matching no row. Burned by `UPDATE … RETURNING` on `used_at IS NULL` — one statement, so two concurrent clicks cannot both be told they won |
+| `auth_email_tokens` | `purpose`, `realm`, `subject_id` XOR `invitation_id`, `token_hash`, `expires_at`, `used_at` | **Four** purposes — `email_verify` (24 h), `password_reset` (1 h), `invite_password` (72 h), `admin_bootstrap` (60 min, D-171). The purpose is INSIDE the hash domain, so a verification token presented at the reset endpoint is not "the wrong purpose", it is 32 bytes matching no row. Burned by `UPDATE … RETURNING` on `used_at IS NULL` — one statement, so two concurrent clicks cannot both be told they won |
 | `auth_otp_challenges` | `purpose`, `realm`, `subject_id`, `code_hash`, `expires_at`, `consumed_at`, `attempts` | The second factor (`login_challenge`) and the email-verification code. Six digits, ten minutes, **five guesses on the row** — a ceiling that survives a Redis flush, which is the half an attacker cannot reset. `code_hash` is an HMAC under a `PLATFORM_KEK`-derived key, never a bare digest (§4) |
 | `users.email_verified_at` | on the existing table | What `accept_invitation`'s recipient binding trusts instead of "Clerk said so" |
 | `admin_users.email` | on the existing table | Unique on `lower(email)`. The admin realm had no address of its own; a first-party operator signs in with one |
@@ -173,7 +173,7 @@ preserve. Orphans are not reachable through the application: `users` is soft-del
 
 **NOT added, and deliberately: `auth_mfa_secrets` and `auth_recovery_codes`.** Version 1.0
 of this document specified both, on a design where the second factor was TOTP. Both were
-built and then removed (D-166). Shipping the tables anyway would be a table nothing writes
+built and then removed (D-170). Shipping the tables anyway would be a table nothing writes
 and a column nothing reads — the half-wired defect `scripts/check_wiring.py` exists to
 catch. If TOTP is ever wanted it is a migration written then, against a design made then.
 
@@ -197,7 +197,7 @@ the ids. Closing it properly is a data cleanup plus a `CREATE UNIQUE INDEX CONCU
 - **Password history.** A previous hash is a liability with no reader. "When did this
   password last change" is what a support conversation needs, and `password_set_at`
   carries it.
-- **TOTP, and recovery codes — not a table, and not built at all (D-166).** The second
+- **TOTP, and recovery codes — not a table, and not built at all (D-170).** The second
   factor is the emailed OTP challenge and nothing else. **The cost, stated plainly: the
   strength of the admin realm's second factor is the strength of the operator's mailbox.**
   It defends against a stolen password; it does not defend against a compromised email
@@ -273,7 +273,7 @@ environment variables**.
 | Session token → stored fingerprint | *none* — SHA-256, unkeyed | n/a. A 256-bit random token needs no key; keying the hash would add a rotation problem with nothing on the other side of it |
 | Password pepper | HKDF-SHA-256(`PLATFORM_KEK`, info=`calevate/password-pepper/v1`) | Rides the KEK ring: the retired KEK yields the retired pepper, a hash that verifies under it is reported `needs_rehash`, and the successful sign-in rewrites it. Drains lazily; locks nobody out |
 | One-time codes and emailed tokens | HKDF-SHA-256(`PLATFORM_KEK`, info=`calevate/auth-code-key/v1`), used as an HMAC key | RFC 5869 key SEPARATION from the password pepper — a distinct `info`, one derivation function (`hashing.derived_ring`), so the two cannot drift in construction or be traded for one another. Rides the KEK ring the same way; verification walks every generation, so a rotation does not invalidate a link somebody is about to click. **This is what makes a 6-digit code safe to store**: the key is not in the database, so the 900,000-entry rainbow table cannot be built from a dump |
-| ~~TOTP secret at rest~~ | — | **Removed (D-166).** There is no TOTP and no `auth_mfa_secrets` table, so there is no third key material. The AAD scheme this row specified is not in use |
+| ~~TOTP secret at rest~~ | — | **Removed (D-170).** There is no TOTP and no `auth_mfa_secrets` table, so there is no third key material. The AAD scheme this row specified is not in use |
 
 **Why the pepper is derived rather than stored.** OWASP is explicit that a pepper "should
 not be stored along with the generated hash" and wants a secrets vault. Both obvious homes
@@ -316,9 +316,9 @@ a hopeful one.
 ## 5. The cutover
 
 > **Version 2.0 note.** This section was written when Clerk was a live peer and the plan
-> was a flag-gated migration beside it. **That is no longer the plan** (D-166): Clerk is
+> was a flag-gated migration beside it. **That is no longer the plan** (D-170): Clerk is
 > being removed entirely and the first-party module is the system of record. Steps 1–3 are
-> DONE; step 4 is replaced by D-167's bootstrap for operators and by invitation redemption
+> DONE; step 4 is replaced by D-171's bootstrap for operators and by invitation redemption
 > for client users; step 5's flag is now a kill switch that ships ON. Steps 6 and 7 are the
 > remaining work and are unchanged in substance — they are the next slice. The original
 > sequence is kept below because its REVERSIBILITY analysis is still the right analysis and
@@ -468,7 +468,7 @@ not language-bound. What changes shape:
   opaque server-side sessions win for a product whose whole authorization model is re-read
   per request.
 - Their OTP machinery (`otp-code.ts`, `otp-channel.ts`, the SMS/WhatsApp delivery split).
-  **Ours is an EMAILED code and it is the second factor itself** (D-166) — `authn/otp.py`,
+  **Ours is an EMAILED code and it is the second factor itself** (D-170) — `authn/otp.py`,
   rewritten in Python, with the two defects of theirs designed out (unkeyed SHA-256 over a
   6-digit code; a generator that never returns its own stated maximum).
   **SMS OTP is specifically not adopted**: NIST SP 800-63B-4 classifies SMS/PSTN one-time
@@ -544,7 +544,7 @@ appears as a literal in every path.
 | POST | `/v1/auth/{realm}/password/reset/confirm` | none | 204. Revokes every session |
 | POST | `/v1/auth/{realm}/otp/request` | authenticated | Email verification. Scoped to the caller's OWN subject — no address parameter |
 | POST | `/v1/auth/{realm}/otp/verify` | authenticated | 204 |
-| POST | `/v1/auth/admin/bootstrap/confirm` | none | Admin realm ONLY (not declared on the client router, so it 404s there). D-167 |
+| POST | `/v1/auth/admin/bootstrap/confirm` | none | Admin realm ONLY (not declared on the client router, so it 404s there). D-171 |
 | POST | `/v1/auth/client/invitations/accept` | none | `{token, password, name}` → account + membership + session |
 
 Every failure is RFC-9457 problem+json. `first_party_auth_disabled` (403) when the kill
@@ -626,7 +626,7 @@ convention `core/auth.py` and `core/clerk_identity.py` already use.
 | OWASP **CSRF Prevention Cheat Sheet** — same repository | 2026-08-17 | `SameSite` is defence-in-depth, not sufficient ("Lax only blocks unsafe methods"); signed double-submit / HMAC token as the recommended stateless pattern; custom request headers for SPAs; `Sec-Fetch-Site` rejection with `Origin`/`Referer` as fallback |
 | OWASP **ASVS 5.0** (2025) — V7 Session Management, V9 Self-Contained Tokens | 2026-08-17 | Self-contained tokens moved to their own chapter with explicit key-rotation and revocation requirements — the argument for opaque sessions; revocation required when a user's entitlements or roles change |
 | **NIST SP 800-63B-4**, Digital Identity Guidelines | 2026-08-17 | SMS/PSTN OTP as a *restricted authenticator*; TOTP lifetime bounded by expected clock drift plus network and entry allowance; password minimum lowered to 8 with 15 recommended, composition rules discouraged |
-| ~~**RFC 6238** (TOTP)~~ | 2026-08-17 | **No longer load-bearing.** It informed the TOTP implementation that was built and then removed (D-166). Kept as a row so a reader who remembers the citation learns why it is gone rather than assuming the parameters are still in force somewhere |
+| ~~**RFC 6238** (TOTP)~~ | 2026-08-17 | **No longer load-bearing.** It informed the TOTP implementation that was built and then removed (D-170). Kept as a row so a reader who remembers the citation learns why it is gone rather than assuming the parameters are still in force somewhere |
 | OWASP **Authentication Cheat Sheet** — `github.com/OWASP/CheatSheetSeries`, `cheatsheets/Authentication_Cheat_Sheet.md` | 2026-08-17 | Generic "invalid user ID or password" on login and a non-committal reset response; the timing-equalisation argument (check-user-first quick-exit vs always hashing); lockout attaches to the ACCOUNT not the source address; exponential backoff from one second as the alternative to a hard lock |
 | OWASP **Forgot Password Cheat Sheet** — same repository | 2026-08-17 | CSPRNG token "long enough to protect against brute-force"; expiry, single use, hashed at rest; invalidate sessions on reset; a consistent message AND a consistent RESPONSE TIME for existent and non-existent accounts |
 | OWASP **Multifactor Authentication Cheat Sheet** — same repository | 2026-08-17 | One-time codes are single-use and must be invalidated on successful verification — the rule `auth_otp_challenges.consumed_at` implements |

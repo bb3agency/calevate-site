@@ -16,7 +16,7 @@ that cannot finish.
 
 NO `auth_mfa_secrets` AND NO `auth_recovery_codes`, and their absence is a DECISION rather
 than a phase. AUTH-MIGRATION §2.2 originally named both, on a design where the second factor
-was TOTP. The founder's decision (D-166) is that the second factor IS the emailed OTP
+was TOTP. The founder's decision (D-170) is that the second factor IS the emailed OTP
 challenge — `auth_otp_challenges` with purpose `login_challenge` — so an authenticator-app
 secret and a recovery-code sheet are not "later", they are not part of this design. Shipping
 the tables anyway would be a table nothing writes and a column nothing reads, which is the

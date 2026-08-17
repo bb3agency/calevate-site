@@ -1,4 +1,4 @@
-"""Single-use emailed tokens: issue one, redeem one, invalidate the rest (D-166).
+"""Single-use emailed tokens: issue one, redeem one, invalidate the rest (D-170).
 
 Three purposes over one table (`EMAIL_TOKEN_PURPOSES`), because they differ in lifetime
 and in what they name, and in nothing else. The purpose is inside the hash domain — see
@@ -53,7 +53,7 @@ TOKEN_LIFETIMES: Final[dict[str, timedelta]] = {
     "password_reset": timedelta(hours=1),
     "email_verify": timedelta(hours=24),
     "invite_password": timedelta(hours=72),
-    # THE FIRST ADMINISTRATOR (D-167). Sixty minutes, and the number is argued rather than
+    # THE FIRST ADMINISTRATOR (D-171). Sixty minutes, and the number is argued rather than
     # inherited: the reference implementation's `admin-newuser.mjs` uses
     # `INVITE_TTL_MS = 10 * 60 * 1000`, which is defensible for an invite handed to
     # somebody already watching their inbox and wrong for a deployment bootstrap. This link

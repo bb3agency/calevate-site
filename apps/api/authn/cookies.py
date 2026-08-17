@@ -1,4 +1,4 @@
-"""How a session token reaches the browser, and how it comes back (D-166).
+"""How a session token reaches the browser, and how it comes back (D-170).
 
 ═══ WHY A COOKIE AND NOT A BEARER TOKEN ═══
 

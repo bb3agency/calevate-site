@@ -936,7 +936,7 @@ access to it. `DATABASE_URL` is the app role, because `auth_credentials` and
 `auth_email_tokens` are FORCE-RLS'd against `app.auth`, a GUC set on the application
 connection.
 
-**What it does (D-167):** creates the `admin_users` row with NO password and mails a
+**What it does (D-171):** creates the `admin_users` row with NO password and mails a
 **single-use setup link that expires in 60 minutes**. The operator opens
 `https://admin.calevate.tech/bootstrap?token=…`, sets a password, and is then a working
 administrator. **The link is also printed to stdout**, deliberately — a deployment whose
@@ -959,7 +959,7 @@ Both halves are audited: `auth.admin_bootstrapped` when the link is minted (nami
 address) and `auth.admin_bootstrap_completed` when the password is set. This is the most
 privileged act in a deployment's life and it leaves a record of when and to whom.
 
-*(This used to take `--clerk-user-id`. Clerk is gone — D-166 — so there is no vendor
+*(This used to take `--clerk-user-id`. Clerk is gone — D-170 — so there is no vendor
 dashboard in which to make the first account, and that flag was deleted rather than
 deprecated: it cannot work, and a flag that cannot work is worse than one that is absent.)*
 

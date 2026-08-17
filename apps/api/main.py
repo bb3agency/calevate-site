@@ -106,7 +106,7 @@ def _mount_routers(application: FastAPI) -> None:
 
     application.include_router(tenancy_router)
     application.include_router(clerk_router)
-    # D-166's first-party authentication. Mounted unconditionally and gated per request by
+    # D-170's first-party authentication. Mounted unconditionally and gated per request by
     # `Settings.first_party_auth_enabled` (default off) — a conditionally-mounted router
     # would be invisible to `check_wiring`, absent from the OpenAPI contract, and would
     # answer 404 during the one operation where "not switched on yet" and "wrong path" must

@@ -1,4 +1,4 @@
-"""Create the first administrator, without whom a deployed platform is unreachable (D-167).
+"""Create the first administrator, without whom a deployed platform is unreachable (D-171).
 
 `admin_users` is the allowlist the entire admin realm resolves against, and **nothing else
 in this repository ever inserts a row** — not `scripts/seed.py`, not `vps-deploy.sh`, not
@@ -10,7 +10,7 @@ deployment with no way in, and this script is the way in.
 
 WHAT CHANGED, AND WHY THE OLD SHAPE IS GONE. This script used to take `--clerk-user-id`: a
 row was an allowlist entry pointing at an account that already existed in the admin Clerk
-application, and Clerk held the password. D-166 makes authentication first-party, so there
+application, and Clerk held the password. D-170 makes authentication first-party, so there
 is no vendor dashboard in which to make the first account, and the id it took no longer
 identifies anything. It now takes `--email` and mails a single-use setup link, which is what
 AUTH-MIGRATION C-16 always said it would do. The `--clerk-user-id` form is deleted rather
