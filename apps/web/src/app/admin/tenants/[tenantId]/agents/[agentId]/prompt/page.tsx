@@ -281,7 +281,7 @@ export default function AgentPromptPage({
 
 /** The form language of this screen, in one place rather than per control. */
 const FIELD =
-  "w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-md border border-line bg-surface px-2 py-1.5 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 
 

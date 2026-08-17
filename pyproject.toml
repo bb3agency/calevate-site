@@ -84,6 +84,7 @@ type = "forbidden"
 source_modules = [
     "apps.api.admin",
     "apps.api.agents",
+    "apps.api.authn",
     "apps.api.billing",
     "apps.api.campaigns",
     "apps.api.compliance",
