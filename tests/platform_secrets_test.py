@@ -34,6 +34,7 @@ from apps.api.core.context import Principal
 from apps.api.core.envelope import MASKED, build_ring, kek_ring
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from apps.api.ops.secret_routes import (
@@ -763,6 +764,10 @@ async def test_installing_a_credential_with_no_admin_identity_is_refused() -> No
                 BackgroundTasks(),
                 principal,
                 KEY,
+                # The gate a request resolves through `Depends(step_up_gate)`; called
+                # directly, the test supplies it. `present=False` is the shape a
+                # caller with no first-party admin cookie has (D-178).
+                StepUp(present=False, verified_at=None),
                 x_confirm_action=secret_confirmation(KEY),
             )
     assert raised.value.code == "secret_actor_unknown"

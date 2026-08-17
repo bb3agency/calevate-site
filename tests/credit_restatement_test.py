@@ -46,6 +46,7 @@ from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.service import record_entry, recorded_payments, restatement_ref
 from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
@@ -1090,6 +1091,10 @@ async def test_an_actor_with_no_user_id_is_recorded_without_a_recorded_by() -> N
             tenant_id=None,
             role="operator",
         ),
+        # The gate a request resolves through `Depends(step_up_gate)`; called directly,
+        # the test supplies it. `present=False` is the shape a caller with no
+        # first-party admin cookie has (D-178).
+        step_up=StepUp(present=False, verified_at=None),
         x_confirm_action=topup_restatement_confirmation("UTR-NO-ACTOR", Decimal("900.00")),
     )
 
