@@ -178,7 +178,6 @@ async def test_a_credential_shaped_key_is_not_managed() -> None:
     for credential in (
         "bolna_api_key",
         "sarvam_api_key",
-        "clerk_admin_secret_key",
         "smtp_password",
         "razorpay_webhook_secret",
         "google_sheets_service_account_json",

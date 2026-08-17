@@ -1,14 +1,12 @@
 import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import AdminSignInPage from "@/app/(auth)/admin/sign-in/[[...sign-in]]/page";
 import Home from "@/app/page";
-import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
-import ClientSignUpPage from "@/app/(auth)/sign-up/[[...sign-up]]/page";
 import { adminSession } from "@/lib/api/admin";
 import { apiRequest, AuthProblem, devSession, devToken } from "@/lib/api/client";
-import { clientRealmSession } from "@/lib/auth/clientRealm";
-import { AUTH_MODE_ENV, AuthConfigError, resolveAuthMode } from "@/lib/auth/mode";
+import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
+import { AUTH_MODE_ENV, AuthConfigError, resolveAuthMode } from "@/lib/authn/mode";
+import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { stubApi } from "./harness";
 
@@ -16,18 +14,17 @@ import { stubApi } from "./harness";
  * The browser's half of authentication — which credential this build presents, and what
  * it does when it cannot get one.
  *
- * The API has always been able to verify a real Clerk session (`core/auth.py`); the
- * browser could only mint `dev:<realm>:<user>` from an environment variable, and there
- * was no sign-in route to reach. Wiring Clerk in creates exactly one way to get this
- * catastrophically wrong, and it is the subject of most of this file: a deployment
- * configured for Clerk that quietly falls back to a dev token. `_verify_dev_token`
- * accepts those whenever the API is running with `APP_ENV=local` — which is the DEFAULT
- * of `Settings.app_env`, as its own docstring warns — so the fallback would authenticate
- * a stranger as any user id they typed, and hard rule 1 turns that into a cross-tenant
- * read of other businesses' data.
+ * D-177 removed the vendor, so the two modes are `session` and `dev`. That changed the
+ * SPELLING and not the danger, which is why almost every assertion below survived it: a
+ * deployment that quietly falls back to a dev token authenticates a stranger as any
+ * subject id they type, on any API still running with `APP_ENV=local`, and hard rule 1
+ * turns that into a cross-tenant read of other businesses' data. Two independent guards
+ * refuse it — the mode and the credential builder — and both are exercised here.
  *
- * The rest asserts the realm separation TRD §11 requires, at the one place the two
- * realms are observable from a test: the bearer token that reaches `fetch`.
+ * What is NOT here any more: the three Clerk sign-in/sign-up route tests. Those pages are
+ * deleted, their successors are `app/(auth)/auth/**`, and `tests/authnScreens.test.tsx`
+ * and `tests/authnGuards.test.tsx` own them — with far more than "the route is not a 404",
+ * because the screens are ours to test now rather than a vendor's iframe.
  */
 
 describe("which credential this build presents", () => {
@@ -37,20 +34,21 @@ describe("which credential this build presents", () => {
    * mistakes — a forgotten variable and a typo'd one.
    */
   it("takes an explicit mode at its word outside a production build", () => {
-    expect(resolveAuthMode("clerk", false)).toBe("clerk");
+    expect(resolveAuthMode("session", false)).toBe("session");
     expect(resolveAuthMode("dev", false)).toBe("dev");
     expect(resolveAuthMode(" dev ", false)).toBe("dev");
   });
 
-  it("reads an UNSET variable as dev locally and as clerk in a production build", () => {
+  it("reads an UNSET variable as dev locally and as session in a production build", () => {
     // Locally the variable is unset on every developer's machine and dev tokens are what
     // they want. In a production build the same absence is a forgotten variable, and the
     // safe reading of a forgotten variable is the one that cannot sign anybody in by
-    // itself.
+    // itself — `session` constructs no credential at all, it relies on a cookie only a
+    // completed sign-in can produce.
     expect(resolveAuthMode(undefined, false)).toBe("dev");
     expect(resolveAuthMode("", false)).toBe("dev");
-    expect(resolveAuthMode(undefined, true)).toBe("clerk");
-    expect(resolveAuthMode("", true)).toBe("clerk");
+    expect(resolveAuthMode(undefined, true)).toBe("session");
+    expect(resolveAuthMode("", true)).toBe("session");
   });
 
   it("NEVER resolves to dev in a production build, even when asked to", () => {
@@ -62,11 +60,13 @@ describe("which credential this build presents", () => {
   });
 
   it("refuses a mode it does not recognise instead of guessing", () => {
-    // `=production` and `=true` are both reasonable guesses at the name. One of the two
-    // possible guesses back is an auth bypass, so it guesses neither.
+    // `=production` and `=true` are both reasonable guesses at the name; so, now, is
+    // `=clerk`, which is what every deployment configured before D-177 has written down.
+    // One of the possible guesses back is an auth bypass, so it guesses none of them —
+    // and a stale `clerk` fails the build loudly rather than resolving to anything.
     // Surrounding whitespace is forgiven (an `.env` line ends up with it) — a different
     // WORD is not.
-    for (const value of ["production", "true", "CLERK", "prod", "1", "clerk;dev"]) {
+    for (const value of ["production", "true", "clerk", "SESSION", "prod", "1", "session;dev"]) {
       expect(() => resolveAuthMode(value, false), value).toThrow(AuthConfigError);
     }
     expect(() => resolveAuthMode("production", false)).toThrow(new RegExp(AUTH_MODE_ENV));
@@ -115,7 +115,7 @@ describe("a refusal the browser produced itself", () => {
   });
 });
 
-describe("the token that reaches the wire", () => {
+describe("the credential that reaches the wire", () => {
   const ME = { organization: { name: "Acme", slug: "acme" }, role: "owner" };
 
   it("is the client realm's for a client-realm session", async () => {
@@ -131,10 +131,22 @@ describe("the token that reaches the wire", () => {
     expect(calls[0].headers.Authorization).toMatch(/^Bearer dev:admin:/);
   });
 
+  it("sends NO Authorization header when the session has no token source", async () => {
+    // THE DEPLOYED CASE (D-177). The credential is the realm's `HttpOnly` cookie, which
+    // the browser attaches and no script can read, so there is nothing for this code to
+    // put in a header — and an empty `Bearer ` would be a malformed credential the API is
+    // obliged to refuse before it ever looks at the cookie, turning a signed-in user into
+    // a 401 nobody can explain.
+    const calls = stubApi({ "/v1/me": ME });
+    await apiRequest({ orgSlug: "acme" }, "/v1/me");
+    expect(calls[0].headers.Authorization).toBeUndefined();
+    expect(calls[0].headers["X-Org-Slug"]).toBe("acme");
+  });
+
   it("is resolved per request, not captured when the session was built", async () => {
-    // A Clerk session token lives about sixty seconds and the console polls for hours,
-    // so a session object that carried a STRING would go stale in a tab left open. The
-    // observable version of that promise: the source is consulted on every call.
+    // The console polls for hours, so a session object that carried a STRING would go
+    // stale in a tab left open. The observable version of that promise: the source is
+    // consulted on every call.
     let asked = 0;
     const session = {
       token: () => {
@@ -159,7 +171,7 @@ describe("the token that reaches the wire", () => {
     const calls = stubApi({ "/v1/me": ME });
     const refusing = {
       token: () => {
-        throw new AuthProblem("not_signed_in", "Not signed in.", "Sign in at /sign-in.");
+        throw new AuthProblem("not_signed_in", "Not signed in.", "Sign in at /auth/sign-in.");
       },
       orgSlug: "acme",
     };
@@ -168,8 +180,8 @@ describe("the token that reaches the wire", () => {
   });
 
   it("keeps devSession as the local client path", async () => {
-    // Named in this suite because the whole 300-test frontend runs through it: the local
-    // path survived the Clerk integration rather than being replaced by it.
+    // Named in this suite because the whole frontend suite runs through it: the local
+    // path survived both the Clerk integration and its removal.
     const calls = stubApi({ "/v1/me": ME });
     await apiRequest(devSession("acme"), "/v1/me");
     expect(calls[0].headers.Authorization).toMatch(/^Bearer dev:client:/);
@@ -177,42 +189,6 @@ describe("the token that reaches the wire", () => {
 });
 
 describe("the doors a person can actually reach", () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  /**
-   * These render in `dev` mode, which is what the suite runs in — so what they assert is
-   * that the routes EXIST, render a real screen, and make no API call. The Clerk card
-   * itself cannot be exercised offline: mounting `<ClerkProvider>` loads clerk-js from
-   * Clerk's CDN, and a test that stubbed that out would be asserting the stub's opinion
-   * of a sign-in form. What is testable here is that no route is a 404 and that a local
-   * build says what it is instead of showing a form with nothing behind it.
-   */
-  it("has a client-realm sign-in route that explains a local build", () => {
-    const calls = stubApi({});
-    const { container } = render(<ClientSignInPage />);
-    expect(container.textContent).toContain("Local development build");
-    expect(calls).toEqual([]);
-  });
-
-  it("has a client-realm sign-up route", () => {
-    const calls = stubApi({});
-    const { container } = render(<ClientSignUpPage />);
-    expect(container.textContent).toContain("Local development build");
-    expect(calls).toEqual([]);
-  });
-
-  it("has an admin-realm sign-in route, and offers no way to create an operator account", () => {
-    const calls = stubApi({});
-    const { container } = render(<AdminSignInPage />);
-    expect(container.textContent).toContain("Local development build");
-    // D-37: the admin realm is invite-only with signup disabled. A "create an account"
-    // affordance on the operator console would be a door that must stay shut.
-    expect(container.textContent).not.toMatch(/create an account|sign up/i);
-    expect(calls).toEqual([]);
-  });
-
   it("gives a returning client somewhere to click from the front page", () => {
     // The landing page named `/c/your-slug` and stopped, because there was no sign-in
     // route to point at. There is one now, and an unlinked route is not a door.
@@ -226,7 +202,10 @@ describe("the doors a person can actually reach", () => {
     const doors = screen.getAllByRole("link", { name: /Sign in/i });
     expect(doors.length).toBeGreaterThan(0);
     for (const door of doors) {
-      expect(door.getAttribute("href")).toBe("/sign-in");
+      // The FIRST-PARTY sign-in page. `/sign-in` was Clerk's hosted route and is a 404
+      // since D-177, so a stale href here would be the landing page's one call to action
+      // pointing at nothing.
+      expect(door.getAttribute("href")).toBe(CLIENT_SIGN_IN_PATH);
     }
   });
 });

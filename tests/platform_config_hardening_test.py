@@ -259,27 +259,35 @@ async def test_the_fx_rate_is_on_restart_because_the_engine_captured_it() -> Non
     reset_engine_cache()
 
 
-def test_the_clerk_jwks_keys_are_on_restart_because_the_client_is_built_once() -> None:
-    """The three Clerk keys decide a JWKS URL that is baked into a cached `PyJWKClient`.
+def test_authentication_has_no_console_managed_setting_left_to_classify() -> None:
+    """THE `applies` CLASSIFICATION THAT MATTERED MOST IS GONE WITH ITS SUBJECT (D-177).
 
-    `core/auth._jwk_clients` holds one client per realm for the life of the process, and
-    the URL is computed when it is constructed. Changing the publishable key or the
-    frontend API in the console therefore changes nothing until a restart — and all
-    three were reported `live`. On an AUTH path, "the operator believes the change took"
-    is a worse outcome than on most.
+    Three Clerk keys used to decide a JWKS URL baked into a cached `PyJWKClient` for the
+    life of the process, so changing one in the ops console changed nothing until a
+    restart — and all three were reported `live`. On an AUTH path, "the operator believes
+    the change took" is a worse outcome than on most, which is why that classification had
+    its own test.
+
+    The successor property is stronger and is what this asserts instead: there is no
+    authentication setting in the console AT ALL. First-party auth reads `PLATFORM_KEK`
+    (env-only, `ENV_ONLY_KEYS`) and nothing else, so there is no value an operator can
+    install, no cache for it to be stale against, and no `applies` verdict to get wrong.
     """
-    from apps.api.core import auth
-
-    assert "_jwk_clients" in vars(auth), "the cache moved — re-derive these classifications"
-    for key in (
+    managed = set(pc.managed_fields())
+    for gone in (
         "clerk_admin_publishable_key",
         "clerk_client_publishable_key",
         "clerk_frontend_api",
+        "clerk_admin_secret_key",
+        "clerk_client_secret_key",
+        "clerk_webhook_secret",
     ):
-        assert pc.applies_rule(key).applies == pc.ON_RESTART, key
-        assert "PyJWKClient" in (pc.applies_rule(key).caveat or "") or "same" in (
-            pc.applies_rule(key).caveat or ""
-        )
+        assert gone not in Settings.model_fields, f"{gone} is back — D-177 removed it"
+        assert gone not in managed
+    # The one key authentication does read is env-only, which is the whole reason it needs
+    # no `applies` rule: the console cannot set it, so it cannot be believed to have.
+    assert "platform_kek" in Settings.model_fields
+    assert "platform_kek" not in managed
 
 
 async def test_db_pool_size_is_env_only_and_the_store_refuses_it() -> None:

@@ -6,6 +6,7 @@ import { expect, vi } from "vitest";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
+import { clientAuthn } from "@/lib/authn/clientAuthn";
 
 /**
  * Render a `/c/[slug]` screen the way the browser does — REAL provider, REAL session,
@@ -190,6 +191,27 @@ function jsonResponse(body: unknown): Response {
   });
 }
 
+/**
+ * The restore every `/c/<slug>` screen now makes before it paints (D-177).
+ *
+ * `ClientRealmProvider` gates on a live client-realm session, so a harness that did not
+ * answer this would render the signed-out screen for every page in this suite — three
+ * hundred tests failing on a fact none of them is about. It is SPREAD FIRST rather than
+ * merged last, so a test that wants to drive the signed-out or half-authenticated branch
+ * (`authnGuards.test.tsx` does) overrides it by naming the same key.
+ *
+ * `clientAuthn.reset()` above clears the module-scoped realm instance between renders —
+ * its result cache and generation counter are deliberately module state (§5.2's
+ * single-flight), and state that survives a test is state one test can hand another.
+ */
+const CLIENT_SESSION_ROUTE = "GET /v1/auth/client/session";
+const CLIENT_SESSION = {
+  realm: "client",
+  subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
+  mfa_complete: true,
+  email_verified: true,
+};
+
 export interface ClientPageRender extends RenderResult {
   /** Every request the screen made, in order — the seam hard rule 6 is asserted at. */
   calls: ApiCall[];
@@ -210,7 +232,8 @@ export async function renderClientPage(
   routes: Routes,
   slug = "acme",
 ): Promise<ClientPageRender> {
-  const calls = stubApi(routes);
+  clientAuthn.reset();
+  const calls = stubApi({ [CLIENT_SESSION_ROUTE]: CLIENT_SESSION, ...routes });
   const client = new QueryClient({
     // No retries: every route here answers 200 or throws, so a retry can only turn a
     // broken premise into a slow one.

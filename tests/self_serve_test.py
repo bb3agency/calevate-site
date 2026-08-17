@@ -268,24 +268,28 @@ async def test_a_slug_is_derived_from_the_business_name_when_none_is_given() -> 
 async def test_signup_needs_a_verified_identity() -> None:
     """An anonymous caller cannot mint a tenant. Full stop — no token, no identity, 401.
 
-    The UNMIRRORED case is deliberately no longer 401 (D-124): the token verified, so it
-    is not an authentication failure, and answering 401 sent every founder who beat our
-    Svix webhook into "sign in again", which reproduces it. It is now the transient
-    `identity_mirror_pending` refusal here — where no Clerk secret is configured, so the
-    just-in-time reconcile cannot run — and a created tenant where it can.
-    `tests/identity_mirror_race_test.py` owns that behaviour; this asserts only that the
-    two cases are still told apart, because collapsing them is the defect.
+    THE MIRROR CASE IS GONE WITH ITS MIRROR (D-177), and the collapse is the finding this
+    test now records. D-124 made a credential naming an UNMIRRORED subject answer the
+    transient `identity_mirror_pending` rather than 401, because the token had verified
+    and answering 401 sent every founder who beat our Svix webhook into "sign in again",
+    which reproduces it. There is no upstream to be behind now: a credential names a
+    `users` row we issued, or it is not a credential. So a subject that resolves to
+    nobody is an authentication failure again — for the opposite reason to the one that
+    made it wrong before.
+
+    Both cases still answer identically, which is the property that survives: nothing
+    tells an anonymous caller how far their credential got.
     """
     async with _client() as http:
         anonymous = await http.post("/v1/auth/signup", json=_signup_body())
-        unmirrored = await http.post(
+        unknown = await http.post(
             "/v1/auth/signup",
-            headers=_headers(f"dev:client:user_{uuid.uuid4().hex[:12]}"),
+            headers=_headers(f"dev:client:{uuid.uuid4()}"),
             json=_signup_body(),
         )
     assert anonymous.status_code == 401, anonymous.text
-    assert unmirrored.status_code == 503, unmirrored.text
-    assert unmirrored.json()["retryable"] is True
+    assert unknown.status_code == 401, unknown.text
+    assert unknown.json()["retryable"] is False
 
 
 async def test_the_signup_quota_stops_a_tenant_factory(monkeypatch: pytest.MonkeyPatch) -> None:

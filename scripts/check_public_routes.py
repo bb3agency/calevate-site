@@ -151,14 +151,6 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="current_identity",
     ),
-    "POST /v1/invitations/accept": PublicRoute(
-        why=(
-            "Accepting an invitation is what CREATES the membership a permission check "
-            "would require, so it cannot require one. The verified token identifies the "
-            "caller and the single-use invitation token authorizes the join."
-        ),
-        credential="current_identity",
-    ),
     # ---- D-170's first-party auth surface. Written per FLOW and mirrored across the
     # two realms deliberately: a reason true for one realm and not the other would mean
     # the realm boundary had been drawn in the wrong place.

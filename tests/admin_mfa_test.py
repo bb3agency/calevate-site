@@ -57,7 +57,8 @@ def _client() -> AsyncClient:
 def _without_second_factor(token: str) -> str:
     """The same operator, signed in but never having completed a second factor.
 
-    `dev:<realm>:<uuid>:nomfa` is the local stand-in for a session that proved a password and not its emailed code — see
+    `dev:<realm>:<uuid>:nomfa` is the local stand-in for a session that proved a password
+    and not its emailed code — see
     `core/auth.py::DEV_TOKEN_NO_MFA_SUFFIX`. Derived from the admin's own token rather
     than built from a second string, so the two halves of every assertion below are the
     SAME admin_users row and the only difference is the second factor.

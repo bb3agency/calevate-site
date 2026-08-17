@@ -191,10 +191,16 @@ async def test_admin_can_list_tenants_with_health() -> None:
     assert {"id", "name", "slug", "status", "calls_7d", "leads"} <= set(body[0])
 
 
-async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
-    """The chicken-and-egg the `/v1/invitations/accept` route exists for: a new invitee
-    is authenticated but has no membership, and creating one is the point. Every other
-    authenticated route would 403 them, correctly."""
+async def test_an_invitee_arrives_with_no_account_and_leaves_with_a_membership() -> None:
+    """The chicken-and-egg the redemption route exists for, in its D-177 shape.
+
+    It used to be "authenticated but membership-less": the invitee had a vendor account
+    and this route only made the `memberships` row. There is no such intermediate state
+    now — `POST /v1/auth/client/invitations/accept` creates the account, sets its password,
+    burns the invitation and issues the session in one call — so the "before" half of this
+    test is a caller with NO credential at all, and the "after" half is the session the
+    call handed back.
+    """
     created = await service.create_organization(
         name="Accept Clinic",
         slug=f"acc-{uuid.uuid4().hex[:8]}",
@@ -204,55 +210,40 @@ async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
         created_by=None,
     )
     tenant_id = created["id"]
-    user_id = uuid.uuid4()
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:i, :e, now(), now())"
-            ),
-            {"i": user_id, "e": f"{user_id}@example.com"},
-        )
+    email = f"invitee-{uuid.uuid4().hex[:8]}@example.com"
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
-            session,
-            tenant_id=tenant_id,
-            email=f"{user_id}@example.com",
-            role="owner",
-            created_by=None,
+            session, tenant_id=tenant_id, email=email, role="owner", created_by=None
         )
 
-    headers = {"Authorization": f"Bearer dev:client:{user_id}"}
     async with _client() as http:
-        # Before accepting, a normal tenant route refuses them.
-        blocked = await http.get("/v1/leads", headers=headers)
-        accepted = await http.post("/v1/invitations/accept", json={"token": token}, headers=headers)
-        after = await http.get("/v1/leads", headers={**headers, "X-Org-Slug": created["slug"]})
+        # Before accepting, a tenant route refuses a caller with no credential.
+        blocked = await http.get("/v1/leads", headers={"X-Org-Slug": str(created["slug"])})
+        accepted = await http.post(
+            "/v1/auth/client/invitations/accept",
+            json={"token": token, "password": "admin-security-invitee-password"},
+        )
 
-    assert blocked.status_code == 403, "no membership, no tenant data"
+    assert blocked.status_code == 401, "no credential, no tenant data"
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["slug"] == created["slug"]
     assert accepted.json()["role"] == "owner"
-    assert after.status_code == 200, "the membership the accept created now works"
+
+    # The membership the redemption created is real, read through the tenant's own
+    # session rather than through the cookie the call set — this suite drives the API
+    # with dev bearers and has no cookie jar, and the membership is the fact under test.
+    async with tenant_session(tenant_id) as session:
+        members = (await session.execute(text("SELECT count(*) FROM memberships"))).scalar()
+    assert members == 1
 
 
 async def test_a_bad_or_reused_invite_token_is_indistinguishable() -> None:
     """An attacker guessing tokens must not learn whether one exists, is used, or has
     expired — all three answer identically."""
-    user_id = uuid.uuid4()
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO users (id, email, created_at, updated_at) "
-                "VALUES (:i, :e, now(), now())"
-            ),
-            {"i": user_id, "e": f"{user_id}@example.com"},
-        )
     async with _client() as http:
         response = await http.post(
-            "/v1/invitations/accept",
-            json={"token": "x" * 40},
-            headers={"Authorization": f"Bearer dev:client:{user_id}"},
+            "/v1/auth/client/invitations/accept",
+            json={"token": "x" * 40, "password": "admin-security-invitee-password"},
         )
     assert response.status_code == 422
     assert response.json()["type"].endswith("/invitation_invalid")

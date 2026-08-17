@@ -146,7 +146,7 @@ class TestDetection:
     ) -> None:
         """An unauthenticated write with nothing standing in for a session. Dropping the
         `credential` field is exactly how that would be written."""
-        key = "POST /hooks/v1/clerk"
+        key = "POST /hooks/v1/razorpay"
         monkeypatch.setitem(
             guard.UNAUTHENTICATED_ROUTES,
             key,
@@ -228,12 +228,20 @@ class TestCalibration:
 
         `route-discipline-check.js` regexes the route config's SOURCE TEXT, so a comment
         mentioning `opsAuthGuard` satisfies it. Clause 4 reads the AST instead. This proves
-        it: `verify_svix` IS in the tenancy webhook module's names, and a word that appears
-        only in that module's prose is not — even though a substring search would find both.
+        it: `verify_signature` IS in the payment webhook module's names, and a word that
+        appears only in that module's prose is not — even though a substring search would
+        find both.
+
+        THE SUBJECT MOVED, and it is worth saying why rather than letting a diff say it.
+        This was written against `POST /hooks/v1/clerk` and `verify_svix`, which D-177
+        deleted with the identity mirror. The payment callback is the same shape — an
+        unauthenticated write whose credential is an HMAC over the raw body — so the
+        property is unchanged and only its example is new.
         """
-        route = exempt["POST /hooks/v1/clerk"]
+        route = exempt["POST /hooks/v1/razorpay"]
         names = guard._referenced_names(route)
-        assert "verify_svix" in names
-        # `unverifiable` appears in that module's comment about failing closed, and nowhere
-        # in its code. If this ever passes, the check has gone back to reading prose.
-        assert "unverifiable" not in names
+        assert "verify_signature" in names
+        # `forgery` appears in that module's prose about why the HMAC is over raw bytes,
+        # and nowhere in its code. If this ever passes, the check has gone back to reading
+        # prose.
+        assert "forgery" not in names
