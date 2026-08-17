@@ -12,7 +12,7 @@ raw transcript, recording link, and "call this lead".
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -752,7 +752,55 @@ async def delete_saved_view(
     return Response(status_code=204)
 
 
-@router.get(
+async def _export_and_summary(
+    session: AsyncSession, lens: LeadLensIn
+) -> tuple[service.LeadExport, dict[str, Any]]:
+    """The CSV, and WHAT WAS TAKEN as the audit row's summary.
+
+    The summary is built here so the two request shapes can never describe the same
+    export differently — "exported four hot leads" and "exported the entire account"
+    were one audit row while `agent_id` was the only filter, and they are the two ends of
+    an incident. Every member is an id, a key or a count; `search` is a BOOLEAN and never
+    its text, because the search box accepts a phone suffix (hard rule 6).
+    """
+    available = lead_column_registry.available(await service.lead_columns(session, lens.agent_id))
+    chosen = _parse_columns(lens.columns)
+    field_filters = _parse_field_filters(
+        lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
+    export = await service.export_leads_csv(
+        session,
+        agent_id=lens.agent_id,
+        status=lens.status,
+        search=lens.search,
+        assigned_to=lens.assigned_to,
+        field_filters=field_filters,
+        columns=chosen,
+    )
+    summary: dict[str, Any] = {
+        "status": lens.status,
+        "agent_id": str(lens.agent_id) if lens.agent_id else None,
+        "searched": bool(lens.search),
+        # An id, not a name — and recorded for the same reason `status` is: "exported my
+        # own eight leads" and "exported the account" must not be the same audit row.
+        "assigned_to": str(lens.assigned_to) if lens.assigned_to else None,
+        # Counted by the query, not by counting newlines in the file: `QUOTE_ALL` keeps a
+        # newline inside its cell, so a lead whose name or note contains one made this
+        # number larger than the number of contacts that actually left.
+        "rows": export.row_count,
+        # WHICH COLUMNS left the building. "Exported the phone column for four hot leads"
+        # and "exported everything we hold about them" are different events, and this is
+        # the audit row an incident reads to answer "did the numbers go out?". Keys,
+        # never values: a column KEY is schema vocabulary the admin authored.
+        "columns": sorted(chosen) if chosen else "all",
+        # FACET keys only, and never their values — a facet value is a client's own
+        # captured data ("budget: 40L") and belongs in no log line.
+        "field_filters": sorted(field_filters) or None,
+    }
+    return export, summary
+
+
+@router.post(
     "/leads/export.csv",
     # `calls:read_raw`, NOT `leads:read`. This is the one route where a client's contact
     # list leaves us with FULL phone numbers, and the redaction guardrail exempts it on
@@ -761,89 +809,43 @@ async def delete_saved_view(
     # describing a control that did not exist. `calls:read_raw` is the permission that
     # already means "you may see the unmasked artefact, and your having seen it is
     # recorded": owner in the client realm, superadmin in ours, never staff.
+    #
+    # **The POST shape exists for `search` and only for `search`.** That field is matched
+    # against `phone_e164`, and a customer's number in a query string is written to
+    # nginx's access log, the edge's log, browser history and the next request's
+    # `Referer` (`_SEARCH_MOVED_TO_POST`). The GET below keeps every filter that is NOT
+    # personal data and REFUSES `search`, so there is one place a phone number can be
+    # sent and it is a body. It writes nothing;
+    # `tests/authz_audit_test.READS_SHAPED_AS_POSTS` records that with the reason, which
+    # is what keeps a read from being gated on a mutating permission (D-22).
     openapi_extra=permission_meta("calls:read_raw"),
     summary="CSV export — full phone numbers, owner-only and audit-logged",
     response_class=Response,
 )
 async def export_leads(
-    session: Session,
-    request: Request,
-    principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
-    agent_id: UUID | None = None,
-    # The SAME filters `GET /v1/leads` takes, with the same meanings, so "export what I
-    # am looking at" is expressible. It accepted `agent_id` alone, so a client who
-    # filtered the table to `hot` and pressed Export downloaded every contact in the
-    # account with full numbers — the widest possible read of the narrowest possible
-    # request. Widening the filters does NOT widen the gate: this stays `calls:read_raw`
-    # and stays audited, and a narrower request is not a cheaper permission.
-    status: str | None = None,
-    # Refused, not accepted: `POST /v1/leads/export.csv` takes the same lens with the
-    # search term in the body. See `_SEARCH_MOVED_TO_POST`.
-    search: str | None = Query(
-        None, deprecated=True, description="Moved to POST /v1/leads/export.csv"
-    ),
-    assigned_to: UUID | None = None,
-    # The COLUMN CHOOSER and the FACETS, taken here with exactly the meanings
-    # `GET /v1/leads` gives them — see `_COLUMNS_Q` above for why an unknown column is
-    # dropped and an unknown facet is refused. This is the mirroring SURFACES §2 asks
-    # for, and on this route it is a correctness requirement rather than a nicety: the
-    # screen and the file must not disagree about which rows and which columns, because
-    # the file is the one carrying unmasked numbers out of the building.
-    columns: str | None = _COLUMNS_Q,
-    f: list[str] = _FIELD_FILTER_Q,
-) -> Response:
-    _refuse_search_in_query(search)
-    return await _export_leads(
-        session,
-        request,
-        principal,
-        LeadLensIn(status=status, agent_id=agent_id, assigned_to=assigned_to, columns=columns, f=f),
-    )
-
-
-@router.post(
-    "/leads/export.csv",
-    # The SAME path and the SAME `calls:read_raw` gate as the GET — one route with two
-    # request shapes, not a second export. `tests/authz_audit_test.READS_SHAPED_AS_POSTS`
-    # carries the "this POST writes nothing" exemption, and the redaction-exposure
-    # registry is keyed by path, so this shape inherits the entry that already argues why
-    # a CSV of masked numbers cannot serve the follow-up call it exists for.
-    openapi_extra=permission_meta("calls:read_raw"),
-    summary="CSV export with a search term — POST because the term is a phone number",
-    response_class=Response,
-)
-async def export_leads_searched(
     payload: LeadLensIn,
     session: Session,
     request: Request,
     principal: Principal = Depends(requires("calls:read_raw")),
 ) -> Response:
-    return await _export_leads(session, request, principal, payload)
+    """The SAME filters `GET /v1/leads` takes, with the same meanings, so "export what I
+    am looking at" is expressible. It accepted `agent_id` alone once, so a client who
+    filtered the table to `hot` and pressed Export downloaded every contact in the account
+    with full numbers — the widest possible read of the narrowest possible request.
+    Widening the filters does NOT widen the gate: this stays `calls:read_raw` and stays
+    audited, and a narrower request is not a cheaper permission.
 
-
-async def _export_leads(
-    session: AsyncSession, request: Request, principal: Principal, lens: LeadLensIn
-) -> Response:
-    """The export itself, shared by both request shapes."""
-    agent_id, status, search = lens.agent_id, lens.status, lens.search
-    assigned_to = lens.assigned_to
-    available = lead_column_registry.available(await service.lead_columns(session, agent_id))
-    chosen = _parse_columns(lens.columns)
-    field_filters = _parse_field_filters(
-        lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
-    )
-    export = await service.export_leads_csv(
-        session,
-        agent_id=agent_id,
-        status=status,
-        search=search,
-        assigned_to=assigned_to,
-        field_filters=field_filters,
-        columns=chosen,
-    )
+    The COLUMN CHOOSER and the FACETS mean exactly what they mean on the list — see
+    `_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.
+    That mirroring is a correctness requirement here rather than a nicety: the screen and
+    the file must not disagree about which rows and which columns, because the file is the
+    one carrying unmasked numbers out of the building.
+    """
+    export, summary = await _export_and_summary(session, payload)
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
-    # is the client's own data — so it is audited rather than masked).
+    # is the client's own data — so it is audited rather than masked). In the handler,
+    # by the guardrail's requirement — see the GET twin below.
     await write_audit(
         session,
         action="leads.export",
@@ -851,34 +853,58 @@ async def _export_leads(
         tenant_id=principal.tenant_id,
         object_type="lead_export",
         ip=client_request_ip(request),
-        # WHAT was taken, now that it can vary. "Exported four hot leads" and "exported
-        # the entire account" were the same audit row while `agent_id` was the only
-        # filter; they are the two ends of an incident and the record should tell them
-        # apart. `search` is recorded as a BOOLEAN and never as text — hard rule 6, and
-        # the search box accepts a phone suffix.
-        summary={
-            "status": status,
-            "agent_id": str(agent_id) if agent_id else None,
-            "searched": bool(search),
-            # An id, not a name (hard rule 6 logs ids) — and recorded for the same
-            # reason `status` is: "exported my own eight leads" and "exported the
-            # account" must not be the same audit row.
-            "assigned_to": str(assigned_to) if assigned_to else None,
-            # Counted by the query, not by counting newlines in the file: `QUOTE_ALL`
-            # keeps a newline inside its cell, so a lead whose name or note contains one
-            # made this number larger than the number of contacts that actually left.
-            "rows": export.row_count,
-            # WHICH COLUMNS left the building, now that it varies. "Exported the phone
-            # column for four hot leads" and "exported everything we hold about them"
-            # are different events and the record should tell them apart — and this is
-            # the audit row an incident reads to answer "did the numbers go out?".
-            # Keys, never values (hard rule 6): a column KEY is schema vocabulary the
-            # admin authored, not a caller's data.
-            "columns": sorted(chosen) if chosen else "all",
-            # FACET keys only, and never their values — a facet value is a client's own
-            # captured data ("budget: 40L") and belongs in no log line.
-            "field_filters": sorted(field_filters) or None,
-        },
+        summary=summary,
+    )
+    return Response(
+        content=export.csv,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
+    )
+
+
+@router.get(
+    "/leads/export.csv",
+    # The SAME route, the SAME gate, and the filters that are not personal data. See the
+    # POST above for why `search` is not among them.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="CSV export, unsearched — full phone numbers, owner-only and audit-logged",
+    response_class=Response,
+)
+async def export_leads_filtered(
+    session: Session,
+    request: Request,
+    principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
+    agent_id: UUID | None = None,
+    status: str | None = None,
+    # Declared so it can be REFUSED. FastAPI drops an undeclared query parameter
+    # silently, and a silently-dropped `search` widens the export from eleven leads to
+    # the client's whole contact list.
+    search: str | None = Query(
+        None, deprecated=True, description="Moved to POST /v1/leads/export.csv"
+    ),
+    assigned_to: UUID | None = None,
+    columns: str | None = _COLUMNS_Q,
+    f: list[str] = _FIELD_FILTER_Q,
+) -> Response:
+    _refuse_search_in_query(search)
+    lens = LeadLensIn(
+        status=status, agent_id=agent_id, assigned_to=assigned_to, columns=columns, f=f
+    )
+    export, summary = await _export_and_summary(session, lens)
+    # WRITTEN HERE rather than inside `_export_and_summary`, and the duplication is
+    # deliberate: `scripts/check_redaction_exposure` requires every route allowed to
+    # return raw PII to name `write_audit` in its OWN body, so that a handler cannot
+    # acquire the exemption by calling a helper that used to audit and no longer does.
+    # What is shared is the expensive part and the summary's vocabulary; what is repeated
+    # is the eight lines that make the exemption true.
+    await write_audit(
+        session,
+        action="leads.export",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="lead_export",
+        ip=client_request_ip(request),
+        summary=summary,
     )
     return Response(
         content=export.csv,
