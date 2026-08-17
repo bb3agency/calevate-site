@@ -659,13 +659,22 @@ own**, stated here because they have previously been read as done:
   confirm the same call answers 200. Record the result in `docs/evidence/` the way the
   backup drill is recorded — an untested auth control is a claim, not a control.
 
-  **NOT DONE, and deliberately**: requiring a FRESH second factor (Clerk reverification)
-  for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap raises,
-  raw-transcript access. Those carry per-action `X-Confirm-Action` step-up today, which is
-  a different control and is retained (SEC-COMP §5); raising a real reverification prompt
-  needs a flow in `apps/web` that does not exist, and gating an incident lever on a prompt
-  nobody can answer at 3am is how a control gets switched off. It needs a decision-log
-  entry before it is built.
+  **DONE (D-178), and this entry used to say the opposite**: requiring a FRESH second
+  factor for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap
+  raises, raw-transcript access — was deferred because "raising a real reverification
+  prompt needs a flow in `apps/web` that does not exist, and gating an incident lever on a
+  prompt nobody can answer at 3am is how a control gets switched off". D-170 built the
+  flow: the second factor is an emailed code, and `POST /v1/auth/admin/step-up` mails one
+  to the operator who was just refused, on the screen they were refused on. So
+  `core/stepup.require_step_up` now demands the per-action `X-Confirm-Action` echo AND
+  `auth_sessions.mfa_verified_at` under five minutes, at all 15 call sites.
+
+  **Its two-person check, same shape as the one above**: hold an admin session, wait past
+  five minutes, and confirm `POST /v1/ops/platform` with the correct `X-Confirm-Action`
+  answers 403 `reauthentication_required`; call `/v1/auth/admin/step-up`, answer the code
+  at `/step-up/verify`, and confirm the same call answers 200. `tests/authn_stepup_test.py`
+  drives both directions against the database; the staging run is what proves the email
+  arrives.
 
 - **Backups verified** = `runbooks/backup-restore-drill.md` has PASSED once, with the
   record committed to `docs/evidence/`. The existence of `infra/backup/` does not tick it:
