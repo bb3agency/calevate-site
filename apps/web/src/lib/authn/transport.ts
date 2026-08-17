@@ -16,12 +16,13 @@
  *   `apiRequest` would put `Bearer undefined` on the wire against an unauthenticated route.
  * - `apiRequest` sends `X-Org-Slug` on every call. `/v1/auth/**` is platform-level and
  *   tenant-free; a tenant header on a sign-in request is a claim nobody made.
- * - Nothing here may retry the way `apiRequest` retries `identity_mirror_pending`.
  *
- * The two collapse into one at cutover — AUTH-MIGRATION §6 is explicit that
- * "`lib/api/client.ts` loses `TokenSource` and gains `credentials: \"include\"`" — and
- * that is when this file's `fetch` goes away, not before. Until then the shared parts are
- * SHARED rather than copied: `ApiProblem`, `problemFrom` and `readBody` all come from
+ * The two are closer than they were — D-177 gave `client.ts` `credentials: "include"`
+ * and made its `TokenSource` optional, exactly as AUTH-MIGRATION §6 said it would — and
+ * they are still two, because the two bullets above are still true: this surface sends no
+ * `Authorization` and no `X-Org-Slug`, and `apiRequest` sends both. Collapsing them would
+ * mean a runtime branch on the credential model inside the one function that must not
+ * have one. The shared parts are SHARED rather than copied: `ApiProblem`, `problemFrom` and `readBody` all come from
  * `client.ts`, so a refusal from either transport renders through the same `ProblemNotice`
  * on every screen.
  *

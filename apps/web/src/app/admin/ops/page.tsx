@@ -113,7 +113,7 @@ import { hasKey, lookup } from "@/lib/lookup";
  *    and takes a typed confirmation — echoed to the API as a step-up header, on every one
  *    of them (`platformConfirmation`, `spendCapConfirmation`,
  *    `OUTBOX_REPLAY_CONFIRMATION`). It is not the second factor: admin-realm MFA is
- *    enforced by the API on every admin token (`core/auth.py::verify_token`, Clerk's
+ *    enforced by the API on every admin session (`core/auth.py::verify_token`, the
  *    `fva` claim), so this whole screen is already behind it. The confirmation is the
  *    other half — MFA says WHO holds the session, for the next twelve hours; the typed
  *    word says WHICH act they meant, on this click. A fully verified operator is exactly
