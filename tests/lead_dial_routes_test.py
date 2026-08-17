@@ -686,6 +686,24 @@ async def test_an_unpresignable_recording_is_a_named_dependency_failure(
     assert response.headers["content-type"].startswith("application/problem+json")
 
 
+async def _settle_calls(tenant_id: uuid.UUID) -> None:
+    """Leave no live call row behind.
+
+    A `queued` row spends a line out of the PLATFORM-WIDE outbound pool (FLOWS §5 rule 1)
+    for a full hour, and this repo's tests share one Postgres with other suites and other
+    pytest processes — `campaign_dispatch_audit_test` carries the same teardown for the
+    same reason. The two tests below deliberately create rows for calls that were never
+    answered, so they are the ones that would strand.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET status = 'completed', updated_at = now() "
+                "WHERE status IN ('queued', 'ringing', 'in_progress')"
+            )
+        )
+
+
 # --------------------------------- the two failure paths the buttons must survive
 #
 # Both are D-181. They drive a raise through the middle of a request that has already
@@ -734,6 +752,7 @@ async def test_a_dial_the_engine_may_have_started_leaves_a_call_row_and_refuses_
     assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
         "a dial the vendor may have accepted must not be an invisible charge"
     )
+    await _settle_calls(tenant_id)
 
 
 async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_again(
@@ -783,6 +802,7 @@ async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_aga
     assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
         "the retry rang the customer a second time — the claim did not survive the failure"
     )
+    await _settle_calls(tenant_id)
 
 
 async def test_staff_cannot_reach_the_recording_audio(monkeypatch: pytest.MonkeyPatch) -> None:
