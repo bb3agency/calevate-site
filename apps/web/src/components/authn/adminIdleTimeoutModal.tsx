@@ -63,14 +63,13 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
     });
   }, []);
 
-  useIdleTimeout({
+  const { resume } = useIdleTimeout({
     warningAfterMs: ADMIN_IDLE_WARNING_MS,
     logoutAfterWarningMs: ADMIN_IDLE_LOGOUT_MS,
     onWarning: () => {
       setFailed(false);
       setDeadline(Date.now() + ADMIN_IDLE_LOGOUT_MS);
     },
-    onActive: () => setDeadline(null),
     onLogout: endSession,
     enabled,
   });
@@ -85,7 +84,12 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
       .then((session) => {
         // The server's answer, re-read from the subject row. See the file docstring.
         if (session.realm === "admin" && session.mfa_complete) {
+          // `resume()` and not merely hiding the panel: the warning is sticky (see
+          // `useIdleTimeout.ts`), so the idle clock is stopped until something restarts
+          // it. Dismissing without restarting would leave the console un-timed for the
+          // rest of the tab's life — an idle bound that silently stops bounding.
           setDeadline(null);
+          resume();
           return;
         }
         endSession();
@@ -98,7 +102,7 @@ export function AdminIdleTimeoutModal({ enabled }: { enabled: boolean }) {
         setFailed(true);
       })
       .finally(() => setExtending(false));
-  }, [endSession]);
+  }, [endSession, resume]);
 
   // Escape does NOT dismiss: closing the warning without extending would leave the
   // countdown running behind a screen that no longer mentions it. The two buttons are the

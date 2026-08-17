@@ -23,6 +23,7 @@
  */
 
 import { ApiProblem } from "@/lib/api/client";
+import { lookup } from "@/lib/lookup";
 
 /**
  * Every code `apps/api/authn/` can raise, spelled once.
@@ -149,6 +150,10 @@ export function signInMessage(error: unknown): string | null {
   if (isUnreachable(error)) {
     return "We could not reach Calevate. Check your connection and try again — nothing was submitted.";
   }
-  const code = codeOf(error);
-  return Object.hasOwn(SIGN_IN_COPY, code) ? SIGN_IN_COPY[code] : null;
+  // `lookup`, not `SIGN_IN_COPY[code]`: the key is a WIRE STRING the server chose, and a
+  // bare index walks the prototype chain — a refusal carrying `code: "constructor"` would
+  // resolve to the `Object` function and be rendered into the page. `src/lib/lookup.ts` is
+  // this repo's one answer to that, and `tests/wireLookupGuard.test.ts` enforces it.
+  // `?? null` rather than a default sentence, for the reason above.
+  return lookup(SIGN_IN_COPY, codeOf(error)) ?? null;
 }
