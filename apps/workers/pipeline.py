@@ -41,7 +41,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
-from apps.api.billing.caps import CAPS_CTE, lock_tenant_spend_state, over_cap_sql
+from apps.api.billing.caps import (
+    CAPS_CTE,
+    announce_cap_headroom,
+    cap_fullness,
+    lock_tenant_spend_state,
+    over_cap_sql,
+)
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.rates import (
     MONEY_Q,
@@ -1504,7 +1510,19 @@ ON CONFLICT (tenant_id) DO UPDATE SET
     capped = {over_cap_sql(_ACC_MINUTES, _ACC_BILLED)},
     month = EXCLUDED.month,
     updated_at = now()
+RETURNING minutes_used, billed_inr, (SELECT cap_min FROM caps), (SELECT cap_spend FROM caps)
 """
+# RETURNING carries the alarm (see `announce_cap_headroom`), and it carries the totals
+# AFTER this call rather than the crossing itself because the crossing needs both sides:
+# the totals BEFORE are `returned - this call's delta`, which holds on all three paths —
+# the insert (before = 0), the accumulate (before = the running total) and the month
+# rollover, where `_ACC_*` returns the EXCLUDED value and the subtraction gives 0, which
+# is exactly right for a month that just started. Postgres returns the NEW row from an
+# `ON CONFLICT DO UPDATE`, and a CTE is visible in `RETURNING`, so the ceilings come back
+# from the same `caps` the flag was computed against — reading `plans` a second time could
+# land on a different row and announce against a ceiling the flag was not judged by.
+# (postgresql.org/docs/16/sql-insert.html — "the ... RETURNING ... row values are those of
+# the inserted or updated row".)
 
 
 async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> int:
@@ -1761,16 +1779,49 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             included_min=Decimal(str(plan_rates[0])) if plan_rates is not None else Decimal("0"),
             marginal_rate=marginal_rate,
         )
-        await session.execute(
-            text(_SPEND_STATE_UPSERT),
-            {
-                "tid": tenant_id,
-                "month": month,
-                "minutes": minutes,
-                "spend": cost.total_inr,
-                "billed": billed,
-            },
-        )
+        counters = (
+            await session.execute(
+                text(_SPEND_STATE_UPSERT),
+                {
+                    "tid": tenant_id,
+                    "month": month,
+                    "minutes": minutes,
+                    "spend": cost.total_inr,
+                    "billed": billed,
+                },
+            )
+        ).first()
+        if counters is not None:
+            # The alarm OPERATIONS §4 promised and nothing implemented (R-2): a capped
+            # tenant's campaign stops dialling while the console still says "running",
+            # and the only trace was a `compliance_blocks` log line. Announced from the
+            # write that crosses the line, D-140's shape exactly.
+            #
+            # Fired INSIDE this transaction, like `ai_quota._announce_platform_headroom`
+            # and for the same reason: the alternative is threading a "say this after you
+            # commit" through every caller. The cost is bounded and stated — a rollback
+            # after this point means one alert about a call that did not meter, which is
+            # an operator reading a spend cap that is one call further away than it said.
+            minutes_after = Decimal(str(counters[0]))
+            billed_after = Decimal(str(counters[1]))
+            cap_min = Decimal(str(counters[2])) if counters[2] is not None else None
+            cap_spend = Decimal(str(counters[3])) if counters[3] is not None else None
+            announce_cap_headroom(
+                tenant_id=tenant_id,
+                month=month,
+                before=cap_fullness(
+                    minutes_used=minutes_after - minutes,
+                    billed_inr=billed_after - billed,
+                    cap_min=cap_min,
+                    cap_spend=cap_spend,
+                ),
+                after=cap_fullness(
+                    minutes_used=minutes_after,
+                    billed_inr=billed_after,
+                    cap_min=cap_min,
+                    cap_spend=cap_spend,
+                ),
+            )
     return len(rows)
 
 
@@ -2089,13 +2140,19 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     # every call older than the floor into a permanent "unfinished
                     # pipeline" the poller re-drove forever.
                     "  (c.crm_notified_at IS NOT NULL) AS has_crm_fanout, "
-                    # And whether one was OWED at all. Mirrors
-                    # `integrations.enqueue_events`' own endpoint predicate, because a
-                    # tenant with no subscribed active endpoint gets zero outbox rows from
-                    # a perfectly healthy pipeline — and expecting the artefact anyway
-                    # would re-drive every call on every tick forever.
-                    "  EXISTS (SELECT 1 FROM outbound_webhooks w WHERE w.active = true "
-                    "    AND 'call.completed' = ANY(w.events)) AS crm_fanout_owed, "
+                    # And whether one was OWED at all, because a tenant with no
+                    # subscribed active endpoint gets zero outbox rows from a perfectly
+                    # healthy pipeline — and expecting the artefact anyway would re-drive
+                    # every call on every tick forever.
+                    #
+                    # IMPORTED, NOT MIRRORED. This used to restate the predicate and the
+                    # restatement dropped the `kind = ANY(...)` half, so a third endpoint
+                    # kind landing in the CHECK constraint ahead of its worker would have
+                    # turned every completed call for that tenant into a permanent
+                    # `unfinished_pipeline` — re-driven hourly, with a billed extraction
+                    # each time. `subscribed_endpoint_sql` carries the argument.
+                    "  EXISTS (SELECT 1 FROM outbound_webhooks w WHERE "
+                    f"    {integrations.subscribed_endpoint_sql('w')}) AS crm_fanout_owed, "
                     f"  {EXTRACTION_OWED_SQL} AS extraction_owed "
                     "FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
@@ -2103,7 +2160,14 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     "WHERE c.engine_call_id = :ecid AND c.tenant_id = :tid "
                     "AND c.status = 'completed' LIMIT 1"
                 ),
-                {"ecid": snapshot.engine_call_id, "tid": tenant_id},
+                {
+                    "ecid": snapshot.engine_call_id,
+                    "tid": tenant_id,
+                    # The predicate's own binds, so the probe and `enqueue_event` cannot
+                    # even be given different kinds.
+                    "event": "call.completed",
+                    "kinds": list(integrations.DELIVERABLE_KINDS),
+                },
             )
         ).first()
     if row is None:
@@ -2207,34 +2271,82 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
 
     snapshots = listing.snapshots
     repaired = 0
+    unreached = 0
+    examined = 0
     for snapshot in snapshots:
         if not snapshot.billable_ready:
             continue
-        verdict = await _pipeline_settled(engine.name, snapshot)
-        if verdict == "settled":
+        examined += 1
+        # ONE EXECUTION'S FAILURE IS NOT THE SWEEP'S (R-4). This loop had no `try`, so a
+        # single tenant's probe error — a connection reset, a pool timeout, an RLS/GUC
+        # problem — ended the sweep for every execution BEHIND it in the listing and took
+        # the job down with it. The listing is D-31's guarantee of record, the only
+        # mechanism that recovers a webhook Bolna never delivered, and the failure was
+        # silent: the two `alert()` calls above cover the listing FETCH and listing
+        # INCOMPLETENESS, neither of which is an exception in here. A transient fault
+        # self-heals on the next tick's overlapping window; a persistent one on a tenant
+        # sitting early in the vendor's ordering means the guarantee quietly stops
+        # guaranteeing with the console green.
+        #
+        # Same shape as `dispatcher.report_stalled_pipeline`, `retention.sweep_tenants`
+        # and `qa_sampling.draw_for_tenants`: per-item `try`, an `unreached` counter, and
+        # the counter on both the return string and the alert body so the repair count
+        # reads as a FLOOR rather than a total.
+        try:
+            verdict = await _pipeline_settled(engine.name, snapshot)
+            if verdict == "settled":
+                continue
+            await enqueue(
+                INGEST_JOB,
+                {
+                    "engine": engine.name,
+                    "execution_id": snapshot.engine_call_id,
+                    "raw_status": snapshot.raw_status,
+                    "engine_agent_ref": snapshot.engine_agent_ref,
+                    "source": "reconciliation",
+                },
+                job_id=job_id_for(INGEST_JOB, engine.name, snapshot.engine_call_id, "reconcile"),
+            )
+        except Exception:
+            # The execution id, never the exception's payload: a psycopg error string can
+            # quote the row that broke it, and these rows are calls (hard rule 6). The id
+            # is the engine's own opaque handle and is what a poller re-run needs.
+            log.exception(
+                "reconciliation_probe_failed",
+                extra={"execution_id": snapshot.engine_call_id, "engine": engine.name},
+            )
+            unreached += 1
             continue
-        await enqueue(
-            INGEST_JOB,
-            {
-                "engine": engine.name,
-                "execution_id": snapshot.engine_call_id,
-                "raw_status": snapshot.raw_status,
-                "engine_agent_ref": snapshot.engine_agent_ref,
-                "source": "reconciliation",
-            },
-            job_id=job_id_for(INGEST_JOB, engine.name, snapshot.engine_call_id, "reconcile"),
-        )
         record_reconciliation_repair(kind=verdict)
         repaired += 1
 
     if repaired:
         log.warning("reconciliation_repaired", extra={"count": repaired})
+    if unreached:
+        # LOUD, because the alternative is the failure mode this whole block exists to
+        # remove. A sweep that skipped executions reports a SMALLER repair count, which
+        # reads exactly like a healthy fleet — an alarm that fails towards silence is
+        # worse than no alarm.
+        alert(
+            "WORKER_DELIVERY",
+            "reconciliation_probe_incomplete",
+            detail=(
+                f"{unreached} of {examined} execution(s) could not be probed or "
+                f"re-driven, so repaired={repaired} is a floor rather than a total. "
+                "Their calls are recoverable only while they stay inside the 30-minute "
+                "listing window — check the worker log for reconciliation_probe_failed."
+            ),
+            engine=engine.name,
+        )
+    tail = f" unreached={unreached}" if unreached else ""
     if not listing.complete:
         # The return value is what an operator reads in the job log; a bare
         # "repaired=0" on a truncated listing reads as "all quiet", which is the exact
         # misreading this slice exists to remove.
-        return f"repaired={repaired} listing_incomplete={listing.incomplete_reason or 'unknown'}"
-    return f"repaired={repaired}"
+        return (
+            f"repaired={repaired}{tail} listing_incomplete={listing.incomplete_reason or 'unknown'}"
+        )
+    return f"repaired={repaired}{tail}"
 
 
 __all__ = [

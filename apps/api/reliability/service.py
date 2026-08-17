@@ -375,6 +375,12 @@ async def enqueue_outbox_once(
 @dataclass(frozen=True, slots=True)
 class OutboxMessageRow:
     id: UUID
+    #: Always `OUTBOX_FLEET`, and READ BY NOTHING — `dispatch_outbox` never branches on
+    #: it. Carried here rather than dropped from the claim so the column's one consumer
+    #: is where a filter would go on the day D-162 closes by growing a second fleet; if
+    #: it closes the other way, this field and the column go in the same change. A reader
+    #: meeting `row.queue` and assuming it decides where the job runs is the exact
+    #: misreading the column's comment in `models.py` exists to prevent.
     queue: str
     job: str
     payload: dict[str, Any]
