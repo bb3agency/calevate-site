@@ -247,13 +247,41 @@ under the erased calls' prefixes, on the per-subject path and the tenant path al
 the count in the proof's `actions`. The archive now HAS a producer — the post-call
 pipeline writes one document per completed call, committing `engine_payload_ref` before
 the PUT so no object can exist that an erasure has no reason to look for — which makes
-the arm above a live guarantee rather than a prepared one, and leaves one limit standing
-rather than two: **no retention category expires it** — the
-enum is `recording|transcript|lead|consent_log`, so for anyone who has NOT filed an
-erasure the only clock is the bucket's 90-day `engine-payloads/` lifecycle rule, which
-has never been applied to a real bucket (infra/README §5). Giving the archive its own
-retention category is a DPA commitment and a change to a documented enum, and is reserved
-here the same way the backup clause below is.
+the arm above a live guarantee rather than a prepared one.
+
+**It now expires as well (D-179).** The limit that used to stand here was that no
+retention category reached the archive, so the only copies that ever disappeared belonged
+to the people who filed a §12 request; everyone else's caller number and transcript were
+held indefinitely behind a bucket lifecycle rule that has never been applied to a real
+bucket (infra/README §5). That is the DPDP §8(7) storage-limitation breach on its own,
+with nobody needing to come looking. `retention_policies.data_category` gained
+`engine_payload` (migration c4d1f7b83e26, default 90 days — the number the lifecycle rule
+already carried), and the nightly sweep pages expired calls into the SAME
+`_erase_engine_payloads` the erasure uses, so there is one definition of destroying a
+call's archived documents. A store that will not answer defers the arm rather than failing
+the tick; the erasure path still RAISES on the same condition, because a certificate must
+not claim a destruction that did not happen and a sweep owes nobody a document.
+
+**Client-uploaded knowledge expires too, and an erasure now searches it (D-179).**
+`kb_sources`/`kb_documents` hold what a client uploads for their agents to answer from —
+FAQs, price lists, staff names and contact numbers — and publishing a new version
+ARCHIVES the old one, so every version ever published survived and no TTL reached any of
+them. Two mechanisms close the halves that were ours. The `kb` retention category (default
+365 days) deletes SUPERSEDED and REJECTED versions, never the live one and never one the
+voice platform still holds a handle for — a superseded version's handle is cleared when it
+is detached, so a handle still recorded means an incomplete detach that belongs to the
+reconciliation sweep (D-158), and forgetting our row would strand the only record that can
+address their copy. And `execute_deletion_request` now SEARCHES a tenant's knowledge
+documents for the subject's number, digits-normalised because a client writes
+"98765 43210" and never an E.164 string, and puts the count on the certificate. What it
+deliberately does not do is CHANGE that content: editing a live knowledge document changes
+what the agent says on the next call, we cannot tell a caller's callback number from the
+shop's own landline, and the platform holds its own copy — so the certificate names a
+manual step on both copies rather than performing half of one. The erasure register says
+exactly this (`deletion.KB_OUTCOME = "searched_not_erased"`), and the tenant-erasure
+register says the narrower true thing for its own path: a tenant erasure has no subject to
+search FOR, so it does not look, and what reaches that account's knowledge is its own `kb`
+policy.
 
 **OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
 producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because
@@ -340,7 +368,12 @@ rather than resolved because it is a policy call, not a code fix.
   recordings to a **default of 180** over the 90-day TRAI floor.
 - `scripts/seed.DEFAULT_RETENTION_POLICIES` — the rows a new tenant actually gets, and the
   rows the nightly sweep obeys — are **transcript 365 days**, **lead 1095 days**,
-  **recording 90 days**, consent_log 2555 days.
+  **recording 90 days**, consent_log 2555 days, engine_payload 90 days, kb 365 days.
+- The last two are D-179 and are NOT part of this divergence: this document promised
+  nothing about either store, so there is no figure for them to disagree with. 90 days is
+  the period `infra/object-lifecycle/policy.json` already assigned the `engine-payloads/`
+  prefix, and 365 matches the transcript default because a superseded knowledge version is
+  content of the same class. Both are per-tenant defaults a client may change.
 
 So a transcript is deleted at half the documented age and a lead is kept at one and a half
 times it. This matters beyond tidiness: the client-facing **DPA quotes this document**,

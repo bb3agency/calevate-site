@@ -483,6 +483,18 @@ one differs from a summary below, the runbook is the authority.
   the per-dial gate.
 - **"You called someone who asked you not to"** — `runbooks/dnc-complaint.md`. DNC
   complaint or TRAI/DLT escalation; the answer is a timeline, not a fix.
+- **A personal data breach** — `runbooks/data-breach-notification.md` (D-179). The
+  deliverable is a set of NOTICES with statutory clocks on them, all running from
+  AWARENESS: the client within 48 hours (`/legal/dpa` §7, ours), each affected data
+  principal and the Board without delay, and the Board's detailed report within 72 hours
+  (DPDP Rules 2025 Rule 7 — the client's for caller data, ours for client-account data).
+  Rule 7 has no severity threshold, so "one record" and "no evidence of access" are facts
+  to state in the notice rather than reasons to skip it. `scripts/breach_notice.py`
+  renders the three documents from one incident file and refuses one with a required
+  element missing or a phone number in it; it sends nothing, because who signs off is a
+  named human decision. Two things it still needs from outside the repo are stated in the
+  runbook's §7 rather than discovered at 4am: the Board's own reporting channel, and
+  counsel's review of the wording.
 - **Campaign follow-up never goes out** — `runbooks/campaign-escalation-refused.md`.
   `escalate_campaign_contact` refusals, split by the line the code itself draws: the ones
   that page a human (`no_provider_configured`, `provider_not_implemented`, template
