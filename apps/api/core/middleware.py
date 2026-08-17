@@ -283,7 +283,7 @@ class LoadShedMiddleware:
     WHAT IS NEVER SHED IS `loadshed.ALWAYS_ALLOWED_PREFIXES`, and this docstring
     deliberately does not repeat the list. It used to, and it named `auth` among them
     after that exemption had been removed — nothing under `/v1/auth` mints a session
-    (Clerk owns those, TRD §11), so the only route the prefix ever covered was
+    (Clerk owned those, TRD §11), so the only route the prefix ever covered was
     `POST /v1/auth/signup`, i.e. the platform kept manufacturing tenants while it was too
     degraded to serve the ones it had. A prose copy of a list is how the copy and the list
     part company; `tests/loadshed_exemption_test.py` asserts the census against the

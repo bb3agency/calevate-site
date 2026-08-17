@@ -65,7 +65,7 @@ the established shape rather than invented:
 
   Naming it is not a nicety. The bucket is one shared resource and the codes drawing on
   it are not equally important: `webhook_source_rejected` and
-  `clerk_webhook_bad_signature` fire from anywhere on the internet with no credential,
+  `razorpay_webhook_bad_signature` fire from anywhere on the internet with no credential,
   while `postcall_pipeline_stalled` is the alarm the whole system exists to raise. A
   stranger cannot silence the second — dedupe means their repeats are free, so they
   cost at most one token per code per window — but they CAN empty the burst at a moment

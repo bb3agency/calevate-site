@@ -2,8 +2,8 @@
 
 ═══ WHY A COOKIE AND NOT A BEARER TOKEN ═══
 
-Because the token must be unreadable to JavaScript. Today `apps/web` holds a Clerk token in
-memory and attaches it with `Authorization:`, which is structurally immune to CSRF and
+Because the token must be unreadable to JavaScript. `apps/web` used to hold a Clerk token
+in memory and attach it with `Authorization:`, which is structurally immune to CSRF and
 structurally exposed to XSS — any script that runs on the page can read it and exfiltrate
 it. An `HttpOnly` cookie inverts both properties, and the trade is worth taking: an XSS on
 a dashboard that renders client CRM data is a realistic risk this product has to plan for,

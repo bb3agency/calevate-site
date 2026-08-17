@@ -100,12 +100,10 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
-    from apps.api.tenancy.clerk_webhooks import router as clerk_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
 
     application.include_router(tenancy_router)
-    application.include_router(clerk_router)
     # D-170's first-party authentication. Mounted unconditionally and gated per request by
     # `Settings.first_party_auth_enabled` (default off) — a conditionally-mounted router
     # would be invisible to `check_wiring`, absent from the OpenAPI contract, and would

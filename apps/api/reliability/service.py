@@ -912,10 +912,10 @@ async def claim_inbox_event(
         # for an at-most-once engine event (D-31) "nobody is doing this work and the
         # key says duplicate" is a silently dropped call.
         #
-        # This is not hypothetical: `apps/api/tenancy/clerk_webhooks.py` COMMITS the
+        # This was not hypothetical: `tenancy/clerk_webhooks.py` (deleted in D-177) COMMITTED the
         # claim, then does the mirroring in a later transaction with no failure path
         # that marks the row failed — so any exception there leaves PROCESSING behind
-        # and every Clerk retry of that svix-id is answered "duplicate".
+        # and every retry of that svix-id was answered "duplicate".
         #
         # A recent PROCESSING row is a real concurrent delivery and still dedupes.
         retried = await session.execute(

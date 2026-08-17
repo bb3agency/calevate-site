@@ -170,12 +170,11 @@ class BootstrapConfirmIn(BaseModel):
 
 
 class InviteAcceptWithPasswordIn(BaseModel):
-    # NAMED TO AVOID A COLLISION, not for style. `tenancy/routes.py` already exports
-    # `AcceptInviteIn`/`AcceptInviteOut` for the Clerk-era endpoint. Two models with one
-    # name make FastAPI disambiguate BOTH into fully-qualified schema ids
-    # (`apps__api__tenancy__routes__AcceptInviteIn`), which renames the EXISTING schema in
-    # the committed contract and breaks the generated client for a route this change does
-    # not otherwise touch. Renaming ours costs nothing and leaves theirs alone.
+    # THE NAME IS NOW FREE — `tenancy/routes.py`'s `AcceptInviteIn`/`AcceptInviteOut` went
+    # with the Clerk-era endpoint in D-177 — and the name STAYS, because renaming it would
+    # rename the schema in the committed OpenAPI contract and regenerate every consumer of
+    # `apps/web/src/lib/api/schema.d.ts` for no gain. It also still says the true thing:
+    # this model carries a password, which the vendor-era one could not.
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=20, max_length=200)
@@ -540,13 +539,12 @@ invite_router = APIRouter(prefix="/v1/auth/client", tags=["auth-client"])
 async def accept_invitation_with_password(
     payload: InviteAcceptWithPasswordIn, request: Request, response: Response
 ) -> InviteAcceptWithPasswordOut:
-    """The first-party twin of `POST /v1/invitations/accept`.
+    """THE invitation-redemption endpoint. There is no other (D-177).
 
-    The Clerk one still exists and still works — both credential paths coexist until
-    AUTH-MIGRATION §5 step 6. What differs is that this one needs no prior account, because
-    there is no vendor to have made one: it takes the password in the same call.
-
-    The `/invite?token=...` page contract is unchanged (`apps/authn/invitations.py`).
+    It needs no prior account, because there is no vendor to have made one: it takes the
+    password in the same call, and takes the address from the invitation rather than
+    comparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and
+    `/invite?token=` answers `410 Gone` naming the page that replaced it.
     """
     _require_enabled()
     enforce_same_origin(request)

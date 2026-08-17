@@ -1,7 +1,7 @@
 """Admin-realm endpoints (FLOWS §1, §2; D-22).
 
 Every route here is `realm="admin"`, so a client token cannot reach any of them even
-if it somehow carried the permission — the realms are separate Clerk applications and
+if it somehow carried the permission — the realms are separate credential domains and
 `verify_token` will not accept one realm's token for the other.
 
 Impersonation (D-22) is READ-ONLY and audited on both halves, and both halves are now
@@ -76,7 +76,7 @@ class AdminMeOut(BaseModel):
     # identity document must be able to tell them apart without inspecting the URL it
     # happened to call, and `MeOut.realm` is how the client realm already says it.
     realm: Literal["admin"]
-    # `admin_users.id`, not the Clerk id: the value that appears in `audit_log.actor_id`,
+    # `admin_users.id`: the value that appears in `audit_log.actor_id`,
     # so an operator reading "who am I" and an auditor reading "who did this" see one id.
     user_id: UUID
     role: str

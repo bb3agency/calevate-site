@@ -1,65 +1,75 @@
-"""Clerk authentication for TWO SEPARATE REALMS + the tenant-scoped session dep.
+"""First-party authentication for TWO SEPARATE REALMS + the tenant-scoped session dep.
 
-D-37 keeps Clerk and states the reason plainly: Hard Rule 1's RLS model trusts
-`tenant_id` from a verified session, so an auth defect is a cross-tenant data breach,
-not a login bug. Clerk authenticates; **our Postgres stays the system of record**
-(users/organizations mirrored via Clerk webhooks), and RLS keys off OUR tenant_id.
+D-177 removed Clerk. What this module does is unchanged in shape and changed entirely in
+substance: it turns a presented credential into a `Principal`, and the credential is now
+one of ours — the opaque session `apps/api/authn/sessions.py` mints, carried in the
+realm's `__Host-` cookie. There is no JWKS fetch, no vendor host, no signature to check
+and no third party whose outage signs everybody out.
 
-**Which user a client-realm token IS lives in `core/clerk_identity.py`**, not here, and
-both client-realm dependencies call it (D-124). Clerk's mirror is eventually consistent,
-so a verified token can arrive before its `users` row: that module reconciles the row
-from Clerk's Backend API rather than answering 401, which is what the two membership-less
-routes — signup and invite-accept — used to do to every new customer. The admin realm is
-deliberately NOT reconciled: `admin_users` is an ops-managed allowlist, not a mirror.
+D-37's load-bearing half STANDS and is what made the swap cheap: **our Postgres is the
+system of record.** `users`, `memberships`, `organizations`, `admin_users` and every RLS
+policy key off OUR ids, and they always did. Only the authentication leg moved.
 
-Realms never share session logic (TRD §11): admin tokens are verified against the
-admin application's JWKS and can only produce an admin principal; client tokens the
-same. A token minted for one realm is not a token for the other.
+**WHAT A VERIFIED CREDENTIAL NOW CARRIES, and why that is the whole simplification.**
+`authn.sessions.verify_session` answers with a row, and the row's `subject_id` IS
+`users.id` (client realm) or `admin_users.id` (admin realm). The old flow had to translate
+a vendor subject into one of our ids on every request — a mirror lookup, a just-in-time
+reconcile against Clerk's Backend API, and the transient
+`identity_mirror_pending` refusal when the Svix webhook had not landed yet (D-124). All of
+that is deleted rather than replaced: there is no upstream to be behind, so there is no
+race to lose.
 
-**MFA is mandatory on the admin realm** (TRD §2, SEC-COMP §5) and is enforced in
-`verify_token`, from Clerk's `fva` session claim — see the block above `VerifiedToken`
-for the claim's semantics and for why the gate lives in the verifier rather than in
-`current_admin` or on each route. The client realm is untouched by it.
+Realms never share session logic (TRD §11). The separation is now ours to hold up and is
+four independent mechanisms, argued in AUTH-MIGRATION §3: the realm is inside the session
+token's hash domain, it is in the `WHERE` clause beside it, it selects the cookie name,
+and the auth routes enforce a per-realm origin. A client session presented on the admin
+door does not match a row — that is arithmetic, not a predicate somebody has to remember.
 
-Local development: when `APP_ENV=local` AND the realm has no Clerk secret configured,
-a `Bearer dev:<realm>:<clerk_user_id>` token is accepted (with an optional `:nomfa`
-segment that stands in for a session which never completed a second factor). A
-deployment that declares itself `staging` or `prod` can never reach this path,
-whatever else is misconfigured
-(asserted in `tests/authz_audit_test.py`).
+**MFA is mandatory on the admin realm** (TRD §2, SEC-COMP §5) and is enforced here, in
+`verify_token`, from `auth_sessions.mfa_verified_at`. A password alone issues a
+session with that column NULL which can reach exactly one route — `POST
+/v1/auth/admin/login/otp` — and answering the emailed code rotates the session with the
+column set (D-170). `MFA_REQUIRED_REALMS` is the single copy of that fact, asserted equal
+to `authn/service.py`'s by `tests/authn_mfa_test.py`, so the sign-in path and the verifier
+cannot disagree.
 
-`app_env` carries that whole weight, so it has NO DEFAULT: `Settings.app_env` is a
-required field and `APP_ENV` is in `BOOTSTRAP_REQUIRED`, because the previous default
-of `"local"` meant a deployment that simply never set the variable accepted dev tokens
-AND reported itself healthy (`runtime_config_missing_keys` skipped its Clerk checks
-under the same branch). Two guards, one missing variable, both off. The environment is
-now stated or the process does not start — see `core/settings.py::BOOTSTRAP_REQUIRED`
-and `tests/app_env_required_test.py`.
+Local development: `Bearer dev:<realm>:<subject-uuid>` (with an optional `:nomfa` segment
+standing in for a session that never completed a second factor). It is the ONLY thing this
+API still accepts on the `Authorization` header — a real session is a cookie and nothing
+else — and it is guarded by two independent facts, exactly as it was:
+
+  1. `APP_ENV=local`. `Settings.app_env` has NO DEFAULT and is in `BOOTSTRAP_REQUIRED`, so
+     no configuration is `local` without somebody having typed `local`.
+  2. `PLATFORM_KEK` is unset. That is the successor to the old "this realm has no Clerk
+     secret configured" guard, and it is the same statement of fact: a deployment holding
+     real key material is a real deployment. A prod host cannot omit `PLATFORM_KEK` — it is
+     what every password is peppered with (`authn/hashing.py`), `/healthz/ready` reports it
+     missing, and a local box falls back to a constant printed in this repository. So one
+     mis-set variable can no longer switch the dev path on, which was the entire point of
+     there being two guards (`tests/authz_audit_test.py` pins both).
+
+The subject is a UUID of OUR issuing rather than a caller-chosen string, which is the other
+half of the re-pointing AUTH-MIGRATION §1 C-21 asked for: `dev:admin:<anything>` no longer
+even parses.
 """
 
 from __future__ import annotations
 
-import asyncio
-import base64
-import binascii
-import re
-import time
 from collections.abc import Awaitable
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, cast
+from datetime import UTC, datetime
+from typing import Literal, Protocol, cast
 from uuid import UUID
 
-import jwt
 from calevate_shared.client_address import client_ip
-from calevate_shared.config import Settings
 from fastapi import Depends, Request
-from jwt import PyJWKClient
-from jwt.exceptions import PyJWKClientConnectionError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.authn.cookies import read_token
+from apps.api.authn.sessions import verify_session
+from apps.api.authn.subjects import load_subject
 from apps.api.compliance.audit import write_audit
-from apps.api.core.clerk_identity import resolve_mirrored_user
 from apps.api.core.context import (
     IMPERSONATE_HEADER,
     IMPERSONATION_GRANT_HEADER,
@@ -80,427 +90,223 @@ from apps.api.db.session import admin_session, user_session
 
 log = get_logger(__name__)
 
-CLERK_LEEWAY_S = 30
-
-_jwk_clients: dict[str, PyJWKClient] = {}
-
-# A Clerk publishable key is `pk_test_`/`pk_live_` + base64 of the application's
-# Frontend API host with a trailing `$`.
-_PUBLISHABLE_PREFIXES = ("pk_test_", "pk_live_")
-_HOSTNAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$")
-# Header values arrive latin-1-decoded, so a raw control byte survives as a character.
-_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
-
-
-# --- Admin-realm MFA (TRD §2 "MFA mandatory on admin realm", SEC-COMP §5) ----------
-#
-# WHAT CLERK ACTUALLY GIVES US, AND WHERE THAT WAS ESTABLISHED.
-# A Clerk session token carries `fva` — "factor verification age" — a two-element array
-# of MINUTES since each factor was last verified: `[firstFactorAge, secondFactorAge]`.
-# `-1` in a slot means that factor was NEVER verified for this session; `[0, -1]` is the
-# ordinary shape for a user with no second factor enrolled, and `[9, 3]` is a session
-# that completed both. The claim is on the DEFAULT session token — no JWT template is
-# needed to obtain it — and it is the same value Clerk's own SDKs read: the Go SDK
-# declares `FactorVerificationAge [2]int64 \`json:"fva"\`` on `Claims` and builds
-# `SessionClaims.NeedsReverification(policy)` on top of it
-# (pkg.go.dev/github.com/clerk/clerk-sdk-go/v2, read 2026-08-14), and Clerk's own
-# Supabase integration guide shows the identical predicate expressed as an RLS policy
-# ("check that the second factor verification age element in the fva claim is not -1").
-# Clerk's docs for it are clerk.com/docs/guides/sessions/session-tokens and
-# clerk.com/docs/guides/secure/force-mfa; both are unreachable from this build host, so
-# the citations above are the ones that could be read directly.
-#
-# WHY THE PREDICATE IS `fva[1] >= 0` AND NOT AN AGE BOUND.
-# The requirement in TRD §2 is about AUTHENTICATION — did this session ever prove a
-# second factor — not about freshness. Clerk models freshness separately, as
-# "reverification" (`strict_mfa` etc.), and using it here would mean an operator whose
-# second factor is two hours old could not lift a halt at 3am without signing out and
-# back in, because this repo has no reverification flow in the browser to raise the
-# prompt. Gating an incident lever on a flow that does not exist would be a control that
-# gets switched off. Freshness is therefore a NAMED follow-up (OPERATIONS §2), not a
-# silent omission — and per-action consent is separately covered by `X-Confirm-Action`
-# (see `ops/routes.py`, which records why both survive).
-#
-# WHY AN ABSENT CLAIM IS A REFUSAL.
-# A missing `fva` means we cannot tell whether a second factor happened, and this is the
-# realm that holds the big red switch. Reading "unknown" as "verified" would mean a
-# custom JWT template that drops the claim silently disables MFA for the whole console
-# with nothing failing. So it fails CLOSED, and the refusal names the fix rather than
-# saying "forbidden".
-SECOND_FACTOR_CLAIM = "fva"
-
 #: The realms where a second factor is MANDATORY. The client realm is deliberately not
 #: here: SEC-COMP §5 requires MFA on admin only, and client owners on Indian SMB
 #: hardware are not who this control protects against.
+#:
+#: THE SINGLE COPY OF THAT FACT. `authn/service.py` decides whether a sign-in needs a
+#: challenge and reads this same name; `tests/authn_mfa_test.py` asserts the two are equal,
+#: because two copies is exactly how a sign-in path and a verifier come to disagree,
+#: silently, in the unsafe direction.
 MFA_REQUIRED_REALMS: frozenset[str] = frozenset({"admin"})
 
-#: `dev:<realm>:<clerk_user_id>:nomfa` — the local-only way to obtain a token that has
+#: `dev:<realm>:<subject-uuid>:nomfa` — the local-only way to obtain a credential that has
 #: NOT completed a second factor, so the refusal can be exercised in both directions.
 #: A plain three-segment dev token counts as MFA-complete, because it already bypasses
-#: authentication entirely (local + no Clerk secret, asserted in `authz_audit_test`) and
-#: making it MFA-incomplete by default would only mean every local screen and every
-#: admin test asserts the refusal path and nothing asserts the allowed one.
+#: authentication entirely (see the module docstring's two guards) and making it
+#: MFA-incomplete by default would only mean every local screen and every admin test
+#: asserts the refusal path and nothing asserts the allowed one.
 DEV_TOKEN_NO_MFA_SUFFIX = "nomfa"
 
 
-def _second_factor_age_minutes(claims: dict[str, Any]) -> int | None:
-    """Minutes since this session verified a SECOND factor.
+def _require_second_factor(realm: Realm, mfa_verified_at: datetime | None) -> None:
+    """Refuse a credential of an MFA-mandatory realm that never proved a second factor.
 
-    `-1` (Clerk's "never verified") is returned as-is; `None` means the token carried no
-    usable `fva` claim at all, which the caller treats as a refusal, not as a pass.
+    ONE code for one condition. `authn/routes.py` raises the identical
+    `second_factor_required` on the sign-in surface, and it has to be identical: the
+    pre-code session is a real, live session that may reach exactly one route, so a console
+    meets this refusal on the auth router and on every other router, and two names for it
+    would be two things for a client to handle and one of them to get wrong.
+
+    The Clerk-era pair is gone with the vendor. `mfa_claim_missing` existed because a
+    custom JWT template could silently drop the `fva` claim and "unknown" had to fail
+    closed; a NULL column cannot be ambiguous, so there is nothing left for that code to
+    describe.
     """
-    fva = claims.get(SECOND_FACTOR_CLAIM)
-    if not isinstance(fva, list) or len(fva) < 2:
-        return None
-    second = fva[1]
-    # `bool` is an `int` in Python and `fva: [true, true]` must not read as "verified".
-    if isinstance(second, bool) or not isinstance(second, int):
-        return None
-    return second
-
-
-def _require_second_factor(realm: Realm, second_factor_age_min: int | None) -> None:
-    if realm not in MFA_REQUIRED_REALMS:
+    if realm not in MFA_REQUIRED_REALMS or mfa_verified_at is not None:
         return
-    if second_factor_age_min is None:
-        raise ProblemError(
-            kind="permission",
-            code="mfa_claim_missing",
-            title="Two-step verification could not be checked",
-            detail="This session does not say whether a second factor was verified.",
-            remediation=(
-                "The admin Clerk application must issue the default session token "
-                "claims: a custom JWT template that omits `fva` cannot be used on this "
-                "realm (OPERATIONS §2)."
-            ),
-        )
-    if second_factor_age_min < 0:
-        log.warning("admin_mfa_missing")
-        raise ProblemError(
-            kind="permission",
-            code="mfa_required",
-            title="Two-step verification required",
-            detail=(
-                "The operator console requires two-step verification, and this sign-in "
-                "did not complete a second factor."
-            ),
-            remediation=(
-                "Set up two-step verification on your Calevate operator account, then "
-                "sign out and sign in again."
-            ),
-        )
+    log.warning("admin_mfa_missing")
+    raise ProblemError(
+        kind="auth",
+        code="second_factor_required",
+        title="Two-step verification required",
+        detail=(
+            "The operator console requires two-step verification, and this sign-in has "
+            "not completed a second factor."
+        ),
+        remediation="Enter the code emailed to your operator address to finish signing in.",
+    )
 
 
 @dataclass(frozen=True, slots=True)
-class VerifiedToken:
-    clerk_user_id: str
-    email: str | None
+class VerifiedCaller:
+    """A proved credential, before any authorization has been read.
+
+    `subject_id` is OURS — `users.id` on the client realm, `admin_users.id` on the admin
+    realm — which is the whole shape change D-177 buys. The Clerk-era `VerifiedToken`
+    carried a vendor subject string that every request then had to translate, and the
+    translation was a query, sometimes a call to Clerk's Backend API, and a transient
+    refusal when neither had the row yet (D-124).
+
+    `mfa_verified_at` is carried rather than recomputed, for the reason
+    `authn.sessions.VerifiedSession` gives: it is a property of the CREDENTIAL and nothing
+    downstream may re-decide it.
+    """
+
     realm: Realm
-    #: Minutes since this session's second factor was verified; `-1` = never verified,
-    #: `None` = the token said nothing. Carried on the token rather than recomputed,
-    #: because it is a property of the CREDENTIAL and nothing downstream may re-decide
-    #: it. See `_require_second_factor` for the policy applied to it.
-    second_factor_age_min: int | None = None
+    subject_id: UUID
+    mfa_verified_at: datetime | None
 
 
-def _host_from_publishable_key(key: str | None) -> str | None:
-    """The Frontend API host a Clerk publishable key encodes, or None if it encodes
-    nothing we recognise (unset, a placeholder, a secret key pasted by mistake)."""
-    if not key:
-        return None
-    encoded = next((key[len(p) :] for p in _PUBLISHABLE_PREFIXES if key.startswith(p)), None)
-    if not encoded:
-        return None
-    try:
-        decoded = base64.b64decode(encoded + "=" * (-len(encoded) % 4)).decode("ascii")
-    except (binascii.Error, ValueError):
-        return None
-    host = decoded.rstrip("$").lower()
-    return host if _HOSTNAME_RE.match(host) else None
+def _dev_tokens_permitted() -> bool:
+    """The two independent guards, in one place so neither can be checked without the other.
 
-
-def jwks_url(realm: Realm) -> str:
-    """Where THIS realm's signing keys live.
-
-    The realms are two separate Clerk applications (TRD §11, D-37) and each publishes
-    its JWKS on its OWN Frontend API host. Resolving both to one host would make the
-    separation nominal: the admin verifier would accept a signature minted for the
-    client application, leaving `admin_users` membership as the only thing between a
-    client token and the admin console — an authorization check standing in for an
-    authentication one.
-
-    The publishable key encodes its application's host, which is why both keys are in
-    Settings. `clerk_frontend_api` remains the fallback for a single-application or
-    custom-domain deployment, which is what it always described.
+    See the module docstring for why `PLATFORM_KEK` is the successor to "this realm has no
+    Clerk secret configured": both are the statement *this deployment holds no real
+    credential material*, and both are false on any host that could serve a customer.
     """
     settings = get_settings()
-    publishable = (
-        settings.clerk_admin_publishable_key
-        if realm == "admin"
-        else settings.clerk_client_publishable_key
-    )
-    host = _host_from_publishable_key(publishable) or settings.clerk_frontend_api
-    return f"https://{host or 'accounts.calevate.tech'}/.well-known/jwks.json"
+    return settings.app_env == "local" and not settings.platform_kek
 
 
-#: The environment variables that decide which Clerk application each realm verifies
-#: against. Named here because `runtime_config_missing_keys` reports them and the
-#: operator has to be told what to set.
-REALM_PUBLISHABLE_KEY_VARS: dict[Realm, str] = {
-    "admin": "CLERK_ADMIN_PUBLISHABLE_KEY",
-    "client": "CLERK_CLIENT_PUBLISHABLE_KEY",
-}
+def _verify_dev_token(token: str, realm: Realm) -> VerifiedCaller | None:
+    """`dev:<realm>:<subject-uuid>[:nomfa]` — local only, and only on a keyless deployment.
 
+    None means "not a dev credential this deployment will honour", and the caller turns
+    that into a 401 rather than into a fall-through: after D-177 there is nothing else an
+    `Authorization` header could be.
 
-def missing_realm_separation_keys(settings: Settings) -> list[str]:
-    """The publishable keys a deployment must set for the two realms to BE two realms.
-
-    `jwks_url` above argues why one JWKS for both realms is not a tidiness issue: the
-    admin verifier accepts a signature minted by the client application, and
-    `admin_users` membership becomes the only thing between a client token and the
-    operator console — an authorization check standing in for an authentication one.
-    That argument was written and then not checked anywhere, and the gap was reachable
-    by an ordinary deploy rather than by a mistake: `runtime_config_missing_keys`
-    demanded both SECRET keys and neither PUBLISHABLE one, so a prod host with both
-    secrets, no publishable keys and a `CLERK_FRONTEND_API` — the documented
-    single-application fallback — resolved BOTH realms to one host and reported
-    `/healthz/ready` green.
-
-    So the check is on the PROPERTY, not on presence: two realms must resolve to two
-    hosts. That is what permits the legitimate custom-domain deployment (both keys set,
-    two hosts) while refusing the two arrangements that collapse the separation — both
-    keys absent, and, the nastier one, the CLIENT key set with the admin's forgotten so
-    the admin realm silently adopts the client application's signing keys.
-
-    Reported rather than raised, and reported through the readiness gate rather than at
-    boot, because that is where this repo puts "legitimately absent at boot, required to
-    serve" (`runtime_config_missing_keys`). Returns the variable names to set — both,
-    because either one can be the one that is wrong and the operator has to look at the
-    pair.
-
-    `local` is the caller's business, not this function's: it answers about the settings
-    it is handed. `runtime_config_missing_keys` scopes it, exactly as it scopes the
-    Clerk secret checks, because a local box has no Clerk at all.
+    The optional fourth segment is the local stand-in for a session that has proved a
+    password and not the emailed code. It exists so the admin-realm MFA refusal is
+    exercised on the SAME code path that serves the allowed case, rather than only in a
+    unit test of the predicate.
     """
-    hosts = {
-        realm: _host_from_publishable_key(
-            settings.clerk_admin_publishable_key
-            if realm == "admin"
-            else settings.clerk_client_publishable_key
-        )
-        for realm in REALM_PUBLISHABLE_KEY_VARS
-    }
-    resolved = {realm: host or settings.clerk_frontend_api for realm, host in hosts.items()}
-    if resolved["admin"] and resolved["client"] and resolved["admin"] != resolved["client"]:
-        return []
-    return list(REALM_PUBLISHABLE_KEY_VARS.values())
-
-
-#: How long we will wait for Clerk's JWKS endpoint, in seconds.
-#:
-#: PyJWKClient's own default is **30**, which is not a timeout so much as a promise to
-#: hold a worker thread for half a minute per unknown `kid`. A JWKS document is a few
-#: hundred bytes from a CDN: if it has not answered in five seconds it is not going to,
-#: and `verify_token` already has an honest answer for that case
-#: (`auth_provider_unavailable`, 503 with a retry) which is strictly better than making
-#: the caller wait. Five is also comfortably above the leeway a cold TLS handshake to
-#: Cloudflare needs from Bangalore.
-JWKS_FETCH_TIMEOUT_S = 5.0
-
-
-def _jwk_client(realm: Realm) -> PyJWKClient:
-    if realm not in _jwk_clients:
-        settings = get_settings()
-        secret = (
-            settings.clerk_admin_secret_key
-            if realm == "admin"
-            else settings.clerk_client_secret_key
-        )
-        if not secret:
-            raise ProblemError(
-                kind="dependency",
-                code="auth_not_configured",
-                title="Authentication is not configured",
-                detail="This deployment has no Clerk credentials for that realm.",
-            )
-        _jwk_clients[realm] = PyJWKClient(
-            jwks_url(realm), cache_keys=True, timeout=JWKS_FETCH_TIMEOUT_S
-        )
-    return _jwk_clients[realm]
-
-
-async def _signing_key_for(token: str, realm: Realm) -> Any:
-    """This token's signing key, fetched WITHOUT stopping the event loop.
-
-    `PyJWKClient.get_signing_key_from_jwt` is SYNCHRONOUS and does network IO:
-    `jwks_client.fetch_data` calls `urllib.request.urlopen` (read at source, PyJWT
-    2.13.0). Called straight from an `async def`, that is a blocking socket read on the
-    loop thread — every other in-flight request in the process is stopped for its
-    duration, `/healthz` included.
-
-    IT IS NOT ONLY A CACHE-COLD COST, WHICH IS WHY THIS IS NOT PREMATURE. `get_signing_key`
-    refetches the whole set whenever the `kid` is not in it, and a lookup that ends in
-    `PyJWKClientError` is never memoised (the `cache_keys` LRU only holds successes). So
-    ANY caller — no session, no account — can force one fetch per request by varying the
-    `kid` of an unsigned JWT, and on `/healthz*` there is not even a rate-limit profile in
-    front of it (`ratelimit.PROFILES["exempt"]`, because a probe must answer during an
-    incident). Measured on this machine with a JWKS endpoint that takes one second: the
-    loop stalls for the full second per request. That is a denial of service an anonymous
-    caller can aim at the whole process.
-
-    `asyncio.to_thread` rather than a rewrite onto httpx: the blocking call is inside a
-    dependency we do not own, the default executor is exactly what it is for, and the
-    alternative — reimplementing JWKS fetching, caching and `kid` matching over an async
-    client — is a second implementation of the thing PyJWT already does correctly. The
-    remaining cost of a hung endpoint is one worker THREAD rather than the loop, and
-    `JWKS_FETCH_TIMEOUT_S` bounds how long it is held.
-    """
-    client = _jwk_client(realm)
-    return (await asyncio.to_thread(client.get_signing_key_from_jwt, token)).key
-
-
-def _verify_dev_token(token: str, realm: Realm) -> VerifiedToken | None:
-    """`dev:<realm>:<clerk_user_id>[:nomfa]` — local only, and only when Clerk is absent.
-
-    The optional fourth segment is the local stand-in for Clerk's `fva[1] == -1`: an
-    operator who signed in but never completed a second factor. It exists so the
-    admin-realm MFA refusal is exercised on the SAME code path that serves the allowed
-    case, rather than only in a unit test of the predicate — the gate is in
-    `verify_token`, so a dev token that claims no second factor must meet it there.
-    """
-    settings = get_settings()
-    if settings.app_env != "local":
-        return None
-    configured = (
-        settings.clerk_admin_secret_key if realm == "admin" else settings.clerk_client_secret_key
-    )
-    if configured:
+    if not _dev_tokens_permitted():
         return None
     parts = token.split(":")
     if len(parts) not in (3, 4) or parts[0] != "dev" or parts[1] != realm:
         return None
     if len(parts) == 4 and parts[3] != DEV_TOKEN_NO_MFA_SUFFIX:
         # An unrecognised suffix is not a token with a typo we should be lenient about:
-        # `dev:admin:me:mfa` would otherwise be read as "no suffix I know, so allow",
+        # `dev:admin:<uuid>:mfa` would otherwise be read as "no suffix I know, so allow",
         # which is the wrong direction for the one realm this gate protects.
         return None
+    try:
+        subject_id = UUID(parts[2])
+    except ValueError:
+        # The subject is a uuid7 WE issued, not a string the caller picked — the other half
+        # of the re-pointing AUTH-MIGRATION C-21 asked for. `dev:admin:<anything>` no
+        # longer parses, so the dev path cannot name a subject that was never minted.
+        return None
     log.warning("dev_token_accepted", extra={"realm": realm})
-    return VerifiedToken(
-        clerk_user_id=parts[2],
-        email=None,
+    return VerifiedCaller(
         realm=realm,
-        second_factor_age_min=-1 if len(parts) == 4 else 0,
+        subject_id=subject_id,
+        mfa_verified_at=None if len(parts) == 4 else datetime.now(UTC),
     )
 
 
-async def verify_token(token: str, realm: Realm) -> VerifiedToken:
-    """A verified credential for THIS realm — and on the admin realm, only ever one that
+async def verify_token(token: str, realm: Realm) -> VerifiedCaller:
+    """A proved credential for THIS realm — and on the admin realm, only ever one that
     completed a second factor.
 
     WHY THE MFA GATE IS HERE AND NOT IN `current_admin` OR IN A ROUTE DEPENDENCY.
     This function is the only way to turn a string into an admin-realm identity. Putting
-    the check here makes "an admin token" and "an admin token that passed MFA" the SAME
-    object: there is no `VerifiedToken(realm="admin")` in existence that skipped it, so a
-    dependency written next year is covered by calling the verifier at all, and cannot
-    opt out without opting out of authentication. Rejected:
+    the check here makes "an admin credential" and "an admin credential that passed MFA"
+    the SAME object: there is no `VerifiedCaller(realm="admin")` in existence that skipped
+    it, so a dependency written next year is covered by calling the verifier at all, and
+    cannot opt out without opting out of authentication. Rejected:
       - `current_admin`: correct today (it is the sole admin caller) and one direct
         `verify_token(..., "admin")` away from being wrong — the same shape of defect as
         a permission named after an act that did not gate the act.
       - A ROUTE DEPENDENCY / `requires(..., realm="admin")`: ~60 declarations, and the
         one that forgets it is the one that matters.
       - MIDDLEWARE: runs before the realm is known — it would have to re-parse the
-        Authorization header and re-decide which realm this request is, which is a
-        second definition of the thing this module exists to define once.
+        credential and re-decide which realm this request is, which is a second definition
+        of the thing this module exists to define once.
+
+    `verify_session` OWNS ITS TRANSACTION and that matters here: presenting a superseded
+    token revokes the whole family, and that write has to survive the refusal it causes.
+    So this function takes no session and opens none — see that function's docstring.
     """
     dev = _verify_dev_token(token, realm)
     if dev is not None:
-        _require_second_factor(realm, dev.second_factor_age_min)
+        _require_second_factor(realm, dev.mfa_verified_at)
         return dev
     if token.startswith("dev:"):
-        # A dev token for the WRONG realm (or in an environment where dev tokens are
-        # disabled). It is never a valid JWT, so answering 401 is both correct and
-        # honest — falling through to JWKS would report "auth not configured", which
-        # tells the caller about our deployment instead of about their token.
+        # A dev token for the WRONG realm, malformed, or presented where dev tokens are
+        # disabled. Answering 401 is both correct and honest — falling through to
+        # `verify_session` would spend a fingerprint lookup on a string that can never be
+        # one of our tokens, and would answer with the same sentence anyway.
         raise ProblemError.unauthorized("This token is not valid for this realm.")
-    try:
-        signing_key = await _signing_key_for(token, realm)
-        claims: dict[str, Any] = jwt.decode(
-            token,
-            signing_key,
-            algorithms=["RS256"],
-            leeway=CLERK_LEEWAY_S,
-            options={"verify_aud": False},
-        )
-    except ProblemError:
-        raise
-    except (PyJWKClientConnectionError, OSError) as exc:
-        # Clerk is unreachable. That is OUR dependency failing, not the caller's
-        # session expiring: answering 401 would sign everybody out during an outage,
-        # and letting it escape (which it did — `PyJWKClient` fetches over urllib, so
-        # the old `httpx.HTTPError` clause never matched) turned every request into a
-        # 500 plus an alert.
-        log.warning("jwks_unavailable", extra={"realm": realm, "reason": type(exc).__name__})
-        raise ProblemError(
-            kind="dependency",
-            code="auth_provider_unavailable",
-            title="Sign-in is temporarily unavailable",
-            detail="We could not reach the sign-in service.",
-            remediation="Retry in a few seconds.",
-        ) from exc
-    except jwt.PyJWTError as exc:
-        # `jwt.PyJWTError`, not `jwt.InvalidTokenError`: `PyJWKClientError` (raised for
-        # an unknown `kid` — exactly what a token from the OTHER realm looks like) is a
-        # sibling of InvalidTokenError, not a subclass, so it used to escape as a 500.
-        # Never echo the reason to the caller: "expired" vs "bad signature" vs "unknown
-        # key" is a probing oracle. It is logged (redacted) for support.
-        log.warning("token_rejected", extra={"realm": realm, "reason": type(exc).__name__})
-        raise ProblemError.unauthorized("Your session is not valid. Sign in again.") from exc
-
-    exp = claims.get("exp")
-    if isinstance(exp, int) and exp + CLERK_LEEWAY_S < int(time.time()):
-        raise ProblemError.unauthorized("Your session has expired.")
-    subject = claims.get("sub")
-    if not isinstance(subject, str) or _CONTROL_CHARS.search(subject):
-        # The subject becomes a SQL parameter two calls from here. See `_bearer`.
-        raise ProblemError.unauthorized()
-    email = claims.get("email")
-    second_factor_age_min = _second_factor_age_minutes(claims)
-    # AFTER the signature, the expiry and the subject: an unsigned or expired token must
-    # answer "sign in again", never "set up two-step verification" — the second sentence
-    # would tell an anonymous caller that a valid-looking token got further than it did.
-    _require_second_factor(realm, second_factor_age_min)
-    return VerifiedToken(
-        clerk_user_id=subject,
-        email=email if isinstance(email, str) else None,
+    verified = (await verify_session(token=token, realm=realm)).require_live()
+    caller = VerifiedCaller(
         realm=realm,
-        second_factor_age_min=second_factor_age_min,
+        subject_id=verified.subject_id,
+        mfa_verified_at=verified.mfa_verified_at,
     )
+    # AFTER the session is proved live: an unknown or expired credential must answer "sign
+    # in again", never "finish two-step verification" — the second sentence would tell an
+    # anonymous caller that a valid-looking credential got further than it did.
+    _require_second_factor(realm, caller.mfa_verified_at)
+    return caller
 
 
-def _bearer(request: Request) -> str:
-    token = bearer_token(request.headers.get("authorization"))
-    if token is None:
-        raise ProblemError.unauthorized()
-    return token
+def _credential(request: Request, realm: Realm) -> str:
+    """The credential this request presents for THIS realm, or a 401.
+
+    TWO SOURCES, AND THEY ARE NOT TWO WAYS OF DOING ONE THING. The cookie is the
+    credential: `HttpOnly`, `__Host-`-prefixed, `SameSite=Strict`, unreadable by any
+    script on the page (`authn/cookies.py` argues the whole trade). The `Authorization`
+    header survives for exactly one shape — the local `dev:` token — and for nothing else:
+    a real session token presented as a bearer is refused here, before it can be looked up,
+    so there is no arrangement in which the browser can be talked into carrying our
+    credential somewhere the cookie attributes would not have gone.
+
+    That refusal is silent rather than explanatory. "Bearer tokens are not accepted" is a
+    sentence for an integrator we do not have; every caller that reaches this line with a
+    header instead of a cookie is either a stale client or somebody probing.
+    """
+    cookie = read_token(request, realm)
+    if cookie:
+        return cookie
+    header = bearer_token(request.headers.get("authorization"))
+    if header is not None and header.startswith("dev:"):
+        return header
+    raise ProblemError.unauthorized()
+
+
+async def _live_subject(verified: VerifiedCaller) -> UUID:
+    """The client-realm subject's id, re-proving on THIS request that they may sign in.
+
+    `load_subject` returns `None` for absent, hard-deleted and deactivated alike and has no
+    way to say which (`authn/subjects.py` explains why that uniformity is a property of the
+    return type rather than of whoever remembered). The refusal it produces is therefore
+    the one every failed credential produces.
+    """
+    if await load_subject(verified.realm, verified.subject_id) is None:
+        log.info("auth_subject_not_live", extra={"realm": verified.realm})
+        raise ProblemError.unauthorized("Your session is not valid. Sign in again.")
+    return verified.subject_id
 
 
 # --- Principal resolution -----------------------------------------------------
 
 
-async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) -> Principal:
-    """users + memberships are OURS (D-37) — Clerk says who, we say what they may see.
+async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None) -> Principal:
+    """users + memberships are OURS (D-37) — the session says who, we say what they see.
 
-    `is_active` is re-checked against the DB on every request rather than trusted
-    from the cached session (§7): deactivation must take effect immediately.
+    LIVENESS IS RE-READ ON EVERY REQUEST (BACKEND-PATTERNS §7), and that is what
+    `live_subject` is for: `deactivated_at` set between two requests must take effect on
+    the second one. Revoking the SESSION is now also possible and is strictly better, but
+    it is a different act performed by a different operator, so both survive.
 
-    The identity half is `clerk_identity.resolve_mirrored_user`, shared with
-    `current_identity` — one definition of "which user is this token", reconciling from
-    Clerk's Backend API when the Svix mirror has not landed yet (D-124). This route
-    reaches that state too: a member who accepted an invite in one tab and opens the
-    console in another can beat the webhook, and the answer there was the same
-    unrecoverable 401.
+    The Clerk-era translation step is gone. `verified.subject_id` IS `users.id`, so there
+    is no mirror to be behind, no Backend API to call, and no `identity_mirror_pending`
+    refusal for a member who accepted an invite in one tab and opened the console in
+    another (D-124's whole subject).
     """
-    user_id: UUID = await resolve_mirrored_user(verified.clerk_user_id)
+    user_id = await _live_subject(verified)
 
     # Now, and only now, a session that can see THIS user's memberships.
     async with user_session(user_id) as session:
@@ -530,7 +336,6 @@ async def _load_client_principal(verified: VerifiedToken, org_slug: str | None) 
     return Principal(
         realm="client",
         user_id=user_id,
-        clerk_user_id=verified.clerk_user_id,
         tenant_id=tenant_id,
         role=role,
     )
@@ -671,7 +476,7 @@ async def _record_impersonated_read(
 
 
 async def _load_admin_principal(
-    verified: VerifiedToken,
+    verified: VerifiedCaller,
     impersonate_slug: str | None,
     *,
     impersonation_grant: str | None = None,
@@ -688,8 +493,12 @@ async def _load_admin_principal(
     async with admin_session() as session:
         row = (
             await session.execute(
-                text("SELECT id, role FROM admin_users WHERE clerk_user_id = :cid"),
-                {"cid": verified.clerk_user_id},
+                # BY PRIMARY KEY, and that is also the admin realm's whole liveness rule:
+                # `admin_users` is an ops-managed allowlist, so an operator is removed by
+                # deleting the row and "no row" is the only revocation there is
+                # (`authn/subjects.py` argues against adding a second way to say it).
+                text("SELECT id, role FROM admin_users WHERE id = :sid"),
+                {"sid": verified.subject_id},
             )
         ).first()
         if row is None:
@@ -729,7 +538,6 @@ async def _load_admin_principal(
         principal = Principal(
             realm="admin",
             user_id=admin_id,
-            clerk_user_id=verified.clerk_user_id,
             tenant_id=tenant_id,
             role=role,
             # D-22: "view as client" is READ-ONLY and every page view is audit-logged.
@@ -766,27 +574,27 @@ async def _load_admin_principal(
     return principal
 
 
-async def current_identity(request: Request) -> tuple[UUID, str]:
+async def current_identity(request: Request) -> UUID:
     """A verified client-realm user with NO membership requirement.
 
-    Two flows need this — accepting an invitation, and self-serve signup. The caller has
-    signed up with Clerk but has no `memberships` row yet: that row is what the call
+    Two flows need this — accepting an invitation, and self-serve signup. The caller holds
+    a first-party session but has no `memberships` row yet: that row is what the call
     creates. `current_principal` would 403 them, correctly, which is why neither path can
     use it.
 
-    Returns (user_id, clerk_user_id) rather than a Principal, because a Principal
-    without a tenant is a shape the rest of the code should never have to handle.
+    Returns the user id rather than a `Principal`, because a Principal without a tenant is
+    a shape the rest of the code should never have to handle.
 
-    THE MIRROR RACE IS THE ORDINARY CASE HERE, not an edge (D-124). These two routes are
-    reached seconds after Clerk mints the identity, while `user.created` is still in
-    flight to our Svix endpoint, so "no `users` row" used to answer 401 — the one status
-    a browser is built to treat as "sign in again", which mints another valid token and
-    reproduces it exactly. `resolve_mirrored_user` reconciles from Clerk's Backend API
-    instead, and only falls back to a transient, retryable refusal when Clerk itself
-    cannot be reached.
+    D-124'S RACE IS GONE RATHER THAN HANDLED, and this is where it was worst. These two
+    routes used to be reached seconds after Clerk minted an identity, while `user.created`
+    was still in flight to our Svix endpoint, so "no `users` row" answered 401 — the one
+    status a browser is built to treat as "sign in again", which minted another valid token
+    and reproduced it exactly. The row now exists BEFORE any session does: it is created by
+    the flow that also sets the password (`authn/invitations.py`), in one transaction, and
+    the session is issued from it.
     """
-    verified = await verify_token(_bearer(request), "client")
-    return await resolve_mirrored_user(verified.clerk_user_id), verified.clerk_user_id
+    verified = await verify_token(_credential(request, "client"), "client")
+    return await _live_subject(verified)
 
 
 def _impersonation_slug(request: Request) -> str | None:
@@ -850,9 +658,8 @@ def _memoised_principal(request: Request, realm: Realm) -> Principal | None:
     tenant-scoped routes in this app (`Session` → `db` → `tenant_of` → `current_any`).
 
     WHAT THE SECOND RESOLUTION COST, measured rather than assumed (see
-    `tests/principal_resolution_test.py`): a second token verification, and for the
-    client realm a second `resolve_mirrored_user` (a query, and a call to Clerk's Backend
-    API when the mirror is behind) plus a second membership query. On the admin realm it
+    `tests/principal_resolution_test.py`): a second session lookup, and for the client
+    realm a second liveness read plus a second membership query. On the admin realm it
     was worse — a second `admin_session` transaction, a second `admin_users` lookup, a
     second directory lookup, a second `verify_grant`, and a SECOND ATTEMPT AT THE
     `admin.impersonation_read` LEDGER ROW. That last one only ever produced one row
@@ -925,7 +732,7 @@ async def current_principal(request: Request) -> Principal:
     memoised = _memoised_principal(request, "client")
     if memoised is not None:
         return memoised
-    verified = await verify_token(_bearer(request), "client")
+    verified = await verify_token(_credential(request, "client"), "client")
     principal = _remember_principal(
         request, await _load_client_principal(verified, request.headers.get(ORG_HEADER))
     )
@@ -1051,7 +858,7 @@ async def current_admin(request: Request) -> Principal:
         # Including the `admin.impersonation_read` row: one REQUEST is one presence in
         # the ledger, not one per dependency that happened to ask who the caller is.
         return memoised
-    verified = await verify_token(_bearer(request), "admin")
+    verified = await verify_token(_credential(request, "admin"), "admin")
     principal = await _load_admin_principal(
         verified,
         _impersonation_slug(request),
@@ -1145,21 +952,16 @@ __all__ = [
     "IMPERSONATION_AUDIT_WINDOW_S",
     "IMPERSONATION_GRANT_HEADER",
     "IMPERSONATION_READ_ACTION",
-    "JWKS_FETCH_TIMEOUT_S",
     "MFA_REQUIRED_REALMS",
     "ORG_HEADER",
-    "REALM_PUBLISHABLE_KEY_VARS",
-    "SECOND_FACTOR_CLAIM",
     "PermissionDependency",
-    "VerifiedToken",
+    "VerifiedCaller",
     "charge_tenant_quota",
     "client_request_ip",
     "current_admin",
     "current_any",
     "current_identity",
     "current_principal",
-    "jwks_url",
-    "missing_realm_separation_keys",
     "requires",
     "tenant_of",
     "verify_token",
