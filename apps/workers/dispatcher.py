@@ -67,8 +67,9 @@ STALL_WINDOW_HOURS = 24
 #: `SerializationError` is what arq raises when the job cannot be serialised
 #: (`arq/jobs.py:serialize_job` wraps every serializer failure in it); `TypeError` and
 #: `ValueError` are what a malformed payload raises before it gets that far. Anything
-#: else — a `DBAPIError` above all — now escapes to the tick's own failure handling, where
-#: "the database is gone" is the correct verdict and arq's retry is the correct response.
+#: else — a `DBAPIError` above all — now escapes, where "the database is gone" is the
+#: correct verdict: the tick fails red and the rows return to the claim once their
+#: two-minute lease lapses, rather than being relabelled one message at a time.
 POISON_PAYLOAD = (SerializationError, TypeError, ValueError)
 
 
@@ -93,8 +94,11 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     The status writes go through the caller's session, so a `DBAPIError` from
     `mark_outbox_published` leaves that session in a failed transaction — and the poison
     handler's answer is to write ANOTHER statement on it. It escapes now (see
-    `POISON_PAYLOAD`): the tick fails red, arq retries it, and the messages keep their
-    committed attempt counts instead of being dead-lettered as poison they never were.
+    `POISON_PAYLOAD`): the tick fails red — visibly, on the job — and the messages keep
+    their committed attempt counts instead of being dead-lettered as poison they never
+    were. Recovery is the NEXT TICK rather than an arq retry (this cron runs every ten
+    seconds and takes `cron()`'s default `max_tries`): the claim's lease is two minutes,
+    so the rows come back to the first tick after it lapses, with their counts intact.
 
     `RedisError, OSError` is the same pair `apps/api/core/queue.py`'s callers already
     treat as "the queue is down" (`tests/reliability_audit_test.py::
