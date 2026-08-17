@@ -450,11 +450,17 @@ Identity & access
   - *(Clerk's `fva` claim, `403 mfa_required` and `403 mfa_claim_missing` were the previous
     mechanism. Those code paths still exist and still pass their tests; deleting them is
     the next slice — AUTH-MIGRATION §5 step 6.)*
-  - **Step-up (`X-Confirm-Action`) is a SEPARATE control and is retained**, not replaced:
-    MFA is per SESSION (once, at sign-in, for 12h), step-up is per ACTION and per TARGET.
-    The session that mis-clicks the big red switch is a session that has already passed
-    MFA. Requiring a *fresh* second factor for high-risk actions (Clerk reverification)
-    is the named next step and needs a browser reverification flow — OPERATIONS §8.
+  - **Step-up is a SEPARATE control and is retained**, not replaced: MFA is per SESSION
+    (once, at sign-in), step-up is per ACTION and per TARGET. The session that mis-clicks
+    the big red switch is a session that has already passed MFA.
+  - **Step-up now has BOTH halves (D-178)**, demanded together by
+    `core/stepup.require_step_up`: `X-Confirm-Action` must echo the action (INTENT — a
+    stolen cookie satisfies it trivially, since the refusal prints the string), and
+    `auth_sessions.mfa_verified_at` must be under `REAUTH_MAX_AGE` = 5 minutes (PRESENCE).
+    `POST /v1/auth/admin/step-up` mails a `step_up`-purpose code and `.../step-up/verify`
+    answers it, rotating the session and carrying `absolute_expires_at` forward so
+    re-proving cannot extend a session. This was "the named next step needing a browser
+    reverification flow"; D-170 built the flow, so the reason for deferring it expired.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
   org settings, raw transcripts, or exports containing unredacted data.
   - The endpoint→permission map is asserted AT BOOT (`core/rbac.py::
