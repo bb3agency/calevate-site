@@ -65,11 +65,16 @@ Consequences, all of them enforced here rather than left to a reader:
 COMPLIANCE (hard rule 5) — WHAT AN EXPERIMENT MUST NOT WEAKEN
 --------------------------------------------------------------
 Every arm carries its own `disclosure_line`, NOT NULL with a non-empty CHECK, defaulted
-from the agent's. `service.publish_variant` puts it on the `AgentConfig` the adapter
-renders, exactly as `publish_agent` does — so there is no arm, and no way of writing an
-arm, that reaches a phone line without a disclosure. Nothing here touches the dispatch
-gate: `dispatch_call` is downstream of `check_dispatch` on every path, and this module
-only changes which of two already-published scripts the engine speaks.
+from the agent's `ai_disclosure_line`. `service.publish_variant` composes it, through the
+agent's own notice toggles, into the `AgentConfig.opening_line` the adapter renders —
+exactly as `publish_agent` does. **An arm carries the SENTENCE, never the POSTURE
+(D-163):** which notices an agent volunteers is one decision for the agent, and forking
+it per arm would turn a script test into an unannounced compliance experiment on live
+callers. Nothing here touches the dispatch gate: `dispatch_call` is downstream of
+`check_dispatch` on every path, and this module only changes which of two already-
+published scripts the engine speaks. Nothing here can reach the truthful-answer rule at
+all — it is composed from a constant in the portability contract, not from any column
+this module writes.
 
 PII (hard rule 6): ids, labels, version numbers and counts. No prompt body, no
 disclosure text and no phone number is logged by anything in this file.
@@ -99,6 +104,7 @@ from apps.api.agents.proportions import (
     wilson_interval,
 )
 from apps.api.agents.service import publish_variant
+from apps.api.compliance.disclosure import bundled_disclosure_line
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -251,7 +257,7 @@ class ConcludeResult:
 
 
 _AGENT_SQL = (
-    "SELECT a.status, a.engine_agent_ref, a.direction, a.disclosure_line, l.id, l.version "
+    "SELECT a.status, a.engine_agent_ref, a.direction, a.ai_disclosure_line, l.id, l.version "
     "FROM agents a LEFT JOIN prompt_versions l ON l.id = COALESCE(a.live_prompt_id, "
     "a.system_prompt_id) WHERE a.id = :aid AND a.deleted_at IS NULL"
 )
@@ -262,7 +268,7 @@ class _AgentFacts:
     status: str
     engine_agent_ref: str | None
     direction: str
-    disclosure_line: str
+    ai_disclosure_line: str
     live_version_id: UUID | None
     live_version: int | None
 
@@ -275,7 +281,7 @@ async def _agent(session: AsyncSession, agent_id: UUID) -> _AgentFacts:
         status=str(row[0]),
         engine_agent_ref=row[1],
         direction=str(row[2]),
-        disclosure_line=str(row[3]),
+        ai_disclosure_line=str(row[3]),
         live_version_id=UUID(str(row[4])) if row[4] is not None else None,
         live_version=int(row[5]) if row[5] is not None else None,
     )
@@ -374,8 +380,8 @@ async def start(
             "B": await _version_id(session, agent_id, challenger_version),
         }
         disclosures = {
-            "A": (control_disclosure or agent.disclosure_line).strip(),
-            "B": (challenger_disclosure or agent.disclosure_line).strip(),
+            "A": (control_disclosure or agent.ai_disclosure_line).strip(),
+            "B": (challenger_disclosure or agent.ai_disclosure_line).strip(),
         }
         for label, disclosure in disclosures.items():
             if not disclosure:
@@ -968,12 +974,33 @@ async def conclude(
             # The arm's disclosure becomes the agent's: the promoted script and the
             # sentence spoken before it are one artefact, and promoting half of it would
             # publish a script whose disclosure nobody chose.
+            #
+            # SINCE D-163 THAT SENTENCE IS THE **AI** HALF, and the legacy bundle is
+            # recomposed from it rather than overwritten with it. Writing the arm's
+            # sentence into `disclosure_line` alone would have left the two columns
+            # disagreeing about the same agent from the moment an experiment concluded,
+            # which is the drift a two-step deprecation exists to avoid rather than to
+            # cause. The agent's recording notice and both TOGGLES are untouched: an
+            # experiment tests a script, it does not decide a compliance posture.
+            notice = (
+                await session.execute(
+                    text("SELECT recording_notice_line FROM agents WHERE id = :aid"),
+                    {"aid": agent_id},
+                )
+            ).scalar_one()
             await session.execute(
                 text(
-                    "UPDATE agents SET disclosure_line = :disc, updated_at = now() "
-                    "WHERE id = :aid AND deleted_at IS NULL"
+                    "UPDATE agents SET ai_disclosure_line = :disc, disclosure_line = :bundle, "
+                    "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
                 ),
-                {"disc": str(arm[1]), "aid": agent_id},
+                {
+                    "disc": str(arm[1]),
+                    "bundle": bundled_disclosure_line(
+                        ai_disclosure_line=str(arm[1]),
+                        recording_notice_line=str(notice),
+                    ),
+                    "aid": agent_id,
+                },
             )
             new_version = await prompts.insert_prompt_version(
                 session,

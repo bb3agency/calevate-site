@@ -122,7 +122,15 @@ class TestWiring:
         assert guard.ungated_dials() == []
         assert guard.unevidenced_messages() == []
         assert guard.gate_bypasses() == []
+        assert guard.truthful_answer_unfalsifiable() == []
         assert guard.stale_exemptions() == []
+
+    def test_it_sees_every_adapter_it_claims_to_police(self) -> None:
+        """Section 6 asks each adapter whether it composes the prompt through the one
+        function. A discovery walk that found none would pass by matching nothing —
+        which is the failure mode this whole file is written against."""
+        adapters = {path.name for path in guard._adapter_files()}
+        assert {"bolna.py", "cartesia.py", "fake.py"} <= adapters, adapters
 
     def test_the_live_schema_is_clean(self, engine: Engine) -> None:
         assert guard.evaluate_schema(guard.fetch_schema(engine)) == []
@@ -385,6 +393,66 @@ class TestMessagingConsent:
         assert any("blast.py::announce" in o for o in offenders), offenders
 
 
+class TestTruthfulAnswerIsNotSwitchable:
+    """D-163's one non-toggleable clause. Both notices at the top of a call are now
+    per-agent switches; the ANSWER to a caller who asks is not, and every mutation below
+    is a plausible way somebody would make it one."""
+
+    def test_catches_a_module_that_rebinds_the_directive(self, tmp_path: Path) -> None:
+        """A second binding is a second answer, and only one of them reaches the engine.
+        The likely shape is a "per-tenant wording" refactor that starts as a local."""
+        root = tmp_path
+        (root / "apps/api/agents").mkdir(parents=True, exist_ok=True)
+        (root / "apps/api/agents/softener.py").write_text(
+            "TRUTHFUL_ANSWER_DIRECTIVE = ''\n\n\n"
+            "def render(cfg):\n    return TRUTHFUL_ANSWER_DIRECTIVE\n",
+            encoding="utf-8",
+        )
+        offenders = guard.truthful_answer_unfalsifiable(roots=(root,))
+        assert any("rebinds TRUTHFUL_ANSWER_DIRECTIVE" in o for o in offenders), offenders
+
+    def test_catches_it_being_passed_as_a_parameter(self, tmp_path: Path) -> None:
+        """A switch with a longer name. `truthful_answer_directive=` at a call site means
+        somebody, somewhere, decides what it says — and that somebody is eventually a
+        column."""
+        root = tmp_path
+        (root / "apps/api/agents").mkdir(parents=True, exist_ok=True)
+        (root / "apps/api/agents/render.py").write_text(
+            "def build(prompt, *, truthful_answer_directive=''):\n"
+            "    return prompt + truthful_answer_directive\n\n\n"
+            "def go(prompt):\n    return build(prompt, truthful_answer_directive='')\n",
+            encoding="utf-8",
+        )
+        offenders = guard.truthful_answer_unfalsifiable(roots=(root,))
+        assert any("truthful_answer_directive=" in o for o in offenders), offenders
+
+    def test_catches_an_adapter_that_builds_its_own_prompt(self, tmp_path: Path) -> None:
+        """The one way the rule goes missing on ONE vendor and nowhere else. Mirrors the
+        real adapter and takes the composer back out of it."""
+        root = _mirror(tmp_path, "apps/api/engine/bolna.py")
+        _edit(
+            root,
+            "apps/api/engine/bolna.py",
+            "prompt = compose_engine_prompt(cfg)",
+            'prompt = f"{cfg.opening_line}\\n\\n{cfg.system_prompt}"',
+        )
+        offenders = guard.truthful_answer_unfalsifiable(roots=(root,))
+        assert any("bolna.py renders an agent without" in o for o in offenders), offenders
+
+    def test_it_does_not_cry_wolf_on_an_adapter_that_only_imports_the_composer(
+        self, tmp_path: Path
+    ) -> None:
+        """The check is a CALL check, not a substring one — and the mirror proves the
+        difference matters: the doctored adapter above still imports the name."""
+        root = _mirror(tmp_path, "apps/api/engine/bolna.py", "apps/api/engine/fake.py")
+        assert guard.truthful_answer_unfalsifiable(roots=(root,)) == []
+
+    def test_it_does_not_cry_wolf_on_the_module_that_owns_the_constant(self) -> None:
+        """`calevate_shared/engine.py` binds it once, on purpose. A check that reported
+        its own home would need an exemption, and an exemption list is the end of it."""
+        assert guard.truthful_answer_unfalsifiable() == []
+
+
 # ============================================================================
 # the catalog half — a migration is a claim, this is the fact
 # ============================================================================
@@ -395,35 +463,75 @@ def _facts(engine: Engine) -> SchemaFacts:
 
 
 class TestSchemaInvariants:
-    def test_catches_a_nullable_disclosure_line(self, engine: Engine) -> None:
-        """Hard rule 5's first clause, and SEC-COMP §2.1: "agents always have a non-null
-        disclosure line". The gate's own check is belt-and-braces; the column is the
-        guarantee."""
+    def test_catches_a_nullable_ai_disclosure_line(self, engine: Engine) -> None:
+        """Hard rule 5 after D-163, and SEC-COMP §2.1: the AI sentence must EXIST on
+        every agent even when its owner has chosen not to volunteer it. `check_dispatch`
+        refuses a dial without one, and the answer to "are you an AI?" needs a sentence
+        to be. The gate's own check is belt-and-braces; the column is the guarantee."""
         facts = _facts(engine)
         weakened = replace(
             facts,
             columns=frozenset(
-                (t, c, False) if (t, c) == ("agents", "disclosure_line") else (t, c, n)
+                (t, c, False) if (t, c) == ("agents", "ai_disclosure_line") else (t, c, n)
                 for t, c, n in facts.columns
             ),
         )
         failures = guard.evaluate_schema(weakened)
-        assert any("disclosure_line" in f and "NOT NULL" in f for f in failures), failures
+        assert any("ai_disclosure_line" in f and "NOT NULL" in f for f in failures), failures
+
+    def test_catches_a_nullable_notice_toggle(self, engine: Engine) -> None:
+        """NULL is a third state for a two-state posture, and every reader would have to
+        invent which way it falls. `compose_opening_line` reads a false as OFF — the one
+        reading an omission must never silently produce."""
+        facts = _facts(engine)
+        weakened = replace(
+            facts,
+            columns=frozenset(
+                (t, c, False) if (t, c) == ("agents", "recording_notice_enabled") else (t, c, n)
+                for t, c, n in facts.columns
+            ),
+        )
+        failures = guard.evaluate_schema(weakened)
+        assert any("toggle" in f and "nullable" in f for f in failures), failures
 
     def test_catches_the_loss_of_the_non_empty_check(self, engine: Engine) -> None:
-        """NOT NULL alone admits `''` — an agent that opens a call disclosing nothing,
-        which is the IT-Act exposure SEC-COMP §1 records, not a cosmetic gap."""
+        """NOT NULL alone admits `''` and `'   '` — an agent with no AI sentence at all,
+        which is the one state D-163 does NOT permit: the notice is optional, the
+        sentence is not."""
         facts = _facts(engine)
         weakened = replace(
             facts,
             checks=tuple(
                 check
                 for check in facts.checks
-                if not (check.table == "agents" and "disclosure_line" in check.definition)
+                if not (check.table == "agents" and "ai_disclosure_line" in check.definition)
             ),
         )
         failures = guard.evaluate_schema(weakened)
-        assert any("disclosure_line" in f and "empty" in f for f in failures), failures
+        assert any("ai_disclosure_line" in f and "empty" in f for f in failures), failures
+
+    def test_catches_the_legacy_bundle_losing_its_constraint_mid_deprecation(
+        self, engine: Engine
+    ) -> None:
+        """Step 1 of D-163's two-step still WRITES `disclosure_line` (hard rule 8), so it
+        is still constrained. Dropping the constraint without dropping the column is
+        neither step, and it would leave a step-2 reviewer reading a column full of
+        empty strings as evidence that nothing depended on it."""
+        facts = _facts(engine)
+        weakened = replace(
+            facts,
+            checks=tuple(
+                check
+                for check in facts.checks
+                if not (
+                    check.table == "agents"
+                    and "disclosure_line" in check.definition
+                    and "ai_disclosure_line" not in check.definition
+                )
+            ),
+        )
+        failures = guard.evaluate_schema(weakened)
+        assert any("legacy agents.disclosure_line" in f for f in failures), failures
 
     def test_catches_the_loss_of_the_dnc_conflict_target(self, engine: Engine) -> None:
         """`add_to_dnc` is `ON CONFLICT (tenant_id, phone_e164) DO NOTHING`. Without the

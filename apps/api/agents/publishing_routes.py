@@ -234,14 +234,23 @@ class EngineStateOut(Strict):
     #: Tri-state per property: null means the adapter could not read it back, which is
     #: neither a match nor a mismatch (`AgentSnapshot`'s `*_readable` doctrine).
     prompt_applied: bool | None
-    #: The disclosure IN THE GREETING — the engine's first-utterance field, which is what
-    #: hard rule 5 is about and what OPERATIONS §7 escalates. It was computed from the
-    #: PROMPT until P3.3, where our own adapter prepends the line, so it read true by
-    #: construction and could not fail for its own reason.
+    #: The opening line IN THE GREETING — the engine's first-utterance field, which is
+    #: what hard rule 5 is about and what OPERATIONS §7 escalates. It was computed from
+    #: the PROMPT until P3.3, where our own adapter prepends the line, so it read true by
+    #: construction and could not fail for its own reason. Since D-163 it also answers in
+    #: the negative: for an agent that volunteers neither notice, `true` means the engine
+    #: is correctly holding NO greeting and `false` means it is still speaking a notice
+    #: this agent has withdrawn.
     disclosure_applied: bool | None
     #: The prompt's second copy of the same line. Reported beside the verdict, never
     #: instead of it: a mismatch here is a fact about rendering, not a compliance failure.
+    #: Null for an agent with no opening line — there is no second copy of nothing.
     prompt_disclosure_applied: bool | None
+    #: The rule no toggle reaches (D-163): is the engine holding the instruction that
+    #: makes this agent answer "I am an AI" and "yes, this call is recorded" when a
+    #: caller asks? `false` is the one drift finding on this object that is a compliance
+    #: breach rather than a configuration difference.
+    truthful_answer_applied: bool | None
     voice_applied: bool | None
     detail: str
 
@@ -426,6 +435,7 @@ async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineSta
         prompt_applied=drift.prompt_applied,
         disclosure_applied=drift.disclosure_applied,
         prompt_disclosure_applied=drift.prompt_disclosure_applied,
+        truthful_answer_applied=drift.truthful_answer_applied,
         voice_applied=drift.voice_applied,
         detail=drift.detail,
     )

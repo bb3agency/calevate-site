@@ -67,8 +67,11 @@ In scope v1:
    preview-and-approve, number provisioning, usage/margin view, spend caps.
 5. Billing: metered ledger; plan = setup fee + monthly retainer with included minutes +
    overage; prepaid credit + hard caps.
-6. Compliance built-in: AI disclosure at call start, recording consent, DND/DNC checks,
-   DLT-classified campaigns, PII redaction in transcripts (see SECURITY-COMPLIANCE.md).
+6. Compliance built-in: an agent that ALWAYS answers truthfully when asked whether it is
+   an AI or whether the call is recorded (unconditional, D-163); AI disclosure and a
+   recording notice at call start, each a per-agent choice the client makes and is
+   accountable for; recording consent, DND/DNC checks, DLT-classified campaigns, PII
+   redaction in transcripts (see SECURITY-COMPLIANCE.md).
 7. Client-initiated AI actions from the CRM (decided Jul 2026, D-21; competitor parity+):
    (a) "Call this lead" — owner role dispatches a single AI call from the Leads table,
    with an optional free-text per-call context note appended to the agent's CallContext;
@@ -126,8 +129,15 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
     on compliance, be precise — **their posture is substantive, not light** (TCCCPR/NCPR-bound
     AUP, KYC'd numbers, a *durable versioned consent-attestation record*, 24h evidence
     production, fixed calling hours, auto-DNC), so the honest edges are narrower and sharper:
-    **AI disclosure is optional for them** ("scriptable" but not required — ours is mandatory
-    per Hard Rule 5), **raw caller PII renders un-redacted** in their dashboard (we default to
+    **AI disclosure is optional for them** ("scriptable" but not required) — **and since
+    D-163 the OPENING disclosure is a client choice for us too, so the honest edge has
+    moved and narrowed rather than disappeared**: what is mandatory for us and absent for
+    them is that the agent cannot be SCRIPTED INTO LYING. Ask ours whether it is a human
+    and it says it is an AI; ask whether the call is recorded and it says yes — composed
+    server-side, appended after the client's script, verified against the voice platform
+    on every publish. Theirs is a scriptable line and nothing underneath it. Do not sell
+    "we always announce it"; sell "ours cannot be made to deny it". **Raw caller PII
+    renders un-redacted** in their dashboard (we default to
     `text_redacted` + role-gated raw), **data may be processed outside India** (we are
     India-resident by design), and their **liability is capped at 3 months of fees with Terms §9
     explicitly disclaiming any availability guarantee — contradicting the "99.9% Uptime SLA"
@@ -242,7 +252,7 @@ suite, transcription error rate on names/numbers (Telugu), escalation correctnes
 | R-08 | Two-person team overbuild (platform before client) | Medium | High | ROADMAP gate: client #1 live on a partly-manual stack before multi-tenant polish. |
 | R-09 | Runaway usage cost (client campaign misfire) | Low | Medium | Per-tenant hard caps enforced pre-dispatch; prepaid credit; alerts. |
 | R-10 | Telugu voice quality below expectation (Bulbul v3 untested by us; **v2 is live at half price — D-35 corrects the earlier "discontinued" note**) | Medium | Medium | Ear-test v3 **vs v2** in the pilot (OPERATIONS §2 gate 3 + the D-35 scorecard item); quality is a per-client config choice, and the v3/v2 gap is also our value/premium tier lever (TRD §10.3). |
-| R-11 | **Self-serve motion creates telecom-compliance exposure** (D-34): anyone can sign up and dial, but TRAI/DLT liability lands on us as Telemarketer. A single abusive self-serve account can trigger TSP action against our numbers and damage every client on the platform | Medium once self-serve ships | **Critical** | Non-negotiable, ships WITH the self-serve flow, not after: platform-fixed calling hours (not user-editable); DNC scrub on **every** dispatch path incl. instant (Hard Rule 5 — this is precisely where Outpero fails, teardown §9c); mandatory non-null AI disclosure per agent; durable versioned consent-attestation ledger; per-account concurrency + spend caps; number provisioning gated behind KYC; AUP with enforcement teeth (throttle/suspend on abuse signals); and manual review of the first campaign for any self-serve account. |
+| R-11 | **Self-serve motion creates telecom-compliance exposure** (D-34): anyone can sign up and dial, but TRAI/DLT liability lands on us as Telemarketer. A single abusive self-serve account can trigger TSP action against our numbers and damage every client on the platform | Medium once self-serve ships | **Critical** | Non-negotiable, ships WITH the self-serve flow, not after: platform-fixed calling hours (not user-editable); DNC scrub on **every** dispatch path incl. instant (Hard Rule 5 — this is precisely where Outpero fails, teardown §9c); an AI disclosure sentence on every agent, mandatory and non-blank, whose in-call delivery the client may switch off and is audited for doing (D-163) while the truthful ANSWER when asked stays unconditional; durable versioned consent-attestation ledger; per-account concurrency + spend caps; number provisioning gated behind KYC; AUP with enforcement teeth (throttle/suspend on abuse signals); and manual review of the first campaign for any self-serve account. |
 
 ## 10. Assumptions Log (all remaining assumptions — everything else is decided/verified)
 

@@ -96,9 +96,11 @@ async def _published_tenant(*, live_calls: int = 0, running_campaign: bool = Fal
         )
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, 'Rec', "
-                "'outbound', 'Idi AI assistant.', 'live', 'fake', :ref, now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
+                "created_at, updated_at) VALUES (:id, :tid, 'Rec', 'outbound', 'Idi AI "
+                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', "
+                ":ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": ref},
         )
@@ -253,9 +255,10 @@ async def test_a_tenant_with_no_engine_route_is_invisible_to_the_scan() -> None:
         )
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, created_at, updated_at) VALUES (:id, :tid, 'Rec', 'outbound', "
-                "'Idi AI assistant.', 'draft', 'fake', now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
+                "updated_at) VALUES (:id, :tid, 'Rec', 'outbound', 'Idi AI assistant.', 'Idi AI "
+                "assistant.', 'This call is being recorded.', 'draft', 'fake', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )

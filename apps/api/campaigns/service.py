@@ -135,7 +135,11 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
                 "SELECT c.status, c.classification, c.dlt_template_id, "
                 "  t.status AS template_status, t.classification AS template_cls, "
                 "  n.series, n.dlt_status AS number_dlt_status, "
-                "  a.status AS agent_status, a.disclosure_line, "
+                # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
+                # whether the agent HAS one on file, which is still mandatory. Whether it
+                # is volunteered at the top of the call is `ai_disclosure_enabled`, the
+                # tenant's own decision, and never a launch blocker.
+                "  a.status AS agent_status, a.ai_disclosure_line, "
                 "  a.direction AS agent_direction, a.deleted_at AS agent_deleted_at, "
                 "  c.consent_source "
                 "FROM campaigns c "

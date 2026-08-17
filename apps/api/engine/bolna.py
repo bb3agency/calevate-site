@@ -62,6 +62,7 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
+    compose_engine_prompt,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
@@ -725,8 +726,16 @@ class BolnaEngine:
     # --- agent lifecycle -----------------------------------------------------
 
     def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
-        """Our AgentConfig → their agent object. The disclosure line is PREPENDED to
-        the prompt, not appended: hard rule 5 wants it spoken first, always.
+        """Our AgentConfig → their agent object.
+
+        TWO STRINGS OUR LAYER OWNS BRACKET THE CLIENT'S SCRIPT, and the order is the
+        whole design (D-163). `opening_line` is PREPENDED — hard rule 5 wants whatever
+        the tenant volunteers spoken first — and `TRUTHFUL_ANSWER_DIRECTIVE` is APPENDED,
+        because it must beat the script rather than be beaten by it. The directive is a
+        `Final` in the portability contract with no writer anywhere, so no script, prompt
+        version or column can withdraw it; `agents/verification.judge` scores it on the
+        read-back, so an engine that truncated it away refuses the publish instead of
+        going live quietly.
 
         The speech guards below never fire for THIS engine — Bolna is BYOK on all three
         legs — and they are here anyway, in the one place both `create_agent` and
@@ -739,12 +748,16 @@ class BolnaEngine:
         require_speech_leg("stt", engine=self, value=cfg.models.stt_model)
         require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
-        prompt = f"{cfg.disclosure_line}\n\n{cfg.system_prompt}"
+        prompt = compose_engine_prompt(cfg)
         return {
             "agent_config": {
                 "agent_name": cfg.name,
                 "agent_type": "other",
-                "agent_welcome_message": cfg.disclosure_line,
+                # Empty when the tenant volunteers neither notice: the vendor then has no
+                # welcome message to play and the agent opens on its script. Sent as ""
+                # rather than omitted, so a toggle switched OFF actually CLEARS a greeting
+                # the vendor is already holding — an omitted key is a field left as it was.
+                "agent_welcome_message": cfg.opening_line,
                 "webhook_url": cfg.webhook_url,
                 "tasks": [
                     {

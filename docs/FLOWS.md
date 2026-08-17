@@ -34,7 +34,9 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    services + prices, top FAQs, staff names/pronunciations, booking rules, escalation
    contacts, languages. Output feeds T0 compiled context + KB seed + prompt generation.
 4. **Agent draft**: system prompt generated from intake (template + LLM assist), reviewed/
-   edited by admin; disclosure line auto-inserted (non-removable); extraction schema
+   edited by admin; both notice sentences auto-inserted and not client-editable, each
+   switched ON at birth and switchable by the client afterwards (D-163 — the truthful
+   answer when a caller ASKS is not switchable by anyone); extraction schema
    pre-filled from vertical template, edited per client; voice/language/model picks.
 5. **Knowledge**: paste text → chunk preview → admin approves → publish, which attaches
    it to the engine KB (adapter) and recompiles T0. Same path and same limits as §7,

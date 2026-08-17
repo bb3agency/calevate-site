@@ -69,6 +69,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -445,31 +446,43 @@ async def test_a_purchased_list_is_refused_at_dispatch_by_its_own_name() -> None
 
 
 async def test_an_agent_whose_disclosure_line_is_blanked_mid_run_stops_dialling() -> None:
-    """ "Agents always have a non-null disclosure line" (hard rule 5) is enforced by
-    `agents.disclosure_line NOT NULL` plus the `length(disclosure_line) > 0` CHECK, and
-    no code path updates the column after creation — so the schema is the real
-    guarantee. Whitespace is the one shape that CHECK still admits, and it produces an
-    agent that opens a call by disclosing nothing.
+    """Hard rule 5's dial-time refusal, ON THE COLUMN THE GATE NOW READS (D-163).
 
-    The gate must refuse at DIAL time, not merely at agent-create time: this is the
-    "agent republished without one" case, and republishing (`publish_agent`) rewrites
-    status and the engine ref while leaving whatever is in that column alone.
+    The finding this test was written for: `agents.disclosure_line NOT NULL` plus
+    `length(disclosure_line) > 0` admits WHITESPACE, so an agent could open a call
+    disclosing nothing and only a dial-time check would catch it. D-163 splits the
+    column, and the AI sentence — the one the gate asks about — carries
+    `length(btrim(ai_disclosure_line)) > 0`, so the whitespace shape is now refused by
+    the SCHEMA and the state cannot be written at all
+    (`tests/disclosure_toggle_test.py` pins that direction).
+
+    **This test therefore now asserts a STRONGER property than the one it was written
+    for**, and says so rather than quietly weakening: the mid-run blanking is refused by
+    the database, so there is no window in which a dial-time check is the only thing
+    standing between a blank agent and a caller. `check_dispatch`'s `disclosure_missing`
+    branch is kept as belt-and-braces for a row written with the constraint dropped, and
+    is unit-covered where such a row can be constructed.
     """
     tenant_id, agent_id, campaign_id, _, _ = await _launched()
 
+    with pytest.raises(IntegrityError):
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text("UPDATE agents SET ai_disclosure_line = '   ' WHERE id = :a"),
+                {"a": agent_id},
+            )
+
     async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE agents SET disclosure_line = '   ' WHERE id = :a"), {"a": agent_id}
-        )
         decision = await check_dispatch(
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919876600001"
         )
 
+    assert decision.rule != "disclosure_missing", (
+        "the blanking was refused, so the agent still has its AI sentence and the gate "
+        "must not be reporting one missing"
+    )
     result = await _tick_one_campaign(tenant_id, campaign_id)
-
-    assert decision.rule == "disclosure_missing", decision
-    assert result["dialled"] == 0 and result["blocked"] == 2, result
-    assert await _calls_placed(tenant_id) == 0, "no disclosure, no call"
+    assert result["dialled"] > 0, result
 
 
 async def test_a_number_series_that_stops_matching_the_classification_stops_the_campaign() -> None:

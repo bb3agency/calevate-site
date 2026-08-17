@@ -100,6 +100,7 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
+from calevate_shared.engine import DisclosurePosture, compose_opening_line
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -180,6 +181,32 @@ LANES: tuple[LaneEntry, ...] = (
         lane="live",
         precedence=3,
         why="A voice only changes delivery. It cannot change what is said or decided.",
+    ),
+    # D-163. CONDUCT, not content — the same lane and the same precedence as the call cap,
+    # and for the same reason: neither can change one word of the script. What they change
+    # is what the agent does around it, and a compliance posture that only landed in our
+    # table after somebody remembered to press Apply would be a screen making a claim
+    # about a phone line that is not true yet. `set_disclosure_posture` republishes a live
+    # agent in the same transaction, which is what puts them honestly on this side.
+    LaneEntry(
+        field="ai_disclosure_enabled",
+        lane="live",
+        precedence=2,
+        why=(
+            "Whether the agent announces it is an AI before anything else. It applies to "
+            "the next call. It never changes the answer a caller gets when they ask "
+            "outright — that answer is always the truth and cannot be switched off."
+        ),
+    ),
+    LaneEntry(
+        field="recording_notice_enabled",
+        lane="live",
+        precedence=2,
+        why=(
+            "Whether the agent says the call is being recorded before anything else. It "
+            "applies to the next call. It does not stop the call being recorded, and it "
+            "never changes the answer a caller gets when they ask whether it is."
+        ),
     ),
 )
 
@@ -331,6 +358,48 @@ class UndoResult:
     undone: bool
     discarded_version: int | None
     live_version: int | None
+
+
+#: The two toggles, keyed by the column they write. The API's request model, the audit
+#: action names and the lane table are all derived from this mapping rather than each
+#: spelling the pair out — a third toggle would otherwise be three edits and a fourth
+#: place to forget one. `lane_of` reads the same field names.
+DISCLOSURE_TOGGLES: dict[str, str] = {
+    "ai_disclosure_enabled": "agent.ai_disclosure",
+    "recording_notice_enabled": "agent.recording_notice",
+}
+
+
+def audit_action_for(field: str, *, enabled: bool) -> str:
+    """The `audit_log.action` for one toggle flip — WHICH toggle and WHICH way, in the row.
+
+    NOT a single `agent.disclosure_changed` with the detail in `summary`, and that is the
+    whole point rather than a style choice: `write_audit` deliberately does NOT persist
+    `summary` (there is no such column — it goes to the JSONL log stream, keyed by entry
+    id). So anything that must survive in the hash-chained LEDGER has to be in a column,
+    and `action` is the only column with room for it. A regulator asking "when did this
+    client stop announcing their agent as an AI, and who decided" is answered by one
+    indexed read of `audit_log`, not by joining a ledger to a log shipper.
+    """
+    return f"{DISCLOSURE_TOGGLES[field]}_{'enabled' if enabled else 'disabled'}"
+
+
+@dataclass(frozen=True, slots=True)
+class DisclosureResult:
+    """What an agent now volunteers, after one toggle flip."""
+
+    agent_id: UUID
+    ai_disclosure_enabled: bool
+    recording_notice_enabled: bool
+    #: What callers actually hear first, composed server-side. Empty string = the agent
+    #: volunteers nothing and opens on its script.
+    opening_line: str
+    #: Did the change reach the voice platform? False for an agent that is not live —
+    #: there is nothing to push to, and the next publish carries it.
+    engine_synced: bool
+    #: The fields this call actually changed, so a caller (and the audit writer above it)
+    #: can tell a real flip from a re-assertion of the state that was already there.
+    changed: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -654,6 +723,7 @@ async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
                 prompt_applied=None,
                 disclosure_applied=None,
                 prompt_disclosure_applied=None,
+                truthful_answer_applied=None,
                 voice_applied=None,
                 detail="This agent is not on the voice platform, so there is nothing to compare.",
             )
@@ -673,12 +743,13 @@ async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
         prompt_applied=verdict.prompt_applied,
         disclosure_applied=verdict.disclosure_applied,
         prompt_disclosure_applied=verdict.prompt_disclosure_applied,
+        truthful_answer_applied=verdict.truthful_answer_applied,
         voice_applied=verdict.voice_applied,
         detail=(
             # `verify_publish`'s wording assumes a write just happened. Here nothing did,
             # so the one verdict whose sentence would be actively misleading is respelled.
-            "The voice platform is running a different script, disclosure line or voice "
-            "from the one this agent last published."
+            "The voice platform is running a different script, opening line, "
+            "truthful-answer rule or voice from the one this agent last published."
             if verdict.state == "not_applied"
             else verdict.detail
         ),
@@ -806,6 +877,118 @@ async def undo_staged(*, tenant_id: UUID, agent_id: UUID) -> UndoResult:
     )
 
 
+async def set_disclosure_posture(
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    ai_disclosure_enabled: bool | None,
+    recording_notice_enabled: bool | None,
+) -> DisclosureResult:
+    """Switch either opening notice on or off for one agent (D-163).
+
+    THE FOUNDER'S DECISION, IMPLEMENTED RATHER THAN SOFTENED. SEC-COMP §2's two
+    call-level invariants — "this is an AI" and "this call is recorded" — are two
+    obligations under two regimes (TRAI/UCC and DPDP notice-and-consent) that shared one
+    column, so a client could have both or neither. Each is now its own toggle, on
+    inbound and outbound agents alike, and a toggle switched off means the agent does not
+    VOLUNTEER that fact at the top of the call.
+
+    WHAT NO ARGUMENT HERE CAN REACH. Asked outright — "am I talking to a person?", "is
+    this being recorded?" — the agent answers truthfully, on every agent, always. That
+    behaviour is `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`: a `Final` in the
+    portability contract with no writer anywhere in this repository, appended by every
+    adapter to every prompt, and verified on read-back by `agents/verification.judge`,
+    which REFUSES a publish whose engine copy has lost it. A client-authored script
+    cannot withdraw it because the script is a different string and the directive is
+    appended after it, saying so in words.
+
+    FAST LANE, and the republish is inside the transaction. A posture that lands only in
+    our table is a screen making a claim about a phone line that is not true yet, and the
+    direction of that lie is unbounded in both directions — an agent still announcing a
+    notice its owner withdrew, or (worse) our records saying it announces one when the
+    engine was never told. The ordering is `set_call_cap`'s: column write, then the engine
+    push, so a vendor failure rolls the column back with it.
+
+    `None` on either argument means "leave this one alone", so the two toggles can be
+    flipped independently by one endpoint without a partial write ever meaning "set the
+    other one to false".
+
+    IDEMPOTENT. Re-asserting the state an agent is already in changes nothing, publishes
+    nothing and reports `changed=()` — which is what stops a double-clicked switch writing
+    two ledger entries for one decision.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT ai_disclosure_enabled, recording_notice_enabled, "
+                    "ai_disclosure_line, recording_notice_line, status, engine_agent_ref "
+                    "FROM agents WHERE id = :aid AND deleted_at IS NULL FOR UPDATE"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if row is None:
+            raise ProblemError.not_found("Agent")
+        wanted = {
+            "ai_disclosure_enabled": (
+                bool(row[0]) if ai_disclosure_enabled is None else ai_disclosure_enabled
+            ),
+            "recording_notice_enabled": (
+                bool(row[1]) if recording_notice_enabled is None else recording_notice_enabled
+            ),
+        }
+        current = {
+            "ai_disclosure_enabled": bool(row[0]),
+            "recording_notice_enabled": bool(row[1]),
+        }
+        changed = tuple(field for field in DISCLOSURE_TOGGLES if wanted[field] != current[field])
+        posture = DisclosurePosture(
+            ai_disclosure_line=str(row[2]),
+            ai_disclosure_enabled=wanted["ai_disclosure_enabled"],
+            recording_notice_line=str(row[3]),
+            recording_notice_enabled=wanted["recording_notice_enabled"],
+        )
+        is_live = str(row[4]) == "live" and bool(row[5])
+        if changed:
+            await session.execute(
+                text(
+                    "UPDATE agents SET ai_disclosure_enabled = :ai, "
+                    "recording_notice_enabled = :rec, updated_at = now() "
+                    "WHERE id = :aid AND deleted_at IS NULL"
+                ),
+                {
+                    "ai": wanted["ai_disclosure_enabled"],
+                    "rec": wanted["recording_notice_enabled"],
+                    "aid": agent_id,
+                },
+            )
+            if is_live:
+                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+
+    # Ids, booleans and field NAMES. The sentences themselves are a client's own business
+    # copy and stay out of the log (hard rule 6's neighbourhood — they are not PII, but
+    # nothing is served by putting them in a log line either).
+    log.info(
+        "agent_disclosure_posture_set",
+        extra={
+            "agent_id": str(agent_id),
+            "ai_disclosure_enabled": posture.ai_disclosure_enabled,
+            "recording_notice_enabled": posture.recording_notice_enabled,
+            "changed": list(changed),
+            "engine_synced": bool(changed) and is_live,
+        },
+    )
+    return DisclosureResult(
+        agent_id=agent_id,
+        ai_disclosure_enabled=posture.ai_disclosure_enabled,
+        recording_notice_enabled=posture.recording_notice_enabled,
+        opening_line=compose_opening_line(posture),
+        engine_synced=bool(changed) and is_live,
+        changed=changed,
+    )
+
+
 async def set_call_cap(
     *, tenant_id: UUID, agent_id: UUID, max_call_duration_s: int | None
 ) -> CallCapResult:
@@ -886,11 +1069,13 @@ async def set_call_cap(
 
 
 __all__ = [
+    "DISCLOSURE_TOGGLES",
     "LANES",
     "PRECEDENCE_RULE",
     "AgentVoice",
     "ApplyResult",
     "CallCapResult",
+    "DisclosureResult",
     "EngineDrift",
     "Lane",
     "LaneEntry",
@@ -900,10 +1085,12 @@ __all__ = [
     "VerificationState",
     "VoiceState",
     "apply_to_live",
+    "audit_action_for",
     "engine_drift_for",
     "lane_of",
     "pending_state_for",
     "set_call_cap",
+    "set_disclosure_posture",
     "undo_staged",
     "worst_case_cost",
 ]

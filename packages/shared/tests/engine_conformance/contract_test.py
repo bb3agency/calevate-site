@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import pytest
 from calevate_shared.engine import (
+    TRUTHFUL_ANSWER_MARKER,
     WEBHOOK_AUTH_BY_ENGINE,
     AgentConfig,
     CallContext,
@@ -72,6 +73,7 @@ def _agent_config(
     name: str = "Sunrise Clinic receptionist",
     agent_id: str = "0199a0b0-0000-7000-8000-000000000002",
     system_prompt: str = "You are the receptionist for Sunrise Clinic.",
+    opening_line: str = "Idi AI assistant. Ee call record avutundi.",
 ) -> AgentConfig:
     return AgentConfig(
         tenant_id="0199a0b0-0000-7000-8000-000000000001",
@@ -80,7 +82,7 @@ def _agent_config(
         direction="inbound",
         language_primary="te-IN",
         system_prompt=system_prompt,
-        disclosure_line="Idi AI assistant. Ee call record avutundi.",
+        opening_line=opening_line,
         models=_byok_models(engine),
         webhook_url="https://hooks.calevate.tech/v1/engine/bolna",
     )
@@ -193,12 +195,12 @@ async def test_agent_read_back_reports_the_agent_it_was_asked_about(
     )
 
 
-async def test_a_read_back_carries_the_disclosure_line_the_engine_was_given(
+async def test_a_read_back_carries_the_opening_line_the_engine_was_given(
     engine: VoiceEngine,
 ) -> None:
     """HARD RULE 5, SCORED ON THE ENGINE RATHER THAN ON OUR REQUEST BODY.
 
-    Every adapter PREPENDS `disclosure_line` to the prompt so it is spoken first. That is
+    Every adapter PREPENDS `opening_line` to the prompt so it is spoken first. That is
     a property of what we SEND, and until this clause nothing checked it survived the
     round trip — the suite scored the script with a marker the disclosure line does not
     contain, so an adapter that rendered the greeting into a field its own read-back
@@ -228,7 +230,7 @@ async def test_a_read_back_carries_the_disclosure_line_the_engine_was_given(
         "the prompt could not be read back at all, so hard rule 5 is unverifiable on "
         "this engine and every publish through `verification.judge` reports unreadable"
     )
-    assert snapshot.carries_prompt_marker(cfg.disclosure_line) is True, (
+    assert snapshot.carries_prompt_marker(cfg.opening_line) is True, (
         "the disclosure line the adapter prepended is not in what the engine holds — "
         "either the adapter dropped it (a compliance defect) or its read-back cannot "
         "see it (a publish that can never be confirmed)"
@@ -249,9 +251,82 @@ async def test_a_read_back_carries_the_disclosure_line_the_engine_was_given(
         "`unreadable` on every publish through this engine — the disclosure can never "
         "be confirmed, only assumed"
     )
-    assert snapshot.carries_greeting_marker(cfg.disclosure_line) is True, (
+    assert snapshot.carries_greeting_marker(cfg.opening_line) is True, (
         "the greeting the engine holds does not contain the disclosure line, so the "
         "first thing this agent says to a caller is not the thing SEC-COMP §1 requires"
+    )
+
+
+async def test_every_adapter_puts_the_truthful_answer_rule_on_the_engine(
+    engine: VoiceEngine,
+) -> None:
+    """HARD RULE 5's UNFALSIFIABLE HALF, ON EVERY ADAPTER (D-163).
+
+    The two opening notices are per-agent toggles. The ANSWER a caller gets when they ask
+    outright — "am I talking to a person?", "is this recorded?" — is not, and this is the
+    clause that makes "not toggleable" true of an ADAPTER rather than only of our own
+    layer. `compose_engine_prompt` is one function in the contract, so an adapter that
+    builds its prompt by hand is the one way the directive could go missing on one engine
+    and nowhere else; a suite that only exercised the fake would never see it.
+
+    THE MARKER, NOT THE WHOLE BLOCK, for `carries_prompt_marker`'s reason: any rendering
+    that kept the text satisfies the rule, and requiring the block verbatim would fail on
+    a vendor that re-wraps long strings.
+
+    A failure here is not cosmetic. `agents/verification.judge` scores this same marker on
+    every publish and REFUSES one whose engine copy has lost it, so an adapter that drops
+    it does not merely go unmeasured — it fails every publish closed on that engine, for
+    the whole deployment. Which is the right direction, and exactly why it must be caught
+    here rather than by a client on the phone.
+    """
+    cfg = _agent_config(
+        engine,
+        agent_id="0199a0b0-0000-7000-8000-00000000001d",
+        system_prompt="Receptionist. marker-truthful",
+    )
+    ref = await engine.create_agent(cfg)
+    snapshot = await engine.get_agent(ref)
+
+    assert snapshot.system_prompt_readable, (
+        "the prompt could not be read back, so the one rule a client may not switch off "
+        "is unverifiable on this engine"
+    )
+    assert snapshot.carries_prompt_marker(TRUTHFUL_ANSWER_MARKER) is True, (
+        "the engine is not holding the truthful-answer rule. Either the adapter built "
+        "its prompt without `compose_engine_prompt`, or the vendor truncated the tail of "
+        "the prompt — where the rule deliberately sits. Both mean this agent can be "
+        "scripted into claiming it is human"
+    )
+
+
+async def test_an_agent_with_no_opening_notice_still_carries_the_truthful_answer_rule(
+    engine: VoiceEngine,
+) -> None:
+    """The whole point of D-163, stated as a property of every adapter.
+
+    A tenant who switches both notices off gets an EMPTY `opening_line`: no greeting, and
+    nothing prepended to the prompt. The rule that makes the agent answer honestly when
+    ASKED must be untouched by that — it is composed from a `Final` constant and not from
+    the config at all — and the greeting must actually be CLEARED rather than left
+    holding whatever the vendor had before, which is what `verification._greeting_verdict`
+    scores in the negative.
+    """
+    cfg = _agent_config(
+        engine,
+        agent_id="0199a0b0-0000-7000-8000-00000000001e",
+        system_prompt="Receptionist. marker-silent",
+        opening_line="",
+    )
+    ref = await engine.create_agent(cfg)
+    snapshot = await engine.get_agent(ref)
+
+    assert snapshot.carries_prompt_marker(TRUTHFUL_ANSWER_MARKER) is True, (
+        "an agent that volunteers no notice lost the truthful-answer rule as well — "
+        "switching off what the agent SAYS FIRST must never change what it ANSWERS"
+    )
+    assert not (snapshot.greeting or "").strip(), (
+        "the engine is still holding a greeting for an agent whose owner withdrew both "
+        "notices, so every call still opens with a notice our own row says is off"
     )
 
 

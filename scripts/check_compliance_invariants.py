@@ -35,12 +35,32 @@ what actually exists, never against a list of the paths we happen to remember:
    dispatcher alone; and an ENVIRONMENT CHECK inside the gate, which nothing checked at
    all and which does not look like a bypass — `if settings.app_env != "production"` is
    how a staging convenience becomes a production hole.
-5. **The schema still carries the invariants the code assumes.** `disclosure_line` NOT
-   NULL and non-empty (SEC-COMP §2.1); the `dnc_list` unique key that `add_to_dnc`'s
-   `ON CONFLICT` needs, without which an in-call opt-out raises instead of registering;
-   and the CHECK that stops a `messaging` consent row omitting its source. Read from
-   `pg_catalog`, because a migration is a claim and the catalog is the fact — the same
-   argument `check_rls_coverage` makes.
+5. **The schema still carries the invariants the code assumes.** The AI disclosure
+   sentence NOT NULL and non-empty (SEC-COMP §2.1) — on `ai_disclosure_line` since D-163,
+   and on the legacy `disclosure_line` for as long as step 1 of that two-step keeps
+   writing it; the two notice toggles NOT NULL; the `dnc_list` unique key that
+   `add_to_dnc`'s `ON CONFLICT` needs, without which an in-call opt-out raises instead of
+   registering; and the CHECK that stops a `messaging` consent row omitting its source.
+   Read from `pg_catalog`, because a migration is a claim and the catalog is the fact —
+   the same argument `check_rls_coverage` makes.
+6. **The truthful answer cannot be switched off** (D-163, and the reason hard rule 5 was
+   rewritten rather than relaxed). SEC-COMP §2's two OPENING notices are now per-agent
+   toggles; the answer a caller gets when they ASK is not, and "not toggleable" is a
+   claim about code that has to be checked like one. Four questions, in
+   `truthful_answer_unfalsifiable()`:
+
+   * the directive exists, is non-empty, and CONTAINS the marker every read-back is
+     scored on (read off the imported constants, so a rename cannot empty the check);
+   * it is a `Final` CONSTANT and not a field of `AgentConfig` — a field is a writer, and
+     a writer is how a tenant's column eventually reaches it;
+   * no shipped module assigns to it, passes it as a keyword, or `model_copy`s over it;
+   * the composer that carries it onto the engine is reached by every adapter — asserted
+     against the live adapter registry rather than a list of adapter names.
+
+   What this file deliberately does NOT assert: that the ENGINE is holding it. That is a
+   runtime fact about a vendor, it is scored by `agents/verification.judge` on every
+   publish and every half-hourly drift sweep, and a syntax checker claiming it would be
+   the true-by-construction move P3.3 exists to record.
 
 WHAT THIS DELIBERATELY DOES NOT DO
 ----------------------------------
@@ -238,6 +258,14 @@ class GateRegistry:
     opt_in_field: str
     gate_call_names: frozenset[str]
     gate_module_key: str
+    #: D-163. The names section 6 polices, read off the imported objects for this
+    #: dataclass's whole reason: a rename either updates them or fails `blind_spots()`,
+    #: and what it can never do is leave the check matching nothing and printing OK.
+    truthful_marker: str
+    truthful_directive: str
+    truthful_names: frozenset[str]
+    prompt_composer: str
+    agent_config_fields: frozenset[str]
 
 
 def gate_registry() -> GateRegistry:
@@ -253,7 +281,13 @@ def gate_registry() -> GateRegistry:
         spend_capped,
     )
     from apps.workers.whatsapp import Destination, get_whatsapp_transport
-    from calevate_shared.engine import VoiceEngine
+    from calevate_shared.engine import (
+        TRUTHFUL_ANSWER_DIRECTIVE,
+        TRUTHFUL_ANSWER_MARKER,
+        AgentConfig,
+        VoiceEngine,
+        compose_engine_prompt,
+    )
 
     gates = frozenset({check_dispatch.__name__, assert_dispatch_allowed.__name__})
     # Everything that ASKS a compliance question. A function calling any of these is
@@ -275,6 +309,11 @@ def gate_registry() -> GateRegistry:
         opt_in_field=next(name for name in Destination.__dataclass_fields__ if name == "opt_in_at"),
         gate_call_names=gates | {dispatch_call.__name__} | {f.__name__ for f in predicates},
         gate_module_key=_key(Path(str(sys.modules[check_dispatch.__module__].__file__))),
+        truthful_marker=TRUTHFUL_ANSWER_MARKER,
+        truthful_directive=TRUTHFUL_ANSWER_DIRECTIVE,
+        truthful_names=frozenset({"TRUTHFUL_ANSWER_MARKER", "TRUTHFUL_ANSWER_DIRECTIVE"}),
+        prompt_composer=compose_engine_prompt.__name__,
+        agent_config_fields=frozenset(AgentConfig.model_fields),
     )
 
 
@@ -716,6 +755,141 @@ def gate_bypasses(roots: Iterable[Path] | None = None) -> list[str]:
     return offenders
 
 
+# --- 6. the truthful answer cannot be switched off ------------------------------
+
+#: Adapter modules whose prompt MUST come from the one composer. Derived from the engine
+#: package rather than listed: an adapter added tomorrow is covered on the day it lands,
+#: which is the property `ENGINE_REACH_EXEMPTIONS` gets from being re-verified every run.
+_ADAPTER_DIR = REPO_ROOT / "apps" / "api" / "engine"
+#: The two files in that package that are NOT adapters — a shared descriptor table and a
+#: shared archiving helper, neither of which builds an agent body. Named individually so
+#: a third non-adapter has to be argued for rather than assumed.
+_ADAPTER_EXCLUDED = frozenset({"__init__.py", "capabilities.py", "document.py"})
+
+
+def _adapter_files(roots: Iterable[Path] | None = None) -> list[Path]:
+    """Every vendor adapter, discovered rather than listed.
+
+    `roots` is the negative controls' door in: they mirror the real adapters into a tmp
+    tree and doctor one, so the check has to be able to look at a tree that is not this
+    one — the same argument every other section in this file makes for its `roots`.
+    """
+    directories = (
+        [_ADAPTER_DIR] if roots is None else [root / "apps" / "api" / "engine" for root in roots]
+    )
+    return [
+        path
+        for directory in directories
+        if directory.exists()
+        for path in sorted(directory.glob("*.py"))
+        if path.name not in _ADAPTER_EXCLUDED and not path.name.endswith("_test.py")
+    ]
+
+
+def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[str]:
+    """Hard rule 5's one non-toggleable clause, checked as CODE rather than as a promise.
+
+    D-163 made both opening notices per-agent toggles. The answer a caller gets when they
+    ASK stays mandatory on every agent, always, and this is the section that stops that
+    sentence from being merely written down. Every question below is asked against
+    something the running system also uses — the imported constants, `AgentConfig`'s own
+    field registry, the engine package on disk — so a rename cannot quietly empty it.
+    """
+    registry = gate_registry()
+    failures: list[str] = []
+
+    if not registry.truthful_marker.strip():
+        failures.append(
+            "TRUTHFUL_ANSWER_MARKER is empty. It is the needle every publish read-back "
+            "is scored on, and `marker in prompt` is True for the empty string — so an "
+            "empty marker certifies every agent, including one holding none of the rules"
+        )
+    elif registry.truthful_marker not in registry.truthful_directive:
+        failures.append(
+            "TRUTHFUL_ANSWER_MARKER is not inside TRUTHFUL_ANSWER_DIRECTIVE, so the "
+            "publish read-back is scoring a string the adapters never send. The verdict "
+            "would be False on a correctly published agent, or — if the marker happens "
+            "to appear elsewhere — True on one missing the whole block"
+        )
+
+    # A FIELD IS A WRITER. Every field on `AgentConfig` is, somewhere upstream, a column
+    # a tenant or an operator can write; the directive must not become one of them.
+    settable = sorted(
+        field
+        for field in registry.agent_config_fields
+        if "truthful" in field or "honest" in field or "always_answer" in field
+    )
+    if settable:
+        failures.append(
+            f"AgentConfig now has settable field(s) {settable}. The truthful-answer rule "
+            "is a Final constant precisely so it has no writer: a field can be emptied, "
+            "defaulted away, or `model_copy`d over — which is what `_variant_config` "
+            "already does to `system_prompt`"
+        )
+
+    root_tuple = tuple(SCAN_ROOTS if roots is None else roots)
+    for file_path in _python_files(root_tuple):
+        path = _key(file_path, root_tuple)
+        tree = _parse(file_path)
+        for node in ast.walk(tree):
+            # `TRUTHFUL_ANSWER_DIRECTIVE = ...` anywhere but its own home, or a
+            # `model_copy(update={"truthful_answer_...": ...})` — both are a rebind of a
+            # constant whose whole value is that it has no writer.
+            if isinstance(node, ast.Assign):
+                targets = {t.id for t in node.targets if isinstance(t, ast.Name)}
+                rebound = sorted(targets & registry.truthful_names)
+                if rebound and not path.endswith("calevate_shared/engine.py"):
+                    failures.append(
+                        f"{path} rebinds {rebound[0]}. The rule a client cannot remove is "
+                        "a constant in the portability contract; a second binding is a "
+                        "second answer, and only one of them reaches the engine"
+                    )
+        for name in sorted(registry.truthful_names):
+            for keyword in _keywords_named(tree, name.lower()):
+                failures.append(
+                    f"{path} passes `{keyword}=` — the truthful-answer rule is being "
+                    "made a parameter of something. It takes no arguments and has no "
+                    "per-agent variant; a parameter is a switch with a longer name"
+                )
+
+    # EVERY ADAPTER, not a list of adapters. `compose_engine_prompt` is what carries the
+    # directive onto the engine, so an adapter that builds its prompt by hand is the one
+    # way it goes missing on one vendor and nowhere else.
+    for adapter in _adapter_files(roots):
+        tree = _parse(adapter)
+        # A CALL, not a mention: an adapter that keeps the import and hand-rolls the
+        # f-string underneath it is exactly the regression this section exists for, and a
+        # substring search would report it clean.
+        composes = any(
+            isinstance(node, ast.Call) and _called_name(node) == registry.prompt_composer
+            for node in ast.walk(tree)
+        )
+        renders_agents = any(
+            isinstance(node, ast.Name) and node.id == "AgentConfig" for node in ast.walk(tree)
+        )
+        if renders_agents and not composes:
+            failures.append(
+                f"{adapter.name} renders an agent without calling "
+                f"`{registry.prompt_composer}`. Every engine prompt is composed by that "
+                "one function so the truthful-answer rule cannot be forgotten per vendor "
+                "— and the conformance suite reads it back off each adapter for the same "
+                "reason"
+            )
+    return failures
+
+
+def _keywords_named(tree: ast.AST, name: str) -> list[str]:
+    return sorted(
+        {
+            keyword.arg
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            for keyword in node.keywords
+            if keyword.arg is not None and keyword.arg == name
+        }
+    )
+
+
 # --- 5. the schema still carries what the code assumes --------------------------
 
 
@@ -767,25 +941,76 @@ def _unique_on(facts: SchemaFacts, table: str, columns: set[str]) -> bool:
 # drop — exactly backwards.
 SCHEMA_INVARIANTS: tuple[SchemaInvariant, ...] = (
     SchemaInvariant(
-        key="agents.disclosure_line NOT NULL",
-        holds=lambda facts: _not_null(facts, "agents", "disclosure_line"),
+        key="agents.ai_disclosure_line NOT NULL",
+        holds=lambda facts: _not_null(facts, "agents", "ai_disclosure_line"),
         failure=(
-            "agents.disclosure_line is not NOT NULL. Hard rule 5 and SEC-COMP §2.1: every "
-            "agent discloses that it is an AI on its first utterance, and the column is "
-            "what guarantees it — the gate's own check is belt and braces"
+            "agents.ai_disclosure_line is not NOT NULL. Hard rule 5 and SEC-COMP §2.1: "
+            "every agent HAS an AI disclosure sentence on file even when its owner has "
+            "chosen not to volunteer it — `check_dispatch` refuses a dial without one, "
+            "and the answer to a caller who asks 'are you an AI?' needs a sentence to be"
         ),
     ),
     SchemaInvariant(
-        key="agents.disclosure_line non-empty",
+        key="agents.ai_disclosure_line non-empty",
         holds=lambda facts: _check_matching(
             facts,
             "agents",
-            r"(length\s*\(\s*disclosure_line|disclosure_line\s*(<>|!=)\s*'')",
+            r"(length\s*\(\s*btrim\s*\(\s*ai_disclosure_line|ai_disclosure_line\s*(<>|!=)\s*'')",
         ),
         failure=(
-            "no CHECK constraint stops agents.disclosure_line being empty. NOT NULL alone "
-            "admits '' — an agent that opens a call disclosing nothing, which is the IT "
-            "Act exposure SEC-COMP §1 records rather than a cosmetic gap"
+            "no CHECK constraint stops agents.ai_disclosure_line being empty or blank. "
+            "NOT NULL alone admits '' and ' ' — an agent with no AI sentence at all, "
+            "which is the one state D-163 does NOT permit: the notice is optional, the "
+            "sentence is not"
+        ),
+    ),
+    SchemaInvariant(
+        key="agents.recording_notice_line non-empty",
+        holds=lambda facts: (
+            _not_null(facts, "agents", "recording_notice_line")
+            and _check_matching(
+                facts,
+                "agents",
+                r"length\s*\(\s*btrim\s*\(\s*recording_notice_line",
+            )
+        ),
+        failure=(
+            "agents.recording_notice_line is nullable or unconstrained. A client who "
+            "switches the recording notice back ON must get a sentence rather than "
+            "silence, and a column that can be blank makes 'on' and 'off' the same state"
+        ),
+    ),
+    SchemaInvariant(
+        key="agents notice toggles NOT NULL",
+        holds=lambda facts: (
+            _not_null(facts, "agents", "ai_disclosure_enabled")
+            and _not_null(facts, "agents", "recording_notice_enabled")
+        ),
+        failure=(
+            "a disclosure toggle on `agents` is nullable. NULL is a third state for a "
+            "two-state compliance posture, and every reader would have to invent which "
+            "way it falls — `compose_opening_line` treats it as OFF, which is the one "
+            "reading an omission must never silently produce (D-163)"
+        ),
+    ),
+    SchemaInvariant(
+        # STEP 1 OF THE TWO-STEP (hard rule 8): D-163 stopped READING this column on the
+        # publish path and did not stop writing it. While it is still written it is still
+        # constrained, so the deprecation cannot rot into a column full of empty strings
+        # that a step-2 reviewer reads as "nothing depended on it".
+        key="agents.disclosure_line (legacy bundle) still NOT NULL and non-empty",
+        holds=lambda facts: (
+            _not_null(facts, "agents", "disclosure_line")
+            and _check_matching(
+                facts,
+                "agents",
+                r"(length\s*\(\s*disclosure_line|disclosure_line\s*(<>|!=)\s*'')",
+            )
+        ),
+        failure=(
+            "the legacy agents.disclosure_line lost its NOT NULL or its non-empty CHECK. "
+            "D-163 keeps writing it for one release (hard rule 8's two-step); dropping "
+            "the constraint without dropping the column is neither step"
         ),
     ),
     SchemaInvariant(
@@ -880,6 +1105,7 @@ def main() -> int:
         ("an outbound dial that does not pass the gate", ungated_dials()),
         ("a message sent without evidence of an opt-in", unevidenced_messages()),
         ("a bypass on the gate-bearing path", gate_bypasses()),
+        ("the truthful answer became switchable", truthful_answer_unfalsifiable()),
         ("an exemption that no longer holds", stale_exemptions()),
     )
     failed = False
@@ -925,7 +1151,9 @@ def main() -> int:
     print(
         f"COMPLIANCE INVARIANTS: OK ({len(dial_sites())} dial sites all gated and obeying "
         f"the decision, {len(_engine_sites())} engine reaches all accounted for, "
-        f"{len(SCHEMA_INVARIANTS)} schema invariants verified against pg_catalog)"
+        f"{len(_adapter_files())} adapters composing the truthful-answer rule they cannot "
+        f"switch off, {len(SCHEMA_INVARIANTS)} schema invariants verified against "
+        "pg_catalog)"
     )
     return 0
 

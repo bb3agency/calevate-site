@@ -158,13 +158,25 @@ def test_the_verdict_is_a_boolean_and_never_the_words() -> None:
     assert isinstance(verdict, bool)
 
 
-def test_the_module_exports_exactly_one_name() -> None:
-    """It answers one question. A second export here would be the beginning of a second
-    place that decides what "disclosed" means — and this repo already has one of those,
-    at publish time, against the engine."""
+def test_the_module_exports_no_second_way_to_decide_what_disclosed_means() -> None:
+    """It used to export exactly one name, and the reason was right: a second export
+    here would be the beginning of a second place that decides what "disclosed" MEANS —
+    and this repo already has one of those, at publish time, against the engine.
+
+    D-163 gave the module a second half — the product COPY an agent's two notices start
+    from — and the rule survives the addition rather than being dropped for it: the thing
+    that must stay unique is the JUDGEMENT. `disclosure_spoken` is still the only export
+    that decides anything, and the composition of an opening lives one layer out, in
+    `calevate_shared.engine.compose_opening_line`, so it cannot fork here either.
+    """
     from apps.api.compliance import disclosure
 
-    assert disclosure.__all__ == ["disclosure_spoken"]
+    verdicts = [name for name in disclosure.__all__ if name.endswith("_spoken")]
+    assert verdicts == ["disclosure_spoken"], disclosure.__all__
+    assert not hasattr(disclosure, "compose_opening_line"), (
+        "the opening composer has been re-exported here, so there are now two places to "
+        "import it from and one of them will drift"
+    )
 
 
 # ============================================================================
@@ -197,7 +209,7 @@ async def _driven(*, disclosure_line: str | None = None) -> tuple[uuid.UUID, uui
     if disclosure_line is not None:
         async with tenant_session(tenant_id) as session:
             await session.execute(
-                text("UPDATE agents SET disclosure_line = :line WHERE id = :aid"),
+                text("UPDATE agents SET ai_disclosure_line = :line WHERE id = :aid"),
                 {"line": disclosure_line, "aid": agent_id},
             )
 
@@ -275,14 +287,19 @@ async def test_a_rerun_that_sees_no_transcript_clears_a_previous_verdict() -> No
     assert await _played(tenant_id, call_id) is None
 
 
-async def test_the_context_load_hands_back_the_agents_disclosure_line() -> None:
+async def test_the_context_load_hands_back_the_agents_ai_disclosure_line() -> None:
     """The seam between the two halves, and the one a rename would break silently.
 
     `_load_call_context` grew a fifth return value rather than gaining a second query,
-    and nothing else in the pipeline reads `agents.disclosure_line`. If that column is
+    and nothing else in the pipeline reads the agent's disclosure. If that column is
     ever renamed or the join changes shape, this is what says so — the alternative is a
     matcher fed an empty string, which returns `None` for every call and looks exactly
     like a fleet with no transcripts.
+
+    It is `ai_disclosure_line` since D-163, not the legacy bundle: the question the column
+    answers is "did the agent say the AI disclosure", so scoring it against a string that
+    also contains a recording notice the agent may have switched off would report a breach
+    on every call of a lawfully configured agent.
     """
     tenant_id, call_id = await _driven(disclosure_line=DISCLOSURE)
 
@@ -293,3 +310,26 @@ async def test_the_context_load_hands_back_the_agents_disclosure_line() -> None:
     assert line == DISCLOSURE
     assert isinstance(agent_id, uuid.UUID)
     assert direction == "inbound"
+
+
+async def test_a_withdrawn_ai_notice_certifies_nothing_rather_than_reporting_a_breach() -> None:
+    """D-163's effect on the EVIDENCE half, driven through the real pipeline.
+
+    An agent whose owner has switched the AI notice off was never asked to say it. The
+    honest verdict is `None` — the tri-state's "there was nothing to look at" — and NOT
+    `False`, which the QA queue and the client's call detail both render as a compliance
+    failure on every single call.
+    """
+    tenant_id, call_id = await _driven(disclosure_line="idi Sunrise Clinic AI assistant")
+    assert await _played(tenant_id, call_id) is True
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET ai_disclosure_enabled = false WHERE tenant_id = :t"),
+            {"t": tenant_id},
+        )
+    _spec, _version, _agent_id, _direction, line = await pipeline._load_call_context(
+        tenant_id, call_id
+    )
+
+    assert line == "", "the pipeline is still scoring a sentence the agent never volunteers"

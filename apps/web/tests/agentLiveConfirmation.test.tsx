@@ -90,6 +90,11 @@ function engineState(over: Record<string, unknown> = {}) {
     prompt_applied: true,
     disclosure_applied: true,
     prompt_disclosure_applied: true,
+    // D-163's fourth verdict: the platform rules that make the agent answer honestly when
+    // a caller asks. Healthy in the base fixture like its neighbours, so a case that
+    // wants it unreadable has to say so — the same reason every other property here is
+    // spelled out rather than defaulted.
+    truthful_answer_applied: true,
     voice_applied: true,
     detail: "The voice platform was read back and is holding the published script and voice.",
     ...over,
