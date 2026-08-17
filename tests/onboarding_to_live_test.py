@@ -72,31 +72,30 @@ def _client() -> AsyncClient:
 
 
 async def _admin(role: str = "superadmin") -> str:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _user(email: str) -> tuple[str, UUID]:
     """A provisioned client-realm identity with NO membership — what an invitee is."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": email},
+            {"id": user_id, "email": email},
         )
-    return f"dev:client:{clerk_id}", user_id
+    return f"dev:client:{user_id}", user_id
 
 
 async def _new_client(token: str) -> tuple[UUID, UUID, str]:

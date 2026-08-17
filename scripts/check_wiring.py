@@ -87,6 +87,21 @@ DYNAMIC_ROUTER_MODULES: dict[str, str] = {
 # keyed per FIELD for the same reason: a model-level exemption would cover the next
 # column somebody adds).
 UNWIRED_BASELINE: dict[str, str] = {
+    # ONE reason, two entries, because this registry is keyed per column and a
+    # model-level exemption would cover the next column somebody adds to either table.
+    "User.clerk_user_id": (
+        "D-177 deleted every writer and every reader when it deleted Clerk. The column "
+        "survives one release under hard rule 8's two-step — never DROP in the release "
+        "that stops writing — so the rows Clerk created stay identifiable while a "
+        "question about them can still arrive. Closes with the DROP migration, which is "
+        "AUTH-MIGRATION §5 step 7 and is deliberately not in D-177"
+    ),
+    "AdminUser.clerk_user_id": (
+        "same two-step as User.clerk_user_id and closed by the same migration. Its last "
+        "reader was the ops console's 'who set this key' fallback (`ops/config_service`, "
+        "`ops/secret_service`), which now falls back to the admin id — a value that is "
+        "present for every operator rather than only for the Clerk-era ones"
+    ),
     "Agent.engine_staging_ref": (
         "D-39 two-speed publishing: the staging-side engine ref. `agents/publishing.py` "
         "currently stages through `engine_agent_ref` only; closes when the engine "

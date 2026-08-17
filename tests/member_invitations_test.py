@@ -37,16 +37,16 @@ def _client() -> httpx.AsyncClient:
 async def _mirrored_user(email: str) -> str:
     """A Clerk-mirrored user with no membership — an invitee, in other words. Returns a
     dev bearer token for them."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": email},
+            {"i": user_id, "e": email},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
 async def _audit_actions(tenant_id: uuid.UUID) -> list[str]:

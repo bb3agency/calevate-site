@@ -85,17 +85,16 @@ def _headers(token: str) -> dict[str, str]:
 async def _signed_up_user() -> tuple[str, uuid.UUID]:
     """A Clerk-authenticated client-realm user with NO membership yet — exactly the
     state FLOWS §2 step 1 leaves a self-serve signup in."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
-    return f"dev:client:{clerk_id}", user_id
+    return f"dev:client:{user_id}", user_id
 
 
 def _signup_body(**overrides: Any) -> dict[str, Any]:
@@ -887,15 +886,14 @@ async def test_a_managed_client_is_invoiced_not_topped_up() -> None:
 
 
 async def _owner_token(tenant_id: uuid.UUID) -> str:
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -905,7 +903,7 @@ async def _owner_token(tenant_id: uuid.UUID) -> str:
             ),
             {"i": uuid.uuid4(), "t": tenant_id, "u": user_id},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
 # --- boot assertions ----------------------------------------------------------

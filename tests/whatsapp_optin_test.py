@@ -103,14 +103,13 @@ async def _tenant(prefix: str, *, role: str = "owner", phone: str | None = OWNER
     )
     tenant_id, slug = UUID(str(created["id"])), str(created["slug"])
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, phone, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, :phone, now(), now())"
+                "INSERT INTO users (id, email, phone, created_at, updated_at) "
+                "VALUES (:id, :email, :phone, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com", "phone": phone},
+            {"id": user_id, "email": f"{user_id}@example.com", "phone": phone},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -120,7 +119,7 @@ async def _tenant(prefix: str, *, role: str = "owner", phone: str | None = OWNER
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "role": role},
         )
-    return tenant_id, slug, f"dev:client:{clerk_id}", user_id
+    return tenant_id, slug, f"dev:client:{user_id}", user_id
 
 
 def _client() -> AsyncClient:
@@ -677,16 +676,16 @@ async def test_no_number_reaches_a_log_line(caplog: pytest.LogCaptureFixture) ->
 
 async def _make_admin(role: str = "operator") -> str:
     """A dev bearer token for an admin-realm operator, the way ops signs in."""
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _record(tenant_id: UUID, **overrides: Any) -> whatsapp_optin.AlertOptIn:

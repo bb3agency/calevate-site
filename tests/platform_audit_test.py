@@ -374,17 +374,16 @@ async def _org_for(prefix: str) -> dict[str, object]:
 
 
 async def _mirrored_user() -> tuple[uuid.UUID, str]:
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
-    return user_id, clerk_id
+    return user_id, user_id
 
 
 async def test_an_expired_invitation_cannot_be_accepted() -> None:

@@ -111,15 +111,6 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
             "behind `ops:manage`; this answers ready or not-ready and nothing else."
         )
     ),
-    "POST /hooks/v1/clerk": PublicRoute(
-        why=(
-            "Identity-mirror webhook. Clerk cannot hold one of our sessions, so the Svix "
-            "signature over the raw body IS the credential; it fails CLOSED when the "
-            "webhook secret is unset, because an unverifiable identity feed would let "
-            "anyone create rows in the table RLS keys membership off."
-        ),
-        credential="verify_svix",
-    ),
     "POST /hooks/v1/razorpay": PublicRoute(
         why=(
             "Payment-captured webhook. HMAC over the raw bytes before anything is parsed "

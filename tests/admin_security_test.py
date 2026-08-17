@@ -20,16 +20,16 @@ from tests.impersonation_grant_test import view_as_headers
 
 
 async def _make_admin(role: str = "superadmin") -> str:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 def _client() -> AsyncClient:
@@ -146,10 +146,10 @@ async def test_an_invitation_can_only_be_burned_once() -> None:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": f"u_{user_id.hex[:10]}", "e": "invitee@example.com"},
+            {"i": user_id, "e": "invitee@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
@@ -204,26 +204,25 @@ async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
         created_by=None,
     )
     tenant_id = created["id"]
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
             session,
             tenant_id=tenant_id,
-            email=f"{clerk_id}@example.com",
+            email=f"{user_id}@example.com",
             role="owner",
             created_by=None,
         )
 
-    headers = {"Authorization": f"Bearer dev:client:{clerk_id}"}
+    headers = {"Authorization": f"Bearer dev:client:{user_id}"}
     async with _client() as http:
         # Before accepting, a normal tenant route refuses them.
         blocked = await http.get("/v1/leads", headers=headers)
@@ -240,20 +239,20 @@ async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
 async def test_a_bad_or_reused_invite_token_is_indistinguishable() -> None:
     """An attacker guessing tokens must not learn whether one exists, is used, or has
     expired — all three answer identically."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
     async with _client() as http:
         response = await http.post(
             "/v1/invitations/accept",
             json={"token": "x" * 40},
-            headers={"Authorization": f"Bearer dev:client:{clerk_id}"},
+            headers={"Authorization": f"Bearer dev:client:{user_id}"},
         )
     assert response.status_code == 422
     assert response.json()["type"].endswith("/invitation_invalid")

@@ -92,12 +92,11 @@ async def _colleague(tenant_id: uuid.UUID, name: str, *, deactivated: bool = Fal
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, name, created_at, updated_at) "
-                "VALUES (:i, :c, :e, :n, now(), now())"
+                "INSERT INTO users (id, email, name, created_at, updated_at) "
+                "VALUES (:i, :e, :n, now(), now())"
             ),
             {
                 "i": user_id,
-                "c": f"user_{uuid.uuid4().hex[:12]}",
                 "e": f"{user_id}@example.com",
                 "n": name,
             },
@@ -369,21 +368,21 @@ async def test_a_read_only_impersonating_admin_cannot_assign(monkeypatch) -> Non
     lead_id = await _the_lead(tenant_id)
     member = await _the_member(tenant_id)
 
-    admin_clerk = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Ops', 'operator', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Ops', 'operator', now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": admin_clerk},
+            {"i": admin_id},
         )
 
     async with _client() as http:
         response = await http.patch(
             f"/v1/leads/{lead_id}",
             headers=await view_as_headers(
-                http, f"dev:admin:{admin_clerk}", slug, **{"X-Org-Slug": slug}
+                http, f"dev:admin:{admin_id}", slug, **{"X-Org-Slug": slug}
             ),
             json={"assigned_to": str(member)},
         )

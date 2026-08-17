@@ -49,10 +49,10 @@ async def _admin_id() -> uuid.UUID:
         admin = uuid.uuid4()
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Config Test', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Config Test', 'superadmin', now(), now())"
             ),
-            {"i": admin, "c": f"admin_{uuid.uuid4().hex[:12]}"},
+            {"i": admin},
         )
         return admin
 

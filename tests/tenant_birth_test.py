@@ -104,16 +104,16 @@ async def _set_status(token: str, tenant_id: UUID, status: str, reason: str | No
 async def _clerk_user(email: str) -> str:
     """A mirrored client-realm identity — the state FLOWS §2 leaves a Clerk signup in,
     and the only state from which an invitation can be redeemed."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": email},
+            {"i": user_id, "e": email},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
 async def _accept(token: str, invite_token: str) -> Any:
