@@ -25,7 +25,7 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import { CLIENT_ACCEPT_INVITE_PATH } from "@/lib/authn/clientAuthn";
 import { LINK_TOKEN_PARAM } from "@/lib/authn/useLinkToken";
 
-import { ApiProblem, apiRequest, type Session } from "./client";
+import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -35,7 +35,6 @@ export type PendingInvitation = Schemas["InvitationOut"];
 export type CreatedInvitation = Schemas["InvitationCreatedOut"];
 export type MemberRemoved = Schemas["MemberRemovedOut"];
 export type MemberRole = Schemas["MemberRoleIn"]["role"];
-export type AcceptedInvitation = Schemas["AcceptInviteOut"];
 
 export const teamKeys = {
   members: (org: string) => ["members", org] as const,

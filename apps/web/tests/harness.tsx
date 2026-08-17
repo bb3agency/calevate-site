@@ -6,6 +6,7 @@ import { expect, vi } from "vitest";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
+import { adminAuthn } from "@/lib/authn/adminAuthn";
 import { clientAuthn } from "@/lib/authn/clientAuthn";
 
 /**
@@ -135,6 +136,11 @@ function defaultGrant(): Record<string, unknown> {
 }
 
 export function stubApi(routes: Routes): ApiCall[] {
+  // Both realm runtimes hold a result cache and a generation counter as MODULE state
+  // (§5.2's single-flight), and state that survives a test is state one test hands
+  // another. Reset here rather than in each `beforeEach` so no suite can forget.
+  adminAuthn.reset();
+  clientAuthn.reset();
   // Grants are cached per slug in a module-level map, so without this a grant minted by
   // one test would be reused by the next — silently changing how many requests the next
   // test's screen makes, depending on file order. Cleared where the network is replaced,
@@ -165,6 +171,16 @@ export function stubApi(routes: Routes): ApiCall[] {
       const key = Object.hasOwn(routes, scoped) ? scoped : path;
       if (!Object.hasOwn(routes, key)) {
         if (scoped === GRANT_ROUTE) return jsonResponse(defaultGrant());
+        // BOTH REALMS' SESSION RESTORE, answered by default (D-177) — the same shape as
+        // the grant above and for the same reason. Every `/admin` and `/c/<slug>` screen
+        // now sits under a session gate, so a harness that did not answer this would
+        // render the signed-out screen for the whole suite: hundreds of tests failing on
+        // a fact none of them is about. A test that WANTS the signed-out or
+        // half-authenticated branch (`authnGuards.test.tsx`) names the route in its own
+        // table, which takes precedence — this is a fallback, never an override.
+        if (Object.hasOwn(DEFAULT_SESSIONS, scoped)) {
+          return jsonResponse(DEFAULT_SESSIONS[scoped]);
+        }
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +
             `or the screen under test is calling an endpoint nobody expected`,
@@ -184,33 +200,28 @@ export function stubApi(routes: Routes): ApiCall[] {
   return calls;
 }
 
+/** A live, fully authenticated session per realm. See the fallback in `stubApi`. */
+const DEFAULT_SESSIONS: Record<string, unknown> = {
+  "GET /v1/auth/admin/session": {
+    realm: "admin",
+    subject_id: "0192f0aa-0000-7000-8000-00000000000a",
+    mfa_complete: true,
+    email_verified: true,
+  },
+  "GET /v1/auth/client/session": {
+    realm: "client",
+    subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
+    mfa_complete: true,
+    email_verified: true,
+  },
+};
+
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
 }
-
-/**
- * The restore every `/c/<slug>` screen now makes before it paints (D-177).
- *
- * `ClientRealmProvider` gates on a live client-realm session, so a harness that did not
- * answer this would render the signed-out screen for every page in this suite — three
- * hundred tests failing on a fact none of them is about. It is SPREAD FIRST rather than
- * merged last, so a test that wants to drive the signed-out or half-authenticated branch
- * (`authnGuards.test.tsx` does) overrides it by naming the same key.
- *
- * `clientAuthn.reset()` above clears the module-scoped realm instance between renders —
- * its result cache and generation counter are deliberately module state (§5.2's
- * single-flight), and state that survives a test is state one test can hand another.
- */
-const CLIENT_SESSION_ROUTE = "GET /v1/auth/client/session";
-const CLIENT_SESSION = {
-  realm: "client",
-  subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
-  mfa_complete: true,
-  email_verified: true,
-};
 
 export interface ClientPageRender extends RenderResult {
   /** Every request the screen made, in order — the seam hard rule 6 is asserted at. */
@@ -232,8 +243,7 @@ export async function renderClientPage(
   routes: Routes,
   slug = "acme",
 ): Promise<ClientPageRender> {
-  clientAuthn.reset();
-  const calls = stubApi({ [CLIENT_SESSION_ROUTE]: CLIENT_SESSION, ...routes });
+  const calls = stubApi(routes);
   const client = new QueryClient({
     // No retries: every route here answers 200 or throws, so a retry can only turn a
     // broken premise into a slow one.

@@ -1,34 +1,11 @@
 import { act, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH } from "@/app/admin/access";
 import AdminLayout from "@/app/admin/layout";
 import { HOLDS_PATH } from "@/lib/api/holds";
-import { adminAuthn } from "@/lib/authn/adminAuthn";
 
 import { problem, stubApi, type Routes } from "./harness";
-
-/**
- * The admin realm's restore, answered for every render in this file (D-177).
- *
- * `AdminLayout` gates on a live operator session now, so a file that did not answer this
- * would render the signed-out screen for every assertion below — none of which is about
- * whether somebody is signed in. `adminAuthn.reset()` clears the module-scoped realm
- * instance between renders, because its result cache and generation counter are
- * deliberately module state and state that survives a test is state one test hands another.
- */
-const ADMIN_SESSION_ROUTE = "GET /v1/auth/admin/session";
-const ADMIN_SESSION = {
-  realm: "admin",
-  subject_id: "0192f0aa-0000-7000-8000-00000000000a",
-  mfa_complete: true,
-  email_verified: true,
-};
-
-beforeEach(() => {
-  adminAuthn.reset();
-});
-
 
 /**
  * What an operator without a second factor SEES — never what stops them.
