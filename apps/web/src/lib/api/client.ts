@@ -319,20 +319,35 @@ async function sendRequest<T>(
     signal,
   });
 
-  if (!response.ok) {
-    let problem: Record<string, unknown> = {};
-    try {
-      problem = await response.json();
-    } catch {
-      problem = { detail: response.statusText };
-    }
-    throw new ApiProblem(response.status, problem);
-  }
+  if (!response.ok) throw await problemFrom(response);
+  return (await readBody(response)) as T;
+}
 
-  if (response.status === 204) return undefined as T;
+/**
+ * A non-2xx response, as the `ApiProblem` every screen already knows how to render.
+ *
+ * Exported because `lib/authn/transport.ts` is the ONE other place this app calls
+ * `fetch` (see its docstring for why it must), and two spellings of "parse problem+json"
+ * is exactly the drift CLAUDE.md's one-way-per-problem rule is about. A body that is not
+ * JSON at all — an nginx 502, a proxy timeout page — falls back to the status text rather
+ * than throwing a parse error over the top of the real failure.
+ */
+export async function problemFrom(response: Response): Promise<ApiProblem> {
+  let problem: Record<string, unknown> = {};
+  try {
+    problem = await response.json();
+  } catch {
+    problem = { detail: response.statusText };
+  }
+  return new ApiProblem(response.status, problem);
+}
+
+/** A 2xx body: `undefined` for 204, text for anything non-JSON, otherwise the JSON. */
+export async function readBody(response: Response): Promise<unknown> {
+  if (response.status === 204) return undefined;
   const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("json")) return (await response.text()) as T;
-  return (await response.json()) as T;
+  if (!contentType.includes("json")) return await response.text();
+  return await response.json();
 }
 
 /**
