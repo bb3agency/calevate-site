@@ -75,7 +75,7 @@ services:
       # INDEFINITELY by default, and the only thing that would ever end a deploy is
       # docker's `stop_grace_period` arriving with SIGKILL — which kills the lifespan's
       # `finally` (Redis close, span flush) as surely as the old bug did. 25s leaves 5s
-      # of the api's 30s grace for that shutdown to complete.
+      # of the api's 30s grace (`stop_grace_period` below) for that shutdown to complete.
       - --timeout-graceful-shutdown=25
     environment:
       # Per-process pool. DEPLOYMENT §2a's connection budget is arithmetic over the
@@ -85,6 +85,16 @@ services:
     ports: ["127.0.0.1:8000:8000"]
     depends_on:
       redis: {condition: service_healthy}
+    # THE GRACE THE COMMENT ABOVE HAD ALWAYS ASSUMED AND THE FILE HAD NEVER DECLARED
+    # (D-182). Compose's default when the key is absent is 10 SECONDS
+    # (https://docs.docker.com/reference/compose-file/services/#stop_grace_period), so
+    # every `compose up -d --no-deps api` sent SIGTERM, uvicorn began its 25-second
+    # drain, and SIGKILL arrived at 10 — severing in-flight requests and skipping the
+    # lifespan `finally` that D-101 restored, which is the exact outcome that fix was
+    # for. 30s matches voice-runtime and keeps the 5s of headroom the drain window is
+    # chosen against; `tests/worker_reliability_test.py` now pins the relationship for
+    # all three long-lived services rather than for `workers` alone.
+    stop_grace_period: 30s
     healthcheck:
       # /healthz/live, NOT /healthz. Liveness touches no dependency on purpose
       # (apps/api/core/health.py): a Postgres blip must not make Docker kill and restart
