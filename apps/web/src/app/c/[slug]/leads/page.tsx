@@ -112,6 +112,28 @@ const HEAD_CELL = "px-3 py-2.5 font-semibold";
 const BODY_CELL = "px-3 py-2.5";
 
 /**
+ * The two controls a client touches most — move a lead's stage, reassign its owner — at
+ * a size a thumb can hit.
+ *
+ * They were `px-1 py-0.5 text-xs`: 12px text in a 16px line box plus 2px each side, so
+ * about a 20px-tall target, inside a table that scrolls sideways on a phone. That is
+ * under WCAG 2.2 SC 2.5.8 Target Size (Minimum), which is 24×24 at Level AA. Both are
+ * WRITES — a mis-tap on the status select changes a lead's stage, and `RowFailure` only
+ * speaks after a FAILED write, never after a wrong one — so the cost of a near-miss here
+ * is a lead in the wrong column that nobody knows moved.
+ *
+ * `min-h-11` (44px) rather than the 24px the AA minimum would accept: it is the size this
+ * repo already uses for a touch target (`components/marketing/faq.tsx`), it clears SC
+ * 2.5.5 Target Size (Enhanced) as well, and one number for "a thing a finger presses" is
+ * worth more than a second, smaller number that happens to pass. The visual compactness
+ * the small padding was buying is preserved by the transparent border and background the
+ * class already carries — the control still reads as text until it is hovered — so the
+ * cost is row height on the table and nothing else. `tests/responsive.test.ts` pins it.
+ */
+const INLINE_EDIT =
+  "min-h-11 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink";
+
+/**
  * Rows per request, named because the bulk bar has to talk about it.
  *
  * "All 100 leads on this page are selected" and "select all 1,240 matching these filters"
@@ -456,13 +478,13 @@ export default function LeadsPage() {
             label={`Status for ${lead.name ?? lead.phone_masked}`}
             disabled={rows.pendingFor(lead.id) || readOnly}
             onChange={(next) => rows.edit(lead.id, { status: next })}
-            className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs capitalize text-ink hover:border-line"
+            className={`${INLINE_EDIT} capitalize hover:border-line`}
           />
         );
       case "owner":
         return ownerCell(
           lead,
-          "rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink hover:border-line",
+          `${INLINE_EDIT} hover:border-line`,
         );
       case "source":
         return lead.source;
@@ -949,7 +971,7 @@ export default function LeadsPage() {
                           label={`Status for ${lead.name ?? lead.phone_masked}`}
                           disabled={rows.pendingFor(lead.id) || readOnly}
                           onChange={(next) => rows.edit(lead.id, { status: next })}
-                          className="mt-1.5 w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs capitalize text-ink"
+                          className={`mt-1.5 w-full ${INLINE_EDIT} border-line capitalize`}
                         />
                         {/* Same control as the table, for the reason the dispatch
                             button below states: the board is where someone works the
@@ -958,7 +980,7 @@ export default function LeadsPage() {
                         <div className="mt-1.5">
                           {ownerCell(
                             lead,
-                            "w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs text-ink",
+                            `w-full ${INLINE_EDIT} border-line`,
                           )}
                         </div>
                         {/* The failure lands on the CARD for the same reason it lands on

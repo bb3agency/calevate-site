@@ -303,7 +303,7 @@ export default function KnowledgePage() {
                             type="button"
                             onClick={() => setSelected(open ? null : source.id)}
                             aria-expanded={open}
-                            className="flex items-center gap-1 rounded-md border border-line px-2 py-0.5 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+                            className="flex items-center gap-1 rounded-md border border-line px-2 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
                           >
                             {open ? (
                               <ChevronUp className="h-3 w-3" />

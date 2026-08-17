@@ -1,5 +1,5 @@
 import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import type { Me } from "@/lib/api/client";
@@ -183,6 +183,49 @@ describe("the delivery log", () => {
     // The CELL, not the page: a dash somewhere on screen is not evidence about this
     // column, and `formatIST` prints one too.
     expect(retriesCell("website_form")).toBe("—");
+  });
+
+  /**
+   * TWO ROWS THE SERVER CANNOT TELL APART STILL RENDER AS TWO ROWS.
+   *
+   * `ingest:{digest}` and `meta:{leadgen_id}` are different provider keyspaces that
+   * `apps/api/ingest/routes.py` maps onto the same `lead_source_id` and the same source
+   * name, and `IngestActivityItemOut` carries neither — so the console can be handed two
+   * rows whose only visible identity is identical. The old key was exactly that identity,
+   * and React's answer to duplicate keys is that children "may be duplicated and/or
+   * omitted".
+   *
+   * The assertion is BOTH: no duplicate-key warning (which is the mechanism), and two
+   * distinct rows on screen (which is what a client came to see). Asserting only the
+   * warning would pass on a render that silently dropped one of them.
+   */
+  it("renders two deliveries the payload cannot tell apart, without a duplicate key", async () => {
+    const warnings: unknown[][] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((...args) => {
+      warnings.push(args);
+    });
+    try {
+      const { container } = await renderPage({
+        [ACTIVITY_PATH]: {
+          items: [
+            // Identical `lead_source_id` AND `event_key` — the collision the two
+            // keyspaces produce — differing only in what the row is for.
+            delivery({ outcome: "rejected", error: "no dialable phone number" }),
+            delivery({ deduplicated: 15 }),
+          ],
+        },
+      });
+
+      await screen.findByText("no dialable phone number");
+      expect(container.querySelectorAll("tbody tr").length).toBe(2);
+      expect(container.textContent).toContain("15");
+      expect(
+        warnings.filter((w) => String(w[0]).includes("same key")),
+        "React duplicate-key warnings — a warning nobody reads is how the next collision hides",
+      ).toEqual([]);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("stays visible to a viewer who cannot act, because the read permission differs", async () => {
