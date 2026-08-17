@@ -115,12 +115,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from typing import Final
 from uuid import UUID
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql, warn_no_plan_in_effect
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -220,6 +222,125 @@ def effective_cap(admin: Decimal | int | None, client: Decimal | int | None) -> 
     """
     values = [Decimal(str(value)) for value in (admin, client) if value is not None]
     return min(values) if values else None
+
+
+# --- telling somebody the cap is about to bite --------------------------------
+#
+# OPERATIONS §4 lists "cap approaching (80%) / breached" as an alert trigger and until
+# this section existed NOTHING in this module called `alert()`. What actually happened
+# when a tenant crossed their ceiling: `capped` went true, `compliance.check_dispatch`
+# refused every subsequent dial with `rule="spend_cap"`, `campaign_dispatch` recorded
+# `record_compliance_block(rule="spend_cap")` — a log line — and the client's campaign
+# stopped dialling with the console still reading "running". Nobody was told, and
+# `runbooks/calls-stopped.md` is a diagnostic somebody has to decide to open.
+#
+# THE SHAPE IS D-140's, DELIBERATELY, NOT A SECOND ALARM DESIGN. `billing/ai_quota.py::
+# _announce_platform_headroom` already built exactly this alarm for the platform's OWN
+# AI spend: announce on the write that CROSSES the line, decide "under before, over
+# after" from the writing statement's own return value, most-severe-first with a break
+# so one large call cannot fire two alarms about one event. That the client-facing cap —
+# the one that stops a paying customer's campaign — had nothing is what makes this an
+# omission rather than a decision, so it is fixed by following that implementation
+# rather than inventing beside it.
+#
+# THE ALARM DOES NOT RIDE THE METRIC STREAM, and that is the point. Every `record_*` in
+# `core/alerting.py` is a log line with no consumer (DEPLOYMENT §8 defers a metrics
+# endpoint), so a threshold rule built on `compliance_blocks` would have been a promise
+# with nothing behind it. `alert()` reaches a person by email today (D-49), which is why
+# the crossing is announced from here rather than counted somewhere.
+
+#: How full the effective ceiling may get before an operator is told, as a fraction.
+#: The same number and the same reasoning as `ai_quota.PLATFORM_BRAKE_WARN_AT`: at 80%
+#: there is a fifth of the month's allowance left to investigate in, which is the
+#: difference between an operator with a decision and an operator with an incident.
+CAP_WARN_AT: Final = Decimal("0.80")
+
+
+def cap_fullness(
+    *,
+    minutes_used: Decimal,
+    billed_inr: Decimal,
+    cap_min: Decimal | None,
+    cap_spend: Decimal | None,
+) -> Decimal | None:
+    """How full the FULLEST binding ceiling is, as a fraction. `None` = nothing binds.
+
+    One number rather than two because `over_cap_sql` already treats the two ceilings as
+    a disjunction — EITHER closes the gate — so the fraction that decides when to speak
+    is the larger of them. A tenant at 95% of their minutes and 10% of their rupees is
+    at 95% of being stopped, and an alarm that averaged the two would say 52%.
+
+    A ceiling of ZERO reads as full, not as a division by zero: `over_cap_sql` caps at
+    `used >= 0`, so a zero ceiling is a tenant that may not dial at all. Decimal
+    throughout — no ratio here becomes a float (hard rule 7), because the comparison
+    against `CAP_WARN_AT` has to be exact at the boundary.
+    """
+    fractions: list[Decimal] = []
+    for used, ceiling in ((minutes_used, cap_min), (billed_inr, cap_spend)):
+        if ceiling is None:
+            continue
+        ceiling = Decimal(str(ceiling))
+        fractions.append(Decimal("1") if ceiling <= 0 else Decimal(str(used)) / ceiling)
+    return max(fractions) if fractions else None
+
+
+def announce_cap_headroom(
+    *, tenant_id: UUID, month: str, before: Decimal | None, after: Decimal | None
+) -> None:
+    """Tell an operator on the write that CROSSES a line, and only then.
+
+    `before`/`after` are `cap_fullness` either side of the write. Crossing rather than
+    level is what makes this exactly-once per tenant per month with no second table:
+    every later call in a capped month is over the line both before and after, so it
+    says nothing. A tenant with no ceiling before (`None` — a plan minted mid-month, a
+    ceiling that was NULL) reads as empty rather than as silent, so arriving under a new
+    ceiling already over it is still a crossing.
+
+    Never raises: `alert()` is documented not to, and a metered call must not be undone
+    by a failure to talk about it.
+
+    WHY ONLY THE METER CALLS THIS, and not the other two writers of `spend_state.capped`.
+    Both of them are a human acting deliberately — the client's own stop button, whose
+    response body already says `capped`, and the ops recompute, which an operator ran on
+    purpose. The incident this alarm exists for is the crossing NOBODY chose: usage
+    walking into a ceiling while a campaign dials. Alerting on the other two would page
+    an operator about their own click, which is how a channel gets muted.
+    """
+    if after is None:
+        return
+    opened = before if before is not None else Decimal("0")
+    for threshold, code, detail in (
+        (
+            Decimal("1"),
+            "tenant_spend_capped",
+            "OUTBOUND CALLING HAS STOPPED for this tenant: this month's usage reached "
+            "their effective spend cap (the stricter of the plan ceiling and the cap "
+            "they set themselves). Every dial is now refused with rule=spend_cap and "
+            "their campaigns will read 'running' while dialling nothing. Inbound is "
+            "unaffected. It clears on the IST month roll, by raising plans.hard_cap_* "
+            "(admin) or by the client raising their own cap.",
+        ),
+        (
+            CAP_WARN_AT,
+            "tenant_spend_cap_approaching",
+            "This tenant has used 80% of their effective spend cap. At 100% every "
+            "outbound dial is refused and their campaigns stop dialling silently. "
+            "Check the campaign and the ceiling before it gets there.",
+        ),
+    ):
+        if opened < threshold <= after:
+            alert(
+                "CORE_LOGIC",
+                code,
+                detail=detail,
+                # Ids and a percentage. No phone, no call, no lead (hard rule 6), and no
+                # rupee figure: the ceiling is commercial and the fraction is what an
+                # operator acts on.
+                tenant_id=str(tenant_id),
+                month=month,
+                used_pct=f"{after * 100:.0f}",
+            )
+            break
 
 
 @dataclass(frozen=True, slots=True)
@@ -497,13 +618,16 @@ async def apply_client_caps(
 
 __all__ = [
     "CAPS_CTE",
+    "CAP_WARN_AT",
     "EFFECTIVE_CAP_MIN_SQL",
     "EFFECTIVE_CAP_SPEND_SQL",
     "NO_SPEND_THIS_MONTH",
     "CapView",
     "CapWriteResult",
     "SpendCounters",
+    "announce_cap_headroom",
     "apply_client_caps",
+    "cap_fullness",
     "effective_cap",
     "lock_tenant_spend_state",
     "over_cap_sql",
