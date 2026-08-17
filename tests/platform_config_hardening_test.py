@@ -977,6 +977,46 @@ async def test_one_unparseable_row_is_refused_and_the_rest_of_the_refresh_lands(
             await session.commit()
 
 
+async def test_the_never_raises_promise_covers_the_whole_of_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`refresh`'s docstring promises it never raises and `_poll_forever`'s comment
+    depends on that promise — "this loop cannot die". Half the body used to sit OUTSIDE
+    the `try`: `_resolve`, the secret merge, `apply_platform_overrides` and the snapshot
+    construction (D-182).
+
+    Nothing there raises today, which is exactly what made it dangerous: the promise held
+    by the current contents of two other functions rather than by this one's structure.
+    The day one of them raised, the exception would leave `refresh`, leave `_poll_forever`
+    — which has no guard of its own — and end the refresher task. The process would then
+    serve its last snapshot for ever with NOTHING RED: both alerts for that condition are
+    inside the `except` that did not cover the raising code, and asyncio swallows a dead
+    task's exception into a result nobody retrieves. An operator would see a console
+    change applied on some processes and not on others.
+
+    So the failure is injected where it was unguarded, and the assertion is the promise:
+    no exception, a degraded snapshot, and an alert an operator can act on.
+    """
+    fired: list[str] = []
+
+    def _explodes(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("a managed field grew a resolver that can fail")
+
+    monkeypatch.setattr(pc, "_resolve", _explodes)
+    monkeypatch.setattr(pc, "alert", lambda stage, code, **kw: fired.append(code))
+
+    snapshot = await pc.refresh(force=True)
+    monkeypatch.undo()
+
+    assert snapshot.degraded is True, "a failed rebuild must say the snapshot is stale"
+    assert fired, "the refresh failed silently — the poller's only alarm is inside `except`"
+    assert fired[-1] in {"platform_config_stale", "platform_config_never_loaded"}
+
+    # And the loop is still alive afterwards: a real refresh lands on the next call.
+    healthy = await pc.refresh(force=True)
+    assert healthy.degraded is False
+
+
 # --- 6. the restart that IS genuinely needed still drains -----------------------
 
 

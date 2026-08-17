@@ -436,9 +436,12 @@ What is done about it:
 - **Order.** workers first (no reader waits on them; a job landing in their gap sits in
   Redis), then api, then **voice-runtime last** — its gap is the only one that costs a
   call, so it is the shortest-lived and the last thing to happen.
-- **Graceful stop.** `stop_grace_period` is 30s for voice-runtime (longer than its 2s
-  durable deadline plus the ack budget) and 60s for workers, so in-flight work finishes
-  instead of being killed.
+- **Graceful stop.** `stop_grace_period` is 30s for api and voice-runtime (each longer
+  than its uvicorn `--timeout-graceful-shutdown`, 25s and 20s, so the drain finishes and
+  the lifespan's shutdown hooks still get to run) and 60s for workers, so in-flight work
+  finishes instead of being killed. The api's was ABSENT until D-182, which meant Docker's
+  10-second default against a 25-second drain: every api deploy ended in SIGKILL.
+  `tests/worker_reliability_test.py` pins drain < grace for all three services.
 - **The safety net already exists.** A delivery arriving in voice-runtime's gap gets no
   ack; Bolna does not retry (D-31); the reconciliation poller recovers it on a 10-minute
   tick. Leads appear late, not never. This is the same net OPERATIONS §5 leans on.

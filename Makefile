@@ -244,6 +244,12 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# which hold the inbox and outbox replay keys and which `check_audit_ip` does not scan
 	# (D-175). Negative controls in tests/idempotency_scope_guard_test.py.
 	uv run python -m scripts.check_idempotency_scope
+	# How many pooled connections one task may hold at once (D-182). The pool's
+	# `max_overflow` is 1, so two is survivable and three is a self-deadlock against a
+	# saturated pool — and the shape that produces three is a cross-module call chain no
+	# single-file reviewer can see. Syntax-decidable; needs no database. Negative
+	# controls, including a doctored three-deep tree, in tests/session_nesting_guard_test.py.
+	uv run python -m scripts.check_session_nesting
 	uv run python -m scripts.check_redaction_exposure
 	# Raw SQL is how most tenant-scoped access is written here (493 statements), and it
 	# runs as a NOBYPASSRLS role — so an injection is not a leak in one account, it is a

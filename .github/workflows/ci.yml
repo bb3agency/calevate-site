@@ -248,6 +248,14 @@ jobs:
         # here and in the inbox/outbox replay keys (D-175).
         run: uv run python -m scripts.check_idempotency_scope
 
+      - name: "Guardrail: nested connections stay inside the pool's overflow (D-182)"
+        if: ${{ !cancelled() }}
+        # `max_overflow=1` makes a task that holds two connections survivable and a task
+        # that holds three a self-deadlock against a saturated pool. The ceiling is
+        # decidable from syntax — no database, no boot — and the number here is the same
+        # number as `db/session.py`'s, which `tests/session_nesting_guard_test.py` pins.
+        run: uv run python -m scripts.check_session_nesting
+
       - name: "Guardrail: env parity (fail-fast config)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity
