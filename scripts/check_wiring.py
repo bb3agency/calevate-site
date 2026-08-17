@@ -44,6 +44,11 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   worker answers to — is `tests/job_registration_test.py`. What this file adds there is
   in `tests/wiring_guard_test.py`: that `WorkerSettings` still IS those two lists.
 
+AND A FIFTH SECTION THAT RUNS FIRST (D-176): three of the four questions above compare a
+declaration against a registry, and a comparison whose LEFT side is empty answers yes for
+everything. `blind_spots()` is what stops `WIRING: OK (0 routers all mounted)` — which is
+what this file printed when the router scan was pointed at a directory that had moved.
+
 Run: `uv run python -m scripts.check_wiring`  (also in `make guardrails`)
 """
 
@@ -393,6 +398,47 @@ def unwired_columns(
     )
 
 
+def blind_spots() -> list[str]:
+    """Has the tree moved out from under this check? (D-176)
+
+    Three of the four questions below are "is this declaration in that registry", and a
+    comparison whose LEFT side is empty answers yes for everything. `unmounted_routers`
+    was the live instance: `declared_routers()` walks `apps/api` and `apps/voice-runtime`
+    with `rglob`, a missing directory yields nothing without raising, and the section then
+    reports no offenders — `WIRING: OK (0 routers all mounted)`. `stale_baseline` covers
+    the column half by accident (every baseline entry would name a column that no longer
+    exists), and accident is not the standard the audit that found this asked for.
+
+    Floors rather than "> 0" where a floor means something: the tree declares 47 routers
+    and 529 `Mapped[...]` columns today, so a scan returning three of either is looking at
+    the wrong place even though it is not looking at an empty one. An order of magnitude
+    below the real counts, because the question is "is this registry still populated" and
+    a floor that tracked the real number would fail on every deletion.
+    """
+    failures: list[str] = []
+    routers = declared_routers()
+    if len(routers) < 10:
+        failures.append(
+            f"only {len(routers)} module-level APIRouter declaration(s) found under "
+            f"{API_ROOT.name}/ and {VOICE_RUNTIME_ROOT.name}/ — the scan is looking at the "
+            "wrong place, and section 1 reports every router as mounted when it can see none"
+        )
+    if not mounted_endpoints():
+        failures.append(
+            "neither live app exposes a single endpoint, so `unmounted_routers` is "
+            "comparing every declared router against an empty route table — which reports "
+            "OK only because it can no longer see what mounting means"
+        )
+    columns = _declared_columns(_model_files(SCAN_ROOTS))
+    if len(columns) < 100:
+        failures.append(
+            f"only {len(columns)} `Mapped[...]` column(s) found under "
+            f"{[root.name for root in SCAN_ROOTS]} — section 3 is judging a fraction of the "
+            "schema and would report OK on a column nothing touches"
+        )
+    return failures
+
+
 def stale_baseline() -> list[str]:
     """The baseline may only shrink, and only by wiring something.
 
@@ -420,6 +466,7 @@ def stale_baseline() -> list[str]:
 
 def main() -> int:
     sections = (
+        ("this check cannot see its own subject", blind_spots()),
         ("routers nothing mounts", unmounted_routers()),
         ("migrations no head reaches", unreachable_migrations()),
         ("columns no code touches", unwired_columns()),

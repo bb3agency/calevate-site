@@ -164,7 +164,9 @@ jobs:
         if: ${{ !cancelled() }}
         # `alembic/env.py` generates the next migration against `Base.metadata`, so a
         # column that exists only in the database is a proposed DROP. Runs after
-        # `Migrate` because it compares the models against the real schema, not a file.
+        # `Migrate` because it compares the models against the real schema, not a file —
+        # and exits 2 REFUSED if that step did not happen, since an absent table hides
+        # all of its columns from the comparison rather than failing it (D-176).
         run: uv run python -m scripts.check_metadata_columns
 
       - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"

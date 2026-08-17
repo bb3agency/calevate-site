@@ -30,6 +30,7 @@ from typing import Any
 import pytest
 from apps.api.db.registry import APPEND_ONLY_TABLES, RLS_EXEMPT_TENANT_COLUMNS, TENANT_TABLES
 from scripts import (
+    check_config_applies,
     check_env_parity,
     check_ledger_immutability,
     check_openapi_fresh,
@@ -815,11 +816,58 @@ class TestEnvParity:
             for failure in unregistered
         ), unregistered
 
+    def test_a_search_that_looks_at_nothing_refuses(self, tmp_path: Path) -> None:
+        """D-176. The third direction is a SEARCH, and `rglob` over a directory that has
+        been renamed yields nothing without raising — so `0 direct environment reads
+        accounted for` was printed beside the word OK. Both halves are pinned: a missing
+        scan root, and a matcher that has stopped recognising the read."""
+        assert check_env_parity.direct_env_reads(tmp_path) == {}, "the scan sees an empty tree"
+
+        missing_root = check_env_parity.blind_spots(root=tmp_path)
+        assert any("does not exist" in failure for failure in missing_root), missing_root
+        assert any("AST matcher" in failure for failure in check_env_parity.blind_spots(reads={}))
+        assert check_env_parity.blind_spots(reads=check_env_parity.direct_env_reads()) == []
+
     def test_every_sdk_exemption_carries_a_reason(self) -> None:
         """An entry with an empty reason is an exemption nobody has to justify, which is
         how a registry turns into a wildcard one line at a time."""
         for key, reason in check_env_parity.SDK_ENV_KEYS.items():
             assert len(reason) > 60, f"{key}'s exemption does not say why"
+
+
+# ============================================================================
+# check_config_applies — the registry it iterates is derived, so it can empty itself
+# ============================================================================
+
+
+class TestConfigApplies:
+    """D-176. Four of this check's five sections iterate `classified_keys()`; iterating
+    an empty tuple returns `[]` from each, which is indistinguishable from a clean run.
+    `managed_fields()` is computed from `Settings` BY EXCLUSION, so nobody has to edit a
+    list for that to happen — which is why the refusal is a section rather than a comment.
+    """
+
+    def test_the_live_registries_are_populated(self) -> None:
+        assert check_config_applies.blind_spots() == []
+
+    def test_an_empty_managed_set_is_refused_rather_than_passed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(check_config_applies, "managed_fields", tuple)
+
+        assert check_config_applies.check_every_key_is_classified() == [], (
+            "the vacuous pass: with nothing managed, the classification check has nothing "
+            "to complain about"
+        )
+        assert check_config_applies.check_bounds() == []
+        assert any(
+            "console-managed setting" in failure for failure in check_config_applies.blind_spots()
+        )
+
+    def test_an_empty_credential_set_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(check_config_applies, "manageable_secret_keys", tuple)
+
+        assert any("credential(s)" in f for f in check_config_applies.blind_spots())
 
 
 # ============================================================================
@@ -911,6 +959,39 @@ class TestMakefileWiring:
         targets = {m.group(1) for m in re.finditer(r"^([a-zA-Z][\w-]*):", text, re.MULTILINE)}
         assert targets - phony == set(), "a non-phony target is a no-op waiting to happen"
 
+    def _makefile_commands(self) -> str:
+        """Only the RECIPE lines — the ones make hands to a shell.
+
+        A Makefile recipe line begins with a TAB; everything else is a target line, a
+        variable or prose. A tab followed by `#` is a comment INSIDE a recipe, which make
+        passes to the shell as a comment and which runs nothing. Both are stripped here
+        for the reason in `test_every_guardrail_script_runs_in_both_gates`.
+        """
+        lines = self._makefile().splitlines()
+        return "\n".join(
+            line.lstrip("\t")
+            for line in lines
+            if line.startswith("\t") and not line.lstrip("\t").startswith("#")
+        )
+
+    def _workflow_commands(self) -> str:
+        """Every `run:` scalar in the workflow, from the parsed YAML.
+
+        Parsed rather than grepped so that a script named in a step's `name:`, in a `#`
+        comment, or in this file's own prose cannot stand in for a step that executes it.
+        """
+        import yaml
+
+        document = yaml.safe_load(
+            (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        )
+        return "\n".join(
+            str(step["run"])
+            for job in document["jobs"].values()
+            for step in job.get("steps", [])
+            if isinstance(step, dict) and "run" in step
+        )
+
     def test_every_guardrail_script_runs_in_both_gates(self) -> None:
         """Globbed off `scripts/`, never typed out here.
 
@@ -919,15 +1000,62 @@ class TestMakefileWiring:
         enforced a rule the gate that blocks merge did not, which is the one direction
         that matters. A list that grows itself cannot fall behind: a new `check_*.py` is
         in this test the moment the file exists, and it fails until both gates run it.
+
+        **AND IT NOW LOOKS AT COMMANDS RATHER THAN AT FILE TEXT (D-176).** It used to ask
+        whether `scripts.check_x` appeared ANYWHERE in the Makefile and anywhere in the
+        workflow — and both files are heavily commented, several of those comments naming
+        the very scripts beside them. A check deleted from the `guardrails` recipe but left
+        in the comment that explains it, or a CI step whose `name:` says what its `run:` no
+        longer does, satisfied every assertion here. That is the reference implementation's
+        own defect in miniature — evidence produced by the thing being audited — inside the
+        test whose job is to notice it. The two accessors above reduce each file to the
+        lines a shell actually executes.
         """
         scripts = sorted(path.stem for path in (REPO_ROOT / "scripts").glob("check_*.py"))
         assert len(scripts) >= 5, "the guardrail pack cannot have shrunk to nothing"
-        makefile = self._makefile()
-        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        makefile = self._makefile_commands()
+        workflow = self._workflow_commands()
         for script in scripts:
-            assert f"scripts.{script}" in makefile, f"{script} is in no `make guardrails` line"
-            assert f"scripts.{script}" in workflow, f"{script} runs in no CI step"
+            assert f"scripts.{script}" in makefile, (
+                f"{script} is named in no COMMAND in the Makefile. A mention in a comment "
+                "is not a gate."
+            )
+            assert f"scripts.{script}" in workflow, (
+                f"{script} is in no CI step's `run:`. A step name that mentions it is not a "
+                "step that runs it."
+            )
         assert "lint-imports" in makefile and "lint-imports" in workflow
+
+    def test_every_guardrail_script_is_named_in_the_catalogue(self) -> None:
+        """ENGINEERING-PRACTICES §2 is where somebody looks up what guards what.
+
+        It listed twelve of the twenty scripts when D-176 audited them — the eight it had
+        never heard of are exactly the ones nobody would think to run, argue with, or
+        notice the absence of. Keyed on the script PATH rather than the `check:` name so a
+        row cannot satisfy this with a name the tree does not use.
+        """
+        catalogue = (REPO_ROOT / "docs" / "ENGINEERING-PRACTICES.md").read_text(encoding="utf-8")
+        missing = [
+            path.name
+            for path in sorted((REPO_ROOT / "scripts").glob("check_*.py"))
+            if f"scripts/{path.name}" not in catalogue
+        ]
+        assert missing == [], (
+            f"{missing} run in both gates and appear in no row of the guardrail catalogue. "
+            "A check the docs do not name is one the next reader cannot argue with."
+        )
+
+    def test_the_command_accessors_are_not_reading_everything(self) -> None:
+        """The accessors above are the load-bearing half of the test before this one, so
+        they get their own control: a string that appears ONLY in a comment in each file
+        must not survive the reduction. Without this, a bug that returned the whole file
+        would restore the weakness silently and every assertion would still pass."""
+        assert "P4.3" in self._makefile(), "the Makefile comment this control keys on moved"
+        assert "P4.3" not in self._makefile_commands()
+
+        raw = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        assert "Guardrail: engine isolation" in raw, "the CI step name this control keys on moved"
+        assert "Guardrail: engine isolation" not in self._workflow_commands()
 
     def test_make_check_runs_what_ci_runs(self) -> None:
         """CI is the authority; the Makefile is the local mirror. Every backend command
