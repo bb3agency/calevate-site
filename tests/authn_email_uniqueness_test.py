@@ -149,6 +149,58 @@ def test_the_ambiguity_refusal_survives_the_constraint_that_made_it_unreachable(
     assert "LIMIT 2" in source, "the query must still be able to SEE a second row"
 
 
+@pytest.mark.asyncio
+async def test_the_invitation_path_reuses_the_live_row_rather_than_making_a_second(
+    planted: list[uuid.UUID],
+) -> None:
+    """`_find_or_create_user`'s two outcomes, on the address that already exists.
+
+    This is the function that gained `ON CONFLICT` — one person invited to two client
+    businesses is the ordinary case (`memberships` is the many-to-many), and it must find
+    the row rather than plant a rival. **Nothing exercised it before**: `accept_with_password`
+    had no test at all, so the read-then-write it used to be was never driven.
+    """
+    from apps.api.authn.invitations import _find_or_create_user
+
+    email = f"twice-{uuid.uuid4().hex[:10]}@calevate-test.example"
+    at = datetime.now(UTC)
+    first, created = await _find_or_create_user(email=email, name="Ravi", at=at)
+    planted.append(first)
+    assert created is True
+
+    second, created_again = await _find_or_create_user(email=email.upper(), name=None, at=at)
+    assert (second, created_again) == (first, False), (
+        "a second invitation to the same address must join the existing account"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_simultaneous_first_redemption_loses_cleanly_instead_of_duplicating(
+    planted: list[uuid.UUID],
+) -> None:
+    """The race the constraint now decides. Two invitations to one BRAND NEW address,
+    redeemed together: both read nothing, both INSERT, one conflicts, and the loser
+    re-reads the winner's id. Before D-178 both inserted and the address became
+    unresolvable for both people until a human merged the rows."""
+    import asyncio
+
+    email = f"race-{uuid.uuid4().hex[:10]}@calevate-test.example"
+    at = datetime.now(UTC)
+    results = await asyncio.gather(
+        _find_or_create_user_shim(email, at), _find_or_create_user_shim(email, at)
+    )
+    ids = {r[0] for r in results}
+    planted.extend(ids)
+    assert len(ids) == 1, f"the race planted two rows: {ids}"
+    assert sorted(r[1] for r in results) == [False, True], results
+
+
+async def _find_or_create_user_shim(email: str, at: datetime) -> tuple[uuid.UUID, bool]:
+    from apps.api.authn.invitations import _find_or_create_user
+
+    return await _find_or_create_user(email=email, name=None, at=at)
+
+
 # ═══════════════ what the constraint is NOT ═══════════════
 
 
