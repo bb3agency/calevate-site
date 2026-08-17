@@ -45,21 +45,20 @@ def test_no_module_holds_a_direct_langfuse_client() -> None:
     It refuses the SDK IMPORT, not the vendor. Choosing Langfuse is a decision plus
     credentials (config.py names both); this only makes the unfiltered spelling of it
     fail here first, where the reason is written down.
-    """
-    import ast
-    from pathlib import Path
 
-    root = Path(__file__).resolve().parents[1]
-    offenders: list[str] = []
-    for source in (*root.glob("apps/**/*.py"), *root.glob("packages/**/*.py")):
-        for node in ast.walk(ast.parse(source.read_text(encoding="utf-8"))):
-            names: list[str] = []
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                names = [node.module or ""]
-            if any(name == "langfuse" or name.startswith("langfuse.") for name in names):
-                offenders.append(f"{source.relative_to(root)}:{node.lineno}")
+    THE SCAN MOVED, AND THIS TEST FOLLOWED IT (D-169). The AST walk used to live in this
+    function and covered `apps/` and `packages/`. It is now the langfuse rung of
+    `scripts/check_observability_ready.py`, which runs in `make guardrails` and in CI —
+    so the rule blocks a merge rather than only failing a suite — and which asks two
+    surfaces this test never could: `scripts/` (operator tooling talks to the same
+    models) and the dependency manifest, because a declared package with no import yet
+    is the commit before the import. Calling the guardrail here rather than keeping a
+    second copy is the house rule: two implementations of one rule agree with each other
+    right up until one of them is edited.
+    """
+    from scripts.check_observability_ready import langfuse_footholds
+
+    offenders = langfuse_footholds()
     assert not offenders, (
         "a direct Langfuse client bypasses `_RedactingSpanExporter` (hard rule 6). Export "
         "the existing OTel spans to a Langfuse OTLP endpoint instead, and record the "

@@ -55,8 +55,35 @@ and it still runs before anything is built, migrated or swapped. Between them on
 | `PLATFORM_KEK is not set in .env` | It unwraps every console-managed credential. It is in neither `BOOTSTRAP_REQUIRED` nor `runtime_config_missing_keys`, so without this refusal the deploy goes green and the first vendor call fails. Take it from the secrets manager — never generate a new one on a deployment that already has stored secrets: the old ones become undecryptable. |
 | `VOICE_RUNTIME_WORKERS is N on an M-vCPU host` | DEPLOYMENT §2a. Set it to the vCPU count. The supported concurrency drops with it (§2a's table) — that is the honest answer on a smaller box, and adding workers back is not. |
 | `swap is NMB` (warning, not a refusal) | `next build` peaks over 2GB and an OOM kill produces no error at all. On a box with plenty of free RAM this is safe to ignore; check `free -m` before you do. |
-| `NGINX_AUTO_RELOAD=1 but nginx is not installed` / `needs passwordless sudo` | Plan-scoped (`nginx`), and only when the script is going to write to `/etc/nginx`. Under CD a prompting sudo does not fail — it blocks until the job times out, with the containers already swapped. |
+| `NGINX_AUTO_RELOAD=1 but nginx is not installed` / `NGINX_AUTO_RELOAD=1 but /usr/local/sbin/calevate-nginx-apply is not installed` | Plan-scoped (`nginx`), and only when the script is going to write to `/etc/nginx`. The privileged script is installed by a human, once per host — `infra/privileged/README.md` §2. |
+| `this account may not run /usr/local/sbin/calevate-nginx-apply without a password prompt` | The sudoers policy is missing, or is being IGNORED: sudo silently skips any file in `/etc/sudoers.d` whose name contains a `.`. Check with `sudo -l -U <deploy-user>` — if it lists nothing, that is the cause. Under CD a prompting sudo does not fail, it blocks until the job times out with the containers already swapped. Do NOT "fix" this by widening the policy; DEPLOYMENT §11. |
+| `<path> is missing or not writable by this account` | The nginx staging directory. Create it per `infra/privileged/README.md` §2 — the deploy hands rendered config to root through that fixed path, because the sudoers grant permits no arguments. |
 | `the nginx step needs these exported` | Plan-scoped (`nginx`). `ROOT_DOMAIN`, `TLS_LIVE_DIR`, `ORIGIN_CERT_PATH`, `ORIGIN_KEY_PATH` are exported in the operator's shell (CD supplies them from repo Variables) — DEPLOYMENT §9 step 4a. |
+
+## 1b. Failed at `reclaim disk`
+
+`not enough free disk to build, after pruning, purging the build cache, dropping every
+per-commit image but the newest, and removing every unreferenced image.`
+
+**Nothing has been built, migrated or swapped.** The step runs before all three precisely
+so the disk is not discovered halfway through a layer extraction, and the ladder has
+already taken everything Docker had to give (DEPLOYMENT §4 step 5). So this is not a Docker
+problem: something else on the volume is. `du -xhd1 / | sort -rh`, then again one level
+down on whatever is largest. Usual suspects on this host: the journal if the
+`SystemMaxUse=` cap was never installed (`infra/hygiene/journald-cap.conf`), the pnpm
+store, `apps/web/.next`, and Postgres's `pg_wal` if archiving has stalled — which is a
+backup incident first and a disk incident second (`runbooks/backup-*`).
+
+Note what the ladder may already have cost you: below the purge floor it drops per-commit
+app images beyond the newest, so **a rollback to an older commit may now be a rebuild
+rather than a swap.** The deploy says so when it does it.
+
+Do not raise `RECLAIM_REFUSE_FLOOR_GB` to get past this. It is the number below which a
+build fails halfway and leaves dangling layers, which makes the next attempt fail sooner.
+
+`another deploy or the daily hygiene job has held …/host.lock` is the other refusal from
+this area, and it happens before preflight. `fuser -v <path>` names the holder. A dead
+deploy never leaves a stale lock — `flock` releases on exit, however the process exits.
 
 ## 2. Failed at `build` or `verify bootstrap env`
 
@@ -205,9 +232,12 @@ Containers are already swapped and healthy; this is the tail of the deploy.
   half is not cosmetic. `nginx -t` reads `/etc/nginx`, so a candidate config has to be
   installed before it can be tested, and this step used to leave a rejected config sitting
   there: the running nginx was fine, and the next reload was not — and reloads are
-  triggered by Debian's daily logrotate and by certbot's renewal hook, days later, by
-  nobody. The abort message names both directories: the rendered files (to read the error
-  against) and the backup of the set that was replaced. If the message instead says the
+  triggered by Debian's daily logrotate and by certbot's renewal hook (DEPLOYMENT §9.5a
+  step 5), days later, by nobody. The abort message comes from
+  `/usr/local/sbin/calevate-nginx-apply` — the root-owned script that owns this whole
+  install/test/restore sequence (DEPLOYMENT §11) — and names both directories: the staging
+  set (to read the error against) and the backup of the set that was replaced, under
+  `/var/tmp/calevate-nginx-backup.*`. If the message instead says the
   RESTORED config does not test either, stop and treat `/etc/nginx` as unknown — do not
   reload anything until `nginx -t` is clean.
 - **`pm2 reload` succeeded but the site is stale**: `--update-env` is already passed;

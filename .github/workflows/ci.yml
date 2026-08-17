@@ -175,6 +175,25 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_config_applies
 
+      - name: "Guardrail: observability readiness ladder (D-169)"
+        if: ${{ !cancelled() }}
+        # Disabled skips, enabled-but-misconfigured FAILS naming the setting. Catches the
+        # state nothing else could see: a component this deployment believes is reporting
+        # and is not. Also holds the two export filters hard rule 6 rests on
+        # (`before_send`/`before_breadcrumb` on the error path, `_RedactingSpanExporter`
+        # on the trace path) and the D-49 decision that Langfuse is not wired.
+        # NO NETWORK: reachability is OPERATIONS §2 gate 15, against real hosts.
+        run: uv run python -m scripts.check_observability_ready
+
+      - name: "Guardrail: restore-drill evidence has not expired (D-166)"
+        if: ${{ !cancelled() }}
+        # Reads the newest quarterly record in docs/evidence/. NOT RUN today — no drill
+        # record exists and OPERATIONS §8's "backups verified" is untick — and the step
+        # prints that on every build rather than passing quietly. The check is
+        # structurally incapable of producing the evidence it reads, which is the whole
+        # of D-166: this step can never be preceded by one that manufactures a pass.
+        run: uv run python -m scripts.check_drill_freshness
+
       - name: "Guardrail: redaction exposure (hard rule 5)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_redaction_exposure
@@ -222,6 +241,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity
 
+      - name: "Guardrail: deploy env preflight (the VALUES, not the key names)"
+        if: ${{ !cancelled() }}
+        # The gate `scripts/vps-deploy.sh` runs inside the new image before migrations
+        # (D-168), pointed at the environment CI itself declares. Most of its refusals are
+        # scoped to APP_ENV != local and are therefore inert here — that is honest rather
+        # than hidden: the substance is `tests/deploy_env_preflight_test.py`, which builds
+        # a bad `.env` per refusal and asserts on the named reason. What THIS step buys is
+        # that the entry point still imports and still exits 0 on a coherent environment,
+        # so a deploy is never the place a broken preflight is discovered.
+        run: uv run python -m scripts.check_deploy_env
+
       - name: "Guardrail: web env parity (browser config)"
         if: ${{ !cancelled() }}
         # The other tier's half of the same rule. `next build` inlines NEXT_PUBLIC_*, so a
@@ -230,9 +260,25 @@ jobs:
         # rather than the frontend one: it is a Python guardrail and needs no Node.
         run: uv run python -m scripts.check_web_env_parity
 
+      - name: "Guardrail: raw SQL is built from our own source (D-172)"
+        if: ${{ !cancelled() }}
+        # Most tenant-scoped access here is hand-written SQL executed as a NOBYPASSRLS
+        # role, so an injection is a cross-tenant breach rather than one account's leak.
+        # Where a SQL fragment is passed in by callers, the check follows it to the call
+        # sites — that half is why `plan_in_effect_sql`'s "no caller does" is now enforced.
+        run: uv run python -m scripts.check_raw_sql
+
       - name: "Guardrail: OpenAPI snapshot freshness"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_openapi_fresh
+
+      - name: "Guardrail: the unauthenticated surface is enumerated (D-173)"
+        if: ${{ !cancelled() }}
+        # `assert_policy_registry_complete` skips everything under a PUBLIC_PREFIXES
+        # entry, which makes a prefix default-OPEN for every route added under it later.
+        # This enumerates the exempt set instead and checks each row's claimed credential
+        # against the module that serves it.
+        run: uv run python -m scripts.check_public_routes
 
       - name: "Quality gate: regression suite (ratchet)"
         if: ${{ !cancelled() }}

@@ -45,6 +45,20 @@
  */
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * TOUCH, as a variant — so a tap-target rule is written where the control is styled.
+ *
+ * `pointer: coarse` rather than a width breakpoint, because a tap target is a fact about
+ * the FINGER, not the viewport: a 360px-wide desktop WINDOW does not need 44px controls,
+ * and a 1024px tablet does. Keying on width would have changed the console's density for
+ * every operator with a narrow window — a desktop regression, which this sweep must not
+ * cause — while still missing the tablet it is for.
+ *
+ * A `@custom-variant` for the same reason `dark` above is one: the alternative is a
+ * hand-rolled media query per component, and the second copy is where the two drift.
+ */
+@custom-variant touch (@media (pointer: coarse));
+
 .dark {
   --app: #020617;
   --surface: #0f172a;
@@ -112,6 +126,60 @@ body {
   color: var(--text);
   /* Use PPMori as the primary font */
   font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * NO TEXT-ENTRY CONTROL UNDER 16px ON A TOUCH DEVICE — the iOS zoom rule.
+ *
+ * Mobile Safari zooms the viewport when a text control smaller than 16px takes focus, and
+ * it does NOT zoom back out on blur: the client is left panned into a form on a console
+ * they must then pinch their way out of, on every field, on every screen. Measured with a
+ * real Chromium across the 47 swept screens at 320/360/414: 122 controls sat at 12–14px,
+ * because `text-sm`/`text-xs` is a DESKTOP density and the controls inherited it.
+ *
+ * A BASE RULE rather than a utility per control, deliberately. This is a platform
+ * behaviour, not a design decision, and it has to hold for the next input somebody adds
+ * as much as for the 122 that exist — `touch:text-base` at every call site is the same
+ * rule written 122 times, and the 123rd is the one that gets forgotten. Grep confirms no
+ * control in this app asks for `text-base` or larger, so this only ever raises a size.
+ *
+ * UNLAYERED on purpose. `@import "tailwindcss"` puts utilities in a cascade layer, and a
+ * layered `text-sm` beats an equally-unlayered-but-lower-specificity element selector;
+ * unlayered declarations win over every layered one regardless of specificity, which is
+ * the same mechanism the `body` and `html` rules in this file already rely on. Written
+ * inside `@layer base` it would have been silently overridden by `text-sm` and this whole
+ * rule would have been decorative.
+ *
+ * Checkbox and radio are excluded: they render no text, and their tap area is a box size
+ * set at the call site rather than anything font-size controls.
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+
+  /*
+   * Checkbox and radio get a BOX minimum instead, for the same audience and the same
+   * reason. Measured at 13x13 (browser default) and as small as 12x12 where a call site
+   * set `h-3 w-3` — under even WCAG 2.2 AA's 2.5.8 floor of 24x24, on controls that
+   * confirm a DNC entry or a consent record.
+   *
+   * 24px, not the 44px used for buttons, and that is a deliberate stop short: these sit
+   * inline in table rows and list items where 44px would re-flow the row rather than
+   * enlarge a target, and 2.5.8's own note exempts a control whose row spacing already
+   * separates it. Getting to 44px means restructuring those rows so the LABEL is the
+   * target — a change to the markup of each screen, not a size on the box.
+   *
+   * `min-*` rather than `width`/`height` so a call site that deliberately draws a bigger
+   * box keeps it; min-width beats width in the used-value calculation.
+   */
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-width: 24px;
+    min-height: 24px;
+  }
 }
 
 h1,
