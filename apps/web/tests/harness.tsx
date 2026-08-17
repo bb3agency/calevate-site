@@ -204,18 +204,29 @@ export interface ClientPageRender extends RenderResult {
  * outside `act` — which shows up as an empty container and a warning, not as a failure
  * anyone can read. Awaiting an async `act` lets the boundary resolve before the test
  * looks.
+ *
+ * `sharedClient` exists for ONE kind of claim and should not be reached for otherwise: a
+ * defect that only appears when a second mount reads the FIRST mount's cache. The app has
+ * exactly one `QueryClient` per shell mount (`app/providers.tsx`), so navigating between
+ * two screens keeps it while a fresh `renderClientPage` does not — which means a test
+ * that remounts with its own client cannot fail on a cache-survival bug at all, and would
+ * be a guard that reads like one without being one. Every other test wants the default:
+ * an isolated client is what keeps suites from leaking state into each other.
  */
 export async function renderClientPage(
   ui: ReactElement,
   routes: Routes,
   slug = "acme",
+  sharedClient?: QueryClient,
 ): Promise<ClientPageRender> {
   const calls = stubApi(routes);
-  const client = new QueryClient({
-    // No retries: every route here answers 200 or throws, so a retry can only turn a
-    // broken premise into a slow one.
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  const client =
+    sharedClient ??
+    new QueryClient({
+      // No retries: every route here answers 200 or throws, so a retry can only turn a
+      // broken premise into a slow one.
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
   let result!: RenderResult;
   await act(async () => {
     result = render(
