@@ -6,6 +6,7 @@ exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 """
 
 from apps.api.agents import models as agents_models
+from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
@@ -24,6 +25,7 @@ __all__ = [
     "TENANT_TABLES",
     "Base",
     "agents_models",
+    "authn_models",
     "billing_models",
     "campaigns_models",
     "compliance_models",
@@ -251,6 +253,29 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "no `tenant_id`, so the column-driven sweep never asked about it, and a reviewer "
         "looking for 'what is deliberately not tenant-isolated' would not have found the "
         "table holding references to every lead payload we have ever sent."
+    ),
+    "auth_credentials": (
+        "D-165's first-party password store, and it is listed here because it is NOT "
+        "tenant-scoped rather than because it is unpoliced — it is the most tightly "
+        "policied table in this schema. Identity crosses tenants (one person, several "
+        "`memberships`), so a `tenant_id` here would be duplicated or wrong, exactly as "
+        "it would be on `users`. What replaces tenant isolation is DENY-BY-DEFAULT: "
+        "migration e9a4c1d70b52 gives it FORCEd RLS whose USING and WITH CHECK are both "
+        "`current_setting('app.auth', true) = 'on'`, a GUC only "
+        "`db/session.credential_session()` sets. A tenant session — including tenant A "
+        "asking about tenant B's owner — sees zero rows, which is the cross-tenant "
+        "property hard rule 1 asks for, arrived at from the other direction. Holds an "
+        "Argon2id hash and no plaintext; the pepper it is hashed under is derived from "
+        "PLATFORM_KEK and never touches this database."
+    ),
+    "auth_sessions": (
+        "D-165's opaque server-side sessions, same shape and same reason as "
+        "`auth_credentials` above: not tenant-scoped because a session belongs to a "
+        "PERSON across every tenant they are a member of, and protected by the same "
+        "deny-by-default `app.auth` policy rather than by a tenant predicate. Holds a "
+        "SHA-256 fingerprint of the bearer token, never the token, so a database dump is "
+        "not a drawer of live cookies; carries ids and instants only — no IP, no "
+        "user-agent, no PII."
     ),
 }
 

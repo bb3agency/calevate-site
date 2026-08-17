@@ -289,6 +289,17 @@ class TestRlsCoverage:
             "platform_state",
             "platform_ai_spend",
             "webhook_deliveries",
+            # The THIRD shape, added by D-165: tables that are policied HARDER than a
+            # tenant table rather than more loosely. `auth_credentials` and
+            # `auth_sessions` carry no `tenant_id` because identity crosses tenants, and
+            # their FORCEd policy is `current_setting('app.auth', true) = 'on'` — a GUC
+            # only `db/session.credential_session()` sets — so every tenant session sees
+            # zero rows. They are listed here for the reason the `platform_*` entries
+            # are: one dict answers "what is not tenant-isolated, and why", and a
+            # password store absent from that answer is the worst possible omission from
+            # it. `tests/authn_rls_test.py` drives the property against real rows.
+            "auth_credentials",
+            "auth_sessions",
         }
 
 
