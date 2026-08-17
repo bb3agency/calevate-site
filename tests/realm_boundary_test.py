@@ -20,7 +20,8 @@ What is asserted here, in the order a reviewer should read it:
      decorator is what `tests/authz_audit_test.py::
      test_every_mutating_route_is_gated_by_a_mutating_permission` does; this drives them.
   4. THE DEV TOKEN's second condition. `authz_audit_test` pins the `app_env` half of the
-     AND; the Clerk-secret half had nothing behind it.
+     AND; the other half — no `PLATFORM_KEK`, D-177's successor to "no Clerk secret" —
+     has nothing else behind it.
   5. THE LIFECYCLE ASYMMETRY. A churned tenant locks its own members out and stays open
      to an audited operator — a deliberate difference, pinned so it stays one.
 
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -130,8 +132,9 @@ async def test_a_working_client_session_is_still_nobody_on_the_admin_console() -
     The refusal is 401 and not 403 on purpose. 403 would say "you are authenticated
     here, you just lack the role", and a support person reading that would go looking
     for an `admin_users` row to add. The truth is that this credential is not an admin
-    credential at all: the two realms are two Clerk applications with two JWKS hosts
-    (TRD §11, D-37), so the token never gets as far as a role.
+    credential at all: the realm is inside the session token's hash domain (TRD §11,
+    AUTH-MIGRATION §3), so there is no row the admin lookup could match and the credential
+    never gets as far as a role.
     """
     org = await _make_org()
     _user_id, token = await _make_member(uuid.UUID(str(org["id"])))
@@ -288,9 +291,10 @@ async def test_the_impersonating_flag_is_never_true_without_a_resolved_tenant() 
     load-bearing alone. A test that only went through HTTP would be satisfied by the
     edge guard and would say nothing about the flag's own definition.
     """
-    _admin_id, token = await _make_admin()
-    clerk_id = token.removeprefix("dev:admin:")
-    verified = auth_module.VerifiedToken(clerk_user_id=clerk_id, email=None, realm="admin")
+    admin_id, _token = await _make_admin()
+    verified = auth_module.VerifiedCaller(
+        realm="admin", subject_id=admin_id, mfa_verified_at=datetime.now(UTC)
+    )
 
     for slug in (None, ""):
         principal = await auth_module._load_admin_principal(verified, slug)
@@ -417,35 +421,55 @@ async def test_a_client_realm_route_says_view_as_rather_than_bad_token() -> None
 # ------------------------------------------------------- the dev token's OTHER half
 
 
-async def test_a_deployment_with_a_clerk_secret_refuses_dev_tokens_even_in_local(
+async def test_a_deployment_holding_key_material_refuses_dev_tokens_even_in_local(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`_verify_dev_token` requires `app_env == "local"` AND no Clerk secret for the
-    realm. `tests/app_env_required_test.py` owns the first condition end to end; the
-    second had nothing behind it.
+    """The SECOND of the dev path's two guards, which is the one nothing else pins.
 
-    It is the condition that protects a developer who has pointed their local machine at
-    a real Clerk application — the moment they do, `dev:admin:<anyone>` must stop being
-    a way to become any operator whose Clerk id they can guess, because now there are
-    real operators to name. Asserted per realm, because the secrets are per realm and
-    configuring one must not disarm the other's gate.
+    `tests/app_env_required_test.py` owns `app_env == "local"` end to end. This is its
+    independent partner, and D-177 re-pointed it: it used to be "this realm has no Clerk
+    secret configured" and is now "this deployment has no `PLATFORM_KEK`". Both are the
+    same statement — *there is no real credential material here* — and the successor is
+    strictly wider, because `PLATFORM_KEK` is what every password in the system is
+    peppered with, so a host that can verify one operator's password can never accept a
+    dev token for any realm.
+
+    It is the condition that protects a developer who has pointed their local machine at a
+    real database: the moment they do, `dev:admin:<a uuid they read out of the table>`
+    must stop being a way to become that operator.
+
+    Both realms, because one guard for both is what the collapse of two per-realm secrets
+    into one key could quietly have become.
     """
-    for realm, configured, other in (
-        ("admin", "clerk_admin_secret_key", "clerk_client_secret_key"),
-        ("client", "clerk_client_secret_key", "clerk_admin_secret_key"),
-    ):
-        settings = auth_module.get_settings().model_copy(
-            update={"app_env": "local", configured: "sk_test_configured", other: None}
+    settings = auth_module.get_settings().model_copy(
+        update={"app_env": "local", "platform_kek": "a-real-looking-key-0000000000000000"}
+    )
+    monkeypatch.setattr(auth_module, "get_settings", lambda: settings)
+    for realm in ("admin", "client"):
+        assert auth_module._verify_dev_token(f"dev:{realm}:{uuid.uuid4()}", realm) is None, (  # type: ignore[arg-type]
+            f"a configured PLATFORM_KEK must disarm the dev path on the {realm} realm"
         )
-        monkeypatch.setattr(auth_module, "get_settings", lambda s=settings: s)
 
-        assert auth_module._verify_dev_token(f"dev:{realm}:anyone", realm) is None, (  # type: ignore[arg-type]
-            f"a configured {configured} must disarm the dev path on the {realm} realm"
-        )
-        # And the OTHER realm, whose secret is still absent, keeps working — so this
-        # pins a per-realm condition rather than a global kill switch.
-        sibling = "client" if realm == "admin" else "admin"
-        assert auth_module._verify_dev_token(f"dev:{sibling}:anyone", sibling) is not None  # type: ignore[arg-type]
+    # The control: with the key absent again, the same tokens are honoured — so this pins
+    # the guard rather than a shape the parser happens to reject.
+    keyless = auth_module.get_settings().model_copy(
+        update={"app_env": "local", "platform_kek": None}
+    )
+    monkeypatch.setattr(auth_module, "get_settings", lambda: keyless)
+    for realm in ("admin", "client"):
+        assert auth_module._verify_dev_token(f"dev:{realm}:{uuid.uuid4()}", realm) is not None  # type: ignore[arg-type]
+
+
+async def test_a_dev_token_naming_something_that_is_not_one_of_our_ids_is_refused() -> None:
+    """The other half of the re-pointing: the subject is a uuid7 WE issued.
+
+    `dev:admin:anyone` was a valid credential shape for as long as the subject was a
+    vendor string, so the only thing between a caller and an operator session was
+    guessing a Clerk id. It does not parse now, which is a refusal that costs no query.
+    """
+    for token in ("dev:admin:anyone", "dev:client:user_42", f"dev:admin:{uuid.uuid4()}x"):
+        realm = "admin" if ":admin:" in token else "client"
+        assert auth_module._verify_dev_token(token, realm) is None, token  # type: ignore[arg-type]
 
 
 # ------------------------------------------------------------ the lifecycle asymmetry
