@@ -73,6 +73,17 @@ IMPORT_ROOTS: tuple[Path, ...] = (
     REPO_ROOT / "scripts",
 )
 
+
+class ObservabilityBlindError(RuntimeError):
+    """This check lost sight of a surface it reports on, rather than found it clean.
+
+    Only the langfuse rung raises it, and only because that rung asserts an ABSENCE: the
+    other rungs read a named file and say so when they cannot find their subject
+    (`check_sentry_hooks`), so their blindness is already a failure message. An absence
+    is the one verdict that a scan over nothing produces for free (D-176).
+    """
+
+
 #: `sentry_sdk.init` keywords that carry hard rule 6 on the error path, each with what is
 #: lost when it goes. Read against the LIVE call in `init_observability` rather than
 #: trusted, because every one of them is a single word somebody can delete while tidying.
@@ -289,11 +300,33 @@ def langfuse_footholds(
     settings field: an import, a dependency, or a `Settings` key. Import detection is by
     AST, never by text, so the prose in `config.py` explaining why Langfuse is ABSENT does
     not read as Langfuse being present.
+
+    EVERY SURFACE MUST ACTUALLY BE READ (D-176). This function's answer is an ABSENCE, and
+    an absence is the one verdict a scan over nothing produces for free — so a surface it
+    could not open raises `ObservabilityBlindError` rather than being skipped. A caller
+    isolating one surface passes an EMPTY root tuple or an empty manifest, which are
+    things that exist and say nothing, not things that are missing.
     """
     found: list[str] = []
-    for root in IMPORT_ROOTS if roots is None else roots:
+    scan_roots = IMPORT_ROOTS if roots is None else roots
+    if roots is None and not scan_roots:
+        raise ObservabilityBlindError(
+            "IMPORT_ROOTS is empty, so the import surface of the langfuse scan is not "
+            "looking at the tree at all and can only ever report it clean."
+        )
+    for root in scan_roots:
         if not root.exists():
-            continue
+            # This function asserts an ABSENCE — "langfuse is not here" — and an absence
+            # asserted over a tree this process cannot see is the vacuous pass D-176 went
+            # looking for. `continue` used to swallow it, so a renamed `apps/` turned
+            # "no langfuse import anywhere" into "no langfuse import anywhere I looked",
+            # printed as the former. Raise instead: the callers below treat a foothold as
+            # a finding, so there is no return value that could carry "I did not look".
+            raise ObservabilityBlindError(
+                f"{root} does not exist, so the langfuse scan walked nothing and would "
+                "report the tree clean of a client it never had a chance to find. Point "
+                "IMPORT_ROOTS at the tree or delete the rung — do not let it pass blind."
+            )
         for path in sorted(root.rglob("*.py")):
             if "__pycache__" in path.parts:
                 continue
@@ -311,20 +344,26 @@ def langfuse_footholds(
                     where = path.relative_to(REPO_ROOT) if path.is_relative_to(REPO_ROOT) else path
                     found.append(f"{where}:{node.lineno} — imports langfuse")
     manifest = pyproject or PYPROJECT
-    if manifest.exists():
-        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
-        project = data.get("project", {})
-        groups = data.get("dependency-groups", {})
-        specs: list[tuple[str, str]] = [
-            ("project.dependencies", spec) for spec in project.get("dependencies", [])
+    if not manifest.exists():
+        # Same reason as the roots above: the dependency surface is one of the three ways
+        # langfuse can arrive, and a surface that was not read cannot be reported clean.
+        raise ObservabilityBlindError(
+            f"{manifest} does not exist, so the dependency surface of the langfuse scan "
+            "was never read and 'no langfuse dependency' is an assumption, not a finding."
+        )
+    data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+    project = data.get("project", {})
+    groups = data.get("dependency-groups", {})
+    specs: list[tuple[str, str]] = [
+        ("project.dependencies", spec) for spec in project.get("dependencies", [])
+    ]
+    for group, entries in groups.items():
+        specs += [
+            (f"dependency-groups.{group}", entry) for entry in entries if isinstance(entry, str)
         ]
-        for group, entries in groups.items():
-            specs += [
-                (f"dependency-groups.{group}", entry) for entry in entries if isinstance(entry, str)
-            ]
-        for where, spec in specs:
-            if spec.split("[")[0].split(">")[0].split("=")[0].split("<")[0].strip() == "langfuse":
-                found.append(f"pyproject.toml {where} — declares the langfuse package")
+    for where, spec in specs:
+        if spec.split("[")[0].split(">")[0].split("=")[0].split("<")[0].strip() == "langfuse":
+            found.append(f"pyproject.toml {where} — declares the langfuse package")
     found += [
         f"Settings.{field} — a langfuse-shaped configuration field"
         for field in Settings.model_fields
@@ -395,7 +434,13 @@ def main() -> int:
     reported as a pass either.
     """
     unresolved = unresolvable_settings()
-    langfuse, _ = check_langfuse()
+    try:
+        langfuse, _ = check_langfuse()
+    except ObservabilityBlindError as exc:
+        # REFUSED rather than FAIL: nothing has been shown to be misconfigured, and the
+        # honest report is that this rung could not look (D-176).
+        print(f"OBSERVABILITY READINESS: REFUSED — the langfuse rung is blind: {exc}")
+        return 2
     # The structural rungs read the TREE, so they answer with or without a configuration —
     # and they are the rungs that carry hard rule 6, so they run first and always.
     structural = check_sentry_hooks() + check_tracing_export_is_wrapped()

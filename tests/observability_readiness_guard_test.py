@@ -304,7 +304,12 @@ class TestLangfuse:
         module = tmp_path / "apps" / "workers"
         module.mkdir(parents=True)
         (module / "tracing.py").write_text("from langfuse import get_client\n", encoding="utf-8")
-        found = guard.langfuse_footholds(roots=(tmp_path,), pyproject=tmp_path / "none.toml")
+        # An EMPTY manifest rather than an absent one: since D-176 a surface this scan
+        # could not open is a refusal, so isolating the import surface means handing it a
+        # dependency list that exists and declares nothing.
+        manifest = tmp_path / "pyproject.toml"
+        manifest.write_text("[project]\ndependencies = []\n", encoding="utf-8")
+        found = guard.langfuse_footholds(roots=(tmp_path,), pyproject=manifest)
         assert found and "imports langfuse" in found[0]
         _, failures = guard.check_langfuse(found)
         assert any("redaction hook" in failure for failure in failures), failures
@@ -314,6 +319,29 @@ class TestLangfuse:
         manifest.write_text('[project]\ndependencies = ["langfuse>=3.0"]\n', encoding="utf-8")
         found = guard.langfuse_footholds(roots=(), pyproject=manifest)
         assert found and "declares the langfuse package" in found[0]
+
+    def test_a_scan_root_that_does_not_exist_refuses_rather_than_reporting_absence(
+        self, tmp_path: Path
+    ) -> None:
+        """D-176. This rung's whole output is "langfuse is not here", and a walk over a
+        directory that has been renamed produces exactly that answer for free — `rglob`
+        yields nothing and raises nothing. Before the fix this returned `[]` and the run
+        printed `[skip] langfuse: Not present in the tree`, a claim about a tree it had
+        never opened. Both surfaces are pinned: the roots and the manifest."""
+        missing = tmp_path / "gone"
+        manifest = tmp_path / "pyproject.toml"
+        manifest.write_text("[project]\ndependencies = []\n", encoding="utf-8")
+
+        with pytest.raises(guard.ObservabilityBlindError, match="walked nothing"):
+            guard.langfuse_footholds(roots=(missing,), pyproject=manifest)
+
+        with pytest.raises(guard.ObservabilityBlindError, match="dependency surface"):
+            guard.langfuse_footholds(roots=(), pyproject=tmp_path / "absent.toml")
+
+    def test_the_live_tree_is_still_readable_by_both_surfaces(self) -> None:
+        """The control on the control: the refusal above must not be firing today, or the
+        `[]` the first test asserts would be unreachable rather than earned."""
+        assert guard.langfuse_footholds() == []
 
     def test_prose_about_the_absent_client_is_not_a_foothold(self) -> None:
         """`config.py` explains at length why Langfuse is NOT wired. Detection is by AST,

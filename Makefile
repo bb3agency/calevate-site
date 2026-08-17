@@ -194,8 +194,10 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# skims. Eight had accumulated (P4.3) — including one created while the finding was
 	# being fixed, which is why this is a check and not a list. Columns only: 38 of the 39
 	# live `compare_metadata` diffs are indexes and constraints the ORM deliberately does
-	# not declare. Needs the migrated database. Negative controls in
-	# tests/metadata_columns_guard_test.py.
+	# not declare. Needs the migrated database, and says so: exit 2 = REFUSED, because an
+	# absent TABLE arrives as one `add_table` op rather than one per column, so against an
+	# unmigrated database this printed OK having compared nothing (D-176). Negative
+	# controls in tests/metadata_columns_guard_test.py.
 	uv run python -m scripts.check_metadata_columns
 	# The six bootstrap keys may only ever be read from the environment (D-95 §4). A
 	# change that lets APP_ENV resolve from the console store is a security-posture
