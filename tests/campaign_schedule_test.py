@@ -246,16 +246,28 @@ async def test_an_ist_start_is_stored_as_the_instant_it_names_not_the_digits() -
     begin dialling — at 15:30 IST; an evening slot read the same way lands at 02:30 IST,
     outside TRAI's window entirely."""
     tenant_id, _, campaign_id = await _ready_campaign()
+    # THE DAY IS DERIVED, NOT WRITTEN DOWN, and that is the whole repair here.
+    #
+    # This test used to name 2026-08-17 outright. `schedule_campaign` refuses a start in
+    # the past — correctly; it is the first thing it checks — so at 04:30Z on that date
+    # the instant this test picks became the past, and the suite went red on the clock
+    # rather than on a change. It passed at 04:12Z and failed at 04:53Z the same morning.
+    # From the following day it would have failed permanently, in CI as well as here.
+    #
+    # Thirty days out, so no run can straddle the boundary. The property under test is
+    # untouched: 10:00 IST is 04:30Z on the SAME calendar day whatever that day is,
+    # because the offset is a fixed +05:30 and India has no daylight saving.
+    picked_day = (datetime.now(IST_TZ) + timedelta(days=30)).date()
     # Exactly what the browser sends: the wall clock the client picked, with the +05:30
     # offset attached.
-    picked_ist = datetime(2026, 8, 17, 10, 0, tzinfo=IST_TZ)
+    picked_ist = datetime(picked_day.year, picked_day.month, picked_day.day, 10, 0, tzinfo=IST_TZ)
 
     async with tenant_session(tenant_id) as session:
         recorded = await schedule_campaign(
             session, tenant_id=tenant_id, campaign_id=campaign_id, start_at=picked_ist
         )
 
-    picked = datetime(2026, 8, 17, 4, 30, tzinfo=UTC)
+    picked = datetime(picked_day.year, picked_day.month, picked_day.day, 4, 30, tzinfo=UTC)
     assert recorded.start_at == picked
     assert recorded.start_at.hour == 4 and recorded.start_at.minute == 30, (
         "10:00 IST must be stored as 04:30Z, not as 10:00Z"
