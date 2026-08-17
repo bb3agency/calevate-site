@@ -1,4 +1,4 @@
-"""One step-up confirmation check, for every realm that needs one (BACKEND-PATTERNS §7).
+"""One step-up check, for every realm that needs one (BACKEND-PATTERNS §7).
 
 Step-up in this codebase is TWO obligations answered by two kinds of evidence, and this
 module is where both are demanded together so that no dangerous route can end up with one:
@@ -13,9 +13,9 @@ one; a stolen live cookie satisfies it trivially, because the refusal prints the
 string to send, on purpose.
 
 The presence half (`authn/stepup.py`, D-178) is the part AUTH-MIGRATION C-09 named as not
-built. It is built now, and it is demanded HERE rather than route-by-route for the same
-reason the echo check is: a dangerous mutation that took only one of the two would be a
-gate with a way around it, and the way around it would be an omission nobody could see.
+built. It is built now, and it is demanded HERE rather than route-by-route because a
+dangerous mutation that took only one of the two would be a gate with a way around it, and
+the way around it would be an omission nobody could see.
 
 This lived as `ops/routes.py::_require_step_up` while `ops` was the only realm with a
 switch dangerous enough to want it. The admin realm now has one too — loosening a
@@ -29,46 +29,97 @@ in runbooks and pinned literal-by-literal by tests (`platform_confirmation`,
 `spend_cap_confirmation`, `outbox_replay_confirmation`, `spend_ceiling_confirmation`);
 what is shared is the comparison and the refusal, not the vocabulary.
 
-WHY THIS IS ASYNC AND TAKES THE REQUEST. Freshness is read off the session row, which is a
-database read, and the session is identified by a cookie on the request. The alternative —
-carrying `mfa_verified_at` on `core.context.Principal` — was rejected because that object is
-built by the credential verifier, and a route reading a REQUEST here cannot be handed a
-freshness value by anything upstream that got it wrong. The order is intent first: the echo
-check costs nothing, so a caller that forgot the header is told so without a round trip to
-the session store.
+═══ WHY THIS IS A DEPENDENCY AND THE CHECK ITSELF IS SYNCHRONOUS ═══
+
+Freshness is read off the session row, which is a database read. The obvious shape — make
+`require_step_up` async and let it open a `credential_session` where it is called — BREAKS
+A LOAD-BEARING INVARIANT: `db/session.py` runs `max_overflow=0` and says in as many words
+that this is safe "only because no code path here holds two sessions at once". Two of the
+fifteen call sites (`admin/routes.py::record_commercial_terms`,
+`billing/credit_routes.py`'s adjustment) sit INSIDE an open `tenant_session`, because the
+action string is derived from a row they had to read first. A second checkout there is a
+pool that can deadlock against itself under `pool_size` concurrent incidents — on the
+routes an operator reaches during one.
+
+So the read happens in a **dependency**, which FastAPI resolves before the handler body
+runs and therefore before any transaction is open, and what reaches the call site is a
+plain frozen value with a synchronous `require`. That also makes the pairing structural
+rather than remembered: `gate.require(...)` cannot be written without a `gate`, and the
+only source of one is `Depends(step_up_gate)`.
 """
 
 from __future__ import annotations
 
-from fastapi import Request
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import Annotated
+
+from fastapi import Depends, Request
 
 from apps.api.core.errors import ProblemError
 
 
-async def require_step_up(confirm: str | None, action: str, *, request: Request) -> None:
-    """Refuse unless the caller echoed `action` in `X-Confirm-Action` AND re-proved a factor.
+@dataclass(frozen=True, slots=True)
+class StepUp:
+    """The evidence a dangerous mutation needs, resolved before the handler ran.
 
-    Raises a 403 `step_up_required` whose remediation prints the exact header to send — an
-    operator mid-incident must not have to find the source to learn the string — or a 403
-    `reauthentication_required` naming the two calls that refresh the factor.
-
-    Both refusals happen BEFORE any work, so a caller that sees either knows nothing changed.
+    `verified_at` is `None` for both "there is no first-party admin session on this
+    request" and "there is one that never proved a second factor", and `present`
+    distinguishes them — because the two mean opposite things. See `require`.
     """
-    if confirm != action:
-        raise ProblemError(
-            kind="permission",
-            code="step_up_required",
-            title="Confirmation required",
-            detail="This action needs an explicit confirmation.",
-            remediation=f"Repeat the request with the header X-Confirm-Action: {action}",
-        )
-    # Imported here, not at module scope: `authn.stepup` reaches the session store and the
-    # cookie layer, and `core.stepup` is imported by five route modules that
-    # `core/bootstrap.py` assembles — a module-level import would make the credential layer
-    # part of every one of those import chains.
-    from apps.api.authn.stepup import require_fresh_second_factor
 
-    await require_fresh_second_factor(request, action)
+    present: bool
+    verified_at: datetime | None
+
+    def require(self, confirm: str | None, action: str) -> None:
+        """Refuse unless the caller echoed `action` AND re-proved a factor recently.
+
+        Both refusals happen BEFORE any work, so a caller that sees either knows nothing
+        changed. Intent is checked first: it costs nothing, so a caller who forgot the
+        header is told so without being asked about anything else.
+        """
+        if confirm != action:
+            raise ProblemError(
+                kind="permission",
+                code="step_up_required",
+                title="Confirmation required",
+                detail="This action needs an explicit confirmation.",
+                remediation=f"Repeat the request with the header X-Confirm-Action: {action}",
+            )
+        if not self.present:
+            # This request authenticated with something that is not a first-party admin
+            # session — today, a Clerk token, which has its own gates. Freshness is a
+            # property OF A CREDENTIAL and this is not that credential; it is not this
+            # check being satisfied. AUTH-MIGRATION §5 step 6 removes the other credential,
+            # at which point this branch is unreachable rather than permissive.
+            return
+        from apps.api.authn.stepup import REAUTH_MAX_AGE, reauthentication_required
+
+        if self.verified_at is None or datetime.now(UTC) - self.verified_at > REAUTH_MAX_AGE:
+            raise reauthentication_required(action)
 
 
-__all__ = ["require_step_up"]
+async def step_up_gate(request: Request) -> StepUp:
+    """Read the first-party admin session, if any, before the handler opens a transaction.
+
+    Imported lazily inside the function because `core.stepup` is imported by six route
+    modules that `core/bootstrap.py` assembles, and `authn.stepup` reaches the credential
+    layer — a module-level import would put that layer in every one of those chains.
+    """
+    from apps.api.authn.stepup import current_admin_session
+
+    session = await current_admin_session(request)
+    return StepUp(
+        present=session is not None,
+        verified_at=session.mfa_verified_at if session is not None else None,
+    )
+
+
+#: What a dangerous route declares. An `Annotated` alias rather than a `Depends(...)`
+#: default, because that is this repo's idiom (`GlobalSession`, `SecretOperator`) and
+#: because half these modules are not covered by the `B008` per-file ignore, which is
+#: scoped to files literally named `routes.py`.
+StepUpGate = Annotated[StepUp, Depends(step_up_gate)]
+
+
+__all__ = ["StepUp", "StepUpGate", "step_up_gate"]

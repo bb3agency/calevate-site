@@ -206,7 +206,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
 log = get_logger(__name__)
@@ -714,6 +714,9 @@ async def record_adjustment(
     payload: AdjustmentIn,
     request: Request,
     principal: CreditsWrite,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> AdjustmentOut:
     """The compensating entry SURFACES §1 promises, and the reasons for each refusal.
@@ -780,11 +783,7 @@ async def record_adjustment(
             # Bound to the DIRECTION, not to the route (`record_commercial_terms`):
             # crediting a client back is ordinary support work, taking their credit away
             # is the dangerous half and the only one that needs the second key.
-            await require_step_up(
-                x_confirm_action,
-                credit_adjustment_confirmation(target.entry_id),
-                request=request,
-            )
+            step_up.require(x_confirm_action, credit_adjustment_confirmation(target.entry_id))
 
         ref = adjustment_ref(entry_id=target.entry_id, amount_inr=amount)
         existing = await _find_entry_by_ref(
@@ -933,6 +932,9 @@ async def record_restatement(
     payload: RestatementIn,
     request: Request,
     principal: CreditsWrite,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> RestatementOut:
     """The under-credit repair D-87 left open, and the reasons for each refusal.
@@ -974,9 +976,7 @@ async def record_restatement(
 
     # Before any read, and before the tenant is even confirmed to exist: the string is a
     # function of the request alone, so refusing here leaks nothing and writes nothing.
-    await require_step_up(
-        x_confirm_action, topup_restatement_confirmation(ref, corrected), request=request
-    )
+    step_up.require(x_confirm_action, topup_restatement_confirmation(ref, corrected))
 
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(scoped, tenant_id)

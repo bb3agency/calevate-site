@@ -54,7 +54,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta, role_has
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
 router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/erasure", tags=["admin"])
@@ -197,6 +197,9 @@ async def request_tenant_erasure(
     request: Request,
     response: Response,
     principal: Eraser,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> TenantErasureAcceptedOut:
     """Both keys, then the row, the job and the audit entry in one transaction.
@@ -216,9 +219,7 @@ async def request_tenant_erasure(
         raise ProblemError.forbidden(
             "Erasing a client's data needs a superadmin. Closing the account does not."
         )
-    await require_step_up(
-        x_confirm_action, tenant_erasure.tenant_erasure_confirmation(tenant_id), request=request
-    )
+    step_up.require(x_confirm_action, tenant_erasure.tenant_erasure_confirmation(tenant_id))
 
     async with tenant_session(tenant_id) as scoped:
         record = await tenant_erasure.request_tenant_erasure(

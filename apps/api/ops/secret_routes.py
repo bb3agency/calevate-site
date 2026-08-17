@@ -35,7 +35,7 @@ from apps.api.core.deps import global_db
 from apps.api.core.envelope import MASKED, kek_ring, last_four
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.ops.config_service import propagate
 from apps.api.ops.secret_probes import ProbeOutcome, probe_credential
 from apps.api.ops.secret_service import SecretRecord, read_secrets, rewrap_all, set_secret
@@ -295,10 +295,13 @@ async def set_secret_route(
     tasks: BackgroundTasks,
     principal: SecretOperator,
     key: SecretKey,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> SecretOut:
     """One version in, one audit row, one alert, and the fleet re-reads within seconds."""
-    await require_step_up(x_confirm_action, secret_confirmation(key), request=request)
+    step_up.require(x_confirm_action, secret_confirmation(key))
     if principal.user_id is None:
         raise ProblemError(
             kind="auth",
@@ -434,6 +437,9 @@ async def rewrap_keks(
     session: GlobalSession,
     request: Request,
     principal: SecretOperator,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> RewrapOut:
     """Superadmin-only by virtue of `platform:secrets`, and confirmed like every write here.
@@ -442,7 +448,7 @@ async def rewrap_keks(
     this router even though it changes no credential — so it is confirmed, audited, and
     reports what it could NOT do rather than only what it did.
     """
-    await require_step_up(x_confirm_action, REWRAP_CONFIRMATION, request=request)
+    step_up.require(x_confirm_action, REWRAP_CONFIRMATION)
     result = await rewrap_all(session)
     await write_audit(
         session,

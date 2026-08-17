@@ -41,7 +41,7 @@ from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import GRANT_TTL, mint_grant
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
@@ -1937,6 +1937,9 @@ async def record_commercial_terms(
     payload: CommercialTermsIn,
     session: AdminSession,
     request: Request,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> RecordTermsOut:
@@ -2001,9 +2004,7 @@ async def record_commercial_terms(
                     "Raising or removing a client's spend ceiling needs a superadmin. "
                     "Tightening one, or setting a first ceiling, does not."
                 )
-            await require_step_up(
-                x_confirm_action, spend_ceiling_confirmation(tenant_id), request=request
-            )
+            step_up.require(x_confirm_action, spend_ceiling_confirmation(tenant_id))
 
         result = await billing_terms.record_terms(scoped, tenant_id=tenant_id, terms=terms)
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)

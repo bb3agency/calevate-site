@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -29,15 +30,11 @@ from apps.api.authn.cookies import COOKIE_NAMES, cookie_name
 from apps.api.authn.credentials import set_password
 from apps.api.authn.models import OTP_PURPOSES
 from apps.api.authn.sessions import IssuedSession, issue_session, verify_session
-from apps.api.authn.stepup import (
-    REAUTH_MAX_AGE,
-    current_admin_session,
-    require_fresh_second_factor,
-)
+from apps.api.authn.stepup import REAUTH_MAX_AGE, current_admin_session, is_fresh
 from apps.api.authn.throttle import KEY_PREFIX
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import step_up_gate
 from apps.api.db.session import credential_session, untenanted_session
 from sqlalchemy import text
 from starlette.requests import Request
@@ -152,7 +149,7 @@ async def test_a_stale_second_factor_refuses_the_mutation_and_names_the_way_out(
     request = _request({cookie_name("admin", secure=False): issued.token})
 
     with pytest.raises(ProblemError) as caught:
-        await require_fresh_second_factor(request, ACTION)
+        (await step_up_gate(request)).require(ACTION, ACTION)
 
     problem = caught.value
     assert problem.code == "reauthentication_required"
@@ -165,9 +162,8 @@ async def test_a_stale_second_factor_refuses_the_mutation_and_names_the_way_out(
 @pytest.mark.asyncio
 async def test_a_fresh_second_factor_passes(operator: uuid.UUID) -> None:
     issued = await _session_with_factor_aged(operator, timedelta(seconds=30))
-    await require_fresh_second_factor(
-        _request({cookie_name("admin", secure=False): issued.token}), ACTION
-    )
+    gate = await step_up_gate(_request({cookie_name("admin", secure=False): issued.token}))
+    gate.require(ACTION, ACTION)
 
 
 @pytest.mark.asyncio
@@ -177,10 +173,10 @@ async def test_a_session_that_never_proved_a_factor_is_refused(operator: uuid.UU
     at = datetime.now(UTC)
     async with credential_session() as session:
         issued = await issue_session(session, realm="admin", subject_id=operator, now=at)
+    gate = await step_up_gate(_request({cookie_name("admin", secure=False): issued.token}))
+    assert gate.present and gate.verified_at is None
     with pytest.raises(ProblemError) as caught:
-        await require_fresh_second_factor(
-            _request({cookie_name("admin", secure=False): issued.token}), ACTION
-        )
+        gate.require(ACTION, ACTION)
     assert caught.value.code == "reauthentication_required"
 
 
@@ -191,8 +187,8 @@ async def test_a_request_with_no_first_party_session_is_not_this_gate_s_business
     first-party session presented some other credential with its own gates. It is not a
     bypass that survives — deleting Clerk leaves no other credential, at which point this
     branch is unreachable rather than permissive."""
-    await require_fresh_second_factor(_request(), ACTION)
-    await require_fresh_second_factor(_request({"unrelated": "x"}), ACTION)
+    (await step_up_gate(_request())).require(ACTION, ACTION)
+    (await step_up_gate(_request({"unrelated": "x"}))).require(ACTION, ACTION)
 
 
 @pytest.mark.asyncio
@@ -235,7 +231,7 @@ async def test_the_echo_check_still_fires_first_and_alone(operator: uuid.UUID) -
     issued = await _session_with_factor_aged(operator, timedelta(seconds=5))
     request = _request({cookie_name("admin", secure=False): issued.token})
     with pytest.raises(ProblemError) as caught:
-        await require_step_up(None, ACTION, request=request)
+        (await step_up_gate(request)).require(None, ACTION)
     assert caught.value.code == "step_up_required"
     assert f"X-Confirm-Action: {ACTION}" in (caught.value.remediation or "")
 
@@ -247,25 +243,40 @@ async def test_the_right_header_is_not_enough_on_a_stale_session(operator: uuid.
     issued = await _session_with_factor_aged(operator, REAUTH_MAX_AGE + timedelta(seconds=1))
     request = _request({cookie_name("admin", secure=False): issued.token})
     with pytest.raises(ProblemError) as caught:
-        await require_step_up(ACTION, ACTION, request=request)
+        (await step_up_gate(request)).require(ACTION, ACTION)
     assert caught.value.code == "reauthentication_required"
 
 
 @pytest.mark.asyncio
 async def test_both_halves_satisfied_passes(operator: uuid.UUID) -> None:
     issued = await _session_with_factor_aged(operator, timedelta(seconds=5))
-    await require_step_up(
-        ACTION, ACTION, request=_request({cookie_name("admin", secure=False): issued.token})
-    )
+    gate = await step_up_gate(_request({cookie_name("admin", secure=False): issued.token}))
+    gate.require(ACTION, ACTION)
+
+
+@pytest.mark.asyncio
+async def test_the_boundary_is_checked_from_both_sides(operator: uuid.UUID) -> None:
+    """One second inside the window passes and one second outside it does not — the two
+    assertions a `<=` comparison can get wrong in opposite directions."""
+    at = datetime.now(UTC)
+    async with credential_session() as session:
+        issued = await issue_session(session, realm="admin", subject_id=operator, now=at)
+    live = (await verify_session(token=issued.token, realm="admin")).require_live()
+    inside = replace(live, mfa_verified_at=at - REAUTH_MAX_AGE + timedelta(seconds=1))
+    outside = replace(live, mfa_verified_at=at - REAUTH_MAX_AGE - timedelta(seconds=1))
+    assert is_fresh(inside, now=at)
+    assert not is_fresh(outside, now=at)
 
 
 def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it() -> None:
     """The census, so a new dangerous route cannot take the echo check alone.
 
-    `require_step_up` is now the ONLY way to spell either half — `authn.stepup.
-    require_fresh_second_factor` is called from exactly one place — so this walks the repo
-    and asserts that every call site passes a request, which is the argument the freshness
-    half needs to run at all.
+    `StepUp.require` is the ONLY way to spell either half, and the pairing is STRUCTURAL
+    rather than remembered: the method cannot be called without a `StepUp`, and the only
+    source of one is `Depends(step_up_gate)` — which FastAPI resolves before the handler
+    body runs, so the session read never happens inside an open transaction
+    (`core/stepup.py` on `max_overflow=0`). What this walk adds is the COUNT: a route that
+    quietly stopped taking the gate would shrink it.
     """
     import ast
     from pathlib import Path
@@ -273,20 +284,18 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     root = Path(__file__).resolve().parent.parent / "apps" / "api"
     sites = 0
     for path in sorted(root.rglob("*.py")):
-        if path.name == "stepup.py":
-            continue
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = node.func.id if isinstance(node.func, ast.Name) else None
-            if name != "require_step_up":
-                continue
-            sites += 1
-            assert any(k.arg == "request" for k in node.keywords), (
-                f"{path}:{node.lineno} takes the intent half without the presence half"
-            )
-    assert sites >= 12, f"found only {sites} step-up call sites; the census went stale"
+        source = path.read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "require"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "step_up"
+            ):
+                sites += 1
+                assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
+    assert sites == 15, f"found {sites} step-up call sites, expected 15; the census went stale"
 
 
 # ═══════════════ the flow that clears the refusal ═══════════════
@@ -318,9 +327,8 @@ async def test_the_step_up_flow_restamps_the_factor_without_extending_the_sessio
     assert fresh.absolute_expires_at == stale.absolute_expires_at, (
         "re-proving a factor extended the session's absolute bound"
     )
-    await require_fresh_second_factor(
-        _request({cookie_name("admin", secure=False): rotated.token}), ACTION
-    )
+    gate = await step_up_gate(_request({cookie_name("admin", secure=False): rotated.token}))
+    gate.require(ACTION, ACTION)
 
 
 @pytest.mark.asyncio

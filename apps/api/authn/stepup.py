@@ -93,12 +93,6 @@ async def current_admin_session(request: Request) -> VerifiedSession | None:
     return outcome.session
 
 
-def _is_fresh(session: VerifiedSession, *, now: datetime) -> bool:
-    if session.mfa_verified_at is None:
-        return False
-    return now - session.mfa_verified_at <= REAUTH_MAX_AGE
-
-
 def reauthentication_required(action: str) -> ProblemError:
     """The refusal, with the two calls that clear it printed in it.
 
@@ -122,30 +116,18 @@ def reauthentication_required(action: str) -> ProblemError:
     )
 
 
-async def require_fresh_second_factor(request: Request, action: str) -> None:
-    """Refuse a dangerous mutation whose second factor has gone stale.
-
-    Raises BEFORE any work, exactly as the echo check does, so a caller that sees this
-    knows nothing changed.
-    """
-    session = await current_admin_session(request)
-    if session is None:
-        # See the module docstring: this request authenticated with something else, and
-        # that something else has its own gates. It is not this check being satisfied.
-        return
-    if _is_fresh(session, now=datetime.now(UTC)):
-        return
-    log.warning(
-        "step_up_reauthentication_required",
-        extra={"subject_id": str(session.subject_id), "route": request.url.path},
-    )
-    raise reauthentication_required(action)
+def is_fresh(session: VerifiedSession, *, now: datetime | None = None) -> bool:
+    """Was this session's second factor proved inside the window? Exposed for the tests
+    that measure the boundary from both sides; `core/stepup.StepUp.require` applies it."""
+    if session.mfa_verified_at is None:
+        return False
+    return (now or datetime.now(UTC)) - session.mfa_verified_at <= REAUTH_MAX_AGE
 
 
 __all__ = [
     "REAUTH_MAX_AGE",
     "STEP_UP_REALM",
     "current_admin_session",
+    "is_fresh",
     "reauthentication_required",
-    "require_fresh_second_factor",
 ]
