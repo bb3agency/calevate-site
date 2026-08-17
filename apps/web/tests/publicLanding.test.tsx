@@ -54,6 +54,39 @@ describe("the landing page's claims", () => {
     expect(text).not.toMatch(/uptime|99\.9|accuracy|instantly|milliseconds/i);
   });
 
+  /**
+   * THE RESIDENCY CLAIM, banned by SHAPE rather than corrected once.
+   *
+   * The page used to say "It stays in India — calls, transcripts and recordings are
+   * processed and stored in Indian regions". Nothing in this repository supports it:
+   * DEPLOYMENT §0 hosts the site stack, Postgres included, on a general-purpose VPS with
+   * India co-location NOT required; §1 puts object storage on Cloudflare R2 at
+   * `AWS_REGION=auto`; SECURITY-COMPLIANCE §4 records Bolna recordings observed on S3
+   * `us-east-1` with the posture still to be pinned in a contract; Clerk, Resend and
+   * Sentry are all elsewhere; and no deploy has ever run, so the region is undecided
+   * rather than merely unwritten.
+   *
+   * The narrower claim that replaced it is the one SECURITY-COMPLIANCE §4 makes in its
+   * own words — model endpoints pinned to an Indian region — and it is guarded on the
+   * backend by `scripts/check_model_residency.py`. This test is the frontend half:
+   * residency is the claim a buyer in this market asks for FIRST, which is exactly why
+   * it grows back, and a softened verb over the same implication is the same
+   * misrepresentation. Certifications are in the same list because the company holds
+   * none.
+   */
+  it("claims no data residency, storage location or certification", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/stays? in india|remains? in india|never leaves india/i);
+    expect(text).not.toMatch(/stored in india|hosted in india|kept in india|held in india/i);
+    expect(text).not.toMatch(/data residency|data sovereignty|sovereign/i);
+    expect(text).not.toMatch(/soc\s?2|iso[\s-]?27001|hipaa|pci[\s-]?dss|certified|accredited/i);
+    // The one surviving India claim is about MODEL ENDPOINTS, and it must stay attached
+    // to the thing that enforces it rather than drifting into a claim about our storage.
+    expect(text).toContain("The AI runs on Indian endpoints");
+    expect(text).not.toMatch(/(recordings?|transcripts?|database|servers?)[^.]{0,40}\bin india\b/i);
+  });
+
   it("does not advertise a self-serve door the deployment has switched off", () => {
     const { container } = render(<Home />);
     // `self_serve_signup_enabled` defaults OFF and the tests run with it unset, so the

@@ -27,6 +27,13 @@
  * `apps/api/compliance/registration.py`, which is exactly what `/verification` tells a
  * client whose outbound stopped).
  *
+ * The DLT answer describes the GATE and not our own paperwork, deliberately. An earlier
+ * draft said "Calevate is registered as the telemarketer", which is a claim about the
+ * world rather than about the code — and the code says the opposite is possible:
+ * `tm_registration_missing` exists as a platform-level blocker precisely because that
+ * registration can be absent. What the product genuinely does is refuse the dial, so
+ * that is what the answer says.
+ *
  * ## Why `<details>` rather than a built accordion
  *
  * It is the platform's disclosure widget: keyboard-operable, announced as expandable and
@@ -93,9 +100,10 @@ const QUESTIONS: { q: string; a: string }[] = [
   {
     q: "Do we need a DLT registration to make outbound calls?",
     a:
-      "Yes — Indian rules register the business whose calls are being made, and Calevate " +
-      "is registered as the telemarketer that makes them. We do that part with you, and " +
-      "outbound stays blocked until it is in place. Inbound is not affected by any of it.",
+      "Yes. Indian rules require the business whose calls they are to be registered, and " +
+      "the telemarketer placing them to be registered too. That paperwork is part of " +
+      "setting you up, and the product refuses to dial a campaign until it is in place. " +
+      "Inbound answering is not affected by any of it.",
   },
   {
     q: "Can we stop it once it is running?",

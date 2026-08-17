@@ -45,6 +45,24 @@ import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
  * - **No turnaround promise.** Nothing in the product or in ops measures one.
  * - **No integration logos.** The outbound webhook and Sheets sync are real (D-23); a wall
  *   of CRM logos would imply certified integrations that do not exist.
+ * - **No data-residency, storage-location or certification claim.** This one was NOT
+ *   absent and had to be removed: the data section used to say "It stays in India —
+ *   calls, transcripts and recordings are processed and stored in Indian regions", and
+ *   nothing in this repository supports it. DEPLOYMENT §0 puts the whole site stack,
+ *   including the Postgres holding every transcript and phone number, on a
+ *   general-purpose VPS with **India co-location explicitly NOT required**; §1 puts
+ *   object storage on Cloudflare R2 with `AWS_REGION=auto`; SECURITY-COMPLIANCE §4
+ *   records Bolna call recordings observed on S3 `us-east-1` and marks the residency
+ *   posture as something to be pinned in a CONTRACT that does not exist yet; Clerk,
+ *   Resend and Sentry are all outside India; and no deploy has ever run, so the hosting
+ *   region is genuinely undecided rather than merely unwritten — a founder's decision
+ *   this page must not pre-empt. What survives is the one narrow claim that is
+ *   ENFORCED: model endpoints are pinned to an Indian region, and
+ *   `scripts/check_model_residency.py` fails the build on anything else. A softer verb
+ *   over the same implication ("your data lives in India") is the same
+ *   misrepresentation, so `publicLanding.test.tsx` bans the shape rather than trusting
+ *   the next writer to remember why. Certifications (SOC 2, ISO 27001, HIPAA) are
+ *   likewise absent because the company holds none.
  *
  * ## What the redesign added, and why each section is defensible
  *
@@ -511,10 +529,24 @@ export default function Home() {
               <dl className="mt-10 grid gap-8 sm:grid-cols-3">
                 {[
                   {
-                    term: "It stays in India",
+                    /*
+                     * NARROWED, because the sentence it replaces was not true (see the
+                     * residency note in this file's header). What the repository
+                     * actually enforces is a fact about MODEL ENDPOINTS —
+                     * SECURITY-COMPLIANCE §4's own words, "every model endpoint this
+                     * repository can reach is pinned to an Indian region" — and
+                     * `scripts/check_model_residency.py` fails the build on a host, a
+                     * `locations/…` segment or a console-editable region that says
+                     * otherwise. Nothing here is said about where the database, the
+                     * object store or the recordings sit, because that is undecided
+                     * (DEPLOYMENT §0) and is the founder's call to make.
+                     */
+                    term: "The AI runs on Indian endpoints",
                     detail:
-                      "Calls, transcripts and recordings are processed and stored in " +
-                      "Indian regions.",
+                      "Speech, language and the reading of your transcripts are Indian " +
+                      "services. The one model endpoint that is not is pinned to " +
+                      "Mumbai by a check that fails our build if a line of code ever " +
+                      "points somewhere else.",
                   },
                   {
                     term: "One business cannot see another",
