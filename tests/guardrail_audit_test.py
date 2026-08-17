@@ -300,6 +300,15 @@ class TestRlsCoverage:
             # it. `tests/authn_rls_test.py` drives the property against real rows.
             "auth_credentials",
             "auth_sessions",
+            # D-170's flow tables, joining the same shape rather than a new one: a
+            # one-time email token (reset, invitation, bootstrap) and a pending OTP
+            # challenge belong to a PERSON mid-authentication, before any tenant context
+            # exists to scope them by — which is why neither carries `tenant_id` and why
+            # both are FORCEd onto the same `app.auth` GUC. Holding them to the tenant
+            # rule would mean inventing a tenant for a subject who has not proved who
+            # they are yet.
+            "auth_email_tokens",
+            "auth_otp_challenges",
         }
 
 
