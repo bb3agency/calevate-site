@@ -25,13 +25,13 @@
  * Ours cannot: the server answers all three with one status, one body and — via
  * `verify_password_blocking` against a dummy hash — one wall-clock cost, and this form
  * renders one fixed sentence chosen by problem code with no reference to the address that
- * was typed. `tests/authnEnumeration.test.tsx` drives two different upstream bodies
+ * was typed. `tests/authnScreens.test.tsx` drives two different upstream bodies
  * through it and asserts the DOM is character-identical.
  *
  * **3 — the dev OTP bypass.** There is no `devOtp` field on any response here, nothing
  * reads `process.env` on this path, and no code is ever auto-filled. A credential in a
  * response body is not made safe by an environment variable, and the guard test
- * `tests/authnNoCredentialLeak.test.ts` reads this directory's source to keep it that way.
+ * `tests/authnSourceGuards.test.ts` reads this directory's source to keep it that way.
  *
  * **4 — the duplicated countdown.** One `useCountdown`, keyed on an absolute deadline,
  * cleaned up by its own effect. Pressing resend replaces the deadline rather than starting

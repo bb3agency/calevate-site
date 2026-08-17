@@ -20,7 +20,7 @@
  * `lib/authn/realm.ts` and `apps/api/authn/routes.py::_realm_router` both make, and the
  * same one CLAUDE.md's "never share session logic" is aimed at: what must be impossible
  * is a runtime path that carries a caller between realms, not a function written once.
- * `tests/authnRealmSeparation.test.ts` pins that each provider names exactly one instance.
+ * `tests/authnSourceGuards.test.ts` pins that each provider names exactly one instance.
  *
  * ## The generation counter
  *

@@ -20,7 +20,7 @@
  * same end state as writing the file twice, minus the copy that would drift.
  *
  * The two are constructed in `adminAuthn.ts` and `clientAuthn.ts`, once each, and nothing
- * else may call this factory. `tests/authnRealmSeparation.test.ts` asserts both halves of
+ * else may call this factory. `tests/authnSourceGuards.test.ts` asserts both halves of
  * that: that the two instances share no state, and that no other module imports the
  * factory.
  *

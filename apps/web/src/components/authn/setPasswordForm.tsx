@@ -15,7 +15,7 @@
  *
  * The reference's client validator accepts 128 characters against a bcrypt that truncates
  * at 72, so it advertises strength it does not store. `lib/authn/password.ts` holds ours
- * and `tests/authnPasswordBounds.test.ts` reads them back out of
+ * and `tests/authnSourceGuards.test.ts` reads them back out of
  * `apps/api/authn/hashing.py`, so the two cannot drift without the build saying so.
  *
  * ## The confirmation field

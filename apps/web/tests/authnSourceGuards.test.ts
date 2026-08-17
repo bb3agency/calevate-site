@@ -3,7 +3,9 @@ import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { ApiProblem } from "@/lib/api/client";
 import { MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS } from "@/lib/authn/password";
+import { AUTHN_CODES, signInMessage } from "@/lib/authn/problems";
 
 /**
  * Source-level guards over the first-party auth surface (D-174).
@@ -289,6 +291,95 @@ describe("§5.7 defect 8 — the client's password bounds are the hasher's", () 
       "a bcrypt/passlib hasher would reintroduce the 72-byte truncation §5.7 defect 8 is " +
         "about, and MAX_PASSWORD_CHARS would become a claim the store does not keep",
     ).not.toMatch(/^(from|import)\s+(bcrypt|passlib)/m);
+  });
+});
+
+describe("the refusal vocabulary is pinned to the API that raises it", () => {
+  /**
+   * `lib/authn/problems.ts` claims its code list is "read off the source … rather than
+   * pinned to somebody's memory of it", and until this ran, nothing held it there.
+   *
+   * The failure it guards is quiet, which is what makes it worth an assertion: the server
+   * adds or renames a code, `signInMessage` stops recognising it, and the sign-in screen
+   * falls through to the generic `ProblemNotice` — no error, no test failure, just a person
+   * told "something went wrong" where a sentence they could act on used to be. Nobody
+   * reports that as a bug against this file.
+   *
+   * Read-only across the app boundary, the same way the password-bounds block above reads
+   * `hashing.py`: what decides is the API's own source, not a comment claiming it matches.
+   */
+  const AUTHN_API = join(process.cwd(), "..", "..", "apps", "api", "authn");
+
+  /** Every `code="…"` the auth module raises. Its own spelling, `ProblemError`'s keyword. */
+  function serverCodes(): Set<string> {
+    const found = new Set<string>();
+    for (const entry of readdirSync(AUTHN_API)) {
+      if (!entry.endsWith(".py")) continue;
+      const body = readFileSync(join(AUTHN_API, entry), "utf8");
+      for (const match of body.matchAll(/\bcode="([a-z_]+)"/g)) found.add(match[1]);
+    }
+    if (found.size === 0) {
+      throw new Error(`no problem codes found under ${AUTHN_API} — this guard is looking in the wrong place`);
+    }
+    return found;
+  }
+
+  /**
+   * The two codes the browser must handle that `apps/api/authn/` does not spell itself.
+   *
+   * Named here rather than allowed by a loose rule, because "the frontend may know codes
+   * the auth module does not raise" is the hole this test exists to close. Each is asserted
+   * against the module that DOES raise it, so neither is a claim.
+   */
+  const RAISED_ELSEWHERE: ReadonlyArray<readonly [code: string, source: string]> = [
+    // `ProblemError.unauthorized()` — the shared 401, raised by the session dependency
+    // rather than by a handler in `authn/`.
+    [AUTHN_CODES.unauthorized, join("apps", "api", "core", "errors.py")],
+    // The rate-limit middleware's own 429, which any route can meet.
+    [AUTHN_CODES.rateLimited, join("apps", "api", "core", "middleware.py")],
+  ];
+
+  it("every code the API raises has a browser spelling", () => {
+    const browser = new Set<string>(Object.values(AUTHN_CODES));
+    const missing = [...serverCodes()].filter((c) => !browser.has(c)).sort();
+    expect(
+      missing,
+      `these codes are raised by apps/api/authn/ and unknown to src/lib/authn/problems.ts:\n` +
+        `  ${missing.join("\n  ")}\n` +
+        `A code with no entry falls through to the generic notice, which is the one screen ` +
+        `that cannot tell a person what to do about it.`,
+    ).toEqual([]);
+  });
+
+  it("every browser spelling is a code something actually raises", () => {
+    const server = serverCodes();
+    const declared = new Map(RAISED_ELSEWHERE.map(([code, source]) => [code, source]));
+    const orphans = Object.values(AUTHN_CODES)
+      .filter((c) => !server.has(c) && !declared.has(c))
+      .sort();
+    expect(
+      orphans,
+      `these codes are handled in the browser and raised nowhere:\n  ${orphans.join("\n  ")}\n` +
+        `Dead copy is worse than none — it reads as coverage. Delete it, or add it to ` +
+        `RAISED_ELSEWHERE naming the module that raises it.`,
+    ).toEqual([]);
+
+    for (const [code, source] of RAISED_ELSEWHERE) {
+      const body = readFileSync(join(process.cwd(), "..", "..", source), "utf8");
+      expect(body, `${code} is declared as raised by ${source}, and is not there`).toContain(code);
+    }
+  });
+
+  it("every code in the vocabulary has a sentence a person can act on", () => {
+    for (const code of Object.values(AUTHN_CODES)) {
+      const message = signInMessage(
+        new ApiProblem(400, { kind: "auth", type: `urn:calevate:auth/${code}`, title: "t" }),
+      );
+      expect(message, `${code} has no sign-in copy`).not.toBeNull();
+      // Never the server's `detail`: §5.7 defect 2 is a UI that renders what the server
+      // said and so re-leaks a distinction the server was careful to equalise.
+      expect(message).not.toBe("t");
+    }
   });
 });
 

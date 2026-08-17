@@ -11,7 +11,7 @@
  * `MIN_PASSWORD_CHARS = 12` / `MAX_PASSWORD_CHARS = 128`, enforced twice on the way in
  * (Pydantic's `Field(min_length=…, max_length=…)` on every wire model, then
  * `_refuse_unusable` at the hash itself). So the honest client bound is the SAME two
- * numbers, and `tests/authnPasswordBounds.test.ts` reads them back out of
+ * numbers, and `tests/authnSourceGuards.test.ts` reads them back out of
  * `apps/api/authn/hashing.py` and fails if these drift from it. Pinning to the source
  * rather than to a comment is the whole lesson of the defect: the reference's 128 was
  * true when it was written.

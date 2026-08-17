@@ -266,6 +266,88 @@ describe("§5.6 — the idle modal re-checks the SERVER'S answer before extendin
     expect(view.container.textContent, "the countdown must keep running").toContain("Still there?");
   });
 
+  /**
+   * The warning is STICKY, and the first spelling of this hook was not.
+   *
+   * It called `onActive()` on any activity while the warning showed, dismissing the modal
+   * and restarting the clock. `click` and `mousemove` are activity, so the pointer moving
+   * towards "Stay signed in" closed the dialog before it could be pressed, and pressing it
+   * closed the dialog on the same click that began the extension — which is how the failure
+   * case above came to assert on a panel that was no longer rendered.
+   *
+   * The durable reason is the security one: extending a session is a decision, and a stray
+   * mouse movement over a laptop somebody walked away from is not one.
+   */
+  it("is not dismissed by activity underneath it — only an extension reopens the clock", async () => {
+    vi.useFakeTimers();
+    stubApi({});
+    const view = render(<AdminIdleTimeoutModal enabled />);
+
+    await warn();
+    expect(view.container.textContent).toContain("Still there?");
+
+    await act(async () => {
+      window.dispatchEvent(new Event("mousemove"));
+      window.dispatchEvent(new Event("click"));
+      window.dispatchEvent(new Event("keydown"));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(
+      view.container.textContent,
+      "activity under the prompt silently extended the session",
+    ).toContain("Still there?");
+  });
+
+  it("presses its own button without dismissing itself, and shows the failure", async () => {
+    vi.useFakeTimers();
+    stubApi({
+      "POST /v1/auth/admin/session/refresh": problem(503, {
+        type: "urn:calevate:internal/unavailable",
+        title: "Unavailable",
+        detail: "Unavailable",
+        kind: "internal",
+      }),
+    });
+    const view = render(<AdminIdleTimeoutModal enabled />);
+
+    await warn();
+    await act(async () => {
+      // A real pointer press, bubbling to `window` exactly as the browser delivers it —
+      // `fireEvent.click` on the button is what the broken version dismissed itself on.
+      fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(view.container.textContent).toContain("could not extend");
+  });
+
+  it("restarts the idle clock after an extension the server agreed to", async () => {
+    vi.useFakeTimers();
+    stubApi({ "POST /v1/auth/admin/session/refresh": ADMIN_SESSION });
+    const view = render(<AdminIdleTimeoutModal enabled />);
+
+    await warn();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stay signed in" }));
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(view.container.textContent).not.toContain("Still there?");
+
+    // A sticky warning that nothing restarts is an idle bound that silently stops bounding:
+    // the console would never warn again for the life of the tab. The whole point of
+    // `resume()` is that the next 25 idle minutes still land.
+    await warn();
+    expect(
+      view.container.textContent,
+      "the idle clock never restarted, so this console can no longer time itself out",
+    ).toContain("Still there?");
+  });
+
   it("runs no timers at all when there is no session to protect", () => {
     vi.useFakeTimers();
     stubApi({});

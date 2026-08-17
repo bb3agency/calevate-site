@@ -17,7 +17,7 @@
  * answers ONE way — `service.sign_in` equalises status, body AND wall-clock time — and a
  * frontend that passed the server's string through unexamined would still be one server
  * change away from leaking the distinction back. So the sign-in surfaces render a FIXED
- * sentence chosen by code, and the code is all they read. `tests/authnEnumeration.test.tsx`
+ * sentence chosen by code, and the code is all they read. `tests/authnScreens.test.tsx`
  * drives two different upstream bodies through it and asserts the rendered output is
  * identical, character for character.
  */
@@ -30,7 +30,7 @@ import { lookup } from "@/lib/lookup";
  *
  * Read off the source (`grep -o 'code="[a-z_]*"' apps/api/authn/*.py`) plus
  * `ProblemError.unauthorized`'s `unauthorized` and the rate-limit middleware's
- * `rate_limited`. `tests/authnContract.test.ts` re-derives the set from
+ * `rate_limited`. `tests/authnSourceGuards.test.ts` re-derives the set from
  * `apps/api/authn/*.py` and fails if this drifts, so the list is pinned to its source
  * rather than to somebody's memory of it.
  */
