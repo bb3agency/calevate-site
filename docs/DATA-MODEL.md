@@ -494,13 +494,24 @@ consent_ledger(id, tenant_id, call_id, phone_e164,
   -- UPDATE, and the read honours a validity window
   -- (`MESSAGING_CONSENT_VALIDITY_DAYS`) so a stale opt-in stops authorising messages
   -- while remaining in the ledger as evidence of what happened.
-retention_policies(id, tenant_id, data_category ENUM[recording,transcript,lead,consent_log],
+retention_policies(id, tenant_id,
+  data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb],
   ttl_days INT CHECK (ttl_days >= 90 WHERE data_category='recording'),   -- TRAI 90-day floor
   action ENUM[delete,anonymize])
   -- SEEDED defaults (`scripts/seed.DEFAULT_RETENTION_POLICIES`): recording 90/delete,
-  -- transcript 365/anonymize, lead 1095/anonymize, consent_log 2555/anonymize. These
+  -- transcript 365/anonymize, lead 1095/anonymize, consent_log 2555/anonymize,
+  -- engine_payload 90/delete, kb 365/delete. These
   -- do NOT match the numbers SEC-COMP §4 prints — see the open question recorded there;
   -- the DPA quotes the doc and the sweep obeys these rows.
+  -- engine_payload and kb are D-179 (migration c4d1f7b83e26), and each gave a clock to a
+  -- store of personal data that sat outside every policy a tenant could set:
+  -- `calls.engine_payload_ref`'s archived vendor document, and SUPERSEDED knowledge-base
+  -- versions. `action` is not read on either — an opaque vendor document and a chunk of
+  -- prose have no anonymized form — so an `anonymize` row on those two destroys.
+  -- `campaign_contact` is deliberately NOT here: an uploaded contact list has no clock
+  -- either, and how long a client's own list is kept is a DPA commitment whose number is
+  -- the founder's (`tests/dpdp_known_gaps_test.py` probes this constraint to hold that
+  -- gap open).
   -- The sweep also ages out the DERIVED copies of the same personal data, classified by
   -- WHAT THEY ARE and then timed by the tenant's own policy row
   -- (`workers/retention.DERIVED_COPIES`): `calls.summary` is a retelling of the

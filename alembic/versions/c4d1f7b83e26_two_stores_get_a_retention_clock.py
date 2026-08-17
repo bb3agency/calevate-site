@@ -96,7 +96,11 @@ depends_on: str | Sequence[str] | None = None
 # make this file silently mean something different the next time the tuple changes.
 _CATEGORIES_AFTER = ("recording", "transcript", "lead", "consent_log", "engine_payload", "kb")
 _CATEGORIES_BEFORE = ("recording", "transcript", "lead", "consent_log")
-_CONSTRAINT = "ck_retention_policies_category_enum"
+# The UNPREFIXED name: alembic's naming convention renders it as
+# `ck_retention_policies_category_enum`, which is what `05bba2f3c19c` created and what
+# `tests/dpdp_known_gaps_test.py` reads out of `pg_constraint`. Passing the prefixed form
+# would have alembic prefix it twice.
+_CONSTRAINT = "category_enum"
 
 
 def _category_check(categories: tuple[str, ...]) -> str:
