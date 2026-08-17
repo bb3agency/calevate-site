@@ -51,6 +51,8 @@ def _object_store_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
+
+
 def _settings(**overrides: Any) -> Settings:
     """A production-shaped configuration with every non-engine requirement satisfied.
 
