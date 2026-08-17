@@ -356,9 +356,20 @@ release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is
 decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
 row already agreed with a client is not silently re-timed by a seed change.
 
-**OPEN QUESTION — an erasure does not reach the backups, and a restore un-does one.**
-Surfaced by the backup work (D-50, `infra/backup/`), stated here rather than resolved
-because whether it must be disclosed is a legal call.
+**DECIDED (D-164) — an erasure does not reach the backups, and a restore un-does one; we
+disclose it.** Surfaced by the backup work (D-50, `infra/backup/`), left open here while
+the question was whether to disclose. It is now disclosed: `ERASURE_LIMITATIONS` and
+`ERASURE_EXCEPTIONS` carry a backup clause, and `BACKUP_WINDOW_DAYS` is pinned by test to
+the window `infra/backup/README.md` actually implements.
+
+What settled it was not a new judgement about DPDP but an ASYMMETRY THAT HAD BECOME
+UNTENABLE: the client DPA published at `/legal/dpa` states the 35-day window to clients in
+writing, so the commitment was already made — while the certificate the client forwards to
+the *data principal* omitted it. Disclosing to the controller and withholding from the
+subject is the wrong way round, and closing it required adding no new promise, only
+matching one already given. **The WORDING remains a matter for counsel** (the whole
+`/legal` set carries `{{PENDING LEGAL REVIEW}}` for the same reason); what is settled is
+that the fact is disclosed rather than reserved.
 
 - Both backup chains retain **35 days**. So for up to 35 days after a completed erasure,
   the person's data still exists in a base backup, in the WAL segments and in the offsite
@@ -370,13 +381,16 @@ because whether it must be disclosed is a legal call.
   `runbooks/database-restore.md` makes replaying those erasures a MANDATORY step, and the
   authoritative list has to come from the preserved pre-restore cluster, because requests
   raised after the target do not exist in the restored one.
-- `ERASURE_LIMITATIONS` (`apps/api/compliance/deletion.py`) does **not** currently carry a
-  backup clause. Every other limitation of the erasure is disclosed on the certificate;
-  this one is not, and that asymmetry is the open item. **Who must decide:** the founder
-  with counsel — a backup-retention clause is standard in DPDP-facing erasure notices, but
-  adding a sentence to a notice that clients hand to data principals is a commitment, not
-  a code change. Whichever way it goes, this section and `ERASURE_LIMITATIONS` change in
-  the same release, with a decision-log entry (ROADMAP §6).
+- `ERASURE_LIMITATIONS` (`apps/api/compliance/deletion.py`) now carries the backup clause,
+  index-aligned with an `ERASURE_EXCEPTIONS` entry keyed `backup`, so both the prose the
+  data principal reads and the structured half a machine reads say it. Its outcome word is
+  `expires_with_backup` rather than `retained_as_record`: nothing is being KEPT here as a
+  matter of policy — the record is gone from every live system and what remains is a
+  bounded lag in a medium that must not be edited. The clause states the window, says
+  backups are never searched or edited to remove one person (a rewritten backup can no
+  longer be trusted to restore anything), and says the erasure is re-applied on restore —
+  which is the `runbooks/database-restore.md` step above, so the notice and the runbook
+  now describe the same behaviour.
 
 **Messaging consent is its own permission, and it is never inferred.** The campaign
 follow-up (FLOWS §4.5) is a business-initiated WhatsApp message to a consumer, which

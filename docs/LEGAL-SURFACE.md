@@ -370,15 +370,23 @@ route, and no mechanism to notify affected clients**.
 Rule 7 content, (b) the Board's reporting channel, (c) the decision rule for who signs off.
 This is a document, not a feature, and it can be written today.
 
-### F-7 — The erasure does not reach backups, and the certificate does not say so. **OURS, founder + counsel.**
+### F-7 — ~~The erasure does not reach backups, and the certificate does not say so.~~ **CLOSED (D-164).**
 
-Verbatim from SEC-COMP §4: both backup chains retain **35 days**, a point-in-time restore
-un-erases people, and `ERASURE_LIMITATIONS` **carries no backup clause** while disclosing
-every other limitation. That asymmetry is the finding.
+The finding as recorded: both backup chains retain **35 days**, a point-in-time restore
+un-erases people, and `ERASURE_LIMITATIONS` carried no backup clause while disclosing every
+other limitation. Publishing `/legal/privacy` §9/§12.4 and the DPA sharpened it into a live
+inconsistency — the public notice and the document a client hands to a data principal said
+different things.
 
-`/legal/privacy` §9 and §12.4 now disclose the 35-day backup window publicly. **The
-certificate still does not**, so the public notice and the document a client hands to a data
-principal now say different things — which is a *new* inconsistency created by publishing.
+**Closed by D-164**, and the asymmetry is what closed it rather than a fresh legal judgement:
+once the DPA stated the window to the client in writing, the commitment was already made, and
+withholding the same fact from the *data principal* was the wrong way round. `ERASURE_LIMITATIONS`
+now carries the clause, `ERASURE_EXCEPTIONS` its index-aligned `backup` entry, and
+`BACKUP_WINDOW_DAYS` is pinned by test across the runbook, the DPA and the certificate.
+SEC-COMP §4's open question is marked decided.
+
+**Still counsel's:** the WORDING, not the disclosure. If counsel rewrites the clause the
+finding stays closed — what was decided is that the fact is disclosed.
 
 **What closes it:** add the backup clause to `ERASURE_LIMITATIONS`
 (`apps/api/compliance/deletion.py`) in the same release that publishes these pages. It is one
@@ -541,8 +549,9 @@ publication — that is the first thing §10 asks for.
    clause. Do not leave both.
 6. **Whether the Consumer Protection Act 2019 applies** to the SMB/proprietor customer base,
    and whether the arbitration clause in `/legal/terms` §16 survives it.
-7. **F-7.** Whether the backup-retention window must be disclosed on the erasure certificate
-   as well as in the privacy notice.
+7. **F-7 (now a review, not a question).** The backup-retention window IS disclosed on the
+   certificate as of D-164. What counsel should check is the clause's wording against DPDP
+   §8(7), not whether to have one.
 8. **Every citation in §9** against the gazette. Several were retrieved as secondary
    summaries because the primary sources are unreachable from this environment.
 
