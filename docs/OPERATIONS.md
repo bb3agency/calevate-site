@@ -357,9 +357,23 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   payload that can say nobody is watching, so the console leads with it rather than
   burying it. `never_checked` is distinct from `in_sync` for the same reason
   `live_verify_state`'s `unverified` is distinct from `unreachable`.
-- **What triggers one**: webhook failures > 3/5min; pipeline lag > 5 min; latency p95
-  breach 15-min sustained; cap approaching (80%)/breached; complaint-spike on campaign;
-  engine 5xx spike; nightly job failures; cert/domain expiry.
+- **What triggers one — and which of them EXIST.** This list was written as a design and
+  read for months as an inventory; D-183 found that three of its entries had no call site
+  anywhere in the tree, so the list now says which is which. An alarm somebody believes in
+  and that cannot fire is worse than a gap they know about.
+  - **Implemented and fired from code**: webhook failures > 3/5min; pipeline lag > 5 min;
+    **cap approaching (80%)/breached** (`billing/caps.announce_cap_headroom`, D-183, called
+    from the meter's own write so it cannot be forgotten by a caller); nightly job failures;
+    host backup failure (below).
+  - **NOT implemented, and each names what it waits on**: *complaint-spike on campaign* and
+    *engine 5xx spike* are rates over counters, so they need either the metrics pipeline
+    DEPLOYMENT §8 defers or a producer at the complaint and adapter-error sites;
+    *cert/domain expiry* is a systemd timer beside the backup units in `infra/`, not a
+    Python alarm at all; *latency p95 breach 15-min sustained* needs the same counter
+    store as the two rate alarms.
+  - **The rule D-183 fixed in place**: no alarm may depend on a `record_*` metric, because
+    every recorder in `core/alerting.py` writes to a stream nothing reads. Alarms travel
+    `alert()`'s D-49 email path and announce at the producing write.
 - **The host backup chain crosses a PROCESS boundary, not a vocabulary one.** Backups run
   on the host as `postgres`, outside every Python process, so they cannot CALL `alert()` —
   they emit the same shape (`failure_stage=HOST_BACKUP` with a stable code) to journald and
@@ -587,6 +601,12 @@ one differs from a summary below, the runbook is the authority.
 - **Data breach (suspected)**: contain (revoke keys, rotate, big red switch if needed) →
   scope via audit_log/webhook_deliveries → classify under DPDP → notify Board + affected
   principals per Rules timeline → postmortem in repo.
+  - **`webhook_deliveries` answers OUTBOUND completely and INBOUND only partly**, and an
+    investigator must know which half they are holding: the table records deliveries we
+    CLAIMED, so a request we rejected at the door leaves no row in it. For inbound scope,
+    read the alert codes instead — `webhook_source_rejected`, `webhook_payload_too_large`,
+    `webhook_unkeyable` — which is exactly where a refused or malformed delivery lands. A
+    duplicate is deliberately silent and is not evidence of anything.
 - **Runaway campaign**: auto-pause on cap/complaint alarm; verify DNC + template status;
   client comms template ready.
 - **Deletion request**: FLOWS §9 procedure; 7-day internal SLA; proof certificate issued.
