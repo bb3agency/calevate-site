@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from arq.jobs import SerializationError
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -50,11 +51,31 @@ STALL_AFTER_MINUTES = int(PIPELINE_STALL_AFTER.total_seconds() // 60)
 # so a real stall is still reported ~48 times before it ages out of the window.
 STALL_WINDOW_HOURS = 24
 
+#: What a POISONED MESSAGE can actually raise, and nothing else (D-182).
+#:
+#: This branch used to be `except Exception`, and its handler answers by issuing ANOTHER
+#: statement on the same session (`mark_outbox_failed`). That is correct for a payload the
+#: queue refuses and wrong for a database error — `mark_outbox_published` is inside the
+#: same `try`, so a `DBAPIError` from it landed here, the session was already in a failed
+#: transaction, psycopg refused the next statement with `InFailedSqlTransaction`, and the
+#: whole tick aborted with every status write in the batch rolled back. The attempt counts
+#: survive (the claim commits on its own connection), so up to fifty messages were charged
+#: an attempt per pass until either the database recovered or
+#: `_dead_letter_exhausted_claims` retired them as poison they never were. The distinction
+#: the DLQ exists to record — bad message versus bad database — was the thing being lost.
+#:
+#: `SerializationError` is what arq raises when the job cannot be serialised
+#: (`arq/jobs.py:serialize_job` wraps every serializer failure in it); `TypeError` and
+#: `ValueError` are what a malformed payload raises before it gets that far. Anything
+#: else — a `DBAPIError` above all — now escapes to the tick's own failure handling, where
+#: "the database is gone" is the correct verdict and arq's retry is the correct response.
+POISON_PAYLOAD = (SerializationError, TypeError, ValueError)
+
 
 async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     """Runs every few seconds. Publishes claimed rows; failures walk to the DLQ.
 
-    TWO KINDS OF FAILURE, AND THEY MUST NOT BE TREATED ALIKE.
+    THREE KINDS OF FAILURE, AND THEY MUST NOT BE TREATED ALIKE.
 
     A message whose payload the queue refuses is poison: it is charged an attempt, it
     stays `pending` while it has budget, and it walks to the DLQ. That is the loop's
@@ -67,6 +88,13 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
     step-up-confirmed operator replay as the only way back. So the tick stops on the
     first systemic failure, hands the untried remainder back with a backoff
     (`defer_outbox_claim`), and says so once.
+
+    A DATABASE that has gone is neither, and it is the one this loop used to get wrong.
+    The status writes go through the caller's session, so a `DBAPIError` from
+    `mark_outbox_published` leaves that session in a failed transaction — and the poison
+    handler's answer is to write ANOTHER statement on it. It escapes now (see
+    `POISON_PAYLOAD`): the tick fails red, arq retries it, and the messages keep their
+    committed attempt counts instead of being dead-lettered as poison they never were.
 
     `RedisError, OSError` is the same pair `apps/api/core/queue.py`'s callers already
     treat as "the queue is down" (`tests/reliability_audit_test.py::
@@ -106,7 +134,7 @@ async def dispatch_outbox(ctx: dict[str, Any]) -> str:
                 )
                 log.warning("outbox_queue_unreachable", extra={"deferred": deferred})
                 break
-            except Exception as exc:
+            except POISON_PAYLOAD as exc:
                 # Never let one poisoned message stop the batch — that is how a single
                 # bad payload stalls every tenant's notifications.
                 await mark_outbox_failed(
