@@ -288,8 +288,16 @@ async function sendRequest<T>(
   const requested = session.token?.();
   const token = typeof requested === "string" ? requested : await requested;
 
-  const headers: Record<string, string> = { "X-Org-Slug": session.orgSlug };
-  if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+  const headers: Record<string, string> = {
+    "X-Org-Slug": session.orgSlug,
+  };
+  // BRACKET NOTATION, deliberately, and it is the same shape as the four conditional
+  // headers below rather than a style choice: `tests/cors_contract_test.py` reads this
+  // file for every header name it can put on a request and checks the API's CORS
+  // allowlist admits each one. It knows two spellings — the object literal above and a
+  // bracket assignment — and a header written in a third would be one the browser sends
+  // and the preflight rejects, which is invisible to curl and fatal in a browser.
+  if (token !== undefined) headers["Authorization"] = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;

@@ -111,7 +111,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str, str]:
         created_by=None,
     )
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
-    user_id, user_id = uuid.uuid4(), f"user_{uuid.uuid4().hex[:12]}"
+    user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
