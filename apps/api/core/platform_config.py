@@ -812,6 +812,19 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
     Never raises. Every caller is either a background loop or a post-write write-through,
     and both have the same correct behaviour on failure: keep the last good snapshot and
     make some noise.
+
+    THE PROMISE IS STRUCTURAL, WHICH IT WAS NOT (D-182). The `try` covered `_sentinel`,
+    `_read_rows` and `_read_secrets` and stopped there — `_resolve`, the override merge,
+    `apply_platform_overrides` and the snapshot construction were all outside it. None of
+    them raises TODAY (`_resolve` logs and skips every bad row; `apply_platform_overrides`
+    filters rather than refuses), so the promise held by the current CONTENTS of two other
+    functions rather than by this one's shape. The day one of them raised, the exception
+    would leave `refresh`, leave `_poll_forever` — which has no guard of its own and whose
+    comment says this loop cannot die — and end the task: the process would serve the last
+    snapshot for ever, silently, because both alerts for that condition live in the
+    `except` that no longer covered the raising code, and asyncio swallows a task's
+    exception into a result nobody retrieves. An operator would see a console change
+    applied on some processes and not others, with nothing red anywhere.
     """
     global _snapshot
     async with _refresh_lock:
@@ -825,6 +838,47 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
                 return _snapshot
             rows = await _read_rows()
             secrets = await _read_secrets()
+
+            overrides = _resolve(rows, effective_env())
+            # SECRETS RIDE THE SAME SENTINEL AND THE SAME LAYER. §6 proposed resolving them
+            # lazily on a shorter TTL of their own; one mechanism is strictly better here —
+            # the sentinel is FASTER than any TTL (a rotation propagates in ≤8s rather than
+            # in a TTL's worth of luck), it is one thing to reason about rather than two, and
+            # a rotation is precisely the change that must not wait. `_read_secrets` already
+            # applied §4's precedence, so a key the environment declares never appears.
+            #
+            # `overrides` now holds live credentials. It is applied to `Settings` and dropped;
+            # nothing logs it, nothing serializes it, and `ConfigFieldOut` cannot carry one
+            # because `managed_fields()` excludes every credential-shaped key by name.
+            overrides.update(secrets.values)
+            if secrets.unreadable:
+                # A row exists and no configured KEK opens it. The platform keeps running on
+                # whatever the environment or the previous snapshot gave it — but an operator
+                # has to know, because the symptom otherwise presents as "the vendor is
+                # rejecting our key" and sends them to the wrong system entirely.
+                alert(
+                    "CORE_LOGIC",
+                    "platform_secret_unreadable",
+                    detail=(
+                        "Stored credentials could not be decrypted with this deployment's "
+                        "PLATFORM_KEK. Put the outgoing key in PLATFORM_KEK_RETIRED if this "
+                        "follows a rotation."
+                    ),
+                    keys=",".join(secrets.unreadable),
+                )
+            apply_platform_overrides(overrides)
+            _snapshot = ConfigSnapshot(
+                version=version,
+                overrides=overrides,
+                loaded_at=time.monotonic(),
+                degraded=False,
+            )
+            log.info(
+                "platform_config_loaded",
+                extra={"config_version": version, "override_count": len(overrides)},
+            )
+            return _snapshot
+
         except Exception as exc:
             _snapshot = replace(_snapshot, degraded=True)
             if _snapshot.loaded_at is None:
@@ -853,52 +907,13 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
                 )
             return _snapshot
 
-        overrides = _resolve(rows, effective_env())
-        # SECRETS RIDE THE SAME SENTINEL AND THE SAME LAYER. §6 proposed resolving them
-        # lazily on a shorter TTL of their own; one mechanism is strictly better here —
-        # the sentinel is FASTER than any TTL (a rotation propagates in ≤8s rather than
-        # in a TTL's worth of luck), it is one thing to reason about rather than two, and
-        # a rotation is precisely the change that must not wait. `_read_secrets` already
-        # applied §4's precedence, so a key the environment declares never appears.
-        #
-        # `overrides` now holds live credentials. It is applied to `Settings` and dropped;
-        # nothing logs it, nothing serializes it, and `ConfigFieldOut` cannot carry one
-        # because `managed_fields()` excludes every credential-shaped key by name.
-        overrides.update(secrets.values)
-        if secrets.unreadable:
-            # A row exists and no configured KEK opens it. The platform keeps running on
-            # whatever the environment or the previous snapshot gave it — but an operator
-            # has to know, because the symptom otherwise presents as "the vendor is
-            # rejecting our key" and sends them to the wrong system entirely.
-            alert(
-                "CORE_LOGIC",
-                "platform_secret_unreadable",
-                detail=(
-                    "Stored credentials could not be decrypted with this deployment's "
-                    "PLATFORM_KEK. Put the outgoing key in PLATFORM_KEK_RETIRED if this "
-                    "follows a rotation."
-                ),
-                keys=",".join(secrets.unreadable),
-            )
-        apply_platform_overrides(overrides)
-        _snapshot = ConfigSnapshot(
-            version=version,
-            overrides=overrides,
-            loaded_at=time.monotonic(),
-            degraded=False,
-        )
-        log.info(
-            "platform_config_loaded",
-            extra={"config_version": version, "override_count": len(overrides)},
-        )
-        return _snapshot
-
 
 async def _poll_forever() -> None:
     # Refresh FIRST, then sleep: a process that has just started is the one most likely
     # to be running on defaults, and making it wait a full interval before its first
     # read would put every deploy through `_POLL_INTERVAL_S` of stale config for no
-    # reason. `refresh` never raises, so this loop cannot die.
+    # reason. `refresh` never raises — structurally, since D-182 moved the whole of its
+    # body inside its own `try` — so this loop cannot die.
     while True:
         await refresh()
         await asyncio.sleep(_POLL_INTERVAL_S)
@@ -922,7 +937,11 @@ def start_config_refresher() -> None:
     global _refresher
     if _refresher is not None and not _refresher.done():
         return
-    _refresher = asyncio.get_event_loop().create_task(_poll_forever())
+    # `get_running_loop`, not `get_event_loop`: the latter is deprecated in 3.12 when no
+    # loop is running, and it is only ever CORRECT here because a loop always is — saying
+    # so is better than depending on it, and it fails loudly rather than creating a second
+    # loop nobody polls if this is ever called from synchronous startup code.
+    _refresher = asyncio.get_running_loop().create_task(_poll_forever())
 
 
 async def stop_config_refresher() -> None:
