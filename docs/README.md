@@ -38,7 +38,8 @@ and are all closed by two non-code actions: the Engine Verification Session
 7. **OPERATIONS.md** — engine verification checklist (do this first), per-client
    regression/eval harness, observability, SLOs, runbooks, pre-launch checklist.
 8. **ROADMAP.md** — milestones with gates (client #1 before platform polish), decision
-   log D-01…D-179 (§6; entries are appended, so the tail is not in numeric order — read
+   log from D-01 onwards (§6; entries are appended, so the tail is not in numeric order and
+   the highest number is not a count — read
    the whole table, and note the ⚠SUPERSEDED/AMENDED markers on the early ones),
    deferred list.
 9. **SURFACES.md** — the three product surfaces: admin-panel and client-CRM feature

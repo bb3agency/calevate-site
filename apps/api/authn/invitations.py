@@ -32,9 +32,45 @@ removes the one enumeration-adjacent refusal from the flow, and it means a forwa
 link creates an account belonging to the ORIGINAL invitee's address — which is what
 "single-use, bound to the recipient" is supposed to mean.
 
-The address is also marked verified on creation, and that is sound rather than convenient:
-possession of a token that was emailed to it IS proof the mailbox receives mail. That is the
-same evidence an `email_verify` round trip produces, arrived at one step earlier.
+═══ THE ADDRESS IS *NOT* MARKED VERIFIED HERE, AND THIS PARAGRAPH USED TO SAY IT WAS ═══
+
+The claim was: "possession of a token that was emailed to it IS proof the mailbox receives
+mail — the same evidence an `email_verify` round trip produces, arrived at one step
+earlier." Every clause of that is sound except its premise, and the premise is false in this
+tree (D-185).
+
+**The token is not emailed.** `InvitationCreatedOut.token` hands the raw token back to the
+INVITER in the API response, because the client realm has no invitation mailer and the owner
+is expected to send the link themselves — that field's own docstring says so. So possession
+of the token proves the mailbox OR being the person who issued the invitation, and those are
+not the same fact. `email_verified_at = now()` was therefore asserting something nobody had
+established, and the vendor whose console used to establish it is gone (D-177): S-2's
+question survived the deletion of the file S-2 pointed at.
+
+What it bought an attacker, end to end, and none of the steps needs a defect anywhere else:
+an owner of ANY tenant — a trial signup is enough — issues an invitation to
+`victim@target.example`, reads the token out of their own 201 response, redeems it, and
+gets a GLOBAL `users` row on an address they do not control, marked verified, holding a
+password they chose. `uq_users_email_lower` guarantees that is the ONLY row for that
+address. When the real target tenant later invites the real victim, the block below finds
+that row, leaves the squatter's password alone (correctly — see the next section), and
+attaches the membership to it. The squatter then signs in with their own password. The
+client realm has no second factor (`service.MFA_REQUIRED_REALMS` is `{"admin"}`), so a
+password is the entire credential.
+
+So the address starts UNVERIFIED and becomes verified the way every other address in this
+system does: an `email_verify` OTP round trip (`POST /v1/auth/client/otp/request` +
+`/otp/verify` → `subjects.mark_email_verified`), which is already built, already registered
+with the mailer, and already the thing `SessionOut.email_verified` reports.
+
+WHAT IS STILL OPEN, said plainly rather than left to be discovered: a squatter can still
+take an address hostage — the real person's redemption is now refused instead of
+hijacked, which is a denial of service rather than an account takeover, and that is a
+strict improvement rather than a closure. It closes completely when the invitation token
+stops being returned to the inviter and is emailed instead, which needs the invitation mail
+template and the owner-facing screen that currently displays the token
+(`apps/web/src/app/(client)/…` and `apps/workers/notifications.py`). That is the one thing
+D-185 does not do.
 
 ═══ AN INVITATION FOR SOMEBODY WHO ALREADY HAS AN ACCOUNT ═══
 
@@ -43,6 +79,13 @@ many-to-many). The user row is reused and **the password is NOT touched** — `h
 is checked first, and an existing credential is left exactly as it is. Overwriting it would
 mean anybody who can get an invitation issued to your address can reset your password,
 which turns an invite into an account takeover.
+
+That refusal to overwrite is right, and it is also what makes the squat stick: the honest
+invitee cannot displace a credential somebody else set. So reuse now carries a condition —
+**an account that already has a password may only take on a NEW membership once its address
+has been proven.** A first membership still rides on the inviter vouching inside their own
+tenant, which is the tenant they already control and where the invitation grants nothing
+they could not grant anyway; a SECOND organisation asks for the mailbox.
 """
 
 from __future__ import annotations
@@ -58,6 +101,7 @@ from apps.api.admin import service as admin_service
 from apps.api.authn.credentials import set_password
 from apps.api.authn.service import has_password
 from apps.api.authn.sessions import IssuedSession, issue_session
+from apps.api.authn.subjects import load_subject
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -141,6 +185,36 @@ async def accept_with_password(
 
     user_id, created = await _find_or_create_user(email=invited_email, name=name, at=at)
 
+    # D-185. The one condition on reuse. Reached ONLY when this redemption did not create
+    # the row and the row already carries a credential — i.e. somebody has signed in as this
+    # address before, and it was not proved to be theirs. Ordered before the membership and
+    # before the session so a refusal leaves nothing behind: the invitation is not burned
+    # (`admin_service.accept_invitation` has not run), so the real owner can still redeem it
+    # after verifying.
+    #
+    # `created` is checked first and is not redundant with `has_password`: a row this call
+    # just inserted has no password yet, so the second clause would pass anyway — but only
+    # by accident of ordering, and a later change that set the password earlier would
+    # silently start refusing every first-time invitee.
+    if not created and await has_password(INVITE_REALM, user_id):
+        subject = await load_subject(INVITE_REALM, user_id)
+        if subject is None or subject.email_verified_at is None:
+            log.info("auth_invitation_refused_unverified_account", extra={"user_id": str(user_id)})
+            raise ProblemError(
+                kind="business_rule",
+                code="invitation_account_unverified",
+                title="Confirm your email address first",
+                detail=(
+                    "An account already exists for this address and its email address has "
+                    "not been confirmed. It has to be confirmed before the account can join "
+                    "another organisation."
+                ),
+                remediation=(
+                    "Sign in to the account you already have, confirm the email address "
+                    "from your account settings, then open this invitation again."
+                ),
+            )
+
     if not await has_password(INVITE_REALM, user_id):
         async with credential_session() as session:
             await set_password(
@@ -191,8 +265,9 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
     survives one more release under hard rule 8's two-step (recorded in
     `scripts/check_wiring.UNWIRED_BASELINE`).
 
-    `email_verified_at` is set on creation — see the module docstring on why possession of
-    the emailed token is the proof.
+    `email_verified_at` is NOT set here (D-185) — see the module docstring on why possession
+    of the token is not proof of the mailbox while the token is handed to the inviter. The
+    column is left NULL and an `email_verify` OTP round trip is what fills it.
 
     THE INSERT IS GUARDED BY `ON CONFLICT`, WHICH IT WAS NOT (D-178). It was a read then a
     write, because there was no unique constraint on `users.email` to conflict against; the
@@ -226,9 +301,11 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
                     # NULL: D-177 says nothing writes it, and naming it here — even to say
                     # NULL — is what would have to be found and removed when hard rule 8's
                     # second step drops the column.
-                    "INSERT INTO users (id, email, name, email_verified_at, "
-                    "created_at, updated_at) "
-                    "VALUES (:id, :email, :name, :at, :at, :at) "
+                    # `email_verified_at` is absent from the column list, not written as
+                    # NULL: the default IS NULL, and naming it would read as a deliberate
+                    # value rather than as the absence of a fact (D-185).
+                    "INSERT INTO users (id, email, name, created_at, updated_at) "
+                    "VALUES (:id, :email, :name, :at, :at) "
                     # The index predicate is repeated so Postgres can INFER the partial
                     # unique index; without it the statement is rejected outright rather
                     # than silently matching a different constraint.

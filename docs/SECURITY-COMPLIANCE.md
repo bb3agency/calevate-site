@@ -376,15 +376,33 @@ rather than resolved because it is a policy call, not a code fix.
   content of the same class. Both are per-tenant defaults a client may change.
 
 So a transcript is deleted at half the documented age and a lead is kept at one and a half
-times it. This matters beyond tidiness: the client-facing **DPA quotes this document**,
-while `apply_retention` obeys the rows — so today we tell clients one retention period and
-run another, in both directions. It cannot be settled by picking whichever number is in
+times it.
+
+**What this is NOT, because the stronger version of this paragraph stood here and mispriced
+the item.** It said the client-facing DPA quotes this document while `apply_retention` obeys
+the rows, "so today we tell clients one retention period and run another". That is not what
+the published documents do. `/legal/dpa` §8 quotes **no period at all** except the 90-day
+recording floor — it delegates to `/legal/privacy` §9 — and §9 publishes 90 / 365 / 1095,
+which is `scripts/seed.DEFAULT_RETENTION_POLICIES` verbatim, which is what
+`apps/workers/retention.py` enforces. `privacy.ts` says so in its own header rule 1: it
+states the ENFORCED number and records the disagreement with this section as a finding. So
+the notice and the sweep agree with each other, nothing published to a client is false, and
+**this section's table is the only outlier**. Closing it is an internal reconciliation plus
+one table edit here — NOT a DPA amendment, and not a live client-facing misstatement.
+
+That does not make it optional, and it cannot be settled by picking whichever number is in
 front of you: the seed values are a defensible split (a lead is the CRM record the client
 bought and keeps using; a transcript is raw personal data with a shorter useful life),
-and 24 months for both is what has been promised in writing.
+and 24 months for both is the figure this document has been carrying since the blueprint
+was written. What is promised in writing is the seed's numbers, via `/legal/privacy` §9 —
+which is precisely why moving TOWARDS this section's table is the expensive direction and
+moving this table towards the seed is the cheap one. That asymmetry is an input to the
+decision, not the decision.
 
-**Who must decide: the founder**, because it is a commitment to clients and a DPA edit,
-not an implementation detail. Whichever way it goes, both places change in the same
+**Who must decide: the founder**, because it is a commitment to clients — and, if the
+answer is the longer periods, a re-publication of `/legal/privacy` §9 (and therefore a
+notice change clients have already been given), not an implementation detail. Whichever
+way it goes, both places change in the same
 release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is recorded as a
 decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
 row already agreed with a client is not silently re-timed by a seed change.
