@@ -81,7 +81,20 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "f4a1d0b6e29c"
-down_revision = "c4f18a6b90e2"
+# LINEARISED ONTO `e83b5d1a4c07` rather than onto `c4f18a6b90e2`, which is what this
+# revision was written against. Both were authored in parallel off the same parent, which
+# left the chain with two heads — and `check_wiring` requires exactly one, for the reason
+# `alembic upgrade head` refuses to guess between them.
+#
+# Re-parenting is safe HERE and is not safe in general. These two revisions are disjoint
+# and order-independent: `e83b5d1a4c07` adds `calls.crm_notified_at` and
+# `outbox_messages.dedupe_key` with their indexes; this one adds four columns to `agents`
+# and backfills from `agents` alone. Neither reads a table the other writes, so composing
+# them in either order produces the same schema and the same data. A merge revision would
+# have been the alternative and buys nothing here — it exists to make a genuine
+# convergence explicit, and there is no convergence to make explicit when the two sides
+# never touch.
+down_revision = "e83b5d1a4c07"
 branch_labels = None
 depends_on = None
 
