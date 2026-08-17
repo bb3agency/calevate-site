@@ -107,7 +107,21 @@ ALERT_OPTIN_CHANNELS = ("self_serve_console", "operator_recorded")
 # the service cannot drift into three spellings of the same idea.
 ALERT_OPTIN_SELF_SERVE = "self_serve_console"
 ALERT_OPTIN_OPERATOR = "operator_recorded"
-DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log")
+# The categories a tenant may set a retention period for. Mirrors
+# `ck_retention_policies_category_enum` — the CHECK is the source of truth and this
+# tuple must not drift from it (DATA-MODEL §9, §10).
+#
+# `engine_payload` and `kb` are D-179 (migration c4d1f7b83e26), and each closes a store
+# of personal data that sat outside every policy a tenant could set: the archived raw
+# vendor document behind `calls.engine_payload_ref` (LEGAL-SURFACE F-2) and superseded
+# knowledge-base versions (F-3). Both are swept by `apps/workers/retention.py`, which is
+# where the arms and their reasoning live.
+#
+# `campaign_contact` is deliberately still absent. A client's uploaded contact list also
+# has no clock, and the reason it is not here is not oversight: how long we keep it is a
+# commitment in the client's DPA and the number is the founder's to give
+# (`tests/dpdp_known_gaps_test.py` holds that gap open by probing this constraint).
+DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log", "engine_payload", "kb")
 RETENTION_ACTIONS = ("delete", "anonymize")
 ACTOR_TYPES = ("admin", "user", "system")
 
