@@ -17337,7 +17337,7 @@
     },
     "/v1/auth/admin/bootstrap/confirm": {
       "post": {
-        "description": "The redemption half of `scripts/bootstrap_admin.py` (D-167).\n\nUNAUTHENTICATED, necessarily \u2014 it is how a deployment acquires its first\noperator, and there is nobody to authenticate as until it succeeds. What stands\nin its place is the token: 256 bits, mailed to an address a deploying operator\nnamed, single-use, one hour, and refused outright once the named account has a\npassword. A leaked link from a finished deploy opens nothing.\n\nADMIN REALM ONLY, and enforced structurally \u2014 this route is not declared on the\nclient realm's router at all, rather than being declared and then refusing.\nA client-realm `/bootstrap/confirm` would be a 404, which is the correct answer\nfor a route that should not exist there.",
+        "description": "The redemption half of `scripts/bootstrap_admin.py` (D-171).\n\nUNAUTHENTICATED, necessarily \u2014 it is how a deployment acquires its first\noperator, and there is nobody to authenticate as until it succeeds. What stands\nin its place is the token: 256 bits, mailed to an address a deploying operator\nnamed, single-use, one hour, and refused outright once the named account has a\npassword. A leaked link from a finished deploy opens nothing.\n\nADMIN REALM ONLY, and enforced structurally \u2014 this route is not declared on the\nclient realm's router at all, rather than being declared and then refusing.\nA client-realm `/bootstrap/confirm` would be a 404, which is the correct answer\nfor a route that should not exist there.",
         "operationId": "bootstrap_confirm_v1_auth_admin_bootstrap_confirm_post",
         "requestBody": {
           "content": {
@@ -17406,7 +17406,7 @@
     },
     "/v1/auth/admin/login/otp": {
       "post": {
-        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
         "operationId": "login_otp_v1_auth_admin_login_otp_post",
         "requestBody": {
           "content": {
@@ -17710,6 +17710,70 @@
         ]
       }
     },
+    "/v1/auth/admin/step-up": {
+      "post": {
+        "description": "The first half of C-09 (D-178).\n\nADMIN REALM ONLY, declared rather than refused \u2014 same structural choice as\n`/bootstrap/confirm`. The client realm requires no second factor\n(`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route\nwith nothing to re-prove and nobody to call it.\n\nDepends on `authed`, not `live`: step-up RE-proves a factor, so a session that\nhas never proved one is at the ordinary sign-in gate, not this one.",
+        "operationId": "step_up_request_v1_auth_admin_step_up_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a code to re-prove this operator's second factor before a dangerous action",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/step-up/verify": {
+      "post": {
+        "description": "Rotates the session \u2014 see `service.complete_step_up` on why re-proving a\nfactor is a privilege change and why it cannot extend the absolute bound.",
+        "operationId": "step_up_verify_v1_auth_admin_step_up_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Answer the step-up code, restamping this session's second factor",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
     "/v1/auth/client/invitations/accept": {
       "post": {
         "description": "The first-party twin of `POST /v1/invitations/accept`.\n\nThe Clerk one still exists and still works \u2014 both credential paths coexist until\nAUTH-MIGRATION \u00a75 step 6. What differs is that this one needs no prior account, because\nthere is no vendor to have made one: it takes the password in the same call.\n\nThe `/invite?token=...` page contract is unchanged (`apps/authn/invitations.py`).",
@@ -17788,7 +17852,7 @@
     },
     "/v1/auth/client/login/otp": {
       "post": {
-        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
         "operationId": "login_otp_v1_auth_client_login_otp_post",
         "requestBody": {
           "content": {

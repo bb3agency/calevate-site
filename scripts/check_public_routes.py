@@ -313,6 +313,22 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_session",
     ),
+    "POST /v1/auth/admin/step-up": PublicRoute(
+        why=(
+            "Step-up re-authentication (C-09, D-178). Mails a `step_up`-purpose code to the "
+            "mailbox on file for the caller's OWN subject — there is no address parameter — so "
+            "it grants no capability a live admin session does not already have. Always 202."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/step-up/verify": PublicRoute(
+        why=(
+            "Answers the step-up challenge above and restamps `mfa_verified_at`. Cookie plus "
+            "code, both required, attempts capped on the row and in Redis; the rotation carries "
+            "`absolute_expires_at` forward so re-proving cannot extend the session."
+        ),
+        credential="verify_session",
+    ),
     "POST /v1/auth/admin/password/reset/request": PublicRoute(
         why=(
             "GENUINELY OPEN, and it must be: a person who cannot log in is the entire audience. "
