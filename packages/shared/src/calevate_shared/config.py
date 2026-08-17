@@ -6,6 +6,7 @@ Secrets are never defaulted — a missing secret must raise at startup.
 
 import ipaddress
 import logging
+from collections.abc import Callable
 from decimal import Decimal
 from functools import lru_cache
 from typing import Literal, get_args
@@ -742,6 +743,35 @@ def bolna_source_ips(settings: Settings) -> frozenset[str]:
     return parse_source_ip_allowlist(settings.bolna_webhook_source_ips)
 
 
+#: WHOSE allowlist a `source_ip` engine is authenticated against (P2.6).
+#:
+#: `calevate_shared.engine.WEBHOOK_AUTH_BY_ENGINE` says which METHOD an engine uses. This
+#: says which addresses that method reads, and until it existed the two were not the same
+#: kind of thing: the method was looked up per engine and the addresses were always
+#: Bolna's, so `engine_intake.verify_source` would have authenticated a second unsigned
+#: engine's deliveries against Bolna's egress. That is exactly what the receiver's `hmac`
+#: branch refuses in a paragraph of its own ("an allowlist is evidence about a DIFFERENT
+#: engine's egress") — left live one branch above it, and invisible because `bolna` is the
+#: only engine declaring the method.
+#:
+#: AN ABSENT ENTRY REFUSES. There is no fall-back to the single entry that happens to
+#: exist; the receiver returns a distinct reason so an operator reading the alert sees
+#: "this engine has no allowlist" rather than "this address is not allowlisted".
+#:
+#: HERE RATHER THAN IN THE RECEIVER, and that is not tidiness: `engine_name_drift_test`
+#: forbids `apps/voice-runtime/engine_intake.py` from spelling an engine name in a
+#: collection at all (D-103), because a second spelling of the engine set in that file is
+#: how the set drifted last time. A table of RESOLVERS belongs next to the resolver it
+#: names anyway — the two move together or the mapping is a second thing to update.
+#:
+#: Resolvers rather than address sets, for `bolna_source_ips`' own reason: an operator
+#: rotating `BOLNA_WEBHOOK_SOURCE_IPS` during a vendor renumber must move this answer
+#: without a redeploy, and a set captured at import would not.
+SOURCE_IP_ALLOWLIST_BY_ENGINE: dict[str, Callable[[Settings], frozenset[str]]] = {
+    "bolna": bolna_source_ips,
+}
+
+
 # --- email: the one selector ---------------------------------------------------
 #
 # The provider names that have an adapter behind them in `workers/transport.py`.
@@ -814,6 +844,7 @@ __all__ = [
     "NO_SMTP_HOST_REASON",
     "SELECTABLE_EMAIL_PROVIDERS",
     "SELECTABLE_ENGINES",
+    "SOURCE_IP_ALLOWLIST_BY_ENGINE",
     "EngineName",
     "Environment",
     "Settings",

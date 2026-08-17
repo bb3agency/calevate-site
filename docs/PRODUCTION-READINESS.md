@@ -465,7 +465,39 @@ boundary is `ExecutionSnapshot`, not `parse_webhook` — which `engine.py:1027` 
 field until an escalation surface needs it. Correct hard rule 2's wording in CLAUDE.md and
 docs/AGENTS.md: the models production consumes are `ExecutionSnapshot` and `TranscriptTurn`.
 
-### P2.6 — Contract and guard drift · MINOR · OURS
+### P2.6 — Contract and guard drift · MINOR · OURS · **FIXED (all four)**
+
+- **`get_execution` on an unknown id now RAISES in every adapter**, and there is a
+  conformance clause for it beside `get_agent`'s. `fake.py` fabricated a `status="failed"`
+  snapshot under a comment claiming it matched the real thing — the worst available answer,
+  because it is indistinguishable from a real failed call, so the poller would record a
+  repair for a phantom and `_pipeline_settled` would judge artefacts for an execution the
+  engine never heard of. Both vendor stubs are now STATEFUL on that route: a stub that
+  answered 200 for an id nobody placed could not fail the new clause.
+- **`engine_availability()`, `EngineAvailability` and `provisionable_series()` are gone**,
+  not given callers invented for them. `missing_engine_credential_keys` is the deployment-
+  side answer that IS wired (readiness uses it because it names the environment key an
+  operator must set), and two answers to one question is a defect even when both are
+  correct. `provisionable_series` additionally described the wrong thing — the campaign
+  gate matches on OUR `phone_numbers.series`, a DLT 140/160 decision in our schema.
+  **`engine_not_configured()` got its callers instead**: both adapters' credential
+  refusals now build through it, so one code stops having three titles, and one of those
+  titles stops naming the vendor to a client. Cartesia's caller-ID refusal, which reused
+  that code for a different cause, has its own — `engine_caller_id_not_configured` — because
+  "no API key" and "no outbound number" are different fixes for different people.
+- **The source-IP allowlist is now looked up per engine**
+  (`config.SOURCE_IP_ALLOWLIST_BY_ENGINE`). The METHOD was table-driven and the ADDRESSES
+  were always Bolna's, so a second unsigned engine would have been authenticated against
+  Bolna's egress — verbatim what the `hmac` branch one line below refuses at length. An
+  absent entry refuses with its own reason; it does not fall back. The table lives in
+  `calevate_shared.config` beside its resolver because `engine_name_drift_test` forbids the
+  receiver from spelling an engine name in a collection at all (D-103) — the guard caught
+  the first placement, which is the guard working.
+- **The forbidden-import list is globbed off the tree**, so it can no longer name two
+  adapters out of three.
+
+The original finding follows.
+
 
 - `fake.py:479` fabricates a snapshot for an unknown execution id while its own comment says
   it matches the real thing; `bolna.py:1066` 404s. Two adapters disagree and there is **no
@@ -1366,7 +1398,34 @@ it already exists, and thousands of calls is exactly where it bites.** `TimeoutE
 pages inside one thread hop), then either an explicit `timeout=` or the resumable cursor the
 comment already names.
 
-### P6.7 — `_already_enqueued` sequential-scans a never-pruned table, twice per call, under the per-call lock · SERIOUS · OURS
+### P6.7 — `_already_enqueued` sequential-scans a never-pruned table, twice per call, under the per-call lock · SERIOUS · OURS · **FIXED**
+
+**Closed, in the two shapes the four call sites actually needed** (migration `e83b5d1a4c07`):
+
+- **`calls.crm_notified_at`** for the CRM fan-out, in the pipeline AND in the poller's
+  `has_crm_fanout`. That side effect writes one outbox row per subscribed endpoint, so it has
+  no single row to key on — and the fact belongs on the call, which both askers already hold.
+- **`enqueue_outbox_once` + a PARTIAL UNIQUE index on `outbox_messages.dedupe_key`** for the
+  three sites that write exactly one row (hot-lead email, hot-lead WhatsApp, campaign
+  escalation). Stronger than the indexed probe this finding asked for: `ON CONFLICT DO NOTHING`
+  makes once-only a database fact rather than a check-then-write that is correct only while
+  every caller remembers `lock_call_writes` — which `enqueue_campaign_escalation`, having no
+  call to lock, never did. `tests/outbox_probe_and_prune_test.py` forces a real race and its
+  negative control **measures the old shape writing two rows through the same harness**.
+
+**Both tables are now pruned** by `retention.prune_reliability_tables` (nightly, 04:10, after
+`apply_retention`), at a 90-day floor equal to `RECORDING_FLOOR_DAYS`. `failed` and `pending`
+outbox rows are never touched — that is the DLQ an operator replays from — and neither are
+unprocessed inbox rows, which are what a client's ingest screen offers a re-drive from. The
+half of this nothing else addressed: an outbox payload carries a lead's name, number and call
+summary, so an un-pruned outbox was an unbounded copy of tenant personal data sitting outside
+every retention policy a tenant can set, and outside the DPDP erasure path, which walks
+tenant-scoped tables. **Pruning would have silently broken the old poller probe** — every call
+past the floor would have read as an unfinished pipeline forever; the two halves are therefore
+tested together in `poller_guarantee_test`.
+
+The original finding follows.
+
 
 `outbox_messages` has exactly one index — `(status, created_at)` — nothing on `job`, no GIN on
 `payload`. And **nothing anywhere deletes from it.** So every completed call runs two unindexed
@@ -1505,7 +1564,22 @@ at `:241` includes it; the one at `:161` does not. Two spellings of one shape in
 delete the three assertions, add `redacted` to the fixture, and add a `bannedPartialAssertion`
 marker to the negative controls.
 
-### P7.3 — nginx serves the admin console on the client hostname, so the realm-isolation premise is unenforced · SERIOUS · OURS
+### P7.3 — nginx serves the admin console on the client hostname, so the realm-isolation premise is unenforced · SERIOUS · OURS · **FIXED**
+
+Two `server` blocks now, with `location ^~ /admin { return 404; }` on `app.${ROOT_DOMAIN}`
+and `location ^~ /c/ { return 404; }` on `admin.${ROOT_DOMAIN}`. `clerkRuntime.tsx`'s
+sentence is a fact rather than a premise.
+
+`^~` is the load-bearing part and the config says so: nginx tries regex locations before
+plain prefix ones, so a `location ~ \.(js|css)$` added later would win over a bare
+`location /admin` and quietly re-open it. 404 rather than 403, because 403 confirms the
+tree exists. `tests/nginx_hooks_vhost_test.py` asserts the PROPERTY — no request under the
+other realm's prefix reaches an upstream, each host still proxies its own realm, and no TLS
+`server` block names both hostnames again — rather than asserting that two lines are
+present, exactly as its hooks-vhost tests already do.
+
+The original finding follows.
+
 
 `calevate.conf.template:61` is a **single server block** for `admin.` and `app.`, with one
 `location /` proxying everything. `clerkRuntime.tsx:29` reasons from the opposite premise:
@@ -1881,9 +1955,9 @@ is the only place it CAN be verified.
 | 24 | `AnnAssign` constants read; the literal check looks where the job name actually sits per callee; two literals promoted | P6.9 | done |
 | 25 | `enqueue_outbox` stops taking a `queue` nothing routes on (two-step, D-162) | P6.8 | done |
 | 26 | Eight unmapped columns declared (the eighth was created while fixing the seven), plus `check_metadata_columns` in both gates | P4.3 | done |
-| 27 | `_already_enqueued`'s unindexed scan; neither outbox table is ever pruned | P6.7 | open |
-| 28 | Contract and guard drift bundle | P2.6 | open |
-| 29 | nginx realm isolation (two `server` blocks) | P7.3 | external to `apps/` |
+| 27 | `crm_notified_at` + a partial-unique `dedupe_key` replace four containment scans; both infra tables pruned nightly at a 90-day floor | P6.7 | done |
+| 28 | All four: the unknown-execution contract + its conformance clause, two uncalled exports deleted and one given its callers, the allowlist looked up per engine, the import ban globbed | P2.6 | done |
+| 29 | nginx realm isolation: two `server` blocks, `^~` 404s both ways, property-tested | P7.3 | done |
 
 **P4.5 and P4.6 are one defect in two registers, and P4.6's fix is the durable half.**
 The ledger guardrail's first line of prose enumerated four ledgers while the constant it
@@ -1957,6 +2031,33 @@ it replaced:
   sentence where the controls would be. The real loss is the "(you)" marker. Nothing was
   changed; a regression test now pins the true invariant — the two derivations read one
   query, and that agreement is what makes the screen safe.
+
+**The shared-state test class was swept, and it had two more members.** The two found
+earlier (`outbox_backpressure_test`'s fleet-wide deltas, and a hard-rule-6 log scan matching
+a phone inside a uuid7) were not the whole set:
+
+- `platform_audit_test` counted `organizations` before and after a Clerk webhook under
+  `admin_session` — unscoped by design — and asserted the delta was zero. Any suite creating
+  a tenant in that window failed it. The delta was also WEAKER than the scoped question: a
+  run that created a phantom while another suite deleted an org would have passed. It now
+  asks whether the slug that event named became a tenant.
+- `audit_chain_concurrency_test` asserted `entries_checked == count(*) FROM audit_log` with
+  the count read AFTER the walk, on the one table every suite appends to. **Its own sibling
+  forty lines above does this correctly and explains why** — count first, compare with `>=`,
+  because the ledger only grows. Now both do.
+
+`tests/alert_multiprocess_test.py`, flagged as a suspect during the Resend work, does NOT
+belong to the class: every Redis key and service name it uses is uuid-scoped per test.
+
+**The sweep is now a guard rather than a memory.** `tests/shared_state_assertion_guard_test.py`
+refuses any unscoped whole-table count on a table no tenant policy scopes, unless it is
+registered with a sentence saying why it survives a concurrent writer — the same
+registry-with-reasons shape as `RLS_EXEMPT_TENANT_COLUMNS`, and for the same reason. A
+cleverer check that inferred safety from the comparison operator was considered and rejected:
+`platform_state == 1` is safe because of a CHECK constraint no local analysis can see, and
+the `platform_audit` delta spanned two statements with a round trip between them. Registry
+drift is checked in both directions, and a reason under 80 characters fails — which caught
+one of the six entries as it was being written.
 
 **And two of Stage 1's own fixes had never executed.** `preflight()` ran BEFORE
 `resolve_plan`, so `PLAN` was an unset array — and under `set -u`, bash 4.4+ expands

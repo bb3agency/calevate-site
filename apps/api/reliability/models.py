@@ -50,6 +50,14 @@ class OutboxMessage(PKMixin, Base):
     queue: Mapped[str] = mapped_column(Text, nullable=False)
     job: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    # "This exact side effect, once" — a PARTIAL UNIQUE index, so once-only is a database
+    # fact rather than a check-then-write (migration e83b5d1a4c07, P6.7). NULL for the
+    # rows that are legitimately not unique: the CRM fan-out writes one row per subscribed
+    # endpoint and those are not duplicates of each other. Written only through
+    # `enqueue_outbox_once`; the index is declared in the migration rather than here
+    # because it is partial, which is a strategy the migration chooses (same reasoning as
+    # every other partial index in this schema).
+    dedupe_key: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="pending")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     # The claim lease (migration 7c04ab5f9e26). The claim COMMITS — an uncommitted

@@ -25,9 +25,7 @@ from calevate_shared.engine import EngineCapabilities, VoiceEngine
 
 from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
-    EngineAvailability,
     EngineCapabilityAbsentError,
-    engine_availability,
     engine_capabilities,
     engine_lacks,
     engine_not_configured,
@@ -98,7 +96,7 @@ def missing_engine_credential_keys(cfg: Settings) -> tuple[str, ...]:
     `apps/api/engine/` may hold.
 
     So the adapter answers both halves: `holds_credentials()` for whether it can reach its
-    vendor (already the one authority — `engine_availability` derives from it too), and
+    vendor (this is the one authority; the second, uncalled one is gone — P2.6), and
     `credential_env_keys` for what to NAME in the readiness response. Readiness needs the
     name, not just the verdict, because "not ready" without the key an operator must set
     is a red light with no next step.
@@ -115,11 +113,9 @@ def reset_engine_cache() -> None:
 
 
 __all__ = [
-    "EngineAvailability",
     "EngineCapabilities",
     "EngineCapabilityAbsentError",
     "build_engine",
-    "engine_availability",
     "engine_capabilities",
     "engine_lacks",
     "engine_not_configured",

@@ -94,7 +94,12 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.engine.capabilities import require_capability, require_speech_leg
+from apps.api.engine.capabilities import (
+    NO_CREDENTIALS_REASON,
+    engine_not_configured,
+    require_capability,
+    require_speech_leg,
+)
 from apps.api.engine.document import engine_document
 
 log = get_logger(__name__)
@@ -315,14 +320,10 @@ class CartesiaEngine:
     def _http(self) -> httpx.AsyncClient:
         if self._client is None:
             if not self._api_key:
-                # The credential check is HERE as well as in the capability selector,
-                # because a deployment can be misconfigured after the selector ran.
-                raise ProblemError(
-                    kind="dependency",
-                    code="engine_not_configured",
-                    title="Voice platform is not configured",
-                    detail="No credentials are configured for the voice platform.",
-                )
+                # The credential check is HERE as well as in readiness, because a
+                # deployment can be misconfigured after readiness ran. Through the shared
+                # builder for the reason `bolna._http` states (P2.6).
+                raise engine_not_configured(f"{NO_CREDENTIALS_REASON}:{self.name}")
             self._client = httpx.AsyncClient(
                 base_url=self._base_url,
                 timeout=REQUEST_TIMEOUT_S,
@@ -566,9 +567,15 @@ class CartesiaEngine:
         the number is already the dial target.
         """
         if self._from_number_id is None:
+            # ITS OWN CODE, and it did not have one: this reused `engine_not_configured`,
+            # which is the credential refusal (P2.6). One code for two causes means an
+            # operator reading a problem+json `type` cannot tell "we hold no API key" from
+            # "we hold an API key and no outbound number" — different fixes, different
+            # people. The remediation was already saying so in prose while the machine
+            # field said otherwise.
             raise ProblemError(
                 kind="dependency",
-                code="engine_not_configured",
+                code="engine_caller_id_not_configured",
                 title="No caller ID is configured",
                 detail="No outbound number is configured for the voice platform.",
                 remediation="Contact us to attach a verified outbound number to this account.",

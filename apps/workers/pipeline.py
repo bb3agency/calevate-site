@@ -74,7 +74,11 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.integrations import service as integrations
-from apps.api.reliability.service import enqueue_outbox, mark_inbox_failed, mark_inbox_processed
+from apps.api.reliability.service import (
+    enqueue_outbox_once,
+    mark_inbox_failed,
+    mark_inbox_processed,
+)
 from apps.workers.extraction import extract_call
 from apps.workers.moments import derive_moments, merge_moments
 from apps.workers.redaction import redact
@@ -910,12 +914,17 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         # Once per call, not once per pipeline run: the delivery id is minted fresh on
         # each fan-out, so a receiver deduplicating on it cannot collapse two runs of
         # the same call — the client would simply be told twice.
-        if snapshot.status == "completed" and not await _already_enqueued(
-            session,
-            job=OUTBOUND_WEBHOOK_JOB,
-            matcher={"event": "call.completed", "data": {"call_id": str(call_id)}},
-        ):
-            await integrations.enqueue_event(
+        #
+        # "Have we already?" is answered by the CALL ROW, not by scanning the outbox
+        # (P6.7). The probe this replaced was `job = :job AND payload @> :matcher` against
+        # a table with no index on either and nothing that prunes it — a sequential scan
+        # per completed call, taken while holding the lock above, on the 2-minute SLO
+        # path. `crm_notified_at` is the same fact on a row this transaction already has,
+        # and it is stamped in this transaction so the flag and the outbox rows share one
+        # fate. Not `enqueue_outbox_once`: the fan-out writes one row PER SUBSCRIBED
+        # ENDPOINT and those are not duplicates of each other.
+        if snapshot.status == "completed" and not await _crm_already_notified(session, call_id):
+            written = await integrations.enqueue_event(
                 session,
                 tenant_id=tenant_id,
                 event="call.completed",
@@ -935,6 +944,15 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
                     "summary": redact(extraction.summary).text if extraction else None,
                 },
             )
+            # Only when a row was actually written. A tenant with no subscribed endpoint
+            # gets zero rows from a perfectly healthy pipeline, and stamping anyway would
+            # record "we told the client" about a client we told nothing — the flag would
+            # then be a worse answer than the outbox scan it replaced. Left NULL, the next
+            # run re-asks, which is now a column read on a row already in hand; and
+            # `_expected_artifacts` is what stops the poller re-driving a call that was
+            # never owed a fan-out.
+            if written:
+                await _mark_crm_notified(session, call_id)
 
     lag = time.perf_counter() - started
     record_pipeline_lag(lag, stage="post_call")
@@ -991,28 +1009,47 @@ async def lock_call_writes(session: AsyncSession, call_id: UUID) -> None:
     )
 
 
-async def _already_enqueued(session: AsyncSession, *, job: str, matcher: dict[str, Any]) -> bool:
-    """Has this exact side effect already been promised for this call?
+async def _crm_already_notified(session: AsyncSession, call_id: UUID) -> bool:
+    """Has the outbound CRM fan-out already been promised for this call?
 
-    The outbox is the durable record of what we said we would send, and rows are never
-    deleted — status only moves (`mark_outbox_published`). So it is also the right place
-    to ask "did a previous run of this pipeline already queue this?", which is what
-    keeps a replay from telling a client twice.
-
-    MUST be asked under `lock_call_writes` — see there. It is a check-then-write, and
-    the ARQ job id that used to be its only defence is a Redis convention with a finite
-    window rather than a database fact.
+    One indexed row read on the primary key, inside the tenant's session, where the
+    containment scan of the whole outbox used to be (P6.7). Deliberately a fresh SELECT
+    rather than a value threaded down from `_load_call_context`: it is read AFTER
+    `lock_call_writes` in the same transaction, which is what makes it the current answer
+    rather than one from before a concurrent run committed.
     """
     row = (
         await session.execute(
-            text(
-                "SELECT 1 FROM outbox_messages WHERE job = :job "
-                "AND payload @> CAST(:matcher AS jsonb) LIMIT 1"
-            ),
-            {"job": job, "matcher": _json(matcher)},
+            text("SELECT crm_notified_at FROM calls WHERE id = :cid"), {"cid": call_id}
         )
     ).first()
-    return row is not None
+    return row is not None and row[0] is not None
+
+
+async def _mark_crm_notified(session: AsyncSession, call_id: UUID) -> None:
+    """Stamp the fan-out, in the transaction that enqueued it.
+
+    `WHERE crm_notified_at IS NULL` so a re-run cannot move the timestamp forward: this
+    column answers "when did the client first hear about this call", and a value that
+    drifts on every replay is not that.
+    """
+    await session.execute(
+        text(
+            "UPDATE calls SET crm_notified_at = now(), updated_at = now() "
+            "WHERE id = :cid AND crm_notified_at IS NULL"
+        ),
+        {"cid": call_id},
+    )
+
+
+def hot_lead_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
+    """The key that makes the hot-lead alert happen once per (lead, call).
+
+    A function rather than an f-string at the call site because `whatsapp.py` derives its
+    own key from the same pair, and two spellings of one keyspace is how the email leg and
+    the WhatsApp leg stop agreeing about whether a lead was already alerted on.
+    """
+    return f"hot-lead:{lead_id}:{call_id}"
 
 
 async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
@@ -1822,13 +1859,11 @@ async def _maybe_notify_hot_lead(
             ),
             {"lid": lead_id, "tid": tenant_id},
         )
-        if await _already_enqueued(
-            session,
-            job=HOT_LEAD_JOB,
-            matcher={"lead_id": str(lead_id), "call_id": str(call_id)},
-        ):
-            return "already_queued"
-        await enqueue_outbox(
+        # ONE STATEMENT, and once-only is the database's decision rather than ours
+        # (P6.7). This used to be a containment scan of the whole outbox followed by an
+        # insert — unindexable, and correct only because the lock above was taken first.
+        # `enqueue_outbox_once` returns None when the promise was already on the books.
+        queued = await enqueue_outbox_once(
             session,
             job=HOT_LEAD_JOB,
             payload={
@@ -1837,7 +1872,10 @@ async def _maybe_notify_hot_lead(
                 "call_id": str(call_id),
                 "triggers": triggered,
             },
+            dedupe_key=hot_lead_dedupe_key(lead_id=lead_id, call_id=call_id),
         )
+        if queued is None:
+            return "already_queued"
     return "queued"
 
 
@@ -2025,24 +2063,20 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     "  EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) AS has_usage, "
                     "  EXISTS (SELECT 1 FROM call_extractions e WHERE e.call_id = c.id) "
                     "    AS has_extraction, "
-                    # STEP 8's artefact (P6.4). Matched on the outbox payload the way
-                    # `_already_enqueued` matches it — same job name, same `@>` containment
-                    # on (event, call_id) — because two spellings of "has this call been
-                    # fanned out" is how the probe and the writer stop agreeing. Rows are
-                    # never deleted from the outbox (`mark_outbox_published` only moves
-                    # status), so presence is durable proof and not a race with the
-                    # dispatcher.
+                    # STEP 8's artefact (P6.4), read off the call row the query already
+                    # has. It used to be a correlated EXISTS containment-scanning the
+                    # whole outbox — per completed execution, per tick, over a table with
+                    # no index on `job` and nothing that prunes it (P6.7). One writer
+                    # (`_mark_crm_notified`, in the same transaction as the fan-out) and
+                    # one reader, so the probe and the writer cannot spell the question
+                    # two ways, which was the earlier concern and is now structural
+                    # rather than a matched pair of literals.
                     #
-                    # The job name is INTERPOLATED from the constant rather than spelled
-                    # again (P6.9's promotion): "same job name" was previously two literals
-                    # a reader had to compare by eye, and a test that compared them by eye
-                    # too. It is a module constant, never caller input, so there is nothing
-                    # for an f-string to inject.
-                    "  EXISTS (SELECT 1 FROM outbox_messages o "
-                    f"    WHERE o.job = '{OUTBOUND_WEBHOOK_JOB}' "
-                    "    AND o.payload @> jsonb_build_object("
-                    "      'event', 'call.completed', "
-                    "      'data', jsonb_build_object('call_id', c.id::text))) AS has_crm_fanout, "
+                    # It also stops depending on the outbox being immortal — which the
+                    # prune sweep this release adds would have quietly broken, turning
+                    # every call older than the floor into a permanent "unfinished
+                    # pipeline" the poller re-drove forever.
+                    "  (c.crm_notified_at IS NOT NULL) AS has_crm_fanout, "
                     # And whether one was OWED at all. Mirrors
                     # `integrations.enqueue_events`' own endpoint predicate, because a
                     # tenant with no subscribed active endpoint gets zero outbox rows from

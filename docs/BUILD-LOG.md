@@ -3851,6 +3851,115 @@ autogenerate round-trip hazard three times before and every one of them only che
 a REMOVED thing stayed removed. In `make guardrails` and in CI, with negative controls that
 doctor the real model set by exactly one column in each direction.
 
+**And P6.7, the last open finding with a runtime cost.** Four places asked "did a previous
+run already promise this side effect?" as `WHERE job = :job AND payload @> :matcher` —
+against a table whose only index is `(status, created_at)` and which nothing ever deleted
+from. Every one was a sequential scan; the worst ran twice per completed call, holding
+`lock_call_writes`, on the 2-minute SLO path, contending with a dispatcher that claims every
+ten seconds. `LIMIT 1` bought nothing, because the common case is "no prior enqueue", which
+reads every row before it can say so.
+
+The four sites are not asking one question, so the fix is not one shape. The CRM fan-out
+writes one outbox row PER SUBSCRIBED ENDPOINT and has no single row to key on, so its answer
+moved onto the call: `calls.crm_notified_at`, stamped in the fan-out's own transaction, read
+by the pipeline and by the poller off rows they already hold. The other three write exactly
+one row, so they got `enqueue_outbox_once` and a **partial unique index** — which is stronger
+than the indexed probe the finding asked for, because `ON CONFLICT DO NOTHING` makes once-only
+the database's decision instead of a check-then-write that is correct only while every caller
+remembers to take the lock first. `enqueue_campaign_escalation` never did; it has no call to
+lock. The test that pins this forces a real race through a barrier, and its negative control
+runs the OLD shape through the same harness and **measures it writing two rows** — which is
+what makes the harness evidence rather than decoration.
+
+**The pruning half is a compliance fix wearing a performance fix's clothes.** Neither
+`outbox_messages` nor `webhook_inbox_events` has a `tenant_id`, so the tenant retention sweep
+is structurally blind to both — and an outbox payload carries a lead's name, number and call
+summary. An outbox nothing prunes is an unbounded copy of tenant personal data sitting outside
+every retention policy a tenant can set, and outside the DPDP erasure path, which walks
+tenant-scoped tables. `prune_reliability_tables` runs nightly at a 90-day floor, and what it
+must NEVER delete is the load-bearing part: a `failed` outbox row IS the DLQ an operator
+replays from, and an unprocessed inbox row is what a client's own ingest screen offers a
+re-drive from. Neither is prunable at any age.
+
+The two halves are coupled, which is why they land together: pruning would have silently
+broken the old poller probe, whose whole justification was that outbox rows are immortal.
+Every call past the floor would have scored as an unfinished pipeline and been re-driven
+forever — a billed model round trip and a re-notified client, on every tick. The regression
+test deletes a settled call's outbox rows and asserts the verdict does not move.
+
+**P2.6 and P7.3 close the register.** Four small drifts and one hostname.
+
+The one that was actively wrong: `FakeEngine.get_execution` fabricated a `status="failed"`
+snapshot for an unknown execution id, under a comment saying it matched the real thing —
+which 404s. Two adapters disagreeing about one input is what the conformance suite exists
+to prevent, and it survived because there was no clause for `get_execution` on an unknown
+id, only for `get_agent` and `detach_kb`. The fabricated answer is worse than an error
+precisely because it is well-formed: indistinguishable from a real failed call, so the
+poller would record a repair for a phantom and the settled-probe would reason about
+artefacts for a call the engine never heard of. Both vendor stubs are stateful on that
+route now — one that answered 200 for an id nobody placed could not fail the new clause.
+
+Three exported `capabilities.py` functions had no callers. Two are DELETED rather than
+given callers invented for them: `missing_engine_credential_keys` is the deployment-side
+answer that is actually wired, and a second one nothing asks is drift waiting to happen —
+`provisionable_series` additionally described the wrong thing, since the campaign gate
+matches on OUR `phone_numbers.series`, a DLT decision in our own schema. The third,
+`engine_not_configured`, got its callers: both adapters hand-rolled the same code with
+different titles, one of which named the vendor to a client. And Cartesia's caller-ID
+refusal, which reused that code for a different cause, now has its own — "no API key" and
+"no outbound number" are different fixes for different people, and the remediation text was
+already saying so while the machine field said otherwise.
+
+The receiver's source-IP check looked the METHOD up per engine and then read Bolna's
+addresses for whichever engine asked. Inert, because `bolna` is the only engine declaring
+the method — and that is exactly why nobody saw it. It is the same defect the `hmac` branch
+one line below refuses in a paragraph of its own ("an allowlist is evidence about a
+DIFFERENT engine's egress"), left live directly above it. Now a per-engine table where an
+absent entry REFUSES with its own reason. Worth recording: the first placement put that
+table in the receiver, and `engine_name_drift_test` failed it — the file may not spell an
+engine name in a collection at all (D-103). The guard was right; the table belongs beside
+its resolver in `calevate_shared.config`, where it moves with the thing it names.
+
+And the forbidden-import list for the ack path named two adapters out of three. It is
+globbed off the tree now, so a fourth adapter is in it the moment the file exists.
+
+**P7.3 was one `server` block for two hostnames**, which made a sentence the frontend
+reasons from — "disjoint route trees on disjoint hostnames" — false in the shipped config.
+Not an authorization hole; the admin realm resolves against its own JWKS. What it was is
+the operator SIGN-IN page served on the hostname every client is told to visit, which is
+phishing surface for the one console holding cross-client data. Two blocks now, `^~ /admin`
+404 on `app.` and `^~ /c/` 404 on `admin.`. The `^~` is load-bearing and the config says
+why: nginx tries regex locations first, so a bare prefix match could be overtaken by a
+`location ~ \.(js|css)$` added later. 404 rather than 403 because 403 confirms the tree is
+there. Tested as a property — nothing under the other realm's prefix reaches an upstream,
+each host still serves its own, and no TLS block names both hostnames again.
+
+**The shared-state test class was swept, and the sweep became a guard.** Two more members
+turned up beyond the two already fixed. `platform_audit_test` counted `organizations`
+before and after a webhook under `admin_session` and asserted the delta was zero — any
+suite creating a tenant in between failed it, and the delta was *weaker* than the scoped
+question anyway: a phantom created while another suite deleted an org would have passed.
+`audit_chain_concurrency_test` compared a chain walk against `count(*) FROM audit_log`
+read AFTER the walk, on the one table every suite appends to — while its own sibling forty
+lines above counts first and compares with `>=`, and says why in a comment. Both are fixed
+the way the sibling already was.
+
+The suspect flagged during the Resend work, `alert_multiprocess_test`, is NOT a member:
+every Redis key and service name in it is uuid-scoped per test. Worth recording, because a
+suspicion left unresolved is indistinguishable from a defect nobody fixed.
+
+`tests/shared_state_assertion_guard_test.py` is what stops the next one. It refuses an
+unscoped whole-table count on any table no tenant policy scopes, unless registered with a
+sentence explaining why it survives a concurrent writer. A cleverer check — infer safety
+from the comparison operator, allow `>=` and `== 0` — was considered and rejected as
+decidable for today's seven sites and wrong in general: `platform_state == 1` is safe
+because of a CHECK constraint no local analysis can see, and the `platform_audit` delta
+spanned two statements with a network round trip between them. Registry-with-reasons is
+the shape `RLS_EXEMPT_TENANT_COLUMNS` already uses here, drift is checked both ways, and a
+reason shorter than a sentence fails — which caught one of the six entries while it was
+being written. Its detection was proven in five directions before it was trusted, including
+that it does not fire on its own prose, which it did on the first run.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"

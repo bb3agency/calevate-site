@@ -256,13 +256,19 @@ async def test_a_break_does_not_stop_the_walk() -> None:
             # continuing worthwhile rather than merely tidy.
             await write_audit(session, action=f"{marker}.after", actor_type="system")
 
+            # COUNTED BEFORE THE WALK, and compared with `>=` — the same discipline the
+            # scope test above spells out, which this one did not follow. It read the
+            # count AFTER `verify_chain` and asserted equality, so an audit row written
+            # by any other suite in that window made `checked` exceed `entries_checked`
+            # and failed a property that had not been violated. `audit_log` is global and
+            # append-only; every suite in this repo writes to it.
+            counted = (await session.execute(text("SELECT count(*) FROM audit_log"))).scalar() or 0
             verdict = await verify_chain(session)
-            checked = (await session.execute(text("SELECT count(*) FROM audit_log"))).scalar() or 0
 
             # The walk reached the END despite the break — the assertion the old
             # early-return could not have satisfied.
             assert verdict.complete, verdict
-            assert verdict.entries_checked == int(checked), (verdict.entries_checked, checked)
+            assert verdict.entries_checked >= int(counted), (verdict.entries_checked, counted)
             assert not verdict.ok
             # The hand-written row fails on its own hash (`content`), because `f`*64 is
             # not the HMAC of its own payload. It is named, and the walk carried on.

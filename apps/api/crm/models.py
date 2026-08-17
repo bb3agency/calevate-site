@@ -100,6 +100,14 @@ class Call(PKMixin, TimestampMixin, Base):
     # trace is inside it, and the vendor's own per-component timings are neither the same
     # numbers nor validated against a stopwatch yet (D-39(b)). The migration's docstring
     # holds the full argument and what re-opens it at pilot gate 4.
+    # When the outbound CRM fan-out (D-23) was promised for this call — the fact the
+    # pipeline and the poller used to reconstruct by containment-scanning the whole
+    # outbox, twice per call, under the per-call lock (P6.7, migration e83b5d1a4c07).
+    # Both askers already hold this row, so the question now costs nothing. NULL means
+    # "not yet", and that is also the correct answer for a tenant with no subscribed
+    # endpoint — `_expected_artifacts` decides whether one was OWED, which is a
+    # different question and stays where it is.
+    crm_notified_at: Mapped[datetime | None]
     engine_payload_ref: Mapped[str | None] = mapped_column(Text)  # raw vendor payload (debug only)
 
 

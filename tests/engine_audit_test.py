@@ -917,6 +917,39 @@ def test_the_adapter_and_the_receiver_read_one_allowlist(
     assert adapter.verify_webhook({}, b"{}", ENGINE_EGRESS_IP).method == "source_ip"
 
 
+def test_a_second_source_ip_engine_is_not_authenticated_against_bolnas_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+    source_ip_allowlist: Callable[..., None],
+) -> None:
+    """P2.6. The METHOD was looked up per engine; the ADDRESSES never were.
+
+    `verify_source` read `bolna_source_ips` for ANY engine declaring `source_ip`, so
+    adopting a second unsigned engine would have authenticated its deliveries against
+    Bolna's egress — which is verbatim the thing the `hmac` branch two lines down refuses
+    in a paragraph of its own ("an allowlist is evidence about a DIFFERENT engine's
+    egress"). It was inert because `bolna` is the only engine declaring the method, and
+    that is precisely why nothing caught it.
+
+    Simulated by DECLARING a second such engine rather than by adding one: this is a
+    property of the lookup, and waiting for a real second vendor to prove it is waiting
+    for the outage. The allowlist table gets no entry for it, so the only safe answer is
+    a refusal — and a fallback to the single entry that exists is the defect.
+    """
+    monkeypatch.setitem(engine_intake.WEBHOOK_AUTH_BY_ENGINE, "notbolna", "source_ip")
+    # And NO entry in the allowlist table, which is the condition under test.
+    source_ip_allowlist(ENGINE_EGRESS_IP)
+
+    verdict = engine_intake.verify_source("notbolna", ENGINE_EGRESS_IP)
+    assert not verdict.ok, (
+        "a second source-ip engine was accepted from BOLNA's egress address — the "
+        "receiver authenticated one vendor's delivery with another vendor's evidence"
+    )
+    assert verdict.reason == "no source ip allowlist for this engine", verdict.reason
+    # And the engine that DOES have an entry is unaffected: the refusal is a missing
+    # entry, not a disabled branch.
+    assert engine_intake.verify_source("bolna", ENGINE_EGRESS_IP).ok
+
+
 def test_no_second_source_ip_allowlist_has_grown_back(
     source_ip_allowlist: Callable[..., None],
 ) -> None:
@@ -1002,10 +1035,29 @@ async def test_a_rejected_caller_is_named_in_the_alert(caplog: pytest.LogCapture
 
 # --- 2f. the ack path stays cheap -------------------------------------------
 
+#: Every module under `apps.api.engine`, GLOBBED off the tree rather than typed out.
+#:
+#: The list this replaces named `bolna` and `fake` and had never learned about
+#: `cartesia` (P2.6) — a hand-written enumeration of a set that grows, which is the drift
+#: class D-103 exists for and which is invisible precisely because the missing entry is
+#: the one nobody thought about. A third adapter could have leaked into the ack path and
+#: this assertion would have stayed green.
+#:
+#: The whole PACKAGE, not just the adapters: `apps.api.engine.__init__` builds them, so
+#: importing any submodule pulls httpx and the vendor clients into a process that must
+#: ack in 500ms (hard rule 3). The receiver reads `calevate_shared.engine` instead, which
+#: imports nothing.
+_ENGINE_MODULES = (
+    "apps.api.engine",
+    *sorted(
+        f"apps.api.engine.{path.stem}"
+        for path in (REPO_ROOT / "apps" / "api" / "engine").glob("*.py")
+        if path.stem != "__init__"
+    ),
+)
+
 _FORBIDDEN_AT_IMPORT = (
-    # Vendor adapters — the only modules that know a vendor payload shape (hard rule 2).
-    "apps.api.engine.bolna",
-    "apps.api.engine.fake",
+    *_ENGINE_MODULES,
     # The worker package: importing it here would drag the whole post-call pipeline,
     # its model clients and its storage layer into a latency-critical process.
     "apps.workers",

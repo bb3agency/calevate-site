@@ -1658,6 +1658,94 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
     )
 
 
+# --- the two infra tables the tenant sweep structurally cannot reach ----------
+#
+# `outbox_messages` and `webhook_inbox_events` have no `tenant_id` — deliberately, they
+# are infra tables (`ops/routes.py` states that contract) — so every arm above is blind
+# to them, and until this job nothing anywhere deleted a row from either (P6.7).
+#
+# THAT IS TWO PROBLEMS, AND THE QUIETER ONE IS THE COMPLIANCE ONE. The performance half
+# is what the finding named: four "have we already promised this?" probes scanning a
+# permanently-growing table. Those probes are gone (`enqueue_outbox_once`,
+# `calls.crm_notified_at`), which fixes the scan and not the growth. The half nothing
+# else addresses is that `outbox_messages.payload` carries a lead's name, phone number
+# and call summary — `reliability/service.py` says so where it explains why the DLQ
+# endpoint publishes counts only — so an unbounded outbox is an unbounded copy of tenant
+# personal data sitting OUTSIDE every retention policy a tenant can set, and outside the
+# DPDP erasure path, which walks tenant-scoped tables.
+#
+# WHAT IS NEVER PRUNED, and both exclusions matter more than the floor:
+#
+#   * `status <> 'published'` outbox rows. A `failed` row IS the DLQ an operator replays
+#     from (`ops/routes.py`'s replay endpoint), and a `pending` one is work not yet done.
+#     Deleting either would be losing the side effect rather than forgetting a completed
+#     one.
+#   * `status <> 'processed'` inbox rows. A `failed` row is what the client's own ingest
+#     activity screen offers a re-drive from, and a `processing` one may still be in
+#     flight. Only a processed event — whose whole remaining value is deduping a
+#     re-delivery — is prunable.
+#
+# THE FLOOR IS 90 DAYS, and the number is chosen against the longest thing that still
+# reads these rows, not picked for roundness:
+#
+#   * the poller's re-drive window is 30 MINUTES (`reconcile_executions`), four orders of
+#     magnitude below it — and after this release the poller no longer reads the outbox
+#     at all, because `calls.crm_notified_at` replaced its containment probe;
+#   * the inbox row's job is to answer "have I seen this event id before"; no engine
+#     re-delivers on a 90-day horizon;
+#   * an invoice is issued monthly and disputed within the month, so 90 days spans the
+#     longest window in which someone asks "was this delivery actually made";
+#   * and it matches `RECORDING_FLOOR_DAYS`, so the two never-tenant-scoped floors in
+#     this file are one number rather than two somebody has to reconcile.
+RELIABILITY_PRUNE_AFTER = timedelta(days=RECORDING_FLOOR_DAYS)
+
+_PRUNE_OUTBOX_SQL = """
+DELETE FROM outbox_messages WHERE id IN (
+    SELECT id FROM outbox_messages
+    WHERE status = 'published' AND created_at < :cutoff
+    ORDER BY created_at LIMIT :batch
+)
+"""
+
+_PRUNE_INBOX_SQL = """
+DELETE FROM webhook_inbox_events WHERE id IN (
+    SELECT id FROM webhook_inbox_events
+    WHERE status = 'processed' AND created_at < :cutoff
+    ORDER BY created_at LIMIT :batch
+)
+"""
+
+
+async def prune_reliability_tables(ctx: dict[str, Any]) -> str:
+    """Nightly. Forget the completed infra rows nobody can reach any more (P6.7).
+
+    Runs in an `untenanted_session` and not a tenant one: neither table has a
+    `tenant_id`, so there is no tenant to be inside, and the RLS-exempt read this needs
+    is a whole-table one by construction. It writes no tenant-scoped table.
+
+    Batched through `_sweep_in_batches` — the same loop, the same budget and the same
+    "deferred" answer as every arm above, so a night that hits the ceiling says so and
+    the next night continues rather than one statement locking a large table for minutes.
+
+    Counts only in the log line (hard rule 6): these rows quote leads.
+    """
+    cutoff = datetime.now(UTC) - RELIABILITY_PRUNE_AFTER
+    async with untenanted_session() as session:
+        outbox, outbox_deferred = await _sweep_in_batches(
+            session, _PRUNE_OUTBOX_SQL, {"cutoff": cutoff}
+        )
+        inbox, inbox_deferred = await _sweep_in_batches(
+            session, _PRUNE_INBOX_SQL, {"cutoff": cutoff}
+        )
+    totals = {
+        "outbox_pruned": outbox,
+        "inbox_pruned": inbox,
+        "deferred": int(outbox_deferred or inbox_deferred),
+    }
+    log.info("reliability_prune", extra=totals)
+    return json.dumps(totals)
+
+
 __all__ = [
     "ANONYMIZED_PHONE",
     "DERIVED_COPIES",
@@ -1666,12 +1754,14 @@ __all__ = [
     "HOLD_UNTIL_KEY",
     "RECORDING_FLOOR_DAYS",
     "REDACTED_MARK",
+    "RELIABILITY_PRUNE_AFTER",
     "SWEEP_BATCH_ROWS",
     "TENANT_ERASURE_BATCH",
     "TENANT_ROW_BUDGET",
     "apply_retention",
     "execute_deletion_request",
     "execute_tenant_erasure",
+    "prune_reliability_tables",
     "sweep_tenant",
     "sweep_tenants",
 ]

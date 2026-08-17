@@ -58,12 +58,37 @@ server {
     location / { return 301 https://$host$request_uri; }
 }
 
-# --- admin + app: the two browser realms ----------------------------------------
+# --- admin + app: the two browser realms, and they are now actually two -----------
+#
+# THIS WAS ONE SERVER BLOCK FOR BOTH HOSTNAMES (P7.3), which made a premise the frontend
+# reasons from simply untrue. `clerkRuntime.tsx` says: *"disjoint route trees on disjoint
+# hostnames … so only one realm's provider is ever mounted."* With one block and one
+# `location /`, `app.${ROOT_DOMAIN}/admin` served the operator console and
+# `admin.${ROOT_DOMAIN}/c/<slug>` served a client dashboard.
+#
+# WHAT IT WAS AND WAS NOT. Not an authorization hole: the admin realm resolves against its
+# own JWKS, `assertMountedApplication` catches a provider mismatch, and Clerk's cookies are
+# per-key-suffixed. What it WAS is the operator SIGN-IN surface — `/admin/sign-in` — served
+# on the hostname every client is told to visit, which is phishing surface for the one
+# console that holds cross-client data. A 404 costs nothing and removes it.
+#
+# `^~` RATHER THAN A PREFIX MATCH, and the marker is the load-bearing part: nginx tries
+# regex locations before plain prefix ones, so a future `location ~ \.(js|css)$` added
+# above would win over `location /admin` and re-open the hole. `^~` stops the search at the
+# longest matching prefix and cannot be overtaken by a regex added later.
+#
+# 404 RATHER THAN 403, deliberately: 403 confirms that something is there. A stranger
+# probing `app.${ROOT_DOMAIN}/admin` learns nothing they did not already know.
+#
+# The two blocks are otherwise IDENTICAL, and the duplication is the point rather than a
+# smell — they proxy the same upstream and differ only in which realm each refuses. An
+# include would make the difference the only thing NOT in the file a reviewer reads.
+
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name admin.${ROOT_DOMAIN} app.${ROOT_DOMAIN};
+    server_name app.${ROOT_DOMAIN};
 
     ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
     ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
@@ -74,6 +99,39 @@ server {
     # Next.js serves its own static assets; 25m covers a KB document upload from the
     # dashboard without letting the edge become an upload sink.
     client_max_body_size 25m;
+
+    # The ADMIN realm does not exist on the client hostname. Covers `/admin/sign-in` —
+    # the operator door — and every operator screen under it.
+    location ^~ /admin { return 404; }
+
+    location / {
+        limit_req zone=default burst=30 nodelay;
+        proxy_pass http://calevate_web;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name admin.${ROOT_DOMAIN};
+
+    ssl_certificate     ${TLS_LIVE_DIR}/fullchain.pem;
+    ssl_certificate_key ${TLS_LIVE_DIR}/privkey.pem;
+    include /etc/nginx/snippets/calevate-tls.conf;
+    include /etc/nginx/snippets/calevate-origin.conf;
+    include /etc/nginx/snippets/calevate-headers.conf;
+
+    client_max_body_size 25m;
+
+    # The CLIENT realm does not exist on the operator hostname. `/c/` is the client
+    # dashboard's whole tree (`apps/web/src/app/c/<slug>/...`). An operator who needs to
+    # see a client's screens uses impersonation (D-22), which is audited; a URL that
+    # serves them silently on this host is the thing that makes that audit optional.
+    location ^~ /c/ { return 404; }
 
     location / {
         limit_req zone=default burst=30 nodelay;
