@@ -14,6 +14,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   formatINR,
   formatIST,
@@ -500,7 +501,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
   if (rows.length === 0) return null;
   return (
     <Card title="Every agreement, newest first">
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Every agreement, newest first">
         <table className="w-full text-left text-xs">
           <thead className="text-ink-muted">
             <tr>
@@ -547,7 +548,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       <p className="mt-3 text-xs text-ink-muted">
         Nothing here is editable, and that is the point: an invoice is re-derived from
         these rows every time anyone opens it, so a change to one would rewrite a

@@ -32,6 +32,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
+  ScrollRegion,
   Skeleton,
   formatCount,
   formatIST,
@@ -1617,7 +1618,7 @@ function OutboxReplayPanel({
                 three columns (a job name, a count, an IST timestamp) do not fit 320px,
                 and inside the shell's `overflow-hidden` the excess was CLIPPED rather
                 than scrollable — the "Oldest" column was simply unreachable. */}
-            <div className="mt-3 overflow-x-auto">
+            <ScrollRegion label="Dead-lettered jobs" className="mt-3">
             <table className="w-full text-left text-xs">
               <thead className="text-ink-faint">
                 <tr>
@@ -1638,7 +1639,7 @@ function OutboxReplayPanel({
                 ))}
               </tbody>
             </table>
-            </div>
+            </ScrollRegion>
           </NoticeBox>
         )}
 

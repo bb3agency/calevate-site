@@ -787,7 +787,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/agents": [AGENT],
       "/v1/members": MEMBERS,
-      "/v1/leads?limit=100": {
+      "POST /v1/leads/search": {
         items: [LEAD],
         // The server's resolved column list (`crm.columns`), one fixed column and one
         // extraction column, so the sweep sees the table the chooser actually renders.

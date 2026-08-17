@@ -21452,6 +21452,35 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read_raw"
+      },
+      "post": {
+        "operationId": "export_leads_searched_v1_leads_export_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadLensIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "CSV export with a search term \u2014 POST because the term is a phone number",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read_raw"
       }
     },
     "/v1/leads/facets": {

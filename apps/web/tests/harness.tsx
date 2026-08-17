@@ -26,6 +26,37 @@ import { clientAuthn } from "@/lib/authn/clientAuthn";
  */
 export type Routes = Record<string, unknown>;
 
+/** A route that decides from the request it was given. See `stubApi`. */
+export type RouteAnswer = (call: ApiCall) => unknown;
+
+/**
+ * The LENS a leads request carried, wherever the route puts it.
+ *
+ * The list, the export and the bulk action take it in a BODY: it holds the search term,
+ * the server matches that against `leads.phone_e164`, and a phone number in a request
+ * line is a phone number in nginx's access log (hard rule 6 — the same judgement
+ * `POST /v1/dnc/check` was built on). The facet rail is the one leg still on a GET and is
+ * deliberately sent no search term at all, so this reads the query string there.
+ *
+ * One helper rather than one per suite, because the assertions it serves are MIRRORING
+ * assertions — "the file's filters are the table's filters" — and a comparison written
+ * two different ways is one that can pass while the two differ.
+ */
+export function lensOf(call: ApiCall): Record<string, unknown> {
+  if (call.body !== null) return JSON.parse(call.body) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of new URLSearchParams(call.path.split("?")[1] ?? "")) {
+    if (key === "f") {
+      const existing = (out.f as string[] | undefined) ?? [];
+      existing.push(value);
+      out.f = existing;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 /**
  * A route that answers with an RFC-9457 problem instead of a 200.
  *
@@ -186,7 +217,15 @@ export function stubApi(routes: Routes): ApiCall[] {
             `or the screen under test is calling an endpoint nobody expected`,
         );
       }
-      const answer = routes[key];
+      // A route may answer as a FUNCTION OF THE REQUEST, which the leads screen made
+      // necessary: its lens now travels in a POST body (hard rule 6 — the search term
+      // matches a phone number), so `/v1/leads/search` is ONE path that has to answer
+      // differently for "unfiltered" and "filtered to hot". A path-keyed table used to
+      // tell those apart by the query string and no longer can. The function is given the
+      // call it is answering, so a test says which lens it is answering rather than
+      // relying on call ORDER, which is what a queue of responses would have meant.
+      const route = routes[key];
+      const answer = typeof route === "function" ? (route as RouteAnswer)(calls[calls.length - 1]) : route;
       if (answer instanceof NeverAnswers) return new Promise<Response>(() => {});
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
@@ -237,18 +276,29 @@ export interface ClientPageRender extends RenderResult {
  * outside `act` — which shows up as an empty container and a warning, not as a failure
  * anyone can read. Awaiting an async `act` lets the boundary resolve before the test
  * looks.
+ *
+ * `sharedClient` exists for ONE kind of claim and should not be reached for otherwise: a
+ * defect that only appears when a second mount reads the FIRST mount's cache. The app has
+ * exactly one `QueryClient` per shell mount (`app/providers.tsx`), so navigating between
+ * two screens keeps it while a fresh `renderClientPage` does not — which means a test
+ * that remounts with its own client cannot fail on a cache-survival bug at all, and would
+ * be a guard that reads like one without being one. Every other test wants the default:
+ * an isolated client is what keeps suites from leaking state into each other.
  */
 export async function renderClientPage(
   ui: ReactElement,
   routes: Routes,
   slug = "acme",
+  sharedClient?: QueryClient,
 ): Promise<ClientPageRender> {
   const calls = stubApi(routes);
-  const client = new QueryClient({
-    // No retries: every route here answers 200 or throws, so a retry can only turn a
-    // broken premise into a slow one.
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  const client =
+    sharedClient ??
+    new QueryClient({
+      // No retries: every route here answers 200 or throws, so a retry can only turn a
+      // broken premise into a slow one.
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
   let result!: RenderResult;
   await act(async () => {
     result = render(

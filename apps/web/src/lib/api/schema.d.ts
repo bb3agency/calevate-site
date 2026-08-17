@@ -2164,7 +2164,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Short-lived presigned link to OUR copy of the recording */
+        /** Short-lived presigned link to OUR copy of the recording — owner-only, audited */
         get: operations["get_recording_v1_calls__call_id__recording_get"];
         put?: never;
         post?: never;
@@ -3284,7 +3284,8 @@ export interface paths {
         /** CSV export — full phone numbers, owner-only and audit-logged */
         get: operations["export_leads_v1_leads_export_csv_get"];
         put?: never;
-        post?: never;
+        /** CSV export with a search term — POST because the term is a phone number */
+        post: operations["export_leads_searched_v1_leads_export_csv_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3311,6 +3312,23 @@ export interface paths {
         get: operations["get_lead_facets_v1_leads_facets_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The Leads table, searched — POST because the search term is a phone number */
+        post: operations["search_leads_v1_leads_search_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6794,10 +6812,12 @@ export interface components {
          *     ambiguity is the defect this field exists to remove; a client that forgets to say
          *     gets a 422 rather than an action over a set it did not choose.
          *
-         *     The FILTER scope's predicates are not here: they ride as the same query parameters
-         *     `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
-         *     is one spelling of "which rows" across the screen, the file and this. Putting them in
-         *     the body would be a second one.
+         *     The FILTER scope's predicates ride as the same query parameters `GET /v1/leads` and
+         *     `GET /v1/leads/export.csv` take, with the same meanings, so there is one spelling of
+         *     "which rows" across the screen, the file and this — EXCEPT `search`, which is here in
+         *     the body because it matches a phone number and a query string is written to access
+         *     logs, history and referrers (`LeadLensIn` carries the full argument). The lens's
+         *     other members are not personal data and stay where they were.
          */
         LeadBulkIn: {
             /**
@@ -6816,6 +6836,8 @@ export interface components {
              * @enum {string}
              */
             scope: "ids" | "filter";
+            /** Search */
+            search?: string | null;
             /** Status */
             status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
         };
@@ -6912,6 +6934,39 @@ export interface components {
             omitted_field_count: number;
         };
         /**
+         * LeadLensIn
+         * @description The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
+         *
+         *     It exists because of the one field in it that is personal data. `search` is matched
+         *     against `leads.phone_e164` with a suffix LIKE (`crm.service._lead_scope`), so on a
+         *     GET it is a customer's phone number written into nginx's `combined` access log
+         *     (`$request` is the whole request line), into Cloudflare's edge log, into browser
+         *     history and into the `Referer` of the next navigation. This repository already made
+         *     that judgement twice — `POST /v1/dnc/check` is a POST because "the identifier IS the
+         *     personal data", and SEC-COMP §4 requires a number in the body and never in a URL —
+         *     and the leads screen is the busiest surface in the product to have been left out of
+         *     it (hard rule 6).
+         *
+         *     The field NAMES match the query parameters the GET routes take, including the two
+         *     encoded ones (`columns` as a comma-separated string, `f` as `key:value` entries), so
+         *     one parser serves both shapes and the client's lens object does not change form when
+         *     it moves into a body.
+         */
+        LeadLensIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Columns */
+            columns?: string | null;
+            /** F */
+            f?: string[];
+            /** Search */
+            search?: string | null;
+            /** Status */
+            status?: string | null;
+        };
+        /**
          * LeadListOut
          * @description The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
          *     the frontend never hard-codes a client's fields.
@@ -6980,6 +7035,34 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * LeadSearchIn
+         * @description The lens plus the page. Export takes no page: it is the whole filtered set.
+         */
+        LeadSearchIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Columns */
+            columns?: string | null;
+            /** F */
+            f?: string[];
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Search */
+            search?: string | null;
+            /** Status */
+            status?: string | null;
         };
         /**
          * LeadSourceCreatedOut
@@ -15078,6 +15161,10 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved to POST /v1/leads/search
+                 */
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
@@ -15116,6 +15203,10 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved into the request body
+                 */
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
@@ -15157,6 +15248,10 @@ export interface operations {
             query?: {
                 agent_id?: string | null;
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved to POST /v1/leads/export.csv
+                 */
                 search?: string | null;
                 assigned_to?: string | null;
                 /** @description Comma-separated column keys, in display order. Omit for every column. */
@@ -15169,6 +15264,37 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    export_leads_searched_v1_leads_export_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadLensIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -15211,6 +15337,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadFacetsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    search_leads_v1_leads_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSearchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadListOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
