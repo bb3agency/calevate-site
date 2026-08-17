@@ -222,6 +222,17 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity
 
+      - name: "Guardrail: deploy env preflight (the VALUES, not the key names)"
+        if: ${{ !cancelled() }}
+        # The gate `scripts/vps-deploy.sh` runs inside the new image before migrations
+        # (D-168), pointed at the environment CI itself declares. Most of its refusals are
+        # scoped to APP_ENV != local and are therefore inert here — that is honest rather
+        # than hidden: the substance is `tests/deploy_env_preflight_test.py`, which builds
+        # a bad `.env` per refusal and asserts on the named reason. What THIS step buys is
+        # that the entry point still imports and still exits 0 on a coherent environment,
+        # so a deploy is never the place a broken preflight is discovered.
+        run: uv run python -m scripts.check_deploy_env
+
       - name: "Guardrail: web env parity (browser config)"
         if: ${{ !cancelled() }}
         # The other tier's half of the same rule. `next build` inlines NEXT_PUBLIC_*, so a

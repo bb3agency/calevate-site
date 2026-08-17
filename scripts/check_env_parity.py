@@ -31,6 +31,15 @@ the caller chooses. Two guards that should have caught each other, and neither d
 `bootstrap_contract_failures` below is what makes re-adding that default a red CI step
 rather than a code review someone has to remember to do.
 
+A FIFTH, for the same reason one step later (D-168): the DEPLOY PREFLIGHT
+(`scripts/check_deploy_env.py`) refuses a deploy over the VALUES behind these keys, and
+every key it can name must be one this file knows about. A preflight that refuses on
+`REDIS_PASSWORD` — a variable this system does not have, inherited from the reference
+implementation it was modelled on — would fail every correct deployment, and the tempting
+fix would be to delete the check. `preflight_contract_failures` makes that impossible to
+introduce quietly: the key set is one expression in one file, and this asks whether every
+name in it is a `Settings` field or a registered exception.
+
 Run: uv run python -m scripts.check_env_parity
 """
 
@@ -229,6 +238,46 @@ def bootstrap_contract_failures(declared: set[str]) -> list[str]:
     return failures
 
 
+def preflight_contract_failures(settings_fields: set[str]) -> list[str]:
+    """Every key the DEPLOY PREFLIGHT can refuse on is config this deployment reads.
+
+    `scripts/check_deploy_env.py` is the only guard in this repo that looks at a VALUE,
+    and it runs where nobody is watching — inside the new image, mid-deploy. Its key set
+    is therefore the one place where a name that means nothing here could sit unnoticed
+    and either refuse every correct host or, worse, silently check nothing. The three
+    object-store credentials are legitimately not `Settings` fields (botocore owns them —
+    `SDK_ENV_KEYS` above carries the whole argument), so they are allowed by name and by
+    that registry rather than by exception.
+    """
+    from scripts.check_deploy_env import (
+        HMAC_SECRET_KEYS,
+        OBJECT_STORE_CREDENTIALS,
+        RETIRED_PAIRS,
+        config_keys,
+    )
+
+    named = (
+        config_keys()
+        | set(HMAC_SECRET_KEYS)
+        | {key for pair in RETIRED_PAIRS for key in pair}
+        | OBJECT_STORE_CREDENTIALS
+    )
+    unknown = sorted(
+        key
+        for key in named
+        if key.lower() not in settings_fields
+        and key not in SDK_ENV_KEYS
+        and key not in INFRA_ENV_KEYS
+    )
+    return [
+        f"{key} can be refused by scripts/check_deploy_env but is not a Settings field "
+        "and is in none of this file's registries — the deploy preflight is guarding a "
+        "variable nothing reads, which fails a correct host and checks nothing on a "
+        "broken one"
+        for key in unknown
+    ]
+
+
 def console_managed() -> set[str]:
     """Keys an operator can set without an SSH session (PLATFORM-CONFIG §7).
 
@@ -299,6 +348,7 @@ def main() -> int:
 
     failures = evaluate(declared, settings_fields, reads, duplicates)
     failures.extend(bootstrap_contract_failures(declared))
+    failures.extend(preflight_contract_failures(settings_fields))
     if failures:
         print("ENV PARITY: FAIL")
         for failure in failures:
