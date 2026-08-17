@@ -367,6 +367,41 @@ class TestLedgerImmutability:
     def test_real_tree_has_no_ledger_mutation(self) -> None:
         assert check_ledger_immutability.check_sources() == []
 
+    def test_a_source_scan_that_reads_no_code_refuses_rather_than_passing(
+        self, tmp_path: Path
+    ) -> None:
+        """D-176. Check 1 is a SEARCH: `(root / directory).rglob("*.py")` over a directory
+        that has been renamed yields nothing and raises nothing, so `check_sources()`
+        returns `[]` and the run prints `... no mutating statements in app code` having
+        read no code. The first assertion is that vacuous pass, measured; the rest is the
+        refusal seeing it.
+
+        It LOOKED anchored: on an empty tree `check_allowances` fails, but only because
+        `BOUNDED_MUTATIONS` happens to hold one entry naming a real file — an exception
+        registry whose correct end state is empty. An anchor a correct change can delete
+        is not an anchor, which is why the floor is its own section.
+        """
+        assert check_ledger_immutability.check_sources(root=tmp_path) == [], (
+            "the vacuous pass this test exists for"
+        )
+
+        blind = check_ledger_immutability.blind_spots(root=tmp_path)
+        assert any("does not exist" in failure for failure in blind), blind
+        assert any("read 0 source file(s)" in failure for failure in blind), blind
+
+    def test_an_empty_ledger_class_map_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The other half of check 1's left side: the ORM-mutation and cascade-delete
+        matchers compare against `ledger_model_classes()`, and an empty map matches
+        nothing while looking exactly like a tree with no offenders."""
+        monkeypatch.setattr(check_ledger_immutability, "ledger_model_classes", dict)
+
+        assert any("empty class map" in f for f in check_ledger_immutability.blind_spots())
+
+    def test_the_live_tree_clears_the_floor(self) -> None:
+        """The control on the control: if this ever fails, the `[]` asserted above is
+        unreachable rather than earned."""
+        assert check_ledger_immutability.blind_spots() == []
+
     @pytest.mark.parametrize("label", sorted(LEDGER_VIOLATIONS))
     def test_catches(self, label: str) -> None:
         findings = check_ledger_immutability.scan_source(
