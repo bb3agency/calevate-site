@@ -282,13 +282,18 @@ class LoadShedMiddleware:
 
     WHAT IS NEVER SHED IS `loadshed.ALWAYS_ALLOWED_PREFIXES`, and this docstring
     deliberately does not repeat the list. It used to, and it named `auth` among them
-    after that exemption had been removed — nothing under `/v1/auth` mints a session
-    (Clerk owned those, TRD §11), so the only route the prefix ever covered was
-    `POST /v1/auth/signup`, i.e. the platform kept manufacturing tenants while it was too
-    degraded to serve the ones it had. A prose copy of a list is how the copy and the list
-    part company; `tests/loadshed_exemption_test.py` asserts the census against the
-    constant, including that each prefix still names a live route and records why it is
-    exempt.
+    after that exemption had been removed — at the time nothing under `/v1/auth` minted a
+    session, because a vendor did (TRD §11), so the only route the prefix covered was
+    `POST /v1/auth/signup`: the platform kept manufacturing tenants while it was too
+    degraded to serve the ones it had. **`/v1/auth/**` DOES mint sessions now (D-177), and
+    the exemption is still deliberately absent** — an incident is not a reason to keep the
+    sign-in path open to everyone, and an operator's own way in is `/v1/ops`, which is on
+    the list. Whether sign-in should join it is a decision with a load-shedding argument on
+    both sides and is not one this docstring may make by omission.
+
+    A prose copy of a list is how the copy and the list part company;
+    `tests/loadshed_exemption_test.py` asserts the census against the constant, including
+    that each prefix still names a live route and records why it is exempt.
     """
 
     def __init__(self, app: ASGIApp) -> None:
