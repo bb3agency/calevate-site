@@ -80,6 +80,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.integrations import service as integrations
+from apps.api.integrations.service import subscribed_endpoint_sql
 from apps.api.reliability.service import (
     enqueue_outbox_once,
     mark_inbox_failed,
@@ -2151,8 +2152,16 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
                     # turned every completed call for that tenant into a permanent
                     # `unfinished_pipeline` — re-driven hourly, with a billed extraction
                     # each time. `subscribed_endpoint_sql` carries the argument.
+                    #
+                    # BARE NAME, not `integrations.subscribed_endpoint_sql`, and that is a
+                    # requirement rather than a style: `scripts/check_raw_sql.py` resolves
+                    # a helper's return value only through a plain-name call, because
+                    # `module.helper(...)` and `obj.helper(...)` are indistinguishable in
+                    # the AST — resolving attribute calls would let any object with a
+                    # same-named method inherit this function's safety verdict. Written
+                    # the other way, this line fails the injection guard.
                     "  EXISTS (SELECT 1 FROM outbound_webhooks w WHERE "
-                    f"    {integrations.subscribed_endpoint_sql('w')}) AS crm_fanout_owed, "
+                    f"    {subscribed_endpoint_sql('w')}) AS crm_fanout_owed, "
                     f"  {EXTRACTION_OWED_SQL} AS extraction_owed "
                     "FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
