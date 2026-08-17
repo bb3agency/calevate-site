@@ -776,7 +776,12 @@ async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_aga
     async def refuse_to_audit(*args: object, **kwargs: object) -> None:
         raise RuntimeError("audit chain unavailable")
 
-    monkeypatch.setattr(routes, "write_audit", refuse_to_audit)
+    # Patched and restored BY HAND rather than through `monkeypatch.undo()`: undo() is
+    # per-test, not per-call, so it would also revert the autouse `_daytime` clock pin —
+    # and the retry below would then be refused by the calling-hours gate instead of
+    # dialling, i.e. a green test that proves nothing.
+    original_write_audit = routes.write_audit
+    routes.write_audit = refuse_to_audit  # type: ignore[assignment]
     # `raise_app_exceptions=False`: this failure is deliberately NOT one the error ladder
     # has a rung for — an unhandled exception is exactly what the audit report names —
     # and the test is about what the SERVER is left holding, not about the 500.
@@ -791,7 +796,7 @@ async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_aga
 
     # THE RETRY, same key, with the audit write working again — i.e. the client doing
     # exactly what an Idempotency-Key is for.
-    monkeypatch.undo()
+    routes.write_audit = original_write_audit  # type: ignore[assignment]
     async with _client() as http:
         second = await http.post(
             f"/v1/leads/{lead_id}/call",

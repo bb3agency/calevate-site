@@ -880,7 +880,12 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
     async def refuse_to_audit(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("audit chain unavailable")
 
-    monkeypatch.setattr(crm_routes, "write_audit", refuse_to_audit)
+    # Patched and restored BY HAND rather than through `monkeypatch.undo()`: undo() is
+    # per-test, not per-call, so it would also revert `vertex_configured`'s environment
+    # and the retry below would be refused as `assist_no_credential` — a green test that
+    # never reached the model. (That is not hypothetical; it is what this test did first.)
+    original_write_audit = crm_routes.write_audit
+    crm_routes.write_audit = refuse_to_audit  # type: ignore[assignment]
     # The 500 is not the subject; what the crashed request left behind is. `_client()`
     # re-raises an unhandled server exception into the test, which would end it before
     # the retry.
@@ -891,8 +896,7 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
     assert first.status_code >= 500, first.text
     assert len(google.generate_requests) == 1, "the provider was paid once"
 
-    monkeypatch.undo()
-    use_fake_vertex(monkeypatch, google)
+    crm_routes.write_audit = original_write_audit  # type: ignore[assignment]
     async with _client() as http:
         second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
 
