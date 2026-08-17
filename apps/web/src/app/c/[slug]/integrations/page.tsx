@@ -8,6 +8,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -277,7 +278,7 @@ export default function IntegrationsPage() {
         {deliveries.isLoading ? (
           <Skeleton rows={3} />
         ) : deliveries.data?.length ? (
-          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
             <table className="w-full min-w-[500px] text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
@@ -344,7 +345,7 @@ export default function IntegrationsPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ScrollRegion>
         ) : deliveries.error ? null : (
           <EmptyState
             title="Nothing sent yet"

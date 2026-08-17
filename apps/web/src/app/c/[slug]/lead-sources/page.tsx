@@ -21,13 +21,14 @@ import {
   Card,
   EmptyState,
   NOTICE_TONES,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
+  ScrollRegion,
   Skeleton,
   formatCount,
   formatIST,
-  PRIMARY_BUTTON_SM,
-  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
@@ -420,7 +421,7 @@ export default function LeadSourcesPage() {
             <Skeleton rows={3} />
           </div>
         ) : !deliveries ? null : deliveries.length ? (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Ingest activity">
             <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
@@ -489,7 +490,7 @@ export default function LeadSourcesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         ) : (
           <EmptyState
             title="No deliveries yet"

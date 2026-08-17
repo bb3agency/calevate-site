@@ -8,12 +8,13 @@ import {
   Card,
   EmptyState,
   NoticeBox,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
+  ScrollRegion,
   Skeleton,
   formatIST,
-  PRIMARY_BUTTON_SM,
-  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
 import {
@@ -1372,7 +1373,7 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
         )}
       </NoticeBox>
 
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Prompt experiment arms">
         <table className="w-full text-left text-xs">
           <thead className="text-ink-muted">
             <tr>
@@ -1410,7 +1411,7 @@ function ExperimentResults({ experiment }: { experiment: Experiment }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
 
       {measured && experiment.difference_low !== null && experiment.difference_high !== null ? (
         <p className="text-xs text-ink-muted">

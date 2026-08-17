@@ -382,6 +382,95 @@ export function NoticeBox({
   );
 }
 
+/**
+ * A container that scrolls sideways, and can therefore be scrolled by a keyboard.
+ *
+ * There is no key that scrolls a non-focusable `<div>`. A wide table inside a bare
+ * `overflow-x-auto` div is content a keyboard-only user simply cannot read the right-hand
+ * side of — on the credit ledger and the invoice that is the money columns, on the leads
+ * table it is whatever the column chooser put on the right. That is axe's
+ * `scrollable-region-focusable` rule, and the WAI technique behind it is to make the
+ * container focusable and name it (`role="region"` + `aria-label`), which also gives a
+ * screen-reader user a landmark to jump to rather than a wall of cells.
+ *
+ * This shape was argued once, at `lib/legal/document.tsx`, and then not used by the
+ * seventeen other scroll containers in the product. Hoisted here and every one of them
+ * moved onto it in the same change — including `document.tsx`, which now imports it
+ * rather than keeping the original.
+ *
+ * `label` is REQUIRED and unnamed regions are not offered: a `region` role with no
+ * accessible name is not exposed as a landmark at all, so an optional label would let a
+ * caller opt into a focus stop that buys a screen-reader user nothing.
+ *
+ * Note this cannot be guarded by the a11y sweep: jsdom implements no layout, so axe can
+ * never determine that a container IS scrollable and `scrollable-region-focusable` never
+ * fires there. `tests/responsive.test.ts` checks it from the class strings instead, which
+ * is a check that can actually fail.
+ */
+export function ScrollRegion({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="region"
+      aria-label={label}
+      className={clsx("overflow-x-auto", className)}
+      // The one place a non-interactive element must take focus — see above. The lint
+      // rule's default allowed-roles list knows only `tabpanel` and predates the WAI
+      // guidance for scrollable regions. Waived HERE, once, which is the point of the
+      // component: seventeen call sites no longer each need their own waiver.
+      // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
+      tabIndex={0}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * The `id` both shells put on their `<main>`, and the target of `SkipLink`.
+ *
+ * A constant rather than a literal in three files because a skip link whose target `id`
+ * was renamed is a skip link that silently does nothing — the anchor still renders, still
+ * takes focus, and goes nowhere.
+ */
+export const MAIN_CONTENT_ID = "main-content";
+
+/**
+ * "Skip to main content" — WCAG 2.4.1 Bypass Blocks, Level A.
+ *
+ * The client sidebar is 21 links across four groups, the admin sidebar 7, plus the
+ * collapse and drawer buttons and the notification bell, and all of it precedes `<main>`
+ * in the DOM on every one of ~30 screens. A keyboard or screen-reader user paid that Tab
+ * cost on every single navigation.
+ *
+ * Visually hidden until focused (`sr-only` / `focus:not-sr-only`) rather than permanently
+ * visible or permanently hidden: a permanently hidden one is the well-known failure mode
+ * where the link exists for axe and not for the person using it, and 2.4.1 is satisfied
+ * by a mechanism that is available, which a control nobody can see is not.
+ *
+ * The target `<main>` carries `tabIndex={-1}`. Following a fragment moves the browser's
+ * scroll position but only moves FOCUS if the target is focusable — without it, the next
+ * Tab continues from the skip link and lands back in the navigation, which is the bug
+ * that makes skip links famously not work.
+ */
+export function SkipLink() {
+  return (
+    <a
+      href={`#${MAIN_CONTENT_ID}`}
+      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:border focus:border-line focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-ink focus:shadow-lg"
+    >
+      Skip to main content
+    </a>
+  );
+}
+
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="py-10 text-center">

@@ -22,6 +22,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   formatINR,
   formatIST,
@@ -1415,7 +1416,7 @@ function PaymentsTable({ wallet }: { wallet: Credits }) {
   if (wallet.payments.length === 0) return null;
   return (
     <Card title="Payments — one line per bank transfer">
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Payments — one line per bank transfer">
         <table className="w-full text-left text-xs">
           <thead className="text-ink-muted">
             <tr>
@@ -1448,7 +1449,7 @@ function PaymentsTable({ wallet }: { wallet: Credits }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       <p className="mt-3 text-xs text-ink-muted">
         Compare <span className="font-semibold">Credited</span> against the statement, one
         line to one line. A payment restated after being entered for too little occupies
@@ -1475,7 +1476,7 @@ function LedgerTable({ wallet }: { wallet: Credits }) {
 
   return (
     <Card title="Ledger — newest first">
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Credit ledger, newest first">
         <table className="w-full text-left text-xs">
           <thead className="text-ink-muted">
             <tr>
@@ -1508,7 +1509,7 @@ function LedgerTable({ wallet }: { wallet: Credits }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </ScrollRegion>
       <p className="mt-3 text-xs text-ink-muted">
         The newest {LEDGER_LIMIT}. Nothing here can be edited or removed — and the
         repeated-reference check the server makes reads the WHOLE ledger, not only what

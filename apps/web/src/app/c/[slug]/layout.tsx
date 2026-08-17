@@ -34,10 +34,11 @@ import {
 
 import { Providers } from "@/app/providers";
 import { NavDrawer } from "@/components/navDrawer";
-import { Avatar, ProblemNotice, Skeleton } from "@/components/ui";
+import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
 import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { ClientRealmProvider, useClientRealm } from "@/lib/api/session";
+import { currentNavItem } from "@/lib/nav";
 
 /**
  * The client console's app shell.
@@ -119,21 +120,20 @@ function navigation(slug: string): NavGroup[] {
 }
 
 /**
- * The heading the header shows, taken from the SAME list the sidebar renders.
+ * The nav entry this path belongs to — the ONE answer the header title and the sidebar
+ * highlight both read.
  *
- * Longest match wins so a detail route (`/calls/<id>`) keeps its section's name
- * rather than falling through to "Dashboard", which is the exact-match answer and
- * the wrong one.
+ * They used to be computed separately, four lines apart: the title by longest prefix and
+ * the highlight by exact match. On `/calls/<id>` the header said "Call logs" while the
+ * sidebar lit nothing and no element in the document carried `aria-current="page"`. The
+ * rule itself now lives in `lib/nav.ts` because Next's route typing forbids exporting it
+ * from a layout, and both shells needed the same one.
  */
-function currentTitle(groups: NavGroup[], pathname: string): string {
-  const all = groups.flatMap((group) => group.items);
-  let best: NavItem | undefined;
-  for (const item of all) {
-    if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
-      if (!best || item.href.length > best.href.length) best = item;
-    }
-  }
-  return best?.label ?? "Dashboard";
+function currentItem(groups: NavGroup[], pathname: string): NavItem | undefined {
+  return currentNavItem(
+    groups.flatMap((group) => group.items),
+    pathname,
+  );
 }
 
 function Sidebar({
@@ -150,9 +150,12 @@ function Sidebar({
   const me = useMe(session);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const groups = navigation(slug);
+  // The SAME entry the header names — see `currentItem`. Identity comparison rather than
+  // a second match: two computations cannot disagree if there is only one.
+  const current = currentItem(groups, pathname);
 
   const renderItem = (item: NavItem) => {
-    const active = pathname === item.href;
+    const active = item === current;
     const Icon = item.icon;
     return (
       <Link
@@ -288,7 +291,7 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
   const pathname = usePathname();
   const { session, href } = useClientRealm();
   const attention = useAttention(session);
-  const title = currentTitle(navigation(slug), pathname);
+  const title = currentItem(navigation(slug), pathname)?.label ?? "Dashboard";
 
   // The bell's count is the "needs attention" queue — the same number that screen
   // shows, from the same query. The design shipped it as a hardcoded 3; a badge that
@@ -396,6 +399,11 @@ export default function ClientRealmLayout({
           The document scrolls by default; a shell that clips its own content is the only
           thing that needs the document to stop. */}
       <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+        {/* FIRST focusable thing in the shell, and outside `ClientRealmProvider` on
+            purpose: the sidebar is 21 links, and a reader must be able to bypass them
+            even while the session is still resolving and the fallback skeleton is what
+            is on screen (WCAG 2.4.1, Level A). */}
+        <SkipLink />
         <ClientRealmProvider
           slug={slug}
           fallback={
@@ -410,7 +418,15 @@ export default function ClientRealmLayout({
           <div className="flex flex-1 flex-col overflow-hidden">
             <ViewAsBanner slug={slug} />
             <TopHeader slug={slug} onMenuToggle={() => setIsMobileOpen(true)} />
-            <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+            {/* `tabIndex={-1}` is what makes `SkipLink` actually skip: following a
+                fragment scrolls to the target but only MOVES FOCUS if the target is
+                focusable, so without it the next Tab resumes inside the navigation the
+                reader just asked to leave. */}
+            <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
+              className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+            >
               <div className="mx-auto max-w-[1280px]">{children}</div>
             </main>
           </div>

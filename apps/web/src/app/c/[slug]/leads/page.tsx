@@ -18,6 +18,7 @@ import {
   FilterChip,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   StatusBadge,
   formatCount,
@@ -819,7 +820,7 @@ export default function LeadsPage() {
       ) : !showRows ? null : view === "list" ? (
         <Card bodyClassName="p-2">
           {items.length ? (
-            <div className="overflow-x-auto">
+            <ScrollRegion label="Leads">
               <table className="w-full text-sm">
                 <thead>
                   {/* THE HEADER IS THE SERVER'S COLUMN LIST, in the server's order — the
@@ -888,7 +889,7 @@ export default function LeadsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollRegion>
           ) : (
             /* "No leads yet" only where the server said so — never on a failed fetch,
                which is why that case never reaches this Card at all. With a filter on,
@@ -908,7 +909,7 @@ export default function LeadsPage() {
            count in each header is the SERVER's figure for that stage, so a column can
            legitimately show more than it holds — and says so underneath rather than
            letting the header be read as "this is all of them". */
-        <div className="overflow-x-auto pb-2">
+        <ScrollRegion label="Leads by stage" className="pb-2">
           <div className="grid min-w-[960px] grid-cols-6 gap-3">
             {STATUSES.map((s) => {
               const columnLeads = items.filter((l) => l.status === s);
@@ -988,7 +989,7 @@ export default function LeadsPage() {
               );
             })}
           </div>
-        </div>
+        </ScrollRegion>
       )}
 
       {/* The stage tally, from `status_counts_matching_search` — the server's numbers

@@ -22,9 +22,10 @@ import {
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { NavDrawer } from "@/components/navDrawer";
-import { NOTICE_TONES, NoticeBox } from "@/components/ui";
+import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
+import { currentNavItem } from "@/lib/nav";
 import { AdminRealmClerkProvider } from "@/lib/auth/adminRealm";
 
 /**
@@ -169,25 +170,25 @@ const NAV: NavGroup[] = [
 ];
 
 /**
- * The heading the header shows, taken from the SAME list the sidebar renders.
+ * The nav entry this path belongs to — the ONE answer the header title and the sidebar
+ * highlight both read.
  *
- * Longest match wins, so `/admin/tenants/<id>/kyc` keeps "Clients" (the section it
- * belongs to) rather than falling through, and `/admin/new` keeps its own name instead of
- * inheriting `/admin`'s — which is what a plain `startsWith` in list order would give.
+ * They used to be two rules four lines apart: the title by longest prefix and the
+ * highlight (with it `aria-current="page"`) by exact match, so on `/admin/tenants/<id>`
+ * and its seven children the header read "Clients" while the sidebar lit nothing. The
+ * comment on `/admin/ops/dnc` above even relies on the longest-match rule in prose while
+ * the highlight beside that title was computed by the other one.
  *
- * Not exported: Next's route-file typing rejects any export from a `layout.tsx` that is
- * not one of its own conventions (`OmitWithTag` in `.next/types`), and a helper that has
- * to leave the file to be tested would be a second copy of the nav list waiting to happen.
- * It is asserted through the rendered header instead, which is what a reader sees anyway.
+ * The rule itself is `lib/nav.currentNavItem`, not a local copy: Next's route-file typing
+ * rejects any export from a `layout.tsx` that is not one of its own conventions
+ * (`OmitWithTag` in `.next/types`), so a rule the client shell also needs cannot live
+ * here. What stays here is only the fallback label, which is per-shell.
  */
-function currentTitle(pathname: string): string {
-  let best: NavItem | undefined;
-  for (const item of NAV.flatMap((group) => group.items)) {
-    if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
-      if (!best || item.href.length > best.href.length) best = item;
-    }
-  }
-  return best?.label ?? "Clients";
+function currentItem(pathname: string): NavItem | undefined {
+  return currentNavItem(
+    NAV.flatMap((group) => group.items),
+    pathname,
+  );
 }
 
 /**
@@ -220,9 +221,12 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
   // ONE identity read for the whole nav — `adminAccess` is a pure verdict on it, so the
   // number of entries can change without breaking the rules of hooks.
   const me = useAdminMe();
+  // The SAME entry the header names — see `currentItem`. Identity comparison rather than
+  // a second match: two computations cannot disagree if there is only one.
+  const current = currentItem(pathname);
 
   const renderItem = (item: NavItem) => {
-    const active = pathname === item.href;
+    const active = item === current;
     const Icon = item.icon;
     const access = adminAccess(me, item.permission, item.action);
 
@@ -472,7 +476,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
         {/* The screens themselves carry no `<h1>`: the title lives here, derived from the
             nav, so it cannot say one thing in the sidebar and another on the page. */}
         <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">
-          {currentTitle(pathname)}
+          {currentItem(pathname)?.label ?? "Clients"}
         </h1>
       </div>
 
@@ -599,10 +603,22 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               to. The document scrolls by default; a shell that clips its own content is
               the only thing that needs the document to stop. */}
           <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+            {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
+                same target id and same position as the client shell's, because the two
+                shells are siblings and a reader who learns the control in one must find
+                it in the other. */}
+            <SkipLink />
             <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
             <div className="flex flex-1 flex-col overflow-hidden">
               <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
-              <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
+              {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
+                  does not take focus, which is the classic reason a skip link does
+                  nothing on the next Tab. */}
+              <main
+                id={MAIN_CONTENT_ID}
+                tabIndex={-1}
+                className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+              >
                 <div className="mx-auto max-w-[1280px]">{children}</div>
               </main>
             </div>
