@@ -143,17 +143,23 @@ async def test_an_invitation_can_only_be_burned_once() -> None:
     )
     tenant_id = created["id"]
     user_id = uuid.uuid4()
+    # UNIQUE PER RUN, not the literal it used to be. `users` now carries
+    # `uq_users_email_lower` (migration c7a1e93d40b8), and this test never deleted its row,
+    # so a fixed address made the SECOND run of the suite fail on a collision with the
+    # first — the shared-database discipline `tests/shared_state_assertion_guard_test.py`
+    # explains, arriving as a constraint violation instead of a wrong count.
+    invitee_email = f"invitee-{user_id.hex[:10]}@example.com"
     async with untenanted_session() as session:
         await session.execute(
             text(
                 "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
                 "VALUES (:i, :c, :e, now(), now())"
             ),
-            {"i": user_id, "c": f"u_{user_id.hex[:10]}", "e": "invitee@example.com"},
+            {"i": user_id, "c": f"u_{user_id.hex[:10]}", "e": invitee_email},
         )
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
-            session, tenant_id=tenant_id, email="invitee@example.com", role="owner", created_by=None
+            session, tenant_id=tenant_id, email=invitee_email, role="owner", created_by=None
         )
         stored = (await session.execute(text("SELECT token_hash FROM invitations"))).scalar()
 
