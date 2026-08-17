@@ -172,6 +172,14 @@ conformance:  ## Keep the exit door oiled — run both adapters
 guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per milestone
 	uv run lint-imports
 	uv run python -m scripts.check_env_parity
+	# Parity asks whether a key is DECLARED; this asks whether the value behind it is
+	# coherent (D-168) — the two DSNs naming one database through two roles, a REDIS_URL a
+	# container can reach, a value still carrying `.env.example`'s text. Pointed at THIS
+	# machine's environment, so the local gate and the deploy ask one question of two
+	# environments; `scripts/vps-deploy.sh` runs it in the new image before migrations.
+	# Most refusals are scoped to APP_ENV != local, so a laptop exercises the subset that
+	# applies to it — the negative controls live in tests/deploy_env_preflight_test.py.
+	uv run python -m scripts.check_deploy_env
 	# The same rule for the OTHER tier's config. `next build` INLINES every
 	# NEXT_PUBLIC_* value, so an undeclared or misspelled browser key is not a build
 	# error — it is the empty string in the bundle and a broken screen in production.

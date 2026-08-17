@@ -609,11 +609,22 @@ verify_bootstrap_env() {
   # is unset" into a sentence instead of a container that boots into `local` mode and
   # accepts a dev token whose subject the caller picks (apps/api/core/settings.py). That
   # must fail while the old containers are still serving.
-  compose run --rm --no-deps --entrypoint python api -c \
-    'from apps.api.core.settings import validate_bootstrap_env, get_settings
-validate_bootstrap_env()
-get_settings()
-print("bootstrap env OK for", get_settings().app_env)'
+  # AND THE VALUES BEHIND THOSE KEYS (D-168). `check_deploy_env` IS the gate above —
+  # it calls `validate_bootstrap_env` and constructs `Settings()`, so this step is still
+  # exactly what DEPLOYMENT §4 step 6 describes — plus the questions nothing anywhere
+  # asked: do the two DSNs name the same database through different roles, does `REDIS_URL`
+  # name a host this container can reach, is a value still the placeholder `.env.example`
+  # ships. Each of those produces a deploy that swaps cleanly and fails AFTERWARDS, which
+  # is the one class this step exists to move earlier. Every problem at once, no value
+  # printed, non-zero exit ends the deploy here.
+  #
+  # It replaced an inline `python -c` that ran the same two calls: two implementations of
+  # one step, and two `compose run`s. The host-side `preflight` above keeps its `grep`s for
+  # the same keys' PRESENCE — that is the cheap refusal saving a ten-minute serial build,
+  # and it is the only question answerable there, since DEPLOYMENT §2 says Python is not
+  # installed on the host. One question split by WHEN it can be answered, not two
+  # implementations of one check.
+  compose run --rm --no-deps --entrypoint python api -m scripts.check_deploy_env
 }
 
 # --- 6. migrations ------------------------------------------------------------------
