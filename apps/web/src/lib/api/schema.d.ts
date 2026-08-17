@@ -1631,6 +1631,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/admin/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a code to re-prove this operator's second factor before a dangerous action
+         * @description The first half of C-09 (D-178).
+         *
+         *     ADMIN REALM ONLY, declared rather than refused — same structural choice as
+         *     `/bootstrap/confirm`. The client realm requires no second factor
+         *     (`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route
+         *     with nothing to re-prove and nobody to call it.
+         *
+         *     Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that
+         *     has never proved one is at the ordinary sign-in gate, not this one.
+         */
+        post: operations["step_up_request_v1_auth_admin_step_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/step-up/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer the step-up code, restamping this session's second factor
+         * @description Rotates the session — see `service.complete_step_up` on why re-proving a
+         *     factor is a privilege change and why it cannot extend the absolute bound.
+         */
+        post: operations["step_up_verify_v1_auth_admin_step_up_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/client/invitations/accept": {
         parameters: {
             query?: never;
@@ -2412,6 +2461,26 @@ export interface paths {
          *     are why: both are answers the caller cannot derive from the request it sent.
          */
         delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/caller-notice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A draft of the privacy notice you owe your own callers
+         * @description Indian data-protection law requires you to tell your callers, item by item, what you collect from them and how long you keep it. For a Calevate account that list is the fields your agents capture, your retention settings and your announcement settings — which live here. This generates a DRAFT from them, with blanks marked where only you can answer. It is not legal advice and must be reviewed by your own advocate before you publish it.
+         */
+        get: operations["read_caller_notice_v1_compliance_caller_notice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4438,6 +4507,31 @@ export interface components {
             status: "queued" | "blocked";
         };
         /**
+         * CallerNoticeOut
+         * @description The draft, structured and rendered.
+         *
+         *     Both halves ship on purpose: a screen renders the structure into its own layout, and
+         *     `notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on
+         *     the client side would put the wording — the part counsel reviews — outside the thing
+         *     that was reviewed.
+         */
+        CallerNoticeOut: {
+            /** Ai Disclosure Off */
+            ai_disclosure_off: string[];
+            /** Collected */
+            collected: components["schemas"]["CollectedItemOut"][];
+            /** Disclaimer */
+            disclaimer: string;
+            /** Notice Markdown */
+            notice_markdown: string;
+            /** Open Questions */
+            open_questions: string[];
+            /** Recording Notice Off */
+            recording_notice_off: string[];
+            /** Retention */
+            retention: components["schemas"]["RetentionLineOut"][];
+        };
+        /**
          * CallingHoursIn
          * @description A per-campaign calling window (IST). The service enforces the substantive
          *     rule — narrowing-only, inside the platform's 09:00-21:00 window — so this model
@@ -4662,6 +4756,13 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** CollectedItemOut */
+        CollectedItemOut: {
+            /** What */
+            what: string;
+            /** Why */
+            why: string;
         };
         /**
          * CommercialTermsIn
@@ -5662,6 +5763,8 @@ export interface components {
             call_extractions_erased: number;
             /** Calls */
             calls: string[];
+            /** Knowledge Base Documents Matched */
+            knowledge_base_documents_matched: number | null;
             /** Leads */
             leads: string[];
             /** Recording Hold Until */
@@ -8170,6 +8273,13 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** RetentionLineOut */
+        RetentionLineOut: {
+            /** Days */
+            days: number;
+            /** What */
+            what: string;
         };
         /** RevokedOut */
         RevokedOut: {
@@ -12403,6 +12513,68 @@ export interface operations {
             };
         };
     };
+    step_up_request_v1_auth_admin_step_up_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    step_up_verify_v1_auth_admin_step_up_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondFactorIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     accept_invitation_with_password_v1_auth_client_invitations_accept_post: {
         parameters: {
             query?: never;
@@ -13674,6 +13846,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleCancelledOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_caller_notice_v1_compliance_caller_notice_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerNoticeOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

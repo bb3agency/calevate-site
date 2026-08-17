@@ -56,6 +56,7 @@ from typing import Annotated
 
 from fastapi import Depends, Request
 
+from apps.api.core.auth import dev_tokens_permitted
 from apps.api.core.errors import ProblemError
 
 
@@ -86,14 +87,24 @@ class StepUp:
                 detail="This action needs an explicit confirmation.",
                 remediation=f"Repeat the request with the header X-Confirm-Action: {action}",
             )
-        if not self.present:
-            # This request authenticated with something that is not a first-party admin
-            # session — today, a Clerk token, which has its own gates. Freshness is a
-            # property OF A CREDENTIAL and this is not that credential; it is not this
-            # check being satisfied. AUTH-MIGRATION §5 step 6 removes the other credential,
-            # at which point this branch is unreachable rather than permissive.
-            return
         from apps.api.authn.stepup import is_fresh, reauthentication_required
+
+        if not self.present:
+            # No first-party admin session behind a request that already authenticated as
+            # an admin. Before D-177 that meant a Clerk token — a real credential with its
+            # own gates — and this branch returned, because freshness is a property OF A
+            # CREDENTIAL and that was not this one. The vendor is gone, so the branch no
+            # longer covers a credential: the ONLY thing that now reaches an admin route
+            # without our cookie is the local `dev:admin:<uuid>` token, which
+            # `core/auth.dev_tokens_permitted` already confines to `APP_ENV=local` on a
+            # deployment holding no `PLATFORM_KEK`.
+            #
+            # So it fails closed everywhere else rather than staying permissive. A
+            # returning branch whose stated reason has expired is how a gate becomes
+            # decorative — and this one guards the big red switch.
+            if dev_tokens_permitted():
+                return
+            raise reauthentication_required(action)
 
         if not is_fresh(self.verified_at):
             raise reauthentication_required(action)

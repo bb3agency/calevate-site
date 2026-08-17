@@ -1409,6 +1409,66 @@
         "title": "CallbackOut",
         "type": "object"
       },
+      "CallerNoticeOut": {
+        "additionalProperties": false,
+        "description": "The draft, structured and rendered.\n\nBoth halves ship on purpose: a screen renders the structure into its own layout, and\n`notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on\nthe client side would put the wording \u2014 the part counsel reviews \u2014 outside the thing\nthat was reviewed.",
+        "properties": {
+          "ai_disclosure_off": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ai Disclosure Off",
+            "type": "array"
+          },
+          "collected": {
+            "items": {
+              "$ref": "#/components/schemas/CollectedItemOut"
+            },
+            "title": "Collected",
+            "type": "array"
+          },
+          "disclaimer": {
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "notice_markdown": {
+            "title": "Notice Markdown",
+            "type": "string"
+          },
+          "open_questions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "recording_notice_off": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recording Notice Off",
+            "type": "array"
+          },
+          "retention": {
+            "items": {
+              "$ref": "#/components/schemas/RetentionLineOut"
+            },
+            "title": "Retention",
+            "type": "array"
+          }
+        },
+        "required": [
+          "disclaimer",
+          "collected",
+          "retention",
+          "ai_disclosure_off",
+          "recording_notice_off",
+          "open_questions",
+          "notice_markdown"
+        ],
+        "title": "CallerNoticeOut",
+        "type": "object"
+      },
       "CallingHoursIn": {
         "additionalProperties": false,
         "description": "A per-campaign calling window (IST). The service enforces the substantive\nrule \u2014 narrowing-only, inside the platform's 09:00-21:00 window \u2014 so this model\nonly pins the wire shape to two well-formed HH:MM strings.",
@@ -1935,6 +1995,25 @@
           "spend_cap_inr"
         ],
         "title": "ClientHealthOut",
+        "type": "object"
+      },
+      "CollectedItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "what": {
+            "title": "What",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "why"
+        ],
+        "title": "CollectedItemOut",
         "type": "object"
       },
       "CommercialTermsIn": {
@@ -4179,6 +4258,17 @@
             "title": "Calls",
             "type": "array"
           },
+          "knowledge_base_documents_matched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Documents Matched"
+          },
           "leads": {
             "items": {
               "type": "string"
@@ -4231,7 +4321,8 @@
           "call_extractions_erased",
           "recordings_within_trai_floor",
           "recordings_destroyed",
-          "recording_hold_until"
+          "recording_hold_until",
+          "knowledge_base_documents_matched"
         ],
         "title": "ErasureScopeOut",
         "type": "object"
@@ -10159,6 +10250,25 @@
           "recorded"
         ],
         "title": "RestatementOut",
+        "type": "object"
+      },
+      "RetentionLineOut": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "days"
+        ],
+        "title": "RetentionLineOut",
         "type": "object"
       },
       "RevokedOut": {
@@ -19273,6 +19383,35 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/compliance/caller-notice": {
+      "get": {
+        "description": "Indian data-protection law requires you to tell your callers, item by item, what you collect from them and how long you keep it. For a Calevate account that list is the fields your agents capture, your retention settings and your announcement settings \u2014 which live here. This generates a DRAFT from them, with blanks marked where only you can answer. It is not legal advice and must be reviewed by your own advocate before you publish it.",
+        "operationId": "read_caller_notice_v1_compliance_caller_notice_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerNoticeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A draft of the privacy notice you owe your own callers",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/compliance/deletion-requests": {

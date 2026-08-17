@@ -31,6 +31,7 @@ from apps.api.authn.models import OTP_PURPOSES
 from apps.api.authn.sessions import IssuedSession, issue_session, verify_session
 from apps.api.authn.stepup import REAUTH_MAX_AGE, current_admin_session, is_fresh
 from apps.api.authn.throttle import KEY_PREFIX
+from apps.api.core import auth as auth_module
 from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.core.stepup import step_up_gate
@@ -180,14 +181,38 @@ async def test_a_session_that_never_proved_a_factor_is_refused(operator: uuid.UU
 
 
 @pytest.mark.asyncio
-async def test_a_request_with_no_first_party_session_is_not_this_gate_s_business() -> None:
-    """`authn/stepup.py`'s docstring makes this claim and it is the one a reviewer will
-    challenge: freshness is a property OF A CREDENTIAL, and a caller presenting no
-    first-party session presented some other credential with its own gates. It is not a
-    bypass that survives — deleting Clerk leaves no other credential, at which point this
-    branch is unreachable rather than permissive."""
-    (await step_up_gate(_request())).require(ACTION, ACTION)
-    (await step_up_gate(_request({"unrelated": "x"}))).require(ACTION, ACTION)
+async def test_a_request_with_no_first_party_session_is_refused_off_a_dev_deployment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The branch that used to return unconditionally, pinned from both sides.
+
+    It returned because a caller with no first-party session had presented a Clerk token —
+    a real credential with its own gates — and freshness is a property OF A CREDENTIAL.
+    D-177 deleted that credential, so the only thing left that reaches an admin route
+    without our cookie is the local `dev:admin:<uuid>` token. On a deployment that will not
+    honour one, `present=False` is now a refusal rather than a pass, because a returning
+    branch whose reason has expired is a gate with a hole in it.
+
+    Both directions are asserted from the SAME call, so the test fails if the branch is
+    made unconditional in either direction.
+    """
+    for keyless, refuses in ((True, False), (False, True)):
+        settings = auth_module.get_settings().model_copy(
+            update={
+                "app_env": "local" if keyless else "prod",
+                "platform_kek": None if keyless else "a-real-looking-key-0000000000000000",
+            }
+        )
+        monkeypatch.setattr(auth_module, "get_settings", lambda s=settings: s)
+        gate = await step_up_gate(_request())
+        assert gate.present is False
+        if refuses:
+            with pytest.raises(ProblemError) as exc:
+                gate.require(ACTION, ACTION)
+            assert exc.value.code == "reauthentication_required"
+        else:
+            gate.require(ACTION, ACTION)
+            (await step_up_gate(_request({"unrelated": "x"}))).require(ACTION, ACTION)
 
 
 @pytest.mark.asyncio

@@ -158,7 +158,7 @@ class VerifiedCaller:
     mfa_verified_at: datetime | None
 
 
-def _dev_tokens_permitted() -> bool:
+def dev_tokens_permitted() -> bool:
     """The two independent guards, in one place so neither can be checked without the other.
 
     See the module docstring for why `PLATFORM_KEK` is the successor to "this realm has no
@@ -181,7 +181,7 @@ def _verify_dev_token(token: str, realm: Realm) -> VerifiedCaller | None:
     exercised on the SAME code path that serves the allowed case, rather than only in a
     unit test of the predicate.
     """
-    if not _dev_tokens_permitted():
+    if not dev_tokens_permitted():
         return None
     parts = token.split(":")
     if len(parts) not in (3, 4) or parts[0] != "dev" or parts[1] != realm:
@@ -962,6 +962,10 @@ __all__ = [
     "current_any",
     "current_identity",
     "current_principal",
+    # Public because `core/stepup.py` asks it the same question this module does — "is this
+    # a deployment where a credential-less admin request is legitimate?" — and a second
+    # copy of the predicate is exactly the drift that would let the two answers diverge.
+    "dev_tokens_permitted",
     "requires",
     "tenant_of",
     "verify_token",

@@ -46,6 +46,7 @@ export const AUTHN_CODES = {
   invitationInvalid: "invitation_invalid",
   passwordLength: "password_length",
   rateLimited: "rate_limited",
+  reauthenticationRequired: "reauthentication_required",
   secondFactorRequired: "second_factor_required",
   tooManyAttempts: "too_many_attempts",
   unauthorized: "unauthorized",
@@ -135,6 +136,12 @@ const SIGN_IN_COPY: Record<string, string> = {
     "This account already has a password, so the setup link no longer opens anything. Sign in instead.",
   [AUTHN_CODES.invitationInvalid]:
     "This invitation cannot be used. Invitations work once and expire 72 hours after they are created — ask whoever invited you for a fresh link.",
+  // NOT the server's `detail`, which prints the two curl calls that clear it — correct for
+  // an operator reading a log, wrong on a screen where the button is what does it. The
+  // sentence says the session is intact, because the failure mode this copy exists to
+  // prevent is an operator reading a step-up prompt as a logout and abandoning the action.
+  [AUTHN_CODES.reauthenticationRequired]:
+    "This action needs you to confirm it is still you. Your session is fine — send yourself a code and enter it, then try the action again.",
 };
 
 /**
