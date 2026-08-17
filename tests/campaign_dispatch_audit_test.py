@@ -1404,3 +1404,51 @@ async def test_the_retry_ladder_is_measured_by_the_database_clock() -> None:
     assert abs(float(drift_s or 0)) < 1.0, (
         f"the rung is {drift_s}s away from the database's own idea of +30 minutes"
     )
+
+
+async def test_the_reaper_does_not_return_an_unconfirmed_dial_to_the_ladder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The case that outruns an `except` clause, and the reason `_reap_stuck_dialing`
+    grew a second branch.
+
+    A `CancelledError` through the dial — a worker caught mid-tick by a deploy, or a
+    cron tick overrunning `job_timeout` — is a `BaseException`, so the dispatcher's
+    `except DialUnconfirmedError` never sees it and the contact is left `dialing`
+    pointing at a call the vendor never named. Thirty minutes later the reaper used to
+    return exactly that contact to `pending`, with its attempts intact, and the next tick
+    rang a phone that may already have rung.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876840001",), slider=1)
+    original = FakeEngine.start_outbound_call
+
+    async def killed_mid_dial(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        await original(self, ref, to, ctx)
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", killed_mid_dial)
+    with pytest.raises(asyncio.CancelledError):
+        await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    monkeypatch.undo()
+
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1)], (
+        "the committed claim is what keeps the contact out of the next tick's reach"
+    )
+
+    # Thirty minutes on. The reaper runs at the top of every tick.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET last_attempt_at = now() - interval '31 minutes' "
+                "WHERE campaign_id = :c"
+            ),
+            {"c": campaign_id},
+        )
+    swept = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+
+    assert swept["dialled"] == 0, f"the reaper handed the contact back to the dialler: {swept}"
+    assert await _contacts(tenant_id, campaign_id) == [("failed", 1)], (
+        "a dial we cannot prove did not ring is terminal, not a rung on the ladder"
+    )
+    ids = await _engine_call_ids(tenant_id)
+    assert len(ids) == 1 and ids[0].startswith(UNCONFIRMED_ENGINE_CALL_PREFIX), ids
