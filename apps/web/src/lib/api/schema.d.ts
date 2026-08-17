@@ -2783,8 +2783,13 @@ export interface paths {
          *     cannot inspect — the whole class of defect D-71 and D-75 fixed elsewhere. Echoing
          *     the entry back was the other option and is the one to avoid hardest: the row we
          *     just deleted holds a phone number, and the response to "please forget this" is not
-         *     the place to repeat it. The `source` this reads is for the AUDIT row, which is
+         *     the place to repeat it. What `remove_entry` returns is for the AUDIT row, which is
          *     where "who un-suppressed what, and what kind of entry it was" belongs.
+         *
+         *     `subject_ref` rides along with `source` (D-185): the entry id alone stops answering
+         *     "which number was released" the moment the row is gone, and the one-way handle
+         *     answers it for an auditor holding the number without writing a number into the
+         *     ledger (hard rule 6). See `dnc.Removal` for why this is not a tombstoned row.
          *
          *     Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
          *     which is the answer this repo already gives for a delete with nothing to report.
@@ -3281,11 +3286,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** CSV export — full phone numbers, owner-only and audit-logged */
-        get: operations["export_leads_v1_leads_export_csv_get"];
+        /** CSV export, unsearched — full phone numbers, owner-only and audit-logged */
+        get: operations["export_leads_filtered_v1_leads_export_csv_get"];
         put?: never;
-        /** CSV export with a search term — POST because the term is a phone number */
-        post: operations["export_leads_searched_v1_leads_export_csv_post"];
+        /**
+         * CSV export — full phone numbers, owner-only and audit-logged
+         * @description The SAME filters `GET /v1/leads` takes, with the same meanings, so "export what I
+         *     am looking at" is expressible. It accepted `agent_id` alone once, so a client who
+         *     filtered the table to `hot` and pressed Export downloaded every contact in the account
+         *     with full numbers — the widest possible read of the narrowest possible request.
+         *     Widening the filters does NOT widen the gate: this stays `calls:read_raw` and stays
+         *     audited, and a narrower request is not a cheaper permission.
+         *
+         *     The COLUMN CHOOSER and the FACETS mean exactly what they mean on the list — see
+         *     `_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.
+         *     That mirroring is a correctness requirement here rather than a nicety: the screen and
+         *     the file must not disagree about which rows and which columns, because the file is the
+         *     one carrying unmasked numbers out of the building.
+         */
+        post: operations["export_leads_v1_leads_export_csv_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3654,7 +3673,9 @@ export interface paths {
          * Lift a platform-wide suppression (step-up confirmed, audited)
          * @description 204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
          *     holds a phone number, and the response to "stop suppressing this" is not the place
-         *     to repeat it. The `source` this reads is for the audit row.
+         *     to repeat it. What `remove_global_entry` returns is for the audit row — `source`, and
+         *     (D-185) the `subject_ref` that keeps "which number did we stop refusing" answerable
+         *     after the row is gone. See `dnc.Removal`.
          *
          *     The confirmation names THIS row — see `release_globally_confirmation`.
          */
@@ -15243,7 +15264,7 @@ export interface operations {
             };
         };
     };
-    export_leads_v1_leads_export_csv_get: {
+    export_leads_filtered_v1_leads_export_csv_get: {
         parameters: {
             query?: {
                 agent_id?: string | null;
@@ -15283,7 +15304,7 @@ export interface operations {
             };
         };
     };
-    export_leads_searched_v1_leads_export_csv_post: {
+    export_leads_v1_leads_export_csv_post: {
         parameters: {
             query?: never;
             header?: never;
