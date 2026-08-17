@@ -51,7 +51,7 @@ only source of one is `Depends(step_up_gate)`.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -93,9 +93,9 @@ class StepUp:
             # check being satisfied. AUTH-MIGRATION §5 step 6 removes the other credential,
             # at which point this branch is unreachable rather than permissive.
             return
-        from apps.api.authn.stepup import REAUTH_MAX_AGE, reauthentication_required
+        from apps.api.authn.stepup import is_fresh, reauthentication_required
 
-        if self.verified_at is None or datetime.now(UTC) - self.verified_at > REAUTH_MAX_AGE:
+        if not is_fresh(self.verified_at):
             raise reauthentication_required(action)
 
 

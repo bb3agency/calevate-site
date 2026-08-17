@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -261,11 +260,10 @@ async def test_the_boundary_is_checked_from_both_sides(operator: uuid.UUID) -> N
     at = datetime.now(UTC)
     async with credential_session() as session:
         issued = await issue_session(session, realm="admin", subject_id=operator, now=at)
-    live = (await verify_session(token=issued.token, realm="admin")).require_live()
-    inside = replace(live, mfa_verified_at=at - REAUTH_MAX_AGE + timedelta(seconds=1))
-    outside = replace(live, mfa_verified_at=at - REAUTH_MAX_AGE - timedelta(seconds=1))
-    assert is_fresh(inside, now=at)
-    assert not is_fresh(outside, now=at)
+    assert (await verify_session(token=issued.token, realm="admin")).live
+    assert is_fresh(at - REAUTH_MAX_AGE + timedelta(seconds=1), now=at)
+    assert not is_fresh(at - REAUTH_MAX_AGE - timedelta(seconds=1), now=at)
+    assert not is_fresh(None, now=at), "never proved is not recently proved"
 
 
 def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it() -> None:

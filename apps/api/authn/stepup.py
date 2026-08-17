@@ -98,8 +98,12 @@ def reauthentication_required(action: str) -> ProblemError:
 
     An operator mid-incident must not have to find the source — or the frontend — to learn
     how to get past this, for the same reason `core/stepup.StepUp.require` prints the
-    header it wants.
+    header it wants. Logged here rather than at the call site because this function is
+    constructed only on the refusing branch: a stale second factor on a dangerous route is
+    something an operator investigating "why did that 403" needs in the log, and the action
+    string is safe to carry (it is an ops procedure, not a secret).
     """
+    log.warning("step_up_reauthentication_required", extra={"action": action})
     return ProblemError(
         kind="permission",
         code="reauthentication_required",
@@ -116,12 +120,15 @@ def reauthentication_required(action: str) -> ProblemError:
     )
 
 
-def is_fresh(session: VerifiedSession, *, now: datetime | None = None) -> bool:
-    """Was this session's second factor proved inside the window? Exposed for the tests
-    that measure the boundary from both sides; `core/stepup.StepUp.require` applies it."""
-    if session.mfa_verified_at is None:
+def is_fresh(verified_at: datetime | None, *, now: datetime | None = None) -> bool:
+    """Was a second factor proved inside the window? `None` — never proved — is NOT fresh.
+
+    Takes the instant rather than the session, so `core/stepup.StepUp` (which holds the
+    instant and not the row) applies THIS comparison rather than a second copy of it.
+    """
+    if verified_at is None:
         return False
-    return (now or datetime.now(UTC)) - session.mfa_verified_at <= REAUTH_MAX_AGE
+    return (now or datetime.now(UTC)) - verified_at <= REAUTH_MAX_AGE
 
 
 __all__ = [
