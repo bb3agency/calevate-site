@@ -143,17 +143,21 @@ async def test_an_invitation_can_only_be_burned_once() -> None:
     )
     tenant_id = created["id"]
     user_id = uuid.uuid4()
+    # RUN-UNIQUE, like every other address in this suite. A constant one survived only
+    # while `users.email` had no unique index; one landed, and the second run of this file
+    # then failed on a collision that says nothing about invitations.
+    email = f"invitee-{uuid.uuid4().hex[:8]}@example.com"
     async with untenanted_session() as session:
         await session.execute(
             text(
                 "INSERT INTO users (id, email, created_at, updated_at) "
                 "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "e": "invitee@example.com"},
+            {"i": user_id, "e": email},
         )
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
-            session, tenant_id=tenant_id, email="invitee@example.com", role="owner", created_by=None
+            session, tenant_id=tenant_id, email=email, role="owner", created_by=None
         )
         stored = (await session.execute(text("SELECT token_hash FROM invitations"))).scalar()
 
