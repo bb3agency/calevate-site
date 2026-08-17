@@ -570,7 +570,7 @@ offsite provider, the age identity or the systemd timers without credentials.
 **We should stop citing their DR suite as the reference implementation.** On this axis
 the direction of learning runs the other way, and the one thing worth taking is
 `dr-stale-drill-check.js`'s idea — evidence has an expiry — with the loop broken. That is
-what D-165 below records.
+what D-166 below records.
 
 ---
 
@@ -962,7 +962,7 @@ scheduling distinction that exists.
 | 11 | **Backups: a schedule that exists** | A cron line in a comment (`dr-backup-offsite.sh:25-26`) | Nothing new — `infra/backup/systemd/*.timer` already exists and is the better answer (`OnFailure=`, `Persistent=true`). | **Yes, unapplied** | **External: an object-storage account** (R2 backup bucket + scoped token) **and a non-Cloudflare offsite target** (Backblaze B2 / Hetzner Storage Box) |
 | 12 | **Backups: encryption at rest** | None — plaintext gzip (`dr-backup-offsite.sh:48`) | Nothing new — ours pipes through `age`. Recorded here only because their script is the one `DEPLOYMENT.md` §7 says we adapted, and this is the half we must not adapt. | **Yes** — `scripts/backup/dump-offsite.sh` | **External: an `age` identity generated off-host** |
 | 13 | **Restore drill that proves a restore** | Simulated (§5.2–5.3) | Nothing new — `scripts/restore_drill.py` already proves alembic head, RLS behaviour under the app role, append-only triggers, the audit chain and row counts. **Stop citing theirs as the reference.** | **Yes** | **External: credentials, for the half the local drill cannot cover (wal-g/R2/offsite)** |
-| 14 | **Drill-evidence freshness gate** | `dr-stale-drill-check.js` — good idea, closed loop (§5.3) | A guardrail that reads `docs/evidence/restore-drill-YYYY-QN.md`, refuses when the newest record is older than one quarter, and **refuses to run any producer of that evidence** — CI validates, never generates. This is D-165. | **No** | Ours |
+| 14 | **Drill-evidence freshness gate** | `dr-stale-drill-check.js` — good idea, closed loop (§5.3) | A guardrail that reads `docs/evidence/restore-drill-YYYY-QN.md`, refuses when the newest record is older than one quarter, and **refuses to run any producer of that evidence** — CI validates, never generates. This is D-166. | **No** | Ours |
 | 15 | **Certificate renewal hook** | `--deploy-hook "systemctl reload nginx"` / `/etc/letsencrypt/renewal-hooks/deploy/` (`CLOUDFLARE_SHARED_VPS_DEPLOYMENT_GUIDE.md:211`) | Add the deploy hook to `DEPLOYMENT.md` §9.5a as a numbered step with a pass condition (`certbot renew --dry-run` succeeds *and* the hook fires). Without it, day-60 renewal is invisible to the running nginx. | **No** | Ours (doc + `infra/nginx`), then **External: a domain and issued certificates** |
 | 16 | nginx: maintenance gate | Single-hop `error_page 401 =503`, `auth_request` in the ACCESS phase, inline fallback (`client.conf.template:44-140`) | Build it, from their shape, when we need a maintenance window. `DEPLOYMENT.md` §5 already names it as a deliberate gap and warns that a half-remembered version fails exactly when needed. Their comments at `:59-80` are the specification. | **No** (deliberate gap) | Ours |
 | 17 | nginx: real-IP restoration | **Absent** (§6.1) | Nothing — ours already has `set_real_ip_from` + `real_ip_header CF-Connecting-IP`, paired with the origin allowlist in one dated file. | **Yes** — `infra/nginx/` | — |
@@ -1019,7 +1019,7 @@ before somebody discovers it on the box.
 
 Recorded so a future reader does not re-propose them:
 
-- **Their `dr-*` family**, in whole or in part, except the freshness *idea* in D-165.
+- **Their `dr-*` family**, in whole or in part, except the freshness *idea* in D-166.
 - **`seed-admin.mjs`'s shape** — no non-interactive full-privilege account creation, no
   credential ever printed.
 - **Wildcard sudoers grants**, in any argument position, for any reason.
@@ -1057,7 +1057,7 @@ evidence. The edits belong in the change that acts on §9.
    plus `scripts/restore_drill.py`, which performs a real restore and checks five
    invariants a zero exit code does not answer. On backups and DR the direction of
    learning runs from us to them, and the one idea worth taking back is evidence expiry —
-   D-165.
+   D-166.
 
 3. **`docs/DEPLOYMENT.md` §9 step 10a's ordering assumption changes with Clerk's
    removal.** It sends the operator to `admin.calevate.tech/ops` after the first deploy
