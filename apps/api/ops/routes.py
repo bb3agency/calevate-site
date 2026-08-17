@@ -24,7 +24,7 @@ Step-up is a required `X-Confirm-Action` header that must echo the action being 
 
 **IT IS NOT THE SECOND FACTOR, AND IT IS NO LONGER STANDING IN FOR ONE.** Admin-realm
 MFA is now enforced by the API itself: `core/auth.py::verify_token` refuses any
-admin-realm token whose Clerk session never completed a second factor (`fva[1] == -1`),
+admin-realm session that never completed its second factor (`mfa_verified_at IS NULL`),
 so every route in this file is already behind MFA before its dependency runs. This
 header was written as an explicit stopgap for that; the stopgap's occasion has passed
 and the header STAYS anyway, because it answers a different question:
@@ -42,7 +42,7 @@ doing ONE thing, and these are two things — an authentication assertion about 
 and a consent assertion about an action. Removing it would leave the big red switch
 reachable by a single POST from any live operator session, which is the property the
 header was introduced to remove and which MFA does not restore. The strictly better
-version — Clerk *reverification*, i.e. requiring the second factor to have been proved
+version — *reverification*, i.e. requiring the second factor to have been proved
 within the last N minutes and binding that proof to the action — is a NAMED follow-up
 in OPERATIONS §2, not something silently skipped: it needs a reverification flow in
 `apps/web` to raise the prompt, and until that exists gating an incident lever on a

@@ -55,23 +55,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/hooks/v1/clerk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Clerk user/organization mirror — Svix-signed (D-37: our DB is the record) */
-        post: operations["clerk_webhook_hooks_v1_clerk_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/hooks/v1/ingest/meta/{webhook_id}": {
         parameters: {
             query?: never;
@@ -172,7 +155,7 @@ export interface paths {
          *     The claim and the credit share ONE transaction, which is what makes a failure
          *     recoverable: a crash after the claim rolls the claim back too, so the provider's
          *     retry is processed rather than answered "duplicate" forever (the failure mode
-         *     `reliability/service.py` documents against the Clerk mirror).
+         *     `reliability/service.py` documents against the retired Clerk mirror).
          */
         post: operations["razorpay_webhook_hooks_v1_razorpay_post"];
         delete?: never;
@@ -1408,7 +1391,7 @@ export interface paths {
         put?: never;
         /**
          * Set the first administrator's password from a bootstrap setup link
-         * @description The redemption half of `scripts/bootstrap_admin.py` (D-167).
+         * @description The redemption half of `scripts/bootstrap_admin.py` (D-171).
          *
          *     UNAUTHENTICATED, necessarily — it is how a deployment acquires its first
          *     operator, and there is nobody to authenticate as until it succeeds. What stands
@@ -1462,7 +1445,7 @@ export interface paths {
          * Complete a sign-in by entering the emailed one-time code
          * @description Takes a session that has proved a password but not the second factor.
          *
-         *     THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole
+         *     THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole
          *     mechanism, so there is no sibling route for an authenticator app and no route for a
          *     recovery code. Rotates the session on success, which is OWASP's session-fixation
          *     defence applied at the privilege change.
@@ -1659,13 +1642,12 @@ export interface paths {
         put?: never;
         /**
          * Redeem an invitation: create the account, set a password, join the workspace
-         * @description The first-party twin of `POST /v1/invitations/accept`.
+         * @description THE invitation-redemption endpoint. There is no other (D-177).
          *
-         *     The Clerk one still exists and still works — both credential paths coexist until
-         *     AUTH-MIGRATION §5 step 6. What differs is that this one needs no prior account, because
-         *     there is no vendor to have made one: it takes the password in the same call.
-         *
-         *     The `/invite?token=...` page contract is unchanged (`apps/authn/invitations.py`).
+         *     It needs no prior account, because there is no vendor to have made one: it takes the
+         *     password in the same call, and takes the address from the invitation rather than
+         *     comparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and
+         *     `/invite?token=` answers `410 Gone` naming the page that replaced it.
          */
         post: operations["accept_invitation_with_password_v1_auth_client_invitations_accept_post"];
         delete?: never;
@@ -1708,7 +1690,7 @@ export interface paths {
          * Complete a sign-in by entering the emailed one-time code
          * @description Takes a session that has proved a password but not the second factor.
          *
-         *     THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole
+         *     THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole
          *     mechanism, so there is no sibling route for an authenticator app and no route for a
          *     recovery code. Rotates the session on success, which is OWASP's session-fixation
          *     defence applied at the privilege change.
@@ -1905,7 +1887,7 @@ export interface paths {
         put?: never;
         /**
          * Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)
-         * @description The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
+         * @description The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
          */
         post: operations["signup_v1_auth_signup_post"];
         delete?: never;
@@ -2902,45 +2884,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/invitations/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Accept an emailed invitation and create the membership (FLOWS §1 step 8)
-         * @description The one authenticated route that does NOT require a membership — creating one is
-         *     the point (see `current_identity`).
-         *
-         *     The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
-         *     produce one membership rather than two.
-         *
-         *     THE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link
-         *     is a pure bearer token: a forwarded email, a link pasted into a group chat, or a
-         *     shared mailbox hands the account to whoever opens it first — and the audit trail
-         *     then records a membership for someone nobody invited. Binding is what current
-         *     practice asks of an invite link (single use, short-lived, and only redeemable by the
-         *     address that received it — the same rule Auth0/authentik-style invite flows enforce
-         *     by making the signup email read-only), and it costs an honest invitee nothing: they
-         *     are signing in with the address the link was sent to.
-         *
-         *     The comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant
-         *     time protects a SECRET from being learned a byte at a time; the secret on this path
-         *     is the token, and it is matched by an indexed lookup on its SHA-256. An address the
-         *     caller already owns and already typed into Clerk is not a secret, and dressing the
-         *     comparison up as one would suggest to the next reader that it is.
-         */
-        post: operations["accept_invitation_v1_invitations_accept_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/invitations/{invitation_id}": {
         parameters: {
             query?: never;
@@ -3893,23 +3836,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AcceptInviteIn */
-        AcceptInviteIn: {
-            /** Token */
-            token: string;
-        };
-        /** AcceptInviteOut */
-        AcceptInviteOut: {
-            /** Role */
-            role: string;
-            /** Slug */
-            slug: string;
-            /**
-             * Tenant Id
-             * Format: uuid
-             */
-            tenant_id: string;
-        };
         /** AddContactsIn */
         AddContactsIn: {
             /** Contacts */
@@ -7264,9 +7190,9 @@ export interface components {
          *     audited — which an assignee picker is not, and should not have to be. Nothing on
          *     this surface needs it either: the control writes an id and prints a name.
          *
-         *     `name` is nullable because `users.name` is: the Clerk mirror composes it from
-         *     first/last name and stores NULL when the account has neither
-         *     (`tenancy/clerk_webhooks.py`). The screen says "Unnamed member" rather than falling
+         *     `name` is nullable because `users.name` is: an invitation carries an address and,
+         *     optionally, a name, so a colleague who typed neither has NULL
+         *     (`authn/invitations.py`). The screen says "Unnamed member" rather than falling
          *     back to an address — a fallback that leaks is not a fallback.
          */
         MemberOut: {
@@ -9860,37 +9786,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    clerk_webhook_hooks_v1_clerk_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
                     };
                 };
             };
@@ -14554,39 +14449,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvitationCreatedOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    accept_invitation_v1_invitations_accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptInviteIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AcceptInviteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

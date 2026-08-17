@@ -61,16 +61,21 @@ server {
 # --- admin + app: the two browser realms, and they are now actually two -----------
 #
 # THIS WAS ONE SERVER BLOCK FOR BOTH HOSTNAMES (P7.3), which made a premise the frontend
-# reasons from simply untrue. `clerkRuntime.tsx` says: *"disjoint route trees on disjoint
-# hostnames … so only one realm's provider is ever mounted."* With one block and one
-# `location /`, `app.${ROOT_DOMAIN}/admin` served the operator console and
+# reasons from simply untrue: disjoint route trees on disjoint hostnames, so only one
+# realm's session provider is ever mounted. With one block and one `location /`,
+# `app.${ROOT_DOMAIN}/admin` served the operator console and
 # `admin.${ROOT_DOMAIN}/c/<slug>` served a client dashboard.
 #
-# WHAT IT WAS AND WAS NOT. Not an authorization hole: the admin realm resolves against its
-# own JWKS, `assertMountedApplication` catches a provider mismatch, and Clerk's cookies are
-# per-key-suffixed. What it WAS is the operator SIGN-IN surface — `/admin/sign-in` — served
-# on the hostname every client is told to visit, which is phishing surface for the one
-# console that holds cross-client data. A 404 costs nothing and removes it.
+# WHAT IT WAS AND WAS NOT. Not an authorization hole: the realm is inside the session
+# token's hash domain (`authn/sessions.token_fingerprint`), so a client credential
+# presented on the admin door matches no row whatever hostname carried it. What it WAS is
+# the operator SIGN-IN surface — `/auth/admin/sign-in` — served on the hostname every
+# client is told to visit, which is phishing surface for the one console that holds
+# cross-client data. A 404 costs nothing and removes it.
+#
+# IT MATTERS MORE SINCE D-177, and AUTH-MIGRATION §3 called that in advance: both realms'
+# `__Host-` cookies land on one API host, so the hostname split is what keeps the two
+# consoles apart in a browser rather than merely tidy.
 #
 # `^~` RATHER THAN A PREFIX MATCH, and the marker is the load-bearing part: nginx tries
 # regex locations before plain prefix ones, so a future `location ~ \.(js|css)$` added

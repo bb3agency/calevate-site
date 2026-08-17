@@ -92,10 +92,10 @@ async def _admin_id() -> uuid.UUID:
         admin = uuid.uuid4()
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Secrets Test', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Secrets Test', 'superadmin', now(), now())"
             ),
-            {"i": admin, "c": f"admin_{uuid.uuid4().hex[:12]}"},
+            {"i": admin},
         )
         return admin
 
@@ -752,9 +752,7 @@ async def test_installing_a_credential_with_no_admin_identity_is_refused() -> No
     satisfied, so what is pinned here is the identity check and not the header in front
     of it.
     """
-    principal = Principal(
-        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
-    )
+    principal = Principal(realm="admin", user_id=None, tenant_id=None, role=None)
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
             await set_secret_route(

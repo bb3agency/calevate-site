@@ -82,14 +82,13 @@ async def _owner_tenant(prefix: str) -> tuple[uuid.UUID, uuid.UUID, dict[str, st
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
 
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -99,7 +98,7 @@ async def _owner_tenant(prefix: str) -> tuple[uuid.UUID, uuid.UUID, dict[str, st
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )
-    headers = {"Authorization": f"Bearer dev:client:{clerk_id}", "X-Org-Slug": str(slug)}
+    headers = {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": str(slug)}
     return tenant_id, agent_id, headers
 
 
@@ -111,14 +110,13 @@ async def _staff_headers(tenant_id: uuid.UUID, owner_headers: dict[str, str]) ->
     the dry run is an action taken on their behalf.
     """
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -128,20 +126,20 @@ async def _staff_headers(tenant_id: uuid.UUID, owner_headers: dict[str, str]) ->
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )
-    return {**owner_headers, "Authorization": f"Bearer dev:client:{clerk_id}"}
+    return {**owner_headers, "Authorization": f"Bearer dev:client:{user_id}"}
 
 
 async def _admin_headers() -> dict[str, str]:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id},
+            {"id": admin_id},
         )
-    return {"Authorization": f"Bearer dev:admin:{clerk_id}"}
+    return {"Authorization": f"Bearer dev:admin:{admin_id}"}
 
 
 async def _seed_billing(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:

@@ -111,15 +111,6 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
             "behind `ops:manage`; this answers ready or not-ready and nothing else."
         )
     ),
-    "POST /hooks/v1/clerk": PublicRoute(
-        why=(
-            "Identity-mirror webhook. Clerk cannot hold one of our sessions, so the Svix "
-            "signature over the raw body IS the credential; it fails CLOSED when the "
-            "webhook secret is unset, because an unverifiable identity feed would let "
-            "anyone create rows in the table RLS keys membership off."
-        ),
-        credential="verify_svix",
-    ),
     "POST /hooks/v1/razorpay": PublicRoute(
         why=(
             "Payment-captured webhook. HMAC over the raw bytes before anything is parsed "
@@ -157,14 +148,6 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
             "Self-serve tenant creation (D-34). Authenticated but membership-LESS by "
             "design: the caller holds a verified realm token and the request is what "
             "creates the organization a permission check would need to exist first."
-        ),
-        credential="current_identity",
-    ),
-    "POST /v1/invitations/accept": PublicRoute(
-        why=(
-            "Accepting an invitation is what CREATES the membership a permission check "
-            "would require, so it cannot require one. The verified token identifies the "
-            "caller and the single-use invitation token authorizes the join."
         ),
         credential="current_identity",
     ),

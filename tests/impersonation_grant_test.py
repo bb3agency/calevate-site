@@ -56,16 +56,15 @@ def _client() -> AsyncClient:
 async def _make_admin(role: str = "operator") -> tuple[uuid.UUID, str]:
     """(admin_users.id, dev bearer token). Same idiom as the other admin suites."""
     admin_id = uuid.uuid4()
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": admin_id, "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return admin_id, f"dev:admin:{clerk_id}"
+    return admin_id, f"dev:admin:{admin_id}"
 
 
 async def _make_org() -> dict[str, Any]:

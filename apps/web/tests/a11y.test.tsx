@@ -3,10 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import type { Margin } from "@/lib/api/admin";
 import type { CallDetail } from "@/lib/api/client";
-import AdminSignInPage from "@/app/(auth)/admin/sign-in/[[...sign-in]]/page";
 import AdminLayout from "@/app/admin/layout";
-import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
-import ClientSignUpPage from "@/app/(auth)/sign-up/[[...sign-up]]/page";
 import AcceptInvitationPage from "@/app/(auth)/auth/accept-invitation/page";
 import ClientAccountPage from "@/app/(auth)/auth/account/page";
 import AdminBootstrapPage from "@/app/(auth)/auth/admin/bootstrap/page";
@@ -1274,18 +1271,6 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />,
     routes: {},
   },
-  {
-    file: "(auth)/sign-in/[[...sign-in]]/page.tsx",
-    realm: "client",
-    element: () => <ClientSignInPage />,
-    routes: {},
-  },
-  {
-    file: "(auth)/sign-up/[[...sign-up]]/page.tsx",
-    realm: "client",
-    element: () => <ClientSignUpPage />,
-    routes: {},
-  },
 ];
 
 const ADMIN_SCREENS: Screen[] = [
@@ -1614,12 +1599,6 @@ const ADMIN_SCREENS: Screen[] = [
         experiment: null,
       },
     },
-  },
-  {
-    file: "(auth)/admin/sign-in/[[...sign-in]]/page.tsx",
-    realm: "admin",
-    element: () => <AdminSignInPage />,
-    routes: {},
   },
 ];
 

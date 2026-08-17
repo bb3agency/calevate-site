@@ -1,27 +1,23 @@
 """Redeeming an invitation without a vendor in the middle (D-170).
 
-═══ THE URL CONTRACT THIS HAS TO FIT ═══
+═══ THE URL CONTRACT ═══
 
-`apps/web/src/app/invite/page.tsx` already exists and already takes `/invite?token=...`.
-That page is not changing in this slice (`apps/web` is out of scope), so the invariant this
-module has to respect is: **the token still travels in the `token` query parameter of
-`/invite`, and the page still POSTs it to the API.** What changes is which API call it
-makes, and what else it has to send.
+The token travels in the `token` query parameter and the page POSTs it here. The page is
+`apps/web/src/app/(auth)/auth/accept-invitation` (D-174); the Clerk-era `/invite?token=`
+now answers `410 Gone` and points at it, rather than rotting as a second door
+(D-177).
 
-Today: the invitee signs up with Clerk FIRST, arrives at `/invite` already authenticated,
-and `POST /v1/invitations/accept` takes `{token}` and reads the identity off the Clerk
-session. The address binding is `users.email` (populated from Clerk's verified addresses)
-compared against `invitations.email`.
+The vendor flow this replaced: the invitee signed up with Clerk FIRST, arrived at `/invite`
+already authenticated, and `POST /v1/invitations/accept` took `{token}` and read the
+identity off the Clerk session, binding on a comparison between `users.email` and
+`invitations.email`.
 
 First-party: there is no vendor to sign up with, so the invitee has NO ACCOUNT when they
-open the link. The single call therefore has to do what the two calls used to:
+open the link. The single call therefore does what the two calls used to:
 `POST /v1/auth/client/invitations/accept` takes `{token, password, name}`, and it creates
 the user, sets the password, creates the membership and issues a session — in that order,
 and with the address taken from the INVITATION rather than from anything the caller typed.
-
-**`POST /v1/invitations/accept` is untouched and still works.** Both paths coexist until
-the cutover, which is the whole point of the flag; deleting the Clerk one is
-AUTH-MIGRATION §5 step 6.
+It is the ONLY invitation-redemption endpoint this API has (D-177).
 
 ═══ WHY THE ADDRESS IS NEVER TAKEN FROM THE REQUEST ═══
 
@@ -78,7 +74,7 @@ log = get_logger(__name__)
 #: The client realm, spelled once. An invitation is always a CLIENT-realm artifact —
 #: operators are added by `scripts/bootstrap_admin.py` and the ops console, never by an
 #: emailed link, because `admin_users` is an allowlist and auto-creating a row in it is the
-#: "privilege escalation wearing a race condition's clothes" `core/clerk_identity.py` names.
+#: "privilege escalation wearing a race condition's clothes" the retired Clerk mirror named.
 INVITE_REALM = "client"
 
 
@@ -94,7 +90,7 @@ class AcceptedInvitation:
 
 
 def _invalid() -> ProblemError:
-    """Unknown, used, expired — one answer, matching the existing Clerk path's wording so
+    """Unknown, used, expired — one answer, keeping the wording the Clerk-era path used so
     the two flows are indistinguishable to somebody probing tokens."""
     return ProblemError(
         kind="business_rule",
@@ -163,7 +159,7 @@ async def accept_with_password(
                 text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
             )
         ).scalar()
-        # In the tenant transaction, exactly as the Clerk path does it, so the membership
+        # In the tenant transaction, as the Clerk-era path did, so the membership
         # and its evidence commit together.
         await write_audit(
             scoped,
@@ -190,9 +186,10 @@ async def accept_with_password(
 async def _find_or_create_user(*, email: str, name: str | None, at: datetime) -> tuple[UUID, bool]:
     """The `users` row for this address, creating it if this is a new person.
 
-    `clerk_user_id` is left NULL, which migration `b3d9f6a2c815` made possible: a
-    first-party account has no vendor id and inventing a placeholder would put a fake value
-    under a UNIQUE constraint that the Clerk mirror still relies on.
+    `clerk_user_id` is not written, which migration `b3d9f6a2c815` made possible and D-177
+    made permanent: nothing anywhere writes that column any more, and the column itself
+    survives one more release under hard rule 8's two-step (recorded in
+    `scripts/check_wiring.UNWIRED_BASELINE`).
 
     `email_verified_at` is set on creation — see the module docstring on why possession of
     the emailed token is the proof.
@@ -225,9 +222,13 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
         inserted = (
             await session.execute(
                 text(
-                    "INSERT INTO users (id, clerk_user_id, email, name, email_verified_at, "
+                    # `clerk_user_id` is absent from the column list rather than written as
+                    # NULL: D-177 says nothing writes it, and naming it here — even to say
+                    # NULL — is what would have to be found and removed when hard rule 8's
+                    # second step drops the column.
+                    "INSERT INTO users (id, email, name, email_verified_at, "
                     "created_at, updated_at) "
-                    "VALUES (:id, NULL, :email, :name, :at, :at, :at) "
+                    "VALUES (:id, :email, :name, :at, :at, :at) "
                     # The index predicate is repeated so Postgres can INFER the partial
                     # unique index; without it the statement is rejected outright rather
                     # than silently matching a different constraint.

@@ -4,7 +4,7 @@
  * Self-serve signup (D-34 motion 2, FLOWS §2 route 1).
  *
  * `POST /v1/auth/signup` is NOT an unauthenticated route, and that shapes this module.
- * The caller is a Clerk-verified user who has no organization YET — the same state the
+ * The caller holds a client-realm session and has no organization YET — the state the
  * invitation-accept route handles — so the request carries a client-realm token and no
  * org: the membership is what the call creates. `/v1/auth/` sits on the API's public
  * prefixes because no permission can gate a caller with no organization, which is a
@@ -26,7 +26,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 
-import { clientRealmSession } from "@/lib/auth/clientRealm";
+import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";

@@ -407,11 +407,18 @@ describe("the counts come from the server or are not shown", () => {
       expect(calls.some((c) => c.path === "/v1/leads?status=hot&limit=100")).toBe(true);
     });
 
-    const tally = (await screen.findByText(/by stage/)).parentElement;
+    // AWAITED, for the same reason the request assertion above is: the tally re-renders
+    // when the filtered page lands, and reading it once can catch the paint before that.
+    // Under a loaded full-suite run this file's realm restore lands between the two, and
+    // a single read then asserts about the unfiltered render — a flake that only appears
+    // in CI, which is the worst place to diagnose one.
+    await vi.waitFor(() => {
+      expect(screen.getByText(/by stage/).parentElement?.textContent).toContain("new12");
+    });
+    const tally = screen.getByText(/by stage/).parentElement;
 
     // Pre-fix, every stage but `hot` was counted over a page the server had already
     // narrowed to `hot`, so this row read "new 0 · contacted 0 · interested 0 · won 0".
-    expect(tally?.textContent).toContain("new12");
     expect(tally?.textContent).toContain("contacted3");
     expect(tally?.textContent).toContain("interested4");
     expect(tally?.textContent).not.toContain("new0");

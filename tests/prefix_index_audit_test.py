@@ -270,10 +270,10 @@ async def test_every_query_shape_on_the_four_tables_still_reaches_an_index() -> 
         )
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:uid, :ck, :em, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:uid, :em, now(), now())"
             ),
-            {"uid": user_id, "ck": f"user_{user_id.hex[:12]}", "em": f"{user_id.hex[:12]}@a.test"},
+            {"uid": user_id, "em": f"{user_id.hex[:12]}@a.test"},
         )
         await session.execute(
             text(

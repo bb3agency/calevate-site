@@ -462,6 +462,12 @@ audit_log. Redaction runs BEFORE any transcript leaves our system (exports, noti
 
 Identity & access
 - Two auth realms (admin vs client), separate cookies/domains; MFA mandatory on admin.
+  Both realms are FIRST-PARTY since D-177 — there is no identity vendor in this system.
+  The separation is four independent mechanisms rather than two vendor accounts: the
+  realm is inside the session token's hash domain, in the `WHERE` clause beside it, in
+  the cookie name, and in the per-realm origin check (AUTH-MIGRATION §3). The first is
+  arithmetic — a client token computed under the admin realm matches no row — which is
+  what makes it stronger than the JWKS split it replaced rather than merely equal to it.
   - **WHAT "MFA" MEANS HERE, because a reader will otherwise assume an authenticator app:
     a six-digit code emailed to the address on file, and nothing else** (D-170). TOTP,
     shared secrets and recovery codes were designed and then deliberately not built. A
@@ -480,9 +486,13 @@ Identity & access
   - Session lifetimes are enforced on the ROW, per realm, and differ because the blast
     radii differ: admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute
     (`authn/sessions.REALM_TIMEOUTS`).
-  - *(Clerk's `fva` claim, `403 mfa_required` and `403 mfa_claim_missing` were the previous
-    mechanism. Those code paths still exist and still pass their tests; deleting them is
-    the next slice — AUTH-MIGRATION §5 step 6.)*
+  - *(Clerk's `fva` claim, `403 mfa_required` and `403 mfa_claim_missing` were the
+    previous mechanism and are DELETED — D-177 ran AUTH-MIGRATION §5 step 6. The pair of
+    codes collapsed into one `401 second_factor_required`: `mfa_claim_missing` existed
+    because a custom JWT template could silently drop the claim, so "we cannot tell" had to
+    fail closed separately from "you did not", and `auth_sessions.mfa_verified_at` has no
+    third state. `401 auth` rather than `403 permission`, because a session that owes a
+    code is half-AUTHENTICATED, not half-authorised.)*
   - **Step-up is a SEPARATE control and is retained**, not replaced: MFA is per SESSION
     (once, at sign-in), step-up is per ACTION and per TARGET. The session that mis-clicks
     the big red switch is a session that has already passed MFA.
@@ -520,8 +530,8 @@ Identity & access
     is exactly what that claim exists to express — plus a fixed audience and a
     minutes-long expiry. Absent, malformed, expired, another operator's or another
     tenant's are all refused; nothing degrades to a plain admin session.
-  - It is **not a credential**: it never replaces the operator's admin-realm Clerk
-    token, which is verified (and MFA-gated) on every request, and whose `admin_users`
+  - It is **not a credential**: it never replaces the operator's admin-realm session,
+    which is verified (and MFA-gated) on every request, and whose `admin_users`
     row and role are re-read from the database on every request. Revocation is
     therefore instant — sign-out, row deletion or losing `admin:impersonate` refuses
     the next request — which is why there is no denylist and no grants table.
@@ -540,7 +550,7 @@ Identity & access
   - A route declared `realm="client"` is not part of view-as and says so:
     `403 impersonation_not_available_here`, not the verifier's "this token is not valid
     for this realm". The refusal was always correct; the sentence sent an operator to
-    whoever owns Clerk instead of to whoever owns the console. The client-realm
+    whoever owns the identity provider instead of to whoever owns the console. The client-realm
     mutations an operator can reach from a client's screen (`PUT /v1/billing/caps`,
     `POST /v1/billing/topups/intent`, `POST /v1/compliance/whatsapp-alerts`) are the
     live instances.
@@ -553,10 +563,14 @@ Identity & access
     quieter: same permission, same grant, same two ledger rows, same read-only rule.
 - Invitations: 72h single-use signed tokens, hash-at-rest, burned on use. **"Account
   creation only via invitation" is no longer true of the client realm** — D-34/D-39 put
-  self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a Clerk-verified
-  user with no organization creates their own tenant, rate-limited by a signup quota, with
-  `plan_tier` restricted to `self_serve`/`trial`. The ADMIN realm stays invite-only with
-  Clerk signup disabled (D-37), which is where that rule still holds.
+  self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a caller holding a
+  client-realm session with no organization creates their own tenant, rate-limited by a
+  signup quota, with `plan_tier` restricted to `self_serve`/`trial`. **What D-177 changed
+  is that there is no public account-creation door at all today** — the vendor's hosted
+  sign-up page went with the vendor and the first-party public intake is unbuilt
+  (AUTH-MIGRATION §11, C-11), so in practice an account arrives by invitation or by an
+  operator. The ADMIN realm stays invite-only by construction: `admin_users` is an
+  ops-managed allowlist and `scripts/bootstrap_admin.py` refuses to mint a second one.
 
 Data
 - Postgres RLS FORCEd on all tenant tables; app sets tenant GUC from verified session;

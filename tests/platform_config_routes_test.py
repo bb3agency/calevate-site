@@ -505,9 +505,7 @@ def _anonymous_operator() -> Principal:
     guard is what turns it into a sentence instead of a NOT NULL violation rendered as a
     500 by the global handler.
     """
-    return Principal(
-        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
-    )
+    return Principal(realm="admin", user_id=None, tenant_id=None, role=None)
 
 
 async def test_a_set_by_a_session_with_no_admin_identity_is_refused_and_stores_nothing() -> None:

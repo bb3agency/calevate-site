@@ -1,12 +1,12 @@
-"""Platform audit: onboarding, the Clerk mirror, the KB workflow, the ops switches.
+"""Platform audit: onboarding, invitations, the KB workflow, the ops switches.
 
 Every test here started as a reproduction. The properties under test are the ones a
 half-finished tenant, a resurrected identity, an un-rollback-able knowledge base or an
 escaped outbound halt would each break in a way no other suite notices.
 
 Harnesses are borrowed from the suites that already own these surfaces
-(`admin_security_test`, `clerk_mirror_security_test`, `kb_workflow_test`) rather than
-re-invented — a second definition of "make me an admin" is a second thing to keep true.
+(`admin_security_test`, `kb_workflow_test`) rather than re-invented — a second definition
+of "make me an admin" is a second thing to keep true.
 
 Concurrency note: other suites run against the same database, so everything here is
 scoped to its own run-unique tenant/slug. Exactly ONE test moves the global
@@ -17,19 +17,17 @@ it never moves the switch at all.
 
 from __future__ import annotations
 
-import json
 import uuid
 
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
-from apps.api.db.session import admin_session, tenant_session, untenanted_session
+from apps.api.db.session import admin_session, tenant_session
 from apps.api.kb import service as kb_service
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
-from tests.clerk_mirror_security_test import SECRET, _sign, _user_event
 from tests.kb_workflow_test import _tenant_with_published_agent
 
 
@@ -211,144 +209,31 @@ async def test_creating_the_same_slug_twice_is_a_clean_conflict() -> None:
 
 
 # --------------------------------------------------------------------------------
-# 2. The Clerk mirror is a mirror, not an authority
+# 2. THE CLERK MIRROR WAS HERE. IT IS GONE, AND SO IS EVERYTHING IT COULD GET WRONG.
 # --------------------------------------------------------------------------------
-
-
-async def _post_clerk(body: bytes, svix_id: str | None = None) -> object:
-    headers = _sign(body, svix_id=svix_id or f"msg_{uuid.uuid4().hex[:10]}")
-    async with _client() as http:
-        return await http.post("/hooks/v1/clerk", content=body, headers=headers)
-
-
-async def _user_row(clerk_id: str) -> tuple[object, ...] | None:
-    async with untenanted_session() as session:
-        return (
-            await session.execute(
-                text("SELECT email, deactivated_at FROM users WHERE clerk_user_id = :c"),
-                {"c": clerk_id},
-            )
-        ).first()
-
-
-async def test_an_out_of_order_update_does_not_resurrect_a_deleted_user(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Svix does not guarantee ordering, so `user.updated` can land after
-    `user.deleted` for the same id.
-
-    `deactivated_at` is what the auth guard re-checks on every request. Clearing it
-    from a stale event silently restores a revoked account's access to every tenant it
-    was a member of — the mirror would be overriding the deletion rather than
-    reflecting it.
-    """
-    monkeypatch.setattr(get_settings_obj(), "clerk_webhook_secret", SECRET)
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
-
-    await _post_clerk(_user_event(clerk_id, f"{clerk_id}@example.com"))
-    deleted = json.dumps({"type": "user.deleted", "data": {"id": clerk_id}}).encode()
-    assert (await _post_clerk(deleted)).json()["status"] == "deactivated"  # type: ignore[attr-defined]
-
-    stale = json.dumps(
-        {
-            "type": "user.updated",
-            "data": {
-                "id": clerk_id,
-                "first_name": "Ravi",
-                "primary_email_address_id": "idn_1",
-                "email_addresses": [{"id": "idn_1", "email_address": f"{clerk_id}@example.com"}],
-            },
-        }
-    ).encode()
-    await _post_clerk(stale)
-
-    row = await _user_row(clerk_id)
-    assert row is not None
-    assert row[1] is not None, "a deleted user must stay deactivated whatever arrives next"
-
-
-async def test_an_unknown_organization_event_creates_no_phantom_row(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Organizations are created by OUR wizard (D-10). An upstream org event naming an
-    id we have never seen must be acknowledged and dropped, not invented."""
-    monkeypatch.setattr(get_settings_obj(), "clerk_webhook_secret", SECRET)
-    slug = _run_slug("phantom")
-
-    body = json.dumps(
-        {
-            "type": "organization.created",
-            "data": {"id": f"org_{uuid.uuid4().hex[:12]}", "slug": slug},
-        }
-    ).encode()
-    response = await _post_clerk(body)
-    assert response.json()["status"] == "ignored"  # type: ignore[attr-defined]
-
-    # THE SLUG THIS EVENT NAMED, not a whole-table delta.
-    #
-    # This asserted `count(*) FROM organizations` before and after, under `admin_session`
-    # — which is unscoped by design — so any suite that created a tenant in between failed
-    # it, and the failure named a property that was never violated. Worse, the delta was
-    # WEAKER than the scoped question: a run in which this event created a phantom AND
-    # another suite's org was deleted would have passed. The property is "the id in this
-    # event did not become a tenant", and the slug is what identifies it.
-    async with admin_session() as session:
-        phantom = (
-            await session.execute(
-                text("SELECT count(*) FROM organizations WHERE slug = :slug"), {"slug": slug}
-            )
-        ).scalar()
-    assert phantom == 0, "an upstream org id must never become a tenant"
-
-
-async def test_a_mirror_failure_is_retryable_rather_than_silently_swallowed(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The inbox claim is taken BEFORE the work. If the work then fails and nobody
-    marks the row failed, it stays `processing` — and every Clerk retry of that event
-    is answered `duplicate`.
-
-    The identity event is then lost permanently, which for `user.deleted` means a
-    revoked account that stays live in our mirror forever.
-    """
-    from apps.api.tenancy import clerk_webhooks
-
-    monkeypatch.setattr(get_settings_obj(), "clerk_webhook_secret", SECRET)
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
-    body = _user_event(clerk_id, f"{clerk_id}@example.com")
-    svix_id = f"msg_{uuid.uuid4().hex[:10]}"
-
-    real_mirror = clerk_webhooks._mirror_user
-
-    async def _explode(payload: dict[str, object], deleted: bool) -> str:
-        raise RuntimeError("transient mirror failure")
-
-    monkeypatch.setattr(clerk_webhooks, "_mirror_user", _explode)
-    with pytest.raises(RuntimeError):
-        # The failure must surface (Clerk retries on non-2xx) rather than be swallowed.
-        await _post_clerk(body, svix_id=svix_id)
-
-    # Clerk retries the same event id. It must be processed, not deduped away.
-    monkeypatch.setattr(clerk_webhooks, "_mirror_user", real_mirror)
-    retried = await _post_clerk(body, svix_id=svix_id)
-
-    assert retried.json()["status"] == "mirrored", retried.text  # type: ignore[attr-defined]
-    row = await _user_row(clerk_id)
-    assert row is not None, "the retry must actually land the user in our mirror"
-
-
-async def test_a_body_that_is_not_utf8_is_refused_not_a_500(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Signature verification decodes the body to rebuild the signed string. An
-    unverifiable request is a REFUSAL (401), never an unhandled exception — a 500 here
-    is an internal error surfaced to an unauthenticated caller."""
-    monkeypatch.setattr(get_settings_obj(), "clerk_webhook_secret", SECRET)
-    body = b"\xff\xfe not utf-8 at all"
-    headers = _sign(b"{}", svix_id=f"msg_{uuid.uuid4().hex[:10]}")
-    async with _client() as http:
-        response = await http.post("/hooks/v1/clerk", content=body, headers=headers)
-    assert response.status_code == 401, response.text
+#
+# Five tests stood here (D-177 removed them with their subject): an out-of-order
+# `user.updated` must not resurrect a `user.deleted`; an upstream `organization.created`
+# must not invent a tenant; a failed mirror write must leave the inbox row re-claimable
+# rather than `processing`; a non-UTF-8 body must be a 401 rather than a 500; and the Svix
+# signature must be verified over the raw bytes.
+#
+# What they were protecting is the sentence D-37 wrote and D-177 collected on: **our
+# Postgres is the system of record.** It always was — `users`, `memberships`,
+# `organizations` and every RLS policy key off OUR ids — but a mirror meant those rows had
+# an upstream, and an upstream means ordering, retries, resurrection and a signature to
+# check. There is no upstream now. `users` rows are created by
+# `apps/api/authn/invitations.py` (invitation redemption) and `admin_users` rows by
+# `scripts/bootstrap_admin.py` / `apps/api/authn/bootstrap.py`; `organizations` rows were
+# NEVER created here — this endpoint answered `ignored` to every org event, which is the
+# property the phantom-row test pinned and which is now structural.
+#
+# The deletion half is worth naming rather than assuming: `user.deleted` was the only
+# producer of `users.deactivated_at`, and its successor is
+# `POST /v1/members/{user_id}` removal plus the operator surfaces that set the column
+# directly. `tests/api_security_test.py` still drives the property that mattered — a
+# deactivated user's live session stops working on the next request — which is the one
+# thing the resurrection test existed to protect.
 
 
 def get_settings_obj() -> object:
@@ -373,30 +258,24 @@ async def _org_for(prefix: str) -> dict[str, object]:
     )
 
 
-async def _mirrored_user() -> tuple[uuid.UUID, str]:
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
-    user_id = uuid.uuid4()
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
-            ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+async def _redeem(token: str) -> object:
+    """Redemption as an invitee performs it: one call, no prior account (D-177)."""
+    async with _client() as http:
+        return await http.post(
+            "/v1/auth/client/invitations/accept",
+            json={"token": token, "password": "platform-audit-invitee-password"},
         )
-    return user_id, clerk_id
 
 
 async def test_an_expired_invitation_cannot_be_accepted() -> None:
     """72h (DATA-MODEL §2). An invite that outlives its window is a standing key to a
     tenant sitting in an old inbox."""
     created = await _org_for("expiry")
-    user_id, clerk_id = await _mirrored_user()
     async with tenant_session(created["id"]) as session:
         _invitation_id, token = await admin_service.create_invitation(
             session,
             tenant_id=created["id"],
-            email=f"{clerk_id}@example.com",
+            email=f"expired-{uuid.uuid4().hex[:8]}@example.com",
             role="owner",
             created_by=None,
         )
@@ -404,50 +283,34 @@ async def test_an_expired_invitation_cannot_be_accepted() -> None:
             text("UPDATE invitations SET expires_at = now() - interval '1 hour'"),
         )
 
-    async with _client() as http:
-        response = await http.post(
-            "/v1/invitations/accept",
-            json={"token": token},
-            headers={"Authorization": f"Bearer dev:client:{clerk_id}"},
-        )
-    assert response.status_code == 422
-    assert response.json()["type"].endswith("/invitation_invalid")
+    response = await _redeem(token)
+    assert response.status_code == 422  # type: ignore[attr-defined]
+    assert response.json()["type"].endswith("/invitation_invalid")  # type: ignore[attr-defined]
 
     async with tenant_session(created["id"]) as session:
         members = (await session.execute(text("SELECT count(*) FROM memberships"))).scalar()
     assert members == 0, "an expired invite creates no membership"
-    del user_id
 
 
 async def test_an_invitation_grants_exactly_the_role_it_was_issued_for() -> None:
     """The invite carries the role; the acceptance must not be able to widen it."""
     created = await _org_for("role")
-    user_id, clerk_id = await _mirrored_user()
     async with tenant_session(created["id"]) as session:
         _invitation_id, token = await admin_service.create_invitation(
             session,
             tenant_id=created["id"],
-            email=f"{clerk_id}@example.com",
+            email=f"role-{uuid.uuid4().hex[:8]}@example.com",
             role="staff",
             created_by=None,
         )
 
-    async with _client() as http:
-        response = await http.post(
-            "/v1/invitations/accept",
-            json={"token": token},
-            headers={"Authorization": f"Bearer dev:client:{clerk_id}"},
-        )
-    assert response.status_code == 200, response.text
-    assert response.json()["role"] == "staff"
+    response = await _redeem(token)
+    assert response.status_code == 200, response.text  # type: ignore[attr-defined]
+    assert response.json()["role"] == "staff"  # type: ignore[attr-defined]
 
     async with tenant_session(created["id"]) as session:
-        role = (
-            await session.execute(
-                text("SELECT role FROM memberships WHERE user_id = :u"), {"u": user_id}
-            )
-        ).scalar()
-    assert role == "staff", "a staff invite must never mint an owner"
+        roles = (await session.execute(text("SELECT role FROM memberships"))).scalars().all()
+    assert roles == ["staff"], "a staff invite must never mint an owner"
 
 
 # --------------------------------------------------------------------------------

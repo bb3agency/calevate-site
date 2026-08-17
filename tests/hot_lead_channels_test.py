@@ -120,12 +120,11 @@ async def _add_owner_with_phone(tenant_id: UUID, phone: str) -> None:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, name, phone, created_at, "
-                "updated_at) VALUES (:id, :clerk, :email, 'Owner', :phone, now(), now())"
+                "INSERT INTO users (id, email, name, phone, created_at, "
+                "updated_at) VALUES (:id, :email, 'Owner', :phone, now(), now())"
             ),
             {
                 "id": user_id,
-                "clerk": f"user_{uuid.uuid4().hex[:16]}",
                 "email": f"owner-{uuid.uuid4().hex[:8]}@example.test",
                 "phone": phone,
             },

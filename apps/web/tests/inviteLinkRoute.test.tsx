@@ -22,13 +22,19 @@ import { renderClientPage } from "./harness";
  * path was then spelled out in TWO places — the page's own local constant and the team
  * screen's template literal — which is the same defect one edit away from recurring.
  *
- * `inviteLink` is now the single definition. Two things have to stay true about it and
- * neither is checkable by a type:
+ * `inviteLink` is now the single definition, and since D-177 it points at
+ * `/auth/accept-invitation` — the surviving invite page, after the Clerk-era `/invite` was
+ * collapsed into it. Three things have to stay true and none is checkable by a type:
  *
  * 1. **It names a real Next route.** A constant and a directory can disagree silently;
- *    `tsc` has no opinion about either. So the path is resolved against `src/app`.
+ *    `tsc` has no opinion about either. So the path is resolved against `src/app`, through
+ *    the ROUTE GROUPS — `(auth)` is invisible to the router and very visible to the
+ *    filesystem, which is exactly the kind of gap this test exists to close.
  * 2. **The screen that hands the link to a human builds it from that definition**, rather
  *    than from a string of its own that happens to match today.
+ * 3. **The dead URL still resolves.** `/invite?token=` is in inboxes that cannot be
+ *    edited, so it has a page whose whole job is to forward the token. A 404 there would
+ *    be the original defect back, aimed at everyone who was ever invited.
  */
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src", "app");
@@ -45,8 +51,25 @@ const ME: Me = {
 describe("the invite link", () => {
   it("resolves to a page that exists in the app router", () => {
     expect(INVITE_PATH.startsWith("/")).toBe(true);
-    const page = resolve(APP_DIR, `.${INVITE_PATH}`, "page.tsx");
-    expect(existsSync(page), `${INVITE_PATH} has no page at ${page}`).toBe(true);
+    // Route GROUPS are directories the router ignores, so a path→file check has to try
+    // them. Written as a search rather than a hard-coded `(auth)` because a page moving
+    // between groups is a refactor, and a page ceasing to exist is the defect.
+    const candidates = ["", "(auth)"].map((group) =>
+      resolve(APP_DIR, group, `.${INVITE_PATH}`, "page.tsx"),
+    );
+    expect(
+      candidates.some(existsSync),
+      `${INVITE_PATH} has no page at any of ${candidates.join(", ")}`,
+    ).toBe(true);
+  });
+
+  it("leaves the Clerk-era /invite URL answering, because it is already in inboxes", () => {
+    // D-177 collapsed two invite pages into one. The old URL cannot be deleted: every
+    // owner who has used the team screen has sent it to somebody, those messages are not
+    // editable, and a 404 tells a person holding a live single-use credential that their
+    // invitation is broken. They get one.
+    expect(existsSync(resolve(APP_DIR, "invite", "page.tsx"))).toBe(true);
+    expect(INVITE_PATH).not.toBe("/invite");
   });
 
   it("carries the token in the parameter the page reads", () => {

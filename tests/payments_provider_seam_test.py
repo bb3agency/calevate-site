@@ -87,7 +87,6 @@ async def _prepaid_tenant() -> tuple[UUID, Principal]:
     return tenant_id, Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,
