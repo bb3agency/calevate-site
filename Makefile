@@ -219,6 +219,22 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# satisfied in shape only on every audited route. Syntax-decidable; the one
 	# permitted peer read is named, and the check fails if it leaves its function.
 	uv run python -m scripts.check_audit_ip
+	# A component DECLARED on that is silently off reports nothing and says nothing, which
+	# is indistinguishable from a platform that is not failing. Off skips, on-and-broken
+	# fails by name: a DSN with a non-numeric project id, an OTLP endpoint that already
+	# ends in `/v1/traces`, a 0.0 sample ratio, a `sentry-sdk` nobody installed — plus the
+	# two export filters hard rule 6 rests on and the langfuse absence D-49 decided.
+	# Configuration only: REACHABILITY is OPERATIONS §2 gate 15 and is never simulated
+	# here. Exit 2 = refused (no resolvable configuration). Negative controls in
+	# tests/observability_readiness_guard_test.py.
+	uv run python -m scripts.check_observability_ready
+	# Restore-drill evidence expires (D-166). Reads the newest quarterly record in
+	# docs/evidence/ and refuses one more than a quarter stale, post-dated, unfilled or
+	# FAILing. It CANNOT produce that evidence — no writer, no import that reaches
+	# `scripts.restore_drill`, and it says so from its own AST on every run; the local
+	# `make restore-drill` records in the same directory are counted and never counted AS
+	# a drill. Negative controls in tests/drill_freshness_guard_test.py.
+	uv run python -m scripts.check_drill_freshness
 	uv run python -m scripts.check_redaction_exposure
 	uv run python -m scripts.check_openapi_fresh
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
