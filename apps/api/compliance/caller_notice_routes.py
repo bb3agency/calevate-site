@@ -69,15 +69,15 @@ class CallerNoticeOut(BaseModel):
     """The draft, structured and rendered.
 
     Both halves ship on purpose: a screen renders the structure into its own layout, and
-    `text` is what a client actually pastes into their website. Rebuilding the prose on
+    `notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on
     the client side would put the wording — the part counsel reviews — outside the thing
     that was reviewed.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    #: Repeated in the response AND at the top of `text`. A disclaimer that lives only in
-    #: the envelope does not travel with the document once it is copied out.
+    #: Repeated in the response AND inside the document itself. A disclaimer that lives
+    #: only in the envelope does not travel with the document once it is copied out.
     disclaimer: str
     collected: list[CollectedItemOut]
     retention: list[RetentionLineOut]
@@ -86,7 +86,11 @@ class CallerNoticeOut(BaseModel):
     ai_disclosure_off: list[str]
     recording_notice_off: list[str]
     open_questions: list[str]
-    text: str
+    #: `notice_markdown`, never `text`: `text` is this repository's word for a transcript
+    #: turn and `scripts/check_redaction_exposure.py` refuses it on a response schema.
+    #: This document carries no caller's data, but the guard reads NAMES — and a
+    #: per-field exemption would be a hole with a comment on it.
+    notice_markdown: str
 
 
 @router.get(
@@ -113,5 +117,5 @@ async def read_caller_notice(session: Session, principal: NoticeReader) -> Calle
         ai_disclosure_off=draft.ai_disclosure_off,
         recording_notice_off=draft.recording_notice_off,
         open_questions=draft.open_questions,
-        text=draft.text,
+        notice_markdown=draft.markdown,
     )

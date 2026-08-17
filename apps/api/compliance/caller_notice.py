@@ -139,7 +139,12 @@ class CallerNoticeDraft:
     recording_notice_off: list[str] = field(default_factory=list)
     #: What only the client can answer, each as a sentence they can act on.
     open_questions: list[str] = field(default_factory=list)
-    text: str = ""
+    #: The rendered document. NAMED `markdown` and never `text`: `text` is this
+    #: repository's word for a transcript turn, and `check_redaction_exposure` bans that
+    #: name from a response schema for exactly that reason. The guard was right to fire —
+    #: the fix is the name, not an exemption that would also cover the next field
+    #: somebody adds to this model.
+    markdown: str = ""
 
 
 async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
@@ -355,7 +360,7 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
         ai_disclosure_off=draft.ai_disclosure_off,
         recording_notice_off=draft.recording_notice_off,
         open_questions=draft.open_questions,
-        text=_render(draft),
+        markdown=_render(draft),
     )
 
 

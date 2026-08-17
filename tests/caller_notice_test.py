@@ -197,7 +197,7 @@ async def test_the_periods_are_the_tenants_own_retention_rows() -> None:
     recording = [line for line in draft.retention if "recording" in line.what.lower()]  # type: ignore[attr-defined]
     assert len(recording) == 1
     assert recording[0].days == 200
-    assert "200 days" in draft.text  # type: ignore[attr-defined]
+    assert "200 days" in draft.markdown  # type: ignore[attr-defined]
 
 
 async def test_a_draft_ignores_another_tenants_configuration() -> None:
@@ -222,7 +222,7 @@ async def test_a_draft_ignores_another_tenants_configuration() -> None:
 
     draft = await _draft(mine)
 
-    assert "Your insurance policy number" not in draft.text  # type: ignore[attr-defined]
+    assert "Your insurance policy number" not in draft.markdown  # type: ignore[attr-defined]
 
 
 async def test_an_unpublished_agent_contributes_nothing() -> None:
@@ -241,7 +241,7 @@ async def test_an_unpublished_agent_contributes_nothing() -> None:
     # But the account still gets a usable draft: "you have not launched yet" is not an
     # answer to "what will I be collecting?", which is the question the wizard asks.
     assert "Your phone number" in labels
-    assert draft.text  # type: ignore[attr-defined]
+    assert draft.markdown  # type: ignore[attr-defined]
 
 
 # ------------------------------------------------- 2. it does not over-claim, ever
@@ -254,7 +254,7 @@ async def test_the_draft_says_the_announcement_is_made_when_it_is() -> None:
     draft = await _draft(tenant_id)
 
     assert draft.ai_disclosure_off == []  # type: ignore[attr-defined]
-    assert "says at the start of the call that it is an AI assistant" in draft.text  # type: ignore[attr-defined]
+    assert "says at the start of the call that it is an AI assistant" in draft.markdown  # type: ignore[attr-defined]
 
 
 async def test_an_agent_with_the_ai_announcement_off_changes_what_the_draft_says() -> None:
@@ -271,8 +271,8 @@ async def test_an_agent_with_the_ai_announcement_off_changes_what_the_draft_says
     draft = await _draft(tenant_id)
 
     assert draft.ai_disclosure_off, "the agent with the announcement off was not named"  # type: ignore[attr-defined]
-    assert "says at the start of the call that it is an AI assistant" not in draft.text  # type: ignore[attr-defined]
-    assert "you may be speaking to an AI assistant rather than a person" in draft.text  # type: ignore[attr-defined]
+    assert "says at the start of the call that it is an AI assistant" not in draft.markdown  # type: ignore[attr-defined]
+    assert "you may be speaking to an AI assistant rather than a person" in draft.markdown  # type: ignore[attr-defined]
     # And the client is told this notice now carries the weight, as a task.
     assert any("only place your callers are told" in q for q in draft.open_questions)  # type: ignore[attr-defined]
 
@@ -286,8 +286,8 @@ async def test_the_draft_states_the_truthful_answer_floor_whatever_the_switches_
 
     draft = await _draft(tenant_id)
 
-    assert "it will tell you the truth" in draft.text  # type: ignore[attr-defined]
-    assert "cannot be switched off" in draft.text  # type: ignore[attr-defined]
+    assert "it will tell you the truth" in draft.markdown  # type: ignore[attr-defined]
+    assert "cannot be switched off" in draft.markdown  # type: ignore[attr-defined]
 
 
 async def test_the_disclaimer_travels_with_the_text_and_the_blanks_are_visible() -> None:
@@ -298,10 +298,10 @@ async def test_the_disclaimer_travels_with_the_text_and_the_blanks_are_visible()
 
     draft = await _draft(tenant_id)
 
-    assert DRAFT_WARNING in draft.text  # type: ignore[attr-defined]
-    assert "not legal advice" in draft.text  # type: ignore[attr-defined]
-    assert "{{YOUR REGISTERED BUSINESS NAME}}" in draft.text  # type: ignore[attr-defined]
-    assert "{{YOUR CONTACT FOR DATA QUESTIONS" in draft.text  # type: ignore[attr-defined]
+    assert DRAFT_WARNING in draft.markdown  # type: ignore[attr-defined]
+    assert "not legal advice" in draft.markdown  # type: ignore[attr-defined]
+    assert "{{YOUR REGISTERED BUSINESS NAME}}" in draft.markdown  # type: ignore[attr-defined]
+    assert "{{YOUR CONTACT FOR DATA QUESTIONS" in draft.markdown  # type: ignore[attr-defined]
     assert any("advocate" in question for question in draft.open_questions)  # type: ignore[attr-defined]
 
 
@@ -330,9 +330,9 @@ async def test_the_draft_contains_no_callers_data() -> None:
 
     draft = await _draft(tenant_id)
 
-    assert phone not in draft.text  # type: ignore[attr-defined]
-    assert "chest pain" not in draft.text  # type: ignore[attr-defined]
-    assert "Ravi" not in draft.text  # type: ignore[attr-defined]
+    assert phone not in draft.markdown  # type: ignore[attr-defined]
+    assert "chest pain" not in draft.markdown  # type: ignore[attr-defined]
+    assert "Ravi" not in draft.markdown  # type: ignore[attr-defined]
 
 
 # ------------------------------------------------------------------ 3. the surface
@@ -352,7 +352,7 @@ async def test_the_route_serves_the_draft_to_a_member_of_the_account() -> None:
     assert body["disclaimer"] == DRAFT_WARNING
     assert any(item["what"] == "What is wrong" for item in body["collected"])
     assert body["retention"], "the account's own periods are missing from the response"
-    assert "not legal advice" in body["text"]
+    assert "not legal advice" in body["notice_markdown"]
 
 
 async def test_the_route_refuses_an_anonymous_caller() -> None:
