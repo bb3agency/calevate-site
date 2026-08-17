@@ -460,8 +460,9 @@ async def test_an_agent_whose_disclosure_line_is_blanked_mid_run_stops_dialling(
     for**, and says so rather than quietly weakening: the mid-run blanking is refused by
     the database, so there is no window in which a dial-time check is the only thing
     standing between a blank agent and a caller. `check_dispatch`'s `disclosure_missing`
-    branch is kept as belt-and-braces for a row written with the constraint dropped, and
-    is unit-covered where such a row can be constructed.
+    branch is kept as belt-and-braces, and the test BELOW drives it — the constraint
+    turns out to be narrower than this docstring assumed, so no dropped constraint is
+    needed to construct the row.
     """
     tenant_id, agent_id, campaign_id, _, _ = await _launched()
 
@@ -483,6 +484,54 @@ async def test_an_agent_whose_disclosure_line_is_blanked_mid_run_stops_dialling(
     )
     result = await _tick_one_campaign(tenant_id, campaign_id)
     assert result["dialled"] > 0, result
+
+
+async def test_the_dial_gate_catches_a_blank_the_check_constraint_let_through() -> None:
+    """The belt-and-braces branch, driven for real — and the reason it is not redundant.
+
+    **`btrim()` TRIMS SPACES AND NOTHING ELSE.** Called with one argument, Postgres
+    strips only U+0020, so `length(btrim(E'\t')) > 0` is TRUE and
+    `ck_agents_ai_disclosure_nonempty` accepts a tab, a newline or a non-breaking space
+    as an AI disclosure line. Python's `str.strip()` strips all of them, so
+    `check_dispatch` reads the same value as blank and refuses to dial.
+
+    The two disagree, and the disagreement is why the dial-time check earns its place:
+    the schema believes the sentence is present, and the only thing that stops a caller
+    hearing nothing is the gate. The test above documents the space-only case, which the
+    constraint DOES catch; this one covers the whitespace the constraint misses.
+
+    NOT reachable through the product — `ai_disclosure_line` is only ever written from
+    `AI_DISCLOSURE_TEMPLATES[language]`, a server-side constant, and no route accepts it
+    from a client. That is why this is left as a gate rather than closed with a tighter
+    CHECK and a migration: the state is constructible only by direct SQL, which is
+    precisely the "something bypassed the schema" case the branch names. If a
+    client-writable path is ever added, the constraint must be tightened in the same
+    change and this test becomes the regression that proves it.
+    """
+    tenant_id, agent_id, _, _, _ = await _launched()
+
+    async with tenant_session(tenant_id) as session:
+        # E'' is the escape-string syntax: a real tab, not a backslash and a 't'.
+        await session.execute(
+            text("UPDATE agents SET ai_disclosure_line = E'\\t' WHERE id = :a"),
+            {"a": agent_id},
+        )
+
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT ai_disclosure_line FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar_one()
+        # The premise, asserted rather than assumed: the database really did accept it.
+        assert stored == "\t", f"expected the tab to be stored verbatim, got {stored!r}"
+
+        decision = await check_dispatch(
+            session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919876600001"
+        )
+
+    assert decision.allowed is False, "a whitespace-only AI sentence must not dial"
+    assert decision.rule == "disclosure_missing", decision
 
 
 async def test_a_number_series_that_stops_matching_the_classification_stops_the_campaign() -> None:
