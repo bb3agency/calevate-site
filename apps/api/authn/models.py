@@ -35,7 +35,14 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CheckConstraint, Index, LargeBinary, Text, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Index,
+    LargeBinary,
+    SmallInteger,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -155,4 +162,140 @@ class AuthSession(PKMixin, TimestampMixin, Base):
     mfa_verified_at: Mapped[datetime | None]
 
 
-__all__ = ["AUTHN_REALMS", "REVOCATION_REASONS", "AuthCredential", "AuthSession"]
+#: What an emailed single-use token is FOR. The purpose is inside the token's hash domain
+#: (`codes.token_fingerprint`), not merely beside it in a column, for the same reason the
+#: realm is inside a session token's: a verification token that could be redeemed as a
+#: password reset would turn "prove you read this mailbox" into "take this account", and a
+#: column somebody has to remember to filter on is one forgotten predicate away from that.
+EMAIL_TOKEN_PURPOSES = (
+    # Prove the mailbox exists and belongs to the person who claimed it (C-12).
+    "email_verify",
+    # Set a new password without knowing the old one (C-13).
+    "password_reset",
+    # An invitation's set-your-password leg. Distinct from `password_reset` because it is
+    # issued to somebody who has no account yet and is bound to an `invitations` row.
+    "invite_password",
+    # THE FIRST ADMINISTRATOR (D-167). Its own purpose rather than a `password_reset`
+    # with a longer clock, because the two differ in more than duration: this one is
+    # minted by a script with database credentials rather than by a request, it is the
+    # single most privileged act in a deployment's life, and it is redeemed by an endpoint
+    # that refuses an account which already has a password. Sharing the purpose would mean
+    # a reset token could be redeemed at the bootstrap endpoint and vice versa — and the
+    # purpose is inside the hash domain precisely so that cannot happen.
+    "admin_bootstrap",
+)
+
+#: What a short numeric challenge is for. Deliberately a SHORT list: a 6-digit code is a
+#: ~20-bit secret, so every purpose added here is a new surface that needs the throttle in
+#: `throttle.py` to be correct.
+#:
+#: `login_challenge` IS THIS PRODUCT'S SECOND FACTOR (D-166). There is no authenticator app,
+#: no shared secret and no recovery-code sheet: on a realm that requires a second factor, a
+#: correct password issues a session that can do exactly one thing — answer an emailed code.
+#: See `service.py` on why that is the whole of "MFA" here.
+OTP_PURPOSES = (
+    # The second factor. Emailed after a correct password on a realm that requires one.
+    "login_challenge",
+    # Emailed to confirm a newly-claimed address.
+    "email_verify",
+)
+
+
+class AuthEmailToken(PKMixin, TimestampMixin, Base):
+    """A single-use, high-entropy secret that arrived in somebody's mailbox.
+
+    One table, three purposes (`EMAIL_TOKEN_PURPOSES`), with the purpose inside the hash
+    domain so the three cannot be traded for one another. Burned by CAS on
+    `used_at IS NULL`, exactly as `invitations` already is — one mechanism, two callers.
+
+    `subject_id` IS NULLABLE, and only for `invite_password`: an invitee has no account
+    until they redeem, so there is no subject to name yet. `invitation_id` carries the
+    binding instead, and the CHECK below makes "exactly one of the two" a schema property
+    rather than a convention every query has to uphold.
+    """
+
+    __tablename__ = "auth_email_tokens"
+    __table_args__ = (
+        CheckConstraint(f"purpose IN {EMAIL_TOKEN_PURPOSES!r}", name="purpose_enum"),
+        CheckConstraint(f"realm IN {AUTHN_REALMS!r}", name="realm_enum"),
+        # A token names a subject OR an invitation, never neither and never both. Neither
+        # would be a token that redeems into nothing; both would be two answers to "whose
+        # account does this open" and a future reader would have to guess which wins.
+        CheckConstraint(
+            "(subject_id IS NULL) <> (invitation_id IS NULL)",
+            name="names_exactly_one_recipient",
+        ),
+        UniqueConstraint("token_hash", name="uq_auth_email_tokens_token_hash"),
+        # "Invalidate every outstanding reset for this subject", which a successful reset
+        # and a password change both have to do.
+        Index("ix_auth_email_tokens_realm_subject_id", "realm", "subject_id"),
+    )
+
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    realm: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    #: `invitations.id`. No FK for the same reason `subject_id` has none — and here there
+    #: is a second: the invitation row is tenant-scoped and FORCE-RLS'd, so a credential
+    #: session cannot see it anyway. The join happens in `tenancy`, under a tenant session.
+    invitation_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    used_at: Mapped[datetime | None]
+
+
+class AuthOtpChallenge(PKMixin, TimestampMixin, Base):
+    """A short numeric code, emailed, with a deliberately small budget of guesses.
+
+    THIS IS THE TABLE THE REFERENCE IMPLEMENTATION GOT WRONG, so the reasoning is here
+    rather than in a commit message. Theirs stored `sha256(code)` unsalted for a 6-digit
+    code: 900,000 candidates is a rainbow table you can build in a second, so one SQL
+    injection read or one leaked backup recovered every live OTP in the system. Ours is
+    `hmac-sha256(pepper, purpose || code)` where the pepper is derived from `PLATFORM_KEK`
+    and therefore is NOT IN THIS DATABASE — the same doctrine `hashing.py` applies to
+    passwords, and it is worth more here than there, because a 6-digit code has ~20 bits
+    of entropy and a password has rather more.
+
+    `attempts` is the OTHER half of that defence and it is on the ROW rather than only in
+    Redis. NIST SP 800-63B requires a rate-limiting mechanism whenever the authenticator
+    output has fewer than 64 bits of entropy, and a 6-digit code has ~20 — so the budget
+    has to survive a Redis flush. Redis throttles the CALLER; this column bounds the
+    CHALLENGE, and an attacker who can reset one cannot reset the other.
+    """
+
+    __tablename__ = "auth_otp_challenges"
+    __table_args__ = (
+        CheckConstraint(f"purpose IN {OTP_PURPOSES!r}", name="purpose_enum"),
+        CheckConstraint(f"realm IN {AUTHN_REALMS!r}", name="realm_enum"),
+        CheckConstraint("attempts >= 0", name="attempts_non_negative"),
+        # The verify path reads the newest live challenge for a subject and purpose.
+        Index(
+            "ix_auth_otp_challenges_realm_subject_purpose",
+            "realm",
+            "subject_id",
+            "purpose",
+        ),
+    )
+
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)
+    realm: Mapped[str] = mapped_column(Text, nullable=False)
+    subject_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    #: Keyed HMAC, never a bare digest. See the class docstring.
+    code_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(nullable=False)
+    #: Set the moment a correct code is accepted, so the same code cannot be spent twice
+    #: (OWASP MFA cheat sheet: "invalidate the OTP on successful verification").
+    consumed_at: Mapped[datetime | None]
+    #: Wrong guesses so far. SMALLINT because the ceiling is single digits by design.
+    attempts: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+
+
+__all__ = [
+    "AUTHN_REALMS",
+    "EMAIL_TOKEN_PURPOSES",
+    "OTP_PURPOSES",
+    "REVOCATION_REASONS",
+    "AuthCredential",
+    "AuthEmailToken",
+    "AuthOtpChallenge",
+    "AuthSession",
+]

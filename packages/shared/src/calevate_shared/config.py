@@ -620,6 +620,26 @@ class Settings(BaseSettings):
     # closing it during an incident is an environment change, not a deploy.
     self_serve_signup_enabled: bool = False
 
+    # D-166: first-party authentication is THE authentication this product has. Clerk is
+    # being removed, not run beside it, so this is a KILL SWITCH rather than a cutover flag
+    # — the same role `self_serve_signup_enabled` plays, and it sits here for the same
+    # reason: closing a front door during an incident is an environment change, not a
+    # deploy.
+    #
+    # DEFAULT TRUE, unlike every other switch in this block, and the asymmetry is the
+    # point. The others gate a FEATURE, so off is the safe default and a deployment that
+    # forgot them still works. This one gates the only way anybody signs in: a fresh VPS
+    # that came up with it off would have no authentication at all, and the operator who
+    # had to diagnose that would be locked out of the console that reports it. Off is
+    # therefore an incident action taken deliberately, never a state a deployment reaches
+    # by omission.
+    #
+    # Routes are MOUNTED either way and refuse with `first_party_auth_disabled` when this
+    # is off — a conditionally-mounted router is invisible to `scripts/check_wiring.py`,
+    # absent from the OpenAPI contract, and answers 404 where "switched off" and "wrong
+    # path" must be distinguishable.
+    first_party_auth_enabled: bool = True
+
     # Razorpay prepaid top-ups (D-34). NOTE: no Razorpay account has been provisioned
     # and the vendor contract is UNVERIFIED — see apps/api/billing/payments.py, which
     # isolates every assumption about their signing scheme and payload shape.

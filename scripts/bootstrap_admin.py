@@ -1,46 +1,43 @@
-"""Create the first `admin_users` row, without which a deployed platform is unreachable.
+"""Create the first administrator, without whom a deployed platform is unreachable (D-167).
 
-`admin_users` is the allowlist the entire admin realm resolves against — `core/auth.py`
-does `SELECT id, role FROM admin_users WHERE clerk_user_id = :cid` on every admin request —
-and `core/clerk_identity.py` states the design deliberately: *"The admin realm is never
-reconciled. `admin_users` is not a Clerk mirror; it is an ops-managed allowlist."*
+`admin_users` is the allowlist the entire admin realm resolves against, and **nothing else
+in this repository ever inserts a row** — not `scripts/seed.py`, not `vps-deploy.sh`, not
+`compose.prod.yml`. So after `alembic upgrade head` on a fresh host the table is empty and
+every admin-realm request 403s: no organization can be created, no platform setting written,
+no vendor credential stored, no first campaign approved. The deploy comes up green and the
+product cannot onboard anybody. It fails closed, so this is not a security hole — it is a
+deployment with no way in, and this script is the way in.
 
-**Nothing else in this repository ever inserts a row.** Not `scripts/seed.py`, not
-`scripts/vps-deploy.sh`, not `compose.prod.yml`, not any runbook. So after
-`alembic upgrade head` on a fresh host the table is empty and every admin-realm request
-403s: no organization can be created, no platform setting written, no platform secret
-stored, no first-campaign review decided, no KYC verified. **The deploy comes up green and
-the product cannot onboard anybody.** It fails closed, so this was never a security hole —
-it was a deployment with no way in.
+WHAT CHANGED, AND WHY THE OLD SHAPE IS GONE. This script used to take `--clerk-user-id`: a
+row was an allowlist entry pointing at an account that already existed in the admin Clerk
+application, and Clerk held the password. D-166 makes authentication first-party, so there
+is no vendor dashboard in which to make the first account, and the id it took no longer
+identifies anything. It now takes `--email` and mails a single-use setup link, which is what
+AUTH-MIGRATION C-16 always said it would do. The `--clerk-user-id` form is deleted rather
+than deprecated: it cannot work, and a flag that cannot work is worse than one that is gone.
 
-WHY A SCRIPT AND NOT A SEED ROW. `scripts/seed.py` writes only facts that are true of every
-deployment (the reserved-slug list). An admin identity is the opposite: it is one specific
-human's Clerk user id, different on every deployment, and it is a grant of the widest
-authority in the platform. A hardcoded default here would be a backdoor with a changelog
-entry. So the id is an argument and there is no default.
+NO PASSWORD IS PRINTED, GENERATED, OR DEFAULTED, ANYWHERE. The reference implementation's
+`seed-admin.mjs` creates an admin with a fixed password and logs
+`Admin created: ${admin.email} / ${PASSWORD}`; that is a hard rule 6 violation on its face
+and `scripts/check_redaction_exposure.py` would fail the build on it. What this prints is a
+LINK — a single-use token that expires in an hour — and locally, with no mail provider
+configured, `ConsoleTransport` also logs the mail to the terminal, so a developer needs no
+special path.
 
-WHY NOT A ROUTE. The obvious alternative — a bootstrap endpoint that self-disables after
-the first call — is a route that exists to be unauthenticated exactly once, which is a
-window an attacker can race on a public host, and a permanent piece of code whose whole
-value is that it can never be reached again. The database is already reachable by whoever
-runs the deploy; the smallest correct thing is to write the row there.
+IDEMPOTENT, AND NOT A BACK DOOR (`apps/api/authn/bootstrap.py` argues it in full):
+  * no operator at all       → create the row, mail a link
+  * the named operator exists but has no password → mail a FRESH link (a resend)
+  * any operator already has a password           → REFUSE, with no `--force` to override
 
-IDEMPOTENT, by `ON CONFLICT (clerk_user_id) DO NOTHING`. Re-running is the ordinary case:
-an operator re-deploys, or adds a second admin, and neither should be a failure. What it
-does NOT do is UPDATE — promoting an existing `operator` to `superadmin` is a privilege
-change and belongs to the console's own audited path, not to a bootstrap script that
-nobody watches.
+USAGE (from the repo root, with the same environment `alembic upgrade head` needs):
 
-USAGE (from the repo root, with `ALEMBIC_DATABASE_URL` set — it connects as the OWNER role
-because `admin_users` carries no RLS policy and the app role has no need to write it):
+    uv run python -m scripts.bootstrap_admin --email ops@example.com --name "Ops"
+    uv run python -m scripts.bootstrap_admin --email ops@example.com --role operator
 
-    uv run python -m scripts.bootstrap_admin --clerk-user-id user_2abc... --role superadmin
-    uv run python -m scripts.bootstrap_admin --clerk-user-id user_2def... --name "Ops"
-
-The Clerk user id comes from the ADMIN Clerk application's dashboard (the admin realm is a
-separate Clerk app from the client realm — TRD §11), and it is the `sub` claim the API will
-see. Getting the wrong realm's id here produces a row that never matches anything, which is
-why `--clerk-user-id` is validated for shape rather than accepted blind.
+The link is mailed through the deployment's configured transport
+(`apps/workers/transport.py`) and is ALSO printed to stdout, because the operator running a
+deploy is standing at the terminal and a mail provider that is not configured yet must not
+be the thing that blocks a bootstrap.
 """
 
 from __future__ import annotations
@@ -48,116 +45,109 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
-import re
 import sys
 
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
-from uuid_utils.compat import uuid7
+#: Where the emailed link lands. The token travels in the `token` query parameter of a
+#: PAGE, which then POSTs it to `/v1/auth/admin/bootstrap/confirm` — never in an API URL,
+#: so it stays out of access logs and out of any `Referer`.
+ADMIN_CONSOLE_BASE = "https://admin.calevate.tech"
 
-#: The two roles `ck_admin_users_role_enum` admits. Spelled here rather than imported so
-#: this script has no dependency on the app package booting — it runs against a database
-#: that may predate the image it is being run from.
-ROLES = ("superadmin", "operator")
-
-#: Clerk user ids are `user_` plus a base58-ish opaque tail. Checked for SHAPE only: the
-#: point is to catch a pasted email address, an org id (`org_…`), or a client-realm id
-#: typed from the wrong dashboard — not to validate a credential we cannot verify offline.
-_CLERK_USER_ID = re.compile(r"^user_[A-Za-z0-9]{20,}$")
+_SUBJECT = "Set up your Calevate administrator account"
 
 
-def _database_url() -> str:
-    """The OWNER url, never the app one.
+def _require_env() -> None:
+    """Both URLs, for two different roles, and neither substitutes for the other.
 
-    `admin_users` has no RLS policy (it is platform state, not tenant state), and the app
-    role has no reason to hold write access to the allowlist that decides who is an
-    operator. `alembic/env.py` makes the same choice for the same reason and refuses to
-    fall back to `DATABASE_URL`; this refuses too, rather than silently writing as whoever
-    `DATABASE_URL` happens to be.
+    `ALEMBIC_DATABASE_URL` is the OWNER role, and this script needs it for the same reason
+    `alembic` does — `admin_users` is written here and the app role has no business holding
+    write access to the operator allowlist. `DATABASE_URL` is the APP role, and the authn
+    package needs it because `auth_credentials` and `auth_email_tokens` are FORCE-RLS'd
+    against `app.auth`, a GUC `credential_session()` sets on the application connection.
     """
-    url = os.environ.get("ALEMBIC_DATABASE_URL")
-    if not url:
+    missing = [k for k in ("DATABASE_URL", "ALEMBIC_DATABASE_URL") if not os.environ.get(k)]
+    if missing:
         raise SystemExit(
-            "ALEMBIC_DATABASE_URL is not set. This script writes the admin allowlist and "
-            "connects as the migration/owner role, not as the application role — set it "
-            "the way `alembic upgrade head` needs it set."
+            f"{' and '.join(missing)} not set. This script writes the operator allowlist "
+            "and the credential store — set the environment the way `alembic upgrade head` "
+            "needs it set."
         )
-    return url.replace("postgresql+psycopg://", "postgresql+psycopg_async://", 1)
 
 
-async def _insert(url: str, *, clerk_user_id: str, role: str, name: str | None) -> str:
-    engine = create_async_engine(url)
+def _link(token: str) -> str:
+    return f"{ADMIN_CONSOLE_BASE}/bootstrap?token={token}"
+
+
+async def _run(*, email: str, name: str | None, role: str) -> str:
+    # Imported inside the function so `--help` works on a host with no database reachable,
+    # and so an import error names this module rather than argparse's frame.
+    from apps.api.authn.bootstrap import bootstrap_first_admin
+    from apps.workers.transport import get_transport
+
+    result = await bootstrap_first_admin(email=email, name=name, role=role)
+    link = _link(result.token)
+
+    body = (
+        "You have been made an administrator of a Calevate deployment.\n\n"
+        f"Set your password:\n\n{link}\n\n"
+        "This link works once and expires in one hour. If it expires, ask whoever "
+        "deployed this environment to run the bootstrap again.\n"
+    )
+    # Delivery is best-effort and its failure is NOT fatal: the link is printed below, and
+    # a deployment whose mail provider is not configured yet must still be able to acquire
+    # its first operator. A bootstrap that failed because SMTP was not ready would be a
+    # chicken-and-egg — the mail credentials are stored by an operator, in the console.
+    delivered = False
     try:
-        async with engine.begin() as connection:
-            result = await connection.execute(
-                text(
-                    "INSERT INTO admin_users (id, clerk_user_id, name, role) "
-                    "VALUES (:id, :cid, :name, :role) "
-                    "ON CONFLICT (clerk_user_id) DO NOTHING "
-                    "RETURNING id"
-                ),
-                {"id": uuid7(), "cid": clerk_user_id, "name": name, "role": role},
-            )
-            row = result.first()
-            if row is not None:
-                return f"created admin_users row {row[0]} with role {role}"
-            # Already present. Report the role it ALREADY has rather than the one asked
-            # for: an operator re-running this with `--role superadmin` must not be left
-            # believing the promotion happened.
-            existing = (
-                await connection.execute(
-                    text("SELECT id, role FROM admin_users WHERE clerk_user_id = :cid"),
-                    {"cid": clerk_user_id},
-                )
-            ).first()
-            assert existing is not None  # ON CONFLICT fired, so the row is there
-            note = (
-                ""
-                if existing[1] == role
-                else (
-                    f" — NOTE: it holds role {existing[1]}, not {role}. This script never "
-                    "promotes; change the role from the admin console so the change is audited."
-                )
-            )
-            return f"already present as {existing[0]} with role {existing[1]}{note}"
-    finally:
-        await engine.dispose()
+        transport = get_transport()
+        delivered = await asyncio.to_thread(
+            lambda: transport.send(to=result.email, subject=_SUBJECT, body=body)
+        )
+    except Exception as exc:
+        print(f"warning: could not send the email ({type(exc).__name__})", file=sys.stderr)
+
+    what = "created" if result.created else "already present, new link issued for"
+    return "\n".join(
+        [
+            f"{what} admin_users row {result.admin_id} ({role})",
+            f"email sent: {'yes' if delivered else 'NO — use the link below'}",
+            f"expires:    {result.expires_at.isoformat()}",
+            "",
+            "Setup link (single use):",
+            link,
+        ]
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bootstrap_admin",
-        description="Create the first admin_users row on a freshly migrated database.",
+        description=(
+            "Create the first administrator on a freshly migrated database and email them "
+            "a single-use setup link. Refuses if the deployment already has one."
+        ),
     )
-    parser.add_argument(
-        "--clerk-user-id",
-        required=True,
-        help="The `sub` from the ADMIN Clerk application (starts with user_).",
-    )
-    parser.add_argument("--role", choices=ROLES, default="superadmin")
+    parser.add_argument("--email", required=True, help="The address the setup link is sent to.")
+    parser.add_argument("--role", choices=("superadmin", "operator"), default="superadmin")
     parser.add_argument("--name", default=None, help="Display name, for the audit trail.")
     args = parser.parse_args(argv)
 
-    if not _CLERK_USER_ID.match(args.clerk_user_id):
-        # Refuse rather than write a row that will never match a request. A wrong id here
-        # is indistinguishable from an empty table at the 403, which is the hardest
-        # possible thing to diagnose from the outside.
-        print(
-            f"'{args.clerk_user_id}' does not look like a Clerk user id (expected "
-            "`user_` followed by an opaque tail). Copy it from the ADMIN Clerk "
-            "application's Users page — the admin realm is a separate Clerk app from the "
-            "client realm, and the client realm's id will never match here.",
-            file=sys.stderr,
-        )
-        return 2
+    _require_env()
 
-    print(
-        asyncio.run(
-            _insert(
-                _database_url(), clerk_user_id=args.clerk_user_id, role=args.role, name=args.name
-            )
-        )
-    )
+    from apps.api.core.errors import ProblemError
+
+    try:
+        print(asyncio.run(_run(email=args.email, name=args.name, role=args.role)))
+    except ProblemError as exc:
+        # `already_bootstrapped` is the expected non-zero exit, and it is not a crash: it
+        # is this script doing its job. Printing the remediation rather than a traceback is
+        # what makes it actionable to whoever is standing at the deploy.
+        print(f"{exc.title}: {exc.detail}", file=sys.stderr)
+        if exc.remediation:
+            print(exc.remediation, file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     return 0
 
 

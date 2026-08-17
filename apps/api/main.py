@@ -54,6 +54,11 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.voice_routes import router as voice_router
+    from apps.api.authn.routes import (
+        admin_auth_router,
+        client_auth_router,
+        invite_router,
+    )
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
@@ -101,6 +106,16 @@ def _mount_routers(application: FastAPI) -> None:
 
     application.include_router(tenancy_router)
     application.include_router(clerk_router)
+    # D-166's first-party authentication. Mounted unconditionally and gated per request by
+    # `Settings.first_party_auth_enabled` (default off) — a conditionally-mounted router
+    # would be invisible to `check_wiring`, absent from the OpenAPI contract, and would
+    # answer 404 during the one operation where "not switched on yet" and "wrong path" must
+    # be distinguishable. Three routers because the two realms are two route trees that
+    # share no session logic, and the invitation redemption creates an identity rather than
+    # operating on one.
+    application.include_router(admin_auth_router)
+    application.include_router(client_auth_router)
+    application.include_router(invite_router)
     application.include_router(admin_router)
     # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
     # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal

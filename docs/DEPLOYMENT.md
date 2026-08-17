@@ -926,16 +926,42 @@ above sends you to. It fails closed, so this was never a security hole; it was a
 deployment with no way in. After the first `vps-deploy.sh` run, once per host:
 
 ```sh
-ALEMBIC_DATABASE_URL=… uv run python -m scripts.bootstrap_admin \
-  --clerk-user-id user_… --role superadmin --name "…"
+DATABASE_URL=… ALEMBIC_DATABASE_URL=… uv run python -m scripts.bootstrap_admin \
+  --email ops@yourdomain.example --role superadmin --name "…"
 ```
 
-The id comes from the **ADMIN** Clerk application's Users page — the admin realm is a
-separate Clerk app from the client realm (TRD §11), and a client-realm id will never
-match. The script validates the shape rather than accepting it blind, because a wrong id
-here is indistinguishable from an empty table at the 403. It is idempotent and it never
-UPDATEs: promoting an existing `operator` is a privilege change and belongs to the
-console's own audited path.
+**BOTH URLs, and they are different roles.** `ALEMBIC_DATABASE_URL` is the owner role,
+because this writes the operator allowlist and the app role has no business holding write
+access to it. `DATABASE_URL` is the app role, because `auth_credentials` and
+`auth_email_tokens` are FORCE-RLS'd against `app.auth`, a GUC set on the application
+connection.
+
+**What it does (D-167):** creates the `admin_users` row with NO password and mails a
+**single-use setup link that expires in 60 minutes**. The operator opens
+`https://admin.calevate.tech/bootstrap?token=…`, sets a password, and is then a working
+administrator. **The link is also printed to stdout**, deliberately — a deployment whose
+mail provider is not configured yet must still be able to acquire its first operator, and
+the mail credentials are themselves stored by an operator, in the console. No password is
+ever generated, printed or defaulted anywhere.
+
+**If the link expires, run the command again.** That is the supported recovery and it is
+safe: re-running before anyone has set a password re-issues a fresh link for the SAME row
+(and retires the previous link), so it is a resend rather than a second account.
+
+**Once any operator holds a password the script REFUSES** with `already_bootstrapped`, and
+there is no `--force`. Adding further operators is an ordinary audited act in the admin
+console, where an existing operator vouches for the next one. A flag that minted an
+unattached administrator from a shell would be reachable by anyone who has ever held
+database credentials — a contractor, a restored backup, a compromised CI runner — which is
+exactly the back door this is designed not to be.
+
+Both halves are audited: `auth.admin_bootstrapped` when the link is minted (naming the
+address) and `auth.admin_bootstrap_completed` when the password is set. This is the most
+privileged act in a deployment's life and it leaves a record of when and to whom.
+
+*(This used to take `--clerk-user-id`. Clerk is gone — D-166 — so there is no vendor
+dashboard in which to make the first account, and that flag was deleted rather than
+deprecated: it cannot work, and a flag that cannot work is worse than one that is absent.)*
 
 **Step 9 in full — `infra/backup/README.md` §8 is the ordered checklist; the shape of it:**
 create the R2 **backup** bucket + a token scoped to it alone → install wal-g (v3.0.8,
