@@ -262,8 +262,11 @@ resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
 Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
 `apps/api/core/queue.py`, read by the ARQ worker and by the delivery worker's
 exhaustion check. Outbound webhook deliveries wait **30s then 120s**
-(`RETRY_BACKOFF_S` in `apps/workers/outbound_webhooks.py`); a failed recording copy
-waits 30s flat. **Not everything is retried**: transport failures, 5xx, 408, 425 and
+(`RETRY_BACKOFF_S` in `apps/workers/outbound_webhooks.py`), and the ingest job — the one
+that copies the recording — waits on the **same 30s/120s ladder** (`RETRY_BACKOFF_S` in
+`apps/workers/pipeline.py`, one entry shorter than the budget because the last attempt has
+nothing after it). So the outside edge of "not yet definitely lost" is 150s of backoff plus
+three attempts, not 60s. **Not everything is retried**: transport failures, 5xx, 408, 425 and
 429 get the ladder, while any other 4xx is a verdict on the request — it stops on the
 first attempt and is recorded `rejected {code}`, because retrying a 400 three times
 only delays the verdict and triples load on an unhappy host. DLQ + Sentry alert on

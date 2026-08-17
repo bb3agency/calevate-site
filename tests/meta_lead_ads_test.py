@@ -846,7 +846,6 @@ async def test_the_activity_view_shows_the_meta_refusal_as_a_rejection() -> None
     principal = Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,
@@ -869,7 +868,6 @@ async def test_the_setup_view_states_the_capability_and_hands_over_the_token() -
     principal = Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,
@@ -906,7 +904,6 @@ async def test_the_setup_view_answers_for_this_source_and_not_for_the_deployment
         return Principal(
             realm="client",
             user_id=uuid.uuid4(),
-            clerk_user_id="u",
             tenant_id=tenant_id,
             role="owner",
             impersonating=False,

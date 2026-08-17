@@ -95,13 +95,22 @@ const ADMIN_ROUTES: Routes = {
   "/v1/admin/tenants": [],
 };
 
-function renderAdminShell(): HTMLElement {
-  return renderAdminPage(
-    <AdminLayout>
-      <p>screen</p>
-    </AdminLayout>,
-    ADMIN_ROUTES,
-  ).container;
+/**
+ * Async since D-177: the shell sits behind the admin realm's session gate, so a
+ * synchronous render returns with the gate still deciding and the drawer not yet in the
+ * tree. `stubApi` answers the restore by default; this is what waits for it.
+ */
+async function renderAdminShell(): Promise<HTMLElement> {
+  let container!: HTMLElement;
+  await act(async () => {
+    container = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      ADMIN_ROUTES,
+    ).container;
+  });
+  return container;
 }
 
 async function renderClientShell(): Promise<HTMLElement> {
@@ -130,9 +139,9 @@ afterEach(() => {
 });
 
 describe("mobile navigation drawer", () => {
-  it("keeps nothing in the tab order while it is closed — admin realm", () => {
+  it("keeps nothing in the tab order while it is closed — admin realm", async () => {
     stubViewport("mobile");
-    const container = renderAdminShell();
+    const container = await renderAdminShell();
     expect(tabbablesWithin(drawer(container))).toHaveLength(0);
   });
 
@@ -142,9 +151,9 @@ describe("mobile navigation drawer", () => {
     expect(tabbablesWithin(drawer(container))).toHaveLength(0);
   });
 
-  it("puts its links back in the tab order when it opens", () => {
+  it("puts its links back in the tab order when it opens", async () => {
     stubViewport("mobile");
-    const container = renderAdminShell();
+    const container = await renderAdminShell();
     act(() => {
       screen.getByLabelText("Open navigation").click();
     });
@@ -153,17 +162,17 @@ describe("mobile navigation drawer", () => {
     expect(tabbablesWithin(drawer(container)).length).toBeGreaterThan(3);
   });
 
-  it("never removes the desktop sidebar from the tab order", () => {
+  it("never removes the desktop sidebar from the tab order", async () => {
     stubViewport("desktop");
-    const container = renderAdminShell();
+    const container = await renderAdminShell();
     // Above `lg` the same element is the permanent sidebar and `isOpen` is false — the
     // regression a naive `inert={!isOpen}` would ship, unclickable and unfocusable.
     expect(tabbablesWithin(drawer(container)).length).toBeGreaterThan(3);
   });
 
-  it("moves focus into the drawer on open and back to the trigger on Escape", () => {
+  it("moves focus into the drawer on open and back to the trigger on Escape", async () => {
     stubViewport("mobile");
-    const container = renderAdminShell();
+    const container = await renderAdminShell();
     const trigger = screen.getByLabelText("Open navigation");
     act(() => {
       // `focus()` before `click()`: a real click focuses the button it activates, and
@@ -181,9 +190,9 @@ describe("mobile navigation drawer", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it("cycles Tab inside the open drawer instead of letting it escape", () => {
+  it("cycles Tab inside the open drawer instead of letting it escape", async () => {
     stubViewport("mobile");
-    const container = renderAdminShell();
+    const container = await renderAdminShell();
     act(() => {
       screen.getByLabelText("Open navigation").click();
     });

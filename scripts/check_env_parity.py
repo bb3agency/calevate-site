@@ -31,6 +31,21 @@ the caller chooses. Two guards that should have caught each other, and neither d
 `bootstrap_contract_failures` below is what makes re-adding that default a red CI step
 rather than a code review someone has to remember to do.
 
+A FIFTH, for the same reason one step later (D-168): the DEPLOY PREFLIGHT
+(`scripts/check_deploy_env.py`) refuses a deploy over the VALUES behind these keys, and
+every key it can name must be one this file knows about. A preflight that refuses on
+`REDIS_PASSWORD` — a variable this system does not have, inherited from the reference
+implementation it was modelled on — would fail every correct deployment, and the tempting
+fix would be to delete the check. `preflight_contract_failures` makes that impossible to
+introduce quietly: the key set is one expression in one file, and this asks whether every
+name in it is a `Settings` field or a registered exception.
+
+AND BEFORE ANY OF THEM, `blind_spots()` (D-176). The first two directions cannot go
+quiet — they compare two lists, and losing one fails loudly. The third is a SEARCH, and a
+search over a directory that has been renamed returns nothing without raising: `7 direct
+environment reads accounted for` becomes `0`, printed beside the word OK, on the direction
+that exists to catch a worker calling `os.getenv` behind everybody's back.
+
 Run: uv run python -m scripts.check_env_parity
 """
 
@@ -189,6 +204,41 @@ def direct_env_reads(root: Path | None = None) -> dict[str, list[str]]:
     return found
 
 
+def blind_spots(root: Path | None = None, reads: dict[str, list[str]] | None = None) -> list[str]:
+    """Has the tree moved out from under this check? (D-176)
+
+    The first two directions compare two lists this file cannot lose sight of — a missing
+    `.env.example` raises and an empty one fails loudly, because every Settings field then
+    lands in "declared nowhere". The THIRD direction is the one that can go silently blind:
+    it is a SEARCH, and `(root / directory).rglob("*.py")` over a directory that has been
+    renamed yields nothing and raises nothing. The result is `7 direct environment reads
+    accounted for` becoming `0 direct environment reads accounted for` — a sentence nobody
+    reads as a failure, on the direction that exists to catch a worker reading
+    `os.getenv` behind everybody's back.
+    """
+    base = root or REPO_ROOT
+    failures = [
+        f"{directory}/ does not exist under {base} — the direct-environment-read scan "
+        "walks it with rglob, which reports nothing rather than failing, so a module "
+        "reading os.getenv there is now invisible to this check"
+        for directory in SEARCH_DIRS
+        if not (base / directory).is_dir()
+    ]
+    if not (base / ".env.example").is_file():
+        failures.append(
+            f"{base / '.env.example'} does not exist — one whole side of the parity "
+            "comparison is missing and there is nothing to compare Settings against"
+        )
+    if reads is not None and not reads:
+        failures.append(
+            "the scan found no `os.getenv` / `os.environ` read anywhere in "
+            f"{list(SEARCH_DIRS)} — this repo has several (the drill script and the "
+            "object-store credentials among them), so the AST matcher has stopped "
+            "recognising the shape rather than the tree having stopped using it"
+        )
+    return failures
+
+
 def bootstrap_contract_failures(declared: set[str]) -> list[str]:
     """Every `BOOTSTRAP_REQUIRED` key is a REQUIRED Settings field and is in the example.
 
@@ -227,6 +277,46 @@ def bootstrap_contract_failures(declared: set[str]) -> list[str]:
         if name not in declared:
             failures.append(f"{key} is in BOOTSTRAP_REQUIRED but not in .env.example")
     return failures
+
+
+def preflight_contract_failures(settings_fields: set[str]) -> list[str]:
+    """Every key the DEPLOY PREFLIGHT can refuse on is config this deployment reads.
+
+    `scripts/check_deploy_env.py` is the only guard in this repo that looks at a VALUE,
+    and it runs where nobody is watching — inside the new image, mid-deploy. Its key set
+    is therefore the one place where a name that means nothing here could sit unnoticed
+    and either refuse every correct host or, worse, silently check nothing. The three
+    object-store credentials are legitimately not `Settings` fields (botocore owns them —
+    `SDK_ENV_KEYS` above carries the whole argument), so they are allowed by name and by
+    that registry rather than by exception.
+    """
+    from scripts.check_deploy_env import (
+        HMAC_SECRET_KEYS,
+        OBJECT_STORE_CREDENTIALS,
+        RETIRED_PAIRS,
+        config_keys,
+    )
+
+    named = (
+        config_keys()
+        | set(HMAC_SECRET_KEYS)
+        | {key for pair in RETIRED_PAIRS for key in pair}
+        | OBJECT_STORE_CREDENTIALS
+    )
+    unknown = sorted(
+        key
+        for key in named
+        if key.lower() not in settings_fields
+        and key not in SDK_ENV_KEYS
+        and key not in INFRA_ENV_KEYS
+    )
+    return [
+        f"{key} can be refused by scripts/check_deploy_env but is not a Settings field "
+        "and is in none of this file's registries — the deploy preflight is guarding a "
+        "variable nothing reads, which fails a correct host and checks nothing on a "
+        "broken one"
+        for key in unknown
+    ]
 
 
 def console_managed() -> set[str]:
@@ -293,12 +383,23 @@ def evaluate(
 
 
 def main() -> int:
+    blind = blind_spots()
+    if blind:
+        # Before anything else and on its own: every comparison below reads one of these
+        # artefacts, so a report built without them is a report about nothing (D-176).
+        print("ENV PARITY: FAIL — this check cannot see its own subject")
+        for failure in blind:
+            print(f"  - {failure}")
+        return 1
+
     declared, duplicates = example_keys(REPO_ROOT / ".env.example")
     settings_fields = set(Settings.model_fields)
     reads = direct_env_reads()
 
-    failures = evaluate(declared, settings_fields, reads, duplicates)
+    failures = blind_spots(reads=reads)
+    failures += evaluate(declared, settings_fields, reads, duplicates)
     failures.extend(bootstrap_contract_failures(declared))
+    failures.extend(preflight_contract_failures(settings_fields))
     if failures:
         print("ENV PARITY: FAIL")
         for failure in failures:

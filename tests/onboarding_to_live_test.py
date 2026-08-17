@@ -47,7 +47,7 @@ INTAKE = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake"
 PROMPT = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt"
 PENDING = "/v1/agents/{agent_id}/pending"
 INVITE = "/v1/admin/tenants/{tenant_id}/invitations"
-ACCEPT = "/v1/invitations/accept"
+ACCEPT = "/v1/auth/client/invitations/accept"
 
 #: A clinic's answers, complete enough for `submission_blockers` to pass. Mundane on
 #: purpose: every assertion looks for one of these strings arriving somewhere it could
@@ -72,31 +72,30 @@ def _client() -> AsyncClient:
 
 
 async def _admin(role: str = "superadmin") -> str:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _user(email: str) -> tuple[str, UUID]:
     """A provisioned client-realm identity with NO membership — what an invitee is."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": email},
+            {"id": user_id, "email": email},
         )
-    return f"dev:client:{clerk_id}", user_id
+    return f"dev:client:{user_id}", user_id
 
 
 async def _new_client(token: str) -> tuple[UUID, UUID, str]:
@@ -386,7 +385,7 @@ async def test_the_wizard_refuses_inviting_somebody_already_on_the_account() -> 
     token = await _admin()
     tenant_id, _agent_id, _slug = await _new_client(token)
     email = f"owner-{uuid.uuid4().hex[:8]}@example.com"
-    _owner_token, owner_id = await _user(email)
+    __owner_token, owner_id = await _user(email)
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -450,11 +449,10 @@ async def test_the_wizards_invitation_is_redeemable_and_lands_the_right_role() -
             json={"email": email, "role": "owner"},
         )
         assert minted.status_code == 201, minted.text
-        owner_token, owner_id = await _user(email)
+        _owner_token, owner_id = await _user(email)
         accepted = await http.post(
             ACCEPT,
-            headers={"Authorization": f"Bearer {owner_token}"},
-            json={"token": minted.json()["token"]},
+            json={"token": minted.json()["token"], "password": "onboarding-invitee-password"},
         )
 
     assert accepted.status_code == 200, accepted.text
@@ -623,12 +621,11 @@ async def test_the_console_can_cancel_the_invitation_it_just_issued() -> None:
     assert reissued.status_code == 201, reissued.text
     assert reissued.json()["token"] != first.json()["token"]
     # And the cancelled one is dead, not merely superseded.
-    owner_token, _owner_id = await _user(email)
+    _owner_token, _owner_id = await _user(email)
     async with _client() as http:
         replay = await http.post(
             ACCEPT,
-            headers={"Authorization": f"Bearer {owner_token}"},
-            json={"token": first.json()["token"]},
+            json={"token": first.json()["token"], "password": "onboarding-invitee-password"},
         )
     assert replay.status_code == 422, replay.text
     assert replay.json()["type"].endswith("/invitation_invalid")
@@ -650,11 +647,10 @@ async def test_an_accepted_invitation_cannot_be_cancelled_out_from_under_its_mem
             headers=headers,
             json={"email": email, "role": "owner"},
         )
-        owner_token, owner_id = await _user(email)
+        _owner_token, owner_id = await _user(email)
         await http.post(
             ACCEPT,
-            headers={"Authorization": f"Bearer {owner_token}"},
-            json={"token": minted.json()["token"]},
+            json={"token": minted.json()["token"], "password": "onboarding-invitee-password"},
         )
         late = await http.delete(
             f"{INVITE.format(tenant_id=tenant_id)}/{minted.json()['id']}", headers=headers
@@ -748,11 +744,10 @@ async def test_the_pending_list_drops_an_invitation_once_it_is_redeemed() -> Non
         assert (
             len((await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)).json()) == 1
         )
-        owner_token, _owner_id = await _user(email)
+        _owner_token, _owner_id = await _user(email)
         await http.post(
             ACCEPT,
-            headers={"Authorization": f"Bearer {owner_token}"},
-            json={"token": minted.json()["token"]},
+            json={"token": minted.json()["token"], "password": "onboarding-invitee-password"},
         )
         after = await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)
 

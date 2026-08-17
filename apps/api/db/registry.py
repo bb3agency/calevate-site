@@ -6,6 +6,7 @@ exhaustive. TENANT_TABLES drives RLS policy creation and the coverage check.
 """
 
 from apps.api.agents import models as agents_models
+from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
@@ -24,6 +25,7 @@ __all__ = [
     "TENANT_TABLES",
     "Base",
     "agents_models",
+    "authn_models",
     "billing_models",
     "campaigns_models",
     "compliance_models",
@@ -251,6 +253,53 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "no `tenant_id`, so the column-driven sweep never asked about it, and a reviewer "
         "looking for 'what is deliberately not tenant-isolated' would not have found the "
         "table holding references to every lead payload we have ever sent."
+    ),
+    "auth_credentials": (
+        "D-165's first-party password store, and it is listed here because it is NOT "
+        "tenant-scoped rather than because it is unpoliced — it is the most tightly "
+        "policied table in this schema. Identity crosses tenants (one person, several "
+        "`memberships`), so a `tenant_id` here would be duplicated or wrong, exactly as "
+        "it would be on `users`. What replaces tenant isolation is DENY-BY-DEFAULT: "
+        "migration e9a4c1d70b52 gives it FORCEd RLS whose USING and WITH CHECK are both "
+        "`current_setting('app.auth', true) = 'on'`, a GUC only "
+        "`db/session.credential_session()` sets. A tenant session — including tenant A "
+        "asking about tenant B's owner — sees zero rows, which is the cross-tenant "
+        "property hard rule 1 asks for, arrived at from the other direction. Holds an "
+        "Argon2id hash and no plaintext; the pepper it is hashed under is derived from "
+        "PLATFORM_KEK and never touches this database."
+    ),
+    "auth_sessions": (
+        "D-165's opaque server-side sessions, same shape and same reason as "
+        "`auth_credentials` above: not tenant-scoped because a session belongs to a "
+        "PERSON across every tenant they are a member of, and protected by the same "
+        "deny-by-default `app.auth` policy rather than by a tenant predicate. Holds a "
+        "SHA-256 fingerprint of the bearer token, never the token, so a database dump is "
+        "not a drawer of live cookies; carries ids and instants only — no IP, no "
+        "user-agent, no PII."
+    ),
+    "auth_email_tokens": (
+        "D-170's single-use emailed secrets — email verification, password reset, "
+        "invitation set-password, and the first-administrator bootstrap (D-171). Not "
+        "tenant-scoped for the same reason as the two above: it names a SUBJECT (a person "
+        "across every tenant they belong to) or an `invitations` row, never a tenant. "
+        "Migration b3d9f6a2c815 gives it the identical FORCEd deny-by-default policy on "
+        "`app.auth`, so a tenant session — including tenant A asking about tenant B's "
+        "owner — sees zero rows. Holds an HMAC of the token under a PLATFORM_KEK-derived "
+        "key that never touches this database, so a dump is not a drawer of live reset "
+        "links; the plaintext exists only in the email. The `purpose` is inside that "
+        "MAC's domain, so a verification token cannot be redeemed as a password reset."
+    ),
+    "auth_otp_challenges": (
+        "D-170's one-time codes — and since the second factor IS the emailed code rather "
+        "than TOTP, this is the table the admin realm's MFA rests on. Not tenant-scoped "
+        "for the same reason as its three siblings above (it names a subject, not a "
+        "tenant) and carries the same FORCEd deny-by-default `app.auth` policy. It is "
+        "the most sensitive of the four relative to its entropy: a six-digit code is ~20 "
+        "bits, which is why `code_hash` is an HMAC under a key outside this database "
+        "rather than a bare digest — 900,000 candidates is a rainbow table an attacker "
+        "builds in a second, and that is precisely the defect this design was written to "
+        "avoid. Carries no address and no PII: a subject id, a purpose, a MAC, two "
+        "instants and an attempt count."
     ),
 }
 

@@ -7,7 +7,7 @@ Two surfaces, two routers, because they have nothing in common but the money:
   needs. Authenticated, permissioned, load-sheddable.
 - `webhook_router` — `POST /hooks/v1/razorpay`. The provider says "that payment was
   captured"; we credit the wallet. Under `/hooks` because it shares the webhook
-  doctrine with `ingest/routes.py` and `tenancy/clerk_webhooks.py`: never load-shed (a
+  doctrine with `ingest/routes.py`: never load-shed (a
   payment landing during degraded mode is still a payment), authenticated by a
   signature rather than a session, inbox-deduped, and idempotent on the provider's own
   identifier.
@@ -412,11 +412,11 @@ async def razorpay_webhook(request: Request) -> WebhookAck:
     The claim and the credit share ONE transaction, which is what makes a failure
     recoverable: a crash after the claim rolls the claim back too, so the provider's
     retry is processed rather than answered "duplicate" forever (the failure mode
-    `reliability/service.py` documents against the Clerk mirror).
+    `reliability/service.py` documents against the retired Clerk mirror).
     """
     raw = await request.body()
 
-    # The SAME selector the intent route asks. Fail CLOSED, like the Clerk mirror: an
+    # The SAME selector the intent route asks. Fail CLOSED: an
     # unverifiable payment feed is worse than no feed, because it credits wallets on
     # anyone's say-so. A deployment that has a key id but no webhook secret is refused
     # here AND at the intent, which is the point of one selector — the alternative is a

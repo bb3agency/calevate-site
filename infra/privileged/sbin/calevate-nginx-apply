@@ -1,0 +1,228 @@
+#!/usr/bin/env bash
+# Install the staged nginx configuration, test it, and reload — as root, with NO arguments.
+#
+# Installs to /usr/local/sbin/calevate-nginx-apply, owned root:root, mode 0755.
+# Granted to the deploy account by /etc/sudoers.d/calevate-deploy, which permits this exact
+# path and an EMPTY argument list. Read `infra/privileged/README.md` before changing either.
+#
+# ====================================================================================
+# WHY THIS FILE EXISTS AT ALL — the thing it replaces
+#
+# The reference host granted its deploy account this (`docs/evidence/raghava-deploy-
+# teardown.md` §8.3, quoting CLIENT_VPS_SETUP_GUIDE.md:1238-1268):
+#
+#     <runner-user> ALL=(root) NOPASSWD: /usr/bin/rm -rf /var/lib/docker/containers/*
+#     <runner-user> ALL=(root) NOPASSWD: /usr/bin/cp /tmp/*.nginx.conf /etc/nginx/sites-available/*.conf
+#
+# sudo matches command-line arguments as ONE concatenated string and a wildcard in that
+# string matches `/` and spans words. So the first line also permits
+# `sudo rm -rf /var/lib/docker/containers/x /etc /home` — unrestricted root deletion of any
+# path on the box — and the second permits reading any file into any nginx path, from a
+# world-writable source directory. Both were granted to the account that runs code from
+# every merged pull request. (Compass Security, "Dangerous Sudoers Entries — Wildcards";
+# David Hamann, "Beware of wildcard paths in sudo commands", 24 Feb 2023.)
+#
+# The correct shape is the one the security literature has recommended for a decade and is
+# what this file is: ONE root-owned script, granted by exact path, taking NO arguments, that
+# does its own validation. The privileged action is a NOUN the deploy account can name — not
+# a command line it composes. Everything variable about the action (which files, what is in
+# them) travels through a fixed staging directory this script validates, so the worst a
+# compromised deploy account can do with this grant is install nginx configuration — which
+# is the thing it is for, and which it could already do by editing the repository.
+#
+# ====================================================================================
+# WHAT IS AND IS NOT A TRUST BOUNDARY HERE
+#
+# The deploy account CHOOSES the nginx configuration. That is not a privilege this script
+# hands it — `infra/nginx/*.template` is in the repository the account deploys, so it was
+# always true. What this script refuses to hand over is everything else: writing outside
+# /etc/nginx, reading a file the deploy account cannot already read, deleting anything, or
+# running a command of the account's construction.
+#
+# The staging directory is attacker-controlled input in the threat model where the deploy
+# account is compromised, so it is treated as such: no symlinks (a symlink to /etc/shadow
+# would have root copy it into a world-readable /etc/nginx/conf.d/), no subdirectories, no
+# basename this script did not validate, and no non-regular files.
+
+set -Eeuo pipefail
+
+# --- constants. Every path here is fixed; nothing on this line comes from the caller. ---
+
+# The account permitted to stage. Must match the user named in
+# /etc/sudoers.d/calevate-deploy — `infra/privileged/README.md` §3 is where that is stated
+# once and checked. Named here so root verifies the staging directory belongs to the
+# account it expects rather than to whoever happened to create it.
+readonly DEPLOY_USER=calevate
+
+readonly STAGING_ROOT=/var/lib/calevate/nginx-staging
+readonly CONF_TARGET=/etc/nginx/conf.d
+readonly SNIPPET_TARGET=/etc/nginx/snippets
+
+# `conf.d` holds http-context files (the rate zones) and the server blocks; `snippets` holds
+# the fragments those `include`. DEPLOYMENT §5.5 explains why the split is not cosmetic:
+# `limit_req_zone` is an http-context directive and Debian auto-includes conf.d inside
+# `http {}` while nothing auto-includes snippets.
+readonly -A TARGETS=(
+  ["conf.d"]="$CONF_TARGET"
+  ["snippets"]="$SNIPPET_TARGET"
+)
+
+# One reviewable name shape. Anything else is refused rather than sanitised, because a name
+# this script has to think about is a name that should not have been staged.
+readonly NAME_RE='^[a-z0-9][a-z0-9._-]*\.conf$'
+
+log()  { printf '==> calevate-nginx-apply: %s\n' "$*"; }
+die()  { printf '[abort] calevate-nginx-apply: %s\n' "$*" >&2; exit 1; }
+
+# --- refusals ---------------------------------------------------------------------------
+
+(( $# == 0 )) || die "takes no arguments (got $#). The sudoers grant permits an empty
+     argument list and nothing else; if you need to vary what this does, the variation
+     belongs in $STAGING_ROOT, not on the command line."
+
+(( EUID == 0 )) || die "must run as root; invoke it as 'sudo -n $0'."
+
+[[ ! -L "$STAGING_ROOT" ]] || die "$STAGING_ROOT is a symlink. Refusing: a symlinked
+     staging root is how a caller redirects root's reads outside the directory it is
+     allowed to read."
+[[ -d "$STAGING_ROOT" ]] || die "$STAGING_ROOT does not exist. Create it as part of
+     installing this script (infra/privileged/README.md §2)."
+
+staging_owner=$(stat -c '%U' "$STAGING_ROOT")
+[[ "$staging_owner" == "$DEPLOY_USER" ]] || die "$STAGING_ROOT is owned by
+     '$staging_owner', not '$DEPLOY_USER'. Refusing: this script only installs what the
+     deploy account staged, and an unexpected owner means either the wrong account is
+     staging or the directory was recreated by hand."
+
+staging_mode=$(stat -c '%a' "$STAGING_ROOT")
+(( (8#$staging_mode & 8#0002) == 0 )) || die "$STAGING_ROOT is world-writable (mode
+     $staging_mode). Any local user could stage config for root to install. chmod 0750 it."
+
+command -v nginx >/dev/null || die "nginx is not installed on this host."
+
+# --- collect, validating every name before anything is touched ---------------------------
+#
+# Two passes on purpose: everything is validated before anything is installed, so a bad
+# name in the second directory cannot leave the first one half-applied.
+
+declare -a sources=() destinations=()
+
+for kind in "${!TARGETS[@]}"; do
+  source_dir="$STAGING_ROOT/$kind"
+  target_dir=${TARGETS[$kind]}
+
+  [[ ! -L "$source_dir" ]] || die "$source_dir is a symlink — refusing."
+  [[ -d "$source_dir" ]] || die "$source_dir is missing. The deploy stages both
+     'conf.d' and 'snippets'; installing one without the other would leave nginx
+     including files that are not there."
+  [[ -d "$target_dir" ]] || die "$target_dir does not exist. nginx is not installed the
+     way DEPLOYMENT §5 expects, and installing into a directory nginx does not read would
+     look like success."
+
+  found=0
+  while IFS= read -r -d '' candidate; do
+    name=$(basename "$candidate")
+    [[ "$name" =~ $NAME_RE ]] || die "staged file '$kind/$name' does not match
+     $NAME_RE. Refusing rather than renaming it."
+    [[ ! -L "$candidate" ]] || die "staged file '$kind/$name' is a symlink — refusing.
+     Root would follow it and install the contents of whatever it points at."
+    [[ -f "$candidate" ]] || die "staged file '$kind/$name' is not a regular file."
+    sources+=("$candidate")
+    destinations+=("$target_dir/$name")
+    found=$(( found + 1 ))
+  done < <(find "$source_dir" -maxdepth 1 -mindepth 1 -print0)
+
+  (( found > 0 )) || die "$source_dir is empty. An empty staging directory is a deploy
+     that rendered nothing, not a request to remove configuration — this script never
+     removes a file it did not introduce in this run."
+  log "$kind: $found file(s) validated"
+done
+
+# --- back up what is about to be overwritten ---------------------------------------------
+#
+# WHY A BACKUP. `nginx -t` reads /etc/nginx, so the candidate files have to be ON DISK
+# before they can be tested — there is no "test this set" mode. Without a restore, a failed
+# test leaves the BROKEN FILES INSTALLED: the running nginx is fine, which is exactly the
+# reassuring and wrong thing to notice, and the next reload picks the broken set up. Reloads
+# come from Debian's daily logrotate postrotate and from certbot's renewal deploy hook
+# (DEPLOYMENT §9.5a step 5), so that is a config bomb with a fuse measured in days.
+#
+# The backup mirrors the absolute path under one root, because a snippet and a conf.d file
+# are allowed to share a basename and a flat copy would restore one over the other.
+#
+# The backups are kept for 30 days and then removed by this script's next run, so the
+# mechanism does not become its own disk leak. Fixed prefix, root-owned parent, `-maxdepth
+# 1`, and a name pattern this script is the only writer of.
+# Reported rather than swallowed, and not fatal: failing to trim last month's backups is no
+# reason to refuse to install this month's config. `|| true` would have hidden it.
+if ! find /var/tmp -maxdepth 1 -type d -name 'calevate-nginx-backup.*' -mtime +30 \
+     -exec rm -rf {} +; then
+  printf '[warn] calevate-nginx-apply: could not trim old backups under /var/tmp (above). Housekeeping only; continuing.\n' >&2
+fi
+
+backup=$(mktemp -d /var/tmp/calevate-nginx-backup.XXXXXXXX)
+chmod 0700 "$backup"
+
+declare -a preexisting=() introduced=()
+for destination in "${destinations[@]}"; do
+  if [[ -f "$destination" ]]; then
+    mkdir -p "$backup/$(dirname "${destination#/}")"
+    # `cp -p`, restored with `cp -p`: whatever mode and ownership the live file has is what
+    # goes back, not the 0644 this script installs.
+    cp -p "$destination" "$backup/${destination#/}"
+    preexisting+=("$destination")
+  else
+    introduced+=("$destination")
+  fi
+done
+log "previous config backed up to $backup (${#preexisting[@]} existing, ${#introduced[@]} new)"
+
+# --- install, test, restore on failure ----------------------------------------------------
+#
+# THE WHOLE SET IS INSTALLED BEFORE ANYTHING IS TESTED, which is what makes install order
+# irrelevant here. The site config `include`s the snippets, so an incremental
+# install-then-test would fail on a file that is about to exist; testing once, after the
+# batch, removes that ordering constraint instead of encoding it.
+#
+# TEST BEFORE RELOAD, ALWAYS. `systemctl reload` on a bad config leaves the old workers
+# running and reports success, so the failure surfaces at the next restart — possibly a
+# reboot, weeks later, with nobody connecting the two events.
+install_all() {
+  local index
+  for index in "${!sources[@]}"; do
+    install -o root -g root -m 0644 "${sources[$index]}" "${destinations[$index]}"
+  done
+}
+
+restore() {
+  local destination
+  for destination in ${preexisting[@]+"${preexisting[@]}"}; do
+    cp -p "$backup/${destination#/}" "$destination"
+  done
+  for destination in ${introduced[@]+"${introduced[@]}"}; do
+    rm -f "$destination"
+  done
+}
+
+# Both in one condition so that a failure of EITHER — including an `install` that dies half
+# way through on a full disk — lands in the same restore path. Inside an `if` condition bash
+# suppresses errexit and the ERR trap, and `&&` keeps the short-circuit, so this is not a
+# swallowed failure: the branch below re-raises it with more information than a trap could.
+if ! { install_all && nginx -t; }; then
+  printf '[warn] calevate-nginx-apply: nginx refused the new config — restoring\n' >&2
+  restore
+  # Prove the restore is what nginx had, rather than asserting it. If THIS fails, /etc/nginx
+  # is in a state neither this script nor the operator can describe, and saying so is worth
+  # more than a tidy exit code.
+  nginx -t || die "the RESTORED config does not pass 'nginx -t' either. /etc/nginx is now
+     in a state this script did not produce and cannot describe. The previous files are in
+     $backup; do not reload nginx until it tests clean. runbooks/deploy-failed.md §5."
+  die "nginx -t failed on the staged config (error above). The previous config has been put
+     back and nothing was reloaded, so the running edge is unchanged AND the files on disk
+     match it — the next logrotate or certbot reload is safe.
+     Staged: $STAGING_ROOT     Backup of the previous set: $backup"
+fi
+
+systemctl reload nginx
+log "installed ${#destinations[@]} file(s) and reloaded nginx"
+log "previous set kept at $backup"

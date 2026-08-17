@@ -458,7 +458,12 @@ describe("the credits screen", () => {
     await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
 
     await expectNoA11yViolations(container, "admin/tenants/[tenantId]/credits (filled)");
-  });
+    // AN EXPLICIT BUDGET, because this test drives three forms to completion and then runs
+    // axe over the result — it is the longest single case in this suite and it sat just
+    // under vitest's 5s default, so it timed out under a loaded full-suite run and passed
+    // alone. A flake that only appears in CI is the worst kind to diagnose; 30s is far
+    // above what it takes and still far below "a hang looks like a pass".
+  }, 30_000);
 });
 
 /**

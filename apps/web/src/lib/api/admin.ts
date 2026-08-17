@@ -11,7 +11,7 @@
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
-import { adminRealmSession } from "@/lib/auth/adminRealm";
+import { adminRealmSession } from "@/lib/authn/realmSessions";
 
 import type { CampaignSummary } from "./campaigns";
 import { apiRequest, type GrantSource, type Session } from "./client";
@@ -48,17 +48,18 @@ export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
 
 /**
- * The admin realm's session — an ADMIN Clerk token, or `dev:admin:` locally.
+ * The admin realm's session — the `__Host-calevate_admin_session` cookie, or
+ * `dev:admin:<uuid>` locally.
  *
- * The credential is chosen in `lib/auth/adminRealm.tsx`, which owns this realm's Clerk
- * application; the choice is `NEXT_PUBLIC_AUTH_MODE`, never a guess (`lib/auth/mode.ts`).
- * The local path is the one the API enforces two conditions for — `APP_ENV=local` AND no
- * Clerk secret for this realm (`core/auth.py::_verify_dev_token`) — and it carries
- * `dev:admin:` so a client token can never be pasted into an admin surface by accident.
+ * The credential is chosen in `lib/authn/realmSessions.ts`; the choice is
+ * `NEXT_PUBLIC_AUTH_MODE`, never a guess (`lib/authn/mode.ts`). The local path is the one
+ * the API enforces two conditions for — `APP_ENV=local` AND no `PLATFORM_KEK`
+ * (`core/auth.py::_verify_dev_token`) — and it carries `dev:admin:` so a client token can
+ * never be pasted into an admin surface by accident.
  *
- * This function keeps its name and signature because twenty-five call sites (and one
- * file owned by another change) build their session through it: what changed is which
- * credential comes back, not where sessions come from.
+ * This function keeps its name and signature because twenty-five call sites build their
+ * session through it: what changed is which credential comes back, not where sessions
+ * come from.
  */
 export function adminSession(orgSlug = ""): Session {
   return adminRealmSession(orgSlug);

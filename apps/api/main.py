@@ -54,6 +54,11 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
     from apps.api.agents.voice_routes import router as voice_router
+    from apps.api.authn.routes import (
+        admin_auth_router,
+        client_auth_router,
+        invite_router,
+    )
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
@@ -63,6 +68,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
@@ -95,12 +101,20 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
-    from apps.api.tenancy.clerk_webhooks import router as clerk_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
 
     application.include_router(tenancy_router)
-    application.include_router(clerk_router)
+    # D-170's first-party authentication. Mounted unconditionally and gated per request by
+    # `Settings.first_party_auth_enabled` (default off) — a conditionally-mounted router
+    # would be invisible to `check_wiring`, absent from the OpenAPI contract, and would
+    # answer 404 during the one operation where "not switched on yet" and "wrong path" must
+    # be distinguishable. Three routers because the two realms are two route trees that
+    # share no session logic, and the invitation redemption creates an identity rather than
+    # operating on one.
+    application.include_router(admin_auth_router)
+    application.include_router(client_auth_router)
+    application.include_router(invite_router)
     application.include_router(admin_router)
     # The ops hold queue. Its own `/v1/admin/compliance/...` prefix rather than a path
     # under `admin_router`: `/v1/admin/tenants/{tenant_id}` would swallow any literal
@@ -149,6 +163,12 @@ def _mount_routers(application: FastAPI) -> None:
     # in declaration order (see `voice_router` above).
     application.include_router(messaging_consent_router)
     application.include_router(deletion_router)
+    # The client's draft of the notice they owe their own CALLERS (D-179,
+    # LEGAL-SURFACE F-8). The duty is theirs — they are the Data Fiduciary — but the
+    # itemised list Rule 3 asks for is their extraction schema, which only we hold. A
+    # literal `/v1/compliance/caller-notice`, declared with the other compliance routers
+    # and ordered by the same rule they are.
+    application.include_router(caller_notice_router)
     # The admin-realm twin: the END of an engagement rather than one data principal's
     # §12 request, and the only writer `organizations.deleted_at` has (FLOWS §9, D-120).
     application.include_router(tenant_erasure_router)

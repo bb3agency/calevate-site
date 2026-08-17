@@ -449,7 +449,7 @@ class Destination:
 async def resolve_destination(session: AsyncSession, tenant_id: UUID) -> Destination | None:
     """The client's owner, and whether we can EVIDENCE their opt-in.
 
-    Number: the owner-role member's `users.phone` (E.164, Clerk-mirrored). Deactivated
+    Number: the owner-role member's `users.phone` (E.164). Deactivated
     users are excluded — a removed owner must not keep receiving the business's leads.
 
     Opt-in: `whatsapp_alert_optin_ledger`, through `compliance.whatsapp_optin` — the one

@@ -46,6 +46,7 @@ from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.service import record_entry, recorded_payments, restatement_ref
 from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
@@ -65,16 +66,16 @@ def _client() -> AsyncClient:
 
 
 async def _make_admin(role: str = "operator") -> str:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _tenant(plan_tier: str = "self_serve") -> uuid.UUID:
@@ -97,15 +98,14 @@ async def _tenant(plan_tier: str = "self_serve") -> uuid.UUID:
 
 async def _owner_token(tenant_id: uuid.UUID) -> str:
     """A REAL client-realm owner — the strongest form of the refusal test."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -115,7 +115,7 @@ async def _owner_token(tenant_id: uuid.UUID) -> str:
             ),
             {"i": uuid.uuid4(), "t": tenant_id, "u": user_id},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
 def _headers(token: str, confirm: str | None = None) -> dict[str, str]:
@@ -1086,10 +1086,13 @@ async def test_an_actor_with_no_user_id_is_recorded_without_a_recorded_by() -> N
         principal=Principal(
             realm="admin",
             user_id=None,
-            clerk_user_id="admin_without_a_row",
             tenant_id=None,
             role="operator",
         ),
+        # The gate a request resolves through `Depends(step_up_gate)`; called directly,
+        # the test supplies it. `present=False` is the shape a caller with no
+        # first-party admin cookie has (D-178).
+        step_up=StepUp(present=False, verified_at=None),
         x_confirm_action=topup_restatement_confirmation("UTR-NO-ACTOR", Decimal("900.00")),
     )
 

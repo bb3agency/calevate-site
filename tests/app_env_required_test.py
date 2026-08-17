@@ -1,12 +1,16 @@
 """APP_ENV must be STATED. A deployment that forgets it must not run.
 
 The defect this file pins: `Settings.app_env` defaulted to `"local"`, and `"local"` is
-the one value under which `core/auth.py::_verify_dev_token` accepts
-`dev:<realm>:<clerk_user_id>` — a credential whose SUBJECT THE CALLER CHOOSES, i.e.
-"sign in as any admin you can name". The same branch is what makes
-`runtime_config_missing_keys` skip its Clerk-key checks, so `/healthz/ready` reported a
-healthy service while doing it. One variable nobody set turned off the authentication
-AND the alarm, and produced no signal anywhere that it had happened.
+one of the two facts under which `core/auth.py::_verify_dev_token` accepts a
+`dev:<realm>:<subject-uuid>` credential — an authentication bypass, i.e. "sign in as any
+operator whose id you can read". The same branch is what made `runtime_config_missing_keys`
+skip its provider checks, so `/healthz/ready` reported a healthy service while doing it.
+One variable nobody set turned off the authentication AND the alarm, and produced no
+signal anywhere that it had happened.
+
+**THE SECOND FACT IS `PLATFORM_KEK` SINCE D-177** (it was "this realm has no Clerk secret
+configured"), and it is `tests/realm_boundary_test.py` that owns it. This file owns the
+environment half, which is the one that made the pair reachable by an ordinary deploy.
 
 So the property under test is not "dev tokens are refused in prod" —
 `authz_audit_test.py` already owns that, and it always passed, because it MONKEYPATCHES
@@ -17,6 +21,8 @@ actually has, not against a Settings object someone built by hand.
 """
 
 from __future__ import annotations
+
+import uuid
 
 import pytest
 from apps.api.core import auth as auth_module
@@ -164,36 +170,41 @@ def test_the_dev_token_path_is_reachable_only_from_a_stated_local(
 ) -> None:
     """The whole chain in one test, from the environment to the credential.
 
-    `_verify_dev_token` accepts a caller-chosen subject when and only when `app_env ==
-    "local"`. That was previously reachable with an EMPTY environment; it is now
-    reachable only from a configuration in which somebody wrote `local`.
+    `_verify_dev_token` accepts one of our subject ids when and only when `app_env ==
+    "local"` AND no `PLATFORM_KEK` is set. That was previously reachable with an EMPTY
+    environment; it is now reachable only from a configuration in which somebody wrote
+    `local`.
     """
     monkeypatch.delenv("APP_ENV", raising=False)
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **_settings_kwargs())  # type: ignore[arg-type]
 
+    subject = uuid.uuid4()
     stated_local = Settings(_env_file=None, app_env="local", **_settings_kwargs())  # type: ignore[arg-type]
     monkeypatch.setattr(auth_module, "get_settings", lambda: stated_local)
-    accepted = auth_module._verify_dev_token("dev:admin:anyone_at_all", "admin")
-    assert accepted is not None and accepted.clerk_user_id == "anyone_at_all", (
+    accepted = auth_module._verify_dev_token(f"dev:admin:{subject}", "admin")
+    assert accepted is not None and accepted.subject_id == subject, (
         "the local dev path must keep working — the fix is about how 'local' is "
         "arrived at, not about removing it"
     )
 
 
-def test_readiness_still_demands_the_clerk_keys_outside_local() -> None:
+def test_readiness_still_demands_the_platform_kek_outside_local() -> None:
     """The alarm half of the pair.
 
-    `runtime_config_missing_keys` skips the Clerk checks under `app_env == "local"`,
+    `runtime_config_missing_keys` skips the secret checks under `app_env == "local"`,
     which is correct — and was catastrophic only because `local` could be the answer
     nobody gave. Pinned here so the two halves stay coupled: if this branch is ever
     keyed on something other than a stated environment, this fails.
+
+    THE KEY IT DEMANDS IS `PLATFORM_KEK` NOW (D-177 deleted the two Clerk secrets), and
+    that is the same key the dev path's second guard reads — so this test and
+    `realm_boundary_test`'s guard test are two halves of one fact rather than two rules
+    that could drift.
     """
     prod = Settings(_env_file=None, app_env="prod", **_settings_kwargs())  # type: ignore[arg-type]
-    missing = runtime_config_missing_keys(prod)
-    assert "CLERK_ADMIN_SECRET_KEY" in missing
-    assert "CLERK_CLIENT_SECRET_KEY" in missing
+    assert "PLATFORM_KEK" in runtime_config_missing_keys(prod)
 
     local = Settings(_env_file=None, app_env="local", **_settings_kwargs())  # type: ignore[arg-type]
     assert runtime_config_missing_keys(local) == []

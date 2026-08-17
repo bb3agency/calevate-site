@@ -25,12 +25,21 @@ and are all closed by two non-code actions: the Engine Verification Session
      where core config lives, where SECRETS live (envelope encryption in Postgres, KEK
      in the environment and nowhere else), the six bootstrap keys that may never move
      out of `.env`, and the security trade the console makes explicit. D-95.
+   - **AUTH-MIGRATION.md** (read with it) — D-165: the first-party auth module that
+     replaced Clerk. Its §1 capability inventory was the ACCEPTANCE CRITERIA and is now
+     the record of what each vendor capability became; §3 is the realm boundary built out
+     of our own materials; §5 is the cutover that ran; §11 is what is still NOT built.
+     **`apps/api/authn/` is the only authenticator this product has** (D-170 mounted it,
+     D-177 deleted the vendor beside it). Two sentences here said the opposite for two
+     slices after they stopped being true — "still the live authenticator", "mounted on no
+     router" — which is the class of drift §11 now keeps a struck list for.
 6. **FLOWS.md** — onboarding wizard, invitations/auth, inbound call lifecycle, instant
    lead callback, bulk campaigns, post-call pipeline, KB updates, billing, offboarding.
 7. **OPERATIONS.md** — engine verification checklist (do this first), per-client
    regression/eval harness, observability, SLOs, runbooks, pre-launch checklist.
 8. **ROADMAP.md** — milestones with gates (client #1 before platform polish), decision
-   log D-01…D-39 (§6; entries are appended, so the tail is not in numeric order — read
+   log from D-01 onwards (§6; entries are appended, so the tail is not in numeric order and
+   the highest number is not a count — read
    the whole table, and note the ⚠SUPERSEDED/AMENDED markers on the early ones),
    deferred list.
 9. **SURFACES.md** — the three product surfaces: admin-panel and client-CRM feature
@@ -101,8 +110,13 @@ is reported there, so BRD R-04's 16 Oct 2026 retirement is LIVE for this leg
 nobody has yet made the one call that verifies it (OPERATIONS §2 gate 14);
 `GEMINI_EXTRACTION_DEFAULT is False`, so the first post-call
 extraction stays on Sarvam. D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
-Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · Clerk (two realms) ·
-a Hetzner-class VPS with an India-resident data plane (D-25 moved hosting off
-DigitalOcean; nothing is provisioned yet) · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
+Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · first-party auth, two
+realms (D-165/D-170/D-177 — Clerk is deleted) ·
+a general-purpose VPS (D-25 moved hosting off DigitalOcean; nothing is provisioned yet).
+**This line used to say "with an India-resident data plane" and that was a claim the code
+cannot make**: `docs/DEPLOYMENT.md` says India co-location is NOT required for this stack,
+which is the stack holding every transcript, and F-1 is open precisely because the region
+is undecided. It was scrubbed from the landing page and left here, where it seeded the
+same sentence in BRD §sales. Nothing may re-assert it until a host is chosen and named · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
 D-34 self-serve prepaid tier · all-in target ≈ ₹3.1–3.6/min (D-36; verified floor ₹2.9 on
 Bulbul v2 + Sarvam LLM), ₹1.7–2.3/min at phase 2.

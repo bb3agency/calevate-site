@@ -17,11 +17,9 @@ row count; everything is scoped to a run-unique tenant or user.
 
 from __future__ import annotations
 
-import base64
 import uuid
 from typing import Annotated
 
-import jwt
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import prompts
@@ -68,16 +66,16 @@ def _client() -> AsyncClient:
 
 async def _make_admin(role: str = "superadmin") -> str:
     """Same idiom as `admin_security_test._make_admin`."""
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _make_org() -> dict[str, object]:
@@ -94,14 +92,13 @@ async def _make_org() -> dict[str, object]:
 async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> tuple[uuid.UUID, str]:
     """A user with a membership in `tenant_id`. Returns (user_id, dev bearer token)."""
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -111,15 +108,14 @@ async def _make_member(tenant_id: uuid.UUID, role: str = "owner") -> tuple[uuid.
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id, "role": role},
         )
-    return user_id, f"dev:client:{clerk_id}"
+    return user_id, f"dev:client:{user_id}"
 
 
 def _assert_deliberate(response: Response) -> None:
     """Not a 500, and not the generic unhandled-exception body behind one.
 
-    Asserting an exact status would only encode this deployment's Clerk configuration
-    (an unverifiable token answers 502 `auth_not_configured` where no Clerk keys are
-    set). The property under test is that SOME code path chose the answer.
+    The property under test is that SOME code path chose the answer, rather than a
+    handler being reached and raising.
     """
     body = response.json()
     assert response.status_code != 500, body
@@ -127,193 +123,39 @@ def _assert_deliberate(response: Response) -> None:
     assert not str(body["type"]).endswith("/internal_error"), body
 
 
-def _publishable_key(host: str) -> str:
-    """Clerk's publishable-key format: `pk_<env>_<base64(host + '$')>`."""
-    return "pk_test_" + base64.b64encode(f"{host}$".encode()).decode().rstrip("=")
-
-
 # --------------------------------------------------------------------------- realms
+#
+# SIX TESTS STOOD HERE AND ARE GONE WITH THEIR SUBJECT (D-177). They pinned the Clerk-era
+# realm separation and the JWKS failure ladder: that the two realms resolved to two
+# publishable keys and therefore two JWKS hosts, that a prod deployment which collapsed
+# them onto one host failed `/healthz/ready`, that a `CLERK_FRONTEND_API` fallback
+# resolved both, that an unknown `kid` was 401 rather than 500, and that an unreachable
+# JWKS host was a 502 dependency failure rather than a bad session.
+#
+# NOT ONE OF THOSE PROPERTIES IS EXPRESSIBLE NOW, and that is the point rather than a gap:
+# there is no signing key, no host to fetch it from, no configuration to collapse and no
+# provider to be unreachable. What replaced them is `authn.sessions.token_fingerprint`
+# putting the realm INSIDE the hash domain — arithmetic rather than configuration — with
+# the `realm` predicate beside it as the belt to that brace. Both directions are driven in
+# `tests/authn_session_test.py::test_the_realm_is_inside_the_fingerprint` and, over HTTP
+# with real rows behind both credentials, in `tests/realm_boundary_test.py`.
+#
+# The one below is what survives of `test_local_is_untouched_by_the_realm_separation_check`
+# and it survives because it still has a subject: a local box must not be told to install
+# authentication keys that no longer exist.
 
 
-async def test_the_two_realms_do_not_share_one_signing_key_source(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """TRD §11 / D-37: a token minted for one realm is not a token for the other.
+async def test_local_readiness_asks_for_no_authentication_key_at_all() -> None:
+    """Authentication configures nothing, so `/healthz/ready` may demand nothing for it.
 
-    That claim is cryptographic or it is nothing. If both realms resolve to the SAME
-    JWKS host, the admin verifier accepts a client-realm signature and the only thing
-    left between a client token and the admin console is whether that Clerk user id
-    also appears in `admin_users` — an authorization check standing in for an
-    authentication one.
-
-    Clerk publishes each application's JWKS on ITS OWN Frontend API host, and the
-    publishable key encodes that host, which is why both keys are in Settings.
+    This used to guard `missing_realm_separation_keys` against turning every developer's
+    probe red. Its subject now is the absence: a deployment cannot be misconfigured into a
+    collapsed realm pair, so a readiness list naming an auth key would be naming a key
+    nobody can set.
     """
-    settings = auth_module.get_settings().model_copy(
-        update={
-            "clerk_admin_publishable_key": _publishable_key("admin-clerk.calevate.tech"),
-            "clerk_client_publishable_key": _publishable_key("app-clerk.calevate.tech"),
-        }
-    )
-    monkeypatch.setattr(auth_module, "get_settings", lambda: settings)
-
-    admin_url = auth_module.jwks_url("admin")
-    client_url = auth_module.jwks_url("client")
-
-    assert admin_url == "https://admin-clerk.calevate.tech/.well-known/jwks.json"
-    assert client_url == "https://app-clerk.calevate.tech/.well-known/jwks.json"
-    assert admin_url != client_url, "one JWKS for both realms is not two realms"
-
-
-def _prod_settings(**update: object) -> object:
-    """A deployment that satisfies every OTHER readiness key, so anything reported here
-    came from the realm-separation clause and nowhere else."""
-    return auth_module.get_settings().model_copy(
-        update={
-            "app_env": "prod",
-            "engine": "fake",
-            "sarvam_api_key": "sk-sarvam",
-            "clerk_admin_secret_key": "sk-admin",
-            "clerk_client_secret_key": "sk-client",
-            "impersonation_grant_secret": "i" * 32,
-            "audit_chain_secret": "a" * 32,
-            "idempotency_scope_secret": "d" * 32,
-            # The KEK joined the readiness list with the ops sweep. Present for the same
-            # reason as every secret above it: this file is about REALM SEPARATION, and a
-            # key reported from anywhere else is noise these assertions cannot tell apart
-            # from the thing they measure — the control below asserts an EMPTY list.
-            "platform_kek": base64.b64encode(b"k" * 32).decode(),
-            **update,
-        }
-    )
-
-
-async def test_a_prod_deployment_whose_realms_share_one_jwks_is_not_ready() -> None:
-    """The other half of the test above, and the half that decides whether it MEANS
-    anything in a deployment nobody hand-configured.
-
-    `jwks_url` argues that one JWKS for both realms leaves `admin_users` membership as
-    "the only thing between a client token and the admin console — an authorization check
-    standing in for an authentication one". Nothing measured whether a real deployment
-    could be in that state, and it could: `runtime_config_missing_keys` demanded both
-    SECRET keys and neither PUBLISHABLE key, so a prod host with both secrets, no
-    publishable keys and a `CLERK_FRONTEND_API` (the documented single-application
-    fallback) resolved both realms to one host and answered `/healthz/ready` with `[]`.
-
-    The nastier arrangement is the second one below — the CLIENT application's
-    publishable key set and the admin's forgotten, so the ADMIN verifier silently adopts
-    the client application's signing keys. Nothing in the configuration looks empty.
-    """
-    both_absent = _prod_settings(
-        clerk_admin_publishable_key=None,
-        clerk_client_publishable_key=None,
-        clerk_frontend_api="accounts.calevate.tech",
-    )
-    admin_forgotten = _prod_settings(
-        clerk_admin_publishable_key=None,
-        clerk_client_publishable_key=_publishable_key("app-clerk.calevate.tech"),
-        clerk_frontend_api="app-clerk.calevate.tech",
-    )
-    for settings in (both_absent, admin_forgotten):
-        missing = runtime_config_missing_keys(settings)  # type: ignore[arg-type]
-        assert "CLERK_ADMIN_PUBLISHABLE_KEY" in missing, missing
-        assert "CLERK_CLIENT_PUBLISHABLE_KEY" in missing, missing
-
-
-async def test_two_distinct_clerk_applications_are_ready(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The control. A readiness probe that is red for a correct deployment is an outage
-    of its own, so the shape a real two-application deploy has must report nothing.
-
-    The object-store credentials are DECLARED rather than borrowed, per the suite's
-    `_no_ambient_credentials` rule: readiness reports them off `os.environ` because that
-    is where botocore reads them, and a correct deployment has them. Without this the
-    control would report two keys that have nothing to do with Clerk realms.
-    """
-    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access-key")
-    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
-    settings = _prod_settings(
-        clerk_admin_publishable_key=_publishable_key("admin-clerk.calevate.tech"),
-        clerk_client_publishable_key=_publishable_key("app-clerk.calevate.tech"),
-    )
-    assert runtime_config_missing_keys(settings) == []  # type: ignore[arg-type]
-
-
-async def test_local_is_untouched_by_the_realm_separation_check() -> None:
-    """`local` has no Clerk at all — that is what the dev-token path is for — so the
-    check must not turn every developer's `/healthz/ready` red."""
-    settings = auth_module.get_settings().model_copy(
-        update={
-            "app_env": "local",
-            "engine": "fake",
-            "clerk_admin_publishable_key": None,
-            "clerk_client_publishable_key": None,
-        }
-    )
-    assert runtime_config_missing_keys(settings) == []  # type: ignore[arg-type]
-
-
-async def test_jwks_host_falls_back_to_the_configured_frontend_api(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A deployment that has not split its publishable keys must keep working."""
-    settings = auth_module.get_settings().model_copy(
-        update={
-            "clerk_admin_publishable_key": None,
-            "clerk_client_publishable_key": "not-a-clerk-key",
-            "clerk_frontend_api": "accounts.example.test",
-        }
-    )
-    monkeypatch.setattr(auth_module, "get_settings", lambda: settings)
-
-    for realm in ("admin", "client"):
-        assert auth_module.jwks_url(realm) == (  # type: ignore[arg-type]
-            "https://accounts.example.test/.well-known/jwks.json"
-        )
-
-
-async def test_a_token_whose_signing_key_is_unknown_is_401_not_500(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`PyJWKClientError` is NOT a subclass of `jwt.InvalidTokenError`, so the original
-    `except (jwt.InvalidTokenError, httpx.HTTPError)` did not cover it — an unknown
-    `kid` (exactly what a foreign realm's token looks like) escaped as an unhandled
-    exception: a 500, an alert, and an oracle telling the caller that "unknown key" and
-    "bad signature" are different answers.
-    """
-
-    class _Boom:
-        def get_signing_key_from_jwt(self, token: str) -> object:
-            raise jwt.exceptions.PyJWKClientError("Unable to find a signing key")
-
-    monkeypatch.setattr(auth_module, "_jwk_client", lambda realm: _Boom())
-
-    with pytest.raises(ProblemError) as exc:
-        await auth_module.verify_token("a.b.c", "client")
-    assert exc.value.status == 401
-    assert exc.value.kind == "auth"
-
-
-async def test_an_unreachable_identity_provider_is_not_reported_as_a_bad_session(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A JWKS outage is our dependency failing, not the caller's session expiring.
-
-    `PyJWKClient` fetches over `urllib`, so the old `httpx.HTTPError` clause never
-    matched a real outage either — every request 500'd and alerted.
-    """
-
-    class _Down:
-        def get_signing_key_from_jwt(self, token: str) -> object:
-            raise jwt.exceptions.PyJWKClientConnectionError("Fail to fetch data from the url")
-
-    monkeypatch.setattr(auth_module, "_jwk_client", lambda realm: _Down())
-
-    with pytest.raises(ProblemError) as exc:
-        await auth_module.verify_token("a.b.c", "client")
-    assert exc.value.kind == "dependency"
-    assert exc.value.status == 502
+    settings = auth_module.get_settings().model_copy(update={"app_env": "local", "engine": "fake"})
+    missing = runtime_config_missing_keys(settings)  # type: ignore[arg-type]
+    assert missing == [], missing
 
 
 # ------------------------------------------------------------------- impersonation
@@ -634,8 +476,6 @@ async def test_dev_tokens_are_refused_in_a_non_local_settings_profile(
         settings = auth_module.get_settings().model_copy(
             update={
                 "app_env": env,
-                "clerk_admin_secret_key": None,
-                "clerk_client_secret_key": None,
             }
         )
         monkeypatch.setattr(auth_module, "get_settings", lambda s=settings: s)
@@ -752,17 +592,18 @@ async def test_oversized_duplicated_and_nul_bearing_headers_get_a_deliberate_ans
     """The rest of what a hostile client controls about a header. None of these reaches
     a handler, and none of them reaches the 500 path either.
 
-    The token shapes are `dev:client:` ones so the assertions describe the AUTH layer
-    rather than this box's Clerk configuration.
+    The token shapes are `dev:client:` ones so the assertions describe the AUTH layer and
+    nothing else.
 
-    THE TWO GROUPS ARE SPLIT, and the split is the point. A NUL byte is a malformed
-    CREDENTIAL — `_bearer` refuses it at the boundary and nothing further runs, so 401 is
-    the honest answer and always will be. The other three carry a WELL-FORMED token
-    naming a subject we have no mirror row for (the duplicate header resolves to the
-    first value, which is a valid dev token); since D-124 that is the transient
-    `identity_mirror_pending` refusal, because the token verified and calling that an
-    authentication failure is exactly the defect. Asserting one status for all four would
-    make this test the thing that resists the fix.
+    THE FOUR ANSWER ALIKE NOW, AND THE SPLIT THAT USED TO BE HERE IS WORTH RECORDING. A
+    NUL byte was always a malformed CREDENTIAL, refused at the boundary by `bearer_token`.
+    The other three carried a well-formed vendor-subject token naming somebody we had no
+    mirror row for, and D-124 made that a transient `503 identity_mirror_pending` — the
+    token had verified, so calling it an authentication failure was the defect. D-177
+    deleted the mirror: a dev token names one of OUR uuids or it does not parse, and a
+    subject that parses and resolves to nobody is simply not a credential. So the honest
+    answer for all four is 401, and there is no longer a state in which a verified
+    credential belongs to a person we have not heard of yet.
     """
     async with _client() as http:
         huge = await http.get(
@@ -782,10 +623,8 @@ async def test_oversized_duplicated_and_nul_bearing_headers_get_a_deliberate_ans
 
     for response in (huge, nul, duplicated, empty_org):
         _assert_deliberate(response)
-    assert nul.status_code == 401, nul.text
-    for unmirrored in (huge, duplicated, empty_org):
-        assert unmirrored.status_code == 503, unmirrored.text
-        assert unmirrored.json()["type"].endswith("/identity_mirror_pending"), unmirrored.text
+        assert response.status_code == 401, response.text
+        assert response.json()["kind"] == "auth", response.text
 
 
 # ------------------------------------------------------------- reported, then fixed

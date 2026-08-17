@@ -121,6 +121,14 @@ class ErasureScopeOut(Strict):
     # before a deferral had a date at all — the certificate distinguishes the two in
     # words (`deletion_proof._floor_sentence`).
     recording_hold_until: str | None
+    # How many of this tenant's knowledge-base documents mention the subject's number
+    # (D-179). NULLABLE on the same reasoning as the two counts above, and here it is the
+    # difference between "we searched and found none" (`0`) and "this erasure predates the
+    # search entirely" (`None`) — the certificate says those in different words
+    # (`deletion_proof._kb_sentence`). Never a list of documents: the count is what makes
+    # the client's manual step actionable, and which document is a question they answer on
+    # their own knowledge screen.
+    knowledge_base_documents_matched: int | None
 
 
 class ErasureLimitationOut(Strict):

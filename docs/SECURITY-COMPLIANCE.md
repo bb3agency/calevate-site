@@ -247,13 +247,41 @@ under the erased calls' prefixes, on the per-subject path and the tenant path al
 the count in the proof's `actions`. The archive now HAS a producer — the post-call
 pipeline writes one document per completed call, committing `engine_payload_ref` before
 the PUT so no object can exist that an erasure has no reason to look for — which makes
-the arm above a live guarantee rather than a prepared one, and leaves one limit standing
-rather than two: **no retention category expires it** — the
-enum is `recording|transcript|lead|consent_log`, so for anyone who has NOT filed an
-erasure the only clock is the bucket's 90-day `engine-payloads/` lifecycle rule, which
-has never been applied to a real bucket (infra/README §5). Giving the archive its own
-retention category is a DPA commitment and a change to a documented enum, and is reserved
-here the same way the backup clause below is.
+the arm above a live guarantee rather than a prepared one.
+
+**It now expires as well (D-179).** The limit that used to stand here was that no
+retention category reached the archive, so the only copies that ever disappeared belonged
+to the people who filed a §12 request; everyone else's caller number and transcript were
+held indefinitely behind a bucket lifecycle rule that has never been applied to a real
+bucket (infra/README §5). That is the DPDP §8(7) storage-limitation breach on its own,
+with nobody needing to come looking. `retention_policies.data_category` gained
+`engine_payload` (migration c4d1f7b83e26, default 90 days — the number the lifecycle rule
+already carried), and the nightly sweep pages expired calls into the SAME
+`_erase_engine_payloads` the erasure uses, so there is one definition of destroying a
+call's archived documents. A store that will not answer defers the arm rather than failing
+the tick; the erasure path still RAISES on the same condition, because a certificate must
+not claim a destruction that did not happen and a sweep owes nobody a document.
+
+**Client-uploaded knowledge expires too, and an erasure now searches it (D-179).**
+`kb_sources`/`kb_documents` hold what a client uploads for their agents to answer from —
+FAQs, price lists, staff names and contact numbers — and publishing a new version
+ARCHIVES the old one, so every version ever published survived and no TTL reached any of
+them. Two mechanisms close the halves that were ours. The `kb` retention category (default
+365 days) deletes SUPERSEDED and REJECTED versions, never the live one and never one the
+voice platform still holds a handle for — a superseded version's handle is cleared when it
+is detached, so a handle still recorded means an incomplete detach that belongs to the
+reconciliation sweep (D-158), and forgetting our row would strand the only record that can
+address their copy. And `execute_deletion_request` now SEARCHES a tenant's knowledge
+documents for the subject's number, digits-normalised because a client writes
+"98765 43210" and never an E.164 string, and puts the count on the certificate. What it
+deliberately does not do is CHANGE that content: editing a live knowledge document changes
+what the agent says on the next call, we cannot tell a caller's callback number from the
+shop's own landline, and the platform holds its own copy — so the certificate names a
+manual step on both copies rather than performing half of one. The erasure register says
+exactly this (`deletion.KB_OUTCOME = "searched_not_erased"`), and the tenant-erasure
+register says the narrower true thing for its own path: a tenant erasure has no subject to
+search FOR, so it does not look, and what reaches that account's knowledge is its own `kb`
+policy.
 
 **OPEN DECISION — erasure vs. the 90-day recording floor.** Surfaced by the DPDP erasure
 producer (`apps/api/compliance/deletion.py`), stated here rather than resolved, because
@@ -340,18 +368,41 @@ rather than resolved because it is a policy call, not a code fix.
   recordings to a **default of 180** over the 90-day TRAI floor.
 - `scripts/seed.DEFAULT_RETENTION_POLICIES` — the rows a new tenant actually gets, and the
   rows the nightly sweep obeys — are **transcript 365 days**, **lead 1095 days**,
-  **recording 90 days**, consent_log 2555 days.
+  **recording 90 days**, consent_log 2555 days, engine_payload 90 days, kb 365 days.
+- The last two are D-179 and are NOT part of this divergence: this document promised
+  nothing about either store, so there is no figure for them to disagree with. 90 days is
+  the period `infra/object-lifecycle/policy.json` already assigned the `engine-payloads/`
+  prefix, and 365 matches the transcript default because a superseded knowledge version is
+  content of the same class. Both are per-tenant defaults a client may change.
 
 So a transcript is deleted at half the documented age and a lead is kept at one and a half
-times it. This matters beyond tidiness: the client-facing **DPA quotes this document**,
-while `apply_retention` obeys the rows — so today we tell clients one retention period and
-run another, in both directions. It cannot be settled by picking whichever number is in
+times it.
+
+**What this is NOT, because the stronger version of this paragraph stood here and mispriced
+the item.** It said the client-facing DPA quotes this document while `apply_retention` obeys
+the rows, "so today we tell clients one retention period and run another". That is not what
+the published documents do. `/legal/dpa` §8 quotes **no period at all** except the 90-day
+recording floor — it delegates to `/legal/privacy` §9 — and §9 publishes 90 / 365 / 1095,
+which is `scripts/seed.DEFAULT_RETENTION_POLICIES` verbatim, which is what
+`apps/workers/retention.py` enforces. `privacy.ts` says so in its own header rule 1: it
+states the ENFORCED number and records the disagreement with this section as a finding. So
+the notice and the sweep agree with each other, nothing published to a client is false, and
+**this section's table is the only outlier**. Closing it is an internal reconciliation plus
+one table edit here — NOT a DPA amendment, and not a live client-facing misstatement.
+
+That does not make it optional, and it cannot be settled by picking whichever number is in
 front of you: the seed values are a defensible split (a lead is the CRM record the client
 bought and keeps using; a transcript is raw personal data with a shorter useful life),
-and 24 months for both is what has been promised in writing.
+and 24 months for both is the figure this document has been carrying since the blueprint
+was written. What is promised in writing is the seed's numbers, via `/legal/privacy` §9 —
+which is precisely why moving TOWARDS this section's table is the expensive direction and
+moving this table towards the seed is the cheap one. That asymmetry is an input to the
+decision, not the decision.
 
-**Who must decide: the founder**, because it is a commitment to clients and a DPA edit,
-not an implementation detail. Whichever way it goes, both places change in the same
+**Who must decide: the founder**, because it is a commitment to clients — and, if the
+answer is the longer periods, a re-publication of `/legal/privacy` §9 (and therefore a
+notice change clients have already been given), not an implementation detail. Whichever
+way it goes, both places change in the same
 release — this section, and `DEFAULT_RETENTION_POLICIES` — and the change is recorded as a
 decision-log entry (ROADMAP §6). Existing tenants' rows are their own decision: a policy
 row already agreed with a client is not silently re-timed by a seed change.
@@ -428,21 +479,49 @@ audit_log. Redaction runs BEFORE any transcript leaves our system (exports, noti
 ## 5. Application & Infrastructure Security
 
 Identity & access
-- Two auth realms (admin vs client), separate Clerk apps, separate cookies/domains; MFA
-  mandatory on admin; session lifetimes: admin 12h, client 7d refresh.
-  - **MFA is enforced server-side**, in `apps/api/core/auth.py::verify_token`, from
-    Clerk's `fva` session claim: an admin-realm token whose second-factor age is `-1`
-    (never verified) is refused `403 mfa_required`, and a token carrying no `fva` at all
-    is refused `403 mfa_claim_missing` — unknown fails closed. It gates READS as well as
-    writes, because it is authentication, not authorization. Enforced in the verifier so
-    no route can forget it; `tests/admin_mfa_test.py` pins both directions plus the
-    client realm's exemption. The admin console explains the refusal rather than
-    enforcing it (`app/admin/layout.tsx`).
-  - **Step-up (`X-Confirm-Action`) is a SEPARATE control and is retained**, not replaced:
-    MFA is per SESSION (once, at sign-in, for 12h), step-up is per ACTION and per TARGET.
-    The session that mis-clicks the big red switch is a session that has already passed
-    MFA. Requiring a *fresh* second factor for high-risk actions (Clerk reverification)
-    is the named next step and needs a browser reverification flow — OPERATIONS §8.
+- Two auth realms (admin vs client), separate cookies/domains; MFA mandatory on admin.
+  Both realms are FIRST-PARTY since D-177 — there is no identity vendor in this system.
+  The separation is four independent mechanisms rather than two vendor accounts: the
+  realm is inside the session token's hash domain, in the `WHERE` clause beside it, in
+  the cookie name, and in the per-realm origin check (AUTH-MIGRATION §3). The first is
+  arithmetic — a client token computed under the admin realm matches no row — which is
+  what makes it stronger than the JWKS split it replaced rather than merely equal to it.
+  - **WHAT "MFA" MEANS HERE, because a reader will otherwise assume an authenticator app:
+    a six-digit code emailed to the address on file, and nothing else** (D-170). TOTP,
+    shared secrets and recovery codes were designed and then deliberately not built. A
+    correct admin password issues a session with `mfa_verified_at IS NULL` that can reach
+    exactly one route — `POST /v1/auth/admin/login/otp` — and answering it rotates the
+    session. **The cost, stated rather than buried: the strength of the admin realm's
+    second factor is the strength of the operator's mailbox.** It stops a stolen password;
+    it does not stop a compromised email account, which a TOTP secret would.
+    `docs/AUTH-MIGRATION.md` §2.3 carries the full trade.
+  - **It is enforced in two places that are asserted to agree**: `authn/service.py` decides
+    whether a sign-in needs a challenge, and `core/auth.py::verify_token` refuses any admin
+    principal that never completed one. `MFA_REQUIRED_REALMS` is a single set compared
+    across both by `tests/authn_mfa_test.py`, because two copies of that fact is exactly
+    how a sign-in path and a verifier come to disagree, silently, in the unsafe direction.
+    It gates READS as well as writes, because it is authentication, not authorization.
+  - Session lifetimes are enforced on the ROW, per realm, and differ because the blast
+    radii differ: admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute
+    (`authn/sessions.REALM_TIMEOUTS`).
+  - *(Clerk's `fva` claim, `403 mfa_required` and `403 mfa_claim_missing` were the
+    previous mechanism and are DELETED — D-177 ran AUTH-MIGRATION §5 step 6. The pair of
+    codes collapsed into one `401 second_factor_required`: `mfa_claim_missing` existed
+    because a custom JWT template could silently drop the claim, so "we cannot tell" had to
+    fail closed separately from "you did not", and `auth_sessions.mfa_verified_at` has no
+    third state. `401 auth` rather than `403 permission`, because a session that owes a
+    code is half-AUTHENTICATED, not half-authorised.)*
+  - **Step-up is a SEPARATE control and is retained**, not replaced: MFA is per SESSION
+    (once, at sign-in), step-up is per ACTION and per TARGET. The session that mis-clicks
+    the big red switch is a session that has already passed MFA.
+  - **Step-up now has BOTH halves (D-178)**, demanded together by
+    `core/stepup.StepUp.require`: `X-Confirm-Action` must echo the action (INTENT — a
+    stolen cookie satisfies it trivially, since the refusal prints the string), and
+    `auth_sessions.mfa_verified_at` must be under `REAUTH_MAX_AGE` = 5 minutes (PRESENCE).
+    `POST /v1/auth/admin/step-up` mails a `step_up`-purpose code and `.../step-up/verify`
+    answers it, rotating the session and carrying `absolute_expires_at` forward so
+    re-proving cannot extend a session. This was "the named next step needing a browser
+    reverification flow"; D-170 built the flow, so the reason for deferring it expired.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
   org settings, raw transcripts, **call recording audio**, or exports containing
   unredacted data.
@@ -484,8 +563,8 @@ Identity & access
     is exactly what that claim exists to express — plus a fixed audience and a
     minutes-long expiry. Absent, malformed, expired, another operator's or another
     tenant's are all refused; nothing degrades to a plain admin session.
-  - It is **not a credential**: it never replaces the operator's admin-realm Clerk
-    token, which is verified (and MFA-gated) on every request, and whose `admin_users`
+  - It is **not a credential**: it never replaces the operator's admin-realm session,
+    which is verified (and MFA-gated) on every request, and whose `admin_users`
     row and role are re-read from the database on every request. Revocation is
     therefore instant — sign-out, row deletion or losing `admin:impersonate` refuses
     the next request — which is why there is no denylist and no grants table.
@@ -504,7 +583,7 @@ Identity & access
   - A route declared `realm="client"` is not part of view-as and says so:
     `403 impersonation_not_available_here`, not the verifier's "this token is not valid
     for this realm". The refusal was always correct; the sentence sent an operator to
-    whoever owns Clerk instead of to whoever owns the console. The client-realm
+    whoever owns the identity provider instead of to whoever owns the console. The client-realm
     mutations an operator can reach from a client's screen (`PUT /v1/billing/caps`,
     `POST /v1/billing/topups/intent`, `POST /v1/compliance/whatsapp-alerts`) are the
     live instances.
@@ -517,16 +596,24 @@ Identity & access
     quieter: same permission, same grant, same two ledger rows, same read-only rule.
 - Invitations: 72h single-use signed tokens, hash-at-rest, burned on use. **"Account
   creation only via invitation" is no longer true of the client realm** — D-34/D-39 put
-  self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a Clerk-verified
-  user with no organization creates their own tenant, rate-limited by a signup quota, with
-  `plan_tier` restricted to `self_serve`/`trial`. The ADMIN realm stays invite-only with
-  Clerk signup disabled (D-37), which is where that rule still holds.
+  self-serve in scope and `POST /v1/auth/signup` ships (SURFACES §2c): a caller holding a
+  client-realm session with no organization creates their own tenant, rate-limited by a
+  signup quota, with `plan_tier` restricted to `self_serve`/`trial`. **What D-177 changed
+  is that there is no public account-creation door at all today** — the vendor's hosted
+  sign-up page went with the vendor and the first-party public intake is unbuilt
+  (AUTH-MIGRATION §11, C-11), so in practice an account arrives by invitation or by an
+  operator. The ADMIN realm stays invite-only by construction: `admin_users` is an
+  ops-managed allowlist and `scripts/bootstrap_admin.py` refuses to mint a second one.
 
 Data
 - Postgres RLS FORCEd on all tenant tables; app sets tenant GUC from verified session;
   fail-closed. Admin access path uses distinct role + always-audited queries.
 - Recordings: our object storage is system of record; SSE + per-tenant envelope keys (KMS);
-  presigned URLs 5-min TTL; bucket public-access blocked at account level.
+  presigned URLs 5-min TTL — EXCEPT a call recording's link, which D-153 sizes to the
+  recording's own duration and caps at `RECORDING_LINK_CEILING_S`
+  (`apps/api/crm/routes.py`). That is the widest credential window this platform
+  opens and it is named here rather than left inside a flat "5-min" that would
+  understate it; bucket public-access blocked at account level.
 - Secrets: engine/model/client keys in secrets manager only; DB stores references.
   Quarterly rotation; per-integration webhook secrets.
 - usage_events, consent_ledger, audit_log: INSERT-only DB grants (no UPDATE/DELETE for app role).
@@ -535,9 +622,19 @@ Transport & webhooks
 - TLS everywhere; HSTS. Inbound engine webhooks: authenticity per engine capability
   (TRD §5). Where the engine signs: HMAC-SHA256 + timestamp window + replay cache.
   **Bolna (D-31) does not sign**: strict source-IP allowlist (their static egress
-  13.203.39.153) enforced at nginx AND in-app — through Cloudflare this REQUIRES the
-  D-27 real_ip restoration (CF-Connecting-IP), which is now load-bearing, not
-  nice-to-have — plus execution-id dedupe, payloads treated as hints, and the
+  13.203.39.153) enforced **IN-APP, and there only** — through Cloudflare this REQUIRES
+  the D-27 real_ip restoration (CF-Connecting-IP), which is now load-bearing, not
+  nice-to-have — plus execution-id dedupe,
+
+  This line, and the two like it in TRD §5 and SURFACES §5, said "at nginx AND in-app"
+  and described a layer that does not exist: no engine address appears anywhere under
+  `infra/nginx/`, and `snippets/calevate-origin.conf` says in as many words that the
+  in-app check IS the entire authenticity control for an unsigned engine. The nginx half
+  is not merely unbuilt — it is **declined**, because an `allow` list at the edge rejects
+  a changed engine egress SILENTLY and at a layer with no alerting, whereas the in-app
+  refusal is a 401 with a log line and an alert. A security control described in two
+  layers and living in one is worse than an honest single layer: it is what a reviewer
+  counts on when deciding the single layer is not a single point of failure. payloads treated as hints, and the
   authenticated Get Execution fetch as truth. Unexpected source ⇒ 401 + alert. The
   reconciliation poller, not webhook delivery, is the guarantee of record.
   Outbound (to client CRMs): our own HMAC signing + a 3-attempt retry budget with

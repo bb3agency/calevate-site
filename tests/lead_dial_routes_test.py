@@ -77,14 +77,13 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID, str, dict[str, str]]
     """
     reset_engine_cache()
     user_id = uuid7()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     slug = f"dial-{uuid.uuid4().hex[:8]}"
     created = await admin_service.create_organization(
@@ -114,7 +113,7 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID, str, dict[str, str]]
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
-    headers = {"Authorization": f"Bearer dev:client:{clerk_id}", "X-Org-Slug": slug}
+    headers = {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": slug}
     return tenant_id, agent_id, slug, headers
 
 

@@ -6,6 +6,8 @@ import { expect, vi } from "vitest";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
+import { adminAuthn } from "@/lib/authn/adminAuthn";
+import { clientAuthn } from "@/lib/authn/clientAuthn";
 
 /**
  * Render a `/c/[slug]` screen the way the browser does — REAL provider, REAL session,
@@ -134,6 +136,11 @@ function defaultGrant(): Record<string, unknown> {
 }
 
 export function stubApi(routes: Routes): ApiCall[] {
+  // Both realm runtimes hold a result cache and a generation counter as MODULE state
+  // (§5.2's single-flight), and state that survives a test is state one test hands
+  // another. Reset here rather than in each `beforeEach` so no suite can forget.
+  adminAuthn.reset();
+  clientAuthn.reset();
   // Grants are cached per slug in a module-level map, so without this a grant minted by
   // one test would be reused by the next — silently changing how many requests the next
   // test's screen makes, depending on file order. Cleared where the network is replaced,
@@ -164,6 +171,16 @@ export function stubApi(routes: Routes): ApiCall[] {
       const key = Object.hasOwn(routes, scoped) ? scoped : path;
       if (!Object.hasOwn(routes, key)) {
         if (scoped === GRANT_ROUTE) return jsonResponse(defaultGrant());
+        // BOTH REALMS' SESSION RESTORE, answered by default (D-177) — the same shape as
+        // the grant above and for the same reason. Every `/admin` and `/c/<slug>` screen
+        // now sits under a session gate, so a harness that did not answer this would
+        // render the signed-out screen for the whole suite: hundreds of tests failing on
+        // a fact none of them is about. A test that WANTS the signed-out or
+        // half-authenticated branch (`authnGuards.test.tsx`) names the route in its own
+        // table, which takes precedence — this is a fallback, never an override.
+        if (Object.hasOwn(DEFAULT_SESSIONS, scoped)) {
+          return jsonResponse(DEFAULT_SESSIONS[scoped]);
+        }
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +
             `or the screen under test is calling an endpoint nobody expected`,
@@ -182,6 +199,22 @@ export function stubApi(routes: Routes): ApiCall[] {
   );
   return calls;
 }
+
+/** A live, fully authenticated session per realm. See the fallback in `stubApi`. */
+const DEFAULT_SESSIONS: Record<string, unknown> = {
+  "GET /v1/auth/admin/session": {
+    realm: "admin",
+    subject_id: "0192f0aa-0000-7000-8000-00000000000a",
+    mfa_complete: true,
+    email_verified: true,
+  },
+  "GET /v1/auth/client/session": {
+    realm: "client",
+    subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
+    mfa_complete: true,
+    email_verified: true,
+  },
+};
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {

@@ -161,7 +161,10 @@ function Sidebar({
         onClick={onClose}
         title={isCollapsed ? item.label : undefined}
         aria-current={active ? "page" : undefined}
-        className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+        // `touch:min-h-11`: these are the console's primary navigation and the most-tapped
+        // controls in the drawer, and `py-2` left them 36px tall — under the 44px finger
+        // target, with only 4px of gap to the next one.
+        className={`mb-1 flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors touch:min-h-11 ${
           active
             ? "bg-brand-soft text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright"
             : "text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
@@ -178,7 +181,12 @@ function Sidebar({
       isOpen={isMobileOpen}
       onClose={onClose}
       label="Navigation"
-      className={isCollapsed ? "lg:w-[72px]" : "w-[255px]"}
+      // `w-[255px]` in BOTH arms: `isCollapsed` is a desktop-only control, but it is
+      // component state that SURVIVES a resize, so a collapsed sidebar carried the
+      // mobile drawer into `lg:w-[72px]` with no base width at all — below `lg` the
+      // panel then shrink-wrapped its content instead of being a 255px drawer. The
+      // collapse is a desktop affordance; the drawer width is not its to change.
+      className={isCollapsed ? "w-[255px] lg:w-[72px]" : "w-[255px]"}
     >
       <div className={`flex items-center p-5 ${isCollapsed ? "lg:justify-center lg:px-3" : "justify-between gap-3"}`}>
         <div className="flex items-center gap-3 overflow-hidden">
@@ -198,7 +206,7 @@ function Sidebar({
           type="button"
           onClick={onClose}
           aria-label="Close navigation"
-          className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:hidden dark:hover:bg-white/5"
+          className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
         >
           <X className="h-5 w-5" />
         </button>
@@ -308,7 +316,7 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
           type="button"
           onClick={onMenuToggle}
           aria-label="Open navigation"
-          className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 lg:hidden dark:hover:bg-white/5"
+          className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -325,7 +333,7 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
                 ? `Needs attention: ${waiting} item(s)`
                 : "Needs attention"
           }
-          className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
+          className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5"
         >
           <Bell className="h-4 w-4" />
           {attention.error != null ? (

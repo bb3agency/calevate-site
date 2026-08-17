@@ -110,8 +110,10 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
 - Python 3.12, FastAPI, Pydantic v2 everywhere at boundaries; SQLAlchemy 2.0 typed ORM;
   ARQ for jobs (idempotent, keyed, 3 retries + DLQ). Ruff + mypy strict are CI gates.
 - Frontend: typed client generated from OpenAPI (`pnpm -C apps/web gen:api`); TanStack Query; shadcn/ui;
-  no ad-hoc fetch. Admin realm and client realm are separate route groups + separate Clerk
-  apps — never share session logic.
+  no ad-hoc fetch. Admin realm and client realm are separate route groups + separate
+  first-party session modules (`apps/web/src/lib/authn/`, D-177) — never share session
+  logic. Authentication is OURS end to end: there is no identity vendor, the credential is
+  an `HttpOnly` `__Host-` cookie, and `apps/api/authn/` is the only thing that mints one.
 - IDs: uuid_v7. Time: timestamptz, UTC in DB, IST at the edge. Phone: E.164 strings.
 - Errors: RFC-9457 problem+json from api; user-safe messages (no internals).
 - Tests: pytest; every module has unit tests; RLS tests mandatory for new tables; adapter

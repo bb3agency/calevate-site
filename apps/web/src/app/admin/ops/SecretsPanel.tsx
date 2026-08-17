@@ -222,7 +222,10 @@ function SecretRow({
     <div className="rounded-card border border-line bg-surface p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-mono text-sm text-ink">{secret.key}</p>
+          {/* `break-all`, like the value line below: these keys are unbroken snake_case
+              identifiers (`self_serve_inr_per_min`, `object_store_bucket`) with no space
+              for a browser to wrap at, so at 320px they painted 15px outside the card. */}
+          <p className="break-all font-mono text-sm text-ink">{secret.key}</p>
           {secret.installed ? (
             <p className="mt-0.5 text-sm text-ink">
               <span className="font-mono font-semibold">…{secret.last_four}</span>{" "}
