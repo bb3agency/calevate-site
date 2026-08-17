@@ -44,7 +44,21 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   language_primary, languages_extra TEXT[],
   stt_provider, stt_model, tts_provider, tts_voice, llm_model,     -- config strings
   system_prompt_id → prompt_versions, extraction_schema_id → extraction_schemas,
-  business_hours JSONB, escalation_config JSONB, disclosure_line TEXT NOT NULL,
+  business_hours JSONB, escalation_config JSONB,
+  -- THE OPENING NOTICES (D-163, migration f4a1d0b6e29c). SEC-COMP §2 states two
+  -- invariants under two regimes — AI identification (TRAI/UCC) and a recording notice
+  -- (DPDP §5/§6) — and they shared ONE column, so a client could have both or neither.
+  -- The SENTENCES are mandatory (a dial is refused without an AI one); whether either is
+  -- VOLUNTEERED at the top of a call is the tenant's own decision, per agent, inbound and
+  -- outbound alike. What no column here can reach is the ANSWER to a caller who asks —
+  -- `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, which is deliberately not data.
+  ai_disclosure_line TEXT NOT NULL CHECK (length(btrim(ai_disclosure_line)) > 0),
+  recording_notice_line TEXT NOT NULL CHECK (length(btrim(recording_notice_line)) > 0),
+  ai_disclosure_enabled BOOL NOT NULL DEFAULT true,
+  recording_notice_enabled BOOL NOT NULL DEFAULT true,
+  disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
+    -- toggles say. Still written, no longer read by the publish path — step 1 of a
+    -- two-step deprecation (hard rule 8); step 2 drops it (D-163).
   status ENUM[draft,live,paused], engine ENUM[fake,bolna]  -- 'thinnest' REMOVED from the
     -- CHECK (D-31: retired before any adapter or production row existed, so the
     -- two-step deprecation in hard rule 8 does not apply — nothing ever wrote it)

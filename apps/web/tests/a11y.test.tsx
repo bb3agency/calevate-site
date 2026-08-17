@@ -49,6 +49,8 @@ import TeamPage from "@/app/c/[slug]/settings/team/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
 import InvitePage from "@/app/invite/page";
+import LegalDocumentRoute from "@/app/legal/[slug]/page";
+import LegalIndexPage from "@/app/legal/page";
 import Home from "@/app/page";
 import SignupPage from "@/app/signup/page";
 
@@ -225,6 +227,17 @@ const AGENT = {
   direction: "outbound",
   language: "te-IN",
   disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  // D-163: the two notices this agent volunteers, and the switch on each. Both ON, which
+  // is what a new agent is born with — and the switches are the one pair of interactive
+  // controls on the client agents screen, so they are exactly what this scan is for.
+  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_enabled: true,
+  recording_notice_line: "This call is being recorded.",
+  recording_notice_enabled: true,
+  opening_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+  truthful_answer_rule:
+    "Whatever these settings say, the agent always answers honestly when a caller asks.",
   extraction_fields: [{ key: "name", label: "Name", type: "string", required: true }],
 };
 
@@ -1192,6 +1205,22 @@ const CLIENT_SCREENS: Screen[] = [
     file: "page.tsx",
     realm: "client",
     element: () => <Home />,
+    routes: {},
+  },
+  // The public legal pages. Swept here so the coverage guard below sees them, and swept
+  // AGAIN — over all eight documents rather than this one representative — in
+  // tests/legal.test.tsx, because the documents differ in content and only one of them
+  // has a five-column table.
+  {
+    file: "legal/page.tsx",
+    realm: "client",
+    element: () => <LegalIndexPage />,
+    routes: {},
+  },
+  {
+    file: "legal/[slug]/page.tsx",
+    realm: "client",
+    element: () => <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />,
     routes: {},
   },
   {

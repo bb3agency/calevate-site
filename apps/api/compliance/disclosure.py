@@ -1,4 +1,31 @@
-"""Was the AI disclosure actually SPOKEN on this call? — the evidence half of hard rule 5.
+"""The two notices an agent may open with, and whether one was SPOKEN — hard rule 5.
+
+TWO HALVES, ONE MODULE (D-163). What an agent is configured to SAY at the start of a
+call, and whether it was OBSERVED saying it, are the two ends of the same obligation, and
+splitting them across modules is how the seed's bundled Telugu line survived as long as
+it did — nobody owned the sentence, so nobody noticed it was two sentences.
+
+- **The copy half** — the two template tables an agent is born with, and the
+  client-facing wording of what the toggles do NOT do.
+- **The evidence half** (`disclosure_spoken`) scores a finished call's transcript.
+
+The RULE that turns a posture into a spoken opening is one step further out, in
+`calevate_shared.engine.compose_opening_line`, beside the `AgentConfig.opening_line`
+field it produces and the prompt composer that consumes it — that module's docstring
+argues the seam. Product copy here, contract there.
+
+WHAT D-163 CHANGED, because the docstring below still argues the old rule in places.
+SEC-COMP §2 states two invariants — AI disclosure and recording notice — and they shared
+ONE column (`agents.disclosure_line`, seeded `"…idi {business} AI assistant. Ee call
+record avutundi."`). They are different obligations under different regimes (TRAI/UCC vs
+DPDP notice-and-consent), and the founder's decision is that BOTH are per-agent toggles
+on inbound and outbound alike. What is NOT toggleable, and is enforced where no client
+can reach it, is the ANSWER to a caller who asks outright: see
+`calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`.
+
+--------------------------------------------------------------------------------
+THE EVIDENCE HALF
+--------------------------------------------------------------------------------
 
 `calls.disclosure_played` has existed since the first migration (`05bba2f3c19c`). It is
 rendered on the client's call detail screen (`DisclosureNotice`) and on the weekly QA
@@ -57,7 +84,95 @@ from collections.abc import Sequence
 
 from apps.api.compliance.optout import SpokenTurn, normalize_utterance
 
-__all__ = ["disclosure_spoken"]
+__all__ = [
+    "AI_DISCLOSURE_TEMPLATES",
+    "DEFAULT_LANGUAGE",
+    "RECORDING_NOTICE_TEMPLATES",
+    "TRUTHFUL_ANSWER_PROMISE",
+    "ai_disclosure_for",
+    "bundled_disclosure_line",
+    "disclosure_spoken",
+    "recording_notice_for",
+]
+
+#: `TRUTHFUL_ANSWER_DIRECTIVE` said to a business owner instead of to a model (D-163).
+#:
+#: Composed HERE and returned by the API rather than written into a screen, for the reason
+#: `publishing.PRECEDENCE_RULE` is: this sentence is the boundary of what the two toggles
+#: below do, and a client-facing surface that paraphrased it could promise the opposite of
+#: what the platform enforces. One wording, served, everywhere it is shown.
+TRUTHFUL_ANSWER_PROMISE = (
+    "Whatever these settings say, the agent always answers honestly when a caller asks. "
+    '"Am I speaking to a person?" is answered "I am an AI assistant", and "is this call '
+    'being recorded?" is answered yes. This cannot be switched off and no script can '
+    "override it."
+)
+
+#: The language every template table falls back to. Telugu is the product default (D-36)
+#: but English is the FALLBACK, because a template rendered in a language the business
+#: does not speak is worse than one rendered in the lingua franca.
+DEFAULT_LANGUAGE = "en-IN"
+
+#: Sentence one: **"you are talking to an AI"** — the TRAI/UCC-side obligation.
+#:
+#: Split out of `admin/service.DISCLOSURE_TEMPLATES`, which bundled it with the recording
+#: notice in one string. That bundling is why the two invariants SEC-COMP §2 states
+#: separately could only ever be switched on and off together: there was one column, so
+#: there was one answer.
+AI_DISCLOSURE_TEMPLATES: dict[str, str] = {
+    "te-IN": "Namaskaram, idi {business} AI assistant.",
+    "hi-IN": "Namaste, main {business} ka AI assistant hoon.",
+    "en-IN": "Hello, this is the AI assistant for {business}.",
+}
+
+#: Sentence two: **"this call is recorded"** — the DPDP notice-and-consent side, and a
+#: different regime from the sentence above. Deliberately business-agnostic: it takes no
+#: `{business}` placeholder, because the AI sentence has already named the caller's
+#: counterparty and a second naming reads as a script that lost its place.
+RECORDING_NOTICE_TEMPLATES: dict[str, str] = {
+    "te-IN": "Ee call record avutundi.",
+    "hi-IN": "Yeh call record ho rahi hai.",
+    "en-IN": "This call is being recorded.",
+}
+
+
+def _rendered(templates: dict[str, str], language: str, business: str) -> str:
+    template = templates.get(language, templates[DEFAULT_LANGUAGE])
+    return template.format(business=business) if "{business}" in template else template
+
+
+def ai_disclosure_for(*, language: str, business: str) -> str:
+    """The AI sentence a NEW agent starts with. Always non-empty."""
+    return _rendered(AI_DISCLOSURE_TEMPLATES, language, business)
+
+
+def recording_notice_for(*, language: str) -> str:
+    """The recording sentence a NEW agent starts with. Always non-empty."""
+    return _rendered(RECORDING_NOTICE_TEMPLATES, language, business="")
+
+
+def bundled_disclosure_line(*, ai_disclosure_line: str, recording_notice_line: str) -> str:
+    """The LEGACY `agents.disclosure_line` value — both sentences, whatever the toggles.
+
+    STEP 1 OF A TWO-STEP DEPRECATION (hard rule 8: never drop in the release that stops
+    writing). The column is still NOT NULL with a non-empty CHECK and is still written by
+    every writer of the two sentences, so a reader that has not migrated — the admin
+    console's roster, an operator's ad-hoc SQL — keeps getting a sensible sentence.
+
+    IGNORING THE TOGGLES IS WHAT MAKES IT SAFE, and it is the whole reason this is not
+    `compose_opening_line`. The column's CHECK forbids an empty value, so it cannot hold
+    the composed opening (which may legitimately be empty), and a column that silently
+    held "the opening, unless the opening is empty, in which case the old one" would be a
+    third meaning nobody could name. It holds the two sentences an agent HAS. What it is
+    not, since D-163, is a statement about what is SPOKEN — that is `opening_line`, and
+    step 2 (dropping this column) is named in D-163.
+
+    Two strings rather than a `DisclosurePosture`, because both of its callers have the
+    sentences and neither has (or should consult) the switches: the onboarding templates,
+    and the experiment promotion that makes an arm's AI sentence the agent's.
+    """
+    parts = [ai_disclosure_line.strip(), recording_notice_line.strip()]
+    return " ".join(part for part in parts if part)
 
 
 def disclosure_spoken(turns: Sequence[SpokenTurn], *, disclosure_line: str) -> bool | None:
@@ -84,9 +199,14 @@ def disclosure_spoken(turns: Sequence[SpokenTurn], *, disclosure_line: str) -> b
     """
     needle = normalize_utterance(disclosure_line)
     if not needle:
-        # A tenant cannot reach this — `agents.disclosure_line` is NOT NULL and the
-        # compliance gate refuses an empty one — but a fixture or a future importer can,
-        # and "the empty string is in every transcript" would certify every call ever.
+        # THIS IS NOW A REACHABLE, INTENDED STATE (D-163), where it used to be a
+        # defensive branch: the pipeline passes the AI sentence only when the agent's
+        # `ai_disclosure_enabled` toggle is on, and the empty string otherwise. An agent
+        # that was never asked to volunteer the sentence has nothing to be scored against
+        # — which is precisely the `None` this tri-state already means, and precisely
+        # what stops the QA queue rendering a lawful choice as a red `False` on every
+        # call. Independent of the toggle, "the empty string is in every transcript"
+        # would certify every call ever, so the guard is load-bearing both ways.
         return None
     spoken = [
         normalized

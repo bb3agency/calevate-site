@@ -64,9 +64,15 @@ make web-check                # frontend: typecheck + lint + vitest (D-53)
 3. Every table in `apps/api/db/registry.APPEND_ONLY_TABLES`: INSERT-only. Corrections are
    compensating entries. Named, not copied — this rule shipped listing three and the set
    has more than doubled; `check_ledger_immutability` reads the constant.
-4. Compliance: agent disclosure line non-null; campaign launch always goes through the
-   compliance gate — no test bypasses; transcripts serialize as redacted by default; raw
-   text requires role check + audit_log write.
+4. Compliance: an agent ALWAYS answers truthfully when asked whether it is an AI or
+   whether the call is recorded — server-composed, appended to every prompt, verified
+   against the engine, unreachable from any column or script. What it VOLUNTEERS at the
+   start of a call is two per-agent toggles (D-163: AI disclosure and recording notice
+   are separate obligations under separate regimes); both sentences stay NOT NULL and
+   non-blank on the row, and the dial gate still refuses an agent with no AI sentence.
+   Campaign launch always goes through the compliance gate — no test bypasses;
+   transcripts serialize as redacted by default; raw text requires role check +
+   audit_log write.
 5. No PII (phones, transcript text, extraction data) in logs or traces; ids only.
 6. Money = NUMERIC INR. Time = timestamptz UTC. Phone = E.164. IDs = uuid_v7.
 7. Migrations reversible; column removal is two-step across releases.

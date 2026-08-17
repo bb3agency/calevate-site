@@ -701,6 +701,18 @@ function LiveConfirmation({
                   label="Disclosure (in script)"
                   verdict={engineState.data.prompt_disclosure_applied}
                 />
+                {/* D-163. The one verdict on this panel that no client setting can
+                    explain away: the platform rules that make the agent admit it is an
+                    AI and admit the call is recorded when a caller ASKS. Rendered here
+                    rather than folded into "Script" because it sits at the TAIL of the
+                    prompt, which is where a vendor length ceiling truncates — so an
+                    engine can hold every word of the script and none of the rules under
+                    it, and a single verdict would report that agent green. A `false`
+                    here is `runbooks/agent-engine-drift.md`'s gravest case. */}
+                <PropertyVerdict
+                  label="Truthful-answer rule"
+                  verdict={engineState.data.truthful_answer_applied}
+                />
                 <PropertyVerdict label="Voice" verdict={engineState.data.voice_applied} />
               </dl>
             </>

@@ -228,10 +228,11 @@ async def test_every_query_shape_on_the_four_tables_still_reaches_an_index() -> 
         )
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, engine, disclosure_line, name, direction, "
-                "language_primary, status, created_at, updated_at) VALUES (:aid, :tid, 'fake', "
-                "'This is an AI assistant.', 'Audit agent', 'inbound', 'te-IN', 'draft', "
-                "now(), now())"
+                "INSERT INTO agents (id, tenant_id, engine, disclosure_line, ai_disclosure_line, "
+                "recording_notice_line, name, direction, language_primary, status, created_at, "
+                "updated_at) VALUES (:aid, :tid, 'fake', 'This is an AI assistant.', 'This is an "
+                "AI assistant.', 'This call is being recorded.', 'Audit agent', 'inbound', "
+                "'te-IN', 'draft', now(), now())"
             ),
             {"aid": agent_id, "tid": tenant_id},
         )

@@ -207,6 +207,13 @@ FLOOR_OUTCOME: Final = "retained_under_legal_floor"
 # and the module docstring's second conflict note for why it exists.
 KB_OUTCOME: Final = "not_searched"
 
+#: A backup taken before the erasure still holds the record until the window closes. Its
+#: own outcome word rather than `retained_as_record`: nothing is being KEPT here as a
+#: matter of policy — the record is gone from every live system, and what remains is a
+#: bounded lag in a medium that must not be edited. A client reading the certificate
+#: needs to tell "we hold this deliberately" from "this expires shortly".
+BACKUP_OUTCOME: Final = "expires_with_backup"
+
 
 @dataclass(frozen=True, slots=True)
 class ErasureLimitation:
@@ -228,6 +235,21 @@ class ErasureLimitation:
     outcome: str
     why: str
     authority: str
+
+
+#: How long a backup can still contain a record this request erased.
+#:
+#: NOT a policy set here — it is `infra/backup/README.md` §"Retention", where BOTH arms
+#: (R2 point-in-time via `wal-g delete retain FULL 35`, and the offsite dumps via
+#: `rclone delete --min-age 35d`) are pruned on the same clock. That file already reasons
+#: about this exact consequence: "every extra day of retention is an extra day in which an
+#: erasure request cannot fully reach our data", and 35 is the smallest window that still
+#: covers the longest routine reason to restore.
+#:
+#: It is a constant HERE because the certificate now states it to a data principal, and a
+#: number quoted in prose that must match an ops runbook is the drift class D-103 exists
+#: for. If the runbook's window changes, this changes with it.
+BACKUP_WINDOW_DAYS = 35
 
 
 # What the erasure does NOT do. Shipped with every response on this surface AND written
@@ -276,6 +298,13 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "no screen shows. If this person's details could have been put into that content, "
     "finding and removing them is a manual step — on our copy and on the voice engine's "
     "copy of the same source.",
+    "Backups: this erasure runs against the live systems, and a backup taken BEFORE it "
+    f"still contains the erased records until that backup ages out — up to "
+    f"{BACKUP_WINDOW_DAYS} days. Backups are never searched or edited to remove one "
+    "person: a backup that has been rewritten is no longer a backup, and the ability to "
+    "restore is itself a protection this data depends on. Nothing reads a backup in "
+    "normal operation. If one is ever restored, the erasure is re-applied to the "
+    "restored copy as part of the restore.",
 )
 
 # The same register, structured, and the half that rides the CERTIFICATE. Prose is what
@@ -410,6 +439,31 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "transcript, lead, consent_log) do not cover it, so no TTL reaches it. "
             "Whether a client's uploaded knowledge should have a retention period at "
             "all is undecided in both documents."
+        ),
+    ),
+    ErasureLimitation(
+        what="Backup copies taken before this erasure ran.",
+        keyword="backup",
+        outcome=BACKUP_OUTCOME,
+        why=(
+            "This erasure runs against the live systems. A backup taken before it still "
+            "holds the erased records until that backup ages out, which takes up to "
+            f"{BACKUP_WINDOW_DAYS} days. Backups are deliberately never searched or "
+            "edited to remove one person: a backup that has been rewritten can no "
+            "longer be trusted to restore anything, and being able to restore is itself "
+            "a protection this data depends on. Nothing reads a backup in normal "
+            "operation, and if one is ever restored the erasure is re-applied to the "
+            "restored copy as part of the restore."
+        ),
+        authority=(
+            "DPDP §8(7)'s storage limitation read against §8(5)'s duty to keep "
+            "reasonable security safeguards: a backup window is a safeguard, and the "
+            "erasure is completed rather than cancelled by it — which is why the window "
+            "is bounded and stated rather than open-ended. The number is "
+            "`infra/backup/README.md`'s retention section, where both arms prune on the "
+            "same clock and the file's own reasoning names this consequence: 'every "
+            "extra day of retention is an extra day in which an erasure request cannot "
+            "fully reach our data.'"
         ),
     ),
 )
@@ -646,6 +700,8 @@ async def list_requests(session: AsyncSession, *, limit: int = 100) -> list[Dele
 
 
 __all__ = [
+    "BACKUP_OUTCOME",
+    "BACKUP_WINDOW_DAYS",
     "DELETION_JOB",
     "DELETION_SCOPE",
     "ERASURE_EXCEPTIONS",

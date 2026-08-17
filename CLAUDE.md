@@ -83,11 +83,20 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    — a count in prose is the defect class D-103/D-105 exist for. `check_ledger_immutability`
    reads the constant and verifies the DB trigger on each; a bounded exception (D-97's
    KEK re-wrap) is one file-scoped entry there, never a relaxation of the trigger.
-5. **Compliance invariants**: agents always have a non-null disclosure line; campaign
-   launch path must call the compliance gate (SECURITY-COMPLIANCE.md §3) — never add a
-   bypass "for testing" (use staging fixtures instead); DNC additions propagate before
-   next dispatch tick; transcripts default to `text_redacted` in every API response —
-   raw text only behind role check + audit_log write.
+5. **Compliance invariants**: an agent ALWAYS answers truthfully when a caller asks
+   whether it is an AI or whether the call is recorded — enforced server-side, appended
+   to every prompt by `compose_engine_prompt`, and verified against the engine on every
+   publish and every drift sweep; no column, config row or client-authored script can
+   withdraw it. What an agent VOLUNTEERS at the start of a call is two per-agent toggles
+   (D-163): the AI disclosure and the recording notice are separate obligations under
+   separate regimes and are separately switchable, on inbound and outbound alike. Every
+   agent still HAS both sentences on file — `agents.ai_disclosure_line` /
+   `recording_notice_line` NOT NULL and non-blank — and the dial gate still refuses an
+   agent with no AI sentence. Campaign launch path must call the compliance gate
+   (SECURITY-COMPLIANCE.md §3) — never add a bypass "for testing" (use staging fixtures
+   instead); DNC additions propagate before next dispatch tick; transcripts default to
+   `text_redacted` in every API response — raw text only behind role check + audit_log
+   write.
 6. **PII in logs**: never log phone numbers, transcript text, or extraction payloads.
    Log ids. Langfuse traces go through the redaction hook.
 7. **Money**: NUMERIC, INR, never floats. Costs recorded per usage_event with our

@@ -21,8 +21,6 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from apps.api.compliance.deletion import ERASURE_EXCEPTIONS, ERASURE_LIMITATIONS
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SEC_COMP = REPO_ROOT / "docs" / "SECURITY-COMPLIANCE.md"
 
@@ -55,20 +53,6 @@ KNOWN_OPEN_DPDP_GAPS: dict[str, str] = {
         "SECURITY-COMPLIANCE §1 is outside its writable set, and the floor is a term in "
         "the client DPA rather than an implementation detail."
     ),
-    "the_erasure_notice_does_not_mention_backups": (
-        "Both backup chains retain 35 days (D-50), so for up to 35 days after a completed "
-        "erasure the person's data still exists in a base backup, in the WAL segments and "
-        "in the offsite dump — and a point-in-time restore un-erases anyone whose request "
-        "completed after the recovery target. Every OTHER limitation of the erasure is "
-        "disclosed on the certificate; this one is not, and the asymmetry is the defect: "
-        "a data principal reading the register would reasonably conclude it is exhaustive. "
-        "`runbooks/database-restore.md` already makes replaying erasures a mandatory "
-        "restore step, so the operational half exists. CLOSED BY: the founder with "
-        "counsel adding a backup clause to `ERASURE_LIMITATIONS`/`ERASURE_EXCEPTIONS` and "
-        "to SECURITY-COMPLIANCE §4 in the same release — a sentence in a notice that "
-        "clients hand to data principals is a commitment, not a code change, which is "
-        "why §4 already records it as reserved."
-    ),
     "uploaded_campaign_contacts_have_no_retention_clock": (
         "The ERASURE half of P3.1 is closed in code: `_erase_campaign_contacts` reaches "
         "`campaign_contacts` from both the per-subject and the tenant-wide path, "
@@ -100,14 +84,6 @@ async def _floor_is_attributed_to_trai() -> bool:
     return "TRAI recording rule" in text and "90-day minimum retention" in text
 
 
-async def _no_limitation_mentions_backups() -> bool:
-    """Neither half of the register says a word about backups or restores."""
-    said = " ".join(
-        [*ERASURE_LIMITATIONS, *(f"{e.what} {e.why} {e.authority}" for e in ERASURE_EXCEPTIONS)]
-    ).lower()
-    return "backup" not in said and "restore" not in said
-
-
 async def _no_retention_category_reaches_campaign_contacts() -> bool:
     """The CHECK constraint still admits no category an uploaded contact list fits.
 
@@ -137,7 +113,6 @@ async def _no_retention_category_reaches_campaign_contacts() -> bool:
 #: assertion below reads as one loop rather than as two kinds of entry.
 PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
     "recording_floor_cites_an_authority_that_may_not_impose_it": _floor_is_attributed_to_trai,
-    "the_erasure_notice_does_not_mention_backups": _no_limitation_mentions_backups,
     "uploaded_campaign_contacts_have_no_retention_clock": (
         _no_retention_category_reaches_campaign_contacts
     ),

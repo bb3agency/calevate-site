@@ -77,7 +77,14 @@ from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
 
-from calevate_shared.engine import AgentConfig, CallContext, ModelConfig, VoiceEngine
+from calevate_shared.engine import (
+    AgentConfig,
+    CallContext,
+    DisclosurePosture,
+    ModelConfig,
+    VoiceEngine,
+    compose_opening_line,
+)
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -134,7 +141,12 @@ async def _load_agent(
             text(
                 "SELECT a.id, a.name, a.direction, a.language_primary, a.disclosure_line, "
                 "a.stt_provider, a.stt_model, a.llm_model, a.tts_provider, a.tts_voice, "
-                "a.engine, a.engine_agent_ref, a.status, pv.body, a.max_call_duration_s "
+                "a.engine, a.engine_agent_ref, a.status, pv.body, a.max_call_duration_s, "
+                # The four columns that decide what this agent OPENS with (D-163). Read
+                # here, on the one path that builds an `AgentConfig`, so a publish and
+                # the drift read can never disagree about the posture.
+                "a.ai_disclosure_line, a.ai_disclosure_enabled, "
+                "a.recording_notice_line, a.recording_notice_enabled "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
@@ -162,7 +174,27 @@ async def _load_agent(
         "status": row[12],
         "prompt": row[13],
         "max_call_duration_s": row[14],
+        "ai_disclosure_line": row[15],
+        "ai_disclosure_enabled": row[16],
+        "recording_notice_line": row[17],
+        "recording_notice_enabled": row[18],
     }
+
+
+def posture_of(agent: dict[str, object]) -> DisclosurePosture:
+    """The agent row's four disclosure columns as the one value the composer takes.
+
+    Here rather than inline in `_to_config` because `_variant_config` needs the same
+    posture with ONE field swapped (an experiment arm may carry its own AI sentence), and
+    two hand-rolled constructions of the same dataclass is where an arm silently starts
+    disclosing on a different setting from the agent it is testing.
+    """
+    return DisclosurePosture(
+        ai_disclosure_line=str(agent["ai_disclosure_line"]),
+        ai_disclosure_enabled=bool(agent["ai_disclosure_enabled"]),
+        recording_notice_line=str(agent["recording_notice_line"]),
+        recording_notice_enabled=bool(agent["recording_notice_enabled"]),
+    )
 
 
 def _assert_has_a_script(agent: dict[str, object]) -> str:
@@ -210,8 +242,13 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
         direction=str(agent["direction"]),
         language_primary=str(agent["language_primary"]),
         system_prompt=_assert_has_a_script(agent),
-        # Never defaulted, never blank — the schema enforces it and so does the gate.
-        disclosure_line=str(agent["disclosure_line"]),
+        # WHAT THE AGENT VOLUNTEERS FIRST, composed from this agent's two toggles by the
+        # one composer (D-163). Empty is a legitimate answer — both notices switched off
+        # — and is NOT the old "missing disclosure" state: the AI sentence is still
+        # NOT NULL on the row, the compliance gate still refuses an agent without one,
+        # and the answer to a caller who ASKS is `TRUTHFUL_ANSWER_DIRECTIVE`, which no
+        # column on this row can reach.
+        opening_line=compose_opening_line(posture_of(agent)),
         models=ModelConfig(
             stt_provider=agent["stt_provider"],
             stt_model=agent["stt_model"],
@@ -334,6 +371,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
                 "prompt_applied": verdict.prompt_applied,
                 "disclosure_applied": verdict.disclosure_applied,
                 "prompt_disclosure_applied": verdict.prompt_disclosure_applied,
+                "truthful_answer_applied": verdict.truthful_answer_applied,
                 "voice_applied": verdict.voice_applied,
             },
         )
@@ -452,9 +490,22 @@ def _variant_config(
             "agent_id": str(variant_id),
             "name": f"{agent['name']} [variant {label}]",
             "system_prompt": body,
-            # Hard rule 5 travels WITH the arm. The column is NOT NULL and non-empty at
-            # the schema, so there is no value of it that publishes an undisclosed agent.
-            "disclosure_line": disclosure,
+            # THE ARM'S OWN AI SENTENCE, THROUGH THE AGENT'S OWN TOGGLES (D-163). A
+            # variant carries its own `disclosure_line` (NOT NULL, non-empty) because an
+            # A/B test of a script legitimately tests its opening; the POSTURE — whether
+            # either notice is volunteered at all — is a property of the agent and is not
+            # forked per arm. Recomposing here rather than substituting the raw sentence
+            # is what makes a toggle flip reach the arms: `republish_running_variants`
+            # rebuilds every arm from the agent, so an arm cannot go on greeting callers
+            # with a notice its agent has withdrawn.
+            "opening_line": compose_opening_line(
+                DisclosurePosture(
+                    ai_disclosure_line=disclosure,
+                    ai_disclosure_enabled=bool(agent["ai_disclosure_enabled"]),
+                    recording_notice_line=str(agent["recording_notice_line"]),
+                    recording_notice_enabled=bool(agent["recording_notice_enabled"]),
+                )
+            ),
         }
     )
 
@@ -507,6 +558,7 @@ async def publish_variant(
                 "prompt_applied": verdict.prompt_applied,
                 "disclosure_applied": verdict.disclosure_applied,
                 "prompt_disclosure_applied": verdict.prompt_disclosure_applied,
+                "truthful_answer_applied": verdict.truthful_answer_applied,
             },
         )
         raise ProblemError(

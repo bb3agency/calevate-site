@@ -142,10 +142,11 @@ async def _seed_route(engine_agent_ref: str) -> uuid.UUID:
         )
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
-                "'Receptionist', 'inbound', 'Idi AI assistant. Call record avutundi.', 'live', "
-                "'bolna', :ref, now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
+                "created_at, updated_at) VALUES (:id, :tid, 'Receptionist', 'inbound', 'Idi AI "
+                "assistant. Call record avutundi.', 'Idi AI assistant. Call record avutundi.', "
+                "'This call is being recorded.', 'live', 'bolna', :ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": engine_agent_ref},
         )

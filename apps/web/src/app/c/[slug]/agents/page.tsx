@@ -25,7 +25,12 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
-import { useAgents, type Agent, type AgentExtractionField } from "@/lib/api/agents";
+import {
+  useAgents,
+  useSetDisclosure,
+  type Agent,
+  type AgentExtractionField,
+} from "@/lib/api/agents";
 import {
   useLanes,
   usePendingChanges,
@@ -290,41 +295,7 @@ function AgentCard({ agent, slug }: { agent: Agent; slug: string }) {
 
         <PublishingPanel agent={agent} />
 
-        {/* Rendered as the sentence it is, not as a config value: this is spoken aloud,
-            and reading it in quotes is how a client notices the business name or the
-            purpose is wrong. Not framed as their choice — we write it to satisfy the
-            disclosure rule — but it is theirs to check. It is READ-ONLY here, which is
-            also how hard rule 5 is kept: a screen with no editor has no way to empty a
-            line the law requires. */}
-        <section>
-          <SectionHeading icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-            What it says at the start of every call
-          </SectionHeading>
-          {agent.disclosure_line.trim() ? (
-            <blockquote className="mt-2 border-l-2 border-brand pl-3 text-sm italic text-ink">
-              “{agent.disclosure_line}”
-            </blockquote>
-          ) : (
-            /* The column is `NOT NULL` with `length(disclosure_line) > 0`
-               (agents/models.py, `disclosure_nonempty`) — which whitespace satisfies.
-               A blank quote would read as "the agent says nothing", the one failure
-               here that must not be silent (hard rule 5). */
-            <p
-              className={`mt-2 flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES.stop}`}
-            >
-              <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-              <span>
-                This agent has no opening line on file. Tell your account manager before it
-                takes a call — every call has to open by announcing itself.
-              </span>
-            </p>
-          )}
-          <p className="mt-2 text-xs text-ink-muted">
-            Every call opens with this line, spoken under your business name. Callers are
-            told they are speaking to an AI assistant before anything else happens. If
-            anything in it is wrong, tell your account manager — it cannot be removed.
-          </p>
-        </section>
+        <OpeningNotices agent={agent} />
 
         <section>
           <SectionHeading icon={<ListChecks className="h-3.5 w-3.5" />}>
@@ -373,6 +344,166 @@ function AgentCard({ agent, slug }: { agent: Agent; slug: string }) {
         </section>
       </div>
     </Card>
+  );
+}
+
+/**
+ * The two opening notices, as switches — and the one sentence the switches do not reach.
+ *
+ * ## What the client is actually deciding (D-163)
+ *
+ * SEC-COMP §2 states two invariants that used to share one database column: "this is an
+ * AI" (TRAI/UCC) and "this call is recorded" (DPDP notice-and-consent). They are separate
+ * obligations under separate regimes, and they are now separate switches — because the
+ * client is the Principal Entity and the exposure is theirs to carry. `org:manage` is the
+ * owner's permission and no admin or impersonating session holds it against a tenant
+ * (D-22), so this is one of the few controls on the client app that is genuinely and
+ * only theirs. Every flip is written to the audit log.
+ *
+ * ## Why the copy is written the way it is
+ *
+ * Three sentences a screen like this gets wrong, all of them avoided here:
+ *
+ * - **"Off" does not mean the agent lies.** `truthful_answer_rule` comes from the server
+ *   (`compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`) and is rendered verbatim, above
+ *   the switches rather than under them. Paraphrasing it here is how a client ends up
+ *   believing they bought a bot that can pass for human.
+ * - **"Off" does not stop the recording.** Nothing in the product can, so the recording
+ *   switch says what it moves — the notice — and not what it does not.
+ * - **"Off" does not discharge the obligation.** It moves where the notice is given.
+ *   Naming that plainly is the difference between a setting and a trap.
+ *
+ * `opening_line` is the SERVER's composition of what callers now hear, quoted back. This
+ * screen never joins the two sentences itself: that would be a second implementation of
+ * a compliance rule, and the second one is where the drift starts.
+ */
+function OpeningNotices({ agent }: { agent: Agent }) {
+  const session = useClientSession();
+  const setDisclosure = useSetDisclosure(session, agent.id);
+
+  return (
+    <section>
+      <SectionHeading icon={<ShieldCheck className="h-3.5 w-3.5" />}>
+        What it says at the start of every call
+      </SectionHeading>
+
+      {/* FIRST, and deliberately not last: the guarantee has to be read before the
+          switches, or a client reads two "off" positions and infers the opposite. */}
+      <p
+        className={`mt-2 flex items-start gap-2 rounded-lg border p-3 text-sm ${NOTICE_TONES.neutral}`}
+      >
+        <ShieldCheck aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{agent.truthful_answer_rule}</span>
+      </p>
+
+      {setDisclosure.error && <ProblemNotice error={setDisclosure.error} />}
+
+      <div className="mt-4 space-y-3">
+        <NoticeToggle
+          label="Say it is an AI assistant"
+          hint="Spoken first, before anything else, in your language."
+          quote={agent.ai_disclosure_line}
+          checked={agent.ai_disclosure_enabled}
+          pending={setDisclosure.isPending}
+          offNote="Callers are not told at the start of the call. If one asks, the agent still says it is an AI."
+          onChange={(next) => setDisclosure.mutate({ ai_disclosure_enabled: next })}
+        />
+        <NoticeToggle
+          label="Say the call is being recorded"
+          hint="Spoken with the line above, at the start of the call."
+          quote={agent.recording_notice_line}
+          checked={agent.recording_notice_enabled}
+          pending={setDisclosure.isPending}
+          offNote="Calls are still recorded — this only stops the agent announcing it. Telling callers their call is recorded is still your responsibility under the DPDP Act; with this off, it has to be covered by your own privacy notice or consent. If a caller asks, the agent still says yes."
+          onChange={(next) => setDisclosure.mutate({ recording_notice_enabled: next })}
+        />
+      </div>
+
+      {/* The server's composition, quoted — this is the actual first utterance. */}
+      <div className="mt-4">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+          What callers hear first
+        </p>
+        {agent.opening_line.trim() ? (
+          <blockquote className="mt-2 border-l-2 border-brand pl-3 text-sm italic text-ink">
+            “{agent.opening_line}”
+          </blockquote>
+        ) : (
+          <p className="mt-2 text-sm text-ink-muted">
+            Nothing. The agent opens straight into its script. It still answers honestly if
+            a caller asks whether it is an AI or whether the call is recorded.
+          </p>
+        )}
+        <p className="mt-2 text-xs text-ink-muted">
+          Changes take effect on the next call. The wording itself is written by your
+          account manager — tell them if anything in it is wrong.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One notice, as a switch with its sentence under it.
+ *
+ * A native `<input type="checkbox" role="switch">` rather than a styled `<div>`: it is
+ * keyboard-operable, it announces its own state, and it is the one control on this screen
+ * a screen-reader user must be able to find and change (`tests/a11y.test.tsx` walks this
+ * page). The visual switch is drawn from the input's own `peer` state, so what is painted
+ * and what is checked cannot disagree.
+ *
+ * `pending` disables BOTH switches while either is in flight. The two write one row, and
+ * a second click before the first response is a lost update the API has no way to catch —
+ * `null` means "leave alone", so the second request would carry the pre-flight value of
+ * neither field and simply race.
+ */
+function NoticeToggle({
+  label,
+  hint,
+  quote,
+  checked,
+  pending,
+  offNote,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  quote: string;
+  checked: boolean;
+  pending: boolean;
+  offNote: string;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <div className="rounded-card border border-line bg-app p-4">
+      <label className="flex cursor-pointer items-start gap-3">
+        <input
+          type="checkbox"
+          role="switch"
+          className="peer sr-only"
+          checked={checked}
+          disabled={pending}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+        <span
+          aria-hidden
+          className="relative mt-0.5 h-5 w-9 shrink-0 rounded-full border border-line bg-surface transition-colors peer-checked:border-brand peer-checked:bg-brand peer-disabled:opacity-50 peer-focus-visible:ring-2 peer-focus-visible:ring-brand peer-focus-visible:ring-offset-2 after:absolute after:left-0.5 after:top-0.5 after:h-3.5 after:w-3.5 after:rounded-full after:bg-ink-faint after:transition-transform peer-checked:after:translate-x-4 peer-checked:after:bg-white"
+        />
+        <span className="min-w-0">
+          <span className="block text-sm font-medium text-ink">{label}</span>
+          <span className="block text-xs text-ink-muted">{hint}</span>
+        </span>
+      </label>
+      <blockquote className="mt-3 border-l-2 border-line pl-3 text-sm italic text-ink-muted">
+        “{quote}”
+      </blockquote>
+      {!checked && (
+        <p className={`mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs ${NOTICE_TONES.warn}`}>
+          <CircleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{offNote}</span>
+        </p>
+      )}
+    </div>
   );
 }
 

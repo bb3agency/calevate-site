@@ -167,9 +167,12 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
         name=f"calevate-pilot-{nonce}",
         direction="outbound",
         language_primary="te-IN",
-        # Hard rule 5: never None, never empty — and the pilot agent is a real agent
-        # that will really dial a real telephone, so this is not decoration.
-        disclosure_line=("Namaskaram, idi Calevate pilot AI assistant. Ee call record avutundi."),
+        # Hard rule 5. The pilot agent really dials a real telephone, so both notices are
+        # spelled out here rather than left empty: D-163 makes them a per-agent CHOICE,
+        # and the choice a pilot makes is to disclose everything. The truthful-answer
+        # rule rides along whatever this says — `compose_engine_prompt` appends it — which
+        # is itself part of what gate 2 puts in front of a real vendor.
+        opening_line=("Namaskaram, idi Calevate pilot AI assistant. Ee call record avutundi."),
         system_prompt=(
             f"You are a pilot test agent. {prompt_marker} "
             "When the caller speaks, greet them and read back the context variable "

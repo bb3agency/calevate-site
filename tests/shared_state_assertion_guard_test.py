@@ -1,6 +1,6 @@
 """A test may not count a globally-visible table without saying why that is safe.
 
-THE DEFECT CLASS, and it has produced four members that we know of:
+THE DEFECT CLASS, and it has produced five members that we know of:
 
   * `outbox_backpressure_test` asserted `during.deferred - before.deferred == 3` and
     `after.deferred == before.deferred` against fleet-wide counters, while its own setup
@@ -28,6 +28,18 @@ constraint makes it a singleton, which no amount of local analysis can see, and 
 registry cannot be fooled and cannot be subtly wrong; the cost is one line of prose per
 site, written at the moment somebody is actually thinking about it. It is the same shape
 as `db/registry.RLS_EXEMPT_TENANT_COLUMNS`, for the same reason.
+
+A FIFTH MEMBER, found after this file existed, and it is why the second check below
+exists. `outbox_probe_and_prune_test` seeds rows aged `RELIABILITY_PRUNE_AFTER * 10` —
+900 days — to prove the nightly sweep will NOT delete a `failed` or `pending` row however
+old it is. Correct assertion, necessary rows, and it never deleted them. `claim_outbox_batch`
+is oldest-first over the WHOLE table, so each run left two more rows permanently at the head
+of every dispatcher's queue, ahead of the 30-day backdating `reliability_audit_test` uses so
+that its own rows come first. After thirty orphans had accumulated,
+`test_two_dispatchers_never_claim_the_same_outbox_row` began failing with both claimers
+holding somebody else's rows — a failure naming SKIP LOCKED, which had been working the
+whole time. The count check below could not see it: nothing was counted, something was
+LEFT.
 
 WHAT IS NOT COVERED, said plainly. This sees whole-table COUNTS on tables no tenant policy
 scopes. It does not see: counts on tenant tables taken from an `admin_session` (RLS is what
@@ -182,3 +194,54 @@ def test_every_reason_is_a_sentence_rather_than_a_shrug() -> None:
     exemption nobody had to justify."""
     for (name, table), reason in UNSCOPED_COUNT_REASONS.items():
         assert len(reason) >= 80, f"{name}:{table} has a reason too short to be one: {reason!r}"
+
+
+# --- the second shape: rows left behind in a globally-ordered queue ------------
+
+#: Tables whose rows a GLOBAL, ordered consumer walks — so a row left behind does not
+#: merely take up space, it changes what every other suite's consumer sees next.
+#:
+#: `outbox_messages` alone, and the narrowness is the point. `claim_outbox_batch` and
+#: `replay_dead_letters` both work oldest-first over the whole table, which is what turns
+#: one forgotten backdated row into a permanent change to every dispatcher's queue head.
+#: `webhook_inbox_events` is read by unique key and by `ORDER BY updated_at DESC LIMIT`,
+#: so litter there is untidy rather than damaging; including it would add two failures
+#: nobody could act on and teach people that this check over-reports.
+GLOBALLY_ORDERED_QUEUES = ("outbox_messages",)
+
+
+def test_a_test_that_seeds_a_global_queue_also_empties_it() -> None:
+    """Insert into the outbox and you must delete from it in the same file.
+
+    NOT INVENTED HERE — this codifies what seven of the seven suites that seed
+    `outbox_messages` already do, and `reliability_audit_test._retire` states the reason
+    in full: rows "must not sit at the head of another suite's dispatcher tick, and they
+    must not sit at the head of the NEXT test in this file either". The eighth suite was
+    the one that broke the seventh.
+
+    A file-level rule rather than a row-level one, because row-level cleanup cannot be
+    read off the source: rows are seeded through helpers, in loops, sometimes by
+    `enqueue_outbox`. What IS decidable is whether the file cleans up at all, and a file
+    that inserts and never deletes has no cleanup to have got wrong.
+
+    The failure mode this cannot see is a DELETE that misses some of what the file
+    seeded — which is why `outbox_probe_and_prune_test` verifies its own teardown by
+    counting its marker to zero after a full run, rather than trusting that a delete
+    exists.
+    """
+    litterers: list[str] = []
+    for path in sorted(TESTS.glob("*_test.py")):
+        source = _code_only(path.read_text(encoding="utf-8"))
+        for table in GLOBALLY_ORDERED_QUEUES:
+            if f"INSERT INTO {table}" not in source:
+                continue
+            if f"DELETE FROM {table}" in source:
+                continue
+            litterers.append(f"{path.name} seeds `{table}` and never deletes from it")
+    assert not litterers, (
+        "\n  ".join(["these leave rows in a queue every other suite's consumer walks:", *litterers])
+        + "\n\nBoth `claim_outbox_batch` and `replay_dead_letters` are oldest-first over the "
+        "WHOLE table, so a leftover row — especially a backdated one — sits at the head of "
+        "every dispatcher's queue for good. Delete what you seed, in a module-scoped "
+        "teardown so a failing assertion still cleans up."
+    )

@@ -47,14 +47,17 @@ from __future__ import annotations
 from typing import Annotated
 from uuid import UUID
 
+from calevate_shared.engine import DisclosurePosture, compose_opening_line
 from calevate_shared.extraction import ExtractionField
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
 from apps.api.agents.service import publish_agent
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
@@ -81,9 +84,26 @@ class AgentOut(BaseModel):
     direction: str
     status: str
     language_primary: str
-    # Shown to the client verbatim: they are legally the Principal Entity, so they
-    # need to be able to read what their agent announces (SEC-COMP §1).
+    # THE LEGACY BUNDLE, kept on the wire for step 1 of D-163's two-step deprecation:
+    # both sentences joined whatever the toggles say. Read it as "the notices this agent
+    # HAS", never as "what it says" — `opening_line` below is what it says.
     disclosure_line: str
+    # THE SPLIT (D-163). Shown to the client verbatim: they are legally the Principal
+    # Entity, so they need to be able to read what their agent announces — and, now that
+    # each half is theirs to switch off, to see the two halves separately.
+    ai_disclosure_line: str
+    ai_disclosure_enabled: bool
+    recording_notice_line: str
+    recording_notice_enabled: bool
+    #: What a caller actually hears first, composed by the server from the two toggles.
+    #: Empty string = this agent volunteers neither notice and opens on its script.
+    #: Composed here rather than left to the screen because a UI that re-joined the two
+    #: sentences itself would be a second implementation of a compliance rule.
+    opening_line: str
+    #: The one sentence no toggle reaches, in words a client can read. Server-composed for
+    #: the same reason the lane table's `why` strings are: a screen that paraphrases this
+    #: is a screen that can accidentally promise the opposite.
+    truthful_answer_rule: str = TRUTHFUL_ANSWER_PROMISE
     engine: str
     published: bool
     extraction_fields: list[ExtractionField] = []
@@ -107,7 +127,9 @@ async def list_agents(
         await session.execute(
             text(
                 "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
-                "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields "
+                "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
+                "a.ai_disclosure_line, a.ai_disclosure_enabled, "
+                "a.recording_notice_line, a.recording_notice_enabled "
                 "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
                 "WHERE a.deleted_at IS NULL ORDER BY a.created_at"
             )
@@ -124,6 +146,20 @@ async def list_agents(
             engine=r[6],
             published=bool(r[7]),
             extraction_fields=[ExtractionField.model_validate(f) for f in (r[8] or [])],
+            ai_disclosure_line=r[9],
+            ai_disclosure_enabled=bool(r[10]),
+            recording_notice_line=r[11],
+            recording_notice_enabled=bool(r[12]),
+            # Through the ONE composer, so the roster, the publish path and the engine
+            # cannot disagree about what this agent opens with (D-163).
+            opening_line=compose_opening_line(
+                DisclosurePosture(
+                    ai_disclosure_line=str(r[9]),
+                    ai_disclosure_enabled=bool(r[10]),
+                    recording_notice_line=str(r[11]),
+                    recording_notice_enabled=bool(r[12]),
+                )
+            ),
         )
         for r in rows
     ]
@@ -188,6 +224,126 @@ async def publish(
         ip=client_request_ip(request),
     )
     return PublishOut(agent_id=agent_id, engine_agent_ref=ref, status="live")
+
+
+class DisclosureIn(BaseModel):
+    """Which notices this agent volunteers. `null` on a field leaves it alone.
+
+    Two nullable booleans rather than two endpoints: the pair is one posture, a screen
+    with two switches sends whichever one moved, and a PATCH that could only send both
+    would make flipping one switch a read-modify-write race against the other.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ai_disclosure_enabled: bool | None = None
+    recording_notice_enabled: bool | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> DisclosureIn:
+        if self.ai_disclosure_enabled is None and self.recording_notice_enabled is None:
+            # A body that names nothing is a client bug, and answering 200 for it would
+            # write an audit row describing a decision nobody took.
+            raise ValueError("name at least one of ai_disclosure_enabled, recording_notice_enabled")
+        return self
+
+
+class DisclosureOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    ai_disclosure_enabled: bool
+    recording_notice_enabled: bool
+    #: What callers now hear first. Empty = the agent volunteers neither notice.
+    opening_line: str
+    #: Did the voice platform get the change? False on an agent that is not live yet —
+    #: there is nothing on the platform to update, and the first publish carries it.
+    engine_synced: bool
+    #: The one behaviour these switches do not reach, in the words the API owns.
+    truthful_answer_rule: str = TRUTHFUL_ANSWER_PROMISE
+
+
+@router.patch(
+    "/v1/agents/{agent_id}/disclosure",
+    response_model=DisclosureOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Switch the AI disclosure and the recording notice on or off (D-163)",
+    description=(
+        "Each opening notice is separately controllable, per agent, on inbound and "
+        "outbound agents alike. A notice switched off means the agent does not VOLUNTEER "
+        "that fact at the start of the call.\n\n"
+        "It does not change what the agent says when a caller ASKS. Asked whether they "
+        "are speaking to a human, the agent says it is an AI assistant; asked whether "
+        "the call is recorded, it says yes. That is composed server-side, appended to "
+        "every agent's instructions after the script, and verified against the voice "
+        "platform on every publish — no script can withdraw it.\n\n"
+        "Switching the recording notice off does not stop the call being recorded, and "
+        "does not discharge the client's own notice obligation under the DPDP Act; it "
+        "moves where that notice is given. Every flip is written to the audit log.\n\n"
+        "Applies immediately: a live agent is re-published to the voice platform in the "
+        "same transaction, so the screen never claims a posture the platform is not "
+        "running."
+    ),
+)
+async def set_disclosure(
+    agent_id: UUID,
+    payload: DisclosureIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> DisclosureOut:
+    """`org:manage`, which is the CLIENT OWNER's permission — and that is the decision.
+
+    The client is the Principal Entity: the calls are made under their identity and their
+    DLT templates, and the disclosure posture is their legal exposure to carry (D-163
+    records the regulatory position and the risk the founder accepted). So the switch
+    belongs to the person who answers for it. `agents:write` would have been the
+    neighbouring choice and is wrong here: it is admin-only, so we would be deciding a
+    client's compliance posture for them and being unable to show them the switch.
+
+    Two consequences of `org:manage` being in `MUTATING_PERMISSIONS`, both intended: an
+    admin-realm token without `X-Impersonate-Org` is refused by the client verifier, and
+    an impersonating operator is refused by D-22's read-only rule. Nobody but the client
+    flips these, which is exactly the accountability this decision rests on.
+
+    THE AUDIT ROW NAMES THE TOGGLE AND THE VALUE IN ITS `action`, not in a summary:
+    `write_audit` does not persist summaries (BACKEND-PATTERNS §7 — they go to the log
+    stream), and "who switched the AI disclosure off, and when" has to survive in the
+    hash-chained ledger to be worth anything. One row per toggle that actually moved.
+
+    `write_audit` runs AFTER `set_disclosure_posture`, which reaches the voice platform,
+    for `publish`'s reason above: a slow vendor call must not hold the audit row's
+    transaction open, and the entry should describe what actually happened.
+    """
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    result = await set_disclosure_posture(
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        ai_disclosure_enabled=payload.ai_disclosure_enabled,
+        recording_notice_enabled=payload.recording_notice_enabled,
+    )
+    for field in result.changed:
+        await write_audit(
+            session,
+            # `field` IS the column name and IS the attribute name on the result — one
+            # spelling, so a third toggle needs no edit here.
+            action=audit_action_for(field, enabled=bool(getattr(result, field))),
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            # The CALLER's address, never the socket peer — behind nginx that is our own
+            # edge (`core/auth.client_request_ip`, `scripts/check_audit_ip.py`).
+            ip=client_request_ip(request),
+            summary={"engine_synced": result.engine_synced},
+        )
+    return DisclosureOut(
+        agent_id=result.agent_id,
+        ai_disclosure_enabled=result.ai_disclosure_enabled,
+        recording_notice_enabled=result.recording_notice_enabled,
+        opening_line=result.opening_line,
+        engine_synced=result.engine_synced,
+    )
 
 
 # A/B script testing (ROADMAP M3) lives in `agents/experiment_routes.py` and is mounted

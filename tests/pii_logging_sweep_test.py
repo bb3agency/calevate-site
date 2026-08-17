@@ -138,10 +138,11 @@ async def _seed_tenant(agent_ref: str) -> uuid.UUID:
         )
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
-                "'Receptionist', 'inbound', 'Idi AI assistant. Call record avutundi.', 'live', "
-                "'fake', :ref, now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
+                "created_at, updated_at) VALUES (:id, :tid, 'Receptionist', 'inbound', 'Idi AI "
+                "assistant. Call record avutundi.', 'Idi AI assistant. Call record avutundi.', "
+                "'This call is being recorded.', 'live', 'fake', :ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": agent_ref},
         )

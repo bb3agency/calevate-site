@@ -54,9 +54,10 @@ async def _make_tenant(role: str = "owner") -> tuple[uuid.UUID, str, str]:
         )
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, created_at, updated_at) VALUES (:id, :tid, 'Reception', 'inbound', "
-                "'Idi AI assistant.', 'live', 'fake', now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
+                "updated_at) VALUES (:id, :tid, 'Reception', 'inbound', 'Idi AI assistant.', 'Idi "
+                "AI assistant.', 'This call is being recorded.', 'live', 'fake', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )

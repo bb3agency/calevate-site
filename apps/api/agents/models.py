@@ -9,6 +9,7 @@ from uuid import UUID
 
 from calevate_shared.config import SELECTABLE_ENGINES
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     ForeignKey,
     Integer,
@@ -60,8 +61,22 @@ class Agent(PKMixin, TimestampMixin, Base):
         CheckConstraint(f"direction IN {AGENT_DIRECTIONS!r}", name="direction_enum"),
         CheckConstraint(f"status IN {AGENT_STATUSES!r}", name="status_enum"),
         CheckConstraint(f"engine IN {ENGINES!r}", name="engine_enum"),
-        # Compliance invariant (hard rule 5): agents ALWAYS have a disclosure line.
+        # LEGACY, and kept deliberately: the bundled line, step 1 of a two-step
+        # deprecation (hard rule 8, D-163). Still written by every writer of the four
+        # columns below (`compliance/disclosure.bundled_disclosure_line`), so the
+        # constraint still holds and no reader that has not migrated sees a NULL.
         CheckConstraint("length(disclosure_line) > 0", name="disclosure_nonempty"),
+        # Hard rule 5 AFTER D-163: the AI sentence must EXIST on every agent — the
+        # compliance gate reads it, and the honest answer to "are you an AI?" is
+        # meaningless without one. Whether it is VOLUNTEERED is
+        # `ai_disclosure_enabled`, which is a tenant's choice and not a constraint.
+        CheckConstraint(
+            "length(btrim(ai_disclosure_line)) > 0", name="ck_agents_ai_disclosure_nonempty"
+        ),
+        CheckConstraint(
+            "length(btrim(recording_notice_line)) > 0",
+            name="ck_agents_recording_notice_nonempty",
+        ),
         # The cost-runaway guard's range. NULL is admitted EXPLICITLY (it is the "use
         # the platform default" sentinel), not by the accident that a NULL-returning
         # CHECK passes. Migration a4e7b2c95d18.
@@ -135,7 +150,32 @@ class Agent(PKMixin, TimestampMixin, Base):
     max_call_duration_s: Mapped[int | None] = mapped_column(Integer)
     business_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     escalation_config: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    # THE LEGACY BUNDLE (migration f4a1d0b6e29c, D-163). Both notices joined, whatever
+    # the toggles say — see `compliance/disclosure.bundled_disclosure_line` for why it
+    # deliberately does NOT track what is spoken. Written, no longer read by the publish
+    # path. Step 2 of the two-step is a `drop` in a later release (hard rule 8).
     disclosure_line: Mapped[str] = mapped_column(Text, nullable=False)
+    # THE SPLIT (D-163). SEC-COMP §2 has always stated two invariants — "the caller is
+    # told this is an AI" (TRAI/UCC) and "the caller is told the call is recorded" (DPDP
+    # notice-and-consent) — and they shared the one column above, so a client could only
+    # ever have both or neither. Two regimes, two obligations, two columns, two toggles.
+    #
+    # THE TEXT IS MANDATORY AND THE TOGGLE IS NOT, and the asymmetry is the design. The
+    # sentence must exist because `compliance/service.check_dispatch` refuses an agent
+    # with no AI disclosure ON FILE and because the truthful answer needs something to
+    # say; whether it is VOLUNTEERED unprompted is the tenant's call to make, and theirs
+    # to answer for as the Principal Entity.
+    ai_disclosure_line: Mapped[str] = mapped_column(Text, nullable=False)
+    recording_notice_line: Mapped[str] = mapped_column(Text, nullable=False)
+    # Default TRUE on both: an agent nobody has decided about discloses. A default of
+    # false would make an omission — a forgotten column in an INSERT, a row created by a
+    # future importer — silently produce the posture with the legal exposure.
+    ai_disclosure_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
+    recording_notice_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true"
+    )
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
     engine: Mapped[str] = mapped_column(String, nullable=False, server_default="fake")
     engine_agent_ref: Mapped[str | None] = mapped_column(Text)

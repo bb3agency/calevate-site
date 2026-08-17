@@ -29,8 +29,10 @@ one of them can still occur in new rows.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
+from apps.api.compliance import deletion
 from apps.api.compliance.deletion import (
     ERASURE_EXCEPTIONS,
     ERASURE_LIMITATIONS,
@@ -328,3 +330,48 @@ def test_the_prose_notice_and_the_structured_exceptions_are_one_register() -> No
             "different things"
         )
         assert exception.why and exception.authority
+
+
+def test_the_backup_window_is_one_number_in_three_places() -> None:
+    """The certificate, the DPA and the ops runbook must quote the same window.
+
+    THE GAP THIS CLOSES. `infra/backup/README.md` set 35 days and reasoned about exactly
+    this consequence — "every extra day of retention is an extra day in which an erasure
+    request cannot fully reach our data" — while the certificate handed to a data
+    principal said nothing about backups at all. Then the DPA published the window to
+    clients, so the product was disclosing a limitation in one document and omitting it
+    from the one the erasure itself produces.
+
+    Now all three read from `BACKUP_WINDOW_DAYS`, and this asserts the two that cannot
+    import it still agree. A cross-language number kept in step by memory is the drift
+    class D-103 exists for; the runbook is where the number is actually DECIDED, so if it
+    moves, this fails until the other two follow.
+    """
+    window = str(deletion.BACKUP_WINDOW_DAYS)
+    root = Path(__file__).resolve().parents[1]
+
+    runbook = (root / "infra" / "backup" / "README.md").read_text(encoding="utf-8")
+    assert f"{window} days" in runbook or f"retain FULL {window}" in runbook, (
+        f"the backup runbook no longer quotes a {window}-day window, so the certificate "
+        "is now promising a retention period the ops procedure does not implement"
+    )
+
+    dpa = (root / "apps" / "web" / "src" / "lib" / "legal" / "dpa.ts").read_text(encoding="utf-8")
+    assert window in dpa, (
+        f"the DPA no longer quotes {window} days. It is a published contractual "
+        "commitment about how long an erased record can survive; the certificate quotes "
+        "the same number, and the two must not drift"
+    )
+
+
+def test_the_certificate_tells_a_data_principal_about_backups() -> None:
+    """A limitation that exists only in a contract the CLIENT signed is not disclosed to
+    the person the data is about — and the certificate is what reaches them."""
+    joined = " ".join(deletion.ERASURE_LIMITATIONS).lower()
+    assert "backup" in joined, "the certificate omits the backup window entirely"
+    assert str(deletion.BACKUP_WINDOW_DAYS) in " ".join(deletion.ERASURE_LIMITATIONS)
+
+    # Index-aligned with the structured half, which the module states as a rule and which
+    # is what a machine-readable consumer reads instead of the prose.
+    assert len(deletion.ERASURE_LIMITATIONS) == len(deletion.ERASURE_EXCEPTIONS)
+    assert any(e.keyword == "backup" for e in deletion.ERASURE_EXCEPTIONS)

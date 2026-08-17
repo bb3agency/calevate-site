@@ -62,7 +62,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from calevate_shared.engine import AgentConfig, AgentSnapshot, EngineAgentRef, VoiceEngine
+from calevate_shared.engine import (
+    TRUTHFUL_ANSWER_MARKER,
+    AgentConfig,
+    AgentSnapshot,
+    EngineAgentRef,
+    VoiceEngine,
+)
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -103,7 +109,20 @@ class PublishVerification:
     #: Recorded because both adapters deliberately send it in both places (belt and
     #: braces, `cartesia._agent_body` argues it), so an engine holding one and not the
     #: other is a fact worth being able to see rather than one to average away.
+    #: `None` when the agent volunteers no opening at all — there is no second copy of
+    #: an empty string, and `"" in anything` is True, which is a verdict about nothing.
     prompt_disclosure_applied: bool | None
+    #: **THE PROPERTY NO TENANT MAY SWITCH OFF** (D-163, hard rule 5). Is
+    #: `TRUTHFUL_ANSWER_MARKER` in the prompt the engine is actually holding?
+    #:
+    #: It is scored SEPARATELY from `prompt_applied` even though both read the same
+    #: string, for the reason `disclosure_applied` is scored separately from the script:
+    #: the failure mode is specific and asymmetric. `compose_engine_prompt` puts the
+    #: directive LAST, which is where a vendor's prompt-length ceiling truncates, so an
+    #: engine can hold every word of a client's script — passing the script check
+    #: outright — while holding none of the rules that make the agent answer honestly.
+    #: Folding the two together would report that agent as fully applied.
+    truthful_answer_applied: bool | None
     voice_applied: bool | None
     #: One operator-readable sentence. Never carries a prompt body (hard rule 6).
     detail: str
@@ -138,6 +157,31 @@ def _voice_expected(engine: VoiceEngine, cfg: AgentConfig) -> str | None:
     return cfg.models.tts_voice or None
 
 
+def _greeting_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
+    """Is the engine's greeting what this agent's notice toggles say it should be?
+
+    TWO QUESTIONS, NOT ONE (D-163), and the second one only exists because a notice can
+    now be WITHDRAWN:
+
+    * **An opening was configured** — the ordinary case. Containment, per
+      `carries_greeting_marker`: any rendering that kept the text satisfies it.
+    * **No opening was configured** — both toggles off. The check inverts: the engine must
+      be holding NO greeting. A vendor that kept the previous welcome message is still
+      opening every call with a notice our own row says was withdrawn, so a client reading
+      "recording notice: off" would be reading something untrue about their phone line.
+      That is a provable mismatch and it refuses the publish, exactly as a dropped
+      disclosure does — the direction of the error is different, the falsehood is not.
+
+    `None` stays `None` throughout: an unreadable greeting is not evidence either way, and
+    that is the whole `AgentSnapshot.*_readable` doctrine.
+    """
+    if cfg.opening_line.strip():
+        return snapshot.carries_greeting_marker(cfg.opening_line)
+    if not snapshot.greeting_readable:
+        return None
+    return not (snapshot.greeting or "").strip()
+
+
 def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> PublishVerification:
     """Score one read-back against the config it was supposed to apply.
 
@@ -152,6 +196,17 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     alone — which is exactly the shape of the failure (a field the vendor did not
     recognise) that this whole read-back exists to catch.
 
+    **AND SINCE D-163 SO IS THE TRUTHFUL-ANSWER RULE, which is now the part of hard rule 5
+    that cannot be switched off.** The two notices at the top of a call are per-agent
+    toggles; the answer to a caller who asks outright is not. `compose_engine_prompt`
+    appends `TRUTHFUL_ANSWER_DIRECTIVE` to every prompt every adapter sends, and this
+    function reads `TRUTHFUL_ANSWER_MARKER` back off the engine. A proven absence is a
+    REFUSAL — the publish rolls back, the agent does not go live — because "we appended
+    it" is a fact about our request body and the whole point of this module is that a
+    request body is not evidence. It is not folded into the script check: the directive
+    sits at the END of the prompt, which is where a vendor's length ceiling truncates, so
+    an engine can hold a client's entire script and none of the rules beneath it.
+
     **AND IT IS CHECKED IN THE GREETING, WHICH IS WHERE IT IS SPOKEN (P3.3).** This
     function used to score the disclosure with `carries_prompt_marker` — against the
     prompt `_agent_body` had just PREPENDED the line to. That verdict was true whenever
@@ -162,8 +217,11 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     the prompt copy is reported beside it, never instead of it.
     """
     prompt = snapshot.carries_prompt_marker(cfg.system_prompt)
-    disclosure = snapshot.carries_greeting_marker(cfg.disclosure_line)
-    prompt_disclosure = snapshot.carries_prompt_marker(cfg.disclosure_line)
+    disclosure = _greeting_verdict(cfg, snapshot)
+    prompt_disclosure = (
+        snapshot.carries_prompt_marker(cfg.opening_line) if cfg.opening_line.strip() else None
+    )
+    truthful = snapshot.carries_prompt_marker(TRUTHFUL_ANSWER_MARKER)
     expected_voice = _voice_expected(engine, cfg)
     held_voice = snapshot.holds_speech("tts")
     voice: bool | None
@@ -182,7 +240,12 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # failure worth refusing a publish over — it is a fact worth RECORDING, which is what
     # the field beside the verdict is for. Putting it in `checked` would make every
     # engine that normalises whitespace inside a system prompt fail hard rule 5.
-    checked = (("greeting disclosure", disclosure), ("script", prompt), ("voice", voice))
+    checked = (
+        ("greeting disclosure", disclosure),
+        ("truthful-answer rule", truthful),
+        ("script", prompt),
+        ("voice", voice),
+    )
     mismatched = [name for name, verdict in checked if verdict is False]
     if mismatched:
         return PublishVerification(
@@ -190,6 +253,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             prompt_applied=prompt,
             disclosure_applied=disclosure,
             prompt_disclosure_applied=prompt_disclosure,
+            truthful_answer_applied=truthful,
             voice_applied=voice,
             detail=(
                 "The voice platform accepted the change and is not running it: "
@@ -204,6 +268,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
             prompt_applied=prompt,
             disclosure_applied=disclosure,
             prompt_disclosure_applied=prompt_disclosure,
+            truthful_answer_applied=truthful,
             voice_applied=voice,
             detail=(
                 "The voice platform accepted the change; we could not confirm it is "
@@ -218,8 +283,12 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
         # reaching here says nothing about it. Writing True here would be the same
         # true-by-construction move that made the original verdict meaningless.
         prompt_disclosure_applied=prompt_disclosure,
+        truthful_answer_applied=True,
         voice_applied=True,
-        detail="The voice platform was read back and is holding the published script and voice.",
+        detail=(
+            "The voice platform was read back and is holding the published script, "
+            "the truthful-answer rule and the voice."
+        ),
     )
 
 
@@ -246,6 +315,7 @@ async def verify_publish(
             prompt_applied=None,
             disclosure_applied=None,
             prompt_disclosure_applied=None,
+            truthful_answer_applied=None,
             voice_applied=None,
             detail=(
                 "The voice platform accepted the change and did not answer a read-back, "
@@ -283,6 +353,12 @@ class EngineDrift:
     #: The prompt's copy of the line. Carried here as well so the drift screen and the
     #: publish banner say the same thing about the same agent.
     prompt_disclosure_applied: bool | None
+    #: The truthful-answer rule, read off the engine's live prompt (D-163). Carried on
+    #: the DRIFT object as well as the publish one because this is the property most
+    #: likely to be lost WITHOUT a publish: somebody edits the prompt in the vendor's own
+    #: dashboard and pastes back the script without the block underneath it. The
+    #: half-hourly sweep is the only thing that ever looks at that agent again.
+    truthful_answer_applied: bool | None
     voice_applied: bool | None
     detail: str
 
