@@ -294,11 +294,13 @@ async def release_globally(
 ) -> None:
     """204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
     holds a phone number, and the response to "stop suppressing this" is not the place
-    to repeat it. The `source` this reads is for the audit row.
+    to repeat it. What `remove_global_entry` returns is for the audit row — `source`, and
+    (D-185) the `subject_ref` that keeps "which number did we stop refusing" answerable
+    after the row is gone. See `dnc.Removal`.
 
     The confirmation names THIS row — see `release_globally_confirmation`."""
     step_up.require(x_confirm_action, release_globally_confirmation(entry_id))
-    source = await dnc.remove_global_entry(session, entry_id=entry_id)
+    removal = await dnc.remove_global_entry(session, entry_id=entry_id)
     await write_audit(
         session,
         action="ops.dnc_global_removed",
@@ -306,7 +308,7 @@ async def release_globally(
         object_type="dnc_list",
         object_id=str(entry_id),
         ip=client_request_ip(request),
-        summary={"source": source},
+        summary={"source": removal.source, "subject_ref": removal.subject_ref},
     )
 
 

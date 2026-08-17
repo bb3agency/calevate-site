@@ -43,6 +43,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.campaigns import service as campaign_service
 from apps.api.compliance import dnc, preference_scrub
+from apps.api.compliance.export import subject_ref
 from apps.api.compliance.national_dnd_routes import (
     RELEASE_GLOBALLY_CONFIRMATION,
     SUPPRESS_GLOBALLY_CONFIRMATION,
@@ -1199,7 +1200,13 @@ async def test_ops_can_still_lift_a_global_suppression() -> None:
                 {"p": number},
             )
         ).scalar_one()
-        assert await dnc.remove_global_entry(session, entry_id=entry_id) == "regulator"
+        # D-185: a release returns the audit row's payload rather than a bare source —
+        # `subject_ref` is the tombstone that keeps "which number did we stop refusing"
+        # answerable after the row is gone, and on a `regulator` entry that is the release
+        # most likely to be asked about.
+        released = await dnc.remove_global_entry(session, entry_id=entry_id)
+        assert released.source == "regulator"
+        assert released.subject_ref == subject_ref(number)
         gone = (
             await session.execute(
                 text("SELECT count(*) FROM dnc_list WHERE id = :i"), {"i": entry_id}
