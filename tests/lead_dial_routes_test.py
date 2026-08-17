@@ -784,3 +784,79 @@ async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_aga
     assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
         "the retry rang the customer a second time — the claim did not survive the failure"
     )
+
+
+async def test_staff_cannot_reach_the_recording_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """S-1 / D-181. THE AUDIO IS THE SOURCE OF THE TEXT the redaction apparatus protects.
+
+    A caller who reads out an Aadhaar number, a card number or an OTP is masked in
+    `text_redacted` and audible in the `.wav`. SEC-COMP §5 and DATA-MODEL §2 both say
+    `staff` never sees unredacted call content, the raw transcript route is
+    `calls:read_raw` + audit, and the CSV export was MOVED to `calls:read_raw` for
+    exactly this reason — while this route stayed on `calls:read`, which `core/rbac.py`
+    grants to staff. It was audited unredacted access: the audit half of hard rule 5
+    without the role half.
+
+    The owner arm is the positive control: the route still works for the role that may
+    hear it, so this is a gate rather than a route that broke.
+    """
+    tenant_id, agent_id, slug, owner_headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    call_id = await _finished_call(tenant_id, agent_id, lead_id, phone)
+    key = f"recordings/{tenant_id}/{call_id}.mp3"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET recording_url = :k WHERE id = :i"),
+            {"k": key, "i": call_id},
+        )
+    staff_headers = await _staff_of(tenant_id, slug)
+
+    # The presigner is never reached on the staff arm — the point is that the gate
+    # refuses before anything is minted — so it is stubbed only for the owner control.
+    monkeypatch.setattr("apps.workers.storage.presigned_url", lambda k, ttl_s: f"https://s3/{k}")
+
+    async with _client() as http:
+        refused = await http.get(f"/v1/calls/{call_id}/recording", headers=staff_headers)
+        allowed = await http.get(f"/v1/calls/{call_id}/recording", headers=owner_headers)
+
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["kind"] == "permission"
+    assert key not in refused.text, "a refusal must not name the object it refused"
+    assert allowed.status_code == 200, allowed.text
+    assert key in allowed.json()["url"]
+
+    async with untenanted_session() as session:
+        reads = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE action = 'recording.read' "
+                    "AND object_id = :oid"
+                ),
+                {"oid": str(call_id)},
+            )
+        ).scalar()
+    assert int(reads or 0) == 1, "the read that was allowed is the only one recorded"
+
+
+async def _staff_of(tenant_id: uuid.UUID, slug: str) -> dict[str, str]:
+    """A second member of the SAME org, holding `staff` — the role a client hands a
+    junior telecaller."""
+    user_id = uuid7()
+    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
+                "VALUES (:id, :cid, :email, now(), now())"
+            ),
+            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, 'staff', now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "uid": user_id},
+        )
+    return {"Authorization": f"Bearer dev:client:{clerk_id}", "X-Org-Slug": slug}
