@@ -444,7 +444,22 @@ Identity & access
     MFA. Requiring a *fresh* second factor for high-risk actions (Clerk reverification)
     is the named next step and needs a browser reverification flow — OPERATIONS §8.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
-  org settings, raw transcripts, or exports containing unredacted data.
+  org settings, raw transcripts, **call recording audio**, or exports containing
+  unredacted data.
+  - The audio is named explicitly because it was the gap (D-181): the recording is the
+    SOURCE of the text everything else here protects — an Aadhaar number, a card number
+    or an OTP read out by a caller is masked in `text_redacted` and audible in the file —
+    and `GET /v1/calls/{id}/recording` was gated on `calls:read`, which staff hold. It
+    is `calls:read_raw` + `audit_log` now, the same pair the raw transcript and the CSV
+    export are on.
+- **A search term that is a phone number travels in a request BODY, never in a URL**
+  (D-181, and §4's messaging-consent rule generalised). `GET /v1/leads?search=` and
+  `GET /v1/leads/export.csv?search=` wrote customer numbers into nginx's `combined`
+  access log, the edge's request log, browser history and the next request's `Referer`;
+  the term now goes to `POST /v1/leads/search` and `POST /v1/leads/export.csv`, and the
+  GET shapes REFUSE a `search` parameter rather than ignoring it (ignoring would widen
+  the result set). `POST /v1/dnc/check` and the consent lookup are the precedent: the
+  identifier IS the personal data.
   - The endpoint→permission map is asserted AT BOOT (`core/rbac.py::
     assert_policy_registry_complete`), and the assertion is non-vacuous in four
     directions: a route with no declaration, a declaration with no lock behind it, a
