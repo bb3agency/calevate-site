@@ -989,6 +989,10 @@ __all__ = [
     "complete_idempotency",
     "defer_outbox_claim",
     "enqueue_outbox",
+    # Was missing while three modules imported it — `__all__` here is the module's
+    # statement of its own surface, and a name absent from it reads as internal to the
+    # next person deciding whether they may call it.
+    "enqueue_outbox_once",
     "fail_idempotency",
     "mark_inbox_enqueued",
     "mark_inbox_failed",

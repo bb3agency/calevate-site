@@ -218,6 +218,15 @@ jobs:
         # D-139 the callers). Blocks the merge that reintroduces one.
         run: uv run python -m scripts.check_audit_ip
 
+      - name: "Guardrail: an idempotency scope names a principal, not an address"
+        if: ${{ !cancelled() }}
+        # A reference platform with our exact idempotency design fell back to the client
+        # address for an unauthenticated caller; behind a proxy that is one shared scope
+        # for the whole internet, and the payoff is caller A being served caller B's
+        # stored response. We do not have it — this blocks the merge that introduces it,
+        # here and in the inbox/outbox replay keys (D-175).
+        run: uv run python -m scripts.check_idempotency_scope
+
       - name: "Guardrail: env parity (fail-fast config)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_env_parity

@@ -211,6 +211,13 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# satisfied in shape only on every audited route. Syntax-decidable; the one
 	# permitted peer read is named, and the check fails if it leaves its function.
 	uv run python -m scripts.check_audit_ip
+	# The same read, banned from a worse destination. An idempotency record is a cache of
+	# a completed response; if two callers can compute one scope, the second is served the
+	# first's payload before any tenant-scoped query runs. `scope_key` has no address
+	# fallback and this is what keeps it that way — across voice-runtime and workers too,
+	# which hold the inbox and outbox replay keys and which `check_audit_ip` does not scan
+	# (D-175). Negative controls in tests/idempotency_scope_guard_test.py.
+	uv run python -m scripts.check_idempotency_scope
 	uv run python -m scripts.check_redaction_exposure
 	uv run python -m scripts.check_openapi_fresh
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
