@@ -6721,7 +6721,7 @@
       },
       "LeadBulkIn": {
         "additionalProperties": false,
-        "description": "One bulk action, and the two ways of saying which leads it is about.\n\n**`scope` is required and has no default**, which is the whole guardrail. A default\nwould decide the ambiguous case \u2014 page or query \u2014 on the caller's behalf, and that\nambiguity is the defect this field exists to remove; a client that forgets to say\ngets a 422 rather than an action over a set it did not choose.\n\nThe FILTER scope's predicates are not here: they ride as the same query parameters\n`GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there\nis one spelling of \"which rows\" across the screen, the file and this. Putting them in\nthe body would be a second one.",
+        "description": "One bulk action, and the two ways of saying which leads it is about.\n\n**`scope` is required and has no default**, which is the whole guardrail. A default\nwould decide the ambiguous case \u2014 page or query \u2014 on the caller's behalf, and that\nambiguity is the defect this field exists to remove; a client that forgets to say\ngets a 422 rather than an action over a set it did not choose.\n\nThe FILTER scope's predicates ride as the same query parameters `GET /v1/leads` and\n`GET /v1/leads/export.csv` take, with the same meanings, so there is one spelling of\n\"which rows\" across the screen, the file and this \u2014 EXCEPT `search`, which is here in\nthe body because it matches a phone number and a query string is written to access\nlogs, history and referrers (`LeadLensIn` carries the full argument). The lens's\nother members are not personal data and stay where they were.",
         "properties": {
           "action": {
             "enum": [
@@ -6771,6 +6771,18 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
           },
           "status": {
             "anyOf": [
@@ -6964,6 +6976,79 @@
         "title": "LeadFacetsOut",
         "type": "object"
       },
+      "LeadLensIn": {
+        "additionalProperties": false,
+        "description": "The Leads table's lens \u2014 WHICH ROWS and WHICH COLUMNS \u2014 carried in a request BODY.\n\nIt exists because of the one field in it that is personal data. `search` is matched\nagainst `leads.phone_e164` with a suffix LIKE (`crm.service._lead_scope`), so on a\nGET it is a customer's phone number written into nginx's `combined` access log\n(`$request` is the whole request line), into Cloudflare's edge log, into browser\nhistory and into the `Referer` of the next navigation. This repository already made\nthat judgement twice \u2014 `POST /v1/dnc/check` is a POST because \"the identifier IS the\npersonal data\", and SEC-COMP \u00a74 requires a number in the body and never in a URL \u2014\nand the leads screen is the busiest surface in the product to have been left out of\nit (hard rule 6).\n\nThe field NAMES match the query parameters the GET routes take, including the two\nencoded ones (`columns` as a comma-separated string, `f` as `key:value` entries), so\none parser serves both shapes and the client's lens object does not change form when\nit moves into a body.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "assigned_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "f": {
+            "items": {
+              "type": "string"
+            },
+            "title": "F",
+            "type": "array"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "LeadLensIn",
+        "type": "object"
+      },
       "LeadListOut": {
         "additionalProperties": false,
         "description": "The Leads table is schema-driven (TRD \u00a77): the columns travel WITH the rows so\nthe frontend never hard-codes a client's fields.",
@@ -7149,6 +7234,92 @@
           "updated_at"
         ],
         "title": "LeadOut",
+        "type": "object"
+      },
+      "LeadSearchIn": {
+        "additionalProperties": false,
+        "description": "The lens plus the page. Export takes no page: it is the whole filtered set.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "assigned_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "f": {
+            "items": {
+              "type": "string"
+            },
+            "title": "F",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "LeadSearchIn",
         "type": "object"
       },
       "LeadSourceCreatedOut": {
@@ -18783,11 +18954,11 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Short-lived presigned link to OUR copy of the recording",
+        "summary": "Short-lived presigned link to OUR copy of the recording \u2014 owner-only, audited",
         "tags": [
           "crm"
         ],
-        "x-calevate-permission": "calls:read"
+        "x-calevate-permission": "calls:read_raw"
       }
     },
     "/v1/calls/{call_id}/transcript/raw": {
@@ -19958,7 +20129,7 @@
     },
     "/v1/dnc/{entry_id}": {
       "delete": {
-        "description": "204, and the two alternatives were both worse.\n\n`{\"status\": \"removed\"}` said nothing a 200 on a DELETE did not already say, in a\nshape the generated TypeScript client cannot describe and the redaction guardrail\ncannot inspect \u2014 the whole class of defect D-71 and D-75 fixed elsewhere. Echoing\nthe entry back was the other option and is the one to avoid hardest: the row we\njust deleted holds a phone number, and the response to \"please forget this\" is not\nthe place to repeat it. The `source` this reads is for the AUDIT row, which is\nwhere \"who un-suppressed what, and what kind of entry it was\" belongs.\n\nSame shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,\nwhich is the answer this repo already gives for a delete with nothing to report.",
+        "description": "204, and the two alternatives were both worse.\n\n`{\"status\": \"removed\"}` said nothing a 200 on a DELETE did not already say, in a\nshape the generated TypeScript client cannot describe and the redaction guardrail\ncannot inspect \u2014 the whole class of defect D-71 and D-75 fixed elsewhere. Echoing\nthe entry back was the other option and is the one to avoid hardest: the row we\njust deleted holds a phone number, and the response to \"please forget this\" is not\nthe place to repeat it. What `remove_entry` returns is for the AUDIT row, which is\nwhere \"who un-suppressed what, and what kind of entry it was\" belongs.\n\n`subject_ref` rides along with `source` (D-185): the entry id alone stops answering\n\"which number was released\" the moment the row is gone, and the one-way handle\nanswers it for an auditor holding the number without writing a number into the\nledger (hard rule 6). See `dnc.Removal` for why this is not a tombstoned row.\n\nSame shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,\nwhich is the answer this repo already gives for a delete with nothing to report.",
         "operationId": "remove_v1_dnc__entry_id__delete",
         "parameters": [
           {
@@ -20892,19 +21063,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved to POST /v1/leads/search",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved to POST /v1/leads/search",
               "title": "Search"
             }
           },
@@ -21022,19 +21196,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved into the request body",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved into the request body",
               "title": "Search"
             }
           },
@@ -21124,7 +21301,7 @@
     },
     "/v1/leads/export.csv": {
       "get": {
-        "operationId": "export_leads_v1_leads_export_csv_get",
+        "operationId": "export_leads_filtered_v1_leads_export_csv_get",
         "parameters": [
           {
             "in": "query",
@@ -21160,19 +21337,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved to POST /v1/leads/export.csv",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved to POST /v1/leads/export.csv",
               "title": "Search"
             }
           },
@@ -21226,6 +21406,36 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "CSV export, unsearched \u2014 full phone numbers, owner-only and audit-logged",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read_raw"
+      },
+      "post": {
+        "description": "The SAME filters `GET /v1/leads` takes, with the same meanings, so \"export what I\nam looking at\" is expressible. It accepted `agent_id` alone once, so a client who\nfiltered the table to `hot` and pressed Export downloaded every contact in the account\nwith full numbers \u2014 the widest possible read of the narrowest possible request.\nWidening the filters does NOT widen the gate: this stays `calls:read_raw` and stays\naudited, and a narrower request is not a cheaper permission.\n\nThe COLUMN CHOOSER and the FACETS mean exactly what they mean on the list \u2014 see\n`_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.\nThat mirroring is a correctness requirement here rather than a nicety: the screen and\nthe file must not disagree about which rows and which columns, because the file is the\none carrying unmasked numbers out of the building.",
+        "operationId": "export_leads_v1_leads_export_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadLensIn"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "Successful Response"
@@ -21350,6 +21560,44 @@
           }
         },
         "summary": "Faceted filters, built from this agent's extraction schema",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/search": {
+      "post": {
+        "operationId": "search_leads_v1_leads_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSearchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The Leads table, searched \u2014 POST because the search term is a phone number",
         "tags": [
           "crm"
         ],
@@ -22207,7 +22455,7 @@
     },
     "/v1/ops/dnc/global/{entry_id}": {
       "delete": {
-        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. The `source` this reads is for the audit row.\n\nThe confirmation names THIS row \u2014 see `release_globally_confirmation`.",
+        "description": "204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted\nholds a phone number, and the response to \"stop suppressing this\" is not the place\nto repeat it. What `remove_global_entry` returns is for the audit row \u2014 `source`, and\n(D-185) the `subject_ref` that keeps \"which number did we stop refusing\" answerable\nafter the row is gone. See `dnc.Removal`.\n\nThe confirmation names THIS row \u2014 see `release_globally_confirmation`.",
         "operationId": "release_globally_v1_ops_dnc_global__entry_id__delete",
         "parameters": [
           {

@@ -31,7 +31,8 @@ users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at)
   -- deactivated_at re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7):
   -- a cached Clerk session must not outlive a deactivation
 memberships(id, tenant_id, user_id, role ENUM[owner,staff], UNIQUE(tenant_id,user_id))
-  -- staff: no billing.*, no org settings, no raw (unredacted) transcripts
+  -- staff: no billing.*, no org settings, no raw (unredacted) transcripts, and no
+  -- recording audio (D-181: the audio is the source of the text that rule protects)
 invitations(id, tenant_id, email, role, token_hash UNIQUE, expires_at DEFAULT now()+'72h',
   used_at, created_by)               -- single-use; hash only; burned on accept
 admin_users(id, clerk_user_id UNIQUE, name, role ENUM[superadmin,operator])  -- separate realm

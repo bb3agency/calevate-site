@@ -38,6 +38,7 @@ from sqlalchemy import text
 
 LIST = "/v1/leads"
 EXPORT = "/v1/leads/export.csv"
+SEARCH = "/v1/leads/search"
 
 SCHEMA = [{"key": "intent", "label": "Intent", "type": "text", "description": "what they want"}]
 
@@ -211,10 +212,12 @@ async def test_the_export_honours_the_search_filter() -> None:
     ravi = await _seed(org, status="new", count=5, name="Ravi")
 
     async with _client() as http:
-        by_name = await http.get(f"{EXPORT}?search=Lakshmi", headers=org.headers)
+        # POSTED, not queried: the term is matched against `phone_e164`, and D-181 moved
+        # every search-bearing request off the URL because nginx logs the request line.
+        by_name = await http.post(EXPORT, json={"search": "Lakshmi"}, headers=org.headers)
         # The list search also matches a phone SUFFIX; the export must match the same
         # rows or "export what I am looking at" is still false for half the searches.
-        by_suffix = await http.get(f"{EXPORT}?search={ravi[0][-4:]}", headers=org.headers)
+        by_suffix = await http.post(EXPORT, json={"search": ravi[0][-4:]}, headers=org.headers)
 
     assert by_name.status_code == 200, by_name.text
     assert _csv_phones(by_name.text) == set(lakshmi)
@@ -233,10 +236,10 @@ async def test_the_export_and_the_list_agree_on_what_the_filters_mean() -> None:
     await _seed(org, status="hot", count=3, name="Ravi")
     await _seed(org, status="won", count=5, name="Priya")
 
-    query = "status=hot&search=Priya"
+    lens = {"status": "hot", "search": "Priya"}
     async with _client() as http:
-        listed = await http.get(f"{LIST}?{query}&limit=200", headers=org.headers)
-        exported = await http.get(f"{EXPORT}?{query}", headers=org.headers)
+        listed = await http.post(SEARCH, json={**lens, "limit": 200}, headers=org.headers)
+        exported = await http.post(EXPORT, json=lens, headers=org.headers)
 
     assert listed.status_code == 200 and exported.status_code == 200
     assert listed.json()["total"] == 7
@@ -276,12 +279,18 @@ async def test_filters_do_not_open_the_export_to_staff() -> None:
     phones = await _seed(org, status="hot", count=3)
 
     async with _client() as http:
-        for query in ("", "?status=hot", f"?search={phones[0][-4:]}", f"?agent_id={org.agents[0]}"):
+        for query in ("", "?status=hot", f"?agent_id={org.agents[0]}"):
             response = await http.get(f"{EXPORT}{query}", headers=org.headers)
             assert response.status_code == 403, f"staff exported with {query!r}"
             assert response.json()["kind"] == "permission"
             for phone in phones:
                 assert phone not in response.text
+        # The POST shape is the same route and the same gate; a body is not a cheaper
+        # permission than a query string.
+        posted = await http.post(EXPORT, json={"search": phones[0][-4:]}, headers=org.headers)
+        assert posted.status_code == 403, "staff exported through the POST shape"
+        for phone in phones:
+            assert phone not in posted.text
 
 
 async def test_a_filtered_export_is_audited_like_an_unfiltered_one() -> None:
@@ -368,7 +377,7 @@ async def test_status_counts_respect_the_search_and_agent_filters() -> None:
     await _seed(org, status="won", count=4, name="Lakshmi", agent_index=1)
 
     async with _client() as http:
-        searched = await http.get(f"{LIST}?search=Lakshmi", headers=org.headers)
+        searched = await http.post(SEARCH, json={"search": "Lakshmi"}, headers=org.headers)
         scoped = await http.get(f"{LIST}?agent_id={org.agents[1]}", headers=org.headers)
         everything = await http.get(LIST, headers=org.headers)
 
@@ -504,3 +513,34 @@ async def test_an_over_cap_limit_is_refused_rather_than_silently_clamped() -> No
         ok = await http.get(f"{LIST}?limit=200", headers=org.headers)
     body: dict[str, Any] = ok.json()
     assert body["limit"] == 200 and body["offset"] == 0
+
+
+async def test_a_search_term_in_a_url_is_refused_rather_than_ignored() -> None:
+    """S-3 / D-181. The search box matches `leads.phone_e164`, so a GET wrote a
+    customer's number into nginx's access log (`$request` is the whole request line),
+    into the edge's log, into browser history and into the next request's `Referer` —
+    the hazard `POST /v1/dnc/check` is a POST for, in this repo's own words: "the
+    identifier IS the personal data".
+
+    REFUSED rather than dropped, and that is the load-bearing half. FastAPI ignores an
+    undeclared query parameter, so a client still sending `?search=` would silently get
+    the UNFILTERED table — on `export.csv` that is the difference between eleven leads
+    and the whole account leaving the building with full phone numbers, which is exactly
+    the widening this file's sibling refuses an unknown facet for.
+    """
+    org = await _org()
+    hits = await _seed(org, status="new", count=2, name="Lakshmi")
+    await _seed(org, status="new", count=3, name="Ravi")
+
+    async with _client() as http:
+        listed = await http.get(f"{LIST}?search=Lakshmi", headers=org.headers)
+        exported = await http.get(f"{EXPORT}?search=Lakshmi", headers=org.headers)
+        posted = await http.post(SEARCH, json={"search": "Lakshmi"}, headers=org.headers)
+
+    for refused in (listed, exported):
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["type"].endswith("/search_must_be_posted"), refused.text
+        for phone in hits:
+            assert phone not in refused.text, "a refusal must not answer with rows"
+    assert posted.status_code == 200, posted.text
+    assert posted.json()["total"] == 2, "the POST shape is the working one"
