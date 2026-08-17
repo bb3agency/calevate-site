@@ -1,8 +1,12 @@
 # Calevate — Replacing Clerk with a First-Party Auth Module (D-165)
 
-Version 2.0 · 17 Aug 2026 · **BUILT AND MOUNTED. This is now the only authentication this
-product has.** Clerk's code paths still exist and still pass their tests; they are dead
-weight awaiting deletion, not a live peer. See ROADMAP §6 D-170 / D-171.
+Version 3.0 · 17 Aug 2026 · **DONE. Clerk is deleted and this is the only authentication
+this product has ever going to have without a new decision.** §5 step 6 has run (D-177):
+`core/auth.py` verifies the first-party session cookie, both consoles mount the first-party
+providers, and the vendor's code, settings, routes and dependency are gone from the tree.
+Step 7 — DROPPING the two `clerk_user_id` columns — is the only part of the sequence left,
+and it is deliberately a later release (hard rule 8). See ROADMAP §6 D-170 / D-171 / D-174 /
+D-177.
 
 > **If you are looking for TOTP, stop.** The second factor is a six-digit code emailed to
 > the address on file, and nothing else — no authenticator app, no shared secret, no QR
@@ -15,7 +19,8 @@ capability that disappears silently on cutover day. §§2–7 are the design. §
 reference implementation gives us and what it cannot. §9 is what a person has to decide
 before implementation continues.
 
-**What has actually shipped** is now the whole backend: four tables across two migrations,
+**What has actually shipped** is the whole thing — backend, screens and cutover. The
+backend is four tables across two migrations,
 Argon2id with a KEK-derived pepper, opaque sessions, emailed one-time codes as the second
 factor, password reset, email verification, first-party invitation redemption, the
 first-administrator bootstrap, and **24 mounted endpoints** — every one of them in the
@@ -87,15 +92,15 @@ table is a regression nobody will notice until a customer does.**
 | C-11 | Self-serve signup (account, then workspace) | Clerk hosted `/sign-up` mints the account; `POST /v1/auth/signup` creates the org | One flow, ours: email + password + verification → `users` row → `POST /v1/auth/signup` unchanged. `current_identity` keeps its shape (a verified identity with no membership yet) | **TODO** |
 | C-12 | Email verification | Clerk | Two mechanisms, both ours: a six-digit OTP (`POST .../otp/request` + `/otp/verify`, 10 min) sets `users.email_verified_at`; and redeeming an invitation sets it directly, because possession of the emailed token IS the proof | **shipped:** `tests/authn_mfa_test.py` (code lifecycle), `tests/authn_flow_rls_test.py` |
 | C-13 | Password reset | Clerk | Single-use keyed-hash token, 1 h, revokes every session on use AND invalidates every other outstanding reset (ASVS V7). The request answers 202 with an empty body for known and unknown addresses alike | **shipped:** `tests/authn_enumeration_test.py` — including the deleted-account refusal and the measured timing equalisation |
-| C-14 | Team invitations | **Already ours.** `invitations` table, 72 h, hash-at-rest, burned by CAS on `used_at`, read under `app.invite_hash` | **`POST /v1/auth/client/invitations/accept`** takes `{token, password, name}` and does what two calls used to: creates the `users` row, sets the password, burns the invitation through the EXISTING `admin_service.accept_invitation`, and issues a session. The address comes from the INVITATION and never from the request — strictly stronger than the old comparison, and it removes `invitation_wrong_recipient` from this path entirely. The `/invite?token=` page contract is unchanged | **shipped:** `apps/api/authn/invitations.py`; the Clerk `POST /v1/invitations/accept` is untouched and still passes `tests/member_invitations_test.py` |
+| C-14 | Team invitations | **Already ours.** `invitations` table, 72 h, hash-at-rest, burned by CAS on `used_at`, read under `app.invite_hash` | **`POST /v1/auth/client/invitations/accept`** takes `{token, password, name}` and does what two calls used to: creates the `users` row, sets the password, burns the invitation through the EXISTING `admin_service.accept_invitation`, and issues a session. The address comes from the INVITATION and never from the request — strictly stronger than the old comparison, and it removes `invitation_wrong_recipient` from this path entirely. The `/invite?token=` page contract is unchanged | **shipped, and it is now the ONLY one:** D-177 deleted the Clerk-era `POST /v1/invitations/accept` rather than leaving two ways to redeem one invitation. That removed `invitation_wrong_recipient` in fact as well as in principle — and with it the requirement that a redeemer already control a verified mailbox at the invited address, which ROADMAP D-177 records as the trade. `/invite?token=` answers a redirect to `/auth/accept-invitation` because the URL is already in inboxes |
 | C-15 | Client staff roles | **Already ours.** `memberships.role`, `core/rbac.py` policy registry validated at boot | Unchanged | **existing:** `tests/rbac_registry_test.py` |
 | C-16 | Operator allowlist | **Already ours.** `admin_users`, ops-managed, never auto-created (`clerk_identity.py` is explicit that auto-creating one is "privilege escalation wearing a race condition's clothes") | `admin_users` gains `email` (unique on `lower(email)`); `clerk_user_id` drops NOT NULL. `scripts/bootstrap_admin.py` takes `--email` and mails a single-use setup link — **the first administrator now arrives by invite** (D-171, §11) | **shipped:** `tests/authn_bootstrap_test.py` (12 cases); `tests/admin_identity_test.py` unchanged |
 | C-17 | Instant deactivation despite a cached session | `users.deactivated_at` re-read on every request (BACKEND-PATTERNS §7) | Unchanged — and strictly better, because the session itself is now revocable rather than only the authorization built on it | **existing:** `tests/api_security_test.py` |
 | C-18 | D-22 impersonation and its audit trail | **Already ours.** `core/impersonation.py` mints an RFC-8693-shaped grant signed with `IMPERSONATION_GRANT_SECRET`; `_load_admin_principal` verifies it and writes `admin.impersonation_read` | Unchanged. The grant is deliberately NOT a credential — it is presented alongside the operator's own session — so replacing what that session IS changes nothing about it | **existing:** `tests/impersonation_grant_test.py`, `tests/impersonation_audit_test.py` |
 | C-19 | Per-caller rate limiting | `RateLimitMiddleware._caller` keys on `bearer_token(...)` | Same function, now reading the session cookie as well as the header. **The bucket key must become the session id, not the raw token** — a rotated session must not get a fresh bucket | **TODO**, with a test that rotation does not reset the bucket |
-| C-20 | Readiness gate on auth configuration | `runtime_config_missing_keys` reports `CLERK_*` keys; `missing_realm_separation_keys` reports a collapsed realm pair | Replaced by: `PLATFORM_KEK` present (already reported), and a new check that the two realms' cookie names and CORS origins differ | **TODO** |
-| C-21 | Local development without a vendor | `dev:<realm>:<id>` tokens, accepted only when `APP_ENV=local` AND the realm has no Clerk secret | A seeded local password, or the same dev-token shape re-pointed at `authn`. The two guards must survive verbatim — `tests/authz_audit_test.py` pins them | **existing test, new subject** |
-| C-22 | Browser session lifecycle | `@clerk/nextjs` `ClerkProvider`, `getToken()`, `RedirectToSignIn`, hosted sign-in UI | Ours: an `HttpOnly` cookie the browser never reads, a `GET /v1/auth/session` bootstrap call, our own sign-in pages (§6) | **TODO** — `apps/web` is out of scope for this change |
+| C-20 | Readiness gate on auth configuration | `runtime_config_missing_keys` reports `CLERK_*` keys; `missing_realm_separation_keys` reports a collapsed realm pair | **`PLATFORM_KEK` present, and NOTHING ELSE — the rest has no successor and needs none.** The realm separation is no longer configurable: it is the session token's hash domain, the `realm` predicate and the cookie name, none of which a deployment can set wrong. A readiness list naming an auth key would name a key nobody can install | **shipped:** `tests/authz_audit_test.py::test_local_readiness_asks_for_no_authentication_key_at_all` |
+| C-21 | Local development without a vendor | `dev:<realm>:<id>` tokens, accepted only when `APP_ENV=local` AND the realm has no Clerk secret | **`dev:<realm>:<subject-uuid>` — the same shape re-pointed at OUR ids, and the only thing the `Authorization` header still carries.** The two guards survive as `APP_ENV=local` AND `PLATFORM_KEK` unset: the second is the successor to "no Clerk secret" and says the same thing (this deployment holds no real credential material) about a key a prod host cannot omit | **shipped:** `tests/authz_audit_test.py` (env half) + `tests/realm_boundary_test.py::test_a_deployment_holding_key_material_refuses_dev_tokens_even_in_local` |
+| C-22 | Browser session lifecycle | `@clerk/nextjs` `ClerkProvider`, `getToken()`, `RedirectToSignIn`, hosted sign-in UI | Ours: an `HttpOnly` cookie the browser never reads, a `GET /v1/auth/{realm}/session` bootstrap call, our own screens | **shipped:** D-174's `lib/authn/` + `tests/authnGuards.test.tsx`; D-177 mounted the providers in the two realm layouts (`tests/adminAuth.test.tsx`) |
 | C-23 | Bot detection on sign-up/sign-in | Clerk built-in | **Not replaced on day one.** §7 names it as accepted risk; Cloudflare Turnstile is the reference implementation's answer and is the obvious follow-up | — |
 | C-24 | Breached-password checks | Clerk built-in (HIBP) | **Not replaced on day one.** §7 | — |
 | C-25 | Device/session management UI | Clerk built-in | Buildable from `auth_sessions` the day a column for it is added; deliberately not added yet (a column nobody reads is a defect — `scripts/check_wiring.py`) | — |
@@ -358,7 +363,7 @@ people who can be told, and it exercises the MFA path that the client realm does
 Watch for a week — with zero production tenants, "a week" is a real option and costs
 nothing. **Reversible** by flipping back, *provided step 6 has not run.*
 
-**Step 6 — remove the Clerk paths.** Delete `core/clerk_identity.py`,
+**Step 6 — remove the Clerk paths. DONE (D-177).** Delete `core/clerk_identity.py`,
 `tenancy/clerk_webhooks.py`, the `/hooks/v1/clerk` route and its rate-limit rule, the
 `CLERK_*` settings, the `@clerk/nextjs` dependency, and the two `clerk_user_id` columns'
 *writers*. **THIS IS THE IRREVERSIBLE STEP.** Not because the code cannot be restored from
@@ -557,30 +562,40 @@ deactivated accounts; `invalid_second_factor` (401); `invalid_reset_token` /
 
 ## 11. What is NOT built
 
-Named so the next reader does not have to discover it.
+Named so the next reader does not have to discover it. **Everything about Clerk is gone
+from this list**, because it is gone from the tree (D-177).
 
-- **The frontend.** `apps/web` is a separate slice and was explicitly out of scope. §6 is
-  still the design for it.
 - **The CSRF double-submit token.** `Sec-Fetch-Site` rejection, an `Origin` allowlist and
-  `SameSite=Strict` all ship. The signed header does not, because it is half a frontend
-  feature: the server half alone is either a header nothing sends (every mutating request
-  fails) or a check that passes when absent (defends nothing).
-- **Step-up re-authentication (C-09).** The `X-Confirm-Action` header half is unchanged; no
-  route re-checks the age of `mfa_verified_at`.
+  `SameSite=Strict` all ship. The signed header does not. Both halves now exist to be
+  written — `lib/api/client.ts` is ours and attaches headers already — so this is the
+  first thing in this list that is purely an engineering task rather than a decision.
+- **`Idempotency-Key` on `/v1/auth/**`.** D-174's reset forms send it and it is INERT:
+  the auth router does not take the reliability dependency. The client-side
+  one-in-flight-submit guard is what protects a user meanwhile.
+- **Step-up re-authentication (C-09).** The `X-Confirm-Action` header half is unchanged;
+  no route re-checks the age of `mfa_verified_at`.
 - **Self-serve signup's public intake (C-11).** The credential half exists; the flow that
-  chains it to `POST /v1/auth/signup` does not. Invitation redemption is the path that
-  works end to end today.
-- **Deleting Clerk (§5 step 6).** Every Clerk path still exists and still passes. This
-  change deliberately breaks none of them.
-- **`users.email` uniqueness**, **`users.password_migrated_at`**, and the `clerk_user_id`
-  DROP — all §2.2.
+  chains it to `POST /v1/auth/signup` does not, and D-177 removed the vendor's hosted
+  sign-up page that used to stand in for it. `/signup`'s stranger panel says so in as many
+  words rather than linking to a door that is not there. Invitation redemption is the path
+  that works end to end today.
+- **The `clerk_user_id` DROP** (§5 step 7, hard rule 8's second step). Both columns are
+  unwritten and unread since D-177 and are recorded in
+  `scripts/check_wiring.UNWIRED_BASELINE` with this as what closes them.
+- **`users.email` uniqueness** and **`users.password_migrated_at`** — §2.2.
 - **Turnstile / bot detection and breached-password checks (C-23, C-24).** Unchanged
-  accepted risk from §7.
+  accepted risk from §7 — and slightly sharper since D-177, because Clerk's bot mitigation
+  was free abuse control on the signup path and there is none in its place
+  (`tenancy/signup.py` says so at the point it matters).
 - **A real email transport.** External blocker (§9 Q2). Until an account exists, the
   bootstrap link is read off the operator's own terminal and every other code is delivered
   by whatever `get_transport()` resolves to.
-
----
+- **The legal copy.** `apps/web/src/lib/legal/{cookies,privacy,subprocessors}.ts` and the
+  published DPA still name Clerk as a sub-processor and as where passwords are held. Both
+  statements are now false. They are DISCLOSURES rather than code: removing a named
+  sub-processor from a client DPA is counsel's call, and the whole `/legal` set carries
+  `{{PENDING LEGAL REVIEW}}` for the same reason. **This is the one thing D-177 makes
+  untrue and does not fix**, and it is named here so it is a deferral with an owner.
 
 ## 12. What shipped with version 1.0 of this document
 
