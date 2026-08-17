@@ -1,47 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AcceptInviteIn": {
-        "additionalProperties": false,
-        "properties": {
-          "token": {
-            "maxLength": 200,
-            "minLength": 20,
-            "title": "Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token"
-        ],
-        "title": "AcceptInviteIn",
-        "type": "object"
-      },
-      "AcceptInviteOut": {
-        "additionalProperties": false,
-        "properties": {
-          "role": {
-            "title": "Role",
-            "type": "string"
-          },
-          "slug": {
-            "title": "Slug",
-            "type": "string"
-          },
-          "tenant_id": {
-            "format": "uuid",
-            "title": "Tenant Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "tenant_id",
-          "slug",
-          "role"
-        ],
-        "title": "AcceptInviteOut",
-        "type": "object"
-      },
       "AddContactsIn": {
         "additionalProperties": false,
         "properties": {
@@ -7800,7 +7759,7 @@
       },
       "MemberOut": {
         "additionalProperties": false,
-        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: the Clerk mirror composes it from\nfirst/last name and stores NULL when the account has neither\n(`tenancy/clerk_webhooks.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
+        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: an invitation carries an address and,\noptionally, a name, so a colleague who typed neither has NULL\n(`authn/invitations.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -13932,37 +13891,6 @@
         ]
       }
     },
-    "/hooks/v1/clerk": {
-      "post": {
-        "operationId": "clerk_webhook_hooks_v1_clerk_post",
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Clerk Webhook Hooks V1 Clerk Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Clerk user/organization mirror \u2014 Svix-signed (D-37: our DB is the record)",
-        "tags": [
-          "clerk-webhooks"
-        ]
-      }
-    },
     "/hooks/v1/ingest/meta/{webhook_id}": {
       "get": {
         "description": "Meta GETs this when someone subscribes the callback URL, and will not accept the\nsubscription unless the challenge comes back verbatim as plain text with 200.\n\nThe failure answer is 403, which is what Meta's own guidance asks for and also the\ncorrect shape here: the caller authenticated nothing, they presented a token that\ndoes not match. Nothing is written on either path \u2014 a handshake is not a delivery.",
@@ -14130,7 +14058,7 @@
     },
     "/hooks/v1/razorpay": {
       "post": {
-        "description": "Signature first, money last.\n\nNothing is read out of this payload until the HMAC verifies, and nothing durable is\nwritten until the tenant resolves \u2014 so a forged or malformed event leaves no row at\nall, not even an inbox trace it could later be replayed from.\n\nTwo layers of duplicate protection, deliberately:\n\n1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the\n   NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a\n   field still dedupes, while the same payment id arriving with a different amount\n   is the conflict `claim_inbox_event` is designed to shout about;\n2. the ledger's own `ref`, checked under the per-tenant credit lock inside\n   `credit_captured_payment`. This one is the guarantee: inbox rows are per\n   delivery and can be swept, a ledger row is permanent.\n\nThe claim and the credit share ONE transaction, which is what makes a failure\nrecoverable: a crash after the claim rolls the claim back too, so the provider's\nretry is processed rather than answered \"duplicate\" forever (the failure mode\n`reliability/service.py` documents against the Clerk mirror).",
+        "description": "Signature first, money last.\n\nNothing is read out of this payload until the HMAC verifies, and nothing durable is\nwritten until the tenant resolves \u2014 so a forged or malformed event leaves no row at\nall, not even an inbox trace it could later be replayed from.\n\nTwo layers of duplicate protection, deliberately:\n\n1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the\n   NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a\n   field still dedupes, while the same payment id arriving with a different amount\n   is the conflict `claim_inbox_event` is designed to shout about;\n2. the ledger's own `ref`, checked under the per-tenant credit lock inside\n   `credit_captured_payment`. This one is the guarantee: inbox rows are per\n   delivery and can be swept, a ledger row is permanent.\n\nThe claim and the credit share ONE transaction, which is what makes a failure\nrecoverable: a crash after the claim rolls the claim back too, so the provider's\nretry is processed rather than answered \"duplicate\" forever (the failure mode\n`reliability/service.py` documents against the retired Clerk mirror).",
         "operationId": "razorpay_webhook_hooks_v1_razorpay_post",
         "responses": {
           "200": {
@@ -17337,7 +17265,7 @@
     },
     "/v1/auth/admin/bootstrap/confirm": {
       "post": {
-        "description": "The redemption half of `scripts/bootstrap_admin.py` (D-167).\n\nUNAUTHENTICATED, necessarily \u2014 it is how a deployment acquires its first\noperator, and there is nobody to authenticate as until it succeeds. What stands\nin its place is the token: 256 bits, mailed to an address a deploying operator\nnamed, single-use, one hour, and refused outright once the named account has a\npassword. A leaked link from a finished deploy opens nothing.\n\nADMIN REALM ONLY, and enforced structurally \u2014 this route is not declared on the\nclient realm's router at all, rather than being declared and then refusing.\nA client-realm `/bootstrap/confirm` would be a 404, which is the correct answer\nfor a route that should not exist there.",
+        "description": "The redemption half of `scripts/bootstrap_admin.py` (D-171).\n\nUNAUTHENTICATED, necessarily \u2014 it is how a deployment acquires its first\noperator, and there is nobody to authenticate as until it succeeds. What stands\nin its place is the token: 256 bits, mailed to an address a deploying operator\nnamed, single-use, one hour, and refused outright once the named account has a\npassword. A leaked link from a finished deploy opens nothing.\n\nADMIN REALM ONLY, and enforced structurally \u2014 this route is not declared on the\nclient realm's router at all, rather than being declared and then refusing.\nA client-realm `/bootstrap/confirm` would be a 404, which is the correct answer\nfor a route that should not exist there.",
         "operationId": "bootstrap_confirm_v1_auth_admin_bootstrap_confirm_post",
         "requestBody": {
           "content": {
@@ -17406,7 +17334,7 @@
     },
     "/v1/auth/admin/login/otp": {
       "post": {
-        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
         "operationId": "login_otp_v1_auth_admin_login_otp_post",
         "requestBody": {
           "content": {
@@ -17712,7 +17640,7 @@
     },
     "/v1/auth/client/invitations/accept": {
       "post": {
-        "description": "The first-party twin of `POST /v1/invitations/accept`.\n\nThe Clerk one still exists and still works \u2014 both credential paths coexist until\nAUTH-MIGRATION \u00a75 step 6. What differs is that this one needs no prior account, because\nthere is no vendor to have made one: it takes the password in the same call.\n\nThe `/invite?token=...` page contract is unchanged (`apps/authn/invitations.py`).",
+        "description": "THE invitation-redemption endpoint. There is no other (D-177).\n\nIt needs no prior account, because there is no vendor to have made one: it takes the\npassword in the same call, and takes the address from the invitation rather than\ncomparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and\n`/invite?token=` answers `410 Gone` naming the page that replaced it.",
         "operationId": "accept_invitation_with_password_v1_auth_client_invitations_accept_post",
         "requestBody": {
           "content": {
@@ -17788,7 +17716,7 @@
     },
     "/v1/auth/client/login/otp": {
       "post": {
-        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
         "operationId": "login_otp_v1_auth_client_login_otp_post",
         "requestBody": {
           "content": {
@@ -18094,7 +18022,7 @@
     },
     "/v1/auth/signup": {
       "post": {
-        "description": "The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.",
+        "description": "The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.",
         "operationId": "signup_v1_auth_signup_post",
         "requestBody": {
           "content": {
@@ -20184,44 +20112,6 @@
           "tenancy"
         ],
         "x-calevate-permission": "org:manage"
-      }
-    },
-    "/v1/invitations/accept": {
-      "post": {
-        "description": "The one authenticated route that does NOT require a membership \u2014 creating one is\nthe point (see `current_identity`).\n\nThe burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link\nproduce one membership rather than two.\n\nTHE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link\nis a pure bearer token: a forwarded email, a link pasted into a group chat, or a\nshared mailbox hands the account to whoever opens it first \u2014 and the audit trail\nthen records a membership for someone nobody invited. Binding is what current\npractice asks of an invite link (single use, short-lived, and only redeemable by the\naddress that received it \u2014 the same rule Auth0/authentik-style invite flows enforce\nby making the signup email read-only), and it costs an honest invitee nothing: they\nare signing in with the address the link was sent to.\n\nThe comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant\ntime protects a SECRET from being learned a byte at a time; the secret on this path\nis the token, and it is matched by an indexed lookup on its SHA-256. An address the\ncaller already owns and already typed into Clerk is not a secret, and dressing the\ncomparison up as one would suggest to the next reader that it is.",
-        "operationId": "accept_invitation_v1_invitations_accept_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcceptInviteIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AcceptInviteOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Accept an emailed invitation and create the membership (FLOWS \u00a71 step 8)",
-        "tags": [
-          "tenancy"
-        ]
       }
     },
     "/v1/invitations/{invitation_id}": {

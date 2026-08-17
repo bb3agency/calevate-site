@@ -90,12 +90,31 @@ describe("§5.7 defect 3 — no credential ever travels in a response or a bypas
     ).toEqual([]);
   });
 
+  /**
+   * TWO FILES ARE EXEMPT BY NAME, and the exemption is narrower than the rule rather than
+   * a hole in it — the same shape as `useCountdown.ts` below.
+   *
+   * D-177 moved `mode.ts` into this directory (it was `lib/auth/mode.ts`, which went with
+   * Clerk) and added `realmSessions.ts` beside it. Both read the environment, and both
+   * read it in the OPPOSITE direction to the one this rule is about: `mode.ts` reads
+   * `NODE_ENV` to make the dev credential IMPOSSIBLE in a production build, and
+   * `realmSessions.ts` reads the two `NEXT_PUBLIC_DEV_*` subject ids that only exist on
+   * the branch `mode.ts` has already refused to take there. Neither relaxes anything; they
+   * are the two guards `tests/auth.test.tsx` drives in both directions.
+   *
+   * What the rule still covers is what §5.7 defect 3 is actually about: the SCREENS, the
+   * transport and the session runtime. Not one of them may behave differently by
+   * environment, because the credential is a cookie the server sets and the browser cannot
+   * forge — there is nothing for a build flag to change.
+   */
+  const ENV_READERS_BY_DESIGN = ["lib/authn/mode.ts", "lib/authn/realmSessions.ts"];
+
   it("no branch in the auth surface reads the environment to relax a credential path", () => {
-    // `lib/auth/mode.ts` reads `NODE_ENV` legitimately — to make the DEV path impossible
-    // in a production build, which is the opposite direction. Nothing in THIS surface has
-    // a reason to read it at all: there is no dev credential here, because the credential
-    // is a cookie the server sets and the browser cannot forge.
-    const offenders = FILES.filter((f) => /process\.env|import\.meta\.env/.test(code(read(f))));
+    const offenders = FILES.filter(
+      (f) =>
+        /process\.env|import\.meta\.env/.test(code(read(f))) &&
+        !ENV_READERS_BY_DESIGN.some((allowed) => rel(f).replace(/\\/g, "/").endsWith(allowed)),
+    );
     expect(
       offenders.map(rel),
       `the first-party auth surface reads an environment variable. There is no ` +

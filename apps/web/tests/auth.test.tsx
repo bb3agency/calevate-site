@@ -66,7 +66,9 @@ describe("which credential this build presents", () => {
     // and a stale `clerk` fails the build loudly rather than resolving to anything.
     // Surrounding whitespace is forgiven (an `.env` line ends up with it) — a different
     // WORD is not.
-    for (const value of ["production", "true", "clerk", "SESSION", "prod", "1", "session;dev"]) {
+    // `SESSION` is deliberately NOT here: the resolver casefolds, and `.env` files come
+    // back shouting often enough that refusing one would be a rule with no threat behind it.
+    for (const value of ["production", "true", "clerk", "prod", "1", "session;dev"]) {
       expect(() => resolveAuthMode(value, false), value).toThrow(AuthConfigError);
     }
     expect(() => resolveAuthMode("production", false)).toThrow(new RegExp(AUTH_MODE_ENV));
