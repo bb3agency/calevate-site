@@ -12,7 +12,7 @@
  * generic "something went wrong" for all of them.
  */
 
-import { AUTH_MODE_ENV, IS_PRODUCTION_BUILD } from "@/lib/auth/mode";
+import { AUTH_MODE_ENV, IS_PRODUCTION_BUILD } from "@/lib/authn/mode";
 
 import type { components } from "./schema";
 
@@ -112,14 +112,17 @@ export type GrantSource = () => string | Promise<string>;
 /**
  * Session context the API needs on every call.
  *
- * `token` resolves to a Clerk session token in a Clerk deployment and to
- * `dev:<realm>:<clerk_user_id>` locally — see `core/auth.py`, where that second path
- * requires BOTH `APP_ENV=local` AND an absent Clerk secret. Which one a given realm
- * builds is decided in that realm's own module, never here: this file is the transport
- * and knows nothing about realms.
+ * `token` is OPTIONAL and absent is the deployed case (D-177). The credential is the
+ * realm's `HttpOnly`, `__Host-`-prefixed session cookie, which the browser attaches
+ * itself through `credentials: "include"` and which no script on the page can read; there
+ * is nothing for this file to fetch, cache or expire. It is present only on the local
+ * path, where it is `dev:<realm>:<subject-uuid>` — see `core/auth.py`, which accepts that
+ * shape only when `APP_ENV=local` AND the deployment holds no `PLATFORM_KEK`. Which one a
+ * given realm builds is decided in `lib/authn/realmSessions.ts`, never here: this file is
+ * the transport and knows nothing about realms.
  */
 export interface Session {
-  token: TokenSource;
+  token?: TokenSource;
   orgSlug: string;
   /**
    * Admin realm only (D-22): WHICH tenant this read-only "view as client" session is
@@ -139,31 +142,31 @@ export interface Session {
 }
 
 /**
- * The LOCAL credential, for one realm — the second guard described in `lib/auth/mode.ts`.
+ * The LOCAL credential, for one realm — the second guard described in `lib/authn/mode.ts`.
  *
- * `lib/auth/mode.ts` already refuses to resolve `"dev"` in a production build. This
+ * `lib/authn/mode.ts` already refuses to resolve `"dev"` in a production build. This
  * checks the same fact again, at the moment the credential would be handed to `fetch`,
  * because the two guards protect against different mistakes: the first against a
  * misconfigured deployment, this one against a future refactor that reaches the dev
  * builder by some path that skipped the mode. A dev token is worth a full account
  * takeover on any API still running with `APP_ENV=local`, so it gets belt and braces.
  */
-export function devToken(realm: "client" | "admin", clerkUserId: string): TokenSource {
+export function devToken(realm: "client" | "admin", subjectId: string): TokenSource {
   return () => {
     if (IS_PRODUCTION_BUILD) {
       throw new AuthProblem(
         "dev_token_refused",
         "This build asked for a local development token, which is never valid here.",
-        `Set ${AUTH_MODE_ENV}=clerk and configure this realm's Clerk publishable key.`,
+        `Set ${AUTH_MODE_ENV}=session — the deployed credential is the session cookie.`,
       );
     }
-    return `dev:${realm}:${clerkUserId}`;
+    return `dev:${realm}:${subjectId}`;
   };
 }
 
 /**
  * The client realm's LOCAL session. Kept as the local path (never removed, never
- * "temporarily" reachable in production): `lib/auth/clientRealm.tsx` selects it when
+ * "temporarily" reachable in production): `lib/authn/realmSessions.ts` selects it when
  * `AUTH_MODE` is `dev`, and the whole frontend test suite runs through it.
  */
 export function devSession(orgSlug: string): Session {
@@ -273,19 +276,20 @@ async function sendRequest<T>(
   path: string,
   { method = "GET", body, idempotencyKey, confirmAction, ifMatch, signal }: RequestOptions = {},
 ): Promise<T> {
-  // Resolved HERE, per call, rather than when the session object was built — a Clerk
-  // token expires in about a minute (see `TokenSource`). The `await` is skipped when the
-  // source already has the string, so a local request still reaches `fetch` in the same
-  // tick as the query that asked for it. If it throws, the throw propagates: an
-  // `AuthProblem` reaching the screen as an error is the point, and catching it to send
-  // the request anyway would put `Bearer undefined` on the wire.
-  const requested = session.token();
+  // Resolved HERE, per call, rather than when the session object was built. The `await`
+  // is skipped when the source already has the string, so a local request still reaches
+  // `fetch` in the same tick as the query that asked for it. If it throws, the throw
+  // propagates: an `AuthProblem` reaching the screen as an error is the point, and
+  // catching it to send the request anyway would put `Bearer undefined` on the wire.
+  //
+  // NO SOURCE IS THE DEPLOYED CASE and it sends NO header rather than an empty one: the
+  // session cookie below is the credential, and `Authorization: Bearer ` would be a
+  // malformed credential the API is obliged to refuse before it looks at the cookie.
+  const requested = session.token?.();
   const token = typeof requested === "string" ? requested : await requested;
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    "X-Org-Slug": session.orgSlug,
-  };
+  const headers: Record<string, string> = { "X-Org-Slug": session.orgSlug };
+  if (token !== undefined) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
@@ -315,6 +319,12 @@ async function sendRequest<T>(
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
+    // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,
+    // `__Host-`-prefixed cookie no script can read, so it reaches the API only if this
+    // says so — the API and the consoles are different origins, and the browser omits
+    // cookies cross-origin by default. `lib/authn/transport.ts` says the same thing for
+    // `/v1/auth/**`; the two are one transport the day that file's `fetch` goes away.
+    credentials: "include",
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });

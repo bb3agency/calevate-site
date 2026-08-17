@@ -293,7 +293,6 @@ async def test_a_session_with_no_signed_in_user_owns_no_views_and_is_told_so() -
     anonymous = Principal(
         realm="client",
         user_id=None,
-        clerk_user_id=None,
         tenant_id=uuid.uuid4(),
         role="owner",
     )
@@ -310,7 +309,6 @@ async def test_a_session_with_no_signed_in_user_owns_no_views_and_is_told_so() -
             Principal(
                 realm="client",
                 user_id=signed_in_user,
-                clerk_user_id="user_x",
                 tenant_id=uuid.uuid4(),
                 role="owner",
             )

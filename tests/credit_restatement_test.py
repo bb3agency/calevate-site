@@ -1085,7 +1085,6 @@ async def test_an_actor_with_no_user_id_is_recorded_without_a_recorded_by() -> N
         principal=Principal(
             realm="admin",
             user_id=None,
-            clerk_user_id="admin_without_a_row",
             tenant_id=None,
             role="operator",
         ),

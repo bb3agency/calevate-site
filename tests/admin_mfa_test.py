@@ -18,9 +18,11 @@ WHAT IS ASSERTED, AND WHY EACH IS A REGRESSION IF IT FLIPS
    client sign-in to add admin MFA would be a bad trade, and it is the failure most
    likely to be introduced by putting the check in the shared verifier — which is
    exactly where it is (`core/auth.py::verify_token`).
-4. **The claim predicate matches Clerk's**, including that an ABSENT `fva` is a refusal
-   rather than a pass. That is the case a misconfigured JWT template produces, and
-   reading "unknown" as "verified" would silently disable the whole control.
+4. **The predicate is `mfa_verified_at IS NULL`, and nothing else** (D-177). It used to
+   read Clerk's `fva` claim, where an ABSENT value had to fail closed because a
+   misconfigured JWT template could drop it silently. A column cannot be ambiguous, so
+   the two-code ladder (`mfa_claim_missing` / `mfa_required`) collapsed into the one
+   `second_factor_required` that `authn/routes.py` already raised for this state.
 
 THE REFUSAL IS THE SUBJECT, so almost nothing here moves state. Exactly one test flips
 the global halt (it must, to prove the allowed direction is really allowed) and restores
@@ -32,6 +34,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 
 import pytest
 from apps.api.core import auth as auth_module
@@ -54,7 +57,7 @@ def _client() -> AsyncClient:
 def _without_second_factor(token: str) -> str:
     """The same operator, signed in but never having completed a second factor.
 
-    `dev:<realm>:<id>:nomfa` is the local stand-in for Clerk's `fva: [n, -1]` — see
+    `dev:<realm>:<uuid>:nomfa` is the local stand-in for a session that proved a password and not its emailed code — see
     `core/auth.py::DEV_TOKEN_NO_MFA_SUFFIX`. Derived from the admin's own token rather
     than built from a second string, so the two halves of every assertion below are the
     SAME admin_users row and the only difference is the second factor.
@@ -117,13 +120,17 @@ async def test_the_big_red_switch_is_refused_without_a_second_factor() -> None:
             },
         )
 
-    assert response.status_code == 403, response.text
+    assert response.status_code == 401, response.text
     problem = response.json()
-    assert problem["kind"] == "permission"
-    assert problem["type"].endswith("/mfa_required"), problem
+    # `auth`, not `permission`: this session is not half-authorised, it is
+    # half-AUTHENTICATED, and the difference is what tells an operator to finish signing
+    # in rather than to ask somebody for a role (D-177 collapsed the Clerk-era 403 into
+    # the 401 `authn/routes.py` already answered for the same state).
+    assert problem["kind"] == "auth"
+    assert problem["type"].endswith("/second_factor_required"), problem
     # Errors are part of the interface: an operator meeting this must be told what to do,
     # not merely that they may not.
-    assert "two-step" in problem["remediation"].lower(), problem
+    assert "code" in problem["remediation"].lower(), problem
 
     halted, _reason = await _halt_state()
     assert halted is False, "a refused request must not have moved the platform"
@@ -143,8 +150,8 @@ async def test_a_read_on_the_admin_realm_is_refused_too() -> None:
             OPS_PLATFORM,
             headers={"Authorization": f"Bearer {_without_second_factor(token)}"},
         )
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/mfa_required")
+    assert response.status_code == 401, response.text
+    assert response.json()["type"].endswith("/second_factor_required")
 
 
 async def test_the_switch_moves_for_an_operator_who_completed_a_second_factor() -> None:
@@ -200,8 +207,8 @@ async def test_mfa_is_checked_before_the_step_up_header() -> None:
             json={"outbound_halted": True, "reason": "mfa test — no header at all"},
             headers={"Authorization": f"Bearer {_without_second_factor(token)}"},
         )
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/mfa_required")
+    assert response.status_code == 401, response.text
+    assert response.json()["type"].endswith("/second_factor_required")
 
 
 # --------------------------------------------------------- the client realm is untouched
@@ -234,66 +241,51 @@ async def test_the_client_realm_has_no_mfa_gate_at_the_verifier() -> None:
     """
     assert set(auth_module.MFA_REQUIRED_REALMS) == {"admin"}
 
-    verified = await auth_module.verify_token("dev:client:user_whoever", "client")
-    assert verified.clerk_user_id == "user_whoever"
-    # A client token carries no `fva` and nothing asks it to.
-    assert verified.second_factor_age_min in (0, None)
+    subject = uuid.uuid4()
+    verified = await auth_module.verify_token(f"dev:client:{subject}", "client")
+    assert verified.subject_id == subject
+    # The client realm is never asked for a second factor, so a plain dev credential
+    # reaches a principal — the control that gives the admin refusals meaning.
+    assert verified.realm == "client"
 
 
-# ------------------------------------------------------- the claim predicate, exactly
+# ------------------------------------------------------- the predicate, exactly
 
 
-def test_the_second_factor_age_is_read_the_way_clerk_writes_it() -> None:
-    """Clerk's `fva` is `[firstFactorAgeMinutes, secondFactorAgeMinutes]`, `-1` = never.
+def test_the_second_factor_gate_reads_one_column_and_has_one_refusal() -> None:
+    """What replaced Clerk's `fva` ladder (D-177), asserted in both directions.
 
-    Pinned against the shapes a real token takes (`[0, -1]` for a user with no second
-    factor, `[9, 3]` for one who completed both) and against the shapes a MISCONFIGURED
-    or hostile token takes. `[true, true]` is in the list because `bool` is an `int` in
-    Python: without the explicit check, a token claiming `fva: [true, true]` would read
-    as "second factor verified 1 minute ago".
+    THE TWO-CODE LADDER IS GONE ON PURPOSE and this test is where that is recorded.
+    `mfa_claim_missing` existed because a `-1` (the person did not do it) and an absent
+    claim (we cannot tell) were genuinely different facts: a custom JWT template could
+    drop `fva` silently, so "unknown" had to fail closed with a refusal aimed at an
+    OPERATOR rather than at the person signing in. `auth_sessions.mfa_verified_at` has no
+    third state — it is a timestamp or it is NULL — so there is nothing left for a second
+    code to describe, and one condition with two names is how a client comes to handle
+    one of them.
+
+    The surviving name is `second_factor_required`, which is the code `authn/routes.py`
+    already raised for the identical state on the sign-in surface. A console meets this
+    refusal on both routers and must not have to know which one answered.
     """
-    read = auth_module._second_factor_age_minutes
-    assert read({"fva": [0, -1]}) == -1
-    assert read({"fva": [9, 3]}) == 3
-    assert read({"fva": [0, 0]}) == 0
-
-    # Every one of these means "we cannot tell", which the gate treats as a refusal.
-    assert read({}) is None
-    assert read({"fva": None}) is None
-    assert read({"fva": [0]}) is None
-    assert read({"fva": "0,-1"}) is None
-    assert read({"fva": [True, True]}) is None
-    assert read({"fva": [0, "3"]}) is None
-
-
-def test_an_unreadable_claim_fails_closed_with_a_different_code() -> None:
-    """A refusal saying "we could not check" is not one saying "you did not do it".
-
-    A missing `fva` is an OPERATOR's problem — the admin Clerk application is issuing a
-    custom session token that drops the claim — while `-1` is the signed-in person's. One
-    code for both would send an operator to enrol a factor they already have.
-    """
-    with pytest.raises(ProblemError) as missing:
-        auth_module._require_second_factor("admin", None)
-    assert missing.value.code == "mfa_claim_missing"
-    assert missing.value.status == 403
-
     with pytest.raises(ProblemError) as never:
-        auth_module._require_second_factor("admin", -1)
-    assert never.value.code == "mfa_required"
+        auth_module._require_second_factor("admin", None)
+    assert never.value.code == "second_factor_required"
+    assert never.value.status == 401
 
-    # And the two that must NOT raise.
-    auth_module._require_second_factor("admin", 0)
-    auth_module._require_second_factor("client", -1)
+    # And the two that must NOT raise: an admin session that answered its code, and the
+    # client realm, which is never asked.
+    auth_module._require_second_factor("admin", datetime.now(UTC))
+    auth_module._require_second_factor("client", None)
 
 
 async def test_an_unrecognised_dev_token_suffix_is_not_a_pass() -> None:
-    """`dev:admin:<id>:mfa` must be refused, not read as "no suffix I know, so allow".
+    """`dev:admin:<uuid>:mfa` must be refused, not read as "no suffix I know, so allow".
 
     The lenient reading is the dangerous direction on the one realm this gate protects,
     and a four-segment token is exactly what someone reaching for a bypass would try.
     """
     with pytest.raises(ProblemError) as exc:
-        await auth_module.verify_token("dev:admin:admin_whoever:mfa", "admin")
+        await auth_module.verify_token(f"dev:admin:{uuid.uuid4()}:mfa", "admin")
     # 401: it is not a valid dev token at all, so it never reaches the MFA question.
     assert exc.value.status == 401

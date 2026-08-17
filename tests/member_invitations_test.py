@@ -208,8 +208,7 @@ async def test_redemption_creates_the_invited_address_and_no_other() -> None:
             (
                 await session.execute(
                     text(
-                        "SELECT lower(u.email) FROM users u "
-                        "JOIN memberships m ON m.user_id = u.id"
+                        "SELECT lower(u.email) FROM users u JOIN memberships m ON m.user_id = u.id"
                     )
                 )
             ).scalars()

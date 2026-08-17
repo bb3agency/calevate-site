@@ -916,7 +916,6 @@ async def test_a_session_with_no_user_of_its_own_reads_no_subject_state() -> Non
     viewer = Principal(
         realm="admin",
         user_id=None,
-        clerk_user_id=None,
         tenant_id=tenant_id,
         role="operator",
         impersonating=True,
@@ -944,7 +943,6 @@ async def test_an_opt_in_that_cannot_name_the_person_giving_it_is_forbidden() ->
     nobody = Principal(
         realm="client",
         user_id=None,
-        clerk_user_id=None,
         tenant_id=tenant_id,
         role="owner",
     )

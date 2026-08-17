@@ -59,7 +59,6 @@ def _principal(tenant_id: uuid.UUID) -> Principal:
     return Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,

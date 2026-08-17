@@ -751,9 +751,7 @@ async def test_installing_a_credential_with_no_admin_identity_is_refused() -> No
     satisfied, so what is pinned here is the identity check and not the header in front
     of it.
     """
-    principal = Principal(
-        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
-    )
+    principal = Principal(realm="admin", user_id=None, tenant_id=None, role=None)
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
             await set_secret_route(

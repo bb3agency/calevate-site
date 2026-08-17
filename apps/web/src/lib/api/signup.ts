@@ -26,7 +26,7 @@
 
 import { useMutation } from "@tanstack/react-query";
 
-import { clientRealmSession } from "@/lib/auth/clientRealm";
+import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { ApiProblem, apiRequest, type Session } from "./client";
 import type { components } from "./schema";
