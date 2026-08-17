@@ -768,6 +768,29 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "BootstrapConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "BootstrapConfirmIn",
+        "type": "object"
+      },
       "BootstrapKeyOut": {
         "additionalProperties": false,
         "description": "A \u00a74 bootstrap key: real, required, and changeable ONLY on the VPS.\n\nTHESE ARE NOT IN `fields` AND NEVER WILL BE, and that absence was the problem. An\noperator looking for `APP_ENV` on this screen found nothing at all, which reads\nidentically to \"this build does not have that setting\" \u2014 so the one class of key that\ngenuinely does need an SSH session and a restart was the one the console said nothing\nabout. It says it here instead, with the reason, beside the keys it CAN change.\n\nNO VALUE, EVER. Two of the six are `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` \u2014 the\nkeys that open the credential store \u2014 and one is `DATABASE_URL`, which carries a\npassword. `configured` is presence and nothing more, which is the only fact an\noperator needs from a screen (hard rule 6 applies to a response body exactly as it\napplies to a log line).",
@@ -5843,6 +5866,66 @@
         "title": "InvitationOut",
         "type": "object"
       },
+      "InviteAcceptWithPasswordIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "InviteAcceptWithPasswordIn",
+        "type": "object"
+      },
+      "InviteAcceptWithPasswordOut": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "slug",
+          "role"
+        ],
+        "title": "InviteAcceptWithPasswordOut",
+        "type": "object"
+      },
       "InviteIn": {
         "additionalProperties": false,
         "properties": {
@@ -7511,6 +7594,46 @@
         "title": "LifecycleOut",
         "type": "object"
       },
+      "LoginIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginIn",
+        "type": "object"
+      },
+      "LoginOut": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "authenticated",
+              "otp_required"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LoginOut",
+        "type": "object"
+      },
       "LookupConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -8151,6 +8274,41 @@
           "status"
         ],
         "title": "OrganizationOut",
+        "type": "object"
+      },
+      "OtpConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "email_verify",
+            "default": "email_verify",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "OtpConfirmIn",
+        "type": "object"
+      },
+      "OtpRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "purpose": {
+            "const": "email_verify",
+            "default": "email_verify",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "title": "OtpRequestIn",
         "type": "object"
       },
       "PaymentOut": {
@@ -9910,6 +10068,44 @@
         "title": "ReplayOut",
         "type": "object"
       },
+      "ResetConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "ResetConfirmIn",
+        "type": "object"
+      },
+      "ResetRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ResetRequestIn",
+        "type": "object"
+      },
       "RestatementIn": {
         "additionalProperties": false,
         "description": "A payment that credited LESS than the bank moved, described by the TRUE TOTAL.\n\nIt does NOT inherit `MoneyIn`, and the field is not called `amount_inr`. The other\ntwo writes on this router take an amount to MOVE; this one takes the amount the\npayment WAS. One name for two meanings on one router is the confusion that would\neventually be resolved at 2am by a tired operator, so the names differ and the\nshared part \u2014 the float refusal \u2014 is shared as a function.",
@@ -10004,6 +10200,20 @@
           "recorded"
         ],
         "title": "RestatementOut",
+        "type": "object"
+      },
+      "RevokedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "revoked": {
+            "title": "Revoked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "title": "RevokedOut",
         "type": "object"
       },
       "RewrapOut": {
@@ -10455,6 +10665,22 @@
         "title": "ScheduleOut",
         "type": "object"
       },
+      "SecondFactorIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "SecondFactorIn",
+        "type": "object"
+      },
       "SecretOut": {
         "additionalProperties": false,
         "description": "One credential, as much as anyone may ever see of it.\n\nNO VALUE FIELD, ON ANY ROUTE, EVER. `last_four` is the only fragment that exists, and\n`core/envelope.last_four` masks it entirely below eight characters.\n\nNo field carries a default: the console must not have to write `installed ?? true`\nfor a fact that decides whether it offers to rotate or to install.",
@@ -10700,6 +10926,37 @@
           "name"
         ],
         "title": "ServiceItem",
+        "type": "object"
+      },
+      "SessionOut": {
+        "additionalProperties": false,
+        "description": "Who this session is, as ids and state.\n\n**NO EMAIL ADDRESS, deliberately.** An earlier draft returned one, and\n`scripts/check_redaction_exposure.py` reported it \u2014 correctly. The substance is\ndefensible (it is the caller's OWN address, on a route only their own session reaches),\nbut the guardrail's contract for an allowlist entry is \"role-checked AND writes\naudit_log\", and writing an audit row on every bootstrap poll would be absurd volume for\na fact the caller already knows because they typed it to sign in.\n\nSo the field is gone rather than exempted. Nothing consumed it \u2014 `apps/web` is a\nseparate slice and unbuilt \u2014 and a field nobody reads is the same defect as a column\nnobody reads, in wire form. A console that later wants to render \"signed in as \u2026\" gets\na profile endpoint whose disclosure is considered on its own terms.",
+        "properties": {
+          "email_verified": {
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "mfa_complete": {
+            "title": "Mfa Complete",
+            "type": "boolean"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "subject_id",
+          "mfa_complete",
+          "email_verified"
+        ],
+        "title": "SessionOut",
         "type": "object"
       },
       "SetCallCapIn": {
@@ -17076,6 +17333,763 @@
           "crm"
         ],
         "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/auth/admin/bootstrap/confirm": {
+      "post": {
+        "description": "The redemption half of `scripts/bootstrap_admin.py` (D-167).\n\nUNAUTHENTICATED, necessarily \u2014 it is how a deployment acquires its first\noperator, and there is nobody to authenticate as until it succeeds. What stands\nin its place is the token: 256 bits, mailed to an address a deploying operator\nnamed, single-use, one hour, and refused outright once the named account has a\npassword. A leaked link from a finished deploy opens nothing.\n\nADMIN REALM ONLY, and enforced structurally \u2014 this route is not declared on the\nclient realm's router at all, rather than being declared and then refusing.\nA client-realm `/bootstrap/confirm` would be a 404, which is the correct answer\nfor a route that should not exist there.",
+        "operationId": "bootstrap_confirm_v1_auth_admin_bootstrap_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the first administrator's password from a bootstrap setup link",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/login": {
+      "post": {
+        "description": "Always answers identically for an unknown address and a wrong password \u2014\nsame status, same body, and the same wall-clock cost (`service.sign_in`).",
+        "operationId": "login_v1_auth_admin_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Sign in to the admin realm with an email address and password",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/login/otp": {
+      "post": {
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "operationId": "login_otp_v1_auth_admin_login_otp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Complete a sign-in by entering the emailed one-time code",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/login/otp/resend": {
+      "post": {
+        "description": "A new code RETIRES the previous one, so resending cannot be used to accumulate\nparallel codes and multiply the five-guess budget.",
+        "operationId": "login_otp_resend_v1_auth_admin_login_otp_resend_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a fresh one-time code for a sign-in that is waiting on one",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/logout": {
+      "post": {
+        "description": "Deliberately depends on `Live` and not `Authed`: a half-authenticated session\nmust be able to sign itself out, or an operator who abandons an MFA prompt is stuck\nwith a live partial session and no way to drop it.",
+        "operationId": "logout_v1_auth_admin_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End this session",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/logout/all": {
+      "post": {
+        "operationId": "logout_all_v1_auth_admin_logout_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End every session this person holds in this realm",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/otp/request": {
+      "post": {
+        "description": "Scoped to the CALLER'S OWN subject \u2014 there is no parameter naming whose mailbox\nto mail, which is what stops this being a way to send mail to arbitrary addresses.",
+        "operationId": "otp_request_v1_auth_admin_otp_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a one-time code to this session's own address",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/otp/verify": {
+      "post": {
+        "operationId": "otp_verify_v1_auth_admin_otp_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Spend one guess against the live one-time code",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/password/reset/confirm": {
+      "post": {
+        "operationId": "reset_confirm_v1_auth_admin_password_reset_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set a new password from a reset link, ending every existing session",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/password/reset/request": {
+      "post": {
+        "description": "202 with an EMPTY body, always. There is no version of this response that\ndiffers for a known and an unknown address \u2014 that is the point of it.",
+        "operationId": "reset_request_v1_auth_admin_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask for a password reset link (answers identically for unknown addresses)",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/session": {
+      "get": {
+        "description": "Re-reads the subject rather than trusting the session row, so a deactivation\ntakes effect on the next request (BACKEND-PATTERNS \u00a77).",
+        "operationId": "read_session_v1_auth_admin_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this session belongs to \u2014 the console's bootstrap call",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/session/refresh": {
+      "post": {
+        "operationId": "refresh_session_v1_auth_admin_session_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Exchange a live session for a fresh token, keeping its lifetime",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/client/invitations/accept": {
+      "post": {
+        "description": "The first-party twin of `POST /v1/invitations/accept`.\n\nThe Clerk one still exists and still works \u2014 both credential paths coexist until\nAUTH-MIGRATION \u00a75 step 6. What differs is that this one needs no prior account, because\nthere is no vendor to have made one: it takes the password in the same call.\n\nThe `/invite?token=...` page contract is unchanged (`apps/authn/invitations.py`).",
+        "operationId": "accept_invitation_with_password_v1_auth_client_invitations_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteAcceptWithPasswordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteAcceptWithPasswordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Redeem an invitation: create the account, set a password, join the workspace",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/login": {
+      "post": {
+        "description": "Always answers identically for an unknown address and a wrong password \u2014\nsame status, same body, and the same wall-clock cost (`service.sign_in`).",
+        "operationId": "login_v1_auth_client_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Sign in to the client realm with an email address and password",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/login/otp": {
+      "post": {
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-166): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "operationId": "login_otp_v1_auth_client_login_otp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Complete a sign-in by entering the emailed one-time code",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/login/otp/resend": {
+      "post": {
+        "description": "A new code RETIRES the previous one, so resending cannot be used to accumulate\nparallel codes and multiply the five-guess budget.",
+        "operationId": "login_otp_resend_v1_auth_client_login_otp_resend_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a fresh one-time code for a sign-in that is waiting on one",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/logout": {
+      "post": {
+        "description": "Deliberately depends on `Live` and not `Authed`: a half-authenticated session\nmust be able to sign itself out, or an operator who abandons an MFA prompt is stuck\nwith a live partial session and no way to drop it.",
+        "operationId": "logout_v1_auth_client_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End this session",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/logout/all": {
+      "post": {
+        "operationId": "logout_all_v1_auth_client_logout_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End every session this person holds in this realm",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/otp/request": {
+      "post": {
+        "description": "Scoped to the CALLER'S OWN subject \u2014 there is no parameter naming whose mailbox\nto mail, which is what stops this being a way to send mail to arbitrary addresses.",
+        "operationId": "otp_request_v1_auth_client_otp_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a one-time code to this session's own address",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/otp/verify": {
+      "post": {
+        "operationId": "otp_verify_v1_auth_client_otp_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Spend one guess against the live one-time code",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/password/reset/confirm": {
+      "post": {
+        "operationId": "reset_confirm_v1_auth_client_password_reset_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set a new password from a reset link, ending every existing session",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/password/reset/request": {
+      "post": {
+        "description": "202 with an EMPTY body, always. There is no version of this response that\ndiffers for a known and an unknown address \u2014 that is the point of it.",
+        "operationId": "reset_request_v1_auth_client_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask for a password reset link (answers identically for unknown addresses)",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/session": {
+      "get": {
+        "description": "Re-reads the subject rather than trusting the session row, so a deactivation\ntakes effect on the next request (BACKEND-PATTERNS \u00a77).",
+        "operationId": "read_session_v1_auth_client_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this session belongs to \u2014 the console's bootstrap call",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/session/refresh": {
+      "post": {
+        "operationId": "refresh_session_v1_auth_client_session_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Exchange a live session for a fresh token, keeping its lifetime",
+        "tags": [
+          "auth-client"
+        ]
       }
     },
     "/v1/auth/signup": {

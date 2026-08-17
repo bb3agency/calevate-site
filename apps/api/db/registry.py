@@ -277,6 +277,30 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "not a drawer of live cookies; carries ids and instants only — no IP, no "
         "user-agent, no PII."
     ),
+    "auth_email_tokens": (
+        "D-166's single-use emailed secrets — email verification, password reset, "
+        "invitation set-password, and the first-administrator bootstrap (D-167). Not "
+        "tenant-scoped for the same reason as the two above: it names a SUBJECT (a person "
+        "across every tenant they belong to) or an `invitations` row, never a tenant. "
+        "Migration b3d9f6a2c815 gives it the identical FORCEd deny-by-default policy on "
+        "`app.auth`, so a tenant session — including tenant A asking about tenant B's "
+        "owner — sees zero rows. Holds an HMAC of the token under a PLATFORM_KEK-derived "
+        "key that never touches this database, so a dump is not a drawer of live reset "
+        "links; the plaintext exists only in the email. The `purpose` is inside that "
+        "MAC's domain, so a verification token cannot be redeemed as a password reset."
+    ),
+    "auth_otp_challenges": (
+        "D-166's one-time codes — and since the second factor IS the emailed code rather "
+        "than TOTP, this is the table the admin realm's MFA rests on. Not tenant-scoped "
+        "for the same reason as its three siblings above (it names a subject, not a "
+        "tenant) and carries the same FORCEd deny-by-default `app.auth` policy. It is "
+        "the most sensitive of the four relative to its entropy: a six-digit code is ~20 "
+        "bits, which is why `code_hash` is an HMAC under a key outside this database "
+        "rather than a bare digest — 900,000 candidates is a rainbow table an attacker "
+        "builds in a second, and that is precisely the defect this design was written to "
+        "avoid. Carries no address and no PII: a subject id, a purpose, a MAC, two "
+        "instants and an attempt count."
+    ),
 }
 
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.

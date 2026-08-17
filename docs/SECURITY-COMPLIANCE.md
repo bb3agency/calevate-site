@@ -428,16 +428,28 @@ audit_log. Redaction runs BEFORE any transcript leaves our system (exports, noti
 ## 5. Application & Infrastructure Security
 
 Identity & access
-- Two auth realms (admin vs client), separate Clerk apps, separate cookies/domains; MFA
-  mandatory on admin; session lifetimes: admin 12h, client 7d refresh.
-  - **MFA is enforced server-side**, in `apps/api/core/auth.py::verify_token`, from
-    Clerk's `fva` session claim: an admin-realm token whose second-factor age is `-1`
-    (never verified) is refused `403 mfa_required`, and a token carrying no `fva` at all
-    is refused `403 mfa_claim_missing` — unknown fails closed. It gates READS as well as
-    writes, because it is authentication, not authorization. Enforced in the verifier so
-    no route can forget it; `tests/admin_mfa_test.py` pins both directions plus the
-    client realm's exemption. The admin console explains the refusal rather than
-    enforcing it (`app/admin/layout.tsx`).
+- Two auth realms (admin vs client), separate cookies/domains; MFA mandatory on admin.
+  - **WHAT "MFA" MEANS HERE, because a reader will otherwise assume an authenticator app:
+    a six-digit code emailed to the address on file, and nothing else** (D-166). TOTP,
+    shared secrets and recovery codes were designed and then deliberately not built. A
+    correct admin password issues a session with `mfa_verified_at IS NULL` that can reach
+    exactly one route — `POST /v1/auth/admin/login/otp` — and answering it rotates the
+    session. **The cost, stated rather than buried: the strength of the admin realm's
+    second factor is the strength of the operator's mailbox.** It stops a stolen password;
+    it does not stop a compromised email account, which a TOTP secret would.
+    `docs/AUTH-MIGRATION.md` §2.3 carries the full trade.
+  - **It is enforced in two places that are asserted to agree**: `authn/service.py` decides
+    whether a sign-in needs a challenge, and `core/auth.py::verify_token` refuses any admin
+    principal that never completed one. `MFA_REQUIRED_REALMS` is a single set compared
+    across both by `tests/authn_mfa_test.py`, because two copies of that fact is exactly
+    how a sign-in path and a verifier come to disagree, silently, in the unsafe direction.
+    It gates READS as well as writes, because it is authentication, not authorization.
+  - Session lifetimes are enforced on the ROW, per realm, and differ because the blast
+    radii differ: admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute
+    (`authn/sessions.REALM_TIMEOUTS`).
+  - *(Clerk's `fva` claim, `403 mfa_required` and `403 mfa_claim_missing` were the previous
+    mechanism. Those code paths still exist and still pass their tests; deleting them is
+    the next slice — AUTH-MIGRATION §5 step 6.)*
   - **Step-up (`X-Confirm-Action`) is a SEPARATE control and is retained**, not replaced:
     MFA is per SESSION (once, at sign-in, for 12h), step-up is per ACTION and per TARGET.
     The session that mis-clicks the big red switch is a session that has already passed

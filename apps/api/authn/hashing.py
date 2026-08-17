@@ -196,21 +196,19 @@ def _hasher() -> PasswordHasher:
     )
 
 
-def _derive_pepper(material: bytes) -> bytes:
-    """One KEK's worth of key material, turned into a pepper and nothing else.
-
-    HKDF-Expand-only would be the purist's call for a uniformly random 32-byte input, but
-    `HKDF` (extract-then-expand) is what `cryptography` exposes as one object and the
-    extract step over an already-uniform key costs one HMAC and weakens nothing. `salt`
-    is deliberately absent: the input is a 256-bit uniformly random key, which is the case
-    RFC 5869 §3.1 says a salt is optional for, and a salt here would be a second value to
-    keep in step across deployments for no gain.
-    """
-    return HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=PEPPER_INFO).derive(material)
+# HKDF-Expand-only would be the purist's call for a uniformly random 32-byte input, but
+# `HKDF` (extract-then-expand) is what `cryptography` exposes as one object and the extract
+# step over an already-uniform key costs one HMAC and weakens nothing. `salt` is
+# deliberately absent: the input is a 256-bit uniformly random key, which is the case
+# RFC 5869 §3.1 says a salt is optional for, and a salt here would be a second value to
+# keep in step across deployments for no gain. The derivation itself lives in
+# `_derived_ring_for` below, because it is now shared with `codes.py`.
 
 
-@lru_cache(maxsize=4)
-def _pepper_ring_for(kek_ids: tuple[int, ...], materials: tuple[bytes, ...]) -> tuple[bytes, ...]:
+@lru_cache(maxsize=8)
+def _derived_ring_for(
+    info: bytes, kek_ids: tuple[int, ...], materials: tuple[bytes, ...]
+) -> tuple[bytes, ...]:
     """Cached on the KEY MATERIAL, so a rotation produces a different ring rather than a
     stale one — the same cache discipline `core/envelope._ring_for` uses.
 
@@ -218,19 +216,37 @@ def _pepper_ring_for(kek_ids: tuple[int, ...], materials: tuple[bytes, ...]) -> 
     materials alone already determine the answer.
     """
     del kek_ids
-    return tuple(_derive_pepper(material) for material in materials)
+    return tuple(
+        HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=info).derive(material)
+        for material in materials
+    )
+
+
+def derived_ring(info: bytes, ring: KekRing | None = None) -> tuple[bytes, ...]:
+    """Every generation of ONE derived secret the KEK ring can produce, newest first.
+
+    Element 0 is the ACTIVE generation and is the only one anything new is written under,
+    which mirrors `KekRing.all_keys` exactly: a retired key unwraps and never wraps.
+    Normally length 1 — a deployment that has never rotated its KEK has no retired
+    generation, so a wrong password costs exactly one Argon2 verification, not two.
+
+    `info` is what separates one derived secret from another (RFC 5869 §3.2). It is a
+    PARAMETER rather than a constant because this package now derives two independent
+    secrets from the same KEK — the password pepper below and `codes.py`'s key for
+    low-entropy challenge codes — and deriving them under distinct `info` strings is key
+    SEPARATION, whereas reusing one value for both would be key REUSE with extra steps.
+    One function so the two cannot drift in construction, one string each so they cannot
+    be traded for one another.
+    """
+    keys = (ring or kek_ring()).all_keys
+    return _derived_ring_for(
+        info, tuple(key.kek_id for key in keys), tuple(key.material for key in keys)
+    )
 
 
 def pepper_ring(ring: KekRing | None = None) -> tuple[bytes, ...]:
-    """Every pepper generation a stored hash might have been written under, newest first.
-
-    Element 0 is the ACTIVE pepper and is the only one anything new is hashed with, which
-    mirrors `KekRing.all_keys` exactly: a retired key unwraps and never wraps. Normally
-    length 1 — a deployment that has never rotated its KEK has no retired generation, so
-    a wrong password costs exactly one Argon2 verification, not two.
-    """
-    keys = (ring or kek_ring()).all_keys
-    return _pepper_ring_for(tuple(key.kek_id for key in keys), tuple(key.material for key in keys))
+    """Every pepper generation a stored password hash might have been written under."""
+    return derived_ring(PEPPER_INFO, ring)
 
 
 def _peppered(password: str, pepper: bytes) -> bytes:
@@ -375,6 +391,7 @@ __all__ = [
     "MIN_PASSWORD_CHARS",
     "PEPPER_INFO",
     "PasswordVerdict",
+    "derived_ring",
     "hash_password",
     "hash_password_blocking",
     "pepper_ring",
