@@ -91,8 +91,17 @@ class TestWiring:
     def test_the_surface_is_small_enough_to_read(self, exempt: dict[str, object]) -> None:
         """Not a rule, a tripwire. This registry is meant to be short enough that a human
         reads the whole thing in a review; if it doubles, that is the conversation, not a
-        silent edit. Raising the bound is deliberate and shows up in a diff."""
-        assert len(exempt) <= 20, sorted(exempt)
+        silent edit. Raising the bound is deliberate and shows up in a diff.
+
+        RAISED 20 -> 36 when D-170's first-party auth landed. The jump is 24 routes in one
+        change and it is not drift: twelve flows, mirrored across the admin and client
+        realms, every one of which is unauthenticated by definition because it is how a
+        person BECOMES authenticated. The realm mirroring is why this bound now moves in
+        twos — a flow that existed for one realm and not the other would mean the boundary
+        had been drawn in the wrong place. 36 leaves room for the frontend slice to add
+        nothing and for one more pair; a third pair is the conversation this tripwire is
+        for."""
+        assert len(exempt) <= 36, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

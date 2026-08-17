@@ -168,6 +168,212 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="current_identity",
     ),
+    # ---- D-170's first-party auth surface. Written per FLOW and mirrored across the
+    # two realms deliberately: a reason true for one realm and not the other would mean
+    # the realm boundary had been drawn in the wrong place.
+    "POST /v1/auth/admin/login": PublicRoute(
+        why=(
+            "The front door: by definition there is no session yet. The PASSWORD is the "
+            "credential, verified by `authenticate_subject` under Argon2id, and an unknown "
+            "address costs the same wall-clock time and returns the same body as a wrong one "
+            "(D-170), so this route is not an existence oracle. Throttled per subject."
+        ),
+        credential="sign_in",
+    ),
+    "POST /v1/auth/client/login": PublicRoute(
+        why=(
+            "The front door: by definition there is no session yet. The PASSWORD is the "
+            "credential, verified by `authenticate_subject` under Argon2id, and an unknown "
+            "address costs the same wall-clock time and returns the same body as a wrong one "
+            "(D-170), so this route is not an existence oracle. Throttled per subject."
+        ),
+        credential="sign_in",
+    ),
+    "POST /v1/auth/admin/login/otp": PublicRoute(
+        why=(
+            "Second factor. A cookie DOES arrive — the one `login` issued with `mfa_verified_at "
+            "IS NULL` — so `verify_session` is the credential, and this is the single route "
+            "such a session may reach. Exempt from the registry because there is no permission "
+            "to hold until the factor is answered."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/login/otp": PublicRoute(
+        why=(
+            "Second factor. A cookie DOES arrive — the one `login` issued with `mfa_verified_at "
+            "IS NULL` — so `verify_session` is the credential, and this is the single route "
+            "such a session may reach. Exempt from the registry because there is no permission "
+            "to hold until the factor is answered."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/login/otp/resend": PublicRoute(
+        why=(
+            "Re-sends the code for the half-authenticated session above: same cookie, same "
+            "credential, same one-route ceiling. Always 202, so it says nothing about whether a "
+            "challenge was outstanding."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/login/otp/resend": PublicRoute(
+        why=(
+            "Re-sends the code for the half-authenticated session above: same cookie, same "
+            "credential, same one-route ceiling. Always 202, so it says nothing about whether a "
+            "challenge was outstanding."
+        ),
+        credential="verify_session",
+    ),
+    "GET /v1/auth/admin/session": PublicRoute(
+        why=(
+            "Reads back who the cookie says you are. `verify_session` is the credential; with "
+            "no cookie it is a 401, so the route discloses nothing to the world. Exempt because "
+            "'am I logged in' cannot itself require a permission."
+        ),
+        credential="verify_session",
+    ),
+    "GET /v1/auth/client/session": PublicRoute(
+        why=(
+            "Reads back who the cookie says you are. `verify_session` is the credential; with "
+            "no cookie it is a 401, so the route discloses nothing to the world. Exempt because "
+            "'am I logged in' cannot itself require a permission."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/session/refresh": PublicRoute(
+        why=(
+            "Rotates the session token. The cookie is the credential and the rotation is "
+            "single-use, so a replayed refresh fails closed rather than minting a second live "
+            "session."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/session/refresh": PublicRoute(
+        why=(
+            "Rotates the session token. The cookie is the credential and the rotation is "
+            "single-use, so a replayed refresh fails closed rather than minting a second live "
+            "session."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/logout": PublicRoute(
+        why=(
+            "Revokes the current session. The cookie is the credential; with none it is a 401. "
+            "Requiring a permission to log out would strand a session that has lost one."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/logout": PublicRoute(
+        why=(
+            "Revokes the current session. The cookie is the credential; with none it is a 401. "
+            "Requiring a permission to log out would strand a session that has lost one."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/logout/all": PublicRoute(
+        why=(
+            "Revokes every session for the subject — the control a person reaches for when they "
+            "believe they are compromised, which is exactly when a permission check is the "
+            "wrong obstacle."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/logout/all": PublicRoute(
+        why=(
+            "Revokes every session for the subject — the control a person reaches for when they "
+            "believe they are compromised, which is exactly when a permission check is the "
+            "wrong obstacle."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/otp/request": PublicRoute(
+        why=(
+            "Issues a code to an already-authenticated subject for a step-up. The cookie is the "
+            "credential; always 202."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/otp/request": PublicRoute(
+        why=(
+            "Issues a code to an already-authenticated subject for a step-up. The cookie is the "
+            "credential; always 202."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/otp/verify": PublicRoute(
+        why=(
+            "Answers the step-up challenge above. Cookie plus code, both required, attempts "
+            "capped on the row and in Redis."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/otp/verify": PublicRoute(
+        why=(
+            "Answers the step-up challenge above. Cookie plus code, both required, attempts "
+            "capped on the row and in Redis."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/admin/password/reset/request": PublicRoute(
+        why=(
+            "GENUINELY OPEN, and it must be: a person who cannot log in is the entire audience. "
+            "It answers 202 with an empty body whatever the address, so it discloses no "
+            "account's existence — the defect found in the reference at `check-identifier` and "
+            "refused here. Rate limited by address and by caller ip. "
+            "`enforce_same_origin` is named "
+            "as the credential because it is what actually stands in — it stops a "
+            "third-party page posting here — and NOT because it proves anything about "
+            "who is asking. Nothing can: that is the route's purpose."
+        ),
+        credential="enforce_same_origin",
+    ),
+    "POST /v1/auth/client/password/reset/request": PublicRoute(
+        why=(
+            "GENUINELY OPEN, and it must be: a person who cannot log in is the entire audience. "
+            "It answers 202 with an empty body whatever the address, so it discloses no "
+            "account's existence — the defect found in the reference at `check-identifier` and "
+            "refused here. Rate limited by address and by caller ip. "
+            "`enforce_same_origin` is named "
+            "as the credential because it is what actually stands in — it stops a "
+            "third-party page posting here — and NOT because it proves anything about "
+            "who is asking. Nothing can: that is the route's purpose."
+        ),
+        credential="enforce_same_origin",
+    ),
+    "POST /v1/auth/admin/password/reset/confirm": PublicRoute(
+        why=(
+            "The EMAILED TOKEN is the credential — random bytes, stored only as a hash, single- "
+            "use, consumed in the same transaction that changes the password and revokes every "
+            "existing session. A deleted or disabled subject is refused with a 422 rather than "
+            "raising, which is the reference's `auth.service.ts:996` defect."
+        ),
+        credential="confirm_password_reset",
+    ),
+    "POST /v1/auth/client/password/reset/confirm": PublicRoute(
+        why=(
+            "The EMAILED TOKEN is the credential — random bytes, stored only as a hash, single- "
+            "use, consumed in the same transaction that changes the password and revokes every "
+            "existing session. A deleted or disabled subject is refused with a 422 rather than "
+            "raising, which is the reference's `auth.service.ts:996` defect."
+        ),
+        credential="confirm_password_reset",
+    ),
+    "POST /v1/auth/admin/bootstrap/confirm": PublicRoute(
+        why=(
+            "The first administrator on a bare host, where requiring a session is a chicken and "
+            "egg. The emailed bootstrap token is the credential, hashed at rest and single-use, "
+            "and the route refuses outright once any operator holds a password (409) so it "
+            "cannot become a back door after go-live."
+        ),
+        credential="confirm_bootstrap",
+    ),
+    "POST /v1/auth/client/invitations/accept": PublicRoute(
+        why=(
+            "An invitee has no account until this call succeeds, so there is no session to "
+            "require. The invitation token is the credential — hashed at rest, single-use, "
+            "consumed in the transaction that creates the membership and sets the password."
+        ),
+        credential="accept_with_password",
+    ),
 }
 
 
