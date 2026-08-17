@@ -320,7 +320,7 @@ preflight_plan() {
       "apps/web/.env.local is missing. Next inlines NEXT_PUBLIC_* at BUILD time from the
      PACKAGE directory — the root .env is not read and is forbidden from carrying them
      (apps/web/.env.example). Without it the bundle ships with an empty API base and empty
-     Clerk publishable keys, and the deploy still reports success. Place it by hand from
+     browser configuration, and the deploy still reports success. Place it by hand from
      the secrets manager, then re-run."
     # The ONLY copy of this check. `deploy_web` used to repeat it, which is two ways of
     # asking one question and is a defect here even though both worked: the copy at step
