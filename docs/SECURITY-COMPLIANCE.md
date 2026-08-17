@@ -454,7 +454,7 @@ Identity & access
     (once, at sign-in), step-up is per ACTION and per TARGET. The session that mis-clicks
     the big red switch is a session that has already passed MFA.
   - **Step-up now has BOTH halves (D-178)**, demanded together by
-    `core/stepup.require_step_up`: `X-Confirm-Action` must echo the action (INTENT — a
+    `core/stepup.StepUp.require`: `X-Confirm-Action` must echo the action (INTENT — a
     stolen cookie satisfies it trivially, since the refusal prints the string), and
     `auth_sessions.mfa_verified_at` must be under `REAUTH_MAX_AGE` = 5 minutes (PRESENCE).
     `POST /v1/auth/admin/step-up` mails a `step_up`-purpose code and `.../step-up/verify`

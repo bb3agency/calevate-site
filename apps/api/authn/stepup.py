@@ -97,7 +97,7 @@ def reauthentication_required(action: str) -> ProblemError:
     """The refusal, with the two calls that clear it printed in it.
 
     An operator mid-incident must not have to find the source — or the frontend — to learn
-    how to get past this, for the same reason `core/stepup.require_step_up` prints the
+    how to get past this, for the same reason `core/stepup.StepUp.require` prints the
     header it wants.
     """
     return ProblemError(

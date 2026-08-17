@@ -666,7 +666,7 @@ own**, stated here because they have previously been read as done:
   prompt nobody can answer at 3am is how a control gets switched off". D-170 built the
   flow: the second factor is an emailed code, and `POST /v1/auth/admin/step-up` mails one
   to the operator who was just refused, on the screen they were refused on. So
-  `core/stepup.require_step_up` now demands the per-action `X-Confirm-Action` echo AND
+  `core/stepup.StepUp.require` now demands the per-action `X-Confirm-Action` echo AND
   `auth_sessions.mfa_verified_at` under five minutes, at all 15 call sites.
 
   **Its two-person check, same shape as the one above**: hold an admin session, wait past

@@ -98,7 +98,7 @@ BLAST RADIUS AND THE TWO KEYS
 This is the most destructive operation in the product, so it is gated like the other
 irreversible ones rather than more gently. `tenant_erasure_routes.py` applies the shape
 `admin/routes.py::record_commercial_terms` established for loosening a spend ceiling —
-the ROLE check first (`ops:manage`, i.e. superadmin), then `require_step_up` bound to
+the ROLE check first (`ops:manage`, i.e. superadmin), then `StepUp.require` bound to
 this tenant's id — because a step-up header is a confirmation, not an authorisation. A
 confirm dialog in the browser is not a guard: it is absent from curl.
 
