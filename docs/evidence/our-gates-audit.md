@@ -1,5 +1,14 @@
 # Our own gates, audited — can each of the twenty actually fail? (D-176)
 
+**Twenty**, counted from `scripts/check_*.py` and not from memory: `check_audit_ip`,
+`check_bootstrap_keys`, `check_compliance_invariants`, `check_config_applies`,
+`check_coverage_ratchet`, `check_deploy_env`, `check_docs_drift`, `check_drill_freshness`,
+`check_env_parity`, `check_ledger_immutability`, `check_metadata_columns`,
+`check_model_residency`, `check_observability_ready`, `check_openapi_fresh`,
+`check_public_routes`, `check_raw_sql`, `check_redaction_exposure`, `check_rls_coverage`,
+`check_web_env_parity`, `check_wiring`. `lint-imports` is the twenty-first gate and is not
+one of our scripts.
+
 **Date**: 17 August 2026 · **Decision**: D-176 · **Subject**: every `scripts/check_*.py`,
 plus `make guardrails`, `make check` and `.github/workflows/ci.yml`.
 
@@ -47,7 +56,11 @@ in no form: all three read the live database, the live `Settings` model and a co
 template respectively.
 
 **What the audit did find is the other shape — a gate whose evidence can be ABSENT and
-read as agreement.** Four instances, all now closed:
+read as agreement.** Six instances, all now closed. The last two were found by VERIFYING
+this document rather than trusting it: the first pass cleared `check_ledger_immutability`
+and `check_observability_ready` by reading them, and running them against an empty tree
+disagreed. That is the finding applied to the audit itself — a verdict reached by reading
+is not a verdict reached by watching something fail.
 
 | # | Check | The vacuous pass | Fix |
 |---|---|---|---|
@@ -55,18 +68,20 @@ read as agreement.** Four instances, all now closed:
 | 2 | `check_wiring` | `unmounted_routers()` reports no offenders when `declared_routers()` finds none — `rglob` over a renamed `apps/api` yields nothing and raises nothing, giving `WIRING: OK (0 routers all mounted)` | `blind_spots()` (`:396`) |
 | 3 | `check_env_parity` | The third direction is a SEARCH over `SEARCH_DIRS`; a renamed directory silently turns `7 direct environment reads accounted for` into `0`, on the direction that exists to catch a worker calling `os.getenv` | `blind_spots()` (`:201`) |
 | 4 | `check_config_applies` | Four of its sections iterate `classified_keys()`, and `managed_fields()` is computed from `Settings` BY EXCLUSION — a widened exclusion empties it with no list edited, and four checks over an empty set are four green ones | `blind_spots()` (`:129`) |
+| 5 | `check_ledger_immutability` | Check 1 — hard rule 4's CODE half — is an `rglob` over `SEARCH_DIRS`: `check_sources(root=<empty dir>)` returns `[]` and the run prints `... no mutating statements in app code` having read no code. It looked anchored and was not: the only thing that failed on an empty tree was `check_allowances`, and only because `BOUNDED_MUTATIONS` happens to hold ONE entry naming a real file — an exception registry whose correct end state is empty, so removing D-97's KEK re-wrap allowance (a desirable change) deletes check 1's only floor | `blind_spots()` (`:298`), run first in `main()` |
+| 6 | `check_observability_ready` | The langfuse rung asserts an ABSENCE, and an absence is the one verdict a scan over nothing produces for free. `langfuse_footholds` swallowed a missing `IMPORT_ROOTS` entry with `continue` and a missing manifest with `if manifest.exists():`, so a renamed `apps/` turns "no langfuse import anywhere" into "none anywhere I looked", printed as the former | `ObservabilityBlindError` on either surface; `main()` exits **2 REFUSED**, not 1 — nothing was shown to be misconfigured |
 
 Plus one in the wiring test itself:
 
 | # | Artefact | The defect | Fix |
 |---|---|---|---|
-| 5 | `tests/guardrail_audit_test.py::test_every_guardrail_script_runs_in_both_gates` | `assert f"scripts.{script}" in makefile` was a substring search over the WHOLE file, and both the Makefile and `ci.yml` are heavily commented with several comments naming the script beside them (`Makefile:75`, `ci.yml:119` both name `scripts.check_coverage_ratchet` in a comment). A check deleted from the recipe and left in its comment passed | the test now reads Makefile RECIPE lines only and the workflow's parsed `run:` scalars only, with `test_the_command_accessors_are_not_reading_everything` as the control on the reduction |
+| 7 | `tests/guardrail_audit_test.py::test_every_guardrail_script_runs_in_both_gates` | `assert f"scripts.{script}" in makefile` was a substring search over the WHOLE file, and both the Makefile and `ci.yml` are heavily commented with several comments naming the script beside them (`Makefile:75`, `ci.yml:119` both name `scripts.check_coverage_ratchet` in a comment). A check deleted from the recipe and left in its comment passed | the test now reads Makefile RECIPE lines only and the workflow's parsed `run:` scalars only, with `test_the_command_accessors_are_not_reading_everything` as the control on the reduction |
 
 And one that is not a vacuous pass but is the same species of rot:
 
 | # | Artefact | The defect | Fix |
 |---|---|---|---|
-| 6 | `docs/ENGINEERING-PRACTICES.md` §2 | The guardrail catalogue — the page a reader goes to for "what guards what" — had a row for twelve of the twenty scripts. The eight it had never heard of (`check_audit_ip`, `check_bootstrap_keys`, `check_config_applies`, `check_deploy_env`, `check_drill_freshness`, `check_metadata_columns`, `check_model_residency`, `check_observability_ready`) are precisely the ones nobody would think to run, argue with, or notice the absence of. Three of the rows it DID have said "in `make guardrails`" of a check that is also a CI step, and `check:ledger-immutability`'s row enumerated three ledgers in prose where the constant holds eight — the exact defect class hard rule 4's own commentary names | eight rows added, the four "critical four" rows now name their script path, the three wiring claims corrected, the ledger row rewritten to name the CONSTANT, and `test_every_guardrail_script_is_named_in_the_catalogue` globs `scripts/check_*.py` so the list cannot fall behind again |
+| 8 | `docs/ENGINEERING-PRACTICES.md` §2 | The guardrail catalogue — the page a reader goes to for "what guards what" — had a row for twelve of the twenty scripts. The eight it had never heard of (`check_audit_ip`, `check_bootstrap_keys`, `check_config_applies`, `check_deploy_env`, `check_drill_freshness`, `check_metadata_columns`, `check_model_residency`, `check_observability_ready`) are precisely the ones nobody would think to run, argue with, or notice the absence of. Three of the rows it DID have said "in `make guardrails`" of a check that is also a CI step, and `check:ledger-immutability`'s row enumerated three ledgers in prose where the constant holds eight — the exact defect class hard rule 4's own commentary names | eight rows added, the four "critical four" rows now name their script path, the three wiring claims corrected, the ledger row rewritten to name the CONSTANT, and `test_every_guardrail_script_is_named_in_the_catalogue` globs `scripts/check_*.py` so the list cannot fall behind again |
 
 ## The table
 
@@ -84,10 +99,10 @@ produce the evidence it reads. `V` = could it pass vacuously.
 | `check_docs_drift` | a doc command that resolves to nothing, a dangling `D-xx`, a duplicated decision number, a SEC-COMP §3 name the code lost, a rate-zone/TTS/capability mismatch, a stale deferral | the doc set, Makefile, package manifests, ROADMAP §6, nginx template | No | **No** — `blind_spots()` (`:1336`) is the model the four fixes above copied: floors on documents, targets, command claims and decision ids, plus "§3 quotes no rule the gate emits" | `Makefile:270`, `ci.yml:220` |
 | `check_drill_freshness` | a quarterly record more than one quarter old, post-dated, duplicated, unfilled, verdict-less or FAIL; a misnamed record | committed `docs/evidence/restore-drill-<YYYY>-Q<N>.md` | **No, structurally** — `ALLOWED_IMPORTS`, `FORBIDDEN_CALLS` and the self-AST audit at `:156`; the clock is read off the FILENAME, never an mtime | **No.** NOT RUN is a distinct third state, printed loudly on every build, and never called a pass | `Makefile:237`, `ci.yml:195` |
 | `check_env_parity` | a key in one side and not the other, a duplicate, an `os.getenv` outside `Settings`, a `BOOTSTRAP_REQUIRED` key with a default, a preflight key nothing reads | `.env.example`, `Settings`, `apps`/`packages`/`scripts` AST | No | **WAS YES (third direction) → fixed** (`blind_spots()`, `:201`) | `Makefile:174`, `ci.yml:242` |
-| `check_ledger_immutability` | an `UPDATE`/`DELETE`/`TRUNCATE` against a ledger in code or the ORM, a cascade, a trigger missing/disabled/non-raising/`ENABLE ORIGIN`/uncovered on a verb | tree AST + `pg_trigger` | No | **No.** An unmigrated database has no triggers → fail. DB unreachable prints `code OK; database unchecked` locally and FAILS under `CI` (`:447`) — a named degradation, not a silent one | `Makefile:191`, `ci.yml:161` |
+| `check_ledger_immutability` | an `UPDATE`/`DELETE`/`TRUNCATE` against a ledger in code or the ORM, a cascade, a trigger missing/disabled/non-raising/`ENABLE ORIGIN`/uncovered on a verb | tree AST + `pg_trigger` | No | **WAS YES (check 1, the code half) → fixed** (`blind_spots()`, `:298`). The TRIGGER half never could: an unmigrated database has no triggers → fail, and DB-unreachable prints `code OK; database unchecked` locally while FAILING under `CI` — a named degradation, not a silent one | `Makefile:191`, `ci.yml:161` |
 | `check_metadata_columns` | a live column no model declares, or a model column the database lacks | `Base.metadata` vs the live schema | No | **WAS YES (empty database) → fixed**: refuse, exit 2 (`:98`, `:124`) | `Makefile:199`, `ci.yml:168` |
 | `check_model_residency` | a Google model host that is not Vertex `asia-south1`; the region becoming settable from the console | tree AST | No | **No** — `blindness_failures()` (`:622`) fails when the provenance scan drops below `MINIMUM_TEMPLATES`, and the check plants its own canary constant for the scan to find | `Makefile:216`, `ci.yml:230` |
-| `check_observability_ready` | a component declared ON and misconfigured; a lost Sentry scrubber or unwrapped span exporter | `Settings` + `core/observability` AST | No | **No.** Exit 2 REFUSED when no Settings object can be built (`:437`); the structural rungs read the tree and run with or without configuration; `check_sentry_hooks` reports "cannot see its subject" rather than passing | `Makefile:230`, `ci.yml:186` |
+| `check_observability_ready` | a component declared ON and misconfigured; a lost Sentry scrubber or unwrapped span exporter; a langfuse import, dependency or settings field appearing | `Settings` + `core/observability` AST + `apps`/`packages`/`scripts` AST + `pyproject.toml` | No | **WAS YES (the langfuse rung) → fixed**: both its surfaces now raise `ObservabilityBlindError` and `main()` exits 2. The other rungs never could — exit 2 REFUSED when no `Settings` can be built, and `check_sentry_hooks` reads a NAMED file and reports "cannot see its subject" rather than passing | `Makefile:230`, `ci.yml:186` |
 | `check_openapi_fresh` | any contract difference — a path, a schema, a property type, a required list, a parameter, an `x-calevate-permission` | **committed** `apps/web/src/lib/api/openapi.json` vs `app.openapi()` | **No — checked hardest.** `--write` is the only writer and runs in no gate; `gen:api` reads the file to emit TS | **No.** A missing snapshot is an explicit FAIL (`:154`), not an exit 0 | `Makefile:247`, `ci.yml:273` |
 | `check_public_routes` | an undeclared exempt route, a declaration matching no live route, a `PUBLIC_PREFIXES` entry covering nothing, a mutating exempt route with no named credential, an exempt route carrying `x-calevate-permission` | the LIVE app's route table + RBAC registry | No | **No.** "no exempt routes found" is an explicit refusal (`:520`) | `Makefile:253`, `ci.yml:281` |
 | `check_raw_sql` | a `text(...)` whose string is not literal-derived, including through a parameter followed to its CALL SITES; `exec_driver_sql`/`literal_column` by name | `apps/` + `packages/` AST | No | **No — the house idiom.** Zero modules loaded → exit 2; zero `text(...)` found → exit 2 (`:777`) | `Makefile:246`, `ci.yml:269` |
@@ -114,9 +129,15 @@ two live contracts (`pyproject.toml`) report `Contracts: 2 kept, 0 broken`.
   guardrail does not hide the other nineteen: `if: ${{ !cancelled() }}` on every step
   (`ci.yml:141-281`) is what makes the rest still run when an earlier one fails, and
   `tests/coverage_ratchet_guard_test.py:1143` bans `continue-on-error` from the workflow
-  outright. **There is no `&&` chain anywhere** — the only `&&` in the Makefile is inside
-  a comment (`Makefile:92`). This is precisely what the reference's single 23-command
+  outright. This is precisely what the reference's single 23-command
   `ci:reliability-gates` chain loses.
+
+  **Grepped, not assumed.** `continue-on-error` appears in `ci.yml` only inside two
+  comments explaining why it is absent (`:134`, `:146`). The only `&&` in the workflow is
+  in a MinIO health-poll loop (`:87`), which is a readiness wait and not a gate chain; the
+  only `&&` in the Makefile is inside a comment (`:92`). Every one of the twenty scripts
+  has its own `- name: "Guardrail: …"` step carrying its own `if: ${{ !cancelled() }}` and
+  a `run:` naming exactly one script.
 - **`make guardrails` is fail-fast, not a table.** Make aborts the target at the first
   failing recipe line, so the local gate reports one problem at a time. That is right for
   the dev loop and it is NOT the CI behaviour; ENGINEERING-PRACTICES §2's
@@ -148,7 +169,31 @@ Every fix was watched failing before it was believed.
    `check_every_key_is_classified()` and `check_bounds()` both return `[]` and
    `blind_spots()` reports the empty registry.
    `tests/guardrail_audit_test.py::TestConfigApplies`.
-5. **The wiring test** — every command running `scripts.check_coverage_ratchet` deleted
+5. **`check_ledger_immutability`** — `check_sources(root=<empty dir>) == []` (the vacuous
+   pass) beside a `blind_spots(root=…)` naming all three missing search dirs AND the
+   zero-file scan. `main()` with `SEARCH_DIRS = ("no_such_directory",)` printed
+   `LEDGER IMMUTABILITY: FAIL — this check cannot see its own subject` and exited **1**;
+   before the fix the same input printed `OK (8 ledgers, ... no mutating statements in app
+   code)` and exited 0. The ORM half separately: `ledger_model_classes` monkeypatched to
+   `dict` makes `blind_spots()` name the empty class map.
+   `tests/guardrail_audit_test.py::TestLedgerImmutability`, three tests.
+
+   **The first version of this fix failed its own control**, and that is worth recording:
+   `dirs: tuple = SEARCH_DIRS` binds the tuple once at import, so rebinding the module
+   constant changed nothing and `main()` still printed OK. Reading the constant at call
+   time — which is what `check_env_parity.blind_spots` already does — is the fix, and one
+   way per problem is why it is spelled the same way.
+6. **`check_observability_ready`** — `langfuse_footholds(roots=(<missing dir>,))` and
+   `langfuse_footholds(pyproject=<absent file>)` both refuse by name; before the fix both
+   returned `[]`, which `check_langfuse` renders as `[skip] langfuse: Not present in the
+   tree` — a claim about a tree it never opened. `main()` with `IMPORT_ROOTS` pointed at a
+   missing directory printed `OBSERVABILITY READINESS: REFUSED — the langfuse rung is
+   blind: …` and exited **2**.
+   `tests/observability_readiness_guard_test.py::TestLangfuse`, two tests added plus one
+   existing test corrected: it isolated the import surface by passing an ABSENT manifest,
+   which is now a refusal, and passes an empty one instead — a surface that exists and
+   declares nothing rather than one that was never read.
+7. **The wiring test** — every command running `scripts.check_coverage_ratchet` deleted
    from copies of both files, leaving the two comments that name it: the OLD rule reported
    it wired in both gates (`True`/`True`); the NEW rule reports it wired in neither
    (`False`/`False`). Also proved live by deleting `check_wiring`'s recipe line from the
@@ -157,22 +202,50 @@ Every fix was watched failing before it was believed.
 
 ## Cleared, by name
 
-Examined, a failing input identified, and left alone: `check_audit_ip`,
-`check_bootstrap_keys`, `check_compliance_invariants`, `check_coverage_ratchet`,
-`check_deploy_env`, `check_docs_drift`, `check_drill_freshness`,
-`check_ledger_immutability`, `check_model_residency`, `check_observability_ready`,
-`check_openapi_fresh`, `check_public_routes`, `check_raw_sql`,
-`check_redaction_exposure`, `check_rls_coverage`, `check_web_env_parity` — sixteen of
-twenty, plus `lint-imports`.
+Examined, a failing input identified, and left alone — fourteen of twenty, plus
+`lint-imports`. Each was probed against the input that would make it go blind, not only
+read:
 
-Two of those carry a documented soft edge worth knowing rather than fixing:
-`check_ledger_immutability` and `check_compliance_invariants` degrade to a NAMED partial
-verdict when no database answers, and are hard failures under `CI` — the environment
-where they block a merge.
+| Check | The probe | What it did |
+|---|---|---|
+| `check_audit_ip` | `SCOPE` pointed at an empty directory | `AUDIT IP: FAIL`, exit 1 — both `PERMITTED` entries reported unmatched. The allowance is verified LIVE, so an empty scan is a failure, not a pass |
+| `check_raw_sql` | `load_modules(root=<empty dir>)` | raised `RawSqlError: scan root 'apps' does not exist` — the house idiom, refusing rather than returning `[]` |
+| `check_rls_coverage` | reasoned from `:264` | an empty database gives `actual = ∅` against 44 registry tables → `registry drift` fails. Not probed live: the database is shared and this check reads `pg_catalog` |
+| `check_public_routes` | read at `:513-539` | `audit()` raises `PublicRouteError("no exempt routes found …")` before any comparison; `main()` exits **2** |
+| `check_openapi_fresh` | read at `:153`, plus a tree-wide grep for `--write` | a missing snapshot is an explicit FAIL, and `--write` appears in NO Makefile recipe, CI step, deploy script or package manifest — only in prose. `gen:api` reads the file |
+| `check_redaction_exposure` | read at `:377-383` | `routes and not any(route.enforced …)` returns "this check is blind"; and an EMPTY spec makes all four `ALLOWED_ROUTES` stale, so both shapes fail |
+| `check_bootstrap_keys` | read at `:61-90` | `BOOTSTRAP_KEYS` spells the six independently of `ENV_ONLY_KEYS`, so emptying the constant under test fails `check_list` six times. `check_filter_applied` pushes a real value through the real door |
+| `check_drill_freshness` | read at `:156-189`, `:371` | `check_this_module_cannot_write()` runs inside `main()`, not only in a test; `ALLOWED_IMPORTS` + `FORBIDDEN_CALLS` walked over its own AST; clock off the filename |
+| `check_deploy_env` | read at `:218-227` | `env_file_missing` and `settings_unbuildable` are REFUSAL codes and `example_file_unreadable` is a named WARNING — no path returns 0 on an input it could not read |
+| `check_docs_drift` | `blind_spots()` at `:1336`, called at `:1424` | wired as a section of `main()`, not a helper nobody calls |
+| `check_compliance_invariants` | `blind_spots()` at `:320`, called at `:1103` | same, and DB-unreachable is a named non-verdict locally / FAIL under `CI` |
+| `check_web_env_parity` | `blind_spots(state)` at `:424`, called at `:653` | same |
+| `check_model_residency` | `blindness_failures()` at `:622`, called at `:653` | same, with `MINIMUM_TEMPLATES` and a canary constant the scan must find |
+| `check_coverage_ratchet` | READ ONLY — see below | — |
+
+`check_compliance_invariants` carries a documented soft edge worth knowing rather than
+fixing: it degrades to a NAMED partial verdict when no database answers, and is a hard
+failure under `CI` — the environment where it blocks a merge.
+`check_ledger_immutability` shares that edge and, after finding #5, no longer shares the
+clearance.
 
 ## What could not be determined here
 
 `check_coverage_ratchet` was audited by reading and was NOT executed: its pytest plugin
 refuses any run whose stores were not empty before the first test, which this environment
 cannot provide, and the instruction for this work forbade running it. Its three-way exit
-and its two refusal families are read off the source (`:812`, `:839`), not observed.
+and its two refusal families are read off the source (`:812`, `:839`), not observed. It is
+the one check in this document whose verdict is inherited rather than watched — and
+findings #5 and #6 are what that distinction costs, since both were CLEARED BY READING in
+the first pass of this audit and both fell over the moment they were run against an empty
+tree. Treat the coverage-ratchet row accordingly.
+
+`check_rls_coverage`'s empty-database refusal is likewise reasoned from `:264` rather than
+observed: the Postgres on port 5433 is shared with the main working tree, and pointing a
+guardrail at an empty database means creating one, which this work had no mandate to do.
+The reasoning is short and the code is one comparison, but it is not a negative control.
+
+`mypy scripts` (as opposed to the gate's `mypy apps packages`) reports ten pre-existing
+errors in six files, none of them in a `check_*.py` touched here. `scripts/` is outside
+the typed surface CI checks; naming it here rather than fixing it because widening the
+mypy target is a change to what the gate MEANS, and that is a decision-log entry.
