@@ -76,7 +76,10 @@ Hardening (all raghava-proven): non-root deploy user in `docker` group; SSH
 `PermitRootLogin no` + `PasswordAuthentication no`; ufw inbound 22/80/443 only;
 fail2ban; unattended-upgrades; 2GB swap in `/etc/fstab`; `pm2 startup` once;
 `systemctl disable --now redis-server` (Redis lives in Compose only); remove stock
-nginx `sites-enabled/default` and install the `000-default.conf` pattern (§5).
+nginx `sites-enabled/default` and install the `000-default.conf` pattern (§5); **the
+sudoers policy and the root-owned scripts it names** (`infra/privileged/`, §11) — the deploy
+account gets exactly one grant and it takes no arguments; **the daily hygiene timer**
+(`infra/hygiene/`, §7) and the journald cap that goes with it.
 
 > **ufw does not contain Docker, and the list above reads as though it does.** Docker
 > writes its published-port rules into `nat`/`FORWARD`, which is upstream of the `INPUT`
@@ -233,7 +236,9 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    tries to unwrap — compose file and Dockerfile present, docker compose v2 present, the dev
    `docker-compose.yml` carrying a project name that is not the production one (§2's ufw
    caveat is why that matters), **checkout clean** (a deploy from an edited tree ships code
-   CI never saw), ≥3GB free, and the Cloudflare IP list not older than 180 days (§5.3).
+   CI never saw), and the Cloudflare IP list not older than 180 days (§5.3). Free disk is
+   REPORTED here and DECIDED at step 5, because a refusal that runs before `git pull` is a
+   refusal that cannot reclaim.
 2. `git pull --ff-only`; **abort if HEAD ≠ `--expected-sha`**. CI validates one commit and
    `main` can move before the runner starts; without this gate that race ships silently.
    The image for this deploy is tagged here: `calevate/app:<12-char sha>`, exported as
@@ -259,23 +264,42 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    refusal; oversubscribing cores is paid out of the 500ms ack budget) and **2GB of swap
    when `web` is in the plan** (§2 — a warning, since a large-RAM box legitimately needs
    none, and because the OOM killer takes `next build` with no error at all). With
-   `NGINX_AUTO_RELOAD=1`, also: nginx installed, both target directories present, and
-   `sudo -n` working — under CD a sudo that PROMPTS does not fail, it holds the deploy open
-   until the job times out, with the containers already swapped.
+   `NGINX_AUTO_RELOAD=1`, also: nginx installed, both target directories present, the
+   staging directory writable, and `sudo -n -l /usr/local/sbin/calevate-nginx-apply`
+   answering yes. **That last one is the exact command and not `sudo -n true`**, which the
+   sudoers policy in `infra/privileged/` correctly REFUSES — probing with `true` would have
+   failed a deploy for holding the right policy. Under CD a sudo that PROMPTS does not fail,
+   it holds the deploy open until the job times out, with the containers already swapped.
 4. **Dead-container check**: Docker `Dead`-state ghosts break compose's rename-on-recreate
    (§10). The script **detects and refuses with the exact command** rather than running
    the playbook's `sudo rm -rf /var/lib/docker/containers/<id>` unattended — an automated
    `rm -rf` under the daemon's state directory is a bigger hazard than the fault it fixes.
-5. **Serial builds** — parallel builds OOM small hosts, and the OOM kills the runner, so
+5. **Pre-build disk reclaim, an escalation and not a floor.** `docs/evidence/raghava-deploy-teardown.md`
+   §9 row 3 is the finding: their post-build prune only runs after a SUCCESSFUL build, so a
+   near-full disk kills the build and the cleanup that would have prevented it never runs —
+   every later deploy is then wedged. Ours used to walk into the same trap from the other
+   side, refusing at 3GB with two commands printed for a human. The ladder
+   (`scripts/deploy/docker-reclaim.sh`, shared with the daily hygiene job) is:
+   **tier 0** always — stopped containers *of our compose project*, dangling images, build
+   cache capped at 3GB; then, only below **`RECLAIM_PURGE_FLOOR_GB` = 8**, in order,
+   stopping at the first rung that clears the floor — **tier 1** the whole build cache
+   (costs a slow build), **tier 2** every per-commit image but the newest (costs the cheap
+   rollback of step 6), **tier 3** every unreferenced image (costs a cold build). Below
+   **`RECLAIM_REFUSE_FLOOR_GB` = 3** after all of that, it refuses, before anything is
+   built, migrated or swapped. The order is the design: the cheapest thing to lose goes
+   first, and the artefact an incident needs is given up second-to-last. It runs after the
+   dead-container sweep (a Dead container holds an image) and whether or not an image will
+   be built, because `next build` needs the same disk.
+6. **Serial builds** — parallel builds OOM small hosts, and the OOM kills the runner, so
    it reads as a CI flake rather than as a memory ceiling. **Skipped entirely when
    `calevate/app:<sha>` already exists**: preflight has proved the checkout clean, so the
    commit determines the artefact, and the case where it is already there is the case that
    matters — a rollback, on a host that is by definition having a bad day. Force one with
    `docker image rm calevate/app:<sha>`.
-6. **Bootstrap-env preflight, run IN the new image** (`validate_bootstrap_env` +
+7. **Bootstrap-env preflight, run IN the new image** (`validate_bootstrap_env` +
    `Settings()`), before any swap. In the image rather than on the host because what
    matters is what the process about to serve traffic can read.
-7. **Migrations** (`compose --profile migrate run --rm migrate`), before the swap — §4a —
+8. **Migrations** (`compose --profile migrate run --rm migrate`), before the swap — §4a —
    **then the seed** in the same profile. `scripts/seed.py` writes the reserved-slug list,
    the vertical templates and the retention defaults, and until this step existed it ran
    nowhere but `make db-reset`: production had none of them, so the first tenant could
@@ -285,7 +309,7 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    for** — i.e. on a rollback, where `alembic upgrade head` cannot resolve the stored
    `alembic_version` at all and used to abort the rollback before it swapped anything.
    §4a has the argument and `scripts/deploy_revision_check` is the mechanism.
-8. **Redis, explicitly, before the swap loop and deliberately WITHOUT `--no-deps`.** Every
+9. **Redis, explicitly, before the swap loop and deliberately WITHOUT `--no-deps`.** Every
    swap below passes that flag — correctly, so an api deploy cannot restart the queue
    under a live call — but it was also the only way this stack was ever brought up, and
    `--no-deps` is exactly the flag that tells compose not to walk `depends_on`. So the
@@ -294,28 +318,42 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
    whose `/healthz` pings redis and answers 503, and the deploy died **after** migrations
    had run. `up -d` on a healthy container is a no-op, so this costs a correct deploy
    nothing.
-9. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
+10. **Container swap**, one service at a time, `compose up -d --no-deps <service>`, in the
    order workers → api → voice-runtime (§4b), each followed by a health wait of
    **90×2s** on `/healthz` (§10's lesson: 60s was shorter than a migrate-on-boot, which
    trains operators to ignore red deploys).
-10. **web**: `pnpm install --frozen-lockfile` + `pnpm -C apps/web build` + `pm2 reload
+11. **web**: `pnpm install --frozen-lockfile` + `pnpm -C apps/web build` + `pm2 reload
     calevate-web --update-env`, or `pm2 start apps/web/ecosystem.config.cjs && pm2 save`
     when pm2 has never heard of the app — `reload` exits non-zero on an unregistered
     process, and nothing in this repository had ever run `start`, so a first deploy on a
     fresh host aborted here with the database already migrated and all three containers
     already swapped. Then a health poll on :3000.
-11. **nginx**: envsubst render → placeholder check → **back up the set on disk** → install
-    → `nginx -t` → `systemctl reload`, gated on `NGINX_AUTO_RELOAD=1`. Unset, it renders
-    and prints the install commands. The backup is not decoration: `nginx -t` can only test
-    what is already in `/etc/nginx`, so a rejected render used to be left installed — the
-    running edge was fine and the **next** reload was not, and reloads come from logrotate
-    and certbot days later. A failed test now restores the previous files (removing the
-    ones this deploy introduced), re-tests, and only then aborts.
-12. Post-deploy prune — dangling images, the builder cache, and app-image tags beyond the
+12. **nginx**: envsubst render → placeholder check → stage into
+    `/var/lib/calevate/nginx-staging` → `sudo -n /usr/local/sbin/calevate-nginx-apply`,
+    gated on `NGINX_AUTO_RELOAD=1`. Unset, it renders and prints the install commands.
+    **The privileged half is a root-owned script the deploy account invokes with NO
+    arguments** (§11) — it, and not the deploy, backs up the set on disk, installs, runs
+    `nginx -t`, restores the previous files if the test fails (removing the ones this
+    deploy introduced), re-tests, and only then reloads. The backup is not decoration:
+    `nginx -t` can only test what is already in `/etc/nginx`, so a rejected render used to
+    be left installed — the running edge was fine and the **next** reload was not, and
+    reloads come from logrotate and from certbot's renewal deploy hook (§9.5a step 5) days
+    later. The staging directory is emptied before each render, so a file a previous deploy
+    produced and this one does not stops being installed instead of surviving forever.
+13. Post-deploy prune — **tier 0 of the same ladder** plus app-image tags beyond the
     newest five (per-commit tags are not dangling, so nothing else would ever reclaim them;
     a tag referenced by any container is never a candidate, and a refusal warns rather than
-    failing a deploy that has already succeeded). Then record SHA, image ref, migration
-    verdict and plan to `.deploy-state/history`, and print the summary.
+    failing a deploy that has already succeeded). Tiers 1-3 are deliberately unreachable
+    here: the deploy has succeeded, there is nothing to make room for, and tier 2 would
+    throw away the rollback artefact this deploy just created. Then record SHA, image ref,
+    migration verdict and plan to `.deploy-state/history`, and print the summary.
+
+**The whole sequence runs under one host lock** (`scripts/deploy/host-lock.sh`), taken
+before step 1 and released by the kernel when the process exits, however it exits. The
+other holder is the daily hygiene timer (§7): its prunes are host-global, and a prune
+racing a `docker build` removes the layer the build is about to reference, which fails with
+a message naming neither the prune nor the timer. `flock` rather than a pid file, because
+the pid file's cleanup is exactly what does not happen when an OOM takes `next build`.
 
 A failed step prints a banner naming the step, the exit code and the alembic revision,
 and stops — nothing after it runs, there is no automatic rollback, and
@@ -455,7 +493,7 @@ templated config), `000-default.conf` with Cloudflare Origin CA cert on
 > **STATUS (Aug 2026): the config now lives in `infra/nginx/` and has never been loaded
 > by an nginx process.** Read `infra/nginx/README.md` before this section — it is the
 > authority on what is there, where each file installs, and what has never been run.
-> `scripts/vps-deploy.sh` renders and installs it (§4 step 11). Two items of the
+> `scripts/vps-deploy.sh` renders and installs it (§4 step 12). Two items of the
 > inheritance above are deliberately NOT built and are named as gaps rather than
 > approximated: the **maintenance gate** (its single-hop `error_page 401 =503` shape is
 > hard-won and a half-remembered version fails exactly when it is needed — §10 keeps the
@@ -604,7 +642,7 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
    Never in git, never written by scripts; `vps-deploy.sh` aborts if absent, warns if it
    is not mode 600, and never prints a value. Pydantic Settings fails fast on missing
-   keys, and §4 step 6 runs that check in the new image before any container is swapped.
+   keys, and §4 step 7 runs that check in the new image before any container is swapped.
    **Write the DSNs as the CONTAINERS see them**: `DATABASE_URL` and
    `ALEMBIC_DATABASE_URL` point at `host.docker.internal` (the host Postgres, D-26),
    `REDIS_URL` at `redis` by service name. Every Python process — including migrations —
@@ -652,8 +690,20 @@ What is in the repo, and where:
 - **Retention: 35 days on both chains**, and that number is a data-protection commitment
   rather than a storage knob — see `infra/backup/README.md` §6–§7 for why, and for the DPDP
   consequence that erasure cannot reach into a backup. **It needs a decision-log entry.**
-- Daily disk-hygiene cron (their `install-vps-cleanup.sh` pattern) is still unbuilt: docker
-  prune, builder cache cap, pm2 log flush.
+- **Daily host hygiene — BUILT, and it is a systemd timer.** `infra/hygiene/` (units, the
+  journald cap) plus `scripts/deploy/host-hygiene.sh` (the job). Read
+  `infra/hygiene/README.md` before this line; it is the authority on what the job does and
+  on what has never been run. It prunes our compose project's stopped containers, dangling
+  images and the build cache, flushes `calevate-web`'s pm2 logs, prunes the pnpm store and
+  trims the runner's `_diag`, then reports disk and alerts through the same
+  `scripts/backup/notify.sh` seam as the backup chain. Three corrections to the pattern it
+  is adapted from, all named in the teardown (§8.6): **it never touches the runner's
+  `_work`** — that is a CI job's staging area and deleting it from a timer deletes it under
+  a running job; **it takes the deploy's lock**, and skips the day rather than racing a
+  build; and **its prunes are scoped to our compose project**, so an operator's dev
+  containers survive. The journal is bounded by a `SystemMaxUse=` drop-in rather than
+  vacuumed daily, which is both a property instead of a repair and the reason this unit
+  needs no privilege at all (§11).
 
 **Systemd timers, not cron** — a deliberate departure from the raghava playbook. cron's
 failure mode is mail to a mailbox nobody reads; `OnFailure=` gives a failed run somewhere
@@ -796,8 +846,8 @@ this repository** → 4. clone repo, place `.env` from the secrets manager AND
 working through §4d's six hand-first items →
 5. nginx + TLS, **in the order 5a gives**, because the obvious order deadlocks →
 6. flip Cloudflare orange + Full (strict), verify with `dig +short` (CF IPs) and the
-525 checklist → 7. install runner + repo Secrets/Variables, **and only now set
-`VPS_DEPLOY_ENABLED=true`** → 8. one full CD cycle
+525 checklist → 7. install runner + repo Secrets/Variables, **the privileged scripts and
+the hygiene timer (9.7a)**, **and only now set `VPS_DEPLOY_ENABLED=true`** → 8. one full CD cycle
 (push → CI → auto-deploy) verified green → **9. backups (below — the longest step, and
 the one this order previously assumed away)** → 10. configure Bolna per-agent webhook URLs against hooks.calevate.tech + verify the
 source-IP allowlist (13.203.39.153 via CF real_ip, D-27/D-31) rejects a spoofed test
@@ -889,18 +939,68 @@ Break it with the certificate that needs no ACME:
    `default_server`, uses the origin certificate, and returns 444. This is also §10's
    first lesson: a certless `default_server` is what turns a healthy origin into
    Cloudflare 525.
-3. **Obtain the Let's Encrypt certificates while only that file is loaded.** Its port-80
-   `default_server` answers the challenge for all four names:
-   `certbot certonly --webroot -w /var/www/certbot -d admin.calevate.tech -d app.calevate.tech -d api.calevate.tech -d hooks.calevate.tech`.
-   `certonly`, never `--nginx` — that plugin rewrites templated config (§5).
+3. **Obtain the Let's Encrypt certificates while only that file is loaded, WITH the
+   renewal hook attached in the same command.** Its port-80 `default_server` answers the
+   challenge for all four names:
+
+   ```sh
+   certbot certonly --webroot -w /var/www/certbot \
+     -d admin.calevate.tech -d app.calevate.tech -d api.calevate.tech -d hooks.calevate.tech \
+     --deploy-hook "systemctl reload nginx"
+   ```
+
+   `certonly`, never `--nginx` — that plugin rewrites templated config (§5). The
+   `--deploy-hook` is part of issuance rather than a later step because a later step is
+   where it does not happen; step 5 is why it is not optional and how to prove it fires.
 4. **Now install `calevate-site.conf` + `calevate-rate-zones.conf` + the snippets**,
    `nginx -t`, reload. `TLS_LIVE_DIR` now exists, so the test passes.
-5. Only then flip Cloudflare to orange + Full (strict) — step 6.
+5. **The renewal deploy hook — what step 3 attached, and why it is not decoration.**
+
+   **Why it is not optional.** `certonly` deliberately never touches nginx (§5, §10 —
+   `--nginx` rewrites templated config), which means a renewed certificate is a new file on
+   disk that the running server has not read. certbot's own timer renews at ~day 60 and
+   says nothing; nginx keeps serving the old certificate until something else reloads it,
+   and the next reload is whenever logrotate or a deploy happens to run. On a 90-day
+   certificate that is a 30-day fuse ending in an expired certificate on a live edge. This
+   repository had the hook nowhere at all (`docs/evidence/raghava-deploy-teardown.md` §6.2,
+   §9 row 15).
+
+   **What `--deploy-hook` does, exactly**: certbot saves it into the lineage's renewal
+   configuration as `renew_hook = …` in `/etc/letsencrypt/renewal/<lineage>.conf`, so every
+   later `certbot renew` runs it — the flag is passed once, at issuance, and is not needed
+   again. It runs ONLY when a certificate is actually issued or renewed, which is what
+   separates it from `--post-hook` (every invocation) and from `--pre-hook`.
+
+   `--deploy-hook` rather than dropping a script in `/etc/letsencrypt/renewal-hooks/deploy/`
+   — both work and the directory form is the better answer on a host with many lineages,
+   because the flag form runs **once per renewed certificate** and would reload nginx once
+   per lineage. We have exactly one lineage covering all four names (one `certonly`, four
+   `-d`), so the flag form fires once, keeps the intent in the command that created the
+   certificate, and leaves nothing to be separately installed and separately forgotten.
+
+   *Pass conditions*, and there are two because the obvious one does not test the hook:
+   (a) `grep renew_hook /etc/letsencrypt/renewal/admin.calevate.tech.conf` shows the reload;
+   (b) `certbot renew --dry-run` succeeds. **A plain `--dry-run` does NOT run deploy hooks**
+   — that is documented certbot behaviour, not a bug — so proving the hook fires needs
+   `certbot renew --dry-run --run-deploy-hooks`, which runs them against the currently
+   active certificate. That flag is present in current certbot (user guide, 5.7.0) and
+   absent in 2.6.0; **the release that introduced it is not verified here**. If the
+   installed certbot rejects it, prove the hook by running `systemctl reload nginx` by hand
+   and confirming the edge stays up — do not record the plain dry run as evidence the hook
+   works, because it is not.
+
+   Sources (accessed 17 Aug 2026): certbot User Guide 5.7.0, "Renewing certificates" and
+   "Pre and Post Validation Hooks"; certbot issue #6180 (`--deploy-hook` is undocumented in
+   the `certonly` reference and does save `renew_hook`); Let's Encrypt community thread
+   "Missing --run-deploy-hooks option in Certbot 2.6.0".
+6. Only then flip Cloudflare to orange + Full (strict) — step 6 of §9.
 
 `NGINX_AUTO_RELOAD` stays unset for this whole pass: the deploy renders the files and
 prints the install commands, and a human installs them in the order above having read
-them. (`install_nginx` backs up and restores on a failed `nginx -t`, but the first pass is
-the one where reading the config matters most.)
+them. (The automated path backs up and restores on a failed `nginx -t` — in
+`calevate-nginx-apply`, §11 — but the first pass is the one where reading the config
+matters most, and it also comes before the privileged scripts are installed at all: those
+land at step 7, §9.7a.)
 
 **Step 4 places §6 tier 1 — the bootstrap eight plus the two object-store credentials;
 the other 50 keys are step 10a.** After the first deploy the platform is running and its
@@ -976,6 +1076,29 @@ identity generated off-host → apply the R2 bucket lock (30 days, never indefin
 "backups verified" on the OPERATIONS §8 pre-launch checklist cannot be ticked, because
 what exists is a backup system we believe in rather than one anyone has recovered from.
 
+### 9.7a Step 7's other half — the privileged scripts and the daily timer
+
+Step 7 is where the runner account stops being a login and starts being the thing that runs
+every merged pull request. That is the moment its privileges must already be decided, and
+they are: **one sudoers grant, one root-owned script, no arguments** (§11,
+`infra/privileged/README.md` §2 for the exact install commands and §5 for the five pass
+conditions). Two of those pass conditions are worth repeating here because they are the ones
+an operator skips:
+
+- `sudo -l -U <deploy-user>` must LIST the script. If it lists nothing, the policy file is
+  being ignored — sudo silently skips any name in `/etc/sudoers.d` containing a `.`.
+- `sudo -n /usr/local/sbin/calevate-nginx-apply --help` must be refused **by sudo**, before
+  the script runs. That is the argument restriction working.
+
+Then the hygiene timer (`infra/hygiene/README.md` §5): install the unit and timer, run
+`systemd-analyze verify`, install the journald cap, and run the job once by hand. It is
+placed here rather than with the backups because it shares the deploy's lock — installing it
+before there is a deploy to lock against proves nothing.
+
+**`NGINX_AUTO_RELOAD` stays unset until all of that is done and step 5's certificate order
+has been walked by hand.** The first nginx install is the one where reading the config
+matters most (§9.5a), and the privileged path is for every deploy after it.
+
 ## 10. Known raghava lessons to NOT relearn (their HARDENING_HISTORY, our checklist)
 
 - 525 on healthy origin = certless `default_server` (SNI-less strict validation).
@@ -989,6 +1112,41 @@ what exists is a backup system we believe in rather than one anyone has recovere
 - One runner directory per project; never copy a configured runner.
 - Parallel docker builds OOM 4GB hosts; build serially; swap mandatory.
 - Redis never publishes host ports; unique passwords per service.
+- Wildcards in a sudoers argument position are a root escalation, not a convenience: sudo
+  matches the argument list as one string and the wildcard spans `/` and words (§11).
+- A daily cleanup that is not synchronised with the deploy will eventually delete something
+  a deploy is using; and one that prunes host-globally on a host with a second compose
+  project will eventually delete somebody's debugging session (§7).
+- `certonly` never reloads nginx, so a renewed certificate is invisible until something
+  else does — attach `--deploy-hook` at issuance (§9.5a).
+
+## 11. Privilege on the host (D-167)
+
+**The deploy account holds exactly one root grant, and it takes no arguments.**
+`infra/privileged/` is the authority — the policy, the script it names, the install
+procedure, and the five things a human must prove. This section is the summary and the
+reason.
+
+`docs/evidence/raghava-deploy-teardown.md` §8.3 found the reference host granting its runner
+`NOPASSWD: /usr/bin/rm -rf /var/lib/docker/containers/*` and two `cp` grants with wildcards
+on both sides. **sudo matches a command line as one concatenated string and a wildcard in it
+spans `/` and words**, so the first grant permits deleting any path on the box and the
+others permit writing any file into `/etc/nginx` from a world-writable source — held by the
+account that runs code from every merged pull request. That is not a hardening detail to
+copy carefully; it is the pattern to invert.
+
+Ours:
+
+| | |
+|---|---|
+| **What is granted** | `calevate ALL=(root) NOPASSWD: /usr/local/sbin/calevate-nginx-apply ""` — and nothing else. The trailing `""` is sudoers for "may be run only with an empty argument list". |
+| **How variation travels** | a fixed staging directory (`/var/lib/calevate/nginx-staging`) that the root script validates: no symlinks, no subdirectories, no non-regular files, one basename shape, and an owner and mode it checks before reading anything. |
+| **Why the script is root-owned in `/usr/local/sbin`** | a script the caller can rewrite is a command the caller can construct. `/var/www/calevate` is rewritten by every deploy, so nothing privileged may live there. |
+| **What is refused** | `rm` under `/var/lib/docker` at any path (§4 step 4 refuses with the command instead), `systemctl restart docker`, a bare `systemctl reload nginx`, anything for the hygiene timer, and `certbot`. |
+| **What this does NOT claim to contain** | `docker` group membership, which §2 grants and which is root-equivalent by design. The policy neither worsens it nor is excused by it; what the policy governs is the one action that is not Docker. |
+
+**Nothing here has been installed.** Root on a VPS is external blocker 9 in the teardown's
+§9.1, and `visudo -c` has never been run against this policy on a host with sudo.
 
 Cross-references: TRD §1 (deployables) · OPERATIONS §5–6 (SLOs, drills) ·
 SECURITY-COMPLIANCE §5 (secrets, TLS) · ROADMAP D-25/D-26/D-27 · SURFACES §3.

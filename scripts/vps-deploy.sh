@@ -67,14 +67,26 @@ STATE_DIR=${CALEVATE_DEPLOY_STATE:-$ROOT/.deploy-state}
 HEALTH_ATTEMPTS=${HEALTH_ATTEMPTS:-90}
 HEALTH_INTERVAL_S=${HEALTH_INTERVAL_S:-2}
 
-# Hard floor on free disk before a build. Below this, a build fails halfway and leaves
-# dangling layers, which makes the next attempt fail sooner. Abort while it is still a
-# clean abort.
-MIN_FREE_GB=${MIN_FREE_GB:-3}
+# Disk is not a constant in this file any more. It is a LADDER, and it lives in
+# `scripts/deploy/docker-reclaim.sh` because the daily hygiene job needs the same
+# primitives and two copies of "how this host reclaims Docker disk" would drift. Both
+# floors (`RECLAIM_PURGE_FLOOR_GB`, `RECLAIM_REFUSE_FLOOR_GB`) are named and argued there.
+#
+# What used to be here was a single refusal at 3GB with two commands printed for a human,
+# which is one side of the deadlock the reference host's own comment describes: a prune
+# that only runs after a SUCCESSFUL build never runs on the host that needs it. A floor is
+# not a strategy.
 
 # nginx is only reloaded when this is explicitly 1. A deploy that silently rewrites the
 # edge config of a live site is not a deploy anyone can review afterwards.
 NGINX_AUTO_RELOAD=${NGINX_AUTO_RELOAD:-0}
+# These two are the deploy's view of where the config lands: they are what `preflight_plan`
+# probes and what the manual install instructions print. They are NOT what the automated
+# path writes to — `calevate-nginx-apply` hardcodes both, because a root script that takes
+# its destination from the caller is a root script with an argument, and the whole shape of
+# `infra/privileged/` is that it has none. Overriding them here changes the probe and the
+# printed commands and nothing else; if a host really does put nginx elsewhere, the
+# privileged script's constants are the place to say so, once, as root.
 NGINX_CONF_DIR=${NGINX_CONF_DIR:-/etc/nginx/conf.d}
 NGINX_SNIPPET_DIR=${NGINX_SNIPPET_DIR:-/etc/nginx/snippets}
 
@@ -99,6 +111,13 @@ CLOUDFLARE_IPS_MAX_AGE_DAYS=${CLOUDFLARE_IPS_MAX_AGE_DAYS:-180}
 # in `docker image ls`.
 IMAGE_REPO=${IMAGE_REPO:-calevate/app}
 IMAGE_KEEP=${IMAGE_KEEP:-5}
+
+# Where the nginx step hands its rendered files to root. FIXED, and that is the point:
+# `infra/privileged/sudoers.d/calevate-deploy` grants exactly one command with an EMPTY
+# argument list, so the privileged script cannot be told which files to install — it reads
+# this directory and validates everything in it. See `infra/privileged/README.md`.
+NGINX_STAGING_ROOT=${NGINX_STAGING_ROOT:-/var/lib/calevate/nginx-staging}
+NGINX_APPLY=${NGINX_APPLY:-/usr/local/sbin/calevate-nginx-apply}
 
 readonly ALL_COMPONENTS=(api voice-runtime workers web nginx)
 
@@ -129,6 +148,15 @@ on_error() {
   exit "$code"
 }
 trap on_error ERR
+
+# --- shared with the daily hygiene job ------------------------------------------------
+# Sourced AFTER `log`/`warn` exist, deliberately: `docker-reclaim.sh` only defines its own
+# plain-text fallbacks when the caller has none, so this file's coloured output is what a
+# deploy prints and a systemd unit still gets readable lines.
+# shellcheck source=scripts/deploy/host-lock.sh
+source "$ROOT/scripts/deploy/host-lock.sh"
+# shellcheck source=scripts/deploy/docker-reclaim.sh
+source "$ROOT/scripts/deploy/docker-reclaim.sh"
 
 # --- argument parsing ---------------------------------------------------------------
 MODE=changed
@@ -239,11 +267,20 @@ preflight() {
      something that was never reviewed and never built in CI. Commit it or discard it."
   fi
 
+  # Disk is REPORTED here and DECIDED at `reclaim_disk`, which runs immediately before the
+  # build. Two reasons it is that way round. Reclaiming needs to run after the tombstone
+  # sweep (a Dead container holds an image) and as close to the build as possible, because
+  # anything measured earlier is a number, not a guarantee. And a refusal here would be a
+  # refusal that could not RECLAIM — which is exactly the half-answer this repo used to
+  # have. `--dry-run` exits before the ladder, so the warning below is the only disk signal
+  # a dry run gets, and it is worth having.
   local free_gb
-  free_gb=$(df -BG --output=avail "$ROOT" | tail -1 | tr -dc '0-9')
-  (( free_gb >= MIN_FREE_GB )) || die \
-    "only ${free_gb}GB free at $ROOT; need ${MIN_FREE_GB}GB. Reclaim first:
-     docker image prune -af && docker builder prune --keep-storage 3GB"
+  free_gb=$(reclaim_free_gb "$ROOT")
+  log "disk: ${free_gb}GB free (min of $ROOT and the docker root)"
+  (( free_gb >= RECLAIM_PURGE_FLOOR_GB )) || warn \
+    "that is below the ${RECLAIM_PURGE_FLOOR_GB}GB build floor. The pre-build step will
+     escalate through the reclaim ladder before building, and may give up this host's
+     rollback images to do it (scripts/deploy/docker-reclaim.sh)."
 
   check_cloudflare_ip_age
 }
@@ -319,12 +356,37 @@ preflight_plan() {
      either not installed the way DEPLOYMENT §5 expects or these overrides point at
      nothing; either way the install step would create files nginx never reads."
       done
-      # `sudo -n`: the install step is unattended under CD, and a sudo that PROMPTS there
-      # does not fail — it blocks, holding the deploy open until the job times out 45
-      # minutes later, with the container swap already done and the edge config not.
-      sudo -n true 2>/dev/null || die "NGINX_AUTO_RELOAD=1 needs passwordless sudo for the
-     install step, and this shell does not have it. Under CD a prompting sudo does not
-     fail, it hangs until the job times out — with the containers already swapped."
+      # THE EXACT COMMAND, not `sudo -n true`. The policy in
+      # `infra/privileged/sudoers.d/calevate-deploy` grants ONE command and nothing else, so
+      # `sudo -n true` is refused on a correctly configured host — it would have failed the
+      # deploy for having the right policy. `sudo -n -l <path>` asks the question actually
+      # worth asking ("may this account run THAT, without a prompt?") and exits non-zero
+      # when the answer is no.
+      #
+      # `-n` matters for the same reason it always did: the install step is unattended under
+      # CD, and a sudo that PROMPTS there does not fail — it blocks, holding the deploy open
+      # until the job times out 45 minutes later, with the container swap already done and
+      # the edge config not.
+      [[ -x "$NGINX_APPLY" ]] || die "NGINX_AUTO_RELOAD=1 but $NGINX_APPLY is not
+     installed. It is the root-owned, argument-free script that installs and tests the edge
+     config; install it per infra/privileged/README.md §2 before enabling auto-reload."
+      sudo -n -l "$NGINX_APPLY" >/dev/null 2>&1 || die "this account may not run
+     $NGINX_APPLY without a password prompt. Install infra/privileged/sudoers.d/calevate-deploy
+     and check it with 'sudo -l -U <deploy-user>' — sudo silently IGNORES any file in
+     /etc/sudoers.d whose name contains a dot, so a policy installed under the wrong name
+     is not a policy. Under CD a prompting sudo does not fail, it hangs until the job times
+     out — with the containers already swapped."
+
+      # The fixed handover directory. Checked here rather than at the nginx step, which is
+      # the LAST thing a deploy does: a missing staging directory discovered there costs a
+      # deploy that has already migrated the database and swapped all three containers.
+      local staged
+      for staged in "$NGINX_STAGING_ROOT/conf.d" "$NGINX_STAGING_ROOT/snippets"; do
+        [[ -d "$staged" && -w "$staged" ]] || die "$staged is missing or not writable by
+     this account. It is where the deploy hands rendered config to root; the privileged
+     script reads that path and nothing else, because the sudoers grant permits no
+     arguments. Create it per infra/privileged/README.md §2."
+      done
     fi
   fi
 
@@ -601,7 +663,7 @@ build_images() {
 
 verify_bootstrap_env() {
   step "verify bootstrap env"
-  # DEPLOYMENT §4 step 3, run in the image rather than on the host: what matters is what
+  # DEPLOYMENT §4 step 7, run in the image rather than on the host: what matters is what
   # the process about to serve traffic can read, and that is `.env` as seen through
   # compose's env_file, not whatever the deploy user happens to have exported.
   #
@@ -890,79 +952,45 @@ install_nginx() {
     return 0
   fi
 
-  # ============================ WHY THERE IS A BACKUP HERE ===========================
-  # `nginx -t` reads /etc/nginx, so the files have to be ON DISK before they can be
-  # tested — there is no "test this candidate set" mode. That used to mean a failed test
-  # aborted the deploy with the BROKEN FILES STILL INSTALLED. The running nginx was fine,
-  # which is what `runbooks/deploy-failed.md` told the operator, and it was the wrong
-  # thing to be reassured by: the next reload picks the broken set up, and nginx reloads
-  # are triggered by things nobody associates with a deploy — Debian's daily logrotate
-  # postrotate, certbot's renewal deploy hook. A config bomb with a delay fuse measured
-  # in days.
+  # ===================== WHY THIS STEP DOES ALMOST NOTHING NOW =======================
   #
-  # So: copy every file this step is about to write (the ones that EXIST — the rest are
-  # new and get removed instead), install, test, and put the previous set back if the
-  # test fails. The backup mirrors the absolute path under one temp root, because a
-  # snippet and a conf.d file are allowed to share a basename and a flat copy would
-  # silently restore one over the other.
-  local backup target relative
-  backup=$(mktemp -d)
-
-  local -a targets=() preexisting=() introduced=()
-  for target in "$ROOT"/infra/nginx/snippets/*.conf; do
-    targets+=("$NGINX_SNIPPET_DIR/$(basename "$target")")
-  done
-  for target in "$NGINX_STAGING"/*.conf; do
-    targets+=("$NGINX_CONF_DIR/$(basename "$target")")
-  done
-
-  for target in "${targets[@]}"; do
-    if [[ -f "$target" ]]; then
-      relative=${target#/}
-      mkdir -p "$backup/$(dirname "$relative")"
-      # `cp -p`, and restored with `cp -p` too: whatever mode and ownership the live file
-      # has is the thing to put back, not the 0644 this script would install.
-      sudo cp -p "$target" "$backup/$relative"
-      preexisting+=("$target")
-    else
-      introduced+=("$target")
-    fi
-  done
-  log "previous nginx config backed up to $backup (${#preexisting[@]} file(s); ${#introduced[@]} new)"
-
-  # Snippets first: the site config `include`s them, so installing the site config first
-  # would make `nginx -t` fail on a file that is about to exist. Ordering, not taste.
+  # It used to run six privileged commands of its own construction: `sudo cp -p` per file
+  # for the backup, two `sudo install` globs, `sudo nginx -t`, `sudo rm -f` per introduced
+  # file on the restore path, and `sudo systemctl reload`. Every one of those needs a
+  # sudoers grant, and a grant for `sudo install <anything> /etc/nginx/...` is a grant with
+  # a wildcard in an argument position — which sudo matches as one concatenated string, so
+  # the wildcard spans `/` and words and the grant is not scoped to /etc/nginx at all. That
+  # is precisely the escalation `docs/evidence/raghava-deploy-teardown.md` §8.3 found on the
+  # reference host, and copying its shape while criticising it would have been the worst
+  # available outcome.
   #
-  # TEST BEFORE RELOAD, ALWAYS. `systemctl reload` on a bad config leaves the old workers
-  # running and reports success, so the failure surfaces at the next restart — possibly a
-  # reboot, weeks later, with nobody connecting the two events.
+  # So the privileged half moved WHOLE into a root-owned, argument-free script
+  # (`infra/privileged/sbin/calevate-nginx-apply`), including the backup-and-restore dance
+  # that used to live here — the reasoning for that dance is now in that file's header,
+  # where the code it explains actually is. What is left for this account is: put the files
+  # somewhere agreed, then name the action.
   #
-  # All three commands sit in one `if !` condition so that a failure of ANY of them —
-  # including an `install` that dies half way through on permissions or a full disk —
-  # lands in the same restore path. Inside an `if` condition bash suppresses errexit and
-  # the ERR trap, and `&&` keeps the short-circuit, so this is not a swallowed failure:
-  # the branch below re-raises it with more information than the trap could.
-  if ! { sudo install -m 0644 "$ROOT"/infra/nginx/snippets/*.conf "$NGINX_SNIPPET_DIR/" \
-      && sudo install -m 0644 "$NGINX_STAGING"/*.conf "$NGINX_CONF_DIR/" \
-      && sudo nginx -t; }; then
-    warn "nginx refused the new config — restoring the previous files before aborting"
-    for target in "${preexisting[@]}"; do sudo cp -p "$backup/${target#/}" "$target"; done
-    for target in "${introduced[@]}";  do sudo rm -f "$target"; done
-    # Prove the restore is what nginx had, rather than asserting it. If THIS fails, the
-    # edge config is in a state neither this script nor the operator can describe, and
-    # saying so is worth more than a tidy exit code.
-    sudo nginx -t || die \
-      "the RESTORED nginx config does not pass 'nginx -t' either. /etc/nginx is now in a
-     state this script did not produce and cannot describe. Previous files are in
-     $backup; do not reload nginx until it tests clean. runbooks/deploy-failed.md §5."
-    die "nginx -t failed on the rendered config (error above). The previous config has been
-     put back and nothing was reloaded, so the running edge is unchanged AND the files on
-     disk match it — the next logrotate or certbot reload is safe.
-     Rendered files: $NGINX_STAGING     Backup of the previous set: $backup"
-  fi
+  # THE HANDOVER IS A DIRECTORY, NOT AN ARGUMENT LIST, and that is the whole trick. The
+  # deploy cannot tell root WHICH files to install, so root does not have to trust a path
+  # it was handed; it reads one fixed location and validates every name in it.
 
-  sudo systemctl reload nginx
-  log "nginx reloaded"
+  local staged_conf="$NGINX_STAGING_ROOT/conf.d" staged_snippets="$NGINX_STAGING_ROOT/snippets"
+
+  # Emptied first. The staging directories persist between deploys, and a file that a
+  # previous deploy rendered and this one does not would otherwise be installed forever —
+  # a config nothing in the repository produces any more, silently surviving the change
+  # that removed it. `find -delete` on regular files at depth 1 only: never `rm -rf` on the
+  # directory itself, which would take the ownership and mode that root checks.
+  find "$staged_conf" "$staged_snippets" -maxdepth 1 -type f -delete
+
+  cp "$NGINX_STAGING"/*.conf "$staged_conf/"
+  cp "$ROOT"/infra/nginx/snippets/*.conf "$staged_snippets/"
+  log "staged $(find "$staged_conf" "$staged_snippets" -maxdepth 1 -type f | wc -l) file(s) in $NGINX_STAGING_ROOT"
+
+  # No arguments, by policy and by the script's own first refusal. A failure here reaches
+  # the ERR trap with the script's own message already printed — it restores the previous
+  # config before it exits, so a red banner at this step means the edge is unchanged.
+  sudo -n "$NGINX_APPLY"
 }
 
 # --- 9. finish ------------------------------------------------------------------------
@@ -989,49 +1017,17 @@ record_deploy() {
 
 post_deploy_prune() {
   step "prune"
-  # Images only, and only dangling ones. NOT `system prune -a`, which on a host where
-  # three services share one image would delete the layer cache that makes the next
-  # build fast, and NOT volume pruning, which on this host would target redis-data.
-  docker image prune -f
-  # `--keep-storage` is the flag DEPLOYMENT §4 names. Newer Docker spells it
-  # `--reserved-space` and still accepts the old name as a deprecated alias; if a future
-  # engine removes it this line fails loudly, which is the correct way to find out.
-  docker builder prune -f --keep-storage 3GB
-  prune_app_images
-}
-
-# Per-commit tags are what a rollback lands on, so they must NOT be dangling — which also
-# means `docker image prune -f` above will never reclaim one. This is the other half of
-# that decision: keep the newest `IMAGE_KEEP` and drop the rest.
-#
-# Two rules make it safe. Nothing referenced by a container (running OR stopped) is a
-# candidate, so this cannot delete what is serving traffic or what `docker start` would
-# need. And a removal that fails anyway is reported and does not abort — this runs AFTER
-# the deploy has fully succeeded, and turning a housekeeping refusal into a DEPLOY FAILED
-# banner would teach operators that the banner does not mean anything. Reported, not
-# swallowed: the ref and docker's own message both reach the log.
-prune_app_images() {
-  local in_use candidate
-  in_use=$(docker ps -a --format '{{.Image}}' | sort -u)
-
-  local -a stale=()
-  while IFS= read -r candidate; do
-    [[ -n "$candidate" && "$candidate" != *"<none>"* ]] || continue
-    if ! grep -qxF "$candidate" <<<"$in_use"; then stale+=("$candidate"); fi
-  done < <(docker image ls --filter "reference=$IMAGE_REPO" --format '{{.Repository}}:{{.Tag}}' \
-           | tail -n +$(( IMAGE_KEEP + 1 )))
-
-  (( ${#stale[@]} )) || { log "app images: nothing beyond the newest $IMAGE_KEEP to remove"; return 0; }
-
-  log "removing ${#stale[@]} app image(s) older than the newest $IMAGE_KEEP"
-  local ref
-  for ref in "${stale[@]}"; do
-    if ! docker image rm "$ref"; then
-      warn "could not remove $ref (message above). The deploy itself is done; this is disk
-     housekeeping. If it keeps failing, 'docker ps -a --filter ancestor=$ref' names what is
-     holding it."
-    fi
-  done
+  # Tier 0 of the shared ladder, plus the per-commit tag cap. Both live in
+  # `scripts/deploy/docker-reclaim.sh` because the daily hygiene job runs exactly these two
+  # and a second copy of either is a second thing to keep in step — including the
+  # `--keep-storage` / `--reserved-space` question, which that file answers by asking the
+  # binary rather than by pinning a flag that is wrong on some engine either way.
+  #
+  # Tiers 1-3 are deliberately NOT reached here. The deploy has already succeeded; there is
+  # nothing to make room for, and tier 2 would throw away the rollback artefact this deploy
+  # just created.
+  reclaim_routine "$COMPOSE_PROJECT"
+  reclaim_app_image_tags "$IMAGE_REPO" "$IMAGE_KEEP"
 }
 
 summary() {
@@ -1054,7 +1050,50 @@ summary() {
   printf '\033[1;32m==============================================================\033[0m\n'
 }
 
+# --- 3b. pre-build disk reclaim ---------------------------------------------------------
+
+reclaim_disk() {
+  step "reclaim disk"
+  # The ladder is in `scripts/deploy/docker-reclaim.sh`, which argues both floors and what
+  # each rung costs. Here is only the placement and the refusal.
+  #
+  # WHY HERE. After `sweep_tombstones`, because a Dead container holds an image and
+  # reclaiming before the sweep would leave that image unreclaimable. Before `build_images`,
+  # because that is the step disk kills — and because the reference host's own comment
+  # (quoted in the library) records the deadlock of only reclaiming AFTER a successful
+  # build: on a near-full host the build dies, the post-build prune never runs, and every
+  # later deploy is wedged.
+  #
+  # UNCONDITIONAL, even when no image will be built. `next build` needs the same disk and
+  # peaks over 2GB (DEPLOYMENT §2), and tier 0 is free.
+  reclaim_for_build "$COMPOSE_PROJECT" "$IMAGE_REPO" "$ROOT" || die \
+    "not enough free disk to build, after pruning, purging the build cache, dropping every
+     per-commit image but the newest, and removing every unreferenced image. Docker has
+     nothing left to give back on this host, so this is not a Docker problem any more.
+     Find it — 'du -xhd1 / | sort -rh' — and re-run. Nothing has been built, migrated or
+     swapped: the deploy stops here precisely so it is not discovered halfway through a
+     layer extraction."
+}
+
 # --- main -----------------------------------------------------------------------------
+
+# ONE LOCK ON THIS HOST, taken before anything is read, and held until this process exits
+# however it exits (`scripts/deploy/host-lock.sh` argues flock over a pid file). The other
+# holder is the daily hygiene timer, which prunes images and the build cache host-globally
+# — a prune racing a `docker build` can remove the layer the build is about to reference,
+# and the build then fails with a message about a missing parent layer that names neither
+# the prune nor the timer. `docs/evidence/raghava-deploy-teardown.md` §8.6 is the reference
+# host's version of this defect, discovered in production.
+#
+# The concurrency group in `.github/workflows/deploy.yml` already serialises DEPLOYS; this
+# also covers a hand-run deploy during a CD run, and it is the only thing that covers the
+# timer.
+if ! take_host_lock vps-deploy; then
+  die "another deploy or the daily hygiene job has held $CALEVATE_HOST_LOCK for
+     ${CALEVATE_LOCK_WAIT_S}s. 'fuser -v $CALEVATE_HOST_LOCK' names the process. If it is a
+     dead deploy the lock is already gone — flock releases on exit, so a stale lock file is
+     never the problem."
+fi
 
 preflight
 sync_checkout
@@ -1067,6 +1106,7 @@ if (( DRY_RUN )); then
 fi
 
 sweep_tombstones
+reclaim_disk
 build_images
 if [[ -n "$(python_services_in_plan)" ]]; then
   verify_bootstrap_env
