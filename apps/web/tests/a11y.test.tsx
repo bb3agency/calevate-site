@@ -49,6 +49,8 @@ import TeamPage from "@/app/c/[slug]/settings/team/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
 import InvitePage from "@/app/invite/page";
+import LegalDocumentRoute from "@/app/legal/[slug]/page";
+import LegalIndexPage from "@/app/legal/page";
 import Home from "@/app/page";
 import SignupPage from "@/app/signup/page";
 
@@ -1192,6 +1194,22 @@ const CLIENT_SCREENS: Screen[] = [
     file: "page.tsx",
     realm: "client",
     element: () => <Home />,
+    routes: {},
+  },
+  // The public legal pages. Swept here so the coverage guard below sees them, and swept
+  // AGAIN — over all eight documents rather than this one representative — in
+  // tests/legal.test.tsx, because the documents differ in content and only one of them
+  // has a five-column table.
+  {
+    file: "legal/page.tsx",
+    realm: "client",
+    element: () => <LegalIndexPage />,
+    routes: {},
+  },
+  {
+    file: "legal/[slug]/page.tsx",
+    realm: "client",
+    element: () => <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />,
     routes: {},
   },
   {
