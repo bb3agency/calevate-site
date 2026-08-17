@@ -30,6 +30,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.holds import read_tenant_holds
+from apps.api.compliance.disclosure import (
+    AI_DISCLOSURE_TEMPLATES,
+    RECORDING_NOTICE_TEMPLATES,
+    ai_disclosure_for,
+    bundled_disclosure_line,
+    recording_notice_for,
+)
 from apps.api.compliance.service import spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -41,12 +48,23 @@ log = get_logger(__name__)
 SLUG_RE = re.compile(r"^[a-z0-9-]{3,40}$")
 INVITE_TTL = timedelta(hours=72)
 
-# The disclosure line is inserted by us and cannot be removed by a client (FLOWS §1
-# step 4, hard rule 5). It is per-language; Telugu is the default (D-36).
+# DERIVED, NEVER RETYPED (D-163). This table used to be the literal source of the bundled
+# line, and the bundling was the defect: SEC-COMP §2's two invariants — the AI sentence
+# and the recording notice — could only ever be switched on and off together because they
+# were one string. They are two strings now (`compliance/disclosure`), and this stays as
+# the composition of the pair so nothing that quotes "the disclosure line" has to be
+# rewritten and no fourth spelling of these sentences can appear.
+#
+# It is what a NEW agent's `disclosure_line` (the legacy bundle) starts as; the split
+# halves and the two toggles are written beside it. FLOWS §1 step 4's "inserted by us"
+# still holds for the TEXT — a client cannot author it — while WHETHER each half is
+# volunteered is now theirs to decide (D-163).
 DISCLOSURE_TEMPLATES = {
-    "te-IN": "Namaskaram, idi {business} AI assistant. Ee call record avutundi.",
-    "hi-IN": "Namaste, main {business} ka AI assistant hoon. Yeh call record ho rahi hai.",
-    "en-IN": "Hello, this is the AI assistant for {business}. This call is being recorded.",
+    language: bundled_disclosure_line(
+        ai_disclosure_line=AI_DISCLOSURE_TEMPLATES[language],
+        recording_notice_line=RECORDING_NOTICE_TEMPLATES[language],
+    )
+    for language in AI_DISCLOSURE_TEMPLATES
 }
 
 
@@ -391,8 +409,11 @@ async def _write_tenant_root(
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
-                "disclosure_line, status, engine, created_at, updated_at) VALUES (:id, :tid, "
-                ":name, 'inbound', :lang, :disclosure, 'draft', :engine, now(), now())"
+                "disclosure_line, ai_disclosure_line, recording_notice_line, "
+                "ai_disclosure_enabled, recording_notice_enabled, "
+                "status, engine, created_at, updated_at) VALUES (:id, :tid, "
+                ":name, 'inbound', :lang, :disclosure, :ai_line, :rec_line, "
+                "true, true, 'draft', :engine, now(), now())"
             ),
             {
                 "id": agent_id,
@@ -401,7 +422,14 @@ async def _write_tenant_root(
                 # default agent a new client gets IS the receptionist.
                 "name": f"{name} receptionist",
                 "lang": language,
+                # The legacy bundle (step 1 of D-163's two-step) beside the two halves it
+                # is composed of. Both toggles start TRUE and are spelled here rather than
+                # left to the column default: a new client's agent discloses, and that is
+                # a statement worth reading at the INSERT rather than inferring from a
+                # `server_default` three files away.
                 "disclosure": disclosure,
+                "ai_line": ai_disclosure_for(language=language, business=name),
+                "rec_line": recording_notice_for(language=language),
                 "engine": _default_engine(),
             },
         )

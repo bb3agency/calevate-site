@@ -52,6 +52,7 @@ from apps.api.admin import service as admin_service
 from apps.api.agents import experiment_routes, experiments, prompts
 from apps.api.agents import publishing as publishing_service
 from apps.api.agents.service import dispatch_call
+from apps.api.compliance.disclosure import RECORDING_NOTICE_TEMPLATES
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
@@ -168,10 +169,12 @@ async def _second_agent_of(tenant_id: uuid.UUID) -> uuid.UUID:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, created_at, updated_at) VALUES (:id, :tid, 'Reception', 'outbound', "
-                "'This is an AI assistant calling on behalf of Sunrise Clinic.', 'live', "
-                "'fake', now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
+                "updated_at) VALUES (:id, :tid, 'Reception', 'outbound', 'This is an AI assistant "
+                "calling on behalf of Sunrise Clinic.', 'This is an AI assistant calling on behalf "
+                "of Sunrise Clinic.', 'This call is being recorded.', 'live', 'fake', now(), "
+                "now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )
@@ -314,10 +317,15 @@ async def test_every_arm_reaches_the_engine_with_its_own_disclosure_and_script()
     expected = {"A": DISCLOSURE_A, "B": DISCLOSURE_B}
     for label, (ref, disclosure) in refs.items():
         config = engine._agents[ref]
-        assert config.disclosure_line.strip(), f"variant {label} published without a disclosure"
-        # THIS arm's disclosure, not the agent's — the two differ in this fixture so an
-        # implementation that ignored the variant column would fail here.
-        assert config.disclosure_line == disclosure == expected[label]
+        assert config.opening_line.strip(), f"variant {label} published without a disclosure"
+        # THIS arm's AI sentence, not the agent's — the two differ in this fixture so an
+        # implementation that ignored the variant column would fail here. The OPENING is
+        # that sentence composed through the AGENT's notice toggles (D-163): both are on
+        # for this fixture's agent, so the arm's line is followed by the agent's recording
+        # notice. An arm carries the sentence; the posture stays one decision per agent.
+        assert disclosure == expected[label]
+        assert config.opening_line.startswith(expected[label])
+        assert config.opening_line.endswith(RECORDING_NOTICE_TEMPLATES["te-IN"])
         assert config.system_prompt == bodies[label]
 
 
@@ -426,7 +434,8 @@ async def test_promoting_an_arm_goes_through_the_publish_path() -> None:
         row = (
             await session.execute(
                 text(
-                    "SELECT pv.body, pv.version, pv.notes, a.engine_agent_ref, a.disclosure_line "
+                    "SELECT pv.body, pv.version, pv.notes, a.engine_agent_ref, "
+                    "a.ai_disclosure_line, a.disclosure_line, a.recording_notice_line "
                     "FROM agents a JOIN prompt_versions pv ON pv.id = a.live_prompt_id "
                     "WHERE a.id = :a"
                 ),
@@ -439,7 +448,15 @@ async def test_promoting_an_arm_goes_through_the_publish_path() -> None:
     assert "promoted variant B" in str(row[2])
     # And the ENGINE holds it — a promotion our table alone believed in is the defect.
     assert engine._agents[str(row[3])].system_prompt == CHALLENGER
-    assert engine._agents[str(row[3])].disclosure_line == str(row[4])
+    # The promoted arm's sentence became the agent's AI sentence, and the OPENING is that
+    # composed through the agent's own (untouched) notice toggles — D-163: promoting a
+    # script promotes a sentence, never a compliance posture.
+    assert str(row[4]) == DISCLOSURE_B
+    assert engine._agents[str(row[3])].opening_line == f"{row[4]} {row[6]}"
+    # The legacy bundle is recomposed rather than overwritten, so the two columns cannot
+    # start disagreeing about one agent the moment an experiment concludes (hard rule 8's
+    # two-step is a deprecation, not a licence to let the old column rot).
+    assert str(row[5]) == f"{row[4]} {row[6]}"
 
     # Nothing is left staged: the publishing screen must not show a pending change for a
     # promotion that already applied.

@@ -43,6 +43,18 @@ const AGENT: Agent = {
   // none — `as unknown as Agent` is why nobody noticed.
   language_primary: "te-IN",
   disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  // D-163 split the bundled line into two notices with two switches. The fixture keeps
+  // both ON, which is what a new agent is born with, and carries the server-composed
+  // `opening_line` rather than joining the two sentences here — the screens read that
+  // field, so a fixture that computed it would be testing its own arithmetic.
+  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_enabled: true,
+  recording_notice_line: "This call is being recorded.",
+  recording_notice_enabled: true,
+  opening_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+  truthful_answer_rule:
+    "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "bolna",
   extraction_fields: [],
 };

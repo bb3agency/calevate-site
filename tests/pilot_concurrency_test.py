@@ -395,7 +395,7 @@ async def _fake_engine_ctx(budget: int) -> StubContext:
             name="pilot probe",
             direction="outbound",
             system_prompt="probe",
-            disclosure_line="This call is recorded.",
+            opening_line="This call is recorded.",
         )
     )
     return StubContext(engine, calls_remaining=budget, agent_ref=ref)

@@ -458,7 +458,12 @@ one differs from a summary below, the runbook is the authority.
   "do NOT start by re-publishing", because the two causes — a vendor-dashboard edit and a
   publish that failed on our side after the vendor committed — want OPPOSITE fixes and a
   count cannot tell them apart. `disclosure_applied: false` is escalated as an incident
-  rather than a config drift: it is the one property here with a legal consequence. Also
+  rather than a config drift: it is one of two properties here with a legal consequence —
+  and since D-163 it reads BOTH ways, so on an agent whose owner has withdrawn both
+  notices a `false` means the vendor is still speaking one. **`truthful_answer_applied:
+  false` is the graver of the two and is escalated the same way**: the engine has lost
+  the instruction that makes the agent admit it is an AI, which is the one property no
+  client setting can explain away. Also
   covers the two things the panel says that are not the alarm — a rising `undetermined`
   (the vendor, or our own read-back shape drifting) and an `oldest_checked_at` that has
   stopped moving, which means every count on the panel is stale.

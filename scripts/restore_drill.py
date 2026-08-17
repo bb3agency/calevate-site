@@ -652,9 +652,17 @@ class RestoreDrill:
             "INSERT INTO organizations (id, name, slug, status) VALUES "
             f"('{TENANT_A}', 'Drill Tenant A', 'drill-tenant-a', 'active'), "
             f"('{TENANT_B}', 'Drill Tenant B', 'drill-tenant-b', 'active')",
-            "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line) VALUES "
-            f"('{AGENT_A}', '{TENANT_A}', 'Drill A', 'inbound', 'This is an AI assistant.'), "
-            f"('{AGENT_B}', '{TENANT_B}', 'Drill B', 'inbound', 'This is an AI assistant.')",
+            # The three disclosure columns together (D-163): the legacy bundle plus the
+            # two halves it splits into. The drill's fixture is a real agent row and has
+            # to satisfy the same NOT NULL/non-blank constraints a client's does.
+            "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+            "ai_disclosure_line, recording_notice_line) VALUES "
+            f"('{AGENT_A}', '{TENANT_A}', 'Drill A', 'inbound', "
+            "'This is an AI assistant. This call is being recorded.', "
+            "'This is an AI assistant.', 'This call is being recorded.'), "
+            f"('{AGENT_B}', '{TENANT_B}', 'Drill B', 'inbound', "
+            "'This is an AI assistant. This call is being recorded.', "
+            "'This is an AI assistant.', 'This call is being recorded.')",
         ]
         for tenant, agent, prefix in ((TENANT_A, AGENT_A, "9111"), (TENANT_B, AGENT_B, "9222")):
             for index in range(LEADS_PER_TENANT):

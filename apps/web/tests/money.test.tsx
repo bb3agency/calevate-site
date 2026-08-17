@@ -69,6 +69,16 @@ const AGENT: Agent = {
   engine: "bolna",
   language_primary: "te-IN",
   disclosure_line: "Namaste, this is an AI assistant calling on behalf of Acme Clinic.",
+  // D-163: two notices, two switches, both ON — and `opening_line` as the server composes
+  // it, because that is the field the screens render.
+  ai_disclosure_line: "Namaste, this is an AI assistant calling on behalf of Acme Clinic.",
+  ai_disclosure_enabled: true,
+  recording_notice_line: "This call is being recorded.",
+  recording_notice_enabled: true,
+  opening_line:
+    "Namaste, this is an AI assistant calling on behalf of Acme Clinic. This call is being recorded.",
+  truthful_answer_rule:
+    "Whatever these settings say, the agent always answers honestly when a caller asks.",
   extraction_fields: [],
 };
 

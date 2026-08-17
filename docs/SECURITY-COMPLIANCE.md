@@ -13,18 +13,54 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
 | DLT registration | Who may place commercial calls | Principal Entity registration ₹5,900 (first TSP; later TSPs free); telemarketer + header + **voice template** registration required; unregistered ⇒ blocked at network as spam |
 | DPDP Act 2023 + Rules (notified Nov 2025) | Recordings, transcripts, leads = personal data | Consent is the only general-purpose lawful basis (no "legitimate interest"); phased deadlines — enforcement live now, consent-manager framework Nov 2026, **full substantive compliance mandatory 13 May 2027**; erasure with proof; breach notification; penalties up to ₹250 crore |
 | TRAI recording rule | Recording retention | **90-day minimum retention of call recordings on Indian infrastructure** (floor in retention_policies) |
-| IT Act 2000 / case law | Undisclosed recording | Disclosure before recording required (Sanjay Pandey line of cases); criminal exposure for breach of confidentiality |
+| IT Act 2000 / case law | Undisclosed recording | Disclosure before recording required (Sanjay Pandey line of cases); criminal exposure for breach of confidentiality. **Note the line of cases is about a NON-PARTY intercepting a call**; a participant recording their own call is the *R. M. Malkani v State of Maharashtra* (1973) one-party baseline, which is why the recording NOTICE is treated below as a DPDP notice-and-consent question rather than as an IT Act one |
 | Sectoral overlays | If client is BFSI/insurance | RBI/IRDAI/SEBI rules incl. longer retention (e.g., 2y RBI); no cross-selling on 160-series service calls |
-| EU AI Act Art. 50 | Only if EU callers (not v1) | AI must disclose it is AI from 2 Aug 2026 — we disclose everywhere anyway |
+| EU AI Act Art. 50 | Only if EU callers (not v1) | AI must disclose it is AI from 2 Aug 2026 — **and since D-163 "we disclose everywhere anyway" is no longer true by construction**: opening disclosure is a per-agent toggle. It stays true of the ANSWER (§2.1 below), which is unconditional. An EU-facing agent would need the opening toggle forced on, and nothing enforces that today because EU callers are out of scope for v1 |
+| TRAI AI/UCC (pending) | AI identification on commercial calls | **NOT YET NOTIFIED as of 17 Aug 2026.** TRAI's 13 Mar 2026 draft Third Amendment to the TCCCPR mandates AI/ML spam detection by ACCESS PROVIDERS; a mandatory AI-disclosure-at-call-start requirement for senders is the widely reported likely OUTCOME of the accompanying consultation, not current law. Recorded as a dated risk in D-163 rather than as a rule the code implements |
 
 ## 2. Call-Level Compliance (built into every agent) [GATE for any live agent]
 
-1. **AI disclosure**: `agents.disclosure_line` is NOT NULL; first utterance of every call
-   identifies the assistant as AI, in the caller's language. Verified by regression suite.
-2. **Recording consent**: disclosure includes recording notice; explicit consent captured
-   for outbound recording where required; `calls.consent_recording` + immutable
-   `consent_ledger` row with evidence (transcript span). Caller decline ⇒ recording off,
-   call continues, ledger row written.
+0. **THE ANSWER IS UNCONDITIONAL — this is hard rule 5's floor and nothing below it may
+   be read as an exception (D-163).** Asked outright, in any language and however phrased
+   — *"am I speaking to a person?"*, *"are you a bot?"*, *"is this being recorded?"* — the
+   agent tells the truth: it is an AI assistant, and the call is recorded. It is
+   `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, a `Final` in the portability
+   contract; `compose_engine_prompt` appends it AFTER the client's script on every agent
+   on every engine, with an explicit precedence sentence; `agents/verification.judge`
+   reads the marker back off the engine on every publish and REFUSES the publish if it is
+   missing, and the half-hourly drift sweep raises the alarm if it disappears afterwards.
+   **A client-authored prompt cannot withdraw it**, because it is not composed from any
+   column, config row or prompt version — `scripts/check_compliance_invariants.py` §6
+   fails the build if it ever becomes a settable field, a parameter, or a second binding.
+   The two toggles below govern what is VOLUNTEERED, never what is ANSWERED.
+1. **AI disclosure** (TRAI/UCC-side): `agents.ai_disclosure_line` is NOT NULL and
+   non-blank on every agent, so the sentence always EXISTS and `check_dispatch` refuses a
+   dial from an agent without one. Whether it is spoken as the first utterance is
+   `agents.ai_disclosure_enabled`, a per-agent toggle on inbound and outbound alike,
+   defaulting TRUE. `calls.disclosure_played` records whether it was observed on a call —
+   and records NULL, not `false`, for an agent whose owner switched the notice off, since
+   nothing was required and so nothing is certified.
+2. **Recording notice** (DPDP-side, a different regime — see §1's table): its own
+   sentence in `agents.recording_notice_line` (NOT NULL, non-blank) and its own toggle
+   `agents.recording_notice_enabled`, defaulting TRUE. **Switching it off does not switch
+   recording off**: nothing in this codebase can, and the caller who asks is still told
+   yes. It moves WHERE the client discharges their DPDP §5 notice obligation — into their
+   own privacy notice or prior consent artefact — and it does not discharge it. Explicit
+   consent captured for outbound recording where required; `calls.consent_recording` +
+   immutable `consent_ledger` row with evidence (transcript span). Caller decline ⇒
+   recording off, call continues, ledger row written.
+
+   **Why both are toggles at all, and who carries the risk.** The client is the Principal
+   Entity; the calls go out under their identity and their DLT templates, and the
+   disclosure posture is their exposure. So the switch is theirs: `PATCH
+   /v1/agents/{agent_id}/disclosure` requires `org:manage`, which no admin-realm or
+   impersonating session holds against a client tenant (D-22), and **every flip writes an
+   `audit_log` row whose ACTION names the toggle and the direction** —
+   `agent.ai_disclosure_disabled`, `agent.recording_notice_enabled`, … — so the ledger
+   itself answers "who turned this off, and when" without joining a log shipper. No
+   `consent_ledger` row is written: that register holds a DATA PRINCIPAL's consent, and a
+   Fiduciary changing its own notice practice is not a caller consenting to anything.
+   The regulatory position, the risk accepted and what would reverse it are in D-163.
 3. **Opt-out honored live**: "don't call me again" ⇒ tool adds to tenant `dnc_list`
    within the call; propagates to campaigns immediately (target ≤ minutes, not the 4h norm).
    Built in TWO layers with one write path (D-56, `apps/api/compliance/optout.py`): the
@@ -144,7 +180,7 @@ cite the same string:
 
 | Obligation | Feature |
 |---|---|
-| Notice + consent | Client-facing DPA + privacy notice; caller disclosure line; consent_ledger (incl. the `messaging` purpose — see below) |
+| Notice + consent | Client-facing DPA + privacy notice; the caller-facing notices of §2.1/§2.2 **where the client has them switched on** (D-163 — with them off, the in-call notice is not given and the obligation moves to the client's own notice, which is a change the DPA must state); the unconditional truthful ANSWER of §2.0, which no setting reaches; consent_ledger (incl. the `messaging` purpose — see below) |
 | Purpose limitation | data_category on storage; consent purpose enum; no secondary use of client data (we are Data Processor for clients' caller data; Fiduciary for client-account data — recorded in DPA) |
 | Retention limits | retention_policies per category with TTL enforcement job; recording floor 90 days (TRAI), default 180; BFSI clients configurable ≥ regulator minimum; transcripts/leads default 24 months |
 | Erasure with proof | deletion_requests workflow: `POST /v1/compliance/deletion-requests` writes the row and queues the worker in ONE transaction (transactional outbox) → locate by phone across calls/turns/extractions/leads/recordings → delete/anonymize → write proof JSON (what, where, when, hashes) **and clear `phone_e164` in that same UPDATE**, so a completed request is not the last surviving copy of the number it certifies as erased (D-44; `subject_ref`, the same hash the proof and the subject-access export use, is what remains) → certificate to requester; covers our object storage AND engine copies (adapter deletes engine-side records; Bolna's deletion API is undocumented — pilot gate, and a written erasure commitment goes in the Bolna contract, so the certificate reports engine-side deletion as `unconfirmed_pending_vendor_api` rather than claiming it). **Recordings under 90 days: see the open decision below — this row and the retention row above point in opposite directions.** |

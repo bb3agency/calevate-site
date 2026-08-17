@@ -91,6 +91,17 @@ const AGENT: Agent = {
   // `as unknown as Agent` is why nobody noticed.
   disclosure_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  // D-163: the bundled line splits into two notices with two switches. Both ON, which is
+  // what a new agent is born with; `opening_line` comes from the server rather than being
+  // joined here, because that is the field every screen reads.
+  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_enabled: true,
+  recording_notice_line: "This call is being recorded.",
+  recording_notice_enabled: true,
+  opening_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+  truthful_answer_rule:
+    "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "bolna",
   published: true,
   extraction_fields: [],

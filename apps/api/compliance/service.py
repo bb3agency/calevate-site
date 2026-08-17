@@ -322,7 +322,13 @@ async def check_dispatch(
     agent = (
         await session.execute(
             text(
-                "SELECT disclosure_line, status, direction FROM agents "
+                # `ai_disclosure_line`, not the legacy bundle (D-163). The gate asks
+                # whether this agent HAS an AI disclosure on file, which is still
+                # mandatory; `ai_disclosure_enabled` — whether it is volunteered at the
+                # top of the call — is the tenant's own decision and is deliberately NOT
+                # a dial blocker. Reading the bundled column here would have made the
+                # question un-answerable the moment the two halves stopped sharing it.
+                "SELECT ai_disclosure_line, status, direction FROM agents "
                 "WHERE id = :aid AND tenant_id = :tid AND deleted_at IS NULL"
             ),
             {"aid": agent_id, "tid": tenant_id},

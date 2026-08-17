@@ -1283,6 +1283,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/disclosure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Switch the AI disclosure and the recording notice on or off (D-163)
+         * @description Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.
+         *
+         *     It does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it says yes. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish — no script can withdraw it.
+         *
+         *     Switching the recording notice off does not stop the call being recorded, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.
+         *
+         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.
+         */
+        patch: operations["set_disclosure_v1_agents__agent_id__disclosure_patch"];
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/engine-state": {
         parameters: {
             query?: never;
@@ -3502,6 +3528,10 @@ export interface components {
         };
         /** AgentOut */
         AgentOut: {
+            /** Ai Disclosure Enabled */
+            ai_disclosure_enabled: boolean;
+            /** Ai Disclosure Line */
+            ai_disclosure_line: string;
             /** Direction */
             direction: string;
             /** Disclosure Line */
@@ -3522,10 +3552,21 @@ export interface components {
             language_primary: string;
             /** Name */
             name: string;
+            /** Opening Line */
+            opening_line: string;
             /** Published */
             published: boolean;
+            /** Recording Notice Enabled */
+            recording_notice_enabled: boolean;
+            /** Recording Notice Line */
+            recording_notice_line: string;
             /** Status */
             status: string;
+            /**
+             * Truthful Answer Rule
+             * @default Whatever these settings say, the agent always answers honestly when a caller asks. "Am I speaking to a person?" is answered "I am an AI assistant", and "is this call being recorded?" is answered yes. This cannot be switched off and no script can override it.
+             */
+            truthful_answer_rule: string;
         };
         /**
          * AgentVoiceOut
@@ -4881,6 +4922,41 @@ export interface components {
             truncated: boolean;
         };
         /**
+         * DisclosureIn
+         * @description Which notices this agent volunteers. `null` on a field leaves it alone.
+         *
+         *     Two nullable booleans rather than two endpoints: the pair is one posture, a screen
+         *     with two switches sends whichever one moved, and a PATCH that could only send both
+         *     would make flipping one switch a read-modify-write race against the other.
+         */
+        DisclosureIn: {
+            /** Ai Disclosure Enabled */
+            ai_disclosure_enabled?: boolean | null;
+            /** Recording Notice Enabled */
+            recording_notice_enabled?: boolean | null;
+        };
+        /** DisclosureOut */
+        DisclosureOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Ai Disclosure Enabled */
+            ai_disclosure_enabled: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Opening Line */
+            opening_line: string;
+            /** Recording Notice Enabled */
+            recording_notice_enabled: boolean;
+            /**
+             * Truthful Answer Rule
+             * @default Whatever these settings say, the agent always answers honestly when a caller asks. "Am I speaking to a person?" is answered "I am an AI assistant", and "is this call being recorded?" is answered yes. This cannot be switched off and no script can override it.
+             */
+            truthful_answer_rule: string;
+        };
+        /**
          * DltRegistrationIn
          * @description What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP §3).
          *
@@ -5076,6 +5152,8 @@ export interface components {
             prompt_disclosure_applied: boolean | null;
             /** State */
             state: string;
+            /** Truthful Answer Applied */
+            truthful_answer_applied: boolean | null;
             /** Voice Applied */
             voice_applied: boolean | null;
         };
@@ -11271,6 +11349,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_disclosure_v1_agents__agent_id__disclosure_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DisclosureIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DisclosureOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

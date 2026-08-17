@@ -273,6 +273,14 @@
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
+          "ai_disclosure_enabled": {
+            "title": "Ai Disclosure Enabled",
+            "type": "boolean"
+          },
+          "ai_disclosure_line": {
+            "title": "Ai Disclosure Line",
+            "type": "string"
+          },
           "direction": {
             "title": "Direction",
             "type": "string"
@@ -306,12 +314,29 @@
             "title": "Name",
             "type": "string"
           },
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          },
           "published": {
             "title": "Published",
             "type": "boolean"
           },
+          "recording_notice_enabled": {
+            "title": "Recording Notice Enabled",
+            "type": "boolean"
+          },
+          "recording_notice_line": {
+            "title": "Recording Notice Line",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "truthful_answer_rule": {
+            "default": "Whatever these settings say, the agent always answers honestly when a caller asks. \"Am I speaking to a person?\" is answered \"I am an AI assistant\", and \"is this call being recorded?\" is answered yes. This cannot be switched off and no script can override it.",
+            "title": "Truthful Answer Rule",
             "type": "string"
           }
         },
@@ -322,6 +347,11 @@
           "status",
           "language_primary",
           "disclosure_line",
+          "ai_disclosure_line",
+          "ai_disclosure_enabled",
+          "recording_notice_line",
+          "recording_notice_enabled",
+          "opening_line",
           "engine",
           "published"
         ],
@@ -3541,6 +3571,76 @@
         "title": "DeliveryPayloadOut",
         "type": "object"
       },
+      "DisclosureIn": {
+        "additionalProperties": false,
+        "description": "Which notices this agent volunteers. `null` on a field leaves it alone.\n\nTwo nullable booleans rather than two endpoints: the pair is one posture, a screen\nwith two switches sends whichever one moved, and a PATCH that could only send both\nwould make flipping one switch a read-modify-write race against the other.",
+        "properties": {
+          "ai_disclosure_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Disclosure Enabled"
+          },
+          "recording_notice_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recording Notice Enabled"
+          }
+        },
+        "title": "DisclosureIn",
+        "type": "object"
+      },
+      "DisclosureOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "ai_disclosure_enabled": {
+            "title": "Ai Disclosure Enabled",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          },
+          "recording_notice_enabled": {
+            "title": "Recording Notice Enabled",
+            "type": "boolean"
+          },
+          "truthful_answer_rule": {
+            "default": "Whatever these settings say, the agent always answers honestly when a caller asks. \"Am I speaking to a person?\" is answered \"I am an AI assistant\", and \"is this call being recorded?\" is answered yes. This cannot be switched off and no script can override it.",
+            "title": "Truthful Answer Rule",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "ai_disclosure_enabled",
+          "recording_notice_enabled",
+          "opening_line",
+          "engine_synced"
+        ],
+        "title": "DisclosureOut",
+        "type": "object"
+      },
       "DltRegistrationIn": {
         "additionalProperties": false,
         "description": "What the registrar says about THIS CLIENT's Principal Entity (SEC-COMP \u00a73).\n\nTwo statuses rather than one `ready` flag, because they fail separately and the\nnext action differs: an unregistered entity is a \u20b95,900 registration we execute for\nthem, a missing TM link is an authorisation only they can grant. The launch gate\nnames them separately for the same reason.",
@@ -3934,6 +4034,17 @@
             "title": "State",
             "type": "string"
           },
+          "truthful_answer_applied": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Truthful Answer Applied"
+          },
           "voice_applied": {
             "anyOf": [
               {
@@ -3956,6 +4067,7 @@
           "prompt_applied",
           "disclosure_applied",
           "prompt_disclosure_applied",
+          "truthful_answer_applied",
           "voice_applied",
           "detail"
         ],
@@ -16747,6 +16859,57 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/disclosure": {
+      "patch": {
+        "description": "Each opening notice is separately controllable, per agent, on inbound and outbound agents alike. A notice switched off means the agent does not VOLUNTEER that fact at the start of the call.\n\nIt does not change what the agent says when a caller ASKS. Asked whether they are speaking to a human, the agent says it is an AI assistant; asked whether the call is recorded, it says yes. That is composed server-side, appended to every agent's instructions after the script, and verified against the voice platform on every publish \u2014 no script can withdraw it.\n\nSwitching the recording notice off does not stop the call being recorded, and does not discharge the client's own notice obligation under the DPDP Act; it moves where that notice is given. Every flip is written to the audit log.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a posture the platform is not running.",
+        "operationId": "set_disclosure_v1_agents__agent_id__disclosure_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisclosureIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisclosureOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Switch the AI disclosure and the recording notice on or off (D-163)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/engine-state": {

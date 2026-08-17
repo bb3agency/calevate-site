@@ -82,7 +82,8 @@ async def _make_call(tenant_id: uuid.UUID) -> uuid.UUID:
         await s.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "created_at, updated_at) VALUES (:id, :tid, 'a', 'inbound', 'I am an AI', "
+                "ai_disclosure_line, recording_notice_line, created_at, updated_at) VALUES (:id, "
+                ":tid, 'a', 'inbound', 'I am an AI', 'I am an AI', 'This call is being recorded.', "
                 "now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},

@@ -280,9 +280,11 @@ async def _population() -> AsyncIterator[Population]:
                         await session.execute(
                             text(
                                 "INSERT INTO agents (id, tenant_id, name, direction, "
-                                "disclosure_line, status, engine, engine_agent_ref, created_at, "
-                                "updated_at) VALUES (:id, :tid, 'Receptionist', 'outbound', "
-                                "'Idi AI assistant.', 'live', 'fake', :ref, now(), now())"
+                                "disclosure_line, ai_disclosure_line, recording_notice_line, "
+                                "status, engine, engine_agent_ref, created_at, updated_at) VALUES "
+                                "(:id, :tid, 'Receptionist', 'outbound', 'Idi AI assistant.', 'Idi "
+                                "AI assistant.', 'This call is being recorded.', 'live', 'fake', "
+                                ":ref, now(), now())"
                             ),
                             {"id": agent_id, "tid": tenant_id, "ref": ref},
                         )
@@ -565,9 +567,11 @@ async def test_a_tenant_with_two_published_agents_is_scanned_once(
         second_agent = uuid7()
         await session.execute(
             text(
-                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, status, "
-                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
-                "'Second', 'outbound', 'Idi AI assistant.', 'live', 'fake', :ref, now(), now())"
+                "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
+                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
+                "created_at, updated_at) VALUES (:id, :tid, 'Second', 'outbound', 'Idi AI "
+                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', "
+                ":ref, now(), now())"
             ),
             {"id": second_agent, "tid": tenant_id, "ref": second_ref},
         )

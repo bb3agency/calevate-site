@@ -40,6 +40,7 @@ from calevate_shared.engine import (
     ProvisionedNumber,
     WebhookAuthMethod,
     WebhookVerdict,
+    compose_engine_prompt,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
@@ -256,9 +257,9 @@ class FakeEngine:
           adapter that echoed the most recent `create_agent`/`update_agent` argument
           would agree with every caller and detect nothing, which is why the conformance
           suite reads two agents back;
-        * it renders the prompt the way a real engine holds it — disclosure line
-          PREPENDED, exactly as `BolnaEngine._agent_body` sends it (hard rule 5). Storing
-          `cfg.system_prompt` verbatim would make the fake the only engine where a
+        * it renders the prompt through `compose_engine_prompt`, exactly as both real
+          adapters do (hard rule 5) — opening line prepended, platform rules appended.
+          Storing `cfg.system_prompt` verbatim would make the fake the only engine where a
           read-back equals what was sent, and a caller could then write an equality check
           that passes here and fails against every real vendor.
 
@@ -276,14 +277,16 @@ class FakeEngine:
         return AgentSnapshot(
             engine_agent_ref=ref,
             name=cfg.name,
-            system_prompt=f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
+            system_prompt=compose_engine_prompt(cfg),
             system_prompt_readable=True,
             # The greeting, held SEPARATELY from the prompt exactly as both real adapters
             # send it — `agent_welcome_message` on Bolna, `introduction` on Cartesia. The
             # fake storing only the prompt is what would let a caller write a disclosure
             # check that passes here and proves nothing against a vendor, which is the
-            # substitution finding P3.3 records.
-            greeting=cfg.disclosure_line,
+            # substitution finding P3.3 records. It follows the CURRENT config, so an
+            # agent republished with both notices off reads back with no greeting — which
+            # is what makes D-163's "the vendor actually cleared it" check testable.
+            greeting=cfg.opening_line,
             greeting_readable=True,
             # The fake engine's agent really does reference its attached sources, so this
             # is readable — and it is the ONLY place D-41's dangling-handle logic gets

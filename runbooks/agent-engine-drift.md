@@ -3,8 +3,8 @@
 Symptom: the alert `engine_agent_drift_detected` (`WORKER_STALL`) fires, or the ops
 console's **What the voice platform is running** panel shows a non-zero "Running
 something else". Either way the claim is specific: for N live agents, the voice platform
-was READ BACK and is holding a script, disclosure line or voice other than the one our
-row says we published.
+was READ BACK and is holding a script, opening line, truthful-answer rule or voice other
+than the one our row says we published.
 
 This is not a screen being stale. `sweep_engine_drift`
 (`apps/workers/engine_reconciliation.py`, cron at :07 and :37) asks the vendor and
@@ -12,10 +12,14 @@ compares against the exact `AgentConfig` a publish would send. A `not_applied` v
 a PROVEN mismatch — "we could not read the answer" is counted separately, as
 `undetermined`, and never raises this alarm.
 
-**Why it matters more than a wrong screen.** The disclosure line is in the prompt. An
-agent whose greeting was dropped or rewritten at the vendor is a client answering Indian
-callers without the disclosure TRAI requires (hard rule 5), on our infrastructure, under
-our telemarketer registration.
+**Why it matters more than a wrong screen.** Two compliance controls live in what the
+vendor holds. The opening line is the greeting and the head of the prompt: an agent whose
+greeting was dropped or rewritten at the vendor is a client answering Indian callers
+without the notice their own settings say they give, on our infrastructure, under our
+telemarketer registration. Underneath the prompt sit the PLATFORM RULES — the block that
+makes the agent admit it is an AI and admit the call is recorded when a caller asks
+(D-163) — and losing those is worse, because it is the one part of an agent that is not
+a client's to decide and the one claim we make that no competitor makes.
 
 Ground rules: production access goes through the audited admin path (SECURITY-COMPLIANCE
 §"Admin access path"). Read-only SELECTs. Never select a prompt body, a disclosure line
@@ -57,12 +61,22 @@ dashboard edit nobody noticed.
 
 `GET /v1/agents/{agent_id}/engine-state` (client realm, the tenant's own scope — an
 admin uses D-22 view-as). It performs the same read on demand and returns the
-operator-readable sentence plus the three per-property verdicts
-(`prompt_applied`, `disclosure_applied`, `voice_applied`).
+operator-readable sentence plus the per-property verdicts (`prompt_applied`,
+`disclosure_applied`, `truthful_answer_applied`, `voice_applied`).
 
+* `truthful_answer_applied: false` — **the gravest verdict on this screen, and the one
+  no client setting can explain (D-163).** The engine has lost the instruction that makes
+  the agent say "I am an AI assistant" and "yes, this call is recorded" when a caller
+  ASKS. It is composed server-side from a constant and appended to every prompt, so it
+  cannot be missing because somebody configured it away — the live causes are a vendor
+  dashboard edit that pasted the script back without the block underneath it, or a vendor
+  prompt-length ceiling truncating the tail. **Pause the agent, then choose a direction.**
 * `disclosure_applied: false` — **treat as an incident, not a config drift.** Hard rule 5
-  is the one property here with a legal consequence. Consider pausing the agent before
-  deciding anything else.
+  is the second property here with a legal consequence. Since D-163 it reads BOTH ways:
+  on an agent whose owner switched a notice OFF, `false` means the vendor is still
+  speaking one they withdrew (over-disclosure — a wrong screen, not a breach), and on one
+  with a notice ON it means the caller is not hearing it. The agent's own screen says
+  which posture it is in. Consider pausing before deciding anything else.
 * `prompt_applied: false` alone — the script differs. Read the agent's own screen for what
   we believe is live, and the vendor dashboard for what they are holding, before choosing
   a direction.

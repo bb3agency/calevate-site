@@ -1193,13 +1193,25 @@ async def _load_call_context(
     mid-month can therefore make an old call read as undisclosed. That is visible and
     conservative (it can only turn True into False); the alternative is a
     `calls.disclosure_line_at_call` column, which is a real answer and a migration this
-    finding does not call for.
+    finding does not call for. **D-163 widens that approximation by exactly one case**:
+    a tenant who switches `ai_disclosure_enabled` off turns the verdict on their older
+    calls from True to `None` (unknown), never to False — still the conservative
+    direction, and the same column would fix both.
     """
     async with tenant_session(tenant_id) as session:
         row = (
             await session.execute(
                 text(
-                    "SELECT c.agent_id, c.direction, es.version, es.fields, a.disclosure_line "
+                    # THE AI SENTENCE, AND ONLY WHEN THE AGENT WAS ASKED TO VOLUNTEER IT
+                    # (D-163). `disclosure_played` answers "did the agent say the AI
+                    # disclosure", so the needle is the AI half rather than the legacy
+                    # bundle — an agent whose owner has switched the RECORDING notice off
+                    # would otherwise be scored against a sentence it was never asked to
+                    # say and report a breach on every call. When the AI toggle itself is
+                    # off the needle is the empty string, which `disclosure_spoken` turns
+                    # into `None`: nothing was required, so nothing is certified.
+                    "SELECT c.agent_id, c.direction, es.version, es.fields, "
+                    "  CASE WHEN a.ai_disclosure_enabled THEN a.ai_disclosure_line ELSE '' END "
                     "FROM calls c "
                     "JOIN agents a ON a.id = c.agent_id "
                     "LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "

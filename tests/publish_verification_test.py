@@ -48,10 +48,12 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.engine import (
+    TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
     AgentSnapshot,
     EngineAgentRef,
     ModelConfig,
+    compose_engine_prompt,
 )
 from sqlalchemy import text
 
@@ -135,7 +137,7 @@ class DisclosureDroppingEngine(MutatingEngine):
     """
 
     def mutate(self, cfg: AgentConfig) -> AgentConfig:
-        return cfg.model_copy(update={"disclosure_line": "…"})
+        return cfg.model_copy(update={"opening_line": "…"})
 
 
 class GreetingOnlyDroppingEngine(RecordingEngine):
@@ -408,7 +410,7 @@ async def test_the_disclosure_verdict_reads_the_field_that_speaks_not_the_one_we
     mutates the config wholesale, so prompt and greeting fail together and either one
     scored green looks the same.
 
-    Before this change the verdict was `carries_prompt_marker(cfg.disclosure_line)`
+    Before this change the verdict was `carries_prompt_marker(cfg.opening_line)`
     against a prompt WE had just prepended the line to, so it was true whenever the
     prompt round-tripped at all. The publish below would have been confirmed `applied`,
     the agent would have gone live, and OPERATIONS §7's escalation on
@@ -439,7 +441,11 @@ def test_the_prompt_copy_is_reported_but_never_refuses_a_publish() -> None:
     thing an operator learned to override.
     """
     cfg = _cfg()
-    greeting_only = _snapshot(cfg, system_prompt=cfg.system_prompt)  # no prepended line
+    # No prepended line — but the platform rules stay, because D-163 made those a
+    # refusal in their own right and dropping both here would prove the wrong thing.
+    greeting_only = _snapshot(
+        cfg, system_prompt=f"{cfg.system_prompt}\n\n{TRUTHFUL_ANSWER_DIRECTIVE}"
+    )
 
     verdict = judge(FakeEngine(), cfg, greeting_only)
 
@@ -828,7 +834,10 @@ def _cfg(**kw: Any) -> AgentConfig:
         "name": "Sunrise Clinic receptionist",
         "direction": "inbound",
         "system_prompt": SCRIPT,
-        "disclosure_line": "Idi AI assistant. Ee call record avutundi.",
+        # D-163: the composed opening — both notices on, which is what a new agent is
+        # born with. `opening_line`, not `disclosure_line`: the field is what the agent
+        # SAYS FIRST, and it may legitimately be empty when a tenant volunteers neither.
+        "opening_line": "Idi AI assistant. Ee call record avutundi.",
         "models": ModelConfig(tts_provider="sarvam", tts_voice=VOICE),
     }
     return AgentConfig(**{**base, **kw})
@@ -846,9 +855,13 @@ def _snapshot(cfg: AgentConfig, **kw: Any) -> AgentSnapshot:
     """
     base: dict[str, Any] = {
         "engine_agent_ref": "ref_1",
-        "system_prompt": f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
+        # Through `compose_engine_prompt`, exactly as every adapter renders it — opening
+        # line prepended, platform rules appended (D-163). A fixture that omitted the
+        # rules would report `not_applied` on every healthy publish, which is the mirror
+        # of the P3.3 defect this helper's docstring records.
+        "system_prompt": compose_engine_prompt(cfg),
         "system_prompt_readable": True,
-        "greeting": cfg.disclosure_line,
+        "greeting": cfg.opening_line,
         "greeting_readable": True,
         "models": cfg.models,
         "models_readable": True,
@@ -894,7 +907,7 @@ def test_a_verified_publish_is_not_an_equality_check_on_our_own_formatting() -> 
     cfg = _cfg()
     rendered = _snapshot(
         cfg,
-        system_prompt=(f"### SYSTEM\n{cfg.disclosure_line}\n\n{cfg.system_prompt}\n\n### END"),
+        system_prompt=(f"### SYSTEM\n{compose_engine_prompt(cfg)}\n\n### END"),
     )
     assert judge(FakeEngine(), cfg, rendered).state == "applied"
 

@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentsPage from "@/app/c/[slug]/agents/page";
@@ -63,6 +63,20 @@ function agent(over: Partial<Agent> = {}): Agent {
     status: "live",
     language_primary: "te-IN",
     disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+    // D-163: the two notices this agent volunteers, and the switch on each. Both ON by
+    // default — that is what a new agent is born with, and the screen's "off" copy is
+    // exercised by the cases below that override them. `opening_line` is the SERVER's
+    // composition and is passed as data rather than derived here: the screen renders it
+    // verbatim, so a fixture that joined the two sentences itself would be asserting its
+    // own arithmetic instead of the contract.
+    ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+    ai_disclosure_enabled: true,
+    recording_notice_line: "This call is being recorded.",
+    recording_notice_enabled: true,
+    opening_line:
+      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
+    truthful_answer_rule:
+      "Whatever these settings say, the agent always answers honestly when a caller asks.",
     engine: "bolna",
     published: true,
     extraction_fields: [],
@@ -322,8 +336,14 @@ describe("the controls this session may not use are absent, not waiting to 403",
     expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /discard/i })).toBeNull();
     // No editors either — a disabled input for a field only we may change is the same
-    // trap wearing a different hat.
-    expect(container.querySelectorAll("input, select, textarea")).toHaveLength(0);
+    // trap wearing a different hat. The EXCEPTION, and the only one, is D-163's pair of
+    // notice switches: those are `org:manage`, which the client owner holds and an
+    // impersonating operator is refused, so they are the client's own decision to make
+    // rather than a control that could only 403. Asserted by COUNT, so a third
+    // interactive control cannot arrive here unnoticed.
+    expect(container.querySelectorAll("select, textarea")).toHaveLength(0);
+    expect(container.querySelectorAll("input")).toHaveLength(2);
+    expect(screen.getAllByRole("switch")).toHaveLength(2);
     // Nothing on the happy path is clickable at all. `ProblemNotice`'s retry is a button,
     // which is why this asserts on a render where nothing failed.
     expect(container.querySelectorAll("button")).toHaveLength(0);
@@ -540,29 +560,95 @@ describe("the numbers and the sentences come from the server", () => {
   });
 });
 
-describe("the disclosure line, which the law does not let us lose", () => {
-  it("renders it verbatim and offers no way to change or empty it", async () => {
-    const LINE = "Namaskaram, this is an AI assistant calling for Sri Clinic.";
+describe("the two opening notices, and the answer neither of them reaches (D-163)", () => {
+  it("renders the server's opening line verbatim and offers no way to reword it", async () => {
+    const OPENING =
+      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
     const { container } = await renderClientPage(page, routes());
 
-    await screen.findByText(`“${LINE}”`);
-    // Hard rule 5 is kept here by having no editor at all: a screen that cannot write it
-    // cannot blank it. If an edit control ever lands, this fails first.
-    expect(container.querySelectorAll("input, textarea")).toHaveLength(0);
-    expect(container.textContent).toContain("it cannot be removed");
+    await screen.findByText(`“${OPENING}”`);
+    // The WORDING is still ours to write (D-21): a client may switch a notice off, and
+    // may not retype it into something that no longer discloses. So there is no text
+    // editor on this screen, and if one ever lands this fails first.
+    expect(container.querySelectorAll('input[type="text"], textarea')).toHaveLength(0);
+    expect(container.textContent).toContain("written by your account manager");
   });
 
-  it("calls out a blank opening line instead of rendering an empty quotation", async () => {
-    // The column is NOT NULL with `length(disclosure_line) > 0` (agents/models.py,
-    // `disclosure_nonempty`) — which whitespace satisfies. A pair of empty quotes reads
-    // as "the agent says nothing", the one failure on this card that must not be quiet.
+  it("puts the truthful-answer guarantee above the switches, in the server's words", async () => {
+    // The one sentence that must not be paraphrased on the way to a client: the switches
+    // change what the agent VOLUNTEERS, never what it ANSWERS. It comes from the API
+    // (`compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`) and is rendered as sent.
+    const RULE = "The agent never claims to be human. Ask it and it says so.";
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/agents": [agent({ disclosure_line: "   " })] }),
+      routes({ "/v1/agents": [agent({ truthful_answer_rule: RULE })] }),
     );
 
-    await screen.findByText(/no opening line on file/);
-    expect(container.textContent).not.toContain("“   ”");
+    // VERBATIM: asserted against a sentence this test invents, so it can only pass if
+    // the screen renders what the server sent rather than wording of its own.
+    const promise = await screen.findByText(RULE);
+    expect(container.textContent).toContain(RULE);
+    const switches = screen.getAllByRole("switch");
+    expect(switches).toHaveLength(2);
+    // Above, not below: two switches read "off" before the guarantee is read is exactly
+    // how a client concludes the opposite of what the platform enforces.
+    expect(
+      promise.compareDocumentPosition(switches[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("says plainly what switching each notice off does NOT do", async () => {
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [
+          agent({
+            ai_disclosure_enabled: false,
+            recording_notice_enabled: false,
+            opening_line: "",
+          }),
+        ],
+      }),
+    );
+
+    await screen.findByText(/opens straight into its script/);
+    // Never an empty quotation: a pair of empty quotes reads as "the agent says
+    // nothing", which is true of the OPENING and false of the call.
+    expect(container.textContent).not.toContain("“”");
+    // The two sentences a screen like this most easily omits.
+    expect(container.textContent).toContain("Calls are still recorded");
+    expect(container.textContent).toContain("still your responsibility under the DPDP Act");
+    // And, in both off-states, the agent still answers honestly when asked.
+    expect(container.textContent).toContain("the agent still says it is an AI");
+    expect(container.textContent).toContain("the agent still says yes");
+  });
+
+  it("sends only the switch that moved", async () => {
+    // `null` on the other field means "leave it alone" server-side, so a screen that
+    // sent both would make one click a read-modify-write race against the other.
+    const { calls } = await renderClientPage(
+      page,
+      routes({
+        "PATCH /v1/agents/agent-1/disclosure": {
+          agent_id: "agent-1",
+          ai_disclosure_enabled: false,
+          recording_notice_enabled: true,
+          opening_line: "This call is being recorded.",
+          engine_synced: true,
+          truthful_answer_rule:
+            "Whatever these settings say, the agent always answers honestly when a caller asks.",
+        },
+      }),
+    );
+
+    const [aiSwitch] = await screen.findAllByRole("switch");
+    await act(async () => {
+      fireEvent.click(aiSwitch);
+    });
+
+    const patched = calls.find((call) => call.method === "PATCH");
+    expect(patched?.path).toBe("/v1/agents/agent-1/disclosure");
+    expect(JSON.parse(patched?.body ?? "{}")).toEqual({ ai_disclosure_enabled: false });
   });
 });
 

@@ -89,6 +89,7 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
+    compose_engine_prompt,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
@@ -390,11 +391,16 @@ class CartesiaEngine:
         UNVERIFIED: that the CREATE endpoint accepts the same names, and `name`/`language`
         at all. The wrapper is flat on the same reasoning — their in-call object is flat.
 
-        HARD RULE 5. The disclosure line is PREPENDED to the prompt AND is the
+        HARD RULE 5. The opening line is PREPENDED to the prompt AND is the
         `introduction`, so it is spoken first on every call whichever way the agent opens.
         Sending it only as the introduction would be a compliance control resting on an
         engine field we have never observed; sending it only in the prompt would let a
-        model paraphrase it. Both, deliberately.
+        model paraphrase it. Both, deliberately. Since D-163 that line is composed from
+        the agent's two notice toggles and may be EMPTY — sent as "" rather than omitted,
+        because an omitted key leaves the vendor holding the greeting it already has, and
+        a withdrawn notice that keeps being spoken is a screen that lies about a phone
+        line. `TRUTHFUL_ANSWER_DIRECTIVE` rides at the END of the prompt through
+        `compose_engine_prompt` and is not toggleable by anything.
 
         NO SPEECH CONFIG IS SENT. `TTSConfig`/`STTConfig` take no provider and Sonic/Ink
         are the product, so there is nothing of ours to put there — and `require_speech_leg`
@@ -405,8 +411,8 @@ class CartesiaEngine:
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
         body: dict[str, Any] = {
             "name": cfg.name,
-            "system_prompt": f"{cfg.disclosure_line}\n\n{cfg.system_prompt}",
-            "introduction": cfg.disclosure_line,
+            "system_prompt": compose_engine_prompt(cfg),
+            "introduction": cfg.opening_line,
             "language": cfg.language_primary,
         }
         if cfg.models.llm_model:

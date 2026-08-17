@@ -223,7 +223,7 @@ async def test_the_reader_is_derived_from_an_adapter_that_can_read_agents_back()
             name="pilot",
             direction="outbound",
             system_prompt="pilot agent",
-            disclosure_line="Idi AI assistant.",
+            opening_line="Idi AI assistant.",
         )
     )
     reader = agent_ref_reader_from_engine(engine)

@@ -27,7 +27,12 @@ from apps.api.engine.bolna import (
     _agent_system_prompt,
 )
 from apps.api.engine.fake import FakeEngine
-from calevate_shared.engine import AgentConfig, AgentSnapshot, KBSourceRef
+from calevate_shared.engine import (
+    TRUTHFUL_ANSWER_DIRECTIVE,
+    AgentConfig,
+    AgentSnapshot,
+    KBSourceRef,
+)
 
 
 def _cfg(prompt: str = "You are the receptionist for Sunrise Clinic.") -> AgentConfig:
@@ -37,7 +42,7 @@ def _cfg(prompt: str = "You are the receptionist for Sunrise Clinic.") -> AgentC
         name="Sunrise Clinic receptionist",
         direction="inbound",
         system_prompt=prompt,
-        disclosure_line="Idi AI assistant. Ee call record avutundi.",
+        opening_line="Idi AI assistant. Ee call record avutundi.",
     )
 
 
@@ -63,16 +68,19 @@ async def test_fake_read_back_reflects_the_preceding_update() -> None:
     assert snapshot.carries_prompt_marker("revision one") is False
 
 
-async def test_fake_read_back_carries_the_disclosure_line_the_way_an_engine_holds_it() -> None:
+async def test_fake_read_back_carries_the_opening_line_the_way_an_engine_holds_it() -> None:
     """Hard rule 5 is a property of the object the ENGINE holds, not of our config row.
-    The fake renders it the way `BolnaEngine._agent_body` sends it — prepended — so a
-    caller cannot write an equality check that only ever passes against the fake."""
+    The fake renders it through `compose_engine_prompt`, exactly as
+    `BolnaEngine._agent_body` does — opening line prepended, platform rules appended
+    (D-163) — so a caller cannot write an equality check that only ever passes against
+    the fake, and cannot get a fake-only agent that answers dishonestly."""
     engine = FakeEngine()
     cfg = _cfg()
     ref = await engine.create_agent(cfg)
     prompt = (await engine.get_agent(ref)).system_prompt
     assert prompt is not None
-    assert prompt.startswith(cfg.disclosure_line)
+    assert prompt.startswith(cfg.opening_line)
+    assert prompt.rstrip().endswith(TRUTHFUL_ANSWER_DIRECTIVE.rstrip())
 
 
 async def test_fake_read_back_tracks_attach_and_detach() -> None:
