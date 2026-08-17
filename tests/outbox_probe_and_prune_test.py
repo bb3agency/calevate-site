@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -37,6 +38,51 @@ from apps.workers import retention
 from sqlalchemy import text
 
 RUN = uuid.uuid4().hex[:12]
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _reclaim_seeded_rows() -> Iterator[None]:
+    """Delete every row this module seeds, once the module is done.
+
+    **THIS FIXTURE EXISTS BECAUSE ITS ABSENCE BROKE ANOTHER SUITE.** Two tests below seed
+    outbox rows aged `RELIABILITY_PRUNE_AFTER * 10` — 900 days — to prove the sweep will
+    NOT delete a `failed` or `pending` row however old it is. That assertion is right and
+    the rows are the point of it. Leaving them behind is not: `claim_outbox_batch` is
+    oldest-first over the WHOLE table, so a 900-day-old pending row sits permanently at
+    the head of every dispatcher's queue, ahead of the 30-day backdating that
+    `reliability_audit_test._seed_outbox` uses precisely so its own rows come first.
+
+    What that cost, measured rather than reasoned: after several runs of this file,
+    `test_two_dispatchers_never_claim_the_same_outbox_row` began failing — both claimers
+    took THIS module's ancient leftovers, so neither saw any of its own six rows and
+    `left` came back empty. Thirty orphans had accumulated. The failure named SKIP LOCKED,
+    which was working correctly the whole time.
+
+    Module-scoped rather than per-test because the tests assert across each other's rows
+    (the prune runs globally, so a row seeded by one test must survive another's sweep),
+    and the same shape `reliability_audit_test` already documents: "the module fixture
+    deletes them again as soon as the file is done."
+    """
+    yield
+    asyncio.run(_delete_seeded_rows())
+
+
+async def _delete_seeded_rows() -> None:
+    """Every shape this module inserts, matched by its run-scoped marker.
+
+    Enumerated rather than "delete where created_at is absurd": another suite is entitled
+    to seed an old row too, and a teardown that reaches beyond its own rows is the defect
+    it is cleaning up after.
+    """
+    async with untenanted_session() as session:
+        await session.execute(
+            text("DELETE FROM outbox_messages WHERE dedupe_key LIKE :keyed OR job = ANY(:jobs)"),
+            {"keyed": f"test-{RUN}:%", "jobs": [f"fanout-{RUN}", f"legacy-shape-{RUN}"]},
+        )
+        await session.execute(
+            text("DELETE FROM webhook_inbox_events WHERE provider = :provider"),
+            {"provider": f"probe-{RUN}"},
+        )
 
 
 def _key(suffix: str) -> str:
