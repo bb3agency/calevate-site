@@ -161,7 +161,7 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 |---|---|---|---|
 | C-1 | Display legal name, office address, website and customer-care + grievance-officer contact | **PARTIAL** | Now on `/legal/*` as placeholders. **The site footer carries none of it** — see FOLLOW-UP-1. |
 | C-2 | Acknowledge a complaint in 48h, redress in one month | **MET as published, UNMET as process** | See DP-8. |
-| C-3 | No misleading claims about the service | **BREACH TODAY** | See F-1. |
+| C-3 | No misleading claims about the service | **CLOSED** | See F-1 — the claim was removed and `publicLanding.test.tsx` bans its return. |
 | C-4 | Applicability | Calevate sells B2B, and CPA excludes purchases for a "commercial purpose" — but a sole proprietor buying to earn a livelihood by self-employment is a consumer. Given the target market (Indian SMBs, many proprietorships) **assume the Act applies** and do not draft as if it does not. `/legal/terms` §16 carries an express carve-out. |
 
 ### 3.5 GST and payments
@@ -228,7 +228,20 @@ never run", D-50), no production deployment.
 These are ordered by how much damage they do. **This list is worth more than the policy
 pages.**
 
-### F-1 — The marketing page makes a data-residency claim the deployment blueprint contradicts. **BREACH TODAY.**
+### F-1 — ~~The marketing page makes a data-residency claim the deployment blueprint contradicts.~~ **CLOSED as to the page; the HOSTING DECISION is still open.**
+
+**The sentence is gone.** `apps/web/src/app/page.tsx` no longer carries it and
+`apps/web/tests/publicLanding.test.tsx` fails if it returns — so the misrepresentation this
+finding was about is closed, and C-3 with it. The 17 Aug audit found the same claim
+surviving in `docs/BRD.md` and `docs/README.md`, where a salesperson would read it after
+engineering had removed it from what a customer reads; both are now corrected too.
+
+**What is NOT closed is the underlying fact**: no host is chosen, so the claim could not be
+made truthfully even if someone wanted to make it. That is the founder decision tracked as
+F-1 in the go-live list, and until it is made **nothing in this repository may assert
+residency** — the evidence below is what says why.
+
+The finding as recorded:
 
 `apps/web/src/app/page.tsx` (§ "Your customers' data") states:
 
@@ -434,11 +447,11 @@ SEC-COMP §4's open question is marked decided.
 **Still counsel's:** the WORDING, not the disclosure. If counsel rewrites the clause the
 finding stays closed — what was decided is that the fact is disclosed.
 
-**What closes it:** add the backup clause to `ERASURE_LIMITATIONS`
-(`apps/api/compliance/deletion.py`) in the same release that publishes these pages. It is one
-tuple entry plus its `ErasureLimitation` twin and the pairing test. **I could not make it —
-`apps/api` is outside my scope this session — and it should be the first Python change after
-this one.** FOLLOW-UP-3.
+~~**What closes it:** add the backup clause to `ERASURE_LIMITATIONS`~~ — **done.** The
+instruction is struck rather than deleted so the next reader can see that the thing asked
+for is the thing that shipped: `apps/api/compliance/deletion.py` carries
+`BACKUP_WINDOW_DAYS`, the ninth `ERASURE_LIMITATIONS` entry and its index-aligned
+`backup` exception. FOLLOW-UP-3 is discharged.
 
 ### F-8 — ~~No mechanism helps a client produce their own privacy notice to callers.~~ **CLOSED (D-179).**
 

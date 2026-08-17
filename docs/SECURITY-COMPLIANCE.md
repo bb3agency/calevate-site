@@ -576,7 +576,11 @@ Data
 - Postgres RLS FORCEd on all tenant tables; app sets tenant GUC from verified session;
   fail-closed. Admin access path uses distinct role + always-audited queries.
 - Recordings: our object storage is system of record; SSE + per-tenant envelope keys (KMS);
-  presigned URLs 5-min TTL; bucket public-access blocked at account level.
+  presigned URLs 5-min TTL — EXCEPT a call recording's link, which D-153 sizes to the
+  recording's own duration and caps at `RECORDING_LINK_CEILING_S`
+  (`apps/api/crm/routes.py`). That is the widest credential window this platform
+  opens and it is named here rather than left inside a flat "5-min" that would
+  understate it; bucket public-access blocked at account level.
 - Secrets: engine/model/client keys in secrets manager only; DB stores references.
   Quarterly rotation; per-integration webhook secrets.
 - usage_events, consent_ledger, audit_log: INSERT-only DB grants (no UPDATE/DELETE for app role).
@@ -585,9 +589,19 @@ Transport & webhooks
 - TLS everywhere; HSTS. Inbound engine webhooks: authenticity per engine capability
   (TRD §5). Where the engine signs: HMAC-SHA256 + timestamp window + replay cache.
   **Bolna (D-31) does not sign**: strict source-IP allowlist (their static egress
-  13.203.39.153) enforced at nginx AND in-app — through Cloudflare this REQUIRES the
-  D-27 real_ip restoration (CF-Connecting-IP), which is now load-bearing, not
-  nice-to-have — plus execution-id dedupe, payloads treated as hints, and the
+  13.203.39.153) enforced **IN-APP, and there only** — through Cloudflare this REQUIRES
+  the D-27 real_ip restoration (CF-Connecting-IP), which is now load-bearing, not
+  nice-to-have — plus execution-id dedupe,
+
+  This line, and the two like it in TRD §5 and SURFACES §5, said "at nginx AND in-app"
+  and described a layer that does not exist: no engine address appears anywhere under
+  `infra/nginx/`, and `snippets/calevate-origin.conf` says in as many words that the
+  in-app check IS the entire authenticity control for an unsigned engine. The nginx half
+  is not merely unbuilt — it is **declined**, because an `allow` list at the edge rejects
+  a changed engine egress SILENTLY and at a layer with no alerting, whereas the in-app
+  refusal is a 401 with a log line and an alert. A security control described in two
+  layers and living in one is worse than an honest single layer: it is what a reviewer
+  counts on when deciding the single layer is not a single point of failure. payloads treated as hints, and the
   authenticated Get Execution fetch as truth. Unexpected source ⇒ 401 + alert. The
   reconciliation poller, not webhook delivery, is the guarantee of record.
   Outbound (to client CRMs): our own HMAC signing + a 3-attempt retry budget with
