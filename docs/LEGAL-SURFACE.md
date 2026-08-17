@@ -109,19 +109,19 @@ s.43A + SPDI Rules 2011 remain operative (§3.3). Sources §9.
 
 | # | Obligation | Source | Status | Evidence / what closes it |
 |---|---|---|---|---|
-| DP-1 | Notice with an **itemised** description of personal data, purposes, and how to withdraw consent / complain / reach the Board | DPDP §5, Rule 3 | **PARTIAL** | Written now: `/legal/privacy` §3 itemises per data-subject class. It is **our** notice; the notice to *callers* is the client's, and **no product surface helps a client produce one**. What closes it: a per-tenant notice template in the onboarding wizard. Not built. |
+| DP-1 | Notice with an **itemised** description of personal data, purposes, and how to withdraw consent / complain / reach the Board | DPDP §5, Rule 3 | **MET as far as it is ours** | `/legal/privacy` §3 itemises per data-subject class — that is **our** notice. The notice to *callers* is the client's, and since D-179 the product produces the itemisation they cannot: `GET /v1/compliance/caller-notice` drafts it from their extraction schemas, retention rows and announcement switches (F-8). The wording and the lawful basis stay theirs, and the draft says so. |
 | DP-2 | Consent as the general lawful basis for caller data | DPDP §6 | **EXTERNAL / client's** | `consent_ledger` with purposes `recording|callback|marketing|messaging` (`apps/api/compliance/models.py:26`); `check_dispatch` refuses on any status ≠ `granted` (`DIAL_REFUSING_CONSENT_STATUSES`). The *basis for calling at all* is the client's; the product records provenance (`campaigns.consent_source`) and refuses `purchased_list`. |
 | DP-3 | Withdrawal as easy as giving consent | DPDP §6(4)-(6) | **MET (voice)** | In-call opt-out tool + post-call transcript pass, one write path (`apps/api/compliance/optout.py`, D-56); propagates before the next dispatch tick (30s) against TRAI's 24h ceiling. |
 | DP-4 | Right to access / summary of processing | DPDP §11 | **MET** | `apps/api/compliance/export.py` — keyed by phone, returns redacted transcripts, recordings as a boolean not a URL, foreign numbers masked in `summary`. Three good decisions documented at the top of the module. |
-| DP-5 | Right to erasure, with proof | DPDP §12 | **MET, with disclosed limits** | `POST /v1/compliance/deletion-requests` → outbox → `execute_deletion_request`; reaches calls, turns, extractions, leads, campaign contacts, delivery bodies, engine payloads, recordings. Certificate enumerates limits (`ERASURE_LIMITATIONS`). |
+| DP-5 | Right to erasure, with proof | DPDP §12 | **MET, with disclosed limits** | `POST /v1/compliance/deletion-requests` → outbox → `execute_deletion_request`; reaches calls, turns, extractions, leads, campaign contacts, delivery bodies, engine payloads, recordings, and since D-179 SEARCHES the knowledge base and reports the count without changing the client's own content. Certificate enumerates limits (`ERASURE_LIMITATIONS`). |
 | DP-6 | Right to correction | DPDP §12(1) | **PARTIAL** | A lead is editable by the client. There is **no correction path for a transcript or a recording**, and none is offered on the certificate. Arguably right (a recording is a record of an event, not an assertion) but it is undecided rather than reasoned. What closes it: a founder + counsel decision recorded in ROADMAP §6. |
 | DP-7 | Right to nominate | DPDP §13 | **UNMET** | Nothing in the product models a nominee. Low urgency (substantive commencement May 2027) but it is a gap, and it is the client's obligation, not ours — so what closes it is a sentence in the client's notice, not code. |
 | DP-8 | Grievance redressal within a published timeline, ≤90 days | Rule 14(3) | **PARTIAL** | `/legal/grievance` now publishes 2 business days to acknowledge, 15–30 days to resolve. There is **no grievance intake surface, no ticket record and no clock in the product** — it is an email address. What closes it: either a mailbox + a written procedure (sufficient at this size), or a `grievances` table. Say which; do not leave it implied. |
 | DP-9 | Publish the business contact of the person answering data-principal questions, and repeat it in every reply | Rule 9 | **PARTIAL** | Published as `{{DATA_PROTECTION_CONTACT_NAME/EMAIL}}` on `/legal/privacy` §14 and `/legal/grievance` §1. The "repeat it in every reply" half is a process nobody has written. |
 | DP-10 | Reasonable security safeguards: encryption/masking, access control, logs+monitoring, retained **one year**, continuity | Rule 6 | **PARTIAL** | Everything in §4 below is real. **The log-retention leg is not evidenced anywhere in the tree**: no retention period is configured for application logs or for `audit_log` (which is append-only and never expired — arguably ≥1 year by construction, but nothing states it). What closes it: a stated log-retention period in OPERATIONS and a lifecycle rule. |
 | DP-11 | Data-processor contract imposing equivalent safeguards | §8(2), Rule 6(f) | **MET as text, UNMET as practice** | `/legal/dpa` is that contract, and Annex B is the equivalent-safeguards clause. **Downward**: we owe the same to *our* sub-processors, and **no vendor contract has been signed** — the Bolna residency commitment is an unrun pilot gate (`evidence/bolna-pilot-scorecard.md` is an empty template). |
-| DP-12 | Breach notification: Board without delay, detailed report ≤72h, affected principals with no threshold | Rule 7 | **PARTIAL** | `runbooks/` + OPERATIONS §7 exist; `webhook_deliveries` + `audit_log` give the forensic trail. **No breach-notification template, no Board contact, no client-notification mechanism, and the DPA's 48-hour commitment (`/legal/dpa` §7) is now a promise with no procedure behind it.** What closes it: a runbook step with the template and the addresses. This is the highest-value unmet item on the list. |
-| DP-13 | Retention limited to purpose; erase when purpose served | §8(7), Rule 8 | **PARTIAL** | Nightly sweep enforces per-tenant TTLs (`apps/workers/retention.py`). Two stores escape it — see F-2 and F-3. |
+| DP-12 | Breach notification: Board without delay, detailed report ≤72h, affected principals with no threshold | Rule 7 | **MET as procedure; one lookup outstanding** | D-179: `runbooks/data-breach-notification.md` (the three clocks, the role split, the scope walk, the sign-off), `apps/api/compliance/breach.py` (the Rule 7 content, refused if an element is missing or a phone number is present) and `scripts/breach_notice.py`. The 48-hour DPA promise is pinned by test across the DPA, the runbook and the notice. **Outstanding: the Board's own reporting channel** — a lookup nobody has done, recorded in the runbook's §7 rather than left to be discovered mid-incident — and counsel's review of the wording. |
+| DP-13 | Retention limited to purpose; erase when purpose served | §8(7), Rule 8 | **PARTIAL** | Nightly sweep enforces per-tenant TTLs (`apps/workers/retention.py`). The two stores that escaped it are closed (F-2, F-3, D-179). **One store still has no clock: uploaded campaign contacts** — the category is deliberately absent because the period is a DPA commitment the founder must give, and `tests/dpdp_known_gaps_test.py` holds that open by probing the CHECK constraint. |
 | DP-14 | Third Schedule erasure periods + 48h pre-erasure notice | Rule 8(3) | **NOT ENGAGED** | Correctly analysed already in SEC-COMP §4: they bind e-commerce/gaming/social-media fiduciaries above 2 crore / 50 lakh user thresholds. Calevate is none of those. |
 | DP-15 | Children: verifiable parental consent, no tracking/behavioural ads | §9 | **PARTIAL** | We build no profiles and run no advertising, so the prohibition half is met by construction. **Nothing detects or handles a child caller**, and it is the client's duty. Disclosed in `/legal/privacy` §11 and `/legal/acceptable-use` §3. |
 | DP-16 | Significant Data Fiduciary duties (DPO, DPIA, annual audit) | §10, Rule 12 | **NOT ENGAGED** | SDF status arises only on Government notification. None. Must be re-checked if the Government notifies a class covering voice/AI processors. Add to the OPERATIONS quarterly re-verify list. |
@@ -272,39 +272,63 @@ done in the next change, not scheduled.** `/legal/privacy` §8 already carries a
 saying that any such claim elsewhere is an intention and that §8 overrides it, and
 `tests/legal.test.tsx` bans the claim from ever appearing in a legal document.
 
-### F-2 — The archived raw engine payload has no retention clock. **UNMET, ours, closeable now.**
+### F-2 — ~~The archived raw engine payload has no retention clock.~~ **CLOSED (D-179).**
 
-`calls.engine_payload_ref` (D-126) holds the vendor's own document per call — caller number
-and transcript. `retention_policies.data_category` admits only
-`recording|transcript|lead|consent_log`, so **nothing expires it**. The only clock is a 90-day
-`engine-payloads/` bucket lifecycle rule in `infra/object-lifecycle/`, and
-`infra/README.md` §5 records that nothing there has ever been applied. An erasure request
-*does* reach it (`_erase_engine_payloads`), so the gap is for everyone who never files one.
+The finding as recorded: `calls.engine_payload_ref` (D-126) holds the vendor's own document
+per call — caller number and transcript — and `retention_policies.data_category` admitted
+only `recording|transcript|lead|consent_log`, so **nothing expired it**. The only clock was
+a 90-day `engine-payloads/` bucket lifecycle rule that `infra/README.md` §5 records as never
+having been applied. An erasure request *did* reach it (`_erase_engine_payloads`), so the
+gap belonged to everyone who never filed one — which, against DPDP §8(7), is a real defect
+and not a tidiness issue.
 
-Against DPDP §8(7) storage limitation this is a real defect, not a tidiness issue.
+**Closed by D-179.** Migration `c4d1f7b83e26` adds `engine_payload` to the category enum;
+`scripts/seed.DEFAULT_RETENTION_POLICIES` installs it at 90 days, which is not a new number
+— it is the period `infra/object-lifecycle/policy.json` already assigned that prefix, now
+enforced by a mechanism that runs. The sweep arm pages expired calls into the SAME
+`_erase_engine_payloads` the erasure uses, so there is one definition of destroying a
+call's archived documents; a store that will not answer defers the arm instead of failing
+the tick. `tests/engine_payload_retention_test.py` asserts against the BYTES, including the
+cross-tenant zero-rows case.
 
-**What closes it:** add `engine_payload` to the `data_category` enum with a migration and a
-default TTL, and a sweep arm. It is a DPA commitment plus a documented-enum change, which is
-why `apps/workers/retention.py` correctly refuses to take it unilaterally — so it needs a
-ROADMAP §6 decision-log entry and then one migration. Disclosed meanwhile in
-`/legal/privacy` §9 and `/legal/dpa` §8.
+**Still counsel's / the founder's:** the NUMBER, if 90 days is wrong for a client. It is a
+per-tenant default like every other row in that table, so changing it is a settings change
+rather than a code one.
 
-### F-3 — Knowledge-base content is never expired and never searched by an erasure. **UNMET, ours.**
+### F-3 — ~~Knowledge-base content is never expired and never searched by an erasure.~~ **CLOSED (D-179), on the two halves that were ours.**
 
-Migration `842ba923796d`, `kb/models.py`, `kb/service.py`, DATA-MODEL §7 and BUILD-LOG §18
-all say provider-side ids in `kb_documents.meta` are "what lets a DPDP erasure prove it
-removed both copies". **No erasure removes either copy and none ever has** — the finding is
-already written up honestly in `apps/api/compliance/deletion.py` and pinned by
-`tests/kb_retention_gap_test.py`, and the certificate carries `KB_OUTCOME = "not_searched"`.
-A client's uploaded content is kept indefinitely, every version.
+The finding as recorded: migration `842ba923796d`, `kb/models.py`, `kb/service.py`,
+DATA-MODEL §7 and BUILD-LOG §18 all said provider-side ids in `kb_documents.meta` are "what
+lets a DPDP erasure prove it removed both copies", and **no erasure removed either copy and
+none ever had**. A client's uploaded content — which a "knowledge base" invites their staff
+names and numbers into — was kept indefinitely, every version, with no TTL and no erasure
+path.
 
-If a client uploads a document containing customer names — which a "knowledge base" invites —
-this is a store of personal data with no retention period and no erasure path.
+**Closed by D-179, with two mechanisms rather than a rewording**, because the certificate
+entry NARROWS as a result and SEC-COMP §4 does not permit narrowing the limitations text on
+prose alone:
 
-**What closes it:** a retention category for KB content and an erasure arm, or an explicit
-decision that KB content may not contain personal data plus a term in the AUP enforcing it.
-The AUP now carries that term (`/legal/acceptable-use` §3, last-but-one bullet), which
-mitigates but does not close it.
+- **A clock.** `retention_policies.data_category` gained `kb` (365 days by default). The
+  sweep deletes SUPERSEDED and REJECTED versions — never the live one, which is what the
+  agent answers from, and never one still carrying an engine handle, because a handle
+  recorded against an archived source means an incomplete detach and forgetting our row
+  would strand the only record that can address the platform's copy.
+- **A search.** `execute_deletion_request` looks for the subject's number in the tenant's
+  knowledge documents, matching on digits because a client writes "98765 43210" and never
+  an E.164 string, and records the count in the proof. `KB_OUTCOME` is now
+  `searched_not_erased`, and the certificate hands the client a number and names the manual
+  step.
+
+**Deliberately NOT done, and stated on the certificate rather than left to inference:** the
+erasure does not CHANGE that content. Editing a live price list changes what the agent says
+on the next call, we cannot tell a caller's callback number from the shop's own landline,
+and the voice platform holds its own copy of the live version — so removal is a manual step
+on both copies. `tests/kb_retention_test.py` (which replaces the gap register
+`kb_retention_gap_test.py`) holds all of it, and the AUP term at `/legal/acceptable-use` §3
+still stands beside it.
+
+**Still counsel's:** whether the client's own uploaded content should be editable by an
+erasure at all is a judgement about their words, not a mechanism we are missing.
 
 ### F-4 — Making disclosure a per-agent toggle is lawful today and carries four named risks. **DECIDED; risks must be owned in writing.**
 
@@ -359,16 +383,38 @@ the promised age, a lead kept at 1.5×). **The founder must now reconcile them i
 release**: SEC-COMP §4, `DEFAULT_RETENTION_POLICIES`, and `/legal/privacy` §9 all change
 together, with a ROADMAP §6 entry. Existing tenants' agreed rows are their own decision.
 
-### F-6 — No breach-notification procedure behind the DPA's 48-hour promise. **UNMET, ours.**
+### F-6 — ~~No breach-notification procedure behind the DPA's 48-hour promise.~~ **CLOSED (D-179).**
 
-`/legal/dpa` §7 commits to notifying a client within 48 hours — deliberately shorter than
-their own 72-hour Board duty under Rule 7, so they have time to act. Behind it there is
-OPERATIONS §7 and `runbooks/`, but **no notification template, no recorded Board contact
-route, and no mechanism to notify affected clients**.
+The finding as recorded: `/legal/dpa` §7 commits us to notifying a client within 48 hours —
+deliberately shorter than their own 72-hour Board duty under Rule 7 — and behind it there
+was OPERATIONS §7, `runbooks/`, and **no notification template, no Board route and no
+mechanism**. It was named the highest-value unmet item on this list.
 
-**What closes it:** a runbook section with (a) the client notification template carrying the
-Rule 7 content, (b) the Board's reporting channel, (c) the decision rule for who signs off.
-This is a document, not a feature, and it can be written today.
+**Closed by D-179**, as the runbook this finding asked for plus the part a document cannot
+be:
+
+- `runbooks/data-breach-notification.md` — the three clocks and who each duty belongs to
+  (the role split is what wastes the window when it is got backwards), the scope walk over
+  the four personal-data stores outside Postgres, the incident file, who signs off and what
+  happens when they cannot be reached, and where each notice is sent.
+- `apps/api/compliance/breach.py` — the Rule 7 content as fields, so a notice cannot be sent
+  at 3am with a required element missing. Rendering is REFUSED on a missing element or on
+  anything shaped like a phone number, and the 48 hours is one constant pinned by test
+  across the DPA, the runbook and the notice.
+- `scripts/breach_notice.py` — `uv run python -m scripts.breach_notice incident.json`.
+
+It **sends nothing**, deliberately: who signs off is a named human decision, and a tool that
+could mail every client at once during an incident is a blast radius rather than a control.
+
+**Rule cited with its date:** DPDP Rules 2025, **Rule 7**, notified **14 November 2025**,
+substantive commencement 13 May 2027; re-read on **17 August 2026** for this work. As with
+every citation in §9, the gazette text is unreachable from this environment and the standing
+is a synthesis of concurring secondary sources.
+
+**Still outside the repo, and named in the runbook's own §7 rather than discovered at 4am:**
+(a) the Data Protection Board's reporting channel, which nobody has established — a lookup,
+blocked on nothing; (b) counsel's review of the notice wording and of the rule summary. The
+mechanism does not change either way, and neither is a reason to delay a notification.
 
 ### F-7 — ~~The erasure does not reach backups, and the certificate does not say so.~~ **CLOSED (D-164).**
 
@@ -394,16 +440,32 @@ tuple entry plus its `ErasureLimitation` twin and the pairing test. **I could no
 `apps/api` is outside my scope this session — and it should be the first Python change after
 this one.** FOLLOW-UP-3.
 
-### F-8 — No mechanism helps a client produce their own privacy notice to callers. **UNMET, ours.**
+### F-8 — ~~No mechanism helps a client produce their own privacy notice to callers.~~ **CLOSED (D-179).**
 
-We are the Processor; the notice duty is the client's; and DPDP Rule 3 requires an itemised
-description of the personal data — which for a Calevate client is *whatever extraction
-schema they defined*, a thing only the product knows. A client cannot write that notice
-accurately without us.
+The finding as recorded: we are the Processor, the notice duty is the client's, and DPDP
+Rule 3 requires an itemised description of the personal data — which for a Calevate client
+is *whatever extraction schema they defined*, a thing only the product knows. A client could
+not write that notice accurately without us, and nothing helped them.
 
-**What closes it:** generate a per-tenant caller-notice draft from `agents.disclosure_line`,
-the extraction schema and the tenant's retention rows, on the onboarding wizard's last step.
-Small, high-leverage, and it converts our biggest liability transfer into a product feature.
+**Closed by D-179.** `GET /v1/compliance/caller-notice` (`org:read`, client realm) generates
+a DRAFT from the tenant's own configuration: the itemised list is what a phone call
+inherently collects plus the union of every reachable agent's extraction fields, the periods
+are their own `retention_policies` rows, and the announcement paragraph is written from the
+D-163 per-agent switches — so an agent whose AI disclosure is OFF changes what the draft
+says and adds a task, rather than being absorbed into a template that claims an
+announcement their agent does not make. The truthful-ANSWER floor is stated as the platform
+property it is.
+
+It is marked DRAFT in the envelope **and** in the text (a disclaimer that lives only in the
+response does not survive the copy-paste that is the whole point), every blank only the
+client can fill is a visible `{{...}}`, and it carries no caller's data — field labels, never
+values. `tests/caller_notice_test.py` holds the accuracy properties and the cross-tenant
+zero-rows case.
+
+**Still counsel's:** the wording, the client's lawful basis for outbound calling, and where
+the notice must be displayed — each named in the draft's own "still to be completed by you"
+list rather than guessed at. Rendering it on the onboarding wizard's last step is the web
+surface's, not this change's.
 
 ### F-9 — No Grievance Officer, no data-protection contact, no entity. **EXTERNAL, and cheapest first.**
 
@@ -564,5 +626,5 @@ publication — that is the first thing §10 asks for.
 | FOLLOW-UP-1 | Add `/legal` links to the site footer in `apps/web/src/app/page.tsx` (its footer currently carries no links at all) and to the two realm shells. Also add legal-page links to the sign-up flow. **Nothing on the site links to `/legal` today, so the documents are unreachable except by typing the URL** — and a payment aggregator's reviewer will look for exactly those links. | `apps/web/src/app/page.tsx` and `apps/web/src/components/**` are outside this session's edit scope. |
 | FOLLOW-UP-2 | Resolve F-1: either provision an Indian host or narrow the landing-page copy. | Same file, same reason. It should be the next change made. |
 | FOLLOW-UP-3 | Add the 35-day backup clause to `ERASURE_LIMITATIONS` / `ERASURE_EXCEPTIONS` in `apps/api/compliance/deletion.py`, so the certificate and `/legal/privacy` §9 agree. | `apps/api` is outside this session's edit scope. |
-| FOLLOW-UP-4 | F-2 and F-3: retention categories for the engine-payload archive and for KB content, each with a ROADMAP §6 decision-log entry and a migration. | Python and migrations are outside this session's edit scope. |
-| FOLLOW-UP-5 | F-6: write the breach-notification runbook section. | It belongs in `runbooks/`, which this session did not take ownership of; it is a document and can be written immediately. |
+| ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
+| ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |
