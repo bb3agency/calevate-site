@@ -79,7 +79,17 @@ from collections.abc import Sequence
 from alembic import op
 
 revision: str = "c7a1e93d40b8"
-down_revision: str | None = "b3d9f6a2c815"
+# RE-PARENTED onto `c4d1f7b83e26` rather than the `b3d9f6a2c815` this was authored
+# against. Two agents wrote one migration each in the same round, both parented on that
+# head, which forks the chain — and `check_wiring` requires exactly one head because
+# `alembic upgrade head` refuses to guess between two.
+#
+# This one goes SECOND because the shared development database is already stamped at
+# `c4d1f7b83e26`; ordering it first would mean unwinding applied DDL to re-lay it in a
+# different sequence, for no gain. Safe either way: that revision widens a CHECK on
+# `retention_policies` and indexes `kb_documents`, this one indexes `users` and adds a
+# CHECK to the OTP purposes. Disjoint tables, no read here depends on anything it writes.
+down_revision: str | None = "c4d1f7b83e26"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
