@@ -57,9 +57,11 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
+from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
 from apps.api.core import loadshed
+from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import set_platform_status
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -856,17 +858,18 @@ async def test_a_tick_killed_mid_batch_does_not_re_ring_the_people_it_already_ca
     monkeypatch.setattr(FakeEngine, "start_outbound_call", original)
     await _tick_one_campaign(tenant_id, campaign_id)
 
+    # COUNTED PER NUMBER, not "is there a row". D-181 writes the call row BEFORE the
+    # dial, so the person who was already rung has exactly one row from the attempt that
+    # rang them — the fact this test wants on record. What must never appear is a
+    # SECOND row for that number, which is what a re-dial would leave.
     async with tenant_session(tenant_id) as session:
-        second_round = (
-            (
-                await session.execute(
-                    text("SELECT to_e164 FROM calls WHERE direction = 'outbound' ORDER BY to_e164")
-                )
+        rings = (
+            await session.execute(
+                text("SELECT count(*) FROM calls WHERE direction = 'outbound' AND to_e164 = :p"),
+                {"p": "+919876640001"},
             )
-            .scalars()
-            .all()
-        )
-    assert "+919876640001" not in second_round, (
+        ).scalar()
+    assert int(rings or 0) == 1, (
         "the person who already answered must not be rung a second time by the retry"
     )
 
@@ -1235,3 +1238,169 @@ async def test_the_halt_still_stops_the_dial_when_redis_is_unreachable(
         )
     released = await _tick_one_campaign(tenant_id, campaign_id)
     assert released["dialled"] == 2, released
+
+
+# ------------------------------- the dial whose answer never came back (R-1, D-181)
+
+
+async def _engine_call_ids(tenant_id: uuid.UUID) -> list[str]:
+    async with tenant_session(tenant_id) as session:
+        return [
+            str(r[0])
+            for r in (
+                await session.execute(
+                    text(
+                        "SELECT engine_call_id FROM calls WHERE direction = 'outbound' "
+                        "ORDER BY created_at"
+                    )
+                )
+            ).all()
+        ]
+
+
+async def test_a_dial_whose_response_is_lost_leaves_a_call_row_and_is_never_re_rung(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The vendor accepted and the answer never arrived — a read timeout, a reset, a
+    proxy 502 after the engine had committed. The phone is ringing and the HTTP call
+    raised.
+
+    Two properties, and the platform had neither. **A call row exists**, so the charge is
+    not invisible and the contact is linked to it; and **the person is not dialled
+    again**, which used to happen twice over — `_record_failure` returned the contact to
+    `pending` with a rung left, and `_reap_stuck_dialing` would have done it again for a
+    contact stuck in `dialing` with no `last_call_id`.
+
+    Written against the shape of the defect rather than its symptom: the engine raises
+    AFTER it has been asked, which is exactly the window the old ordering could not
+    write a row in, because the row's key was the answer that never came.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876810001",), slider=1)
+
+    async def lost_response(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_unreachable",
+            title="Voice engine unreachable",
+            detail="The voice platform did not respond.",
+        )
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", lost_response)
+    outcome = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    assert outcome == {"dialled": 0, "blocked": 0, "exhausted": 1}, outcome
+
+    ids = await _engine_call_ids(tenant_id)
+    assert len(ids) == 1, f"the possible charge has to be on record: {ids}"
+    assert ids[0].startswith(UNCONFIRMED_ENGINE_CALL_PREFIX), (
+        "the row exists but the vendor never named it — that is the state to be able to find"
+    )
+
+    async with tenant_session(tenant_id) as session:
+        linked = (
+            await session.execute(
+                text(
+                    "SELECT cc.status, c.id IS NOT NULL FROM campaign_contacts cc "
+                    "LEFT JOIN calls c ON c.id = cc.last_call_id WHERE cc.campaign_id = :c"
+                ),
+                {"c": campaign_id},
+            )
+        ).all()
+    assert [(str(r[0]), bool(r[1])) for r in linked] == [("failed", True)], (
+        "the contact points at the call we may have placed, and is finished with — "
+        "anything that returns it to `pending` rings a real person a second time"
+    )
+
+    # The next tick is the second ring, if there is going to be one. The engine works
+    # again, so nothing but the contact's own state can stop it.
+    monkeypatch.undo()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaign_contacts SET next_attempt_at = NULL WHERE campaign_id = :c"),
+            {"c": campaign_id},
+        )
+    again = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    assert again["dialled"] == 0, f"the same person was dialled again: {again}"
+    assert len(await _engine_call_ids(tenant_id)) == 1
+
+
+async def test_a_dial_the_vendor_refused_outright_keeps_its_place_on_the_ladder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other side of the same branch, and the reason it is a branch at all.
+
+    A 429 with the throttle ladder exhausted says nothing about the request and seizes no
+    line, so the contact goes back on the ladder like any other failed attempt — treating
+    it as "may have rung" would burn a reachable lead for a reason that was ours. The
+    call row is closed as `failed` rather than left `queued`: nothing rang, so it must
+    not sit in the in-flight bucket forever.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876820001",), slider=1)
+
+    async def rate_limited(self: FakeEngine, ref: str, to: str, ctx: CallContext) -> str:
+        raise ProblemError(
+            kind="transient",
+            code="engine_rate_limited",
+            title="Voice engine is rate limiting us",
+            detail="The voice platform is temporarily refusing new requests.",
+        )
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", rate_limited)
+    outcome = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+    assert outcome == {"dialled": 0, "blocked": 0, "exhausted": 0}, outcome
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 1)], (
+        "a refusal that reached no line leaves the contact on the ladder"
+    )
+    async with tenant_session(tenant_id) as session:
+        statuses = (
+            (
+                await session.execute(
+                    text("SELECT status FROM calls WHERE direction = 'outbound'"),
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [str(s) for s in statuses] == ["failed"], statuses
+
+
+async def test_the_retry_ladder_is_measured_by_the_database_clock() -> None:
+    """`_record_failure` used to schedule the next rung from the WORKER's clock while the
+    claim reads it back against the DATABASE's (`next_attempt_at <= now()`). A worker
+    running behind the database made every rung early by the skew, and an early rung on a
+    retry ladder is a second call to a person sooner than the policy allows.
+
+    Read back against the database's own `now()`: with the interval computed in SQL the
+    two can only agree, and any app-side arithmetic shows up as the skew between the
+    hosts (which on one host is zero, so the assertion is about WHERE the value came
+    from, not about how far apart two clocks happen to be today).
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876830001",), slider=1)
+    async with tenant_session(tenant_id) as session:
+        contact_id = (
+            await session.execute(
+                text("SELECT id FROM campaign_contacts WHERE campaign_id = :c"),
+                {"c": campaign_id},
+            )
+        ).scalar()
+        spent = await campaign_dispatch._record_failure(
+            session,
+            uuid.UUID(str(contact_id)),
+            1,
+            3,
+            {"backoff_minutes": [30]},
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+        )
+        assert spent is False
+        drift_s = (
+            await session.execute(
+                text(
+                    "SELECT EXTRACT(EPOCH FROM (next_attempt_at - (now() + interval '30 minutes')))"
+                    " FROM campaign_contacts WHERE id = :id"
+                ),
+                {"id": contact_id},
+            )
+        ).scalar()
+    assert abs(float(drift_s or 0)) < 1.0, (
+        f"the rung is {drift_s}s away from the database's own idea of +30 minutes"
+    )

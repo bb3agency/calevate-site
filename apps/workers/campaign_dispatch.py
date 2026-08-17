@@ -540,12 +540,12 @@ async def _dispatch_for_campaign(
     is what a cron tick overrunning `job_timeout` (300s) or a worker caught mid-tick by
     a deploy actually raises — and it is one of the three exceptions arq 0.28 RETRIES.
 
-    With the claim committed first, that same failure leaves the contact in `dialing`.
-    Nothing re-claims it; `_reap_stuck_dialing` returns it to the ladder after 30
-    minutes. One dial, one attempt, no second ring. The same split also delivers what
-    `agents.service.dispatch_call` already promises in its own docstring — a call row
-    that survives even when our side fails afterwards, rather than an invisible charge —
-    and it stops a DB transaction being held open across an engine HTTP round trip.
+    With the claim committed first, that same failure leaves the contact in `dialing`,
+    pointing at the call row `dispatch_call` committed before it dialled. Nothing
+    re-claims it; `_reap_stuck_dialing` settles it after 30 minutes — back on the ladder
+    if the vendor named the call, terminally if it never did, because a dial we cannot
+    prove did not ring must not be retried. One dial, one attempt, no second ring. The
+    split also stops a DB transaction being held open across an engine HTTP round trip.
     """
     max_attempts = int(retry_policy.get("max_attempts", 3))
     dialled = blocked = exhausted = 0
