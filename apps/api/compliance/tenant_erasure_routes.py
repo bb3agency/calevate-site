@@ -216,7 +216,9 @@ async def request_tenant_erasure(
         raise ProblemError.forbidden(
             "Erasing a client's data needs a superadmin. Closing the account does not."
         )
-    require_step_up(x_confirm_action, tenant_erasure.tenant_erasure_confirmation(tenant_id))
+    await require_step_up(
+        x_confirm_action, tenant_erasure.tenant_erasure_confirmation(tenant_id), request=request
+    )
 
     async with tenant_session(tenant_id) as scoped:
         record = await tenant_erasure.request_tenant_erasure(

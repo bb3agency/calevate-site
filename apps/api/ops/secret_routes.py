@@ -298,7 +298,7 @@ async def set_secret_route(
     x_confirm_action: Annotated[str | None, Header()] = None,
 ) -> SecretOut:
     """One version in, one audit row, one alert, and the fleet re-reads within seconds."""
-    require_step_up(x_confirm_action, secret_confirmation(key))
+    await require_step_up(x_confirm_action, secret_confirmation(key), request=request)
     if principal.user_id is None:
         raise ProblemError(
             kind="auth",
@@ -442,7 +442,7 @@ async def rewrap_keks(
     this router even though it changes no credential — so it is confirmed, audited, and
     reports what it could NOT do rather than only what it did.
     """
-    require_step_up(x_confirm_action, REWRAP_CONFIRMATION)
+    await require_step_up(x_confirm_action, REWRAP_CONFIRMATION, request=request)
     result = await rewrap_all(session)
     await write_audit(
         session,

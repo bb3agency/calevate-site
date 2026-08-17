@@ -49,17 +49,37 @@ evicted the first.
 
 ═══ CSRF ═══
 
-OWASP's CSRF Prevention Cheat Sheet (read 2026-08-17) is explicit that `SameSite` is
-defence in depth rather than sufficient, and that `Sec-Fetch-Site` rejection with an
-`Origin` allowlist fallback is a recommended layer. Both are here, in `enforce_same_origin`.
+OWASP's CSRF Prevention Cheat Sheet (re-read 2026-08-17) is explicit that `SameSite` is
+defence in depth rather than sufficient, and that `Sec-Fetch-Site` rejection with `Origin`
+verification is a recommended layer. Both are here, in `enforce_same_origin`.
 
-**What is NOT here: the signed double-submit token.** The cheat sheet's bottom line is to
-layer that on top, and AUTH-MIGRATION §6 designs it. It is not built, because it is half a
-frontend feature — the header has to be attached by `lib/api/client.ts`, and `apps/web` is
-out of scope for this change. Building the server half alone would mean either a header
-nothing sends (so every mutating request fails) or a check that passes when the header is
-absent (so it defends nothing). It is named in AUTH-MIGRATION §1 C-22 as outstanding rather
-than left to be discovered.
+**THE SIGNED DOUBLE-SUBMIT TOKEN IS NOT BUILT, AND IS NOT OUTSTANDING (D-178).** It was
+listed as a gap; it has been argued away instead, and the argument is worth stating where
+somebody will look for the header.
+
+The cheat sheet names the conditions under which origin verification plus `SameSite` is
+sufficient without a token: no shared registrable domain, no state change via GET,
+`SameSite=Strict`, `Origin`/`Referer` verified, and the browser-support gap accepted. This
+deployment meets four of the five outright — `Strict` above, no GET mutates (the route
+table is walked by `tests/edge_route_policy_test.py`), verification below, and there is no
+legacy-browser population for a product that has not launched. **The one it did NOT meet was
+the first**, and that was a real hole rather than a caveat: three consoles under one
+registrable domain mean a compromised `*.calevate.tech` host issues requests the browser
+calls `same-site`, which `enforce_same_origin` used to wave through. That is fixed by
+checking the `Origin` unconditionally — see that function — which is the SAME defence a
+double-submit token would have provided against the SAME attacker, without a secret to
+distribute, a header for `apps/web` to attach, or a rotation story.
+
+What a token would still add, honestly: it would survive a same-site attacker who can also
+suppress or forge the `Origin` header, which a browser does not permit page script to do.
+Buying that would cost a signed value in a second cookie, a header on every mutating request
+in the generated client, and — the reason it is a bad trade here — a "what if it is absent"
+branch, which is either a header nothing sends (every mutating request fails) or a check
+that passes when absent (defends nothing). AUTH-MIGRATION §11 no longer promises it.
+
+`core/middleware.CookieCsrfMiddleware` applies this same check to EVERY mutating request
+that arrives with one of these cookies, not just to the routes in `authn/routes.py`, so the
+paragraph above stays true of the whole API on the day cookies authenticate the whole API.
 """
 
 from __future__ import annotations
@@ -157,21 +177,82 @@ def clear_session_cookie(response: Response, *, realm: str, request: Request) ->
         )
 
 
+def session_cookie_present(cookie_header: str | None) -> bool:
+    """Does this raw `Cookie:` header carry one of our session cookies, under either name?
+
+    A substring test on the raw header rather than a parse, deliberately: this runs in a
+    middleware on every mutating request, the names are long and distinctive, and a false
+    POSITIVE only means the origin check runs on a request that would have passed it anyway.
+    A parse would cost more and buy a precision this decision does not need.
+    """
+    if not cookie_header:
+        return False
+    return any(
+        cookie_name(realm, secure=secure) in cookie_header
+        for realm in AUTHN_REALMS
+        for secure in (True, False)
+    )
+
+
+def cross_site_refusal(
+    *, sec_fetch_site: str | None, origin: str | None, own_origin: str | None, path: str
+) -> ProblemError | None:
+    """THE rule, as a pure function, so the route guard and the middleware cannot diverge.
+
+    Returns the refusal rather than raising it, because one caller is an ASGI middleware
+    that has to render a response itself rather than let an exception cross the boundary.
+    `enforce_same_origin` is the raising face for route code.
+    """
+    site = (sec_fetch_site or "").strip().lower()
+    if site == "cross-site":
+        log.warning("authn_cross_site_refused", extra={"path": path})
+        return _cross_site()
+    if not origin:
+        return None
+    from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
+
+    allowed = {o.rstrip("/") for o in DEFAULT_CORS_ORIGINS}
+    if own_origin:
+        allowed.add(own_origin.rstrip("/"))
+    if origin.rstrip("/") in allowed:
+        return None
+    log.warning("authn_foreign_origin_refused", extra={"path": path})
+    return _cross_site()
+
+
 def enforce_same_origin(request: Request) -> None:
     """Refuse a cross-site mutating request. The CSRF layer that does not need a header.
 
     Two checks, in the order the OWASP cheat sheet recommends:
 
     1. **`Sec-Fetch-Site`.** Browsers set it themselves and page script cannot forge it, so
-       `cross-site` is a reliable "this came from somewhere else". `same-origin` and
-       `same-site` are allowed — `same-site` because `admin.calevate.tech` and
-       `app.calevate.tech` are the same site as the API and legitimate traffic reports it.
-       `none` is a direct navigation or a tool, and is allowed for the same reason step 2
-       exists.
-    2. **`Origin` allowlist**, for clients that send no `Sec-Fetch-Site`. An absent `Origin`
-       is ALLOWED, and that is not a hole: browsers always send it on cross-origin requests
+       `cross-site` is a reliable "this came from somewhere else". `none` is a direct
+       navigation or a tool, and is allowed for the same reason step 2 exists.
+    2. **`Origin` allowlist**, ALWAYS, whenever an `Origin` is present. An absent `Origin`
+       is allowed, and that is not a hole: browsers always send it on cross-origin requests
        with credentials, so absent means either same-origin (older browsers omit it) or a
        non-browser client, which has no ambient cookie to be tricked into replaying.
+
+    ═══ WHY `same-site` IS NO LONGER AN EARLY EXIT (D-178) ═══
+
+    It used to be. `Sec-Fetch-Site: same-origin | same-site` returned before the allowlist
+    was consulted, and that left the one CSRF path this deployment's topology actually
+    has open. OWASP's CSRF cheat sheet (re-read 2026-08-17) lists the conditions under
+    which `SameSite` alone suffices and the FIRST of them is **no shared registrable
+    domain**. Ours is shared by construction: `admin.calevate.tech`, `app.calevate.tech`
+    and `api.calevate.tech` are one site (draft-ietf-httpbis-rfc6265bis decides "same
+    site" by registrable domain), so a page on ANY `*.calevate.tech` host — a compromised
+    marketing subdomain, a dangling CNAME, a takeover of something nobody thought was
+    security-relevant — issues a request the browser labels `same-site` and attaches the
+    session cookie to. `SameSite=Strict` does not stop it, because it is not cross-site.
+    `__Host-` does not stop it, because that prefix stops a sibling SETTING the cookie,
+    not the browser SENDING it.
+
+    Checking the `Origin` unconditionally closes it: that sibling's origin is not
+    `admin.calevate.tech` and is not in the allowlist. The request's OWN origin is
+    accepted alongside the list, which is what `same-origin` used to buy — the API host is
+    not in `DEFAULT_CORS_ORIGINS` (that list names the two consoles), so without this the
+    tightening would refuse a legitimate same-origin call.
 
     The allowlist is `core/bootstrap.DEFAULT_CORS_ORIGINS` — the SAME list the CORS
     middleware is installed with, deliberately, rather than a second one to keep in step.
@@ -181,19 +262,17 @@ def enforce_same_origin(request: Request) -> None:
     Imported inside the function because `core.bootstrap` imports the router tree that
     imports this module.
     """
-    site = request.headers.get("sec-fetch-site", "").strip().lower()
-    if site == "cross-site":
-        log.warning("authn_cross_site_refused", extra={"path": request.url.path})
-        raise _cross_site()
-    origin = request.headers.get("origin")
-    if not origin or site in {"same-origin", "same-site"}:
-        return
-    from apps.api.core.bootstrap import DEFAULT_CORS_ORIGINS
-
-    if origin.rstrip("/") in {o.rstrip("/") for o in DEFAULT_CORS_ORIGINS}:
-        return
-    log.warning("authn_foreign_origin_refused", extra={"path": request.url.path})
-    raise _cross_site()
+    # The API's own origin is added to the allowlist, so a same-origin call is not refused
+    # by a list that names only the consoles. `request.base_url` is what Starlette resolved
+    # after the proxy headers, i.e. the scheme and host the caller actually addressed.
+    refusal = cross_site_refusal(
+        sec_fetch_site=request.headers.get("sec-fetch-site"),
+        origin=request.headers.get("origin"),
+        own_origin=str(request.base_url),
+        path=request.url.path,
+    )
+    if refusal is not None:
+        raise refusal
 
 
 def _cross_site() -> ProblemError:
@@ -210,7 +289,9 @@ __all__ = [
     "COOKIE_NAMES",
     "clear_session_cookie",
     "cookie_name",
+    "cross_site_refusal",
     "enforce_same_origin",
     "read_token",
+    "session_cookie_present",
     "set_session_cookie",
 ]

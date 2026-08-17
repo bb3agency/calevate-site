@@ -217,7 +217,7 @@ async def suppress_globally(
     principal: Operator,
     x_confirm_action: str | None = Header(default=None),
 ) -> GlobalSuppressOut:
-    require_step_up(x_confirm_action, SUPPRESS_GLOBALLY_CONFIRMATION)
+    await require_step_up(x_confirm_action, SUPPRESS_GLOBALLY_CONFIRMATION, request=request)
     result = await dnc.add_global_numbers(
         session, raw_numbers=payload.numbers, source=payload.source
     )
@@ -291,7 +291,9 @@ async def release_globally(
     to repeat it. The `source` this reads is for the audit row.
 
     The confirmation names THIS row — see `release_globally_confirmation`."""
-    require_step_up(x_confirm_action, release_globally_confirmation(entry_id))
+    await require_step_up(
+        x_confirm_action, release_globally_confirmation(entry_id), request=request
+    )
     source = await dnc.remove_global_entry(session, entry_id=entry_id)
     await write_audit(
         session,
@@ -337,7 +339,9 @@ async def record_preference_scrub(
     audit entry for a scrub that failed to commit would be a compliance record of
     something that did not happen.
     """
-    require_step_up(x_confirm_action, preference_scrub_confirmation(campaign_id))
+    await require_step_up(
+        x_confirm_action, preference_scrub_confirmation(campaign_id), request=request
+    )
 
     async with tenant_session(tenant_id) as scoped:
         recorded = await preference_scrub.record_scrub_run(

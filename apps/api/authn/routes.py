@@ -49,6 +49,46 @@ trying to work out why nobody can sign in.
 
 Every one of them is RFC-9457 problem+json — `ProblemError` is the only thing raised here,
 and `core/errors.install_error_handlers` renders it.
+
+═══ NO ROUTE HERE HONOURS `Idempotency-Key`, AND THAT IS THE DECISION (D-178) ═══
+
+`reliability.claim_idempotency` exists, CORS allows the header through, and both
+password-reset forms send one. None of these routes takes the dependency, and none will.
+
+THE REASON IS THE SCOPE. An idempotency record is keyed on `(scope_key, route, method,
+idempotency_key)`, and everything about whether serving a cached response is safe collapses
+into "can two different callers compute the same scope?" (`scripts/check_idempotency_scope.py`,
+D-175). `scope_key` therefore takes `tenant_id: UUID | None` and `user_id: UUID | None` and
+nothing else — the annotations are the guard, because mypy strict refuses a `str` at every
+call site. **The routes that a double submit could plausibly hurt are the unauthenticated
+ones**, and an unauthenticated caller has no principal: the only candidate scopes are the
+submitted email address and the client address, which are respectively a value any stranger
+can type and the value D-175 exists because a reference platform used. Two strangers sharing
+a scope is caller A being served caller B's stored response. There is no version of this
+where the header buys more than it costs, so it is not taken.
+
+WHAT PROTECTS EACH ROUTE INSTEAD, since "no idempotency key" is only an answer if something
+else is:
+
+  * `password/reset/confirm`, `bootstrap/confirm`, `invitations/accept` — the token is
+    burned by ONE `UPDATE … WHERE used_at IS NULL … RETURNING` (`tokens.redeem_token`,
+    `invitations`' CAS). Two concurrent submissions produce exactly one winner at the
+    database, which is a stronger statement than a replay cache makes. The loser is told the
+    link is spent, and that is CORRECT rather than a wart: nothing here can distinguish the
+    person who double-clicked from somebody replaying a leaked link, and the safe answer to
+    both is the same.
+  * `password/reset/request`, `login/otp/resend`, `otp/request`, `step-up` — issuing retires
+    the previous secret (`tokens.invalidate_outstanding`, `otp.issue_challenge`), so a double
+    submit leaves ONE live secret rather than two, which is the property idempotency would
+    have been asked to provide. The residue is a second email, bounded by the `auth` rate
+    profile and by `throttle`'s per-subject budget.
+  * `login`, `login/otp`, `step-up/verify` — a second submission spends a throttle budget and
+    either succeeds identically or is refused; the session rotation is a CAS on
+    `superseded_at IS NULL`, so two concurrent rotations cannot both mint a live token.
+
+`tests/authn_idempotency_test.py` asserts the absence as a property — no handler in this
+module reads the header — and drives the double submit on both reset routes so the sentences
+above are measured rather than believed.
 """
 
 from __future__ import annotations
@@ -59,7 +99,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from apps.api.authn import bootstrap, invitations, service
+from apps.api.authn import bootstrap, invitations, service, stepup
 from apps.api.authn.cookies import (
     clear_session_cookie,
     enforce_same_origin,
@@ -468,6 +508,54 @@ def _realm_router(realm: str) -> APIRouter:
             ip=client_request_ip(request),
         )
         return Response(status_code=204)
+
+    if realm == stepup.STEP_UP_REALM:
+
+        @router.post(
+            "/step-up",
+            status_code=202,
+            response_model=None,
+            summary="Email a code to re-prove this operator's second factor before a "
+            "dangerous action",
+        )
+        async def step_up_request(
+            request: Request, verified: VerifiedSession = Depends(authed)
+        ) -> Response:
+            """The first half of C-09 (D-178).
+
+            ADMIN REALM ONLY, declared rather than refused — same structural choice as
+            `/bootstrap/confirm`. The client realm requires no second factor
+            (`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route
+            with nothing to re-prove and nobody to call it.
+
+            Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that
+            has never proved one is at the ordinary sign-in gate, not this one.
+            """
+            _require_enabled()
+            enforce_same_origin(request)
+            await service.request_step_up(verified=verified)
+            return Response(status_code=202)
+
+        @router.post(
+            "/step-up/verify",
+            response_model=SessionOut,
+            summary="Answer the step-up code, restamping this session's second factor",
+        )
+        async def step_up_verify(
+            payload: SecondFactorIn,
+            request: Request,
+            response: Response,
+            verified: VerifiedSession = Depends(authed),
+        ) -> SessionOut:
+            """Rotates the session — see `service.complete_step_up` on why re-proving a
+            factor is a privilege change and why it cannot extend the absolute bound."""
+            _require_enabled()
+            enforce_same_origin(request)
+            rotated = await service.complete_step_up(
+                verified=verified, code=payload.code, ip=client_request_ip(request)
+            )
+            _set_cookie(response, request, realm, rotated)
+            return await _session_out(realm, verified.subject_id, mfa_complete=True)
 
     if realm == bootstrap.ADMIN_REALM:
 

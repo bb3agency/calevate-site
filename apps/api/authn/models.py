@@ -198,6 +198,13 @@ OTP_PURPOSES = (
     "login_challenge",
     # Emailed to confirm a newly-claimed address.
     "email_verify",
+    # STEP-UP RE-AUTHENTICATION (C-09, D-178). Emailed when an operator who is already
+    # signed in reaches a dangerous mutation whose second factor has gone stale. Its own
+    # purpose rather than a reused `login_challenge`, because the purpose is inside the
+    # code's HMAC domain and `issue_challenge` retires the live challenge FOR THAT PURPOSE:
+    # sharing one would make a code minted to finish signing in interchangeable with a code
+    # minted to prove it is still you, which is the equivalence step-up exists to deny.
+    "step_up",
 )
 
 

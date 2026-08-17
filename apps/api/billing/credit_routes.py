@@ -780,7 +780,11 @@ async def record_adjustment(
             # Bound to the DIRECTION, not to the route (`record_commercial_terms`):
             # crediting a client back is ordinary support work, taking their credit away
             # is the dangerous half and the only one that needs the second key.
-            require_step_up(x_confirm_action, credit_adjustment_confirmation(target.entry_id))
+            await require_step_up(
+                x_confirm_action,
+                credit_adjustment_confirmation(target.entry_id),
+                request=request,
+            )
 
         ref = adjustment_ref(entry_id=target.entry_id, amount_inr=amount)
         existing = await _find_entry_by_ref(
@@ -970,7 +974,9 @@ async def record_restatement(
 
     # Before any read, and before the tenant is even confirmed to exist: the string is a
     # function of the request alone, so refusing here leaks nothing and writes nothing.
-    require_step_up(x_confirm_action, topup_restatement_confirmation(ref, corrected))
+    await require_step_up(
+        x_confirm_action, topup_restatement_confirmation(ref, corrected), request=request
+    )
 
     async with tenant_session(tenant_id) as scoped:
         await _assert_tenant_exists(scoped, tenant_id)

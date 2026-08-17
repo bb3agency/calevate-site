@@ -466,7 +466,7 @@ async def set_config(
     if_match: Annotated[str | None, Header()] = None,
 ) -> ConfigWriteOut:
     """Bound to the key, audited in the same transaction, propagated after it commits."""
-    require_step_up(x_confirm_action, config_confirmation(key))
+    await require_step_up(x_confirm_action, config_confirmation(key), request=request)
     expected = require_if_match(if_match, key=key)
     if principal.user_id is None:
         # `updated_by` is NOT NULL and references `admin_users`: every value in this
@@ -526,7 +526,7 @@ async def revert_config(
     `platform.config_reverted` entry in a tamper-evident ledger for a change nobody made
     — the same objection `platform_confirmation` raises against the empty transition.
     """
-    require_step_up(x_confirm_action, revert_confirmation(key))
+    await require_step_up(x_confirm_action, revert_confirmation(key), request=request)
     expected = require_if_match(if_match, key=key)
     if principal.user_id is None:
         raise ProblemError(

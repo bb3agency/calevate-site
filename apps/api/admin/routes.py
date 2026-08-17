@@ -2001,7 +2001,9 @@ async def record_commercial_terms(
                     "Raising or removing a client's spend ceiling needs a superadmin. "
                     "Tightening one, or setting a first ceiling, does not."
                 )
-            require_step_up(x_confirm_action, spend_ceiling_confirmation(tenant_id))
+            await require_step_up(
+                x_confirm_action, spend_ceiling_confirmation(tenant_id), request=request
+            )
 
         result = await billing_terms.record_terms(scoped, tenant_id=tenant_id, terms=terms)
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)

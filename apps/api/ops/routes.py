@@ -650,7 +650,7 @@ async def set_platform(
     confirmation = platform_confirmation(
         outbound_halted=payload.outbound_halted, load_shed_mode=payload.load_shed_mode
     )
-    require_step_up(x_confirm_action, confirmation)
+    await require_step_up(x_confirm_action, confirmation, request=request)
 
     status = await set_platform_status(
         mode=payload.load_shed_mode,
@@ -713,7 +713,7 @@ async def set_tm_registration_route(
     one cannot perform the other by replaying a header.
     """
     action = "record_tm_registration" if payload.status == "active" else "withdraw_tm_registration"
-    require_step_up(x_confirm_action, action)
+    await require_step_up(x_confirm_action, action, request=request)
 
     registration = await set_tm_registration(
         session,
@@ -796,7 +796,7 @@ async def recompute_spend_cap(
     # Bound to the tenant, not just to the verb: a confirmation captured for one client
     # cannot be replayed against another. See the module docstring on why the big red
     # switch's generic string is not the standard to copy.
-    require_step_up(x_confirm_action, spend_cap_confirmation(tenant_id))
+    await require_step_up(x_confirm_action, spend_cap_confirmation(tenant_id), request=request)
 
     async with tenant_session(tenant_id) as session:
         if not await tenant_exists(session, tenant_id):
@@ -957,7 +957,7 @@ async def replay_outbox(
     """
     # Bound to the action AND to the scope it will use, checked BEFORE any row moves.
     # See `outbox_replay_confirmation` for why the string grew a suffix.
-    require_step_up(x_confirm_action, outbox_replay_confirmation(job))
+    await require_step_up(x_confirm_action, outbox_replay_confirmation(job), request=request)
 
     count = await replay_dead_letters(session, job=job)
     # BACKEND-PATTERNS §4 requires the replay to carry an audit note — a message that

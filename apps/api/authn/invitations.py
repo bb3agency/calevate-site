@@ -197,14 +197,19 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
     `email_verified_at` is set on creation — see the module docstring on why possession of
     the emailed token is the proof.
 
-    The INSERT is guarded by a re-read rather than by `ON CONFLICT`, because there is no
-    unique constraint on `users.email` to conflict against (migration `b3d9f6a2c815` says
-    why it could not safely add one). Two simultaneous redemptions of the same invitation
-    are already impossible — `accept_invitation`'s CAS admits one — so the only race this
-    could lose is two DIFFERENT invitations to the same address arriving in the same
-    millisecond, which yields a duplicate `users` row that `subjects.resolve_by_email`
-    refuses loudly rather than resolving wrongly. That is the honest failure mode, and it
-    is named here so the next reader does not have to derive it.
+    THE INSERT IS GUARDED BY `ON CONFLICT`, WHICH IT WAS NOT (D-178). It was a read then a
+    write, because there was no unique constraint on `users.email` to conflict against; the
+    race it could lose was two DIFFERENT invitations to the same address arriving in the same
+    millisecond, and what it lost was a duplicate `users` row — after which
+    `subjects.resolve_by_email` refused that address for BOTH people, loudly and forever, and
+    a human had to merge rows before either could sign in. Migration `c7a1e93d40b8` adds
+    `uq_users_email_lower` (unique on `lower(email)` where the row is live), so the race is
+    now decided by the database: the loser's INSERT returns nothing, it re-reads, and it
+    finds the winner's row. One live account per address, upheld by the constraint rather
+    than by two callers arriving in a convenient order.
+
+    The re-read after a conflict is not the old read repeated — `ON CONFLICT DO NOTHING`
+    tells us a row exists but not which, and its id is the whole return value.
     """
     needle = email.casefold()
     async with untenanted_session() as session:
@@ -217,14 +222,37 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
         if existing is not None:
             return UUID(str(existing[0])), False
         user_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, name, email_verified_at, "
-                "created_at, updated_at) "
-                "VALUES (:id, NULL, :email, :name, :at, :at, :at)"
-            ),
-            {"id": user_id, "email": email, "name": name, "at": at},
-        )
+        inserted = (
+            await session.execute(
+                text(
+                    "INSERT INTO users (id, clerk_user_id, email, name, email_verified_at, "
+                    "created_at, updated_at) "
+                    "VALUES (:id, NULL, :email, :name, :at, :at, :at) "
+                    # The index predicate is repeated so Postgres can INFER the partial
+                    # unique index; without it the statement is rejected outright rather
+                    # than silently matching a different constraint.
+                    "ON CONFLICT (lower(email)) WHERE deactivated_at IS NULL DO NOTHING "
+                    "RETURNING id"
+                ),
+                {"id": user_id, "email": email, "name": name, "at": at},
+            )
+        ).first()
+        if inserted is None:
+            winner = (
+                await session.execute(
+                    text("SELECT id FROM users WHERE lower(email) = :e AND deactivated_at IS NULL"),
+                    {"e": needle},
+                )
+            ).first()
+            if winner is None:  # pragma: no cover — the conflicting row was deactivated
+                # between the INSERT and this read, which no application path does.
+                raise ProblemError.conflict(
+                    "account_address_contended",
+                    "That address is being claimed by another request right now.",
+                    remediation="Try the invitation link again in a moment.",
+                )
+            log.info("auth_user_insert_lost_race", extra={"user_id": str(winner[0])})
+            return UUID(str(winner[0])), False
     log.info("auth_user_created_from_invitation", extra={"user_id": str(user_id)})
     return user_id, True
 
