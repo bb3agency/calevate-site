@@ -235,6 +235,13 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# `make restore-drill` records in the same directory are counted and never counted AS
 	# a drill. Negative controls in tests/drill_freshness_guard_test.py.
 	uv run python -m scripts.check_drill_freshness
+	# The same read, banned from a worse destination. An idempotency record is a cache of
+	# a completed response; if two callers can compute one scope, the second is served the
+	# first's payload before any tenant-scoped query runs. `scope_key` has no address
+	# fallback and this is what keeps it that way — across voice-runtime and workers too,
+	# which hold the inbox and outbox replay keys and which `check_audit_ip` does not scan
+	# (D-175). Negative controls in tests/idempotency_scope_guard_test.py.
+	uv run python -m scripts.check_idempotency_scope
 	uv run python -m scripts.check_redaction_exposure
 	# Raw SQL is how most tenant-scoped access is written here (493 statements), and it
 	# runs as a NOBYPASSRLS role — so an injection is not a leak in one account, it is a
