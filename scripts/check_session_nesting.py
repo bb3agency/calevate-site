@@ -56,6 +56,10 @@ SCOPE: Final = REPO_ROOT / "apps"
 MAX_DEPTH: Final = 2
 
 #: Every context manager in `apps/api/db/session.py` that checks a connection out.
+#: Kept in step with that file by `tests/session_nesting_guard_test.py`, which reads its
+#: `@asynccontextmanager` definitions and fails if one is missing here — a new opener this
+#: list did not know would make the whole check silently under-report (`credential_session`
+#: arrived from D-177 while D-182 was being written, which is how that test came to exist).
 SESSION_OPENERS: Final[frozenset[str]] = frozenset(
     {
         "tenant_session",
@@ -63,6 +67,7 @@ SESSION_OPENERS: Final[frozenset[str]] = frozenset(
         "user_session",
         "invite_session",
         "ingest_config_session",
+        "credential_session",
         "admin_session",
     }
 )

@@ -15,6 +15,7 @@ is exactly the state D-182 found.
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from apps.api.db.session import MAX_NESTED_CONNECTIONS, get_engine
@@ -191,6 +192,32 @@ async def start():
 
 def test_the_real_tree_is_inside_the_ceiling() -> None:
     assert guard.main() == 0
+
+
+def test_the_guard_knows_every_session_this_repo_can_open() -> None:
+    """AN OPENER THE LIST DOES NOT KNOW MAKES THE WHOLE CHECK UNDER-REPORT, silently and
+    everywhere — the one failure mode a guardrail must not have.
+
+    It is not hypothetical: D-177's first-party auth added `credential_session` to
+    `db/session.py` while this check was being written, and until the name was added here
+    every chain through it was costed at zero. So the list is asserted against the module
+    rather than maintained by memory — every `@asynccontextmanager` in `db/session.py`
+    yields a connection, and every one of them must be named in `SESSION_OPENERS`.
+    """
+    source = ast.parse((guard.DEFINITION_FILE).read_text(encoding="utf-8"))
+    openers = {
+        node.name
+        for node in ast.walk(source)
+        if isinstance(node, ast.AsyncFunctionDef)
+        and any(
+            isinstance(decorator, ast.Name) and decorator.id == "asynccontextmanager"
+            for decorator in node.decorator_list
+        )
+    }
+    assert openers == set(guard.SESSION_OPENERS), (
+        "`db/session.py` and `check_session_nesting.SESSION_OPENERS` disagree about what "
+        f"opens a connection: {openers ^ set(guard.SESSION_OPENERS)}"
+    )
 
 
 def test_the_pool_holds_exactly_one_more_than_the_deepest_task() -> None:
