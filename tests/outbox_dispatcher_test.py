@@ -30,12 +30,12 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from arq.jobs import SerializationError
 from apps.api.admin import service as admin_service
 from apps.api.core.queue import enqueue as real_enqueue
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import dispatcher
+from arq.jobs import SerializationError
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
@@ -148,7 +148,7 @@ async def test_one_poisoned_message_does_not_stop_the_rest_of_the_batch(
         job: str, *args: Any, job_id: str | None = None, **kwargs: Any
     ) -> str | None:
         if job_id and str(poisoned) in job_id:
-            raise SerializationError("unable to serialize job \"cron:dispatch_outbox_probe\"")
+            raise SerializationError('unable to serialize job "cron:dispatch_outbox_probe"')
         return await real_enqueue(job, *args, job_id=job_id, **kwargs)
 
     monkeypatch.setattr(dispatcher, "enqueue", _refuse_the_poison)
@@ -159,9 +159,7 @@ async def test_one_poisoned_message_does_not_stop_the_rest_of_the_batch(
     after_status, after_job, _ = await _status(after)
     assert poison_status == "pending", "attempts left, so it is retried rather than dead-lettered"
     assert poison_job is None, "a message that never reached the queue has no job id"
-    assert poison_error is not None and poison_error.startswith("SerializationError:"), (
-        poison_error
-    )
+    assert poison_error is not None and poison_error.startswith("SerializationError:"), poison_error
     assert after_status == "published", "the message behind the poison one still went out"
     assert after_job
 
@@ -202,6 +200,7 @@ async def test_a_database_fault_ends_the_tick_instead_of_being_recorded_as_poiso
         "a database fault was recorded against the message as if its payload were poison"
     )
     assert job_id is None
+
 
 # ------------------------------------------------------------------- sweep_expired
 

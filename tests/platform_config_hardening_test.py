@@ -1008,6 +1008,7 @@ async def test_the_never_raises_promise_covers_the_whole_of_refresh(
     healthy = await pc.refresh(force=True)
     assert healthy.degraded is False
 
+
 # --- 6. the restart that IS genuinely needed still drains -----------------------
 
 

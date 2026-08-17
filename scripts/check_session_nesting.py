@@ -283,11 +283,12 @@ class _Analyzer:
         if node is None:
             return False
         for candidate in ast.walk(node):
-            if isinstance(candidate, ast.With | ast.AsyncWith) and any(
-                self._is_opener(ref[0], item.context_expr) for item in candidate.items
+            if (
+                isinstance(candidate, ast.With | ast.AsyncWith)
+                and any(self._is_opener(ref[0], item.context_expr) for item in candidate.items)
+                and any(isinstance(inner, ast.Yield) for inner in ast.walk(candidate))
             ):
-                if any(isinstance(inner, ast.Yield) for inner in ast.walk(candidate)):
-                    return True
+                return True
         return False
 
     def _body_cost(self, module: str, node: ast.AST, *, nested_defs: bool) -> tuple[int, list[str]]:
@@ -365,9 +366,7 @@ class _Analyzer:
             for name in sorted(self.modules[module].functions):
                 depth, chain = self.cost((module, name))
                 if depth >= MAX_DEPTH:
-                    found.append(
-                        (depth, f"{module}.{name}", " -> ".join(p for p in chain if p))
-                    )
+                    found.append((depth, f"{module}.{name}", " -> ".join(p for p in chain if p)))
         return sorted(found, key=lambda row: (-row[0], row[1]))
 
 
