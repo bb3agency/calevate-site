@@ -132,6 +132,41 @@ describe("tap targets", () => {
   });
 });
 
+
+/**
+ * Blank every comment line, keeping the array length so indices stay meaningful.
+ *
+ * Handles the two shapes this codebase uses: `//` line comments (including the
+ * `// eslint-disable-next-line` directives that sit between a wrapper and its child) and
+ * `/* ... *\/` blocks, whether one line or many. Deliberately NOT a parser — a regex that
+ * understood JSX would be a bigger thing to trust than the rule it serves.
+ */
+function blankComments(lines: string[]): string[] {
+  let inBlock = false;
+  return lines.map((line) => {
+    const trimmed = line.trim();
+    if (inBlock) {
+      if (trimmed.includes("*/")) inBlock = false;
+      return "";
+    }
+    if (trimmed.startsWith("/*") || trimmed.startsWith("{/*")) {
+      if (!trimmed.includes("*/")) inBlock = true;
+      return "";
+    }
+    if (trimmed.startsWith("//")) return "";
+    return line;
+  });
+}
+
+/** The nearest `count` non-blank lines above `index`, closest first. */
+function previousCodeLines(code: string[], index: number, count: number): string[] {
+  const out: string[] = [];
+  for (let i = index - 1; i >= 0 && out.length < count; i -= 1) {
+    if (code[i].trim() !== "") out.push(code[i]);
+  }
+  return out;
+}
+
 describe("nothing is pinned wider than the narrowest phone", () => {
   /**
    * `min-w-[16rem]` is 256px, and at 320px the content box inside a card is 254px. Every
@@ -147,14 +182,29 @@ describe("nothing is pinned wider than the narrowest phone", () => {
     const offenders: string[] = [];
     for (const file of FILES) {
       const lines = read(file).split("\n");
+      const code = blankComments(lines);
       lines.forEach((line, i) => {
         for (const match of line.matchAll(/(^|[\s"'`])(min-w-\[[^\]]+\])/g)) {
           // A responsive prefix (`sm:min-w-[…]`) is the fix, and shows up as the char
           // before the utility being `:` rather than whitespace or a quote.
           const prefixed = /[a-z0-9]:$/.test(line.slice(0, match.index! + match[1].length));
           if (prefixed) continue;
-          // A scroll container on this line or the one above is the other legitimate case.
-          const near = [lines[i - 1] ?? "", line].join(" ");
+          // A scroll container on this line, or on one of the few CODE lines above it,
+          // is the other legitimate case.
+          //
+          // "The line above" was too literal, and the legal documents proved it: their
+          // table wrapper carries `overflow-x-auto` on line 116 and the `min-w-[36rem]`
+          // lands on line 130, with a twelve-line accessibility comment in between
+          // explaining the focusable-region waiver. Correct markup, flagged as an
+          // overflow, because a comment sat where the guard expected code.
+          //
+          // Comments are blanked IN PLACE rather than stripped, so reported line numbers
+          // still point at the real line — the same trade-off, for the same reason, as
+          // `_code_only()` in tests/shared_state_assertion_guard_test.py, which exists
+          // because that guard once flagged the prose of a comment explaining a fix it
+          // had itself prompted. A check that reads its own documentation as a violation
+          // is a check people turn off.
+          const near = [code[i], ...previousCodeLines(code, i, 6)].join(" ");
           if (/overflow-x-auto|overflow-auto|overflow-x-scroll/.test(near)) continue;
           offenders.push(`${rel(file)}:${i + 1} — ${match[2]}`);
         }
