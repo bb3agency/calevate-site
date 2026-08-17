@@ -274,6 +274,34 @@ async def ingest_config_session(webhook_id: UUID) -> AsyncIterator[AsyncSession]
 
 
 @asynccontextmanager
+async def credential_session() -> AsyncIterator[AsyncSession]:
+    """The ONLY session that can see `auth_credentials` and `auth_sessions` (D-165).
+
+    Same doctrine as `invite_session` and `ingest_config_session` — a GUC that opens
+    exactly one narrow surface — with the direction reversed. Those two WIDEN a tenant
+    policy by one row; this one is the whole policy: both tables are FORCE-RLS'd with
+    `USING (current_setting('app.auth', true) = 'on')`, so every other session in this
+    process, including `tenant_session`, `admin_session` and the bare
+    `untenanted_session`, sees zero rows.
+
+    WHY THE PASSWORD STORE GETS A POLICY WHEN `users` DOES NOT. `users` holds an email
+    address and a name; the blast radius of an over-broad query against it is a directory
+    leak. These two hold password hashes and live session tokens, where the same mistake
+    is platform-wide account takeover — so the default is "no", and `apps/api/authn` is
+    the one package that says otherwise. It is a defence against OUR OWN future code: a
+    SELECT written next year in a tenant-scoped code path cannot reach a credential,
+    whatever it asks for.
+
+    Transaction-local like every other GUC here, so a pooled connection cannot carry the
+    authority into the next request.
+    """
+    maker = get_sessionmaker()
+    async with maker() as session, session.begin():
+        await session.execute(text("SELECT set_config('app.auth', 'on', true)"))
+        yield session
+
+
+@asynccontextmanager
 async def admin_session() -> AsyncIterator[AsyncSession]:
     """A session that can ENUMERATE tenants — the client directory, nothing more.
 

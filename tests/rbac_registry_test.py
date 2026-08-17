@@ -393,16 +393,16 @@ async def test_a_confirmation_for_one_route_does_not_authorise_another() -> None
     Refusals only — neither request below changes any state, so this runs beside every
     other suite on the shared database.
     """
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id},
+            {"id": admin_id},
         )
-    auth = {"Authorization": f"Bearer dev:admin:{clerk_id}"}
+    auth = {"Authorization": f"Bearer dev:admin:{admin_id}"}
 
     async with _client() as http:
         # A header captured for the TM-registration route, replayed at the big red switch.
@@ -449,16 +449,16 @@ async def test_a_missing_confirmation_is_a_refusal_and_not_a_silent_proceed() ->
     that reads as defensive and turns the whole control off for any caller who simply
     omits the header. The state is re-read afterwards and asserted unchanged.
     """
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id},
+            {"id": admin_id},
         )
-    auth = {"Authorization": f"Bearer dev:admin:{clerk_id}"}
+    auth = {"Authorization": f"Bearer dev:admin:{admin_id}"}
 
     async with untenanted_session() as session:
         before = (

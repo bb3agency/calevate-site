@@ -411,21 +411,21 @@ async def test_a_read_only_impersonating_admin_can_read_the_timeline() -> None:
     lead_id = await _the_lead(tenant_id)
     await _event(tenant_id, lead_id, event_type="status_change", payload={"status": "hot"})
 
-    admin_clerk = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Ops', 'operator', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Ops', 'operator', now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": admin_clerk},
+            {"i": admin_id},
         )
 
     async with _client() as http:
         response = await http.get(
             f"/v1/leads/{lead_id}/timeline",
             headers=await view_as_headers(
-                http, f"dev:admin:{admin_clerk}", slug, **{"X-Org-Slug": slug}
+                http, f"dev:admin:{admin_id}", slug, **{"X-Org-Slug": slug}
             ),
         )
     assert response.status_code == 200, response.text

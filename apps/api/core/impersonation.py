@@ -73,8 +73,9 @@ WHAT WOULD CHANGE THE ANSWER: making the grant presentable *without* the admin's
 token. If that is ever proposed, this paragraph is the thing it invalidates.
 
 WHY A JWT AND NOT A HAND-ROLLED HMAC ENVELOPE. `exp`/`aud`/`jti`/`sub`/`act` are all
-registered claims with agreed semantics, PyJWT is already a dependency (it verifies
-Clerk's tokens next door), and it enforces expiry and audience for us. A bespoke
+registered claims with agreed semantics, PyJWT is already a dependency — it verified
+Clerk's tokens next door until D-177 removed them, and it stays for THIS, which is the
+only signed token this product still mints — and it enforces expiry and audience for us. A bespoke
 `v1.<payload>.<mac>` format would be a second token format in this repo and would have
 to re-derive the parts every hand-rolled one gets wrong. `algorithms=[...]` is pinned on
 BOTH encode and decode: an unpinned `decode` is the classic algorithm-confusion bug

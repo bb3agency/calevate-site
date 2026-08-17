@@ -212,7 +212,13 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
                       {/* The server's own sentence. A blocked lead is named by its
                           captured name or a MASKED number and never a raw one (hard rule
                           6) — this screen renders it and builds nothing from it. */}
-                      <span className="text-sm font-semibold text-ink">{item.title}</span>
+                      {/* `min-w-0 break-words`: the title carries a MASKED E.164 number
+                          (`+9198765•••10`), which has no space to wrap at, and a flex item
+                          defaults to `min-width: auto` — so at 320px the sentence painted
+                          17px outside the row instead of wrapping onto a second line. */}
+                      <span className="min-w-0 break-words text-sm font-semibold text-ink">
+                        {item.title}
+                      </span>
                     </div>
                     {/* The detail line is the point of the screen: the title only names
                         the subject, the detail is the remedy — what happened and what the

@@ -15,7 +15,15 @@ arrive with no classification at all. `describe()` fails safe (an unclassified f
 reported `unclassified` and NOT editable), so the console never lies; this guard is what
 turns that safe silence into a CI failure somebody has to answer.
 
-FOUR CHECKS, and each catches a different way the promise breaks:
+FIVE CHECKS. The first is the one that makes the other four mean anything, and it was
+added by D-176's audit of this repo's own guardrails:
+
+0. **The managed set is not empty.** Every check below iterates `classified_keys()`, so
+   an empty managed set is four `[]`s and a green run reading `0 settings classified`.
+   `managed_fields()` is computed from `Settings` BY EXCLUSION, which is the kind of
+   derivation that empties itself without anybody editing a list.
+
+And then the four, each catching a different way the promise breaks:
 
 1. **Every managed key is classified.** The one that fires on the day somebody adds a
    `Settings` field, which is the only day it can be fixed cheaply.
@@ -118,6 +126,42 @@ def classified_keys() -> tuple[str, ...]:
     return (*managed_fields(), *manageable_secret_keys())
 
 
+def blind_spots() -> list[str]:
+    """Has the tree moved out from under this check? (D-176)
+
+    All four checks below iterate `classified_keys()`, and three of the four iterate it
+    directly — so an empty managed set makes every one of them return `[]` and this file
+    print `CONFIG APPLIES: OK (0 settings + 0 credentials classified)`. That is not a
+    far-fetched shape: `managed_fields()` is COMPUTED from `Settings` by exclusion (D-96),
+    so a widened exclusion rule empties it silently, and emptying it is exactly what a
+    change that stopped the console managing anything would do.
+
+    The floors are the counts the tree carries today, an order of magnitude below them:
+    the question being asked is "is this registry still populated", not "has anybody added
+    a field", so a floor that tracked the real number would fail on every deletion.
+    """
+    failures: list[str] = []
+    settings = managed_fields()
+    secrets = manageable_secret_keys()
+    if len(settings) < 5:
+        failures.append(
+            f"`managed_fields()` returned {len(settings)} console-managed setting(s). It is "
+            "derived from Settings by exclusion, so a widened exclusion empties it without "
+            "any list being edited — and every check below then iterates nothing and passes."
+        )
+    if len(secrets) < 3:
+        failures.append(
+            f"`manageable_secret_keys()` returned {len(secrets)} credential(s), so the "
+            "Secrets panel's half of this rule is being verified against an empty set."
+        )
+    if not FIELD_APPLIES:
+        failures.append(
+            "FIELD_APPLIES is empty — there is no classification table left to check, and "
+            "`describe()` would report every field `unclassified` and uneditable."
+        )
+    return failures
+
+
 def check_every_key_is_classified() -> list[str]:
     failures: list[str] = []
     for key in classified_keys():
@@ -184,7 +228,8 @@ def check_bounds() -> list[str]:
 
 def main() -> int:
     failures = (
-        check_every_key_is_classified()
+        blind_spots()
+        + check_every_key_is_classified()
         + check_no_stale_entries()
         + check_reasons()
         + check_bounds()

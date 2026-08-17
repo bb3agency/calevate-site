@@ -5,9 +5,9 @@
  *
  * Two different principals legitimately arrive at `app.calevate.tech/c/<slug>`:
  *
- *  1. the client's own user, who signs in to the CLIENT Clerk application, and
- *  2. an operator following "View as client" out of the admin console (D-22), who has
- *     only an ADMIN Clerk session and must be marked read-only on every panel.
+ *  1. the client's own user, who holds a CLIENT-realm session, and
+ *  2. an operator following "View as client" out of the admin console (D-22), who holds
+ *     only an ADMIN-realm session and must be marked read-only on every panel.
  *
  * Before this module every `/c/<slug>` screen called `devSession(slug)` for itself, so
  * case 2 was unreachable: the browser sent a client token with no `X-Impersonate-Org`,
@@ -25,10 +25,11 @@
  * The marker is an INTENT, never an authority. All it selects is which credential this
  * browser presents:
  *
- * - `viewAsSession` presents an ADMIN-realm token. A client-realm user does not have
- *   one, and cannot mint one from a URL — `verify_token(token, "admin")` checks the
- *   admin Clerk application's JWKS (and, locally, rejects a `dev:client:` token for the
- *   admin realm outright: `core/auth.py::_verify_dev_token`).
+ * - `viewAsSession` presents an ADMIN-realm credential. A client-realm user does not
+ *   have one, and cannot mint one from a URL — the realm is inside the session token's
+ *   hash domain, so a client cookie computed under the admin realm matches no row at all
+ *   (`authn/sessions.token_fingerprint`), and locally a `dev:client:` token is rejected
+ *   for the admin realm outright (`core/auth.py::_verify_dev_token`).
  * - The API only *looks* at the admin realm when `X-Impersonate-Org` is present
  *   (`core/auth.py::current_any`), and then still requires a row in `admin_users` plus
  *   the `admin:impersonate` permission before it will resolve the slug.
@@ -37,35 +38,36 @@
  *   server-side whatever this file does.
  * - The banner renders from `me.impersonating` — the SERVER's answer — never from the
  *   URL, so a client-realm user who types `?view=admin` cannot produce one. What they
- *   actually get is a REDIRECT: `viewAsRequested` mounts `<AdminRealmClerkProvider
- *   protect>` (below), so a document with no admin-realm session goes to
- *   `/admin/sign-in` before any read is attempted. This line used to say "401s, not a
- *   banner" — true of the API and true of this file until `protect` was added, and since
- *   then a sentence about a request that is never made.
+ *   actually get is a REDIRECT: `viewAsRequested` mounts the ADMIN realm's session gate
+ *   (below), so a document with no admin-realm session goes to `/auth/admin/sign-in`
+ *   before any read is attempted.
  *
  * So the worst a client-realm user achieves by editing the query string is breaking
  * their own page; they cannot claim impersonation, and they cannot read another
  * tenant, because the slug is resolved against an admin identity we verified first.
  *
- * ## What the marker now ALSO selects: which Clerk application this document loads
+ * ## What the marker ALSO selects: which realm's session this document restores
  *
- * clerk-js is a browser singleton, so a document hosts exactly one Clerk application
- * (`lib/auth/clerkRuntime.tsx`). `viewAsSession` presenting an admin-realm token is
- * therefore only possible if the ADMIN application is the one mounted on this page —
- * and it must be, because in production the operator arriving here from
- * admin.calevate.tech has an admin session and no client-realm session at all. So the
- * same marker, read in the same place, chooses the provider and the session together.
- * Splitting that decision across two files is how they would eventually disagree, and a
- * page whose mounted application and presented credential disagree is a 401 nobody can
- * explain.
+ * `viewAsSession` presenting an admin-realm credential is only useful if the ADMIN
+ * realm's session is the one this document has restored — and it must be, because the
+ * operator arriving here from admin.calevate.tech has an admin session and no
+ * client-realm session at all. So the same marker, read in the same place, chooses the
+ * provider and the session together. Splitting that decision across two files is how they
+ * would eventually disagree, and a page whose restored realm and presented credential
+ * disagree is a 401 nobody can explain.
+ *
+ * The two providers are DISJOINT MODULES (`lib/authn/adminSession.tsx` /
+ * `clientSession.tsx`), neither importing the other, so the branch below picks between
+ * two independent runtimes rather than parameterising one.
  */
 
 import { Suspense, createContext, useContext, useMemo, type ReactNode } from "react";
 
 import { useSearchParams } from "next/navigation";
 
-import { AdminRealmClerkProvider } from "@/lib/auth/adminRealm";
-import { ClientRealmClerkProvider, clientRealmSession } from "@/lib/auth/clientRealm";
+import { AdminSessionGate, AdminSessionProvider } from "@/lib/authn/adminSession";
+import { ClientSessionGate, ClientSessionProvider } from "@/lib/authn/clientSession";
+import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { viewAsSession } from "./admin";
 import { type Session } from "./client";
@@ -123,16 +125,18 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
 
   const realm = <ClientRealmContext.Provider value={value}>{children}</ClientRealmContext.Provider>;
 
-  // `protect` on both: a console screen is signed-in-only in either realm, and the
-  // redirect goes to the sign-in page of whichever application is mounted — so an
-  // operator whose admin session lapsed mid-handoff lands on the ADMIN sign-in, not on
-  // a client one that could never let them back in. In `dev` mode neither provider
-  // mounts anything (there is no Clerk), which is what keeps this the same tree the
-  // test suite renders.
+  // GATED on both: a console screen is signed-in-only in either realm, and the gate
+  // sends them to the sign-in page of whichever realm this document restored — so an
+  // operator whose admin session lapsed mid-handoff lands on the ADMIN sign-in, not on a
+  // client one that could never let them back in.
   return viewAsRequested ? (
-    <AdminRealmClerkProvider protect>{realm}</AdminRealmClerkProvider>
+    <AdminSessionProvider>
+      <AdminSessionGate>{realm}</AdminSessionGate>
+    </AdminSessionProvider>
   ) : (
-    <ClientRealmClerkProvider protect>{realm}</ClientRealmClerkProvider>
+    <ClientSessionProvider>
+      <ClientSessionGate>{realm}</ClientSessionGate>
+    </ClientSessionProvider>
   );
 }
 

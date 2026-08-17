@@ -6,7 +6,8 @@ pins the redemption path — but the four ways one can be turned into an escalat
 
 1. an owner issuing a role they do not themselves hold (`assert_role_is_grantable`)
 2. `staff` issuing one at all (`org:manage`)
-3. somebody OTHER than the addressee redeeming it (the recipient binding)
+3. the redeemed account being somebody other than the addressee (D-177: the address
+   comes from the INVITATION, so there is no comparison left to get wrong)
 4. redeeming one after it was revoked, or twice
 
 Plus the rule that stops this surface leaking: a pending invitation is listed with a
@@ -34,19 +35,23 @@ def _client() -> httpx.AsyncClient:
     return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://api")
 
 
-async def _mirrored_user(email: str) -> str:
-    """A Clerk-mirrored user with no membership — an invitee, in other words. Returns a
-    dev bearer token for them."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
-            ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": email},
-        )
-    return f"dev:client:{clerk_id}"
+#: Long enough for `hashing.MIN_PASSWORD_CHARS` and fixed, because nothing here is about
+#: what a good password is.
+REDEMPTION_PASSWORD = "invitee-redemption-password"
+
+
+async def _redeem(http: httpx.AsyncClient, raw_token: str) -> httpx.Response:
+    """Redeem an invitation the way an invitee actually does (D-177).
+
+    ONE call, and NO credential: `POST /v1/auth/client/invitations/accept` creates the
+    account, sets its password, burns the invitation and issues a session. The invitee has
+    no account before this — that is the whole difference from the Clerk-era pair, where
+    they signed up with the vendor first and this route only made the membership.
+    """
+    return await http.post(
+        "/v1/auth/client/invitations/accept",
+        json={"token": raw_token, "password": REDEMPTION_PASSWORD},
+    )
 
 
 async def _audit_actions(tenant_id: uuid.UUID) -> list[str]:
@@ -160,11 +165,23 @@ async def test_inviting_someone_already_on_the_team_is_refused() -> None:
 # --- redeeming ----------------------------------------------------------------
 
 
-async def test_only_the_addressee_can_redeem_an_invitation() -> None:
+async def test_redemption_creates_the_invited_address_and_no_other() -> None:
     """The vector: a forwarded email, a shared mailbox, a link pasted in a group chat.
 
-    Without the binding the link is a pure bearer token and the account goes to whoever
-    opens it first — with an audit trail recording a membership nobody asked for.
+    THIS TEST CHANGED SHAPE WITH D-177 AND THE CHANGE IS THE FINDING, so it is written
+    down rather than left in the diff. It used to assert `invitation_wrong_recipient`: the
+    invitee signed up with the vendor first, so redemption COMPARED the address they had
+    signed in with against the invitation's, and a mismatch was refused. There is no
+    comparison now, because there is no prior account and the request carries no address —
+    the redeemed account IS the invited address by construction.
+
+    What that trades: a link holder no longer has to already control a verified mailbox at
+    the invited address, so a forwarded link now yields an account for that address to
+    whoever opens it first. What it buys: an honest invitee whose mailbox is a different
+    address from the one their vendor account used can no longer be locked out by a
+    refusal they cannot act on, and there is no second address for the two to disagree
+    about. The link is still single-use, hash-at-rest, 72h and CAS-burned; those are what
+    bound the window, and `tests/authn_flow_rls_test.py` owns them.
     """
     tenant_id, slug, token = await _make_tenant("owner")
     intended = f"intended-{uuid.uuid4().hex[:8]}@example.com"
@@ -175,25 +192,28 @@ async def test_only_the_addressee_can_redeem_an_invitation() -> None:
             headers=_headers(slug, token),
         )
         raw = created.json()["token"]
+        accepted = await _redeem(http, raw)
 
-        interloper = await _mirrored_user(f"someone-else-{uuid.uuid4().hex[:8]}@example.com")
-        stolen = await http.post(
-            "/v1/invitations/accept",
-            json={"token": raw},
-            headers={"Authorization": f"Bearer {interloper}"},
-        )
-
-        rightful = await _mirrored_user(intended.upper())  # addresses are case-insensitive
-        accepted = await http.post(
-            "/v1/invitations/accept",
-            json={"token": raw},
-            headers={"Authorization": f"Bearer {rightful}"},
-        )
-
-    assert stolen.status_code == 403, stolen.text
-    assert stolen.json()["type"].endswith("/invitation_wrong_recipient")
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["role"] == "staff"
+
+    # THE ACCOUNT THIS CREATED IS THE INVITED ADDRESS, and that is the assertion that
+    # replaced `invitation_wrong_recipient` (D-177). The refusal existed because two
+    # addresses had to be COMPARED: the account already existed, minted with the vendor,
+    # and might have been minted with a different address. One of them is now the only
+    # one — the request carries no address at all — so the property is that the row
+    # matches the invitation rather than that a mismatch is caught.
+    async with tenant_session(tenant_id) as session:
+        addresses = set(
+            (
+                await session.execute(
+                    text(
+                        "SELECT lower(u.email) FROM users u JOIN memberships m ON m.user_id = u.id"
+                    )
+                )
+            ).scalars()
+        )
+    assert intended.lower() in addresses, "the redeemed account is the invited address"
 
     async with tenant_session(tenant_id) as session:
         members = (await session.execute(text("SELECT count(*) FROM memberships"))).scalar()
@@ -212,12 +232,7 @@ async def test_a_revoked_invitation_cannot_be_redeemed_afterwards() -> None:
         )
         body = created.json()
         revoked = await http.delete(f"/v1/invitations/{body['id']}", headers=_headers(slug, token))
-        invitee = await _mirrored_user(address)
-        replayed = await http.post(
-            "/v1/invitations/accept",
-            json={"token": body["token"]},
-            headers={"Authorization": f"Bearer {invitee}"},
-        )
+        replayed = await _redeem(http, body["token"])
         remaining = await http.get("/v1/invitations", headers=_headers(slug, token))
 
     assert revoked.status_code == 200, revoked.text
@@ -244,9 +259,8 @@ async def test_an_invitation_cannot_be_redeemed_twice() -> None:
             headers=_headers(slug, token),
         )
         raw = created.json()["token"]
-        invitee = {"Authorization": f"Bearer {await _mirrored_user(address)}"}
-        first = await http.post("/v1/invitations/accept", json={"token": raw}, headers=invitee)
-        second = await http.post("/v1/invitations/accept", json={"token": raw}, headers=invitee)
+        first = await _redeem(http, raw)
+        second = await _redeem(http, raw)
 
     assert first.status_code == 200, first.text
     assert second.status_code == 422

@@ -173,9 +173,6 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     "/healthz",
     "/hooks",
     "/v1/auth/",
-    # Authenticated but membership-less BY DESIGN: accepting an invitation is what
-    # creates the membership a permission check would require (see current_identity).
-    "/v1/invitations/accept",
 )
 
 

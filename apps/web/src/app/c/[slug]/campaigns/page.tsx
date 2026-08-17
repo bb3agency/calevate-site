@@ -876,7 +876,7 @@ export default function CampaignsPage() {
         )}
 
       {!campaignId && (campaigns.data?.length ?? 0) > 0 && (
-        <Card title="Your campaigns" bodyClassName="px-6 py-2">
+        <Card title="Your campaigns" bodyClassName="px-4 py-2 sm:px-6">
           {/* SYMPTOM this fixed: a draft built before the provenance rule existed is
               now blocked, and nothing on the landing view said so — the client saw a
               normal-looking draft, opened it, and met a refusal with no hint it was

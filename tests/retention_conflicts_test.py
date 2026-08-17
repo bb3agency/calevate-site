@@ -189,10 +189,23 @@ async def _proof(tenant_id: uuid.UUID, request_id: uuid.UUID) -> dict[str, Any]:
 # ============================================================ 1. WHICH TTLs ARE REAL
 
 
-SHIPPED_TTLS = {"recording": 90, "transcript": 365, "lead": 1095, "consent_log": 2555}
+# Six, not four, since D-179: `engine_payload` and `kb` gave a clock to the two stores
+# of personal data that sat outside every policy a tenant could set (LEGAL-SURFACE F-2
+# and F-3). Their numbers are NOT part of the open divergence the section below tracks —
+# SEC-COMP §4 promises nothing about either store, so there is no doc figure to disagree
+# with — but they are pinned here for the same reason the other four are: this dict is
+# the row a client actually gets.
+SHIPPED_TTLS = {
+    "recording": 90,
+    "transcript": 365,
+    "lead": 1095,
+    "consent_log": 2555,
+    "engine_payload": 90,
+    "kb": 365,
+}
 
 
-def test_the_shipped_retention_defaults_are_exactly_these_four_numbers() -> None:
+def test_the_shipped_retention_defaults_are_exactly_these_numbers() -> None:
     """`DEFAULT_RETENTION_POLICIES` is not documentation — it is the row a tenant gets
     and therefore the number `apply_retention` obeys. Pinned here so a change to it is a
     change to a test with the DPA's name on it."""
@@ -216,6 +229,10 @@ async def test_a_real_tenant_gets_those_rows_and_the_sweep_reads_them_back() -> 
         "transcript": "anonymize",
         "lead": "anonymize",
         "consent_log": "anonymize",
+        # Destroy, both of them: an opaque vendor document and a chunk of a client's
+        # price list have no anonymized form worth keeping (D-179).
+        "engine_payload": "delete",
+        "kb": "delete",
     }
 
 

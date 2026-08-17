@@ -1,0 +1,79 @@
+# /etc/sudoers.d/calevate-deploy — the ONLY root privilege the deploy account holds.
+#
+# Install:  install -o root -g root -m 0440 calevate-deploy /etc/sudoers.d/calevate-deploy
+# Verify :  visudo -c -f /etc/sudoers.d/calevate-deploy      (must print "parsed OK")
+#
+# THE FILENAME MATTERS. sudo's `#includedir /etc/sudoers.d` silently ignores any file whose
+# name contains a `.` or ends in `~` (sudoers(5)). A policy installed as
+# `calevate-deploy.conf` is therefore not a policy at all, it is a file — and sudo reports
+# nothing, so the first symptom is a deploy that hangs on a password prompt. Same class of
+# defect as the reference host's `run-parts` cleanup job, which never ran for the same
+# reason (raghava-deploy-teardown.md §8.11). Keep this name exactly as it is.
+#
+# ====================================================================================
+# THE RULE THIS FILE IS WRITTEN AGAINST
+#
+# NO WILDCARD IN ANY ARGUMENT POSITION, FOR ANY REASON — ever, in this file or any
+# successor. sudo matches a command line as ONE concatenated string, and `*` in that string
+# matches `/` and spans words. The canonical illustration in the sudo documentation is that
+# permitting `cat /var/log/*` also permits `cat /var/log/messages /etc/shadow`. The
+# reference host granted its runner
+#
+#     NOPASSWD: /usr/bin/rm -rf /var/lib/docker/containers/*
+#
+# which by that rule permits `sudo rm -rf /var/lib/docker/containers/x /etc /home`:
+# unrestricted root deletion of any path on the box, held by the account that runs every
+# merged pull request. Full analysis in `docs/evidence/raghava-deploy-teardown.md` §8.3.
+#
+# Sources (accessed 17 Aug 2026):
+#   sudoers(5), "Command arguments" — a Cmnd followed by "" may be run with NO arguments;
+#     a Cmnd with no argument spec at all permits ANY arguments.
+#   Compass Security, "Dangerous Sudoers Entries, Part 4: Wildcards".
+#   David Hamann, "Beware of wildcard paths in sudo commands", 24 Feb 2023.
+#
+# ====================================================================================
+# THE SHAPE
+#
+# Each grant below is: one absolute path to a ROOT-OWNED script, followed by `""`, which is
+# sudoers for "this command may be run only with an empty argument list". The deploy account
+# can therefore NAME a privileged action; it can never COMPOSE one. Everything that varies
+# about an action travels through a staging directory the root script validates
+# (`infra/privileged/sbin/calevate-nginx-apply` documents that validation), so there is no
+# argument for an attacker to bend and no path for one to traverse.
+#
+# The scripts must be root-owned and NOT writable by the deploy account, or the grant is
+# equivalent to full root: a script the caller can rewrite is a command the caller can
+# construct. `infra/privileged/README.md` §2 is the install procedure and it checks this.
+
+# The deploy account. This name appears in exactly three places and they must agree:
+# here, `DEPLOY_USER` in /usr/local/sbin/calevate-nginx-apply, and the owner of
+# /var/lib/calevate/nginx-staging. README §3.
+Defaults:calevate    env_reset, secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Install the staged nginx configuration, test it, reload — or restore the previous set and
+# refuse. NOPASSWD because this runs unattended under CD: a sudo that PROMPTS there does not
+# fail, it BLOCKS, holding the deploy open until the job times out with the containers
+# already swapped and the edge config not (DEPLOYMENT §4 step 3).
+calevate ALL=(root) NOPASSWD: /usr/local/sbin/calevate-nginx-apply ""
+
+# ====================================================================================
+# WHAT IS DELIBERATELY NOT GRANTED
+#
+#   * `rm` under /var/lib/docker, at any path, wildcard or not. Dead-container tombstones
+#     are DETECTED by the deploy and refused with the exact command for a human to run
+#     (DEPLOYMENT §4 step 4). An automated `rm -rf` under the daemon's own state directory
+#     is a bigger hazard than the fault it fixes, and holding the grant at all means the
+#     account can be made to use it.
+#   * `systemctl restart docker`. Restarting the container runtime is not a deploy step; it
+#     is an incident action, taken by a human who has read `runbooks/deploy-failed.md`.
+#   * `systemctl reload nginx` on its own. It is reachable only through the script above,
+#     which reloads a configuration it has just tested. A bare reload grant lets a caller
+#     reload whatever is on disk, which is the failure mode the test exists to prevent.
+#   * Anything for the daily hygiene job. `scripts/deploy/host-hygiene.sh` runs entirely as
+#     the deploy account: Docker through the `docker` group, pm2 as its own owner, and the
+#     journal bounded declaratively by `infra/hygiene/journald-cap.conf` instead of
+#     vacuumed by a privileged daily command. A scheduled job holding root is a scheduled
+#     root shell.
+#   * `certbot`. Renewal runs from certbot's own systemd timer as root, with the nginx
+#     reload attached as a deploy hook (DEPLOYMENT §9.5a step 5). The deploy account is not
+#     in that path and does not need to be.

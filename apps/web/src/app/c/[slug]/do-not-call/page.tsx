@@ -141,8 +141,15 @@ const SOURCE_OPTIONS: { value: DncSource; label: string; note: string }[] = [
  * one property, and which one wins is decided by Tailwind's own emission order rather
  * than by the order they are written in. That is a coin toss dressed as a style.
  */
+/* `min-w-0 max-w-full`: an <input> with no width utility sizes to its `size`
+   attribute (~20 characters), which at the 16px this repo now gives touch devices
+   is ~256px — 2px wider than the 254px card it sits in at 320px, so it painted
+   across the border. A CAP rather than `w-full`: these sit in flex rows where a
+   forced full width would restyle the desktop console, and on desktop there is
+   room so the cap never binds. `min-w-0` because a flex item will not otherwise
+   shrink below its own min-content. */
 const FIELD_BASE =
-  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint";
+  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
 const FIELD = `${FIELD_BASE} px-3`;
 /** The same field with room for a leading icon. */
 const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
@@ -207,7 +214,11 @@ export default function DoNotCallPage() {
             check.mutate(phone.trim());
           }}
         >
-          <div className="relative">
+          {/* `min-w-0`: this wrapper is a flex item, and a flex item defaults to
+              `min-width: auto` — so it took the search input's intrinsic ~256px width
+              and would not shrink into the 254px row at 320px. The input's own
+              `max-w-full` can only cap it once the wrapper is allowed to give. */}
+          <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <input
               required

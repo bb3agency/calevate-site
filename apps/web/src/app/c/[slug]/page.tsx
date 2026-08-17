@@ -125,7 +125,7 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
 
       <div className="grid gap-6 lg:grid-cols-12">
         <div className="lg:col-span-8">
-          <Card title="Calls each day" bodyClassName="p-6">
+          <Card title="Calls each day">
             <DailyCalls days={data.daily_7d} />
           </Card>
         </div>
@@ -153,14 +153,14 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
               "we could not read it". Same three states as the dashboard query beside it,
               same spelling. */}
           {usage.isLoading ? (
-            <Card title="Spend this month" bodyClassName="p-5">
+            <Card title="Spend this month" bodyClassName="p-4 sm:p-5">
               <Skeleton rows={2} />
             </Card>
           ) : usage.error || !usage.data ? (
             /* `|| !usage.data` for the paused case: with no error to render, this tile
                used to fall through to `formatINR(undefined)` — a "—" that an owner
                cannot tell from "you have spent nothing this month". */
-            <Card title="Spend this month" bodyClassName="p-5">
+            <Card title="Spend this month" bodyClassName="p-4 sm:p-5">
               <ProblemNotice
                 error={usage.error ?? new Error("Your spend did not load.")}
                 onRetry={() => void usage.refetch()}
@@ -356,7 +356,7 @@ function SentimentSplit({ split }: { split: Record<string, number> }) {
   const rows = Object.entries(split);
   const total = rows.reduce((sum, [, count]) => sum + count, 0);
   return (
-    <Card title="How callers sounded" bodyClassName="p-5">
+    <Card title="How callers sounded" bodyClassName="p-4 sm:p-5">
       {total === 0 ? (
         <p className="text-[13px] text-ink-muted">No scored calls in the last 7 days yet.</p>
       ) : (

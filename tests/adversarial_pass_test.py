@@ -14,9 +14,11 @@ Each test names the property it defends rather than the code path it walks.
      RAW `Authorization` header, so the same session respelled — case, extra spaces —
      was several callers, unboundedly many with padding.
 
-  3. **A slow JWKS endpoint must not stop the process.** `PyJWKClient` fetches over
-     `urllib`, synchronously; called from the event loop it stalls every other request,
-     and an anonymous caller can force one fetch per request by varying a `kid`.
+  3. **A slow identity provider must not stop the process.** CLOSED BY DELETION rather
+     than by a fix — D-177 removed the vendor, and with it every network call on the
+     authentication path. The finding and why it is no longer expressible are kept in
+     place of the tests, because "this class of defect cannot arise here" is the strongest
+     form of a passing test and the weakest form of a deleted one.
 
   4. **The body cap counts bodies that declare no length.** `Transfer-Encoding: chunked`
      walked past a `Content-Length`-only check, and the edge's own ceiling is 25 MiB.
@@ -27,19 +29,14 @@ run-unique tenant, and nothing asserts a global count.
 
 from __future__ import annotations
 
-import asyncio
-import time
 import uuid
 from collections.abc import AsyncIterator, Iterator
 
-import jwt
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.core import auth as auth_module
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -75,14 +72,13 @@ async def _make_org() -> dict[str, object]:
 async def _make_member(tenant_id: uuid.UUID) -> tuple[uuid.UUID, str]:
     """A real `users` row with a real owner membership. Returns (user_id, dev token)."""
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -92,7 +88,7 @@ async def _make_member(tenant_id: uuid.UUID) -> tuple[uuid.UUID, str]:
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )
-    return user_id, f"dev:client:{clerk_id}"
+    return user_id, f"dev:client:{user_id}"
 
 
 # --- 1. IDOR ------------------------------------------------------------------------
@@ -368,96 +364,33 @@ async def test_one_credential_cannot_multiply_its_own_rate_limit_budget(
     )
 
 
-# --- 3. the JWKS fetch is not on the event loop --------------------------------------
-
-
-_SLOW_JWKS_S = 1.0
-
-
-class _SlowJwks:
-    """Stands in for `PyJWKClient` with a JWKS endpoint that takes a second.
-
-    A BLOCKING sleep, because that is exactly what `urllib.request.urlopen` is: the point
-    of the test is that a synchronous call in this position stops the loop, and an
-    `await asyncio.sleep` here would be testing a different function.
-    """
-
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def get_signing_key_from_jwt(self, token: str) -> object:
-        self.calls += 1
-        time.sleep(_SLOW_JWKS_S)
-        # What an unknown `kid` really ends in, so `verify_token`'s dependency branch is
-        # the one that runs and the request finishes as a 503 rather than an exception.
-        raise jwt.exceptions.PyJWKClientConnectionError("slow endpoint")
-
-
-async def test_a_slow_jwks_endpoint_does_not_stop_every_other_request(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """An anonymous caller with an unknown `kid` must not be able to stall the process.
-
-    `PyJWKClient.get_signing_key` refetches the whole key set whenever the `kid` is not
-    in it, and a failed lookup is never memoised — so one fetch per request is a thing a
-    stranger can ask for, and `/healthz*` carries no limit profile at all. Called on the
-    loop, one second of JWKS latency is one second in which this process serves nobody.
-
-    MEASURED AS "did the loop keep running", not as elapsed wall time: the counter below
-    is iterations of a 10ms sleep completed WHILE the request is in flight. Blocked, that
-    is 0 or 1; free, it is dozens. A ratio, so a slow CI box moves both sides together.
-    """
-    slow = _SlowJwks()
-    monkeypatch.setattr(auth_module, "_jwk_client", lambda realm: slow)
-    # Clerk "configured", so `_verify_dev_token` declines and the JWKS path is reached.
-    configured = get_settings().model_copy(
-        update={"clerk_client_secret_key": "sk_test_x", "clerk_admin_secret_key": "sk_test_y"}
-    )
-    monkeypatch.setattr(auth_module, "get_settings", lambda: configured)
-    unknown_kid = jwt.encode(
-        {"sub": "x"}, "k" * 32, algorithm="HS256", headers={"kid": "no-such-key"}
-    )
-
-    ticks = 0
-    stop = asyncio.Event()
-
-    async def heartbeat() -> None:
-        nonlocal ticks
-        while not stop.is_set():
-            await asyncio.sleep(0.01)
-            ticks += 1
-
-    async with _client() as http:
-        beat = asyncio.create_task(heartbeat())
-        await asyncio.sleep(0.05)  # let the heartbeat settle before we start counting
-        ticks = 0
-        response = await http.get("/v1/agents", headers={"Authorization": f"Bearer {unknown_kid}"})
-        during = ticks
-        stop.set()
-        await beat
-
-    assert slow.calls == 1, f"the JWKS path was not exercised ({slow.calls} calls)"
-    assert response.status_code == 502, response.text
-    assert response.json()["type"].endswith("/auth_provider_unavailable"), response.text
-    assert during >= 10, (
-        f"the event loop completed {during} ticks during a {_SLOW_JWKS_S}s JWKS fetch — "
-        "it was blocked, so every other in-flight request was stalled with it"
-    )
-
-
-def test_the_jwks_client_does_not_hold_a_thread_for_pyjwts_default_half_minute() -> None:
-    """The other half: off the loop is not free, it is a worker thread. PyJWKClient's
-    default timeout is 30s, which is 30s of a thread per hostile request."""
-    assert auth_module.JWKS_FETCH_TIMEOUT_S <= 10.0
-    auth_module._jwk_clients.pop("client", None)
-    settings = get_settings().model_copy(update={"clerk_client_secret_key": "sk_test_x"})
-    original = auth_module.get_settings
-    auth_module.get_settings = lambda: settings  # type: ignore[assignment]
-    try:
-        assert auth_module._jwk_client("client").timeout == auth_module.JWKS_FETCH_TIMEOUT_S
-    finally:
-        auth_module.get_settings = original  # type: ignore[assignment]
-        auth_module._jwk_clients.pop("client", None)
+# --- 3. the JWKS fetch that no longer exists ------------------------------------------
+#
+# TWO TESTS STOOD HERE AND ARE GONE WITH THEIR SUBJECT (D-177). They were the sharpest
+# findings of this pass and they are worth recording rather than deleting silently, because
+# what closed them was not a fix:
+#
+#   (a) `PyJWKClient.get_signing_key` fetched over `urllib`, SYNCHRONOUSLY, from an `async
+#       def`. `get_signing_key` refetches the whole key set whenever the `kid` is not in it
+#       and a failed lookup is never memoised, so ANY anonymous caller could force one
+#       blocking fetch per request by varying the `kid` of an unsigned JWT — one second of
+#       vendor latency was one second in which this process served nobody, `/healthz`
+#       included. The fix was `asyncio.to_thread`; the test measured "did the loop keep
+#       running" rather than elapsed time.
+#   (b) Off the loop is not free, it is a worker thread, and PyJWT's default timeout is 30
+#       seconds — 30 seconds of a thread per hostile request. `JWKS_FETCH_TIMEOUT_S = 5`
+#       bounded it.
+#
+# Neither is expressible now: authentication performs NO NETWORK IO of any kind. A session
+# is a row, `verify_session` is one indexed SELECT on a 32-byte fingerprint, and there is no
+# third party whose latency a stranger can aim at this process. That is the largest
+# operational property D-177 bought and it is worth naming here, where the defect lived,
+# rather than only in the decision log.
+#
+# What survives in this file is the shape of the finding rather than its subject: an
+# UNAUTHENTICATED caller must not be able to make this process do unbounded work. Sections
+# 1, 2 and 4 are that same question asked of the rate limiter's bucket key, the header
+# spelling and the body cap.
 
 
 # --- 4. the body cap counts what it cannot be told ----------------------------------

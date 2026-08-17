@@ -99,13 +99,12 @@ class Settings(BaseSettings):
 
     # NO DEFAULT, ON PURPOSE. The environment is STATED, never inferred.
     #
-    # This field used to default to `"local"`, and `"local"` is the single value under
-    # which `apps/api/core/auth.py::_verify_dev_token` accepts `dev:<realm>:<clerk_id>`
-    # — a credential whose SUBJECT THE CALLER CHOOSES. `runtime_config_missing_keys`
-    # skips its Clerk-key checks under the same branch, so `/healthz/ready` reported a
-    # healthy service while doing it. One forgotten variable therefore switched off
-    # both the authentication and the alarm, and a deploy that never set APP_ENV looked
-    # exactly like one that did.
+    # This field used to default to `"local"`, and `"local"` is one of the two facts under
+    # which `apps/api/core/auth.py::_verify_dev_token` accepts a `dev:<realm>:<subject-id>`
+    # credential — an authentication bypass. `runtime_config_missing_keys` skipped its
+    # provider checks under the same branch, so `/healthz/ready` reported a healthy service
+    # while doing it. One forgotten variable therefore switched off both the authentication
+    # and the alarm, and a deploy that never set APP_ENV looked exactly like one that did.
     #
     # A default that is safe locally and catastrophic in production is not a default;
     # it is a trap with an ergonomics argument attached. Removing it costs one line in
@@ -290,20 +289,11 @@ class Settings(BaseSettings):
     # Cohere is only needed if the bake-off selects a store that does not.
     cohere_api_key: str | None = None
 
-    # Two SEPARATE Clerk applications — admin realm and client realm never share
-    # session logic (TRD §11).
-    clerk_admin_publishable_key: str | None = Field(default=None, max_length=256)
-    clerk_admin_secret_key: str | None = None
-    clerk_client_publishable_key: str | None = Field(default=None, max_length=256)
-    clerk_client_secret_key: str | None = None
-    # Custom domain so the flow is ours end to end (D-37); also the JWKS host.
-    # 253 is the DNS name limit; a hostname is all this may ever be, because
-    # `core/auth.jwks_url` interpolates it into `https://{host}/.well-known/jwks.json`
-    # and a value carrying a scheme or a path would build a URL that fetches nothing.
-    clerk_frontend_api: str = Field(default="accounts.calevate.tech", max_length=253)
-    # Svix signing secret for the user/org mirror webhook (`whsec_...`). Absent means
-    # the endpoint FAILS CLOSED — an unverifiable identity feed is worse than none.
-    clerk_webhook_secret: str | None = None
+    # THE SIX `CLERK_*` FIELDS THAT WERE HERE ARE GONE (D-177). Two publishable keys, two
+    # secret keys, a frontend-API hostname and a Svix webhook secret — the whole vendor
+    # configuration surface for authentication, removed rather than deprecated, because a
+    # setting nothing reads is a value an operator can still install and then believe in.
+    # Authentication is first-party and configures nothing: see `apps/api/authn/`.
 
     # HMAC material for the audit hash chain (BACKEND-PATTERNS §7). REQUIRED outside
     # `local`: it used to fall back to the constant `local-dev:{app_env}` in EVERY
@@ -487,7 +477,7 @@ class Settings(BaseSettings):
 
     # The service-account key the `service_account` provider signs with: the JSON blob
     # Google issues, injected from the secrets manager at deploy time exactly like
-    # BOLNA_API_KEY and the Clerk keys (DEV-SETUP §4). Unset with the provider set is
+    # BOLNA_API_KEY (DEV-SETUP §4). Unset with the provider set is
     # itself a refusal — `get_sheets_transport` returns the unconfigured transport, so
     # the API stops offering the Sheets checkbox rather than creating endpoints that
     # cannot authenticate.
@@ -619,6 +609,26 @@ class Settings(BaseSettings):
     # up and dial), so the public intake is OFF unless someone turned it on, and
     # closing it during an incident is an environment change, not a deploy.
     self_serve_signup_enabled: bool = False
+
+    # D-166: first-party authentication is THE authentication this product has. Clerk is
+    # being removed, not run beside it, so this is a KILL SWITCH rather than a cutover flag
+    # — the same role `self_serve_signup_enabled` plays, and it sits here for the same
+    # reason: closing a front door during an incident is an environment change, not a
+    # deploy.
+    #
+    # DEFAULT TRUE, unlike every other switch in this block, and the asymmetry is the
+    # point. The others gate a FEATURE, so off is the safe default and a deployment that
+    # forgot them still works. This one gates the only way anybody signs in: a fresh VPS
+    # that came up with it off would have no authentication at all, and the operator who
+    # had to diagnose that would be locked out of the console that reports it. Off is
+    # therefore an incident action taken deliberately, never a state a deployment reaches
+    # by omission.
+    #
+    # Routes are MOUNTED either way and refuse with `first_party_auth_disabled` when this
+    # is off — a conditionally-mounted router is invisible to `scripts/check_wiring.py`,
+    # absent from the OpenAPI contract, and answers 404 where "switched off" and "wrong
+    # path" must be distinguishable.
+    first_party_auth_enabled: bool = True
 
     # Razorpay prepaid top-ups (D-34). NOTE: no Razorpay account has been provisioned
     # and the vendor contract is UNVERIFIED — see apps/api/billing/payments.py, which

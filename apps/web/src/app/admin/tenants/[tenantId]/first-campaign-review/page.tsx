@@ -318,7 +318,7 @@ function WhereItStands({
 const DECISIONS = Object.keys(DECISION_COPY) as FirstCampaignDecision[];
 
 const FIELD =
-  "w-full rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 /**
  * The decision itself.

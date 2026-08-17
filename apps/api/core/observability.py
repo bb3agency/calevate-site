@@ -4,6 +4,13 @@ Bootstrap step 3 says "tracing init before the app exists", and this is that ste
 Everything here is config-gated and a no-op without keys, so a local run stays quiet
 and a misconfigured deploy degrades rather than crashes.
 
+Degrading quietly is only acceptable while somebody is TOLD. `observability_readiness`
+near the bottom of this file is the ladder that tells them: off skips cleanly, on-and-
+consistent is ready, and **on-and-broken is named, by field, at boot and again ahead of
+the deploy** (`scripts/check_observability_ready.py`). It answers configuration validity
+and refuses to guess at reachability — that half is OPERATIONS §2 gate 15, against the
+real hosts.
+
 The part that is not optional is the **redaction hook**. Hard rule 6 forbids phone
 numbers, transcript text and extraction payloads in logs — and an error tracker is a
 log with better search. Sentry captures local variables and request bodies by default,
@@ -55,7 +62,8 @@ import hashlib
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from calevate_shared.config import email_transport_reason
@@ -69,6 +77,9 @@ from apps.api.core.logging import (
     redact_text,
 )
 from apps.api.core.settings import get_settings
+
+if TYPE_CHECKING:  # `Settings` is a type here and never a runtime import (hard rule 3).
+    from calevate_shared.config import Settings
 
 log = get_logger(__name__)
 
@@ -996,6 +1007,347 @@ def reset_tracing() -> None:
     _dropped_attributes.clear()
 
 
+# --- Readiness ladder: is a component that is DECLARED ON actually on? --------
+#
+# THE STATE THIS EXISTS FOR IS THE MIDDLE ONE. "Off" is already loud — `init_observability`
+# logs `observability_local_only` — and "on and working" needs nothing said about it. What
+# had no name in this module was ON AND SILENTLY BROKEN: a DSN whose project id is a typo,
+# an OTLP endpoint that already ends in `/v1/traces` so the exporter appends a second one,
+# a sample ratio of 0.0 (configured, wired, exporting nothing), a release that still reads
+# `dev` on a production host so no report names the deploy that produced it. Every one of
+# those boots green, reports nothing, and says nothing — which is indistinguishable, from
+# the outside, from a platform that simply is not failing.
+#
+# WHAT IS DECIDABLE HERE, AND WHAT IS DELIBERATELY NOT. **Configuration validity** is
+# decidable in this process with no network and no credential: a DSN either names a
+# project or it does not. **Reachability is not**, and this module must never simulate it.
+# A function that "verified Sentry" by parsing a string would be an unverified vendor
+# behaviour presented as an observation — the defect class D-31/D-32 exist for, one layer
+# further in. Whether an event is ACCEPTED by the vendor, whether the collector answers,
+# and whether a human sees either, are OPERATIONS §2 gate 15: performed once against the
+# real hosts with the real credentials, and recorded there.
+#
+# These are pure functions over `Settings` so that ONE definition serves both readers —
+# `init_observability` logs them at boot, and `scripts/check_observability_ready.py` runs
+# them ahead of a deploy. A guard the deploy applies and the process does not is a guard
+# that only covers the machines somebody remembered to run it on.
+
+#: Component is not configured. Nothing to verify, nothing wrong. (Reference shape:
+#: disabled must SKIP cleanly, or every local run learns to ignore the check.)
+READINESS_SKIPPED = "skipped"
+#: Configured, and every setting it needs is present and internally consistent.
+READINESS_READY = "ready"
+#: Configured and broken. The rung this whole ladder exists for.
+READINESS_MISCONFIGURED = "misconfigured"
+
+
+@dataclass(frozen=True)
+class ReadinessProblem:
+    """One specific thing that is wrong, named.
+
+    `code` is a stable token safe to log and to alert on; `message` is the sentence an
+    operator acts on. NEITHER MAY CARRY A VALUE — hard rule 6 covers PII, and a DSN is a
+    credential besides, so both halves name FIELDS and shapes and never contents.
+    """
+
+    code: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ComponentReadiness:
+    component: str
+    status: str
+    #: Why it is skipped, or what it is when ready. One sentence, value-free.
+    summary: str
+    problems: tuple[ReadinessProblem, ...] = ()
+
+
+#: The exporter `init_tracing` builds. Named here so the readiness answer and the thing
+#: actually constructed cannot drift into disagreeing about which package is required.
+_OTLP_HTTP_TRACE_EXPORTER = "opentelemetry.exporter.otlp.proto.http.trace_exporter"
+
+
+def _carries_a_url_tail(value: str) -> bool:
+    """Does this configured URL carry a `?…` or `#…` tail?
+
+    Asked of the RAW string rather than of `urlsplit`'s parts on purpose: neither a Sentry
+    DSN nor an OTLP base endpoint may contain either character anywhere, and a `#` that
+    landed in the userinfo is a paste accident `urlsplit` would apportion somewhere this
+    check was not looking.
+    """
+    return "?" in value or "#" in value
+
+
+def _module_installed(name: str) -> bool:
+    """Is this module importable, WITHOUT importing it (hard rule 3)?
+
+    `find_spec` raises rather than returning None when a PARENT package is missing, which
+    is exactly the case being asked about, so the exception is the answer here.
+    """
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def _release_problem(settings: Settings) -> ReadinessProblem | None:
+    """A telemetry stream that cannot name its build.
+
+    Only a defect off `local`: `dev` is the correct answer on a laptop, and failing there
+    would train everyone to ignore this ladder before it ever ran against a deploy.
+    """
+    if settings.app_env == "local" or settings.release_version != "dev":
+        return None
+    return ReadinessProblem(
+        "release_version_default",
+        "RELEASE_VERSION is still the `dev` default on a non-local deployment, so every "
+        "report and every span claims the same build and none of them can be tied to a "
+        "commit. CI sets it from the commit sha (DEPLOYMENT §8).",
+    )
+
+
+def _dsn_problems(dsn: str) -> list[ReadinessProblem]:
+    """Sentry DSN shape: `<scheme>://<public key>@<host>/<numeric project id>`.
+
+    Checked HERE rather than left to `sentry_sdk.init` for one reason: init runs on the
+    host, at boot, and its refusal is a boot-time event nobody is watching. This runs
+    before the deploy. The SDK's own parser is still consulted below when it is installed
+    — it is the authority on what it will accept — and these rules exist so a host
+    WITHOUT the optional `errors` group can still catch a typo.
+    """
+    problems: list[ReadinessProblem] = []
+    split = urlsplit(dsn)
+    if split.scheme not in {"http", "https"}:
+        problems.append(
+            ReadinessProblem(
+                "dsn_scheme_unsupported",
+                "SENTRY_DSN does not start with http:// or https://. A DSN copied out of "
+                "the Sentry UI always does; a value that does not is usually a project "
+                "name or an auth token pasted into the wrong field.",
+            )
+        )
+    if not split.username:
+        problems.append(
+            ReadinessProblem(
+                "dsn_no_public_key",
+                "SENTRY_DSN carries no public key (the `<key>@` part). Without it every "
+                "event is rejected by the ingest endpoint and the SDK reports nothing.",
+            )
+        )
+    if not split.hostname:
+        problems.append(
+            ReadinessProblem(
+                "dsn_no_host", "SENTRY_DSN names no host, so there is nowhere to send to."
+            )
+        )
+    if _carries_a_url_tail(dsn):
+        problems.append(
+            ReadinessProblem(
+                "dsn_has_query_or_fragment",
+                "SENTRY_DSN contains a `?` or `#`. A DSN has neither — the value has "
+                "picked up something from a copy/paste.",
+            )
+        )
+    project_id = split.path.rsplit("/", 1)[-1]
+    if not project_id:
+        problems.append(
+            ReadinessProblem(
+                "dsn_no_project_id",
+                "SENTRY_DSN ends without a project id, so events have no project to land in.",
+            )
+        )
+    elif not project_id.isdigit():
+        # sentry_sdk.utils.Dsn raises BadDsn on a non-integer project id, so this is the
+        # SDK's own rule restated where it can be read before the process boots.
+        problems.append(
+            ReadinessProblem(
+                "dsn_project_id_not_numeric",
+                "SENTRY_DSN's last path segment is not a number. Sentry project ids are "
+                "numeric and the SDK refuses anything else at init.",
+            )
+        )
+    return problems
+
+
+def sentry_readiness(settings: Settings) -> ComponentReadiness:
+    """Sentry: declared on by `SENTRY_DSN`, and then either usable or silently absent."""
+    dsn = (settings.sentry_dsn or "").strip()
+    if not dsn:
+        return ComponentReadiness(
+            "sentry",
+            READINESS_SKIPPED,
+            "SENTRY_DSN is unset: errors are written to the service log and to nowhere "
+            "else. That is the local and CI default; on a client-serving deployment it "
+            "is OPERATIONS §8's unfinished business, not this check's failure.",
+        )
+    problems = _dsn_problems(dsn)
+    try:
+        import sentry_sdk.utils
+    except ImportError:
+        problems.append(
+            ReadinessProblem(
+                "sdk_missing",
+                "SENTRY_DSN is set and `sentry-sdk` is not installed, so "
+                "`init_observability` logs `sentry_dsn_set_but_sdk_missing` and reports "
+                "nothing for the life of the process. Install the optional group: "
+                "`uv sync --all-packages --group errors` (pyproject `[dependency-groups] "
+                "errors`).",
+            )
+        )
+    else:
+        try:
+            sentry_sdk.utils.Dsn(dsn)
+        except Exception:
+            # The vendor's parser is the authority on what it accepts; ours above says
+            # WHICH part is wrong. Both, because either alone leaves a gap: theirs is
+            # unavailable without the optional package, ours is a restatement.
+            problems.append(
+                ReadinessProblem(
+                    "dsn_rejected_by_sdk",
+                    "`sentry_sdk.utils.Dsn` refuses this value, so `sentry_sdk.init` "
+                    "would raise at boot. The exception text is deliberately not "
+                    "reproduced here: it echoes the DSN.",
+                )
+            )
+    release = _release_problem(settings)
+    if release is not None:
+        problems.append(release)
+    if problems:
+        return ComponentReadiness(
+            "sentry",
+            READINESS_MISCONFIGURED,
+            "SENTRY_DSN is set, so this deployment believes errors are being reported.",
+            tuple(problems),
+        )
+    return ComponentReadiness(
+        "sentry",
+        READINESS_READY,
+        "DSN is well formed, the SDK is installed, and the release is named. Whether the "
+        "project ACCEPTS an event is OPERATIONS §2 gate 15, not this check.",
+    )
+
+
+def tracing_readiness(settings: Settings) -> ComponentReadiness:
+    """OpenTelemetry: declared on by `OTEL_EXPORTER_OTLP_ENDPOINT`."""
+    endpoint = (settings.otel_exporter_otlp_endpoint or "").strip()
+    if not endpoint:
+        return ComponentReadiness(
+            "otel",
+            READINESS_SKIPPED,
+            "OTEL_EXPORTER_OTLP_ENDPOINT is unset: `init_tracing` returns False without "
+            "importing the SDK, and `span()` is a generator frame. That is the documented "
+            "local default.",
+        )
+    problems: list[ReadinessProblem] = []
+    split = urlsplit(endpoint)
+    if not split.scheme or not split.netloc:
+        problems.append(
+            ReadinessProblem(
+                "endpoint_not_absolute",
+                "OTEL_EXPORTER_OTLP_ENDPOINT is not an absolute URL. The exporter is "
+                "constructed with this value plus `/v1/traces`; a bare host or path "
+                "produces a URL the exporter retries against forever, off-thread, "
+                "silently.",
+            )
+        )
+    elif split.scheme not in {"http", "https"}:
+        problems.append(
+            ReadinessProblem(
+                "endpoint_scheme_unsupported",
+                "OTEL_EXPORTER_OTLP_ENDPOINT names a scheme this deployment cannot "
+                "export to. `init_tracing` builds the OTLP/**HTTP** exporter, so the "
+                "value must be http:// or https:// — a `grpc://` endpoint is the other "
+                "protocol's spelling and would need the other exporter package.",
+            )
+        )
+    if _carries_a_url_tail(endpoint):
+        problems.append(
+            ReadinessProblem(
+                "endpoint_has_query_or_fragment",
+                "OTEL_EXPORTER_OTLP_ENDPOINT contains a `?` or `#`. The signal path is "
+                "appended to the raw string, so the result is `...?token=x/v1/traces` — "
+                "a 404 on every batch, on a background thread, forever.",
+            )
+        )
+    if endpoint.rstrip("/").endswith("/v1/traces"):
+        # The single commonest OTLP misconfiguration, and it is invisible: the collector
+        # answers 404 on a background thread and the process never mentions it. It comes
+        # from the two env vars the spec defines — the SIGNAL-specific
+        # `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` is the full path, the BASE
+        # `OTEL_EXPORTER_OTLP_ENDPOINT` this repo reads is not.
+        problems.append(
+            ReadinessProblem(
+                "endpoint_already_names_the_signal_path",
+                "OTEL_EXPORTER_OTLP_ENDPOINT already ends in `/v1/traces`. This setting "
+                "is the BASE endpoint and `init_tracing` appends the signal path itself, "
+                "so the exporter would POST to `/v1/traces/v1/traces`. Drop the suffix.",
+            )
+        )
+    if settings.otel_traces_sample_ratio == 0.0:
+        problems.append(
+            ReadinessProblem(
+                "sample_ratio_zero",
+                "OTEL_TRACES_SAMPLE_RATIO is 0.0, so the provider, the exporter thread "
+                "and the middleware are all built and no root trace is ever sampled. "
+                "Tracing that is configured and exports nothing is the exact state this "
+                "ladder exists to name; set a ratio above 0 or unset the endpoint.",
+            )
+        )
+    # `find_spec`, not `import`: this runs during `init_observability`, which
+    # `apps/voice-runtime` calls at boot, and hard rule 3 keeps that import graph small.
+    # Asking whether a module is INSTALLABLE costs a path lookup; importing it would cost
+    # the ~300ms `init_tracing`'s own comment measures, on a service that answers calls.
+    missing = [
+        name
+        for name in ("opentelemetry.sdk.trace", _OTLP_HTTP_TRACE_EXPORTER)
+        if not _module_installed(name)
+    ]
+    if missing:
+        problems.append(
+            ReadinessProblem(
+                "sdk_missing",
+                "OTEL_EXPORTER_OTLP_ENDPOINT is set and "
+                f"{', '.join(missing)} is not installed, so `init_tracing` logs "
+                "`otel_endpoint_set_but_sdk_missing` and returns False: the endpoint is "
+                "configured and no span will ever be built.",
+            )
+        )
+    release = _release_problem(settings)
+    if release is not None:
+        problems.append(release)
+    if problems:
+        return ComponentReadiness(
+            "otel",
+            READINESS_MISCONFIGURED,
+            "OTEL_EXPORTER_OTLP_ENDPOINT is set, so this deployment believes it is tracing.",
+            tuple(problems),
+        )
+    return ComponentReadiness(
+        "otel",
+        READINESS_READY,
+        "Endpoint is a base URL the exporter can extend, the ratio samples something, and "
+        "the SDK is installed. Whether the collector ACCEPTS a batch is OPERATIONS §2 "
+        "gate 15.",
+    )
+
+
+def observability_readiness(settings: Settings) -> tuple[ComponentReadiness, ...]:
+    """The ladder, in the order an operator reads it.
+
+    Langfuse is absent from this tuple ON PURPOSE and is not an oversight: it has no
+    setting to be declared on BY (D-49 removed the keys rather than leaving them looking
+    wired), so "is Langfuse on" is a question about the SHAPE OF THE TREE — an import, a
+    dependency, a client — and not about this process's configuration.
+    `scripts/check_observability_ready.py` owns that rung, and it has to: answering it
+    needs an AST walk over the repository, which is precisely what hard rule 3 forbids
+    this module from importing.
+    """
+    return (sentry_readiness(settings), tracing_readiness(settings))
+
+
 def init_observability(service: str) -> str:
     """Called from `create_app` before the app object exists. Returns what was enabled,
     for the startup log line — an operator should be able to see at a glance whether
@@ -1032,6 +1384,22 @@ def init_observability(service: str) -> str:
         # pre-launch gate failing, and it says so at boot rather than at 3am.
         log.warning("alert_delivery_unconfigured", extra={"service": service})
 
+    # THE LADDER, AT BOOT. `scripts/check_observability_ready.py` is the same verdict
+    # taken before the deploy; this is the one taken on the machine that actually holds
+    # the configuration, because a deployment nobody ran the script against is exactly
+    # the deployment where a typo survives. CODES only, never values: a DSN is a
+    # credential and hard rule 6 covers the rest.
+    for readiness in observability_readiness(settings):
+        if readiness.status == READINESS_MISCONFIGURED:
+            log.warning(
+                "observability_component_misconfigured",
+                extra={
+                    "service": service,
+                    "component": readiness.component,
+                    "problems": [problem.code for problem in readiness.problems],
+                },
+            )
+
     if settings.sentry_dsn:
         try:
             import sentry_sdk
@@ -1060,6 +1428,22 @@ def init_observability(service: str) -> str:
             # Tolerant boot (BACKEND-PATTERNS §2): a missing optional package must not
             # take down a service whose actual job is answering calls.
             log.warning("sentry_dsn_set_but_sdk_missing")
+        except ValueError as exc:
+            # `sentry_sdk.utils.BadDsn` subclasses ValueError, and it is what `init`
+            # raises on a malformed DSN. Until this branch existed a single typo in a
+            # console-managed field (`sentry_dsn` is `on_restart`, PLATFORM-CONFIG) took
+            # voice-runtime DOWN at boot — the opposite of this module's own contract two
+            # paragraphs into its docstring ("a misconfigured deploy degrades rather than
+            # crashes"), and on the one service whose job is answering a telephone.
+            #
+            # The exception is NOT logged: `BadDsn`'s message echoes the DSN, which is a
+            # credential. The type name and the readiness code above are what an operator
+            # needs, and `dsn_rejected_by_sdk` from the ladder says the same thing before
+            # the deploy rather than after it.
+            log.warning(
+                "sentry_dsn_rejected",
+                extra={"service": service, "error": type(exc).__name__},
+            )
 
     if init_tracing(service):
         enabled.append(f"otel@{settings.otel_traces_sample_ratio:g}")
@@ -1074,21 +1458,29 @@ __all__ = [
     "ALLOWED_SPAN_ATTRIBUTE_SUFFIXES",
     "DROP_HEADERS",
     "MAX_ATTRIBUTE_CHARS",
+    "READINESS_MISCONFIGURED",
+    "READINESS_READY",
+    "READINESS_SKIPPED",
     "REDACT_KEYS",
     "TRACE_KWARG",
+    "ComponentReadiness",
+    "ReadinessProblem",
     "TracingMiddleware",
     "current_trace_id",
     "current_traceparent",
     "dropped_attribute_keys",
     "init_observability",
     "init_tracing",
+    "observability_readiness",
     "reset_tracing",
     "sanitize_attributes",
     "scrub_breadcrumb",
     "scrub_event",
+    "sentry_readiness",
     "set_span_attributes",
     "shutdown_tracing",
     "span",
     "traced_job",
     "tracing_enabled",
+    "tracing_readiness",
 ]

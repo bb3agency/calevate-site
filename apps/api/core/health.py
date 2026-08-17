@@ -15,7 +15,7 @@ db_down > redis_down > queue_stale > config_missing > none.
 
 `/healthz/ready` used to publish, to anyone who asked, the NAMES of the configuration
 keys this deployment has not installed yet — `fields[].field` is
-`runtime_config_missing_keys`, i.e. `BOLNA_API_KEY`, `CLERK_ADMIN_SECRET_KEY`,
+`runtime_config_missing_keys`, i.e. `BOLNA_API_KEY`, `PLATFORM_KEK`,
 `AUDIT_CHAIN_SECRET` — plus which of DB/Redis is down and how far behind the job queue
 is. Unauthenticated, exempt from the in-app rate limiter, and proxied from
 `api.calevate.tech` by `infra/nginx/calevate.conf.template`. That is a targeting oracle:
@@ -70,7 +70,7 @@ ARQ_QUEUE_KEY = "arq:queue"
 #: INJECTED RATHER THAN IMPORTED, and both halves of the reason are load-bearing:
 #:  - `core.auth` is outside voice-runtime's pinned import surface
 #:    (`tests/voice_runtime_import_surface_test.py`) and this module is inside it. An
-#:    `import` here would put the Clerk verifier and its JWKS client on the boot graph
+#:    `import` here would put the session verifier and the audit graph on the boot graph
 #:    of the service carrying live calls, to answer a question that service has no
 #:    authentication layer to ask (hard rule 3).
 #:  - it keeps "what counts as authorised" in the composition root (`core.bootstrap`)

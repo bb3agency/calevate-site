@@ -172,6 +172,14 @@ conformance:  ## Keep the exit door oiled — run both adapters
 guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per milestone
 	uv run lint-imports
 	uv run python -m scripts.check_env_parity
+	# Parity asks whether a key is DECLARED; this asks whether the value behind it is
+	# coherent (D-168) — the two DSNs naming one database through two roles, a REDIS_URL a
+	# container can reach, a value still carrying `.env.example`'s text. Pointed at THIS
+	# machine's environment, so the local gate and the deploy ask one question of two
+	# environments; `scripts/vps-deploy.sh` runs it in the new image before migrations.
+	# Most refusals are scoped to APP_ENV != local, so a laptop exercises the subset that
+	# applies to it — the negative controls live in tests/deploy_env_preflight_test.py.
+	uv run python -m scripts.check_deploy_env
 	# The same rule for the OTHER tier's config. `next build` INLINES every
 	# NEXT_PUBLIC_* value, so an undeclared or misspelled browser key is not a build
 	# error — it is the empty string in the bundle and a broken screen in production.
@@ -186,8 +194,10 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# skims. Eight had accumulated (P4.3) — including one created while the finding was
 	# being fixed, which is why this is a check and not a list. Columns only: 38 of the 39
 	# live `compare_metadata` diffs are indexes and constraints the ORM deliberately does
-	# not declare. Needs the migrated database. Negative controls in
-	# tests/metadata_columns_guard_test.py.
+	# not declare. Needs the migrated database, and says so: exit 2 = REFUSED, because an
+	# absent TABLE arrives as one `add_table` op rather than one per column, so against an
+	# unmigrated database this printed OK having compared nothing (D-176). Negative
+	# controls in tests/metadata_columns_guard_test.py.
 	uv run python -m scripts.check_metadata_columns
 	# The six bootstrap keys may only ever be read from the environment (D-95 §4). A
 	# change that lets APP_ENV resolve from the console store is a security-posture
@@ -211,6 +221,29 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# satisfied in shape only on every audited route. Syntax-decidable; the one
 	# permitted peer read is named, and the check fails if it leaves its function.
 	uv run python -m scripts.check_audit_ip
+	# A component DECLARED on that is silently off reports nothing and says nothing, which
+	# is indistinguishable from a platform that is not failing. Off skips, on-and-broken
+	# fails by name: a DSN with a non-numeric project id, an OTLP endpoint that already
+	# ends in `/v1/traces`, a 0.0 sample ratio, a `sentry-sdk` nobody installed — plus the
+	# two export filters hard rule 6 rests on and the langfuse absence D-49 decided.
+	# Configuration only: REACHABILITY is OPERATIONS §2 gate 15 and is never simulated
+	# here. Exit 2 = refused (no resolvable configuration). Negative controls in
+	# tests/observability_readiness_guard_test.py.
+	uv run python -m scripts.check_observability_ready
+	# Restore-drill evidence expires (D-166). Reads the newest quarterly record in
+	# docs/evidence/ and refuses one more than a quarter stale, post-dated, unfilled or
+	# FAILing. It CANNOT produce that evidence — no writer, no import that reaches
+	# `scripts.restore_drill`, and it says so from its own AST on every run; the local
+	# `make restore-drill` records in the same directory are counted and never counted AS
+	# a drill. Negative controls in tests/drill_freshness_guard_test.py.
+	uv run python -m scripts.check_drill_freshness
+	# The same read, banned from a worse destination. An idempotency record is a cache of
+	# a completed response; if two callers can compute one scope, the second is served the
+	# first's payload before any tenant-scoped query runs. `scope_key` has no address
+	# fallback and this is what keeps it that way — across voice-runtime and workers too,
+	# which hold the inbox and outbox replay keys and which `check_audit_ip` does not scan
+	# (D-175). Negative controls in tests/idempotency_scope_guard_test.py.
+	uv run python -m scripts.check_idempotency_scope
 	# How many pooled connections one task may hold at once (D-182). The pool's
 	# `max_overflow` is 1, so two is survivable and three is a self-deadlock against a
 	# saturated pool — and the shape that produces three is a cross-module call chain no
@@ -218,7 +251,21 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# controls, including a doctored three-deep tree, in tests/session_nesting_guard_test.py.
 	uv run python -m scripts.check_session_nesting
 	uv run python -m scripts.check_redaction_exposure
+	# Raw SQL is how most tenant-scoped access is written here (493 statements), and it
+	# runs as a NOBYPASSRLS role — so an injection is not a leak in one account, it is a
+	# `SET LOCAL` away from every account. Every string reaching `text()` must be
+	# assembled from text typed in this repo, and where a fragment is passed by callers
+	# the check reads the CALLERS (D-172). Syntax-decidable; no database, no app boot.
+	# Negative controls, including the two-step one that pins what `_identifier()` buys,
+	# in tests/raw_sql_guard_test.py.
+	uv run python -m scripts.check_raw_sql
 	uv run python -m scripts.check_openapi_fresh
+	# The other half of the RBAC boot assertion, which SKIPS everything under a public
+	# path prefix — default-OPEN for whatever lands there next, and `/v1/auth/` is about
+	# to hold the whole first-party auth module. The exempt set is enumerated instead,
+	# each row saying what it verifies in place of a session, checked against the live
+	# app (D-173). Needs the app to boot, like check_openapi_fresh above it.
+	uv run python -m scripts.check_public_routes
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
 	# database and its subject is the SHAPE of the tree — the same class of question
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a

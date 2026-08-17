@@ -49,6 +49,8 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 | 14 H | **Does `asia-south1` serve our Gemini model?** [NEW 16 Aug 2026; model changed to 2.5 Flash the same day] | **Not Bolna's account — ours, and it needs nothing from the pilot but a GCP project.** `GEMINI_MODEL_CONFIRMED_IN_REGION is False`: nobody in this repository has been able to read Google's model-availability table (`docs.cloud.google.com`, `discuss.ai.google.dev`, `modelavailability.com`, `innfactory.ai`, `gcloud-compute.com`, `openrouter.ai` and `pricepertoken.com` were each attempted and each refused by the build environment's egress proxy). **What the re-search settled, and what it did not.** It placed the 3.x family on the GLOBAL endpoint and the `us`/`eu` multi-region REP endpoints and NOT in Mumbai, and it placed the 2.5 class — 2.5 Flash, 2.5 Pro, 2.5 Flash-Lite — squarely in Mumbai with ML processing. D-127 does not move the region, so the founder moved the MODEL: `GEMINI_DEFAULT_LLM` is now `gemini-2.5-flash`. The evidence therefore points the right way and the flag is STILL False, because a summary of a page nobody could open is not a 200. **The test is one call**: `POST` `vertex_generate_url(project, GEMINI_DEFAULT_LLM)` with a service-account bearer. **Pass** = a 200, and the flag is raised in `calevate_shared/engine.py`. **Fail** = a 404, which the worker logs as `vertex_model_not_served_in_region` naming the region, the model and the flag; the fix is then `gemini-2.5-flash-lite` (the founder's stated fallback — same family, same date) and, failing that, whichever Gemini `asia-south1` does serve. **What is NOT an acceptable outcome, and this is the whole of why the gate is H:** widening the region, or putting `locations/global` in the path. Google states you cannot control or know which region processes a global-endpoint request — the same sentence that disqualifies AI Studio — and `scripts/check_model_residency.py` fails the build on both. **What survived and is not in question**: `asia-south1` is in Vertex's own ML-processing-location table alongside Tokyo, Singapore, Sydney and Seoul, so the region's residency property — the leg D-127 actually rests on — stands. |
 | 14b H | **⏰ REPLACE `gemini-2.5-flash` BEFORE 16 OCT 2026** [DATED, and it is an obligation rather than a question] | **This is the price of gate 14's answer and it comes due whether or not anyone runs gate 14.** The dashboard AI ships on the Gemini 2.5 family, which Google retires **16 Oct 2026** (BRD R-04) — the date D-134 chose 3.x to avoid and the founder accepted on 16 Aug 2026, with the date in front of them, because the alternative was a model `asia-south1` is not reported to serve. **What happens if nobody acts**: on the day, every user-triggered assist gets a 404, logged as `vertex_model_not_served_in_region`, and `assist_capability()` falls back to Sarvam with the G-6 disclosure — degraded and disclosed, not an outage, which is why this is a dated obligation and not an incident. **The build will ask first.** `calevate_shared.engine.GEMINI_DEFAULT_LLM_RETIRES` holds the date as data and `tests/sarvam_model_identifier_test.py::test_the_shipped_gemini_model_has_runway_left` turns CI red **30 days out — 16 Sep 2026** — naming the remedy. **The action, in order**: (1) run gate 14 against the newest Gemini `asia-south1` serves; (2) move `GEMINI_DEFAULT_LLM` and `GEMINI_DEFAULT_LLM_RETIRES` together in `calevate_shared/engine.py`; (3) re-price `ASSIST_LIST_PRICE_INR_PER_KTOK` in `apps/api/billing/ai_quota.py` from the new model's published rate. **Wrong answers**: widening `RETIREMENT_RUNWAY_DAYS` to quiet the test, widening the region, or `locations/global`. Blocked outside this repo on exactly one thing — **a GCP project with a service-account key** — which is the same blocker as gate 14 and which also blocks the feature entirely, so there is no state in which this is owed and the assist is live. |
 
+| 15 H | **Does anything we report actually ARRIVE?** [NEW, D-169; ours, not Bolna's] | **Not the engine's account — ours, and it rides along here for the same reason gate 14 does: it needs no pilot, only the real hosts and the real credentials.** `scripts/check_observability_ready.py` decides everything a string can decide — DSN shape, endpoint shape, sample ratio, SDKs installed, both export filters in place — and **deliberately decides nothing about delivery**, because a check that probed a vendor from a build container and reported "reachable" would be the unverified-vendor-behaviour defect D-31/D-32 exist for. So delivery is verified ONCE, by hand, on each host that runs a service. **The test, in three parts.** (a) **Sentry**: with `SENTRY_DSN` set on the api host, raise a deliberate exception through a non-production route (or `sentry_sdk.capture_message("gate15")` in a `python -m` shell using the deployed settings) and confirm the issue appears in the Sentry project within a minute, tagged `service` and carrying the deploy's `release`. **Then read it**: confirm the exception VALUE is `[message withheld]` and no transcript, phone number or header from `DROP_HEADERS` is present — the scrubbers are unit-tested, this is the only proof they are the ones the vendor actually applied. (b) **OTel**: with `OTEL_EXPORTER_OTLP_ENDPOINT` set, place one call end to end and confirm a single trace spans voice-runtime → ARQ → worker → Postgres in the collector, that `exception.message` and `exception.stacktrace` are ABSENT from every span, and that the sampled fraction matches `OTEL_TRACES_SAMPLE_RATIO`. A trace that stops at a process boundary means the traceparent is not crossing Redis and the whole 2-minute-SLO diagnosis is unavailable. (c) **Alerting**: `notify.sh probe "delivery test"` from the DATABASE host, and confirm the mail lands in a real inbox — local acceptance is not receipt, and this is the same proof OPERATIONS §8 asks for. **Record**: the three outcomes plus what each host had configured, in `docs/evidence/`, the way the drill record is. **Fail** = anything configured that does not arrive; the fix is a configuration change and a re-run, never widening the check. **Blocked outside this repo** on: a Sentry project and DSN, a collector endpoint, and a verified Resend sender domain — the same three the pre-launch checklist blocks on, so this gate is owed exactly when §8 is. |
+
 Parallel ask to Sarvam (not a Bolna gate, but it moves our cost model more than the
 platform choice does): **is the Sarvam LLM genuinely free per token** — permanent,
 promotional, or rate-limited? If durable it removes the R-04 cost step entirely, which
@@ -248,6 +250,32 @@ LLM tracing (a trace per call, prompt version + token costs attached) is a **nam
 not a component**: the Langfuse configuration was removed rather than left looking wired
 (D-49, TRD §2), so nothing records per-call token cost or the latency breakdown today.
 
+**A component that is DECLARED on and silently off is the failure this section is worst
+at seeing, so it has a ladder now (D-169).** `uv run python -m
+scripts.check_observability_ready` — in `make guardrails` and in CI, and runnable by an
+operator against a host's own environment — reports Sentry, OTel and Langfuse one at a
+time in three rungs: **not configured** skips cleanly and says what is not happening;
+**configured and consistent** is ready; **configured and broken** FAILS naming the
+setting. What it catches is the class nothing else could: a DSN whose project id is a
+typo or a slug, `sentry-sdk` left unlisted in the deployment's dependency group, an
+`OTEL_EXPORTER_OTLP_ENDPOINT` that already ends in `/v1/traces` (this repo reads the BASE
+endpoint and appends the signal path, so the exporter would POST to
+`/v1/traces/v1/traces` and 404 forever on a background thread), a sample ratio of 0.0,
+and a `RELEASE_VERSION` still reading `dev` in production so no report names its build.
+Every one of those is type-valid, so the ops console's bounds check (D-101) cannot see
+any of them. The same predicates run at BOOT — `observability_component_misconfigured`,
+carrying problem CODES and never values — so a host nobody ran the script against still
+says it. It also holds the two filters hard rule 6 rests on (`before_send` +
+`before_breadcrumb` on the error path, `_RedactingSpanExporter` on the trace path) and
+the D-49 decision that no Langfuse client exists, because the v3 SDK is a second
+OpenTelemetry pipeline and a direct client would export the extraction prompt — a raw
+transcript — past our scrubber.
+
+**Read its green correctly: it means "nothing in this configuration can be shown to be
+broken", never "errors are arriving".** It makes no network call and never will; whether
+a Sentry event is ACCEPTED, whether the collector answers, and whether a human sees
+either is **§2 gate 15**, performed once against the real hosts.
+
 **Alerts, as built (D-49).** The sinks above were "WhatsApp/email to Sri" and for a long
 while were neither — `alert()` wrote a structured ERROR log and stopped. It now still
 writes that log FIRST and unconditionally (the durable record) and then delivers **by
@@ -416,6 +444,24 @@ an alarm saying the database is unrecoverable cannot need the database to be sen
 `infra/backup/README.md` §5); regulation/pricing re-verify; adapter conformance run against
 Bolna (keep the exit door oiled).
 
+**The quarterly line above is now enforced rather than remembered (D-166).**
+`uv run python -m scripts.check_drill_freshness` reads the newest
+`docs/evidence/restore-drill-<YYYY>-Q<N>.md` and REFUSES when it is more than one quarter
+old, post-dated, still carrying the runbook's unfilled `**PASS | PARTIAL | FAIL**` line,
+verdict-less, or recording FAIL. A PARTIAL counts — runbook §9's own words — a FAIL does
+not, because a drill that proved the opposite of the claim is a finding and not a fresh
+clock. **Today it reports `NOT RUN`, on every build**: no quarterly record exists, so
+nothing has expired and §8's "backups verified" is untick, which the check prints rather
+than passing quietly.
+
+**The check cannot produce the evidence it reads, and that is the point.** The local
+harness (`make restore-drill`) writes `restore-drill-local-*.md` into the SAME directory,
+so a validator that took the newest file by date would be refreshed by the very thing it
+is meant to be independent of. Local records are counted, named and never counted as a
+drill; the freshness clock is read off the FILENAME rather than an mtime, which no
+`touch`, checkout or reformat can renew; and the checker may import nothing that can
+write, calls no writer, and proves both from its own AST on every run.
+
 ## 7. Runbooks (summaries; full steps in /runbooks)
 
 **Written procedures.** Every fact in these is grep-verified against the tree, so where
@@ -437,6 +483,18 @@ one differs from a summary below, the runbook is the authority.
   the per-dial gate.
 - **"You called someone who asked you not to"** — `runbooks/dnc-complaint.md`. DNC
   complaint or TRAI/DLT escalation; the answer is a timeline, not a fix.
+- **A personal data breach** — `runbooks/data-breach-notification.md` (D-179). The
+  deliverable is a set of NOTICES with statutory clocks on them, all running from
+  AWARENESS: the client within 48 hours (`/legal/dpa` §7, ours), each affected data
+  principal and the Board without delay, and the Board's detailed report within 72 hours
+  (DPDP Rules 2025 Rule 7 — the client's for caller data, ours for client-account data).
+  Rule 7 has no severity threshold, so "one record" and "no evidence of access" are facts
+  to state in the notice rather than reasons to skip it. `scripts/breach_notice.py`
+  renders the three documents from one incident file and refuses one with a required
+  element missing or a phone number in it; it sends nothing, because who signs off is a
+  named human decision. Two things it still needs from outside the repo are stated in the
+  runbook's §7 rather than discovered at 4am: the Board's own reporting channel, and
+  counsel's review of the wording.
 - **Campaign follow-up never goes out** — `runbooks/campaign-escalation-refused.md`.
   `escalate_campaign_contact` refusals, split by the line the code itself draws: the ones
   that page a human (`no_provider_configured`, `provider_not_implemented`, template
@@ -546,7 +604,9 @@ one differs from a summary below, the runbook is the authority.
 Entity decided → DLT PE registered (or inbound-only mode explicitly accepted) ·
 engine verification scorecard passed · agent passed test-call gate + regression five ·
 disclosure + consent verified on a real recording · caps set · backups verified ·
-alerts firing to Sri's phone · client owner trained on Leads table (15-min session) ·
+alerts firing to Sri's phone · **error reports and traces verified as ARRIVING (§2 gate
+15) — `check_observability_ready` green is the configuration half and not this item** ·
+client owner trained on Leads table (15-min session) ·
 DPA + privacy notice signed · invoice template ready · **admin-realm MFA switched on in
 the admin Clerk application** · **`GET /healthz/ready` answers `ready` — last, because it
 is the only item on this list the platform can answer for itself**.
@@ -611,18 +671,31 @@ own**, stated here because they have previously been read as done:
   confirm the same call answers 200. Record the result in `docs/evidence/` the way the
   backup drill is recorded — an untested auth control is a claim, not a control.
 
-  **NOT DONE, and deliberately**: requiring a FRESH second factor (Clerk reverification)
-  for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap raises,
-  raw-transcript access. Those carry per-action `X-Confirm-Action` step-up today, which is
-  a different control and is retained (SEC-COMP §5); raising a real reverification prompt
-  needs a flow in `apps/web` that does not exist, and gating an incident lever on a prompt
-  nobody can answer at 3am is how a control gets switched off. It needs a decision-log
-  entry before it is built.
+  **DONE (D-178), and this entry used to say the opposite**: requiring a FRESH second
+  factor for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap
+  raises, raw-transcript access — was deferred because "raising a real reverification
+  prompt needs a flow in `apps/web` that does not exist, and gating an incident lever on a
+  prompt nobody can answer at 3am is how a control gets switched off". D-170 built the
+  flow: the second factor is an emailed code, and `POST /v1/auth/admin/step-up` mails one
+  to the operator who was just refused, on the screen they were refused on. So
+  `core/stepup.StepUp.require` now demands the per-action `X-Confirm-Action` echo AND
+  `auth_sessions.mfa_verified_at` under five minutes, at all 15 call sites.
+
+  **Its two-person check, same shape as the one above**: hold an admin session, wait past
+  five minutes, and confirm `POST /v1/ops/platform` with the correct `X-Confirm-Action`
+  answers 403 `reauthentication_required`; call `/v1/auth/admin/step-up`, answer the code
+  at `/step-up/verify`, and confirm the same call answers 200. `tests/authn_stepup_test.py`
+  drives both directions against the database; the staging run is what proves the email
+  arrives.
 
 - **Backups verified** = `runbooks/backup-restore-drill.md` has PASSED once, with the
   record committed to `docs/evidence/`. The existence of `infra/backup/` does not tick it:
   nothing in that tree has been applied and no wal-g command has ever been run, so until a
   drill record exists the §5 RPO is a design intent rather than a measurement.
+  **And ticking it once is not ticking it (D-166)**: `scripts/check_drill_freshness` reads
+  the record every build and refuses one more than a quarter old, so this item is a
+  standing condition rather than a box. Its verdict today is `NOT RUN` — which is what
+  this bullet says, said by a machine on every build.
 - **Alerts firing to Sri's phone** = `ALERTS_EMAIL` plus a working email transport
   (`EMAIL_PROVIDER=resend` and `RESEND_API_KEY`, or the `smtp` escape hatch), on the app
   hosts AND on the database host (where the same configuration is

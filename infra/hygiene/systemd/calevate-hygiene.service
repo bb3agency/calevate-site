@@ -1,0 +1,43 @@
+[Unit]
+Description=Calevate daily host hygiene (docker, pm2 logs, pnpm store, runner diagnostics)
+Documentation=file:///var/www/calevate/infra/hygiene/README.md
+# Docker is the only thing this job cannot do without. `network-online` is wanted rather
+# than required because the network is needed for exactly one thing — delivering a disk
+# alert — and a host with no network still benefits from the prune.
+After=docker.service network-online.target
+Wants=network-online.target
+# The relay that reports a run which did not SURVIVE: OOM-killed, killed by a signal, or
+# never started. The script reports its own failed steps through the same seam
+# (`scripts/backup/notify.sh`), so this covers only what a script cannot report about
+# itself. Its detail text says "backup unit"; the payload carries `unit=%i`, which names
+# this unit exactly. Reused rather than duplicated on purpose — README §4.
+OnFailure=calevate-backup-alert@%n.service
+
+[Service]
+Type=oneshot
+# UNPRIVILEGED, and that is a design output rather than a preference. Every step this job
+# performs is reachable by the deploy account: Docker through the `docker` group, pm2 as
+# the owner of its own daemon, the pnpm store as its owner, the runner's `_diag` as its
+# owner. The one step that WOULD have needed root — vacuuming the journal — was replaced
+# by a `SystemMaxUse=` cap in journald itself (`infra/hygiene/journald-cap.conf`). A
+# scheduled job holding root is a scheduled root shell, and this one does not need to be.
+User=calevate
+Group=calevate
+# Explicit rather than inherited from NSS: Docker access is the one membership this job
+# cannot run without, and a job that silently loses it would report "docker is not
+# installed here" and skip the prune forever.
+SupplementaryGroups=docker
+WorkingDirectory=/var/www/calevate
+# systemd sets $HOME from the user database, but the script reads it to find the runner
+# directory and the pnpm store, so it is stated rather than assumed.
+Environment=HOME=/home/calevate
+ExecStart=/var/www/calevate/scripts/deploy/host-hygiene.sh
+# Bounded above the worst legitimate case. Pruning a multi-gigabyte build cache and a
+# pnpm store is minutes; 30 of them means a wedged run is reported within one day rather
+# than holding a timer slot open indefinitely. The script's own lock wait (10 minutes) is
+# inside this, so a run that gave up waiting for a deploy exits long before the timeout.
+TimeoutStartSec=30m
+# Hygiene must never be the reason the platform is slow. It is IO-heavy by nature and the
+# voice path's latency matters more than how fast dangling layers disappear.
+Nice=10
+IOSchedulingClass=idle

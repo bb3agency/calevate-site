@@ -140,17 +140,17 @@ async def test_the_badge_on_the_wire_is_the_same_answer() -> None:
     """
     stale = await _tenant_capped_in(_last_month())
     live = await _tenant_capped_in(current_billing_month())
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with admin_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'operator', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'operator', now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id},
+            {"id": admin_id},
         )
 
-    headers = {"Authorization": f"Bearer dev:admin:{clerk_id}"}
+    headers = {"Authorization": f"Bearer dev:admin:{admin_id}"}
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
         stale_response = await http.get(f"/v1/admin/tenants/{stale}", headers=headers)
         live_response = await http.get(f"/v1/admin/tenants/{live}", headers=headers)
