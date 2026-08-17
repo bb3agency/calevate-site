@@ -6,6 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { describe, expect, it, vi } from "vitest";
 
 import Home from "@/app/page";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 import { stubApi } from "./harness";
 
@@ -217,5 +218,42 @@ describe("the questions section", () => {
     // browser would deliver.
     fireEvent(first as HTMLDetailsElement, new Event("toggle"));
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("the footer's legal links", () => {
+  /**
+   * THE ONE SURFACE A PAYMENT AGGREGATOR'S REVIEWER LOOKS FOR.
+   *
+   * Razorpay/Cashfree merchant review checks that the site publishes its terms, privacy,
+   * refund and contact pages and that they are REACHABLE — a document at a URL nothing
+   * links to reads as absent. The legal documents shipped before anything linked to them,
+   * which is the "half-wired feature" CLAUDE.md names: eight real pages, zero ways in.
+   *
+   * Asserted against `LEGAL_DOCUMENTS` rather than against a list typed here, so a ninth
+   * document is covered the moment it is registered. A hand-written expectation would be
+   * the second enumeration whose drift this test exists to prevent.
+   */
+  it("links to every legal document, derived from the registry", () => {
+    stubApi({});
+    render(<Home />);
+
+    for (const doc of LEGAL_DOCUMENTS) {
+      const link = screen.getByRole("link", { name: doc.title });
+      expect(link.getAttribute("href")).toBe(`/legal/${doc.slug}`);
+    }
+  });
+
+  it("groups them in a labelled navigation landmark", () => {
+    stubApi({});
+    render(<Home />);
+
+    // A bare list of links in a footer is reachable but unnavigable: a screen-reader user
+    // moving by landmark needs this group to announce itself, and "Legal" is what
+    // distinguishes it from the page's other navigation.
+    // `getByRole` throws when absent, so reaching the assertion is most of the proof;
+    // the link count is what stops an empty labelled nav from satisfying it.
+    const nav = screen.getByRole("navigation", { name: "Legal" });
+    expect(nav.querySelectorAll("a").length).toBe(LEGAL_DOCUMENTS.length);
   });
 });

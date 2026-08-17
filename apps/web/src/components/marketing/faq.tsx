@@ -84,10 +84,19 @@ const QUESTIONS: { q: string; a: string }[] = [
   },
   {
     q: "Can we get our leads out again?",
+    // CSV export and the signed webhook are unconditional — both are in the product and
+    // need nothing configured beyond an endpoint. The Google Sheet leg is NOT: it needs
+    // Google credentials on the deployment, and `sheets_sync.sheets_delivery_available()`
+    // is what decides, per deployment rather than per client. The route's own
+    // `EndpointOptionsOut.sheets_delivery_available` exists precisely so a client is never
+    // offered an endpoint nothing can deliver to — so promising it flatly here would be
+    // the marketing copy contradicting the gate one screen later. "Once connected" is the
+    // honest version and costs the sentence nothing (F-1's class, caught by the homepage
+    // agent's own sweep of its work).
     a:
       "Yes, three ways: download them as a spreadsheet, push each one to your own CRM " +
-      "over a signed webhook, or send them into a Google Sheet. Every delivery is " +
-      "logged and failures are retried.",
+      "over a signed webhook, or — once your Google account is connected — send them " +
+      "into a Google Sheet. Every delivery is logged and failures are retried.",
   },
   {
     q: "What happens when someone says stop calling me?",

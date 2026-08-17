@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { CallDemo } from "@/components/marketing/callDemo";
+import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { Faq } from "@/components/marketing/faq";
 import { HeroStagger, Reveal, SmoothScroll } from "@/components/marketing/motion";
 import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
@@ -738,10 +739,34 @@ export default function Home() {
           </section>
         </main>
 
+        {/*
+          THE LEGAL LINKS ARE DERIVED FROM `LEGAL_DOCUMENTS`, not typed out.
+          A hand-written list here would be a second enumeration of the eight documents,
+          and the one that falls behind is the footer — which is precisely the surface a
+          payment aggregator's reviewer checks before approving a merchant account, and
+          the surface a data principal is told to look at. `slug` is documented as stable
+          for exactly this reason, so iterating is safe as well as shorter.
+        */}
         <footer className="border-t border-line px-6 py-8">
-          <p className="mx-auto max-w-5xl text-xs text-ink-faint">
-            Calevate — AI phone agents for Indian businesses.
-          </p>
+          <div className="mx-auto flex max-w-5xl flex-col gap-4">
+            <nav aria-label="Legal">
+              <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
+                {LEGAL_DOCUMENTS.map((doc) => (
+                  <li key={doc.slug}>
+                    <Link
+                      href={`/legal/${doc.slug}`}
+                      className="text-ink-faint underline-offset-4 hover:text-ink hover:underline"
+                    >
+                      {doc.title}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </nav>
+            <p className="text-xs text-ink-faint">
+              Calevate — AI phone agents for Indian businesses.
+            </p>
+          </div>
         </footer>
       </div>
     </SmoothScroll>
