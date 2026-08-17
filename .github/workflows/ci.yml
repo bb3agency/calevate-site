@@ -260,9 +260,25 @@ jobs:
         # rather than the frontend one: it is a Python guardrail and needs no Node.
         run: uv run python -m scripts.check_web_env_parity
 
+      - name: "Guardrail: raw SQL is built from our own source (D-172)"
+        if: ${{ !cancelled() }}
+        # Most tenant-scoped access here is hand-written SQL executed as a NOBYPASSRLS
+        # role, so an injection is a cross-tenant breach rather than one account's leak.
+        # Where a SQL fragment is passed in by callers, the check follows it to the call
+        # sites — that half is why `plan_in_effect_sql`'s "no caller does" is now enforced.
+        run: uv run python -m scripts.check_raw_sql
+
       - name: "Guardrail: OpenAPI snapshot freshness"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_openapi_fresh
+
+      - name: "Guardrail: the unauthenticated surface is enumerated (D-173)"
+        if: ${{ !cancelled() }}
+        # `assert_policy_registry_complete` skips everything under a PUBLIC_PREFIXES
+        # entry, which makes a prefix default-OPEN for every route added under it later.
+        # This enumerates the exempt set instead and checks each row's claimed credential
+        # against the module that serves it.
+        run: uv run python -m scripts.check_public_routes
 
       - name: "Quality gate: regression suite (ratchet)"
         if: ${{ !cancelled() }}

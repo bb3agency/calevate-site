@@ -236,7 +236,21 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# a drill. Negative controls in tests/drill_freshness_guard_test.py.
 	uv run python -m scripts.check_drill_freshness
 	uv run python -m scripts.check_redaction_exposure
+	# Raw SQL is how most tenant-scoped access is written here (493 statements), and it
+	# runs as a NOBYPASSRLS role — so an injection is not a leak in one account, it is a
+	# `SET LOCAL` away from every account. Every string reaching `text()` must be
+	# assembled from text typed in this repo, and where a fragment is passed by callers
+	# the check reads the CALLERS (D-172). Syntax-decidable; no database, no app boot.
+	# Negative controls, including the two-step one that pins what `_identifier()` buys,
+	# in tests/raw_sql_guard_test.py.
+	uv run python -m scripts.check_raw_sql
 	uv run python -m scripts.check_openapi_fresh
+	# The other half of the RBAC boot assertion, which SKIPS everything under a public
+	# path prefix — default-OPEN for whatever lands there next, and `/v1/auth/` is about
+	# to hold the whole first-party auth module. The exempt set is enumerated instead,
+	# each row saying what it verifies in place of a session, checked against the live
+	# app (D-173). Needs the app to boot, like check_openapi_fresh above it.
+	uv run python -m scripts.check_public_routes
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
 	# database and its subject is the SHAPE of the tree — the same class of question
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
