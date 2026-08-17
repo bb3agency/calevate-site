@@ -833,26 +833,34 @@ async def _sweep_engine_payloads(
     refusal RAISES, because a certificate must not claim a destruction that did not
     happen — and the asymmetry is deliberate: a sweep that is one night late owes nobody
     a document.
+
+    TWO COUNTERS, because they count different things and conflating them would make the
+    budget meaningless: `objects` is what this arm reports (one call can hold several
+    archived documents), and `calls` is what the per-tenant row budget bounds. A single
+    counter would let a tenant whose references all name absent objects walk their whole
+    call table in one tick while reporting zero, which is the opposite of what the budget
+    is for.
     """
-    done = 0
-    while done < TENANT_ROW_BUDGET:
-        batch = min(SWEEP_BATCH_ROWS, TENANT_ROW_BUDGET - done)
+    objects = 0
+    calls = 0
+    while calls < TENANT_ROW_BUDGET:
+        batch = min(SWEEP_BATCH_ROWS, TENANT_ROW_BUDGET - calls)
         page = (
             (await session.execute(text(_PAYLOAD_PAGE_SQL), {"cutoff": cutoff, "batch": batch}))
             .scalars()
             .all()
         )
         if not page:
-            return done, False
+            return objects, False
         call_ids = [UUID(str(row)) for row in page]
         try:
-            done += await _erase_engine_payloads(session, tenant_id=tenant_id, call_ids=call_ids)
+            objects += await _erase_engine_payloads(session, tenant_id=tenant_id, call_ids=call_ids)
         except storage.StorageUnavailableError as exc:
             log.warning(
                 "engine_payload_expiry_deferred",
                 extra={"reason": str(exc), "pending": len(call_ids)},
             )
-            return done, True
+            return objects, True
         # AFTER the objects are gone, and this is what makes the loop terminate rather
         # than being tidiness. `_erase_engine_payloads` returns early — clearing nothing —
         # when the prefix holds no objects, and that state is REACHABLE: `archive_payload`
@@ -868,9 +876,10 @@ async def _sweep_engine_payloads(
             ),
             {"ids": call_ids},
         )
+        calls += len(call_ids)
         if len(call_ids) < batch:
-            return done, False
-    return done, True
+            return objects, False
+    return objects, True
 
 
 async def _apply_one(
