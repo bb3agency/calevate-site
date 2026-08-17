@@ -1,7 +1,10 @@
 # infra/nginx/
 
-The edge config for the Calevate VPS. Rendered and installed by `scripts/vps-deploy.sh`;
-nothing here is installed by hand in the normal case.
+The edge config for the Calevate VPS. Rendered by `scripts/vps-deploy.sh` and installed by
+`infra/privileged/sbin/calevate-nginx-apply`, the root-owned script that owns everything
+touching `/etc/nginx` (D-167, DEPLOYMENT §11) — the deploy stages files into a fixed
+directory and names one command with no arguments; it composes no privileged command of its
+own. Nothing here is installed by hand in the normal case.
 
 > **Nothing in this directory has been loaded by an nginx process.** It has never been
 > through `nginx -t`, because no nginx exists where it was written. Read §4 before
@@ -57,7 +60,10 @@ path. TLS private keys are referenced by path; they are never inlined.
 - **certbot issuance and renewal.** One-time human steps (DEPLOYMENT §9 step 5). The
   config serves `/.well-known/acme-challenge/` from `ACME_WEBROOT` so `certonly --webroot`
   and its renewals work; the issuance itself is not automated by this repo. **Never
-  `certbot --nginx`** — it rewrites templated config (DEPLOYMENT §10).
+  `certbot --nginx`** — it rewrites templated config (DEPLOYMENT §10). Issuance MUST carry
+  `--deploy-hook "systemctl reload nginx"` (DEPLOYMENT §9.5a steps 3 and 5): `certonly`
+  never touches nginx, so without it a day-60 renewal writes a certificate the running
+  server never reads.
 - **Cloudflare zone settings.** Proxy status, Full (strict), WAF, Turnstile and the
   per-token rate limits of DEPLOYMENT §7a are dashboard state, not files. They are not
   represented here and this directory does not pretend to be the source of truth for them.
@@ -71,10 +77,13 @@ path. TLS private keys are referenced by path; they are never inlined.
    `CLOUDFLARE_IPS_UPDATED` stamp and the deploy **fails** when it is older than 180 days.
    Refresh from <https://www.cloudflare.com/ips-v4> and `/ips-v6`, update the stamp,
    commit. Do not edit one without the other.
-3. **Issue the certificates.** A single SAN certificate over `admin.` `app.` `api.`
-   `hooks.` via `certbot certonly --webroot`, plus a Cloudflare Origin CA certificate for
-   the default_server. Set `TLS_LIVE_DIR`, `ORIGIN_CERT_PATH` and `ORIGIN_KEY_PATH` to
-   match.
+3. **Issue the certificates, with the renewal hook attached in the same command.** A
+   single SAN certificate over `admin.` `app.` `api.` `hooks.` via `certbot certonly
+   --webroot --deploy-hook "systemctl reload nginx"`, plus a Cloudflare Origin CA
+   certificate for the default_server. Set `TLS_LIVE_DIR`, `ORIGIN_CERT_PATH` and
+   `ORIGIN_KEY_PATH` to match. *Pass condition*: `renew_hook =` appears in
+   `/etc/letsencrypt/renewal/<lineage>.conf`. A plain `certbot renew --dry-run` does NOT
+   run deploy hooks and does not prove this.
 4. **Verify the origin lock does not lock YOU out.** `deny all` at the bottom of
    `calevate-origin.conf` means a direct-to-IP request gets 403. Loopback is allowed so
    the deploy script's own health poll works; anything else you rely on reaching directly

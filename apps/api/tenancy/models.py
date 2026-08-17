@@ -66,13 +66,23 @@ class User(PKMixin, TimestampMixin, Base):
 
     __tablename__ = "users"
 
-    clerk_user_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # NULLABLE since b3d9f6a2c815 (D-170): a user created by redeeming a first-party
+    # invitation has no Clerk account to name. Every Clerk path still writes it, and UNIQUE
+    # still holds because Postgres treats NULLs as distinct. Dropping it is a later release
+    # (hard rule 8's two-step).
+    clerk_user_id: Mapped[str | None] = mapped_column(Text, unique=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
     phone: Mapped[str | None] = mapped_column(Text)  # E.164
     # Re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7): a cached
-    # Clerk session must not outlive a deactivation.
+    # session must not outlive a deactivation. It is also the client realm's whole
+    # liveness rule for `authn/subjects.py`, so signing in and staying signed in agree
+    # about what "active" means.
     deactivated_at: Mapped[datetime | None]
+    # When this mailbox was proved (D-170). Set by the `email_verify` OTP round trip, or
+    # directly on invitation redemption — possession of a token emailed to the address IS
+    # the proof. What `accept_invitation`'s recipient binding trusts instead of Clerk.
+    email_verified_at: Mapped[datetime | None]
 
 
 class Membership(PKMixin, TimestampMixin, Base):
@@ -122,6 +132,15 @@ class AdminUser(PKMixin, TimestampMixin, Base):
     __tablename__ = "admin_users"
     __table_args__ = (CheckConstraint(f"role IN {ADMIN_ROLES!r}", name="role_enum"),)
 
-    clerk_user_id: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # NULLABLE since b3d9f6a2c815 (D-170), for the same reason as `User.clerk_user_id`:
+    # an operator created by `scripts/bootstrap_admin.py` has no Clerk account.
+    clerk_user_id: Mapped[str | None] = mapped_column(Text, unique=True)
+    # The address a first-party operator signs in with, and the address the bootstrap link
+    # is mailed to (D-171). Nullable because Clerk-era rows have none. UNIQUE on
+    # `lower(email)` via an expression index in the migration — SQLAlchemy cannot express
+    # that as a column constraint, which is why it is `op.execute`'d there rather than
+    # declared here; `check_metadata_columns` compares COLUMNS, and the index is asserted
+    # by `tests/authn_bootstrap_test.py` reaching it through `resolve_by_email`.
+    email: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String, nullable=False, server_default="operator")

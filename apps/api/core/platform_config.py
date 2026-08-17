@@ -328,6 +328,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     ),
     "self_serve_inr_per_min": AppliesRule(LIVE),  # billing/service, per quote
     "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request
+    # D-170. `authn/routes.py::_require_enabled` reads it per request, so the cutover (and
+    # the rollback) takes effect on the next call rather than on the next deploy — which is
+    # the property AUTH-MIGRATION §5 step 5 depends on for "flip back" to be a real option.
+    "first_party_auth_enabled": AppliesRule(LIVE),
     "payment_provider": AppliesRule(LIVE),  # billing/payments.payment_capability()
     "number_provider": AppliesRule(LIVE),  # campaigns/provisioning, per call
     "razorpay_key_id": AppliesRule(LIVE),  # billing/payments, per capability read

@@ -69,8 +69,24 @@ COPY apps/workers apps/workers
 COPY apps/__init__.py apps/__init__.py
 COPY alembic alembic
 COPY alembic.ini alembic.ini
+# THE DEPLOY RUNS THESE, AND THEY WERE NOT HERE (D-168). `scripts/vps-deploy.sh` invokes
+# `python -m scripts.deploy_revision_check`, `python -m scripts.seed` and now
+# `python -m scripts.check_deploy_env` through `compose run` against this image — three
+# call sites that would every one of them have died with `No module named 'scripts'`,
+# because nothing ever copied the package in and no compose service bind-mounts the repo.
+# It has been invisible for the reason the whole deploy path is unverified: nobody has run
+# it. `.env.example` comes with them because the preflight compares this deployment's
+# values against the shipped template, and a check that silently skips its most useful
+# half is the defect class it exists to catch. Both are text this repository already
+# publishes — no credential enters a layer, and `.dockerignore` still excludes the real
+# `.env` (the allow-list line there is `!.env.example`, which is what makes this legal).
+#
+# AFTER the sync, deliberately: neither is a workspace member, so copying them first would
+# invalidate the install layer on every edit to a shell script for nothing.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
+COPY scripts scripts
+COPY .env.example .env.example
 
 # --- runtime -------------------------------------------------------------------
 FROM python:${PYTHON_VERSION} AS runtime

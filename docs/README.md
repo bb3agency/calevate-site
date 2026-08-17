@@ -25,6 +25,13 @@ and are all closed by two non-code actions: the Engine Verification Session
      where core config lives, where SECRETS live (envelope encryption in Postgres, KEK
      in the environment and nowhere else), the six bootstrap keys that may never move
      out of `.env`, and the security trade the console makes explicit. D-95.
+   - **AUTH-MIGRATION.md** (read with it) — D-165: replacing Clerk with a first-party
+     auth module, driven by the residency posture the Indian-VPS move exists to
+     establish. Its §1 capability inventory is the ACCEPTANCE CRITERIA for the whole
+     migration; §3 is the realm boundary rebuilt out of our own materials; §5 is the
+     cutover and names the one irreversible step; §9 is what the founder must decide
+     first. **Clerk is still the live authenticator** — what has shipped is the design
+     plus a proof-of-concept slice mounted on no router.
 6. **FLOWS.md** — onboarding wizard, invitations/auth, inbound call lifecycle, instant
    lead callback, bulk campaigns, post-call pipeline, KB updates, billing, offboarding.
 7. **OPERATIONS.md** — engine verification checklist (do this first), per-client
