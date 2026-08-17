@@ -49,6 +49,7 @@ from apps.api.core.settings import (
     settings_scope,
     validate_bootstrap_env,
 )
+from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
 from apps.workers.dispatcher import (
@@ -113,6 +114,10 @@ FUNCTIONS: list[Any] = [
         # dropped by arq, and only recovered by the post-call transcript pass minutes
         # later — the exact silent-degradation shape `job_registration_test.py` guards.
         record_in_call_optout,
+        # D-170. Every one-time secret `apps/api/authn` mints is delivered by this job, so
+        # an unregistered one means a reset link that is promised, queued, DLQ'd and never
+        # sent — while the sign-in screen truthfully reports that an email was on its way.
+        deliver_auth_email,
     )
 ]
 
@@ -124,7 +129,22 @@ CRON_JOBS = [
     cron(traced_job(dispatch_outbox), second={0, 10, 20, 30, 40, 50}, run_at_startup=True),
     # D-31: the guarantee of record, not a safety net. 10 minutes matches the window
     # in which a Bolna execution reaches `completed` plus margin.
-    cron(traced_job(reconcile_executions), minute={0, 10, 20, 30, 40, 50}, run_at_startup=True),
+    #
+    # `max_tries` EXPLICIT, for its neighbours' reason and with the sharpest version of
+    # it (R-4): `cron()` defaults `max_tries` to 1 and `WorkerSettings.max_tries` does not
+    # reach a function carrying its own, so this job — the ONLY mechanism that recovers a
+    # webhook Bolna never delivered — was finished on its first attempt by any error the
+    # tick met, including a container swap cancelling it mid-sweep. The sweep itself now
+    # isolates per execution, so what reaches this ladder is the tick-wide failure (the
+    # engine listing, Redis, the pool) rather than one tenant's, and re-running it is free:
+    # every re-drive is enqueued under a fixed `job_id_for(..., "reconcile")`, so a retried
+    # tick cannot double-drive an execution the previous attempt already queued.
+    cron(
+        traced_job(reconcile_executions),
+        minute={0, 10, 20, 30, 40, 50},
+        run_at_startup=True,
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # `max_tries` here too, though this one DOES self-heal on its next tick 30 minutes
     # later: the alarm's whole job is to notice that the pipeline is late, and an alarm
     # that gives up on its first transient database error is silent for exactly as long

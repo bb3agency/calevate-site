@@ -371,7 +371,7 @@ export default function TenantDetailPage({
           />
         </Card>
       ) : awaitingPublish.length > 0 ? (
-        <Card title="Approved, awaiting publish" bodyClassName="px-6 pb-4">
+        <Card title="Approved, awaiting publish" bodyClassName="px-4 pb-4 sm:px-6">
           <p className="pt-2 text-xs text-ink-muted">
             The agent does not know these until they are published.
           </p>
@@ -509,8 +509,17 @@ function DangerButton({
   );
 }
 
+/*
+ * `min-w-0` because every one of these sits in a `flex flex-wrap` row. A flex item
+ * defaults to `min-width: auto` and so refuses to shrink below its own min-content, and a
+ * `<select>` s min-content is its LONGEST OPTION — "not_started — no application filed"
+ * here, which is wider than a 320px phone. Wrapping does not save it: once wrapped the
+ * item is alone on its line and still will not shrink. Measured at 320px this row reached
+ * x=395 in a 320px viewport, inside the shell s `overflow-hidden`, so the control was
+ * clipped off-screen rather than scrollable.
+ */
 const FIELD =
-  "rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50";
+  "min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 /**
  * What is holding this account, at the top of its own page.
@@ -565,7 +574,7 @@ function HoldsBanner({ tenantId, holds }: { tenantId: string; holds: string[] })
 function AgentsPanel({ tenantId, slug }: { tenantId: string; slug: string }) {
   const agents = useTenantAgents(slug);
   return (
-    <Card title="Agents" bodyClassName="px-6 pb-4 pt-2">
+    <Card title="Agents" bodyClassName="px-4 pb-4 pt-2 sm:px-6">
       {agents.error ? (
         <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />
       ) : agents.isLoading || !agents.data ? (
@@ -991,7 +1000,7 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
   const [registeredAt, setRegisteredAt] = useState("");
 
   return (
-    <div className="space-y-3 lg:col-span-2">
+    <div className="min-w-0 space-y-3 lg:col-span-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
         DLT entity registration (Principal Entity)
       </h3>
@@ -1137,8 +1146,13 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
       <div className="mt-4">
         <RestrictionNote reason={write.reason} />
       </div>
+      {/* `min-w-0` on the columns: a grid item defaults to `min-width: auto`, so it
+          refuses to shrink below its own min-content and pushes the grid past the
+          viewport instead of wrapping. Measured at 320px this column's min-content was
+          288px inside a 238px box — the compliance forms below (a `flex-1` input, a
+          `<select>` sized by its longest option) are what set it. */}
       <div className="mt-4 grid gap-6 lg:grid-cols-2">
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <Hash className="h-3.5 w-3.5" />
             Numbers
@@ -1220,7 +1234,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           </form>
         </div>
 
-        <div className="space-y-3">
+        <div className="min-w-0 space-y-3">
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <ScrollText className="h-3.5 w-3.5" />
             DLT voice templates

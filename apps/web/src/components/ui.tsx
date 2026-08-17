@@ -49,13 +49,19 @@ export function Card({
         className,
       )}
     >
+      {/* `flex-wrap`: the header is a title beside an action, and on a 320px screen the
+          pair does not fit on one line — unwrapped, the action was what got squeezed. */}
       {(title || action) && (
-        <header className="flex items-center justify-between gap-3 border-b border-line px-6 py-4">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-4 sm:px-6">
           {title && <h2 className="text-[17px] font-semibold text-ink">{title}</h2>}
           {action}
         </header>
       )}
-      <div className={bodyClassName ?? "p-6"}>{children}</div>
+      {/* 16px of padding on a phone, 24px from `sm` up. At 320px the old flat `p-6` spent
+          48px of a 288px content strip — a sixth of the screen — on whitespace, and it is
+          what pushed `/admin/tenants/[tenantId]`'s inner grid past the viewport (its
+          single column's min-content is 288px and the padded box left it 238px). */}
+      <div className={bodyClassName ?? "p-4 sm:p-6"}>{children}</div>
     </section>
   );
 }
@@ -303,8 +309,18 @@ export const NOTICE_TONES: Record<NoticeTone, string> = {
  * shadcn/ui, which `ui.tsx`'s own header says arrives with the design pass, is the
  * eventual answer; this is the honest interim and it costs one import.
  */
+/*
+ * `touch:min-h-11` on every control below, and the reason it is here rather than at the
+ * call sites: 44px is the Apple HIG / WCAG 2.5.5 (AAA) target, WCAG 2.2 AA's 2.5.8 asks
+ * 24px, and the measured console sat at 26–36px — passing AA, failing the finger. The
+ * `touch` variant (globals.css) keys on `pointer: coarse`, so the desktop console's
+ * density is untouched; only a device actually driven by a finger gets the taller box.
+ *
+ * `min-h-*`, never `h-*`: these controls wrap onto two lines with long Telugu or Hindi
+ * labels, and a fixed height would clip the second line rather than grow.
+ */
 export const FIELD =
-  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint";
+  "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11";
 export const FIELD_LABEL = "text-xs font-medium text-ink-muted";
 export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
 /**
@@ -318,15 +334,15 @@ export const FIELD_HINT = "mt-1 block text-xs text-ink-faint";
  * button is exactly the drift extracting it was supposed to end.
  */
 export const PRIMARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 /** The same buttons at the size an inline action wants. */
 export const PRIMARY_BUTTON_SM =
-  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white enabled:hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 export const SECONDARY_BUTTON_SM =
-  "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
+  "inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5 touch:min-h-11";
 export const SECONDARY_BUTTON =
-  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5";
+  "inline-flex items-center gap-2 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted enabled:hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:enabled:hover:bg-white/5 touch:min-h-11";
 /**
  * The button that does something a person cannot undo.
  *
@@ -335,7 +351,7 @@ export const SECONDARY_BUTTON =
  * eye should refuse to find it there.
  */
 export const DANGER_BUTTON =
-  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-2 rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white enabled:hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11";
 
 /**
  * A verdict, in the tone the verdict deserves.
@@ -561,7 +577,7 @@ export function FilterChip({
       onClick={onClick}
       aria-pressed={active}
       className={clsx(
-        "rounded-full px-3 py-1.5 text-xs capitalize",
+        "rounded-full px-3 py-1.5 text-xs capitalize touch:min-h-11",
         active
           ? "bg-brand-strong font-semibold text-white"
           : "border border-line bg-surface font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5",

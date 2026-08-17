@@ -6,6 +6,8 @@ import { expect, vi } from "vitest";
 import { clearImpersonationGrants } from "@/lib/api/admin";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
+import { adminAuthn } from "@/lib/authn/adminAuthn";
+import { clientAuthn } from "@/lib/authn/clientAuthn";
 
 /**
  * Render a `/c/[slug]` screen the way the browser does — REAL provider, REAL session,
@@ -23,6 +25,37 @@ import { ClientRealmProvider } from "@/lib/api/session";
  * state that happens to contain the string it was looking for.
  */
 export type Routes = Record<string, unknown>;
+
+/** A route that decides from the request it was given. See `stubApi`. */
+export type RouteAnswer = (call: ApiCall) => unknown;
+
+/**
+ * The LENS a leads request carried, wherever the route puts it.
+ *
+ * The list, the export and the bulk action take it in a BODY: it holds the search term,
+ * the server matches that against `leads.phone_e164`, and a phone number in a request
+ * line is a phone number in nginx's access log (hard rule 6 — the same judgement
+ * `POST /v1/dnc/check` was built on). The facet rail is the one leg still on a GET and is
+ * deliberately sent no search term at all, so this reads the query string there.
+ *
+ * One helper rather than one per suite, because the assertions it serves are MIRRORING
+ * assertions — "the file's filters are the table's filters" — and a comparison written
+ * two different ways is one that can pass while the two differ.
+ */
+export function lensOf(call: ApiCall): Record<string, unknown> {
+  if (call.body !== null) return JSON.parse(call.body) as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of new URLSearchParams(call.path.split("?")[1] ?? "")) {
+    if (key === "f") {
+      const existing = (out.f as string[] | undefined) ?? [];
+      existing.push(value);
+      out.f = existing;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 /**
  * A route that answers with an RFC-9457 problem instead of a 200.
@@ -134,6 +167,11 @@ function defaultGrant(): Record<string, unknown> {
 }
 
 export function stubApi(routes: Routes): ApiCall[] {
+  // Both realm runtimes hold a result cache and a generation counter as MODULE state
+  // (§5.2's single-flight), and state that survives a test is state one test hands
+  // another. Reset here rather than in each `beforeEach` so no suite can forget.
+  adminAuthn.reset();
+  clientAuthn.reset();
   // Grants are cached per slug in a module-level map, so without this a grant minted by
   // one test would be reused by the next — silently changing how many requests the next
   // test's screen makes, depending on file order. Cleared where the network is replaced,
@@ -164,12 +202,30 @@ export function stubApi(routes: Routes): ApiCall[] {
       const key = Object.hasOwn(routes, scoped) ? scoped : path;
       if (!Object.hasOwn(routes, key)) {
         if (scoped === GRANT_ROUTE) return jsonResponse(defaultGrant());
+        // BOTH REALMS' SESSION RESTORE, answered by default (D-177) — the same shape as
+        // the grant above and for the same reason. Every `/admin` and `/c/<slug>` screen
+        // now sits under a session gate, so a harness that did not answer this would
+        // render the signed-out screen for the whole suite: hundreds of tests failing on
+        // a fact none of them is about. A test that WANTS the signed-out or
+        // half-authenticated branch (`authnGuards.test.tsx`) names the route in its own
+        // table, which takes precedence — this is a fallback, never an override.
+        if (Object.hasOwn(DEFAULT_SESSIONS, scoped)) {
+          return jsonResponse(DEFAULT_SESSIONS[scoped]);
+        }
         throw new Error(
           `test stub has no route for ${scoped} — add it to the routes table, ` +
             `or the screen under test is calling an endpoint nobody expected`,
         );
       }
-      const answer = routes[key];
+      // A route may answer as a FUNCTION OF THE REQUEST, which the leads screen made
+      // necessary: its lens now travels in a POST body (hard rule 6 — the search term
+      // matches a phone number), so `/v1/leads/search` is ONE path that has to answer
+      // differently for "unfiltered" and "filtered to hot". A path-keyed table used to
+      // tell those apart by the query string and no longer can. The function is given the
+      // call it is answering, so a test says which lens it is answering rather than
+      // relying on call ORDER, which is what a queue of responses would have meant.
+      const route = routes[key];
+      const answer = typeof route === "function" ? (route as RouteAnswer)(calls[calls.length - 1]) : route;
       if (answer instanceof NeverAnswers) return new Promise<Response>(() => {});
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
@@ -182,6 +238,22 @@ export function stubApi(routes: Routes): ApiCall[] {
   );
   return calls;
 }
+
+/** A live, fully authenticated session per realm. See the fallback in `stubApi`. */
+const DEFAULT_SESSIONS: Record<string, unknown> = {
+  "GET /v1/auth/admin/session": {
+    realm: "admin",
+    subject_id: "0192f0aa-0000-7000-8000-00000000000a",
+    mfa_complete: true,
+    email_verified: true,
+  },
+  "GET /v1/auth/client/session": {
+    realm: "client",
+    subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
+    mfa_complete: true,
+    email_verified: true,
+  },
+};
 
 function jsonResponse(body: unknown): Response {
   return new Response(JSON.stringify(body), {

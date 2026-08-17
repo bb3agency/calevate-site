@@ -12,7 +12,7 @@
  * generic "something went wrong" for all of them.
  */
 
-import { AUTH_MODE_ENV, IS_PRODUCTION_BUILD } from "@/lib/auth/mode";
+import { AUTH_MODE_ENV, IS_PRODUCTION_BUILD } from "@/lib/authn/mode";
 
 import type { components } from "./schema";
 
@@ -112,14 +112,17 @@ export type GrantSource = () => string | Promise<string>;
 /**
  * Session context the API needs on every call.
  *
- * `token` resolves to a Clerk session token in a Clerk deployment and to
- * `dev:<realm>:<clerk_user_id>` locally — see `core/auth.py`, where that second path
- * requires BOTH `APP_ENV=local` AND an absent Clerk secret. Which one a given realm
- * builds is decided in that realm's own module, never here: this file is the transport
- * and knows nothing about realms.
+ * `token` is OPTIONAL and absent is the deployed case (D-177). The credential is the
+ * realm's `HttpOnly`, `__Host-`-prefixed session cookie, which the browser attaches
+ * itself through `credentials: "include"` and which no script on the page can read; there
+ * is nothing for this file to fetch, cache or expire. It is present only on the local
+ * path, where it is `dev:<realm>:<subject-uuid>` — see `core/auth.py`, which accepts that
+ * shape only when `APP_ENV=local` AND the deployment holds no `PLATFORM_KEK`. Which one a
+ * given realm builds is decided in `lib/authn/realmSessions.ts`, never here: this file is
+ * the transport and knows nothing about realms.
  */
 export interface Session {
-  token: TokenSource;
+  token?: TokenSource;
   orgSlug: string;
   /**
    * Admin realm only (D-22): WHICH tenant this read-only "view as client" session is
@@ -139,31 +142,31 @@ export interface Session {
 }
 
 /**
- * The LOCAL credential, for one realm — the second guard described in `lib/auth/mode.ts`.
+ * The LOCAL credential, for one realm — the second guard described in `lib/authn/mode.ts`.
  *
- * `lib/auth/mode.ts` already refuses to resolve `"dev"` in a production build. This
+ * `lib/authn/mode.ts` already refuses to resolve `"dev"` in a production build. This
  * checks the same fact again, at the moment the credential would be handed to `fetch`,
  * because the two guards protect against different mistakes: the first against a
  * misconfigured deployment, this one against a future refactor that reaches the dev
  * builder by some path that skipped the mode. A dev token is worth a full account
  * takeover on any API still running with `APP_ENV=local`, so it gets belt and braces.
  */
-export function devToken(realm: "client" | "admin", clerkUserId: string): TokenSource {
+export function devToken(realm: "client" | "admin", subjectId: string): TokenSource {
   return () => {
     if (IS_PRODUCTION_BUILD) {
       throw new AuthProblem(
         "dev_token_refused",
         "This build asked for a local development token, which is never valid here.",
-        `Set ${AUTH_MODE_ENV}=clerk and configure this realm's Clerk publishable key.`,
+        `Set ${AUTH_MODE_ENV}=session — the deployed credential is the session cookie.`,
       );
     }
-    return `dev:${realm}:${clerkUserId}`;
+    return `dev:${realm}:${subjectId}`;
   };
 }
 
 /**
  * The client realm's LOCAL session. Kept as the local path (never removed, never
- * "temporarily" reachable in production): `lib/auth/clientRealm.tsx` selects it when
+ * "temporarily" reachable in production): `lib/authn/realmSessions.ts` selects it when
  * `AUTH_MODE` is `dev`, and the whole frontend test suite runs through it.
  */
 export function devSession(orgSlug: string): Session {
@@ -208,64 +211,32 @@ interface RequestOptions {
 }
 
 /**
- * The API's code for "your token is fine, our copy of your account has not landed yet".
+ * THE `identity_mirror_pending` RETRY RUNG WAS HERE, AND IT IS GONE (D-177).
  *
- * Clerk mints a session the instant an account exists and sends the browser straight
- * back to us, while the `user.created` webhook travels out of band — so `/signup` and
- * `/invite`, the first thirty seconds of every customer's and every colleague's life in
- * the product, race it. The API reconciles from Clerk's Backend API and only answers
- * this when it could not (`apps/api/core/clerk_identity.py`, D-124).
+ * It waited out a race that no longer exists: Clerk minted a session the instant an
+ * account existed and sent the browser straight back to us, while the `user.created`
+ * webhook travelled out of band — so `/signup` and `/invite`, the first thirty seconds of
+ * every customer's and every colleague's life in the product, raced it. The API answered
+ * `503 identity_mirror_pending` when it could not reconcile, and this transport spent four
+ * extra attempts at 0.5s/1s/2s/4s before handing the refusal to a screen.
+ *
+ * There is no upstream to be behind now. A credential names a `users` row we issued, in
+ * the same transaction that issued the session, so the state this rung existed for cannot
+ * arise — and a retry loop for a code no server can produce is a wait nobody can trigger
+ * and nobody can test.
+ *
+ * WORTH RECORDING RATHER THAN JUST DELETING, because the argument it carried is the one a
+ * future retry rung has to meet: retrying a POST is against `app/providers.tsx`'s
+ * `mutations: { retry: false }`, and it was permissible for this ONE code only because the
+ * refusal came from the auth dependency, before any handler body ran, so a refused request
+ * had provably executed nothing. Any future exception needs that same proof.
  */
-export const IDENTITY_MIRROR_PENDING = "identity_mirror_pending";
-
-/**
- * How long this transport is willing to wait for that mirror before giving the refusal
- * to the screen. Four extra attempts at 0.5s, 1s, 2s, 4s — about seven and a half
- * seconds, which is far longer than a Svix delivery and far shorter than a person's
- * patience with a form that appears to have hung.
- */
-const MIRROR_RETRY_ATTEMPTS = 4;
-const MIRROR_RETRY_BASE_MS = 500;
-
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 export async function apiRequest<T>(
   session: Session,
   path: string,
   options: RequestOptions = {},
 ): Promise<T> {
-  /**
-   * RETRYING A POST IS SAFE FOR THIS ONE CODE, AND ONLY BECAUSE OF WHERE IT IS RAISED.
-   *
-   * `mutations: { retry: false }` in `app/providers.tsx` is the rule and it stays the
-   * rule: the expensive mutations place phone calls, and their safety net is the
-   * server's `Idempotency-Key` handling rather than a client guess about whether the
-   * first attempt landed. This is the one exception, and it is not a judgement call —
-   * `identity_mirror_pending` is raised by the FastAPI auth dependency, before any route
-   * handler body runs, so a request refused with it has provably executed nothing. There
-   * is no attempt to have landed.
-   *
-   * It lives HERE, in the transport, rather than in `useSignup` and `useAcceptInvitation`
-   * separately: both routes reach it, any future route taking `current_identity` reaches
-   * it, and two copies of a backoff policy is where the second one drifts. The screens
-   * are untouched — while this loops, the mutation is still `isPending`, so §52's
-   * "loading is a skeleton" holds without either page knowing this exists; and if it
-   * runs out, the refusal that arrives carries the server's own remediation sentence,
-   * which is the one place that rule should be written.
-   */
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      return await sendRequest<T>(session, path, options);
-    } catch (error) {
-      const waitable =
-        error instanceof ApiProblem &&
-        error.code === IDENTITY_MIRROR_PENDING &&
-        attempt < MIRROR_RETRY_ATTEMPTS &&
-        !options.signal?.aborted;
-      if (!waitable) throw error;
-      await sleep(MIRROR_RETRY_BASE_MS * 2 ** attempt);
-    }
-  }
+  return sendRequest<T>(session, path, options);
 }
 
 async function sendRequest<T>(
@@ -273,19 +244,28 @@ async function sendRequest<T>(
   path: string,
   { method = "GET", body, idempotencyKey, confirmAction, ifMatch, signal }: RequestOptions = {},
 ): Promise<T> {
-  // Resolved HERE, per call, rather than when the session object was built — a Clerk
-  // token expires in about a minute (see `TokenSource`). The `await` is skipped when the
-  // source already has the string, so a local request still reaches `fetch` in the same
-  // tick as the query that asked for it. If it throws, the throw propagates: an
-  // `AuthProblem` reaching the screen as an error is the point, and catching it to send
-  // the request anyway would put `Bearer undefined` on the wire.
-  const requested = session.token();
+  // Resolved HERE, per call, rather than when the session object was built. The `await`
+  // is skipped when the source already has the string, so a local request still reaches
+  // `fetch` in the same tick as the query that asked for it. If it throws, the throw
+  // propagates: an `AuthProblem` reaching the screen as an error is the point, and
+  // catching it to send the request anyway would put `Bearer undefined` on the wire.
+  //
+  // NO SOURCE IS THE DEPLOYED CASE and it sends NO header rather than an empty one: the
+  // session cookie below is the credential, and `Authorization: Bearer ` would be a
+  // malformed credential the API is obliged to refuse before it looks at the cookie.
+  const requested = session.token?.();
   const token = typeof requested === "string" ? requested : await requested;
 
   const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
     "X-Org-Slug": session.orgSlug,
   };
+  // BRACKET NOTATION, deliberately, and it is the same shape as the four conditional
+  // headers below rather than a style choice: `tests/cors_contract_test.py` reads this
+  // file for every header name it can put on a request and checks the API's CORS
+  // allowlist admits each one. It knows two spellings — the object literal above and a
+  // bracket assignment — and a header written in a third would be one the browser sends
+  // and the preflight rejects, which is invisible to curl and fatal in a browser.
+  if (token !== undefined) headers["Authorization"] = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
@@ -315,24 +295,45 @@ async function sendRequest<T>(
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     headers,
+    // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,
+    // `__Host-`-prefixed cookie no script can read, so it reaches the API only if this
+    // says so — the API and the consoles are different origins, and the browser omits
+    // cookies cross-origin by default. `lib/authn/transport.ts` says the same thing for
+    // `/v1/auth/**`; the two are one transport the day that file's `fetch` goes away.
+    credentials: "include",
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   });
 
-  if (!response.ok) {
-    let problem: Record<string, unknown> = {};
-    try {
-      problem = await response.json();
-    } catch {
-      problem = { detail: response.statusText };
-    }
-    throw new ApiProblem(response.status, problem);
-  }
+  if (!response.ok) throw await problemFrom(response);
+  return (await readBody(response)) as T;
+}
 
-  if (response.status === 204) return undefined as T;
+/**
+ * A non-2xx response, as the `ApiProblem` every screen already knows how to render.
+ *
+ * Exported because `lib/authn/transport.ts` is the ONE other place this app calls
+ * `fetch` (see its docstring for why it must), and two spellings of "parse problem+json"
+ * is exactly the drift CLAUDE.md's one-way-per-problem rule is about. A body that is not
+ * JSON at all — an nginx 502, a proxy timeout page — falls back to the status text rather
+ * than throwing a parse error over the top of the real failure.
+ */
+export async function problemFrom(response: Response): Promise<ApiProblem> {
+  let problem: Record<string, unknown> = {};
+  try {
+    problem = await response.json();
+  } catch {
+    problem = { detail: response.statusText };
+  }
+  return new ApiProblem(response.status, problem);
+}
+
+/** A 2xx body: `undefined` for 204, text for anything non-JSON, otherwise the JSON. */
+export async function readBody(response: Response): Promise<unknown> {
+  if (response.status === 204) return undefined;
   const contentType = response.headers.get("content-type") ?? "";
-  if (!contentType.includes("json")) return (await response.text()) as T;
-  return (await response.json()) as T;
+  if (!contentType.includes("json")) return await response.text();
+  return await response.json();
 }
 
 /**

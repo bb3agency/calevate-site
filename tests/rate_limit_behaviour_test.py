@@ -114,14 +114,13 @@ async def _make_org() -> dict[str, object]:
 
 async def _make_member(tenant_id: uuid.UUID) -> str:
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -131,7 +130,7 @@ async def _make_member(tenant_id: uuid.UUID) -> str:
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
 def _auth(token: str) -> dict[str, str]:
@@ -377,19 +376,19 @@ async def test_the_signup_quota_fails_closed_when_the_same_redis_is_gone(
     """
     monkeypatch.setattr(get_settings(), "self_serve_signup_enabled", True)
     monkeypatch.setattr(ratelimit, "get_redis", _broken_redis)
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+    user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": f"{clerk_id}@example.com"},
+            {"i": user_id, "e": f"{user_id}@example.com"},
         )
     async with _client() as http:
         refused = await http.post(
             "/v1/auth/signup",
-            headers={"Authorization": f"Bearer dev:client:{clerk_id}"},
+            headers={"Authorization": f"Bearer dev:client:{user_id}"},
             json={
                 "business_name": "Sunrise Dental",
                 "slug": f"rl-{uuid.uuid4().hex[:8]}",

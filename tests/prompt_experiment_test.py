@@ -1096,16 +1096,16 @@ def _conclude_app() -> FastAPI:
 async def _admin_token() -> str:
     """A real `admin_users` row plus the dev-token spelling of its realm — the idiom
     `commercial_terms_test._make_admin` uses. `operator` holds `agents:write`."""
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'operator', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'operator', now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id},
+            {"id": admin_id},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _conclude_over_http(

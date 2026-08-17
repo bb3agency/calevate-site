@@ -36,7 +36,7 @@ import {
   useLeadsUnderLens,
   useMembers,
   useSavedViews,
-  lensQuery,
+  lensKey,
   type Lead,
   type LeadBulkResult,
   type LeadColumn,
@@ -122,16 +122,20 @@ const BODY_CELL = "px-3 py-2.5";
  * speaks after a FAILED write, never after a wrong one — so the cost of a near-miss here
  * is a lead in the wrong column that nobody knows moved.
  *
- * `min-h-11` (44px) rather than the 24px the AA minimum would accept: it is the size this
- * repo already uses for a touch target (`components/marketing/faq.tsx`), it clears SC
- * 2.5.5 Target Size (Enhanced) as well, and one number for "a thing a finger presses" is
- * worth more than a second, smaller number that happens to pass. The visual compactness
- * the small padding was buying is preserved by the transparent border and background the
- * class already carries — the control still reads as text until it is hovered — so the
- * cost is row height on the table and nothing else. `tests/responsive.test.ts` pins it.
+ * `touch:min-h-11` (44px on a coarse pointer) rather than the 24px the AA minimum would
+ * accept, and rather than a flat `min-h-11`. Both halves of that are the repo's own
+ * answer rather than a new one: 44px is the size every other tap target here uses, and
+ * the `touch:` variant is `globals.css`'s `@media (pointer: coarse)` — a tap target is a
+ * fact about the FINGER, not the viewport, so a mouse-driven console keeps its density
+ * and a tablet gets the target. A second, flat spelling would have quietly restyled the
+ * densest table in the product for every operator on a desktop.
+ *
+ * The visual compactness the small padding was buying is preserved by the transparent
+ * border and background the class already carries — the control still reads as text until
+ * it is hovered. `tests/responsive.test.ts` pins it.
  */
 const INLINE_EDIT =
-  "min-h-11 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink";
+  "touch:min-h-11 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink";
 
 /**
  * Rows per request, named because the bulk bar has to talk about it.
@@ -288,11 +292,11 @@ export default function LeadsPage() {
    * under — so it does not. `lensKey` is the same string the query is keyed by, which
    * means "the lens moved" here and "refetch" there are the same event by construction.
    */
-  const lensKey = lensQuery(lens, { limit: PAGE_SIZE });
+  const currentLens = lensKey(lens, { limit: PAGE_SIZE });
   useEffect(() => {
     setSelection(EMPTY_SELECTION);
     setBulkResult(null);
-  }, [lensKey]);
+  }, [currentLens]);
 
   /**
    * The columns to render — the SERVER's resolved answer, not our own selection.

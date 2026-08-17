@@ -258,20 +258,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "it is stamped into the OTel resource and handed to `sentry_sdk.init` at boot, "
         "and into the `service_start` log line — nothing reads it again afterwards",
     ),
-    "clerk_admin_publishable_key": AppliesRule(
-        ON_RESTART,
-        "the JWKS URL it encodes is baked into a `PyJWKClient` the first time a token of "
-        "this realm is verified (`core/auth._jwk_clients`), and that client is held for "
-        "the life of the process",
-    ),
-    "clerk_client_publishable_key": AppliesRule(
-        ON_RESTART, "same as the admin key: the realm's `PyJWKClient` is built once"
-    ),
-    "clerk_frontend_api": AppliesRule(
-        ON_RESTART,
-        "the fallback JWKS host, and it is read at the same moment the realm's "
-        "`PyJWKClient` is constructed — once per process",
-    ),
     "usd_inr_rate": AppliesRule(
         ON_RESTART,
         "the Bolna adapter captures it as `_fx_rate` when `get_engine()` builds it, and "
@@ -328,6 +314,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     ),
     "self_serve_inr_per_min": AppliesRule(LIVE),  # billing/service, per quote
     "self_serve_signup_enabled": AppliesRule(LIVE),  # tenancy/signup, per request
+    # D-170. `authn/routes.py::_require_enabled` reads it per request, so the cutover (and
+    # the rollback) takes effect on the next call rather than on the next deploy — which is
+    # the property AUTH-MIGRATION §5 step 5 depends on for "flip back" to be a real option.
+    "first_party_auth_enabled": AppliesRule(LIVE),
     "payment_provider": AppliesRule(LIVE),  # billing/payments.payment_capability()
     "number_provider": AppliesRule(LIVE),  # campaigns/provisioning, per call
     "razorpay_key_id": AppliesRule(LIVE),  # billing/payments, per capability read
@@ -365,13 +355,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "`sentry_sdk.init` runs once at boot (`init_observability`); a new DSN does not "
         "redirect errors until the process restarts",
     ),
-    "clerk_admin_secret_key": AppliesRule(
-        ON_RESTART,
-        "read when the realm's `PyJWKClient` is built, once per process — and under "
-        "APP_ENV=local its PRESENCE is what disables dev tokens, so a process that "
-        "started without it keeps accepting them until it restarts",
-    ),
-    "clerk_client_secret_key": AppliesRule(ON_RESTART, "same as the admin secret"),
     # Read at the point of use, per call or per request.
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # D-127 disqualified the AI Studio Developer API this key opens, so nothing sends it
@@ -395,7 +378,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # is a key file with no `private_key_id`, which Google does not produce.
     "gcp_service_account_json": AppliesRule(LIVE),
     "cohere_api_key": AppliesRule(LIVE),
-    "clerk_webhook_secret": AppliesRule(LIVE),
     "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write
     "audit_chain_secret_retired": AppliesRule(LIVE),
     "idempotency_scope_secret": AppliesRule(LIVE),
@@ -576,7 +558,7 @@ def managed_fields() -> tuple[str, ...]:
 def is_secret_key(name: str) -> bool:
     """Does this field's NAME mark it as a credential?
 
-    Substring matching, like the log redactor it borrows from: `clerk_admin_secret_key`,
+    Substring matching, like the log redactor it borrows from: `bolna_api_key`,
     `smtp_password` and `meta_page_access_tokens` all have to be caught by a rule nobody
     maintains per field. A false POSITIVE here costs a key that has to be set in the
     environment (annoying); a false NEGATIVE puts an API key in a plaintext table

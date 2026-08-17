@@ -126,11 +126,11 @@ export default function LeadDetailPage({
       {lead.error && <ProblemNotice error={lead.error} onRetry={() => void lead.refetch()} />}
 
       {lead.isLoading ? (
-        <Card bodyClassName="p-5">
+        <Card bodyClassName="p-4 sm:p-5">
           <Skeleton rows={3} />
         </Card>
       ) : lead.data ? (
-        <Card bodyClassName="p-5">
+        <Card bodyClassName="p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <span className="text-lg font-semibold text-ink">
               {lead.data.name ?? <span className="font-normal text-ink-faint">No name</span>}

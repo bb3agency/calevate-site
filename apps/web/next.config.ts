@@ -12,16 +12,15 @@ import type { NextConfig } from "next";
  *   - `NEXT_PUBLIC_API_BASE_URL` empty → the reader's `?? "http://localhost:8000"` does
  *     NOT fire (`??` falls back on undefined, not on ""), so every browser at
  *     app.calevate.tech calls a relative path that 404s against the Next server;
- *   - both publishable keys empty → every realm renders "sign-in is not configured",
- *     and `resolveAuthMode` correctly returns "clerk" without throwing, so nothing else
- *     objects.
+ * THE SECOND ENTRY USED TO BE THE TWO CLERK PUBLISHABLE KEYS, and D-177 deleted them:
+ * authentication configures NOTHING in the browser now, because the credential is a cookie
+ * the server sets. That removes the circularity this file was mostly written about — you
+ * no longer need a key baked into the bundle in order to reach the ops screen where the
+ * other fifty are set — and it leaves this gate with one key. One is enough for it to
+ * still be worth having: an empty API base is the failure that builds green, health-polls
+ * green and serves an unusable app.
  *
- * The second one is circular and is why this check has to be at BUILD time rather than
- * on the ops screen: DEPLOYMENT §9 step 10a says the remaining keys are set live from
- * `admin.calevate.tech/ops`, but you cannot reach that screen until the admin realm's
- * publishable key is already baked into the bundle.
- *
- * WHY HERE AND NOT AT MODULE INIT, where `lib/auth/mode.ts` throws for
+ * WHY HERE AND NOT AT MODULE INIT, where `lib/authn/mode.ts` throws for
  * `NEXT_PUBLIC_AUTH_MODE=dev`. That throw only fires if the module is evaluated during
  * the build, which depends on which routes Next chooses to prerender — a guarantee that
  * changes with a `dynamic` export somebody adds later. `next.config.ts` is evaluated by
@@ -44,11 +43,6 @@ const REQUIRED_IN_A_DEPLOY_BUILD: Record<string, string> = {
   NEXT_PUBLIC_API_BASE_URL:
     "every request would go to a relative path and 404 against the Next server " +
     "(the reader's ?? default fires on undefined, never on an empty string)",
-  NEXT_PUBLIC_CLERK_CLIENT_PUBLISHABLE_KEY:
-    "app.calevate.tech would render 'sign-in is not configured' for every client",
-  NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY:
-    "admin.calevate.tech would render 'sign-in is not configured' — and /ops, where " +
-    "DEPLOYMENT §9 step 10a sends you to fix the other 50 keys, is behind it",
 };
 
 if (DEPLOY_BUILD) {

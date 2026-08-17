@@ -76,10 +76,16 @@ PERMITTED: Final[tuple[tuple[Path, str], ...]] = (
 PERMITTED_FUNCTION: Final = "client_request_ip"
 
 
-def _is_peer_read(node: ast.AST) -> bool:
-    """True for every way `apps/api` can reach the socket peer.
+def is_peer_read(node: ast.AST) -> bool:
+    """True for every way a FastAPI/ASGI handler can reach the socket peer.
 
-    Three shapes, one meaning:
+    PUBLIC, and imported by `scripts/check_idempotency_scope.py` — "one way per problem".
+    That check bans the peer from a different destination (an idempotency scope, a dedupe
+    key) across a wider tree (`apps/voice-runtime` and `apps/workers` too), but "what
+    counts as reading the peer" is one question and must not grow a second answer; the
+    day somebody teaches this predicate a fourth spelling, both guards learn it.
+
+    Three shapes, one meaning (four counting the two ways `scope` is spelled):
       - `request.client`                        — the `Request` attribute
       - `scope["client"]` / `request.scope[...]` — the ASGI mapping, subscripted
       - `scope.get("client")` / `request.scope.get(...)` — the same, defensively
@@ -120,15 +126,15 @@ def _peer_reads(tree: ast.AST) -> list[tuple[int, str | None]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for child in ast.walk(node):
-                if _is_peer_read(child):
+                if is_peer_read(child):
                     enclosing[id(child)] = node.name
 
-    # `ast.expr`, not `ast.AST`: every shape `_is_peer_read` matches is an expression, so
+    # `ast.expr`, not `ast.AST`: every shape `is_peer_read` matches is an expression, so
     # `lineno` is guaranteed — `ast.AST` alone does not carry position information.
     return [
         (node.lineno, enclosing.get(id(node)))
         for node in ast.walk(tree)
-        if isinstance(node, ast.expr) and _is_peer_read(node)
+        if isinstance(node, ast.expr) and is_peer_read(node)
     ]
 
 

@@ -166,9 +166,12 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     prefixes: ["otel_", "release_version", "sentry_"],
   },
   {
-    title: "Identity",
-    hint: "Clerk applications and object storage.",
-    prefixes: ["clerk_", "object_store_"],
+    // The `clerk_` prefix went with the vendor (D-177) — authentication has no
+    // console-managed setting at all now, and a prefix matching nothing would be a group
+    // that renders empty on a screen whose job is to say what is installed.
+    title: "Storage",
+    hint: "Where recordings, transcripts and exports are kept.",
+    prefixes: ["object_store_"],
   },
 ];
 
@@ -579,7 +582,10 @@ function ConfigRow({
     <div className="rounded-card border border-line bg-surface p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="font-mono text-sm text-ink">{field.key}</p>
+          {/* `break-all`, like the value line below: these keys are unbroken snake_case
+              identifiers (`self_serve_inr_per_min`, `object_store_bucket`) with no space
+              for a browser to wrap at, so at 320px they painted 15px outside the card. */}
+          <p className="break-all font-mono text-sm text-ink">{field.key}</p>
           <p className="mt-0.5 break-all font-mono text-sm font-semibold text-ink">
             {display(field.value)}
           </p>
@@ -618,7 +624,12 @@ function ConfigRow({
           )}
         </div>
 
-        <div className="shrink-0">
+        {/* `sm:shrink-0`, not a flat `shrink-0`. The row is `flex-wrap`, so below `sm`
+            this column drops onto its own line — but `shrink-0` then held it at its
+            256px content width inside a 228px card, painting 28px across the card's
+            border. Refusing to shrink is right on a wide row where the left column has
+            room to give; on a phone there is no second column to take the space from. */}
+        <div className="min-w-0 sm:shrink-0">
           {field.editable && tag === null ? (
             // The API answered without a precondition token, and it refuses every write
             // that carries no `If-Match` (428). Offering the form would be a control

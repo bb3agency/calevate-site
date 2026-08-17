@@ -1,278 +1,413 @@
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 /**
- * The mobile surface, guarded — the test this suite did not have.
+ * The mobile-layout gate: the rules a responsive sweep established, pinned so they cannot
+ * quietly come undone.
  *
- * Nothing in `apps/web/tests/` rendered at a viewport width, set `window.innerWidth`, or
- * inspected a `min-w-` class, so fifteen fixed-minimum-width blocks and eighteen
- * horizontal scroll containers shipped with no regression protection at all. The visible
- * consequence of that gap: seventeen of the eighteen scroll containers could not be
- * reached by a keyboard, and the two controls a client touches most on the leads table
- * were roughly a 20px tap target.
+ * ## Why these are SOURCE checks and not layout measurements
  *
- * ## Why this is a source scan and not a render
+ * The defects these guard were found by MEASUREMENT, not by reading CSS — a real Chromium
+ * laid out all 47 swept screens against the production Tailwind bundle at 320/360/414/1280
+ * and reported which elements crossed the viewport, which text painted outside its box,
+ * which controls were under 44px and which form fields were under the 16px that makes iOS
+ * zoom. That harness found what this file protects: an unwrapped table whose third column
+ * was unreachable, a grid column whose 288px min-content sat in a 238px box, a 256px
+ * `min-w` floor in a 254px card, and 122 zooming inputs.
  *
- * jsdom implements NO LAYOUT. `getBoundingClientRect()` returns zeroes, nothing overflows,
- * nothing scrolls, and no computed width exists — which is exactly why axe's
- * `scrollable-region-focusable` never fires under the a11y sweep and why that sweep was
- * green on all eighteen containers (`tests/a11y.ts` says so in its own words). A test that
- * rendered these screens and measured them would measure zero and pass forever: a guard
- * that cannot fail.
+ * It is deliberately NOT the gate. Reproducing it needs a browser binary, and the one on
+ * this machine is a different build from the one `playwright-core` resolves by default —
+ * a gate whose failure mode is "the browser was missing, so nothing ran" is the vacuous
+ * pass `tests/a11y.ts` refuses at length, and it would report a confident green on a
+ * console nobody measured. So the browser stays the INSTRUMENT, and what it taught is
+ * written down here as rules that hold statically and run everywhere the rest of the
+ * suite runs.
  *
- * What CAN be checked without layout is the thing the defect actually is — the class
- * strings and the nesting a developer wrote. Every assertion below is over the source, and
- * every one of them fails against the tree as it was before this change. That is the bar:
- * a check that can go red, not a rule that no-ops.
- *
- * ## Closed by a browser run, not by this
- *
- * The real answers — does this table overflow at 320px, is that select 44px tall on a
- * phone, does SC 2.5.8's spacing exception apply — need a browser. `@axe-core/playwright`
- * against the composed document is what closes them, the same escape hatch `tests/a11y.ts`
- * names for its own three blind spots. This is the part that can be enforced today, and it
- * says so rather than implying it is the whole check.
+ * What that trade costs, stated rather than implied: this file cannot catch a NEW screen
+ * that overflows for a new reason. It catches the classes of defect that were found and
+ * fixed, which is what stops a fix from being undone — not a claim that the console is
+ * still measured. Re-measuring is a browser run, and it is what should be repeated when
+ * the design changes.
  */
 
-/** `process.cwd()`, not `import.meta.url`: the latter is not a file URL under jsdom. */
-const SRC = join(process.cwd(), "src") + "/";
+const SRC = join(process.cwd(), "src");
 
-/**
- * The narrowest viewport this product supports.
- *
- * 320 CSS px is the floor WCAG 1.4.10 Reflow measures against (content must reflow to
- * 320px without two-dimensional scrolling), and it is what a 360px-wide budget Android in
- * portrait leaves after the browser chrome — which is the device most of these clients are
- * on. A `min-w-` at or below it needs no scroll container, because it already fits.
- */
-const NARROWEST_VIEWPORT_PX = 320;
-
-function sourceFiles(dir: string): string[] {
+/** Every `.tsx` under `src/`, so a rule cannot be dodged by adding a file. */
+function sourceFiles(): string[] {
   const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
-    else if (/\.tsx?$/.test(entry)) out.push(full);
-  }
-  return out;
-}
-
-interface Line {
-  file: string;
-  no: number;
-  indent: number;
-  text: string;
-}
-
-function lines(file: string): Line[] {
-  return readFileSync(file, "utf8")
-    .split("\n")
-    .map((text, i) => ({
-      file: file.slice(SRC.length),
-      no: i + 1,
-      indent: text.length - text.trimStart().length,
-      text,
-    }));
-}
-
-/** `min-w-[960px]` / `min-w-[36rem]` → CSS pixels. `rem` is 16px in this app. */
-function minWidthPx(text: string): number | null {
-  const m = /min-w-\[(\d+(?:\.\d+)?)(px|rem)\]/.exec(text);
-  if (!m) return null;
-  return m[2] === "rem" ? Number(m[1]) * 16 : Number(m[1]);
-}
-
-/**
- * The JSX elements enclosing one line, outermost last.
- *
- * Indentation, not a parser, and the reason it is trustworthy here is that Prettier owns
- * the formatting of every file in this tree — an element's opening tag is always the
- * nearest preceding line at a strictly smaller indent. A hand-formatted file would break
- * it, which is why the assertions below quote the file and line: a wrong answer reads as
- * "this site has no scroll container", which sends a developer straight to the site.
- */
-function ancestorsOf(all: Line[], at: number): Line[] {
-  const out: Line[] = [];
-  let indent = all[at].indent;
-  for (let i = at - 1; i >= 0; i -= 1) {
-    const line = all[i];
-    if (line.text.trim() === "") continue;
-    if (line.indent < indent && /^\s*<[A-Za-z]/.test(line.text)) {
-      out.push(line);
-      indent = line.indent;
-      if (indent === 0) break;
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith(".tsx")) out.push(full);
     }
+  };
+  walk(SRC);
+  // The same floor `routePagesOnDisk` asserts: a wrong cwd would otherwise make every
+  // rule below pass by checking nothing at all.
+  if (out.length === 0) {
+    throw new Error(`no .tsx found under ${SRC} — this gate is looking in the wrong place`);
   }
   return out;
 }
 
-describe("content wider than a phone", () => {
-  const files = sourceFiles(SRC);
+const FILES = sourceFiles();
+const read = (f: string): string => readFileSync(f, "utf8");
+const rel = (f: string): string => relative(process.cwd(), f);
 
-  it("scans a tree it actually found", () => {
-    // The vacuous pass this whole file exists to avoid.
-    expect(files.length).toBeGreaterThan(50);
-    const wide = files
-      .flatMap(lines)
-      .filter((l) => (minWidthPx(l.text) ?? 0) > NARROWEST_VIEWPORT_PX);
-    expect(wide.length, "no min-w- sites found — the scan is looking in the wrong place")
-      .toBeGreaterThan(5);
+describe("form controls do not trigger the iOS zoom", () => {
+  /**
+   * Mobile Safari zooms the viewport when a text control under 16px takes focus and does
+   * not zoom back out on blur. 122 controls across the console were at 12–14px, because
+   * `text-sm`/`text-xs` is a desktop density. The fix is one base rule rather than a
+   * utility on each control — see the comment on it in `globals.css` for why, including
+   * why it has to be UNLAYERED to beat Tailwind's `text-sm`.
+   */
+  const css = readFileSync(join(SRC, "app", "globals.css"), "utf8");
+
+  it("globals.css raises text-entry controls to 16px on a coarse pointer", () => {
+    const block = /@media \(pointer: coarse\) \{[\s\S]*?\n\}/.exec(css)?.[0] ?? "";
+    expect(block, "no `@media (pointer: coarse)` block in globals.css").not.toEqual("");
+    expect(block).toMatch(/input:not\(\[type="checkbox"\]\):not\(\[type="radio"\]\)/);
+    expect(block).toMatch(/font-size:\s*16px/);
   });
 
-  it("sits inside a scroll container, on every screen that has any", () => {
-    const stranded: string[] = [];
-    for (const file of files) {
-      const all = lines(file);
-      for (let i = 0; i < all.length; i += 1) {
-        const width = minWidthPx(all[i].text);
-        if (width === null || width <= NARROWEST_VIEWPORT_PX) continue;
-        const chain = [all[i], ...ancestorsOf(all, i)];
-        if (!chain.some((l) => /ScrollRegion|overflow-x-auto|overflow-auto/.test(l.text))) {
-          stranded.push(`${all[i].file}:${all[i].no} — ${all[i].text.trim()}`);
-        }
+  it("keeps that rule out of a cascade layer, where `text-sm` would beat it", () => {
+    // `@layer base { … }` would lose to every Tailwind utility regardless of specificity,
+    // and the rule would be decorative. Unlayered declarations win over layered ones.
+    const layered = /@layer[^{]*\{[\s\S]*@media \(pointer: coarse\)/.test(css);
+    expect(layered, "the coarse-pointer rule was moved inside an @layer, which silently disables it").toBe(false);
+  });
+
+  it("gives checkbox and radio a 24px box instead", () => {
+    const block = /@media \(pointer: coarse\) \{[\s\S]*?\n\}/.exec(css)?.[0] ?? "";
+    expect(block).toMatch(/input\[type="checkbox"\]/);
+    expect(block).toMatch(/min-width:\s*24px/);
+    expect(block).toMatch(/min-height:\s*24px/);
+  });
+});
+
+describe("tap targets", () => {
+  /**
+   * Measured at 26–36px across the console — above WCAG 2.2 AA's 24px floor (2.5.8) and
+   * below the 44px an actual finger wants (2.5.5 / Apple HIG). Every field-class constant
+   * carries the raise, because these files each define their OWN rather than importing
+   * the shared `FIELD` — pre-existing drift that this sweep did not restyle, but a tap
+   * target is not a matter of taste, so the one rule applies to all of them.
+   */
+  const FIELD_CONSTANT = /^const (FIELD|FIELD_BASE)\s*=\s*$\n\s*("(?:[^"\\]|\\.)*")/gm;
+
+  it("every field-class constant carries the touch minimum height", () => {
+    const offenders: string[] = [];
+    for (const file of FILES) {
+      for (const [, name, literal] of read(file).matchAll(FIELD_CONSTANT)) {
+        if (!literal.includes("touch:min-h-11")) offenders.push(`${rel(file)} — ${name}`);
       }
     }
-
     expect(
-      stranded,
-      `content with a fixed minimum wider than ${NARROWEST_VIEWPORT_PX}px and nothing ` +
-        "to scroll it: at that viewport the right-hand side is unreachable by anyone",
+      offenders,
+      `these field classes are missing \`touch:min-h-11\`, so on a phone they render ` +
+        `under the 44px tap target:\n  ${offenders.join("\n  ")}\n` +
+        `Add it to the class string. \`touch:\` is the \`pointer: coarse\` variant declared ` +
+        `in globals.css, so desktop density is unaffected.`,
+    ).toEqual([]);
+  });
+
+  /**
+   * The narrowest control shape, which neither rule above reaches.
+   *
+   * The two rules above check the NAMED constants — `FIELD`, `PRIMARY_BUTTON` and their
+   * siblings. The leads table's inline status and owner selects are neither: they carried
+   * their own literal, `px-1 py-0.5 text-xs`, which is 12px text in a 16px line box plus
+   * 2px each side — about 20px, under SC 2.5.8's 24px AA floor. Both are WRITES, and a
+   * mis-tap on the status select moves a lead to a stage nobody chose; `RowFailure` only
+   * speaks after a FAILED edit, never after a wrong one.
+   *
+   * `py-0.5` and no lower, deliberately: `py-1` computes to exactly the 24px minimum, and
+   * a rule that also failed the controls which pass is one people learn to widen rather
+   * than obey.
+   */
+  const HAIRLINE_CONTROL = /text-xs/;
+  const THIN_PADDING = /\bpy-0\.5\b/;
+  const HAS_FLOOR = /min-h-|\bh-\d/;
+
+  it("no pressable control is text-xs with hairline padding and no height floor", () => {
+    const cramped: string[] = [];
+    for (const file of FILES) {
+      const source = read(file).split("\n");
+      source.forEach((line, i) => {
+        // `className=` on an element, or the body of a shared class constant — the leads
+        // one is a constant, so a check that only read JSX would have missed the exact
+        // control the finding named.
+        if (!/className|^\s*["`]/.test(line)) return;
+        if (!HAIRLINE_CONTROL.test(line) || !THIN_PADDING.test(line)) return;
+        if (HAS_FLOOR.test(line)) return;
+        const above = source.slice(Math.max(0, i - 3), i + 1).join(" ");
+        const isControl =
+          /<(select|button|input|a)\b|Select\b/.test(above) ||
+          /^(export )?const [A-Z][A-Z0-9_]* =/.test(source[Math.max(0, i - 1)]) ||
+          /^(export )?const [A-Z][A-Z0-9_]* =/.test(line);
+        // A `<span>` badge at this size is text, not a target; SC 2.5.8 is about targets.
+        if (isControl) cramped.push(`${rel(file)}:${i + 1} — ${line.trim()}`);
+      });
+    }
+    expect(
+      cramped,
+      `these pressable controls render around 20px tall, under WCAG 2.2 SC 2.5.8's 24px ` +
+        `minimum:\n  ${cramped.join("\n  ")}\n` +
+        `Add \`touch:min-h-11\` (the coarse-pointer variant in globals.css) or widen the ` +
+        `vertical padding.`,
+    ).toEqual([]);
+  });
+
+  it("the shared button classes carry it too", () => {
+    const ui = read(join(SRC, "components", "ui.tsx"));
+    for (const name of [
+      "PRIMARY_BUTTON",
+      "PRIMARY_BUTTON_SM",
+      "SECONDARY_BUTTON",
+      "SECONDARY_BUTTON_SM",
+      "DANGER_BUTTON",
+      "FIELD",
+    ]) {
+      const literal = new RegExp(`export const ${name} =\\s*\\n?\\s*"([^"]*)"`).exec(ui)?.[1] ?? "";
+      expect(literal, `${name} not found in components/ui.tsx`).not.toEqual("");
+      expect(literal, `${name} lost its touch tap-target minimum`).toContain("touch:min-h-11");
+    }
+  });
+});
+
+
+/**
+ * Blank every comment line, keeping the array length so indices stay meaningful.
+ *
+ * Handles the two shapes this codebase uses: `//` line comments (including the
+ * `// eslint-disable-next-line` directives that sit between a wrapper and its child) and
+ * `/* ... *\/` blocks, whether one line or many. Deliberately NOT a parser — a regex that
+ * understood JSX would be a bigger thing to trust than the rule it serves.
+ */
+function blankComments(lines: string[]): string[] {
+  let inBlock = false;
+  return lines.map((line) => {
+    const trimmed = line.trim();
+    if (inBlock) {
+      if (trimmed.includes("*/")) inBlock = false;
+      return "";
+    }
+    if (trimmed.startsWith("/*") || trimmed.startsWith("{/*")) {
+      if (!trimmed.includes("*/")) inBlock = true;
+      return "";
+    }
+    if (trimmed.startsWith("//")) return "";
+    return line;
+  });
+}
+
+/** The nearest `count` non-blank lines above `index`, closest first. */
+function previousCodeLines(code: string[], index: number, count: number): string[] {
+  const out: string[] = [];
+  for (let i = index - 1; i >= 0 && out.length < count; i -= 1) {
+    if (code[i].trim() !== "") out.push(code[i]);
+  }
+  return out;
+}
+
+describe("nothing is pinned wider than the narrowest phone", () => {
+  /**
+   * `min-w-[16rem]` is 256px, and at 320px the content box inside a card is 254px. Every
+   * OTHER `min-w-[…]` in this app sits inside an `overflow-x-auto` wrapper, where a
+   * minimum is the entire point: the table keeps its shape and the wrapper scrolls. The
+   * three that did not were form controls in a `flex-wrap` row, so the floor had nothing
+   * to scroll and simply pushed the row past the card.
+   *
+   * The rule is therefore not "no minimums" but "a minimum either scrolls or waits for a
+   * breakpoint that can honour it".
+   *
+   * `<ScrollRegion>` counts as a scroll container because it IS one — it is the component
+   * every table wrapper in the console was moved onto, and it carries `overflow-x-auto`
+   * plus the focusability that a bare wrapper was missing (see the keyboard rule below).
+   * Matching only the raw utility would have flagged every correct table the moment the
+   * shape was hoisted into a component, which is the reading-its-own-fix-as-a-violation
+   * failure the comment below already guards against once.
+   */
+  it("every min-w- utility either scrolls or is gated behind a breakpoint", () => {
+    const offenders: string[] = [];
+    for (const file of FILES) {
+      const lines = read(file).split("\n");
+      const code = blankComments(lines);
+      lines.forEach((line, i) => {
+        for (const match of line.matchAll(/(^|[\s"'`])(min-w-\[[^\]]+\])/g)) {
+          // A responsive prefix (`sm:min-w-[…]`) is the fix, and shows up as the char
+          // before the utility being `:` rather than whitespace or a quote.
+          const prefixed = /[a-z0-9]:$/.test(line.slice(0, match.index! + match[1].length));
+          if (prefixed) continue;
+          // A scroll container on this line, or on one of the few CODE lines above it,
+          // is the other legitimate case.
+          //
+          // "The line above" was too literal, and the legal documents proved it: their
+          // table wrapper carries `overflow-x-auto` on line 116 and the `min-w-[36rem]`
+          // lands on line 130, with a twelve-line accessibility comment in between
+          // explaining the focusable-region waiver. Correct markup, flagged as an
+          // overflow, because a comment sat where the guard expected code.
+          //
+          // Comments are blanked IN PLACE rather than stripped, so reported line numbers
+          // still point at the real line — the same trade-off, for the same reason, as
+          // `_code_only()` in tests/shared_state_assertion_guard_test.py, which exists
+          // because that guard once flagged the prose of a comment explaining a fix it
+          // had itself prompted. A check that reads its own documentation as a violation
+          // is a check people turn off.
+          const near = [code[i], ...previousCodeLines(code, i, 6)].join(" ");
+          if (/overflow-x-auto|overflow-auto|overflow-x-scroll|<ScrollRegion\b/.test(near)) continue;
+          offenders.push(`${rel(file)}:${i + 1} — ${match[2]}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these fixed minimum widths are neither inside a horizontal scroll container nor ` +
+        `gated behind a breakpoint, so they overflow a 320px screen:\n  ` +
+        `${offenders.join("\n  ")}\n` +
+        `Either wrap the element in \`overflow-x-auto\` (the pattern every table here ` +
+        `uses) or prefix the utility, e.g. \`sm:min-w-[16rem]\`.`,
     ).toEqual([]);
   });
 });
 
-describe("every scroll container", () => {
-  const files = sourceFiles(SRC);
-
+describe("card padding leaves a phone something to read", () => {
   /**
-   * Containers that scroll but are not `ScrollRegion`, with what makes each one correct.
+   * At 320px a flat `p-6` spent 48px of a 288px strip on whitespace, and it is what
+   * pushed `/admin/tenants/[tenantId]`'s inner grid past the viewport. The default is now
+   * `p-4 sm:p-6`; the rule below is what keeps a call site from reintroducing the flat
+   * one through `bodyClassName`, which overrides the default entirely.
+   */
+  it("Card defaults to 16px of padding on a phone", () => {
+    const ui = read(join(SRC, "components", "ui.tsx"));
+    expect(ui, "Card's default body padding is no longer responsive").toContain('bodyClassName ?? "p-4 sm:p-6"');
+  });
+
+  it("no bodyClassName sets more than 16px of horizontal padding on a phone", () => {
+    const offenders: string[] = [];
+    for (const file of FILES) {
+      const lines = read(file).split("\n");
+      lines.forEach((line, i) => {
+        const value = /bodyClassName=(?:"([^"]*)"|\{"([^"]*)"\})/.exec(line);
+        if (!value) return;
+        const classes = (value[1] ?? value[2] ?? "").split(/\s+/).filter(Boolean);
+        for (const c of classes) {
+          // Unprefixed `p-5`/`p-6`/`px-5`/`px-6` and up: 20px or more per side.
+          const m = /^p[x]?-(\d+)$/.exec(c);
+          if (m && Number(m[1]) >= 5) offenders.push(`${rel(file)}:${i + 1} — ${c}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these Card bodies pad by 20px or more per side at every width, which on a 320px ` +
+        `screen spends an eighth of the viewport before any content:\n  ` +
+        `${offenders.join("\n  ")}\n` +
+        `Use the responsive form the default uses, e.g. \`p-4 sm:p-6\`.`,
+    ).toEqual([]);
+  });
+});
+
+describe("the mobile drawer is a drawer at every width", () => {
+  /**
+   * `isCollapsed` is a DESKTOP control — it is set by a button that is `lg:flex` — but it
+   * is component state that survives a resize, so `isCollapsed ? "lg:w-[72px]" : …` gave
+   * the panel no base width at all below `lg`: the overlay drawer shrink-wrapped its
+   * content instead of being a 255px drawer. Both shells had the identical expression,
+   * which is why this is checked for both rather than fixed in one.
+   */
+  it("both shells give the drawer a width that does not depend on a breakpoint", () => {
+    for (const shell of ["app/c/[slug]/layout.tsx", "app/admin/layout.tsx"]) {
+      const source = read(join(SRC, shell));
+      const expression = /className=\{isCollapsed \? "([^"]*)" : "([^"]*)"\}/.exec(source);
+      expect(expression, `${shell} no longer sets the NavDrawer width the expected way`).not.toBeNull();
+      for (const arm of [expression![1], expression![2]]) {
+        expect(
+          arm.split(/\s+/).some((c) => /^w-/.test(c)),
+          `${shell}: the drawer width "${arm}" is only set behind a breakpoint, so below ` +
+            `lg the overlay drawer has no width of its own`,
+        ).toBe(true);
+      }
+    }
+  });
+});
+
+
+describe("every scroll container can be reached from a keyboard", () => {
+  /**
+   * There is no key that scrolls a non-focusable element.
    *
-   * Compound `file:line-ish` keys with a stated reason, the shape `tests/a11y.ts` uses for
-   * its own exemptions — an exemption written per FILE would silently cover the next
-   * container somebody adds to the same screen.
+   * A wide table inside a bare `overflow-x-auto` div is content a keyboard-only user
+   * cannot read the right-hand side of — on the credit ledger and the invoice that is the
+   * money columns. Seventeen of the console's eighteen scroll containers were exactly
+   * that; the eighteenth (`lib/legal/document.tsx`) had argued the case inline and been
+   * copied by none of them. `ScrollRegion` is that shape hoisted, and every one of the
+   * eighteen now uses it.
+   *
+   * THE A11Y SWEEP CANNOT SEE THIS, which is why the rule lives here rather than there.
+   * axe's `scrollable-region-focusable` needs to know that an element actually scrolls,
+   * and jsdom implements no layout, so the rule never fires and the gate was green on all
+   * eighteen. A source check is what can go red.
    */
   const NOT_A_SCROLL_REGION: Record<string, string> = {
     "components/ui.tsx": "`ScrollRegion` itself — this is the definition.",
     "app/c/[slug]/integrations/page.tsx":
       "The delivered-payload `<pre>` scrolls VERTICALLY (`max-h-80`), which `ScrollRegion` " +
       "does not model — it hardcodes `overflow-x-auto`. It carries the same `role=region` " +
-      "+ `aria-label` + `tabIndex={0}` inline, and the assertion below checks that rather " +
-      "than waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
+      "+ `aria-label` + `tabIndex={0}` inline, and the assertion checks that rather than " +
+      "waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
   };
 
-  it("is reachable from a keyboard", () => {
+  it("is a ScrollRegion, or is focusable in its own right", () => {
     const unreachable: string[] = [];
-    for (const file of files) {
-      const all = lines(file);
-      for (let i = 0; i < all.length; i += 1) {
-        if (!/overflow-x-auto|overflow-auto/.test(all[i].text)) continue;
-        // The component's own definition and its doc comment mention the utility; only
-        // an element carrying it as a class is a container.
-        if (!/className/.test(all[i].text)) continue;
-        const key = all[i].file;
+    for (const file of FILES) {
+      const source = read(file).split("\n");
+      source.forEach((line, i) => {
+        if (!/overflow-x-auto|overflow-auto|overflow-x-scroll/.test(line)) return;
+        // Only an element wearing the utility as a class is a container; the doc comments
+        // that explain the rule mention it too.
+        if (!/className/.test(line)) return;
+        const key = rel(file).replace(/^src\//, "");
         if (!Object.hasOwn(NOT_A_SCROLL_REGION, key)) {
-          unreachable.push(`${all[i].file}:${all[i].no} — ${all[i].text.trim()}`);
-          continue;
+          unreachable.push(`${rel(file)}:${i + 1} — ${line.trim()}`);
+          return;
         }
-        // An exempted site still has to be focusable and named — the exemption is from
-        // the COMPONENT, never from the rule. The attributes sit in the same element, so
-        // the few lines around the class are where they must appear.
-        const near = all
-          .slice(Math.max(0, i - 8), i + 8)
-          .map((l) => l.text)
-          .join(" ");
+        // An exemption is from the COMPONENT, never from the rule: the site still has to
+        // take focus. The attributes sit in the same element, within a few lines.
+        const near = source.slice(Math.max(0, i - 8), i + 8).join(" ");
         if (key !== "components/ui.tsx" && !/tabIndex=\{0\}/.test(near)) {
-          unreachable.push(`${all[i].file}:${all[i].no} — exempted but not focusable`);
+          unreachable.push(`${rel(file)}:${i + 1} — exempted from ScrollRegion but not focusable`);
         }
-      }
+      });
     }
-
     expect(
       unreachable,
-      "scroll containers a keyboard cannot reach — there is no key that scrolls a " +
-        "non-focusable element (axe `scrollable-region-focusable`, which jsdom cannot fire)",
+      `these scroll containers cannot be scrolled by a keyboard:\n  ` +
+        `${unreachable.join("\n  ")}\n` +
+        `Wrap the content in \`<ScrollRegion label="…">\` (components/ui.tsx), which ` +
+        `carries role=region + tabIndex=0 + the accessible name.`,
     ).toEqual([]);
   });
 
   it("carries an accessible name wherever it is used", () => {
     // A `role="region"` with no name is not exposed as a landmark at all, so an unnamed
-    // one buys a screen-reader user a focus stop and nothing else. `ScrollRegion` requires
-    // `label` in its type; this is the check that nobody passes an empty one.
+    // one buys a screen-reader user a focus stop and nothing else. `label` is required by
+    // `ScrollRegion`'s type; this is the check that nobody passes an empty one.
     const unnamed: string[] = [];
-    for (const file of files) {
-      for (const line of lines(file)) {
-        if (!/<ScrollRegion\b/.test(line.text)) continue;
-        const rest = readFileSync(file, "utf8").split("\n").slice(line.no - 1, line.no + 3).join(" ");
-        if (!/label=\{?["`{]/.test(rest) || /label=""/.test(rest)) {
-          unnamed.push(`${line.file}:${line.no}`);
+    for (const file of FILES) {
+      const source = read(file).split("\n");
+      source.forEach((line, i) => {
+        if (!/<ScrollRegion\b/.test(line)) return;
+        const element = source.slice(i, i + 4).join(" ");
+        if (!/label=\{?["`{]/.test(element) || /label=""/.test(element)) {
+          unnamed.push(`${rel(file)}:${i + 1}`);
         }
-      }
+      });
     }
     expect(unnamed, "ScrollRegion with no usable label").toEqual([]);
-  });
-});
-
-describe("a control a thumb has to hit", () => {
-  const files = sourceFiles(SRC);
-
-  /**
-   * WCAG 2.2 SC 2.5.8 Target Size (Minimum) is 24×24 CSS px at Level AA; this repo's own
-   * minimum for a touch target is 44px (`min-h-11`, `components/marketing/faq.tsx`), which
-   * also clears SC 2.5.5 at AAA.
-   *
-   * What is checkable without layout is the combination that produced the 20px control:
-   * `text-xs` (12px text in a 16px line box) with `py-0.5` (2px each side) and no height
-   * floor — about 20px rendered, which is UNDER the AA minimum on any reading. The
-   * threshold stops there deliberately: `py-1` computes to 24px, exactly the minimum, and
-   * a guard that also failed the controls which pass would be one people learn to widen
-   * rather than obey. It is a shape rather than a measurement either way, which is the
-   * honest limit of a jsdom-era guard and why the browser run above is named as what
-   * closes the question properly.
-   */
-  const TINY = /text-xs/;
-  const THIN_PADDING = /\bpy-0\.5\b/;
-  const HAS_FLOOR = /min-h-|\bh-\d/;
-
-  /**
-   * Is this class string worn by something a person presses?
-   *
-   * TWO SHAPES, and the second is the one that matters: the defect this test was written
-   * for lives in a shared `const INLINE_EDIT = "…"` at the top of `leads/page.tsx`, not on
-   * a JSX line — so a check that only looked upward for a `<select>` would have passed on
-   * the exact control the finding named, which is the failure mode this whole file is
-   * about. A SCREAMING_CASE const holding a class string is a control style by convention
-   * here (`PRIMARY_BUTTON`, `SECONDARY_BUTTON_SM`, `FIELD`, `QUIET_BUTTON`), so it counts.
-   */
-  function isPressable(all: Line[], at: number): boolean {
-    const chain = [all[at], ...ancestorsOf(all, at)].slice(0, 3);
-    if (chain.some((l) => /<(select|button|input|a)\b|Select\b/.test(l.text))) return true;
-    for (let i = at; i >= 0 && i > at - 4; i -= 1) {
-      if (/^(export )?const [A-Z][A-Z0-9_]* =/.test(all[i].text)) return true;
-    }
-    return false;
-  }
-
-  it("is never a text-xs control with no height floor", () => {
-    const cramped: string[] = [];
-    for (const file of files) {
-      const all = lines(file);
-      for (let i = 0; i < all.length; i += 1) {
-        const text = all[i].text;
-        // `className=` on an element, or the body of a shared class constant.
-        if (!/className|^\s*["`]/.test(text)) continue;
-        if (!TINY.test(text) || !THIN_PADDING.test(text) || HAS_FLOOR.test(text)) continue;
-        // Only elements a person presses. A `<span>` badge at this size is text, not a
-        // target, and SC 2.5.8 applies to targets.
-        if (isPressable(all, i)) cramped.push(`${all[i].file}:${all[i].no} — ${text.trim()}`);
-      }
-    }
-
-    expect(
-      cramped,
-      "pressable controls around 20px tall — under SC 2.5.8's 24px minimum, and these " +
-        "are writes whose failure surface only speaks after a FAILED edit, never a wrong one",
-    ).toEqual([]);
   });
 });

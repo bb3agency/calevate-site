@@ -137,8 +137,15 @@ const SAMPLE_PAYLOAD = JSON.stringify(
 /* Split so the JSON box can be smaller without `${FIELD} text-xs` — two font-size
    utilities on one element, where Tailwind's emission order decides the winner and
    `text-sm` happens to be the one that does. */
+/* `min-w-0 max-w-full`: an <input> with no width utility sizes to its `size`
+   attribute (~20 characters), which at the 16px this repo now gives touch devices
+   is ~256px — 2px wider than the 254px card it sits in at 320px, so it painted
+   across the border. A CAP rather than `w-full`: these sit in flex rows where a
+   forced full width would restyle the desktop console, and on desktop there is
+   room so the cap never binds. `min-w-0` because a flex item will not otherwise
+   shrink below its own min-content. */
 const FIELD_BASE =
-  "rounded-md border border-line bg-surface px-3 py-1.5 text-ink placeholder:text-ink-faint";
+  "rounded-md border border-line bg-surface px-3 py-1.5 text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
 const FIELD = `${FIELD_BASE} text-sm`;
 const QUIET_BUTTON =
   "flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5";
@@ -758,7 +765,7 @@ function LeadSourcesCard({
               aria-label="Lead source kind"
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              className={`${FIELD} mt-1 block w-full min-w-[16rem]`}
+              className={`${FIELD} mt-1 block w-full sm:min-w-[16rem]`}
             >
               {CREATABLE_SOURCES.map((kind) => (
                 <option key={kind} value={kind}>
@@ -793,7 +800,7 @@ function LeadSourcesCard({
                 value={agentId}
                 disabled={agents.isLoading}
                 onChange={(e) => setAgentId(e.target.value)}
-                className={`${FIELD} mt-1 block w-full min-w-[16rem]`}
+                className={`${FIELD} mt-1 block w-full sm:min-w-[16rem]`}
               >
                 {/* Honest, not blank: a source with no agent SAVES leads and never dials
                     them, which is a legitimate state and a surprising one. Say it. */}

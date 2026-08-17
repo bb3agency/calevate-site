@@ -11,7 +11,8 @@
  * the landing page already use and for the same reason.
  *
  * It carries no `Providers` (TanStack Query) because none of these screens calls the
- * API: signing in is a conversation between the browser and Clerk.
+ * API: signing in was a conversation between the browser and a vendor. Since D-177 it
+ * is a conversation with our own `/v1/auth/**`, and these pages are both halves of it.
  */
 
 import type { ReactNode } from "react";

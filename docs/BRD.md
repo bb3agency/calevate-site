@@ -138,8 +138,12 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
     on every publish. Theirs is a scriptable line and nothing underneath it. Do not sell
     "we always announce it"; sell "ours cannot be made to deny it". **Raw caller PII
     renders un-redacted** in their dashboard (we default to
-    `text_redacted` + role-gated raw), **data may be processed outside India** (we are
-    India-resident by design), and their **liability is capped at 3 months of fees with Terms §9
+    `text_redacted` + role-gated raw), **data may be processed outside India** (do NOT
+    answer this with a residency claim of our own — F-1 is open, `docs/DEPLOYMENT.md`
+    says India co-location is not required for the stack holding transcripts, and the
+    landing page was scrubbed of exactly this sentence. What IS sellable today is the
+    processing-location DISCLOSURE: we name every sub-processor and where it runs, in
+    writing, before signature), and their **liability is capped at 3 months of fees with Terms §9
     explicitly disclaiming any availability guarantee — contradicting the "99.9% Uptime SLA"
     on their own marketing page** (the sharpest, most verifiable sales wedge; it is also the
     exact cap that helped disqualify ThinnestAI in D-31). Note too that their bought numbers are

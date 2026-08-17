@@ -1,47 +1,6 @@
 {
   "components": {
     "schemas": {
-      "AcceptInviteIn": {
-        "additionalProperties": false,
-        "properties": {
-          "token": {
-            "maxLength": 200,
-            "minLength": 20,
-            "title": "Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token"
-        ],
-        "title": "AcceptInviteIn",
-        "type": "object"
-      },
-      "AcceptInviteOut": {
-        "additionalProperties": false,
-        "properties": {
-          "role": {
-            "title": "Role",
-            "type": "string"
-          },
-          "slug": {
-            "title": "Slug",
-            "type": "string"
-          },
-          "tenant_id": {
-            "format": "uuid",
-            "title": "Tenant Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "tenant_id",
-          "slug",
-          "role"
-        ],
-        "title": "AcceptInviteOut",
-        "type": "object"
-      },
       "AddContactsIn": {
         "additionalProperties": false,
         "properties": {
@@ -768,6 +727,29 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "BootstrapConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "BootstrapConfirmIn",
+        "type": "object"
+      },
       "BootstrapKeyOut": {
         "additionalProperties": false,
         "description": "A \u00a74 bootstrap key: real, required, and changeable ONLY on the VPS.\n\nTHESE ARE NOT IN `fields` AND NEVER WILL BE, and that absence was the problem. An\noperator looking for `APP_ENV` on this screen found nothing at all, which reads\nidentically to \"this build does not have that setting\" \u2014 so the one class of key that\ngenuinely does need an SSH session and a restart was the one the console said nothing\nabout. It says it here instead, with the reason, beside the keys it CAN change.\n\nNO VALUE, EVER. Two of the six are `PLATFORM_KEK` and `PLATFORM_KEK_RETIRED` \u2014 the\nkeys that open the credential store \u2014 and one is `DATABASE_URL`, which carries a\npassword. `configured` is presence and nothing more, which is the only fact an\noperator needs from a screen (hard rule 6 applies to a response body exactly as it\napplies to a log line).",
@@ -1427,6 +1409,66 @@
         "title": "CallbackOut",
         "type": "object"
       },
+      "CallerNoticeOut": {
+        "additionalProperties": false,
+        "description": "The draft, structured and rendered.\n\nBoth halves ship on purpose: a screen renders the structure into its own layout, and\n`notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on\nthe client side would put the wording \u2014 the part counsel reviews \u2014 outside the thing\nthat was reviewed.",
+        "properties": {
+          "ai_disclosure_off": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ai Disclosure Off",
+            "type": "array"
+          },
+          "collected": {
+            "items": {
+              "$ref": "#/components/schemas/CollectedItemOut"
+            },
+            "title": "Collected",
+            "type": "array"
+          },
+          "disclaimer": {
+            "title": "Disclaimer",
+            "type": "string"
+          },
+          "notice_markdown": {
+            "title": "Notice Markdown",
+            "type": "string"
+          },
+          "open_questions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Open Questions",
+            "type": "array"
+          },
+          "recording_notice_off": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Recording Notice Off",
+            "type": "array"
+          },
+          "retention": {
+            "items": {
+              "$ref": "#/components/schemas/RetentionLineOut"
+            },
+            "title": "Retention",
+            "type": "array"
+          }
+        },
+        "required": [
+          "disclaimer",
+          "collected",
+          "retention",
+          "ai_disclosure_off",
+          "recording_notice_off",
+          "open_questions",
+          "notice_markdown"
+        ],
+        "title": "CallerNoticeOut",
+        "type": "object"
+      },
       "CallingHoursIn": {
         "additionalProperties": false,
         "description": "A per-campaign calling window (IST). The service enforces the substantive\nrule \u2014 narrowing-only, inside the platform's 09:00-21:00 window \u2014 so this model\nonly pins the wire shape to two well-formed HH:MM strings.",
@@ -1953,6 +1995,25 @@
           "spend_cap_inr"
         ],
         "title": "ClientHealthOut",
+        "type": "object"
+      },
+      "CollectedItemOut": {
+        "additionalProperties": false,
+        "properties": {
+          "what": {
+            "title": "What",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "why"
+        ],
+        "title": "CollectedItemOut",
         "type": "object"
       },
       "CommercialTermsIn": {
@@ -4197,6 +4258,17 @@
             "title": "Calls",
             "type": "array"
           },
+          "knowledge_base_documents_matched": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Knowledge Base Documents Matched"
+          },
           "leads": {
             "items": {
               "type": "string"
@@ -4249,7 +4321,8 @@
           "call_extractions_erased",
           "recordings_within_trai_floor",
           "recordings_destroyed",
-          "recording_hold_until"
+          "recording_hold_until",
+          "knowledge_base_documents_matched"
         ],
         "title": "ErasureScopeOut",
         "type": "object"
@@ -5843,6 +5916,66 @@
         "title": "InvitationOut",
         "type": "object"
       },
+      "InviteAcceptWithPasswordIn": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "InviteAcceptWithPasswordIn",
+        "type": "object"
+      },
+      "InviteAcceptWithPasswordOut": {
+        "additionalProperties": false,
+        "properties": {
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "slug",
+          "role"
+        ],
+        "title": "InviteAcceptWithPasswordOut",
+        "type": "object"
+      },
       "InviteIn": {
         "additionalProperties": false,
         "properties": {
@@ -6588,7 +6721,7 @@
       },
       "LeadBulkIn": {
         "additionalProperties": false,
-        "description": "One bulk action, and the two ways of saying which leads it is about.\n\n**`scope` is required and has no default**, which is the whole guardrail. A default\nwould decide the ambiguous case \u2014 page or query \u2014 on the caller's behalf, and that\nambiguity is the defect this field exists to remove; a client that forgets to say\ngets a 422 rather than an action over a set it did not choose.\n\nThe FILTER scope's predicates are not here: they ride as the same query parameters\n`GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there\nis one spelling of \"which rows\" across the screen, the file and this. Putting them in\nthe body would be a second one.",
+        "description": "One bulk action, and the two ways of saying which leads it is about.\n\n**`scope` is required and has no default**, which is the whole guardrail. A default\nwould decide the ambiguous case \u2014 page or query \u2014 on the caller's behalf, and that\nambiguity is the defect this field exists to remove; a client that forgets to say\ngets a 422 rather than an action over a set it did not choose.\n\nThe FILTER scope's predicates ride as the same query parameters `GET /v1/leads` and\n`GET /v1/leads/export.csv` take, with the same meanings, so there is one spelling of\n\"which rows\" across the screen, the file and this \u2014 EXCEPT `search`, which is here in\nthe body because it matches a phone number and a query string is written to access\nlogs, history and referrers (`LeadLensIn` carries the full argument). The lens's\nother members are not personal data and stay where they were.",
         "properties": {
           "action": {
             "enum": [
@@ -6638,6 +6771,18 @@
             ],
             "title": "Scope",
             "type": "string"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
           },
           "status": {
             "anyOf": [
@@ -6831,6 +6976,79 @@
         "title": "LeadFacetsOut",
         "type": "object"
       },
+      "LeadLensIn": {
+        "additionalProperties": false,
+        "description": "The Leads table's lens \u2014 WHICH ROWS and WHICH COLUMNS \u2014 carried in a request BODY.\n\nIt exists because of the one field in it that is personal data. `search` is matched\nagainst `leads.phone_e164` with a suffix LIKE (`crm.service._lead_scope`), so on a\nGET it is a customer's phone number written into nginx's `combined` access log\n(`$request` is the whole request line), into Cloudflare's edge log, into browser\nhistory and into the `Referer` of the next navigation. This repository already made\nthat judgement twice \u2014 `POST /v1/dnc/check` is a POST because \"the identifier IS the\npersonal data\", and SEC-COMP \u00a74 requires a number in the body and never in a URL \u2014\nand the leads screen is the busiest surface in the product to have been left out of\nit (hard rule 6).\n\nThe field NAMES match the query parameters the GET routes take, including the two\nencoded ones (`columns` as a comma-separated string, `f` as `key:value` entries), so\none parser serves both shapes and the client's lens object does not change form when\nit moves into a body.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "assigned_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "f": {
+            "items": {
+              "type": "string"
+            },
+            "title": "F",
+            "type": "array"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "LeadLensIn",
+        "type": "object"
+      },
       "LeadListOut": {
         "additionalProperties": false,
         "description": "The Leads table is schema-driven (TRD \u00a77): the columns travel WITH the rows so\nthe frontend never hard-codes a client's fields.",
@@ -7016,6 +7234,92 @@
           "updated_at"
         ],
         "title": "LeadOut",
+        "type": "object"
+      },
+      "LeadSearchIn": {
+        "additionalProperties": false,
+        "description": "The lens plus the page. Export takes no page: it is the whole filtered set.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "assigned_to": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned To"
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "f": {
+            "items": {
+              "type": "string"
+            },
+            "title": "F",
+            "type": "array"
+          },
+          "limit": {
+            "default": 50,
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "maxLength": 60,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "LeadSearchIn",
         "type": "object"
       },
       "LeadSourceCreatedOut": {
@@ -7511,6 +7815,46 @@
         "title": "LifecycleOut",
         "type": "object"
       },
+      "LoginIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginIn",
+        "type": "object"
+      },
+      "LoginOut": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "authenticated",
+              "otp_required"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LoginOut",
+        "type": "object"
+      },
       "LookupConsentIn": {
         "additionalProperties": false,
         "properties": {
@@ -7677,7 +8021,7 @@
       },
       "MemberOut": {
         "additionalProperties": false,
-        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: the Clerk mirror composes it from\nfirst/last name and stores NULL when the account has neither\n(`tenancy/clerk_webhooks.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
+        "description": "One colleague, as a control that has to NAME them needs them.\n\n**No email, and that is a rule rather than a preference.** `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model\ndeclaring it fails the guardrail unless the route is allowlisted as role-checked and\naudited \u2014 which an assignee picker is not, and should not have to be. Nothing on\nthis surface needs it either: the control writes an id and prints a name.\n\n`name` is nullable because `users.name` is: an invitation carries an address and,\noptionally, a name, so a colleague who typed neither has NULL\n(`authn/invitations.py`). The screen says \"Unnamed member\" rather than falling\nback to an address \u2014 a fallback that leaks is not a fallback.",
         "properties": {
           "id": {
             "format": "uuid",
@@ -8151,6 +8495,41 @@
           "status"
         ],
         "title": "OrganizationOut",
+        "type": "object"
+      },
+      "OtpConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "purpose": {
+            "const": "email_verify",
+            "default": "email_verify",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "OtpConfirmIn",
+        "type": "object"
+      },
+      "OtpRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "purpose": {
+            "const": "email_verify",
+            "default": "email_verify",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "title": "OtpRequestIn",
         "type": "object"
       },
       "PaymentOut": {
@@ -9910,6 +10289,44 @@
         "title": "ReplayOut",
         "type": "object"
       },
+      "ResetConfirmIn": {
+        "additionalProperties": false,
+        "properties": {
+          "password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Password",
+            "type": "string"
+          },
+          "token": {
+            "maxLength": 200,
+            "minLength": 20,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ],
+        "title": "ResetConfirmIn",
+        "type": "object"
+      },
+      "ResetRequestIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "ResetRequestIn",
+        "type": "object"
+      },
       "RestatementIn": {
         "additionalProperties": false,
         "description": "A payment that credited LESS than the bank moved, described by the TRUE TOTAL.\n\nIt does NOT inherit `MoneyIn`, and the field is not called `amount_inr`. The other\ntwo writes on this router take an amount to MOVE; this one takes the amount the\npayment WAS. One name for two meanings on one router is the confusion that would\neventually be resolved at 2am by a tired operator, so the names differ and the\nshared part \u2014 the float refusal \u2014 is shared as a function.",
@@ -10004,6 +10421,39 @@
           "recorded"
         ],
         "title": "RestatementOut",
+        "type": "object"
+      },
+      "RetentionLineOut": {
+        "additionalProperties": false,
+        "properties": {
+          "days": {
+            "title": "Days",
+            "type": "integer"
+          },
+          "what": {
+            "title": "What",
+            "type": "string"
+          }
+        },
+        "required": [
+          "what",
+          "days"
+        ],
+        "title": "RetentionLineOut",
+        "type": "object"
+      },
+      "RevokedOut": {
+        "additionalProperties": false,
+        "properties": {
+          "revoked": {
+            "title": "Revoked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "title": "RevokedOut",
         "type": "object"
       },
       "RewrapOut": {
@@ -10455,6 +10905,22 @@
         "title": "ScheduleOut",
         "type": "object"
       },
+      "SecondFactorIn": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 16,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "SecondFactorIn",
+        "type": "object"
+      },
       "SecretOut": {
         "additionalProperties": false,
         "description": "One credential, as much as anyone may ever see of it.\n\nNO VALUE FIELD, ON ANY ROUTE, EVER. `last_four` is the only fragment that exists, and\n`core/envelope.last_four` masks it entirely below eight characters.\n\nNo field carries a default: the console must not have to write `installed ?? true`\nfor a fact that decides whether it offers to rotate or to install.",
@@ -10700,6 +11166,37 @@
           "name"
         ],
         "title": "ServiceItem",
+        "type": "object"
+      },
+      "SessionOut": {
+        "additionalProperties": false,
+        "description": "Who this session is, as ids and state.\n\n**NO EMAIL ADDRESS, deliberately.** An earlier draft returned one, and\n`scripts/check_redaction_exposure.py` reported it \u2014 correctly. The substance is\ndefensible (it is the caller's OWN address, on a route only their own session reaches),\nbut the guardrail's contract for an allowlist entry is \"role-checked AND writes\naudit_log\", and writing an audit row on every bootstrap poll would be absurd volume for\na fact the caller already knows because they typed it to sign in.\n\nSo the field is gone rather than exempted. Nothing consumed it \u2014 `apps/web` is a\nseparate slice and unbuilt \u2014 and a field nobody reads is the same defect as a column\nnobody reads, in wire form. A console that later wants to render \"signed in as \u2026\" gets\na profile endpoint whose disclosure is considered on its own terms.",
+        "properties": {
+          "email_verified": {
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "mfa_complete": {
+            "title": "Mfa Complete",
+            "type": "boolean"
+          },
+          "realm": {
+            "title": "Realm",
+            "type": "string"
+          },
+          "subject_id": {
+            "format": "uuid",
+            "title": "Subject Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "realm",
+          "subject_id",
+          "mfa_complete",
+          "email_verified"
+        ],
+        "title": "SessionOut",
         "type": "object"
       },
       "SetCallCapIn": {
@@ -13675,37 +14172,6 @@
         ]
       }
     },
-    "/hooks/v1/clerk": {
-      "post": {
-        "operationId": "clerk_webhook_hooks_v1_clerk_post",
-        "responses": {
-          "202": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Clerk Webhook Hooks V1 Clerk Post",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Clerk user/organization mirror \u2014 Svix-signed (D-37: our DB is the record)",
-        "tags": [
-          "clerk-webhooks"
-        ]
-      }
-    },
     "/hooks/v1/ingest/meta/{webhook_id}": {
       "get": {
         "description": "Meta GETs this when someone subscribes the callback URL, and will not accept the\nsubscription unless the challenge comes back verbatim as plain text with 200.\n\nThe failure answer is 403, which is what Meta's own guidance asks for and also the\ncorrect shape here: the caller authenticated nothing, they presented a token that\ndoes not match. Nothing is written on either path \u2014 a handshake is not a delivery.",
@@ -13873,7 +14339,7 @@
     },
     "/hooks/v1/razorpay": {
       "post": {
-        "description": "Signature first, money last.\n\nNothing is read out of this payload until the HMAC verifies, and nothing durable is\nwritten until the tenant resolves \u2014 so a forged or malformed event leaves no row at\nall, not even an inbox trace it could later be replayed from.\n\nTwo layers of duplicate protection, deliberately:\n\n1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the\n   NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a\n   field still dedupes, while the same payment id arriving with a different amount\n   is the conflict `claim_inbox_event` is designed to shout about;\n2. the ledger's own `ref`, checked under the per-tenant credit lock inside\n   `credit_captured_payment`. This one is the guarantee: inbox rows are per\n   delivery and can be swept, a ledger row is permanent.\n\nThe claim and the credit share ONE transaction, which is what makes a failure\nrecoverable: a crash after the claim rolls the claim back too, so the provider's\nretry is processed rather than answered \"duplicate\" forever (the failure mode\n`reliability/service.py` documents against the Clerk mirror).",
+        "description": "Signature first, money last.\n\nNothing is read out of this payload until the HMAC verifies, and nothing durable is\nwritten until the tenant resolves \u2014 so a forged or malformed event leaves no row at\nall, not even an inbox trace it could later be replayed from.\n\nTwo layers of duplicate protection, deliberately:\n\n1. the durable inbox, claimed on `payment.captured:<payment id>` with a hash of the\n   NORMALIZED facts (not the raw body), so a redelivery whose envelope gained a\n   field still dedupes, while the same payment id arriving with a different amount\n   is the conflict `claim_inbox_event` is designed to shout about;\n2. the ledger's own `ref`, checked under the per-tenant credit lock inside\n   `credit_captured_payment`. This one is the guarantee: inbox rows are per\n   delivery and can be swept, a ledger row is permanent.\n\nThe claim and the credit share ONE transaction, which is what makes a failure\nrecoverable: a crash after the claim rolls the claim back too, so the provider's\nretry is processed rather than answered \"duplicate\" forever (the failure mode\n`reliability/service.py` documents against the retired Clerk mirror).",
         "operationId": "razorpay_webhook_hooks_v1_razorpay_post",
         "responses": {
           "200": {
@@ -17078,9 +17544,830 @@
         "x-calevate-permission": "leads:read"
       }
     },
+    "/v1/auth/admin/bootstrap/confirm": {
+      "post": {
+        "description": "The redemption half of `scripts/bootstrap_admin.py` (D-171).\n\nUNAUTHENTICATED, necessarily \u2014 it is how a deployment acquires its first\noperator, and there is nobody to authenticate as until it succeeds. What stands\nin its place is the token: 256 bits, mailed to an address a deploying operator\nnamed, single-use, one hour, and refused outright once the named account has a\npassword. A leaked link from a finished deploy opens nothing.\n\nADMIN REALM ONLY, and enforced structurally \u2014 this route is not declared on the\nclient realm's router at all, rather than being declared and then refusing.\nA client-realm `/bootstrap/confirm` would be a 404, which is the correct answer\nfor a route that should not exist there.",
+        "operationId": "bootstrap_confirm_v1_auth_admin_bootstrap_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BootstrapConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the first administrator's password from a bootstrap setup link",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/login": {
+      "post": {
+        "description": "Always answers identically for an unknown address and a wrong password \u2014\nsame status, same body, and the same wall-clock cost (`service.sign_in`).",
+        "operationId": "login_v1_auth_admin_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Sign in to the admin realm with an email address and password",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/login/otp": {
+      "post": {
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "operationId": "login_otp_v1_auth_admin_login_otp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Complete a sign-in by entering the emailed one-time code",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/login/otp/resend": {
+      "post": {
+        "description": "A new code RETIRES the previous one, so resending cannot be used to accumulate\nparallel codes and multiply the five-guess budget.",
+        "operationId": "login_otp_resend_v1_auth_admin_login_otp_resend_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a fresh one-time code for a sign-in that is waiting on one",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/logout": {
+      "post": {
+        "description": "Deliberately depends on `Live` and not `Authed`: a half-authenticated session\nmust be able to sign itself out, or an operator who abandons an MFA prompt is stuck\nwith a live partial session and no way to drop it.",
+        "operationId": "logout_v1_auth_admin_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End this session",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/logout/all": {
+      "post": {
+        "operationId": "logout_all_v1_auth_admin_logout_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End every session this person holds in this realm",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/otp/request": {
+      "post": {
+        "description": "Scoped to the CALLER'S OWN subject \u2014 there is no parameter naming whose mailbox\nto mail, which is what stops this being a way to send mail to arbitrary addresses.",
+        "operationId": "otp_request_v1_auth_admin_otp_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a one-time code to this session's own address",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/otp/verify": {
+      "post": {
+        "operationId": "otp_verify_v1_auth_admin_otp_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Spend one guess against the live one-time code",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/password/reset/confirm": {
+      "post": {
+        "operationId": "reset_confirm_v1_auth_admin_password_reset_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set a new password from a reset link, ending every existing session",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/password/reset/request": {
+      "post": {
+        "description": "202 with an EMPTY body, always. There is no version of this response that\ndiffers for a known and an unknown address \u2014 that is the point of it.",
+        "operationId": "reset_request_v1_auth_admin_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask for a password reset link (answers identically for unknown addresses)",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/session": {
+      "get": {
+        "description": "Re-reads the subject rather than trusting the session row, so a deactivation\ntakes effect on the next request (BACKEND-PATTERNS \u00a77).",
+        "operationId": "read_session_v1_auth_admin_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this session belongs to \u2014 the console's bootstrap call",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/session/refresh": {
+      "post": {
+        "operationId": "refresh_session_v1_auth_admin_session_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Exchange a live session for a fresh token, keeping its lifetime",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/step-up": {
+      "post": {
+        "description": "The first half of C-09 (D-178).\n\nADMIN REALM ONLY, declared rather than refused \u2014 same structural choice as\n`/bootstrap/confirm`. The client realm requires no second factor\n(`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route\nwith nothing to re-prove and nobody to call it.\n\nDepends on `authed`, not `live`: step-up RE-proves a factor, so a session that\nhas never proved one is at the ordinary sign-in gate, not this one.",
+        "operationId": "step_up_request_v1_auth_admin_step_up_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a code to re-prove this operator's second factor before a dangerous action",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/admin/step-up/verify": {
+      "post": {
+        "description": "Rotates the session \u2014 see `service.complete_step_up` on why re-proving a\nfactor is a privilege change and why it cannot extend the absolute bound.",
+        "operationId": "step_up_verify_v1_auth_admin_step_up_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Answer the step-up code, restamping this session's second factor",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
+    "/v1/auth/client/invitations/accept": {
+      "post": {
+        "description": "THE invitation-redemption endpoint. There is no other (D-177).\n\nIt needs no prior account, because there is no vendor to have made one: it takes the\npassword in the same call, and takes the address from the invitation rather than\ncomparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and\n`/invite?token=` answers `410 Gone` naming the page that replaced it.",
+        "operationId": "accept_invitation_with_password_v1_auth_client_invitations_accept_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteAcceptWithPasswordIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteAcceptWithPasswordOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Redeem an invitation: create the account, set a password, join the workspace",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/login": {
+      "post": {
+        "description": "Always answers identically for an unknown address and a wrong password \u2014\nsame status, same body, and the same wall-clock cost (`service.sign_in`).",
+        "operationId": "login_v1_auth_client_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Sign in to the client realm with an email address and password",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/login/otp": {
+      "post": {
+        "description": "Takes a session that has proved a password but not the second factor.\n\nTHIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole\nmechanism, so there is no sibling route for an authenticator app and no route for a\nrecovery code. Rotates the session on success, which is OWASP's session-fixation\ndefence applied at the privilege change.",
+        "operationId": "login_otp_v1_auth_client_login_otp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Complete a sign-in by entering the emailed one-time code",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/login/otp/resend": {
+      "post": {
+        "description": "A new code RETIRES the previous one, so resending cannot be used to accumulate\nparallel codes and multiply the five-guess budget.",
+        "operationId": "login_otp_resend_v1_auth_client_login_otp_resend_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a fresh one-time code for a sign-in that is waiting on one",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/logout": {
+      "post": {
+        "description": "Deliberately depends on `Live` and not `Authed`: a half-authenticated session\nmust be able to sign itself out, or an operator who abandons an MFA prompt is stuck\nwith a live partial session and no way to drop it.",
+        "operationId": "logout_v1_auth_client_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End this session",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/logout/all": {
+      "post": {
+        "operationId": "logout_all_v1_auth_client_logout_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End every session this person holds in this realm",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/otp/request": {
+      "post": {
+        "description": "Scoped to the CALLER'S OWN subject \u2014 there is no parameter naming whose mailbox\nto mail, which is what stops this being a way to send mail to arbitrary addresses.",
+        "operationId": "otp_request_v1_auth_client_otp_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Email a one-time code to this session's own address",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/otp/verify": {
+      "post": {
+        "operationId": "otp_verify_v1_auth_client_otp_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OtpConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Spend one guess against the live one-time code",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/password/reset/confirm": {
+      "post": {
+        "operationId": "reset_confirm_v1_auth_client_password_reset_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set a new password from a reset link, ending every existing session",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/password/reset/request": {
+      "post": {
+        "description": "202 with an EMPTY body, always. There is no version of this response that\ndiffers for a known and an unknown address \u2014 that is the point of it.",
+        "operationId": "reset_request_v1_auth_client_password_reset_request_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask for a password reset link (answers identically for unknown addresses)",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/session": {
+      "get": {
+        "description": "Re-reads the subject rather than trusting the session row, so a deactivation\ntakes effect on the next request (BACKEND-PATTERNS \u00a77).",
+        "operationId": "read_session_v1_auth_client_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who this session belongs to \u2014 the console's bootstrap call",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/session/refresh": {
+      "post": {
+        "operationId": "refresh_session_v1_auth_client_session_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Exchange a live session for a fresh token, keeping its lifetime",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
     "/v1/auth/signup": {
       "post": {
-        "description": "The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.",
+        "description": "The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.",
         "operationId": "signup_v1_auth_signup_post",
         "requestBody": {
           "content": {
@@ -17667,11 +18954,11 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Short-lived presigned link to OUR copy of the recording",
+        "summary": "Short-lived presigned link to OUR copy of the recording \u2014 owner-only, audited",
         "tags": [
           "crm"
         ],
-        "x-calevate-permission": "calls:read"
+        "x-calevate-permission": "calls:read_raw"
       }
     },
     "/v1/calls/{call_id}/transcript/raw": {
@@ -18267,6 +19554,35 @@
           "campaigns"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/compliance/caller-notice": {
+      "get": {
+        "description": "Indian data-protection law requires you to tell your callers, item by item, what you collect from them and how long you keep it. For a Calevate account that list is the fields your agents capture, your retention settings and your announcement settings \u2014 which live here. This generates a DRAFT from them, with blanks marked where only you can answer. It is not legal advice and must be reviewed by your own advocate before you publish it.",
+        "operationId": "read_caller_notice_v1_compliance_caller_notice_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerNoticeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A draft of the privacy notice you owe your own callers",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
       }
     },
     "/v1/compliance/deletion-requests": {
@@ -19172,44 +20488,6 @@
         "x-calevate-permission": "org:manage"
       }
     },
-    "/v1/invitations/accept": {
-      "post": {
-        "description": "The one authenticated route that does NOT require a membership \u2014 creating one is\nthe point (see `current_identity`).\n\nThe burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link\nproduce one membership rather than two.\n\nTHE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link\nis a pure bearer token: a forwarded email, a link pasted into a group chat, or a\nshared mailbox hands the account to whoever opens it first \u2014 and the audit trail\nthen records a membership for someone nobody invited. Binding is what current\npractice asks of an invite link (single use, short-lived, and only redeemable by the\naddress that received it \u2014 the same rule Auth0/authentik-style invite flows enforce\nby making the signup email read-only), and it costs an honest invitee nothing: they\nare signing in with the address the link was sent to.\n\nThe comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant\ntime protects a SECRET from being learned a byte at a time; the secret on this path\nis the token, and it is matched by an indexed lookup on its SHA-256. An address the\ncaller already owns and already typed into Clerk is not a secret, and dressing the\ncomparison up as one would suggest to the next reader that it is.",
-        "operationId": "accept_invitation_v1_invitations_accept_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcceptInviteIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AcceptInviteOut"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "default": {
-            "content": {
-              "application/problem+json": {}
-            },
-            "description": "RFC-9457 problem+json"
-          }
-        },
-        "summary": "Accept an emailed invitation and create the membership (FLOWS \u00a71 step 8)",
-        "tags": [
-          "tenancy"
-        ]
-      }
-    },
     "/v1/invitations/{invitation_id}": {
       "delete": {
         "operationId": "revoke_invitation_v1_invitations__invitation_id__delete",
@@ -19785,19 +21063,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved to POST /v1/leads/search",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved to POST /v1/leads/search",
               "title": "Search"
             }
           },
@@ -19915,19 +21196,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved into the request body",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved into the request body",
               "title": "Search"
             }
           },
@@ -20053,19 +21337,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved to POST /v1/leads/export.csv",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved to POST /v1/leads/export.csv",
               "title": "Search"
             }
           },
@@ -20131,6 +21418,35 @@
           }
         },
         "summary": "CSV export \u2014 full phone numbers, owner-only and audit-logged",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "calls:read_raw"
+      },
+      "post": {
+        "operationId": "export_leads_searched_v1_leads_export_csv_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadLensIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "CSV export with a search term \u2014 POST because the term is a phone number",
         "tags": [
           "crm"
         ],
@@ -20243,6 +21559,44 @@
           }
         },
         "summary": "Faceted filters, built from this agent's extraction schema",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/leads/search": {
+      "post": {
+        "operationId": "search_leads_v1_leads_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadSearchIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The Leads table, searched \u2014 POST because the search term is a phone number",
         "tags": [
           "crm"
         ],

@@ -68,14 +68,24 @@ const ADMIN_ROUTES: Routes = {
   "/v1/admin/tenants": [],
 };
 
-function renderAdminShell(at: string): HTMLElement {
+/**
+ * Async since D-177: the shell sits behind the admin realm's own session gate, so a
+ * synchronous render returns with the gate still deciding and no sidebar in the tree.
+ * `stubApi` answers the restore by default; this is what waits for it. Same shape as
+ * navDrawer.test.tsx's.
+ */
+async function renderAdminShell(at: string): Promise<HTMLElement> {
   pathname = at;
-  return renderAdminPage(
-    <AdminLayout>
-      <p>screen</p>
-    </AdminLayout>,
-    ADMIN_ROUTES,
-  ).container;
+  let container!: HTMLElement;
+  await act(async () => {
+    container = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      ADMIN_ROUTES,
+    ).container;
+  });
+  return container;
 }
 
 /**
@@ -140,8 +150,8 @@ describe("skip to main content", () => {
     assertSkipLink(await renderClientShell("/c/acme"));
   });
 
-  it("is the first thing a keyboard reaches — admin realm", () => {
-    assertSkipLink(renderAdminShell("/admin"));
+  it("is the first thing a keyboard reaches — admin realm", async () => {
+    assertSkipLink(await renderAdminShell("/admin"));
   });
 });
 
@@ -184,8 +194,8 @@ describe("where am I", () => {
 
   it.each(ADMIN_DETAIL_ROUTES)(
     "marks the section an admin detail route belongs to — %s",
-    (route) => {
-      const container = renderAdminShell(route);
+    async (route) => {
+      const container = await renderAdminShell(route);
       const link = currentLink(container);
       expect(link, `no aria-current anywhere on ${route}`).toBeTruthy();
       const heading = container.querySelector("h1");

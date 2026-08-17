@@ -13,7 +13,6 @@
     "gen:api": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"
   },
   "dependencies": {
-    "@clerk/nextjs": "7.7.4",
     "@gsap/react": "2.1.2",
     "@tanstack/react-query": "^5.101.4",
     "clsx": "^2.1.1",

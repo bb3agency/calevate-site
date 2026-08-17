@@ -727,7 +727,7 @@ function CreatedPanel({
               );
             }}
           >
-            <label className="block min-w-[16rem] flex-1">
+            <label className="block flex-1 sm:min-w-[16rem]">
               <span className={FIELD_LABEL}>Owner&apos;s email</span>
               <input
                 required
