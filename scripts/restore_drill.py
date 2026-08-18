@@ -199,8 +199,33 @@ TENANT_A = UUID("aaaaaaaa-0000-4000-8000-000000000001")
 TENANT_B = UUID("bbbbbbbb-0000-4000-8000-000000000002")
 AGENT_A = UUID("aaaaaaaa-0000-4000-8000-00000000a9e1")
 AGENT_B = UUID("bbbbbbbb-0000-4000-8000-00000000a9e2")
+USER_A = UUID("aaaaaaaa-0000-4000-8000-00000000c5e1")
+USER_B = UUID("bbbbbbbb-0000-4000-8000-00000000c5e2")
+ADMIN_ID = UUID("cccccccc-0000-4000-8000-0000000000ad")
 LEADS_PER_TENANT = 7
 AUDIT_ENTRIES = 6
+
+#: THE MUTATION THE APPEND-ONLY PROBE ATTEMPTS, per ledger — a SET clause, and it must
+#: CHANGE THE VALUE rather than write a column back onto itself.
+#:
+#: The probe used to be `SET tenant_id = tenant_id` for every ledger, which is wrong twice
+#: and was never once observed because `verify()` aborted before it (see
+#: `_check_audit_chain`). `platform_secrets` is not tenant-scoped, so that statement did
+#: not even parse — and `_raises` reads an `UndefinedColumn` as "the database did not
+#: refuse", i.e. a correct ledger reported UNPROTECTED. And a no-op write is invisible to
+#: the two triggers that compare NEW to OLD (`platform_secrets_forbid_mutation` permits
+#: exactly the D-97 KEK re-wrap columns; `calevate_preference_scrub_append_only` permits
+#: exactly the `ON DELETE SET NULL` of `campaign_id`), so it would prove nothing about
+#: either even where it parsed.
+#:
+#: A real reassignment of `tenant_id` is also the mutation worth naming: moving a ledger
+#: row to another tenant is the specific thing hard rule 4 and hard rule 1 both forbid.
+#: The FK it would violate is never reached — these are BEFORE ROW triggers.
+_APPEND_ONLY_PROBE_SET = {"platform_secrets": "last_four = last_four || 'x'"}
+
+
+def _append_only_probe_set(table: str) -> str:
+    return _APPEND_ONLY_PROBE_SET.get(table, "tenant_id = gen_random_uuid()")
 
 
 # --------------------------------------------------------------------------------------
@@ -663,8 +688,29 @@ class RestoreDrill:
             f"('{AGENT_B}', '{TENANT_B}', 'Drill B', 'inbound', "
             "'This is an AI assistant. This call is being recorded.', "
             "'This is an AI assistant.', 'This call is being recorded.')",
+            # One admin and one user per tenant, seeded ONLY because three of the eight
+            # ledgers below cannot exist without them: `platform_secrets.created_by` and
+            # `preference_scrub_runs.recorded_by_admin_id` point at `admin_users`, and
+            # `whatsapp_alert_optin_ledger.user_id` at `users`. Not fixtures for their own
+            # sake — every row here exists to give a row-level trigger something to refuse.
+            "INSERT INTO admin_users (id, email, name, role) VALUES "
+            f"('{ADMIN_ID}', 'drill-operator@example.invalid', 'Drill Operator', 'operator')",
+            "INSERT INTO users (id, email, name) VALUES "
+            f"('{USER_A}', 'drill-a@example.invalid', 'Drill User A'), "
+            f"('{USER_B}', 'drill-b@example.invalid', 'Drill User B')",
+            # PLATFORM_SECRETS is not tenant-scoped, so it is seeded once rather than per
+            # tenant. The bytes are literals, not a real wrap: nothing in the drill
+            # decrypts this row — its whole job is to be a row the D-97 trigger can refuse
+            # a `last_four` rewrite on.
+            "INSERT INTO platform_secrets (key, version, ciphertext, nonce, dek_wrapped, "
+            "dek_nonce, kek_version, last_four, created_by) VALUES "
+            "('DRILL_FIXTURE_KEY', 1, '\\x01'::bytea, '\\x02'::bytea, '\\x03'::bytea, "
+            f"'\\x04'::bytea, 1, '0000', '{ADMIN_ID}')",
         ]
-        for tenant, agent, prefix in ((TENANT_A, AGENT_A, "9111"), (TENANT_B, AGENT_B, "9222")):
+        for tenant, agent, user, prefix in (
+            (TENANT_A, AGENT_A, USER_A, "9111"),
+            (TENANT_B, AGENT_B, USER_B, "9222"),
+        ):
             for index in range(LEADS_PER_TENANT):
                 statements.append(
                     "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, source, status) "
@@ -682,6 +728,23 @@ class RestoreDrill:
                 "(id, tenant_id, kind, ref, description, amount, billing_month) VALUES "
                 f"('{_uuid7()}', '{tenant}', 'setup_fee', 'drill-{tenant}', "
                 "'Onboarding setup fee', 5000.0000, '2026-08')",
+                # A GRANTED opt-in has to satisfy `granted_optin_is_evidenced` and
+                # `names_one_recorder`, so the self-serve shape is the only one that is
+                # one INSERT: the recorder IS the user, and the notice version is set.
+                "INSERT INTO whatsapp_alert_optin_ledger (id, tenant_id, user_id, "
+                "phone_e164, status, channel, notice_version, recorded_by_user_id) VALUES "
+                f"('{_uuid7()}', '{tenant}', '{user}', '+9{prefix}000001', 'granted', "
+                f"'self_serve_console', 'v1', '{user}')",
+                # `campaign_id` is left NULL deliberately: the ONE update its trigger
+                # permits is the `ON DELETE SET NULL` that clears a non-null campaign, so
+                # a NULL here means the probe's `SET tenant_id = tenant_id` meets the
+                # RAISE and not the permitted branch.
+                "INSERT INTO preference_scrub_runs (id, tenant_id, provider, scrub_ref, "
+                "scrubbed_at, expires_at, submitted_count, suppressed_count, "
+                "recorded_by_admin_id) VALUES "
+                f"('{_uuid7()}', '{tenant}', 'drill-provider', 'drill-ref-{prefix}', "
+                "now(), now() + interval '30 days', 10, 2, "
+                f"'{ADMIN_ID}')",
             ]
         _execute(owner_dsn, statements)
 
@@ -709,6 +772,13 @@ class RestoreDrill:
             "consent_ledger",
             "credit_ledger",
             "one_time_charges",
+            # The three ledgers the seed grew for the append-only probe. Counted for the
+            # same reason the other five are: a restore that silently dropped a ledger's
+            # rows would otherwise pass `row_counts` and then pass `append_only_enforced`
+            # too, because an empty ledger is now skipped rather than probed.
+            "whatsapp_alert_optin_ledger",
+            "preference_scrub_runs",
+            "platform_secrets",
             "audit_log",
         )
         union = " UNION ALL ".join(f"SELECT '{t}', count(*) FROM {t}" for t in tables)
@@ -1108,23 +1178,52 @@ class RestoreDrill:
         import psycopg
 
         assert_scratch(self.restore_db, self.dsns.protected)
+        # AN EMPTY LEDGER PROVES NOTHING, AND MUST NOT LOOK LIKE PROOF. Every one of
+        # these triggers is `FOR EACH ROW`, so against a ledger with no rows `UPDATE` and
+        # `DELETE` both succeed touching nothing — which `_raises` reads as "the database
+        # did not refuse". `_seed`'s own docstring already names the hazard in the other
+        # direction ("a ledger with no rows would let this pass against a database whose
+        # triggers had been dropped"); what actually happened is the mirror image, because
+        # `APPEND_ONLY_TABLES` grew three entries the seed was never taught about. The
+        # drill then printed `NOT enforced on: whatsapp_alert_optin_ledger/UPDATE, ...`
+        # against a database whose triggers were all present and correct — a RED quarterly
+        # drill caused by the drill. Empty is reported as its own sentence so the next
+        # ledger added to the registry fails LOUDLY here instead of silently expanding the
+        # blind spot.
+        empty = [
+            table
+            for table in _append_only_tables()
+            if int(_scalar(dsn, f"SELECT count(*) FROM {table}")) == 0
+        ]
         unprotected: list[str] = []
         for table in _append_only_tables():
+            if table in empty:
+                continue
+            mutation = _append_only_probe_set(table)
             for verb, statement in (
-                ("UPDATE", f"UPDATE {table} SET tenant_id = tenant_id"),
+                ("UPDATE", f"UPDATE {table} SET {mutation}"),
                 ("DELETE", f"DELETE FROM {table}"),
             ):
                 with psycopg.connect(dsn) as connection:
                     if not _raises(connection, statement):
                         unprotected.append(f"{table}/{verb}")
                     connection.rollback()
+        problems: list[str] = []
+        if unprotected:
+            problems.append(f"NOT enforced on: {', '.join(unprotected)}")
+        if empty:
+            problems.append(
+                f"UNTESTABLE (no rows to fire a FOR EACH ROW trigger, so this drill "
+                f"proves nothing about them — teach `_seed` about them): {', '.join(empty)}"
+            )
         self.check(
             "append_only_enforced",
-            not unprotected,
+            not problems,
             f"{len(_append_only_tables())} ledgers refused UPDATE and DELETE"
-            if not unprotected
-            else f"NOT enforced on: {', '.join(unprotected)}",
+            if not problems
+            else "; ".join(problems),
             ledgers=_append_only_tables(),
+            untestable=empty,
         )
 
     def _check_audit_chain(self) -> None:
@@ -1136,12 +1235,22 @@ class RestoreDrill:
             self.check("audit_chain", False, f"verifier could not run: {_tail(process)}")
             return
         verdict = json.loads(process.stdout.strip().splitlines()[-1])
+        # `verdict` IS THE VERIFIER'S OWN JSON and it carries a key called `ok`, which is
+        # also `check`'s second POSITIONAL parameter — so `**verdict` raised
+        # `TypeError: check() got multiple values for argument 'ok'` on EVERY run, and
+        # `verify()` aborted here, before the row-count, recording and object-store checks
+        # that follow it. The drill has therefore never once verified an audit chain it
+        # restored, and the abort read as "unexpected TypeError" rather than as a defect
+        # in this file. Renamed rather than dropped: the verifier's own verdict belongs in
+        # the record, under a name that cannot collide with the recorder's signature.
+        facts = {key: value for key, value in verdict.items() if key != "ok"}
         self.check(
             "audit_chain",
             bool(verdict["ok"]) and verdict["entries_checked"] == self.expected_counts["audit_log"],
             f"{verdict['entries_checked']} entries recomputed, complete={verdict['complete']}, "
             f"breaks={verdict['breaks_found']} {verdict['breaks'] or ''}".strip(),
-            **verdict,
+            chain_ok=verdict["ok"],
+            **facts,
         )
 
     def _check_counts(self, dsn: str) -> None:
@@ -1174,16 +1283,47 @@ class RestoreDrill:
                 f"--dbname={self.dsns.app(self.source_db)}",
             ]
         )
-        refused = process.returncode != 0 and "row-level security" in (process.stderr or "")
+        # THE INVARIANT IS "IT REFUSES", NOT "IT REFUSES WITH THIS SENTENCE".
+        #
+        # This check used to require the string `row-level security` in stderr, and it had
+        # never once executed — `_check_audit_chain`, two lines earlier in `verify()`,
+        # aborted the stage with a TypeError on every run since both were written in the
+        # same commit. Run for the first time, it went RED on a correct database, because
+        # pg_dump does not reach a policied table: `05bba2f3c19c` grants `calevate_app`
+        # DML on tables, and `c5a9e34b71d0` grants USAGE (deliberately not SELECT) on the
+        # one sequence in the schema — so pg_dump dies first on
+        #
+        #     ERROR:  permission denied for sequence platform_settings_revision_seq
+        #
+        # and only reaches
+        #
+        #     ERROR:  query would be affected by row-level security policy for table "…"
+        #
+        # if that grant is widened. Both were reproduced against pg_dump 16.13 here. Which
+        # of the two arrives depends on the order pg_dump happens to walk the schema in,
+        # which is not a property `dump-offsite.sh` rests on. What it rests on is that a
+        # dump taken by the app role FAILS LOUDLY instead of writing a silently empty
+        # backup, and a non-zero exit is exactly that. The reason is recorded rather than
+        # required, so a future run that starts refusing for a THIRD reason is legible.
+        stderr = process.stderr or ""
+        reason = (
+            "row-level security"
+            if "row-level security" in stderr
+            else "insufficient privilege"
+            if "permission denied" in stderr
+            else "other"
+        )
+        refused = process.returncode != 0
         self.check(
             "pg_dump_under_rls",
             refused,
-            "pg_dump as calevate_app is REFUSED by RLS (exit "
-            f"{process.returncode}) — the loud failure, not a silent empty backup"
+            f"pg_dump as calevate_app is REFUSED ({reason}, exit {process.returncode}) "
+            "— the loud failure, not a silent empty backup"
             if refused
-            else f"pg_dump as calevate_app exited {process.returncode} — expected a refusal; "
-            "an empty-but-successful dump is the failure dump-offsite.sh's tripwire exists for",
+            else f"pg_dump as calevate_app SUCCEEDED (exit {process.returncode}) — that is "
+            "the silent, empty-but-successful backup dump-offsite.sh's tripwire exists for",
             exit_code=process.returncode,
+            refusal=reason,
         )
 
     # -- 10. cleanup -------------------------------------------------------------

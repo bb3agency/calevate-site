@@ -4,12 +4,12 @@ BACKEND-PATTERNS §6:
 - `/healthz/live`   — process is up. Touches NO dependency (a DB blip must not get
                       the container killed by the orchestrator).
 - `/healthz`        — DB SELECT 1 + Redis PING. 503 problem+json when degraded.
-- `/healthz/ready`  — adds queue depth + oldest-waiting age (stale-worker detection)
-                      and `runtime_config_missing_keys`. This is the GO-LIVE GATE that
-                      tolerant worker boot defers to.
+- `/healthz/ready`  — adds the SCHEMA REVISION, queue depth + oldest-waiting age
+                      (stale-worker detection) and `runtime_config_missing_keys`. This is
+                      the GO-LIVE GATE that tolerant worker boot defers to.
 
 `degradation_mode` is priority-ordered so a dashboard shows one word:
-db_down > redis_down > queue_stale > config_missing > none.
+db_down > schema_behind > redis_down > queue_stale > config_missing > none.
 
 ═══ THE STATUS IS PUBLIC. THE DETAIL IS NOT. ═══
 
@@ -46,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import APIRouter, Request, Response
@@ -59,7 +60,9 @@ from apps.api.db.session import untenanted_session
 
 log = get_logger(__name__)
 
-DegradationMode = Literal["db_down", "redis_down", "queue_stale", "config_missing", "none"]
+DegradationMode = Literal[
+    "db_down", "schema_behind", "redis_down", "queue_stale", "config_missing", "none"
+]
 
 # A job waiting longer than this means no worker is draining the queue.
 QUEUE_STALE_AFTER_S = 120.0
@@ -128,6 +131,103 @@ async def _check_redis() -> bool:
         return False
 
 
+#: The image's own migration graph, resolved once per process. Immutable for the life of
+#: the container — the versions tree ships inside the image — so a readiness poll every
+#: few seconds must not re-walk ~60 revision files to learn the same answer.
+#: `(all_revisions, heads)`, or `None` while it has not been resolved yet.
+_migration_graph: tuple[frozenset[str], frozenset[str]] | None = None
+_migration_graph_failed = False
+
+
+def _image_migration_graph() -> tuple[frozenset[str], frozenset[str]] | None:
+    """Every revision in THIS image, and this image's head(s). `None` if unaskable.
+
+    Adopted from alembic rather than re-derived, the same way `scripts/check_wiring.py`
+    and `scripts/deploy_revision_check.py` do: `ScriptDirectory` walks the revision map,
+    including branch labels and `down_revision` tuples, which a filename scan does not.
+
+    Imported inside the function and cached: `apps/voice-runtime` runs this router too
+    (hard rule 3's no-heavy-imports), and every container ships one image with
+    `--all-packages`, so the import is present but must not sit on the boot graph.
+    """
+    global _migration_graph, _migration_graph_failed
+    if _migration_graph is not None or _migration_graph_failed:
+        return _migration_graph
+    try:
+        from alembic.config import Config
+        from alembic.script import ScriptDirectory
+
+        root = Path(__file__).resolve().parents[3]
+        script = ScriptDirectory.from_config(Config(str(root / "alembic.ini")))
+        _migration_graph = (
+            frozenset(revision.revision for revision in script.walk_revisions()),
+            frozenset(script.get_heads()),
+        )
+    except Exception:
+        # NOT a readiness failure. "This process could not read its own migration tree"
+        # is a defect in the image, and answering `schema_behind` to it would tell an
+        # operator to run a migration that is not the problem. Logged once — the flag
+        # stops a readiness poll from re-raising and re-logging every few seconds — and
+        # the probe then abstains, which is the same posture `check_observability_ready`
+        # takes towards facts it cannot establish.
+        _migration_graph_failed = True
+        log.warning("health_migration_graph_unreadable")
+    return _migration_graph
+
+
+async def _check_schema_current() -> bool:
+    """Is the database at a revision this image is happy to serve?
+
+    THE FAILURE THIS EXISTS FOR. `scripts/vps-deploy.sh` migrates before it swaps
+    containers, so its own ordering is safe — but nothing in the running process ever
+    asked the question afterwards. A container started outside that script (a bare
+    `docker compose up -d api`, a `--no-pull` partial deploy, a migrate step that failed
+    while the swap went ahead) serves against whatever schema it finds, and
+    `/healthz/ready` answered `ready` while every request touching a column the release
+    added returned 500. That is the D-49 shape exactly: unfit AND silent about it.
+
+    THREE ANSWERS, AND THE MIDDLE ONE IS THE POINT.
+
+    * the stored revision IS a head of this image  → current, ready.
+    * the stored revision is NOT IN this image at all → the DATABASE IS AHEAD. That is a
+      rollback, which `scripts/deploy_revision_check.py` supports deliberately: migrations
+      are expand-only (hard rule 8's two-step deprecation), so the previous release runs
+      on the newer schema. Reporting it red would make every rollback — the thing you do
+      DURING an incident — refuse to come up. Ready.
+    * the stored revision is in this image and is not a head → THE IMAGE HAS MIGRATIONS
+      THE DATABASE HAS NOT APPLIED. Not ready.
+
+    Unanswerable (no alembic, no `alembic_version` row, a probe that timed out) abstains
+    rather than accusing, and logs. An empty `alembic_version` table is the exception: a
+    database nothing has ever migrated cannot serve, and that is not ambiguous.
+    """
+    graph = _image_migration_graph()
+    if graph is None:
+        return True
+    known, heads = graph
+    try:
+        async with asyncio.timeout(_PROBE_BUDGET_S), untenanted_session() as session:
+            result = await session.execute(text("SELECT version_num FROM alembic_version"))
+            stored = [str(row[0]) for row in result.fetchall()]
+    except Exception:
+        # `_check_db` has already decided whether the database is reachable at all; a
+        # failure here on a reachable database means the table is absent, which is the
+        # never-migrated case below.
+        log.warning("health_schema_revision_unreadable")
+        return False
+    if not stored:
+        log.warning("health_schema_never_migrated")
+        return False
+    behind = [revision for revision in stored if revision in known and revision not in heads]
+    if behind:
+        log.warning(
+            "health_schema_behind",
+            extra={"stored": ",".join(sorted(stored)), "image_heads": ",".join(sorted(heads))},
+        )
+        return False
+    return True
+
+
 async def _queue_stats() -> tuple[int, float | None]:
     """(depth, oldest_waiting_seconds). ARQ scores its queue zset with the run-at
     timestamp in ms, so the minimum score is the oldest ready job.
@@ -189,6 +289,10 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
     @router.get("/healthz/ready", summary="Readiness — the go-live gate")
     async def ready(request: Request, response: Response) -> dict[str, Any]:
         db_ok = await _check_db()
+        # Only worth asking of a database that answered: on an unreachable one this would
+        # spend a second probe budget to rediscover `db_down`, and `db_down` is the more
+        # actionable of the two words.
+        schema_ok = await _check_schema_current() if db_ok else True
         redis_ok = await _check_redis()
         depth = 0
         oldest: float | None = None
@@ -206,6 +310,11 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
         mode: DegradationMode = (
             "db_down"
             if not db_ok
+            # ABOVE `redis_down` deliberately: a queue blip is transient and self-heals,
+            # a schema behind the code needs a human to run a migration, and the word the
+            # probe returns is the first instruction the operator gets.
+            else "schema_behind"
+            if not schema_ok
             else "redis_down"
             if not redis_ok
             else "queue_stale"
@@ -240,7 +349,7 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
             )
         if await _detail_allowed(request):
             body["degradation_mode"] = mode
-            body["checks"] = {"db": db_ok, "redis": redis_ok}
+            body["checks"] = {"db": db_ok, "schema": schema_ok, "redis": redis_ok}
             body["queue"] = {"depth": depth, "oldest_waiting_s": oldest}
             # Missing config renders as validation-style fields[] — one shape for
             # "something's not right" (§6).
