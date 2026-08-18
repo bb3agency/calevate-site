@@ -105,6 +105,7 @@ from apps.api.compliance.models import (
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.ingest.service import normalize_phone
 
 log = get_logger(__name__)
@@ -232,6 +233,15 @@ async def record_messaging_consent(
         )
     if status == "granted":
         _assert_grant_is_evidenced(source=source, call_id=call_id, evidence=evidence)
+
+    # The cited conversation must be one THIS tenant had. `consent_ledger.call_id` is a
+    # foreign key and PostgreSQL checks those with row security bypassed, so without this
+    # a client can file an opt-in evidenced by a call they were never party to — and
+    # `consent_ledger` is in `APPEND_ONLY_TABLES` (hard rule 4), so that row is a legal
+    # record under DPDP that can never be corrected, only compensated. Checked after the
+    # evidence rule so "you did not say what this rests on" still outranks "that is not
+    # your call", and before the INSERT so nothing is written either way.
+    await assert_visible(session, "call", call_id)
 
     captured_at = datetime.now(UTC)
     await session.execute(
