@@ -24,7 +24,9 @@ match", and this file pins all three answers.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from contextlib import asynccontextmanager
+from typing import Any
 
 import pytest
 from apps.api.core import health as health_module
@@ -168,3 +170,88 @@ def test_the_image_graph_is_resolved_from_this_repository() -> None:
     assert heads, "a repository with no head has no schema to be current with"
     assert heads <= known
     assert len(known) > len(heads), "more than one migration has ever been written here"
+
+
+# --------------------------------------------------------------------------------------
+# The two arms of the read, driven through `_check_schema_current` itself rather than
+# through a stub standing in for it: the branch under test IS the exception handling, so
+# a test that replaced the function would assert about its own double.
+# --------------------------------------------------------------------------------------
+
+
+class _FakeSession:
+    """A session whose one statement does whatever the test needs it to."""
+
+    def __init__(self, on_execute: Callable[[], Any]) -> None:
+        self._on_execute = on_execute
+
+    async def execute(self, _statement: Any) -> Any:
+        return self._on_execute()
+
+
+def _session_factory(on_execute: Callable[[], Any]) -> Callable[[], Any]:
+    """`untenanted_session()` is used as an async context manager, so the substitute has
+    to be one — a bare async function returns a coroutine and the `async with` fails with
+    a TypeError, which is a different branch from the one under test."""
+
+    @asynccontextmanager
+    async def _factory() -> AsyncIterator[_FakeSession]:
+        yield _FakeSession(on_execute)
+
+    return _factory
+
+
+class _NoRows:
+    def fetchall(self) -> list[Any]:
+        return []
+
+
+async def test_a_probe_that_times_out_abstains_rather_than_reporting_schema_behind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE ONE WRONG WORD THIS PROBE COULD SAY.
+
+    `schema_behind` is an instruction: run a migration. A `TimeoutError` reading
+    `alembic_version` means the question could not be ASKED — on a database whose
+    `SELECT 1` had just answered inside the same budget, i.e. one that is slow rather
+    than behind — and answering it with that instruction sends a human to do the wrong
+    thing during an incident. `_check_schema_current`'s docstring has always promised
+    abstention for a probe that timed out; the code answered `False` with the rest.
+
+    Missing one `schema_behind` costs a single poll, since readiness re-asks in seconds.
+    Inventing one costs an operator.
+    """
+
+    def _time_out() -> Any:
+        raise TimeoutError
+
+    monkeypatch.setattr(health_module, "untenanted_session", _session_factory(_time_out))
+
+    assert await health_module._check_schema_current() is True
+
+
+async def test_a_database_nothing_has_ever_migrated_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other arm, and it must NOT abstain: an empty `alembic_version` is not an
+    unaskable question, it is an answered one. A database nothing has ever migrated
+    cannot serve, and that is unambiguous."""
+    monkeypatch.setattr(health_module, "untenanted_session", _session_factory(_NoRows))
+
+    assert await health_module._check_schema_current() is False
+
+
+async def test_a_database_that_answers_with_an_error_is_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_check_db` has already established the database is reachable, so the only thing
+    left for `SELECT version_num FROM alembic_version` to fail on is the table not being
+    there — the never-migrated case arriving as an exception rather than as no rows. That
+    one is an ANSWER, so unlike the timeout above it does not abstain."""
+
+    def _no_such_table() -> Any:
+        raise RuntimeError('relation "alembic_version" does not exist')
+
+    monkeypatch.setattr(health_module, "untenanted_session", _session_factory(_no_such_table))
+
+    assert await health_module._check_schema_current() is False

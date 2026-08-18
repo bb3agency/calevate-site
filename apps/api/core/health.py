@@ -209,10 +209,23 @@ async def _check_schema_current() -> bool:
         async with asyncio.timeout(_PROBE_BUDGET_S), untenanted_session() as session:
             result = await session.execute(text("SELECT version_num FROM alembic_version"))
             stored = [str(row[0]) for row in result.fetchall()]
+    except TimeoutError:
+        # ABSTAIN, which is what the docstring above promises for a question we could not
+        # ASK — and this branch used to answer `False` with the rest, i.e. `schema_behind`.
+        # That is the one wrong word here: it is an instruction to run a migration, and it
+        # would be sent to an operator whose database is slow rather than behind, on a
+        # deployment where `_check_db`'s `SELECT 1` had just succeeded. A false
+        # `schema_behind` costs a human doing the wrong thing during an incident; a missed
+        # one costs the probe one poll, since the next poll re-asks in a few seconds. The
+        # log line is the operator's copy either way, and it names the budget so a probe
+        # that is ALWAYS timing out is legible as its own fact.
+        log.warning("health_schema_probe_timeout", extra={"budget_s": _PROBE_BUDGET_S})
+        return True
     except Exception:
-        # `_check_db` has already decided whether the database is reachable at all; a
-        # failure here on a reachable database means the table is absent, which is the
-        # never-migrated case below.
+        # NOT a timeout, so the database answered — with an error. `_check_db` has already
+        # established it is reachable, so the only thing left for this statement to fail
+        # on is `alembic_version` not being there, which is the never-migrated case below
+        # arriving as an exception instead of an empty result.
         log.warning("health_schema_revision_unreadable")
         return False
     if not stored:
