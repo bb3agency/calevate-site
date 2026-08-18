@@ -1,5 +1,5 @@
 import { onlineManager } from "@tanstack/react-query";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
 /**
@@ -94,3 +94,25 @@ Object.defineProperty(window, "matchMedia", {
       dispatchEvent: vi.fn(),
     }) as unknown as MediaQueryList,
 });
+
+/**
+ * How long `findBy*`/`waitFor` wait before calling it a failure.
+ *
+ * RTL's default is 1000ms, which is a statement about how fast a machine is rather than
+ * about whether the code is right — and this suite runs 88 files across parallel workers,
+ * so the slowest render in a loaded run is nowhere near the slowest render in an isolated
+ * one. Two tests proved it: `shellCounters`'s 503 branch and `wireLookup`'s prototype-key
+ * branch passed alone, failed inside the full suite, and failed again in CI. Both assert
+ * an END STATE that needs a query to settle, so the only thing the old budget measured
+ * was the box.
+ *
+ * RAISING IT WEAKENS NOTHING. A wrong render still fails, because the assertion is
+ * unchanged and `findBy` returns the moment the DOM matches — the budget is a CEILING on
+ * waiting, not a delay. What it costs is the wall-clock of a genuinely broken test, which
+ * is paid once per real failure rather than at every green run.
+ *
+ * It is deliberately NOT a per-call `{ timeout }` at the two sites that flaked: those two
+ * are the ones that happened to lose the race first, and a fix scoped to them would leave
+ * every other `findBy` in the suite carrying the same latent flake. One place, one rule.
+ */
+configure({ asyncUtilTimeout: 5000 });
