@@ -345,3 +345,50 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
     assert blocked.status_code == 403, "impersonation is read-only (D-22)"
     assert "read-only" in blocked.json()["detail"].lower(), blocked.text
     assert unknown.status_code == 404, "a slug that does not exist is still a 404"
+
+
+async def test_the_invitation_deadline_is_measured_by_one_clock() -> None:
+    """`expires_at - created_at` is EXACTLY `INVITE_TTL`, on a transaction aged first.
+
+    Both readers of `invitations.expires_at` judge it with the DATABASE's clock
+    (`expires_at > now()`, in the pending-invitation probe and in `accept_invitation`'s
+    burn), and it used to be WRITTEN with the API process's — `datetime.now(UTC) +
+    INVITE_TTL`. Two clocks on one deadline is wrong by the skew between the hosts and,
+    on every deployment, by the age of the transaction: Postgres `now()` is transaction
+    START time while the Python expression is evaluated when the statement is built, so
+    an invitation issued after other work in the same request silently outlived its
+    stated 72 hours by however long that work took. `create_invitation` really does run
+    after other work — `assert_account_open`, the membership probe and the pending probe
+    all precede the INSERT.
+
+    The `pg_sleep` makes that measurable rather than sub-millisecond; it stands in for
+    those three reads on a busy database (D-322).
+    """
+    created = await service.create_organization(
+        name="Deadline Clinic",
+        slug=f"dl-{uuid.uuid4().hex[:8]}",
+        vertical_template="clinic",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id = created["id"]
+    invitee_email = f"deadline-{uuid.uuid4().hex[:10]}@example.com"
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(text("SELECT pg_sleep(0.5)"))
+        invitation_id, _token = await service.create_invitation(
+            session, tenant_id=tenant_id, email=invitee_email, role="staff", created_by=None
+        )
+        drift = (
+            await session.execute(
+                text("SELECT expires_at - created_at FROM invitations WHERE id = :id"),
+                {"id": invitation_id},
+            )
+        ).scalar_one()
+
+    assert drift == service.INVITE_TTL, (
+        f"the invitation's life is {drift}, not {service.INVITE_TTL}: `expires_at` and "
+        "`created_at` were stamped by different clocks, so how long an invitation link "
+        "works depends on how busy the request that minted it was"
+    )
