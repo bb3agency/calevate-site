@@ -6003,6 +6003,10 @@
       "InviteOut": {
         "additionalProperties": false,
         "properties": {
+          "delivery": {
+            "title": "Delivery",
+            "type": "string"
+          },
           "expires_in_hours": {
             "title": "Expires In Hours",
             "type": "integer"
@@ -6011,15 +6015,11 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
-          },
-          "token": {
-            "title": "Token",
-            "type": "string"
           }
         },
         "required": [
           "id",
-          "token",
+          "delivery",
           "expires_in_hours"
         ],
         "title": "InviteOut",
@@ -16511,7 +16511,7 @@
         "x-calevate-permission": "org:read"
       },
       "post": {
-        "description": "One transaction: the key and the record of who cut it.\n\nThe audit used to run on a separate `global_db` session AFTER the invitation had\ncommitted, so the failure mode was a live owner credential for a client account with\nnothing anywhere saying who issued it \u2014 the single worst row in this table to be\nmissing. It is written last inside the tenant's own transaction now (`write_audit`\nappends in the caller's transaction by design, and `audit_log` is not tenant-RLS'd),\nwhich is what `tenancy/signup.py` and `create_tenant` above already do.\n\nThe tenant session is not merely a scope: `invitations` is RLS'd, so this is also\nwhat makes `create_invitation`'s reads answer about THIS account only.",
+        "description": "One transaction: the key and the record of who cut it.\n\nThe audit used to run on a separate `global_db` session AFTER the invitation had\ncommitted, so the failure mode was a live owner credential for a client account with\nnothing anywhere saying who issued it \u2014 the single worst row in this table to be\nmissing. It is written last inside the tenant's own transaction now (`write_audit`\nappends in the caller's transaction by design, and `audit_log` is not tenant-RLS'd),\nwhich is what `tenancy/signup.py` and `create_tenant` above already do.\n\nThe tenant session is not merely a scope: `invitations` is RLS'd, so this is also\nwhat makes `create_invitation`'s reads answer about THIS account only.\n\nTHE LINK IS MAILED HERE AND NOT HANDED BACK (D-198). This route is the twin of\n`tenancy/routes.py::invite_member`, which D-190 moved onto the mailer; this one kept\nreturning the raw token and sending nothing, so the wizard displayed a live owner\ncredential and the invitee heard from nobody. The enqueue is in the SAME transaction as\nthe invitation row for the reason D-190 gives: an invitation committed without its mail\nis a person who is never told, and a mail sent for a row that rolled back is a link that\ndoes not work.",
         "operationId": "invite_member_v1_admin_tenants__tenant_id__invitations_post",
         "parameters": [
           {

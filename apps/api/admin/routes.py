@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import intake, service
 from apps.api.agents import service as agents_service
+from apps.api.authn.service import enqueue_invitation_email
 from apps.api.billing import service as billing
 from apps.api.billing import terms as billing_terms
 from apps.api.billing.cap_routes import MAX_CLIENT_CAP_MIN, MAX_CLIENT_CAP_SPEND_INR
@@ -204,8 +205,27 @@ class InviteOut(BaseModel):
     # admin realm (the revoke that existed is client-realm, and the client cannot sign in
     # yet — that is what the invitation is FOR).
     id: UUID
-    # Returned EXACTLY once — only the hash is stored, so it cannot be re-read later.
-    token: str
+    #: WAS `token: str`, and its removal is the point of D-198 — the same removal D-190
+    #: made on the client realm's `POST /v1/tenants/invitations`, which this route is the
+    #: twin of and which it was left behind by.
+    #:
+    #: This handed the raw invitation token back to the OPERATOR and mailed nothing, so the
+    #: onboarding wizard rendered a live owner credential on screen for a client account
+    #: and the invitee was told by whatever channel the operator chose. D-190 records what
+    #: that costs and why it is not a caveat: "the squat is possible for exactly as long as
+    #: anyone but the invitee can see the token". D-185 stopped a squatted address becoming
+    #: somebody else's account and explicitly could not stop the squat itself, naming the
+    #: emailing of the token as the one thing that closes it — and then closed it on one of
+    #: the two routes that mint invitations.
+    #:
+    #: The operator is a narrower attacker than "any tenant owner", which is why this half
+    #: survived the first pass. It is not no attacker: `admin:tenants` is held by every
+    #: `operator`, an invitation may name any address, and the resulting `users` row is
+    #: GLOBAL and unique per address.
+    #:
+    #: `delivery` replaces it, exactly as on the client realm, so the wizard can say the
+    #: link was sent rather than render a secret.
+    delivery: str
     expires_in_hours: int
 
 
@@ -322,6 +342,14 @@ async def invite_member(
 
     The tenant session is not merely a scope: `invitations` is RLS'd, so this is also
     what makes `create_invitation`'s reads answer about THIS account only.
+
+    THE LINK IS MAILED HERE AND NOT HANDED BACK (D-198). This route is the twin of
+    `tenancy/routes.py::invite_member`, which D-190 moved onto the mailer; this one kept
+    returning the raw token and sending nothing, so the wizard displayed a live owner
+    credential and the invitee heard from nobody. The enqueue is in the SAME transaction as
+    the invitation row for the reason D-190 gives: an invitation committed without its mail
+    is a person who is never told, and a mail sent for a row that rolled back is a link that
+    does not work.
     """
     async with tenant_session(tenant_id) as scoped:
         invitation_id, token = await service.create_invitation(
@@ -331,6 +359,7 @@ async def invite_member(
             role=payload.role,
             created_by=principal.user_id,
         )
+        await enqueue_invitation_email(scoped, to=str(payload.email), token=token)
         await write_audit(
             scoped,
             action="admin.invitation_created",
@@ -345,7 +374,7 @@ async def invite_member(
         )
     return InviteOut(
         id=invitation_id,
-        token=token,
+        delivery="queued",
         expires_in_hours=int(service.INVITE_TTL.total_seconds() // 3600),
     )
 

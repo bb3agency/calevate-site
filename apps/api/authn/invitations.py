@@ -39,13 +39,22 @@ mail — the same evidence an `email_verify` round trip produces, arrived at one
 earlier." Every clause of that is sound except its premise, and the premise is false in this
 tree (D-185).
 
-**The token is not emailed.** `InvitationCreatedOut.token` hands the raw token back to the
-INVITER in the API response, because the client realm has no invitation mailer and the owner
-is expected to send the link themselves — that field's own docstring says so. So possession
-of the token proves the mailbox OR being the person who issued the invitation, and those are
-not the same fact. `email_verified_at = now()` was therefore asserting something nobody had
-established, and the vendor whose console used to establish it is gone (D-177): S-2's
-question survived the deletion of the file S-2 pointed at.
+**The token was not emailed.** `InvitationCreatedOut.token` handed the raw token back to
+the INVITER in the API response, because the client realm had no invitation mailer and the
+owner was expected to send the link themselves. So possession of the token proved the
+mailbox OR being the person who issued the invitation, and those are not the same fact.
+`email_verified_at = now()` was therefore asserting something nobody had established, and
+the vendor whose console used to establish it is gone (D-177): S-2's question survived the
+deletion of the file S-2 pointed at.
+
+**BOTH MINTING ROUTES NOW MAIL IT** — the client realm's since D-190, the admin realm's
+`POST /v1/admin/tenants/{tenant_id}/invitations` since D-198 — so the premise has changed
+and the paragraph below on what stays open has changed with it. The address still starts
+UNVERIFIED, and that is now a considered position rather than a consequence: an invitation
+mailed to a mailbox is evidence about that mailbox, but the only thing that makes it
+evidence is a delivery this repo cannot yet observe (no mail provider is signed up —
+`ConsoleTransport` is what runs). One round trip the invitee completes themselves is
+evidence we hold; a send we cannot confirm is not.
 
 What it bought an attacker, end to end, and none of the steps needs a defect anywhere else:
 an owner of ANY tenant — a trial signup is enough — issues an invitation to
@@ -63,14 +72,17 @@ system does: an `email_verify` OTP round trip (`POST /v1/auth/client/otp/request
 `/otp/verify` → `subjects.mark_email_verified`), which is already built, already registered
 with the mailer, and already the thing `SessionOut.email_verified` reports.
 
-WHAT IS STILL OPEN, said plainly rather than left to be discovered: a squatter can still
-take an address hostage — the real person's redemption is now refused instead of
-hijacked, which is a denial of service rather than an account takeover, and that is a
-strict improvement rather than a closure. It closes completely when the invitation token
-stops being returned to the inviter and is emailed instead, which needs the invitation mail
-template and the owner-facing screen that currently displays the token
-(`apps/web/src/app/(client)/…` and `apps/workers/notifications.py`). That is the one thing
-D-185 does not do.
+WHAT WAS STILL OPEN AFTER D-185, and what closed it: a squatter could still take an address
+hostage — the real person's redemption was refused instead of hijacked, which is a denial of
+service rather than an account takeover, and that was a strict improvement rather than a
+closure. D-185 named the one thing it did not do: stop the token being returned to the
+inviter. **D-190 did it for the client realm's route and D-198 for the admin realm's**, so
+the token now exists in the invited mailbox and nowhere else and there is nobody left who
+can squat an address they do not control.
+
+What that leaves is the ordinary residue of any emailed link: whoever reads the mailbox can
+redeem it. That is the trust level the mechanism is FOR, and it is the reason the address
+still has to be proved separately before the account may join a second organisation.
 
 ═══ AN INVITATION FOR SOMEBODY WHO ALREADY HAS AN ACCOUNT ═══
 

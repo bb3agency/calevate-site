@@ -112,6 +112,36 @@ OTP_BUDGET: Final = Budget("otp", threshold=5, window_s=600)
 #: Per-CHALLENGE ceiling, enforced on the row rather than in Redis. See `OTP_BUDGET`.
 OTP_MAX_ATTEMPTS: Final = 5
 
+#: PASSWORD-RESET REQUESTS. Five per address per realm per fifteen minutes, spent on the
+#: known and the unknown path ALIKE (D-198).
+#:
+#: This counts requests rather than failures, which is why it is its own budget and not a
+#: reuse of one above. It answers two questions at once and both of them need it:
+#:
+#:   * **the enumeration oracle.** `request_password_reset` used to spend a budget only when
+#:     the address resolved to nobody, so a real address answered 202 forever and a fake one
+#:     eventually answered 429. `pseudo_subject`'s docstring names that exact back door on
+#:     the sign-in path — "an attacker could tell real addresses from fake ones by whether a
+#:     burst of attempts eventually produced a 429" — and the reset path had it in the
+#:     mirror image, which is worse: the reset form takes an address from a stranger by
+#:     design, so nothing else on it had to be guessed first;
+#:   * **the mail bomb.** Nothing else bounded how many reset emails one address could be
+#:     sent. Eight requests produced eight emails, measured, and the caller-keyed request
+#:     limiter above is the dimension a distributed attacker simply spreads across.
+#:
+#: **DELIBERATELY NOT `OTP_BUDGET`**, and this is the reason the budget is new rather than
+#: reused. `OTP_BUDGET` is the five guesses an operator has against their own emailed
+#: second factor. Spending it from an UNAUTHENTICATED route would mean five reset requests
+#: aimed at an operator's address lock that operator out of finishing a sign-in for ten
+#: minutes — turning a fix for an oracle into a remote denial of service against the admin
+#: realm's only second factor. Separate keyspace, separate ceiling, no interaction.
+#:
+#: Fifteen minutes rather than ten so the penalty outlives the one-hour link it protects by
+#: a useful fraction, and five rather than ten because asking for a reset is a deliberate
+#: human act — nobody types their own address five times in a quarter of an hour except to
+#: chase an email that a sixth request would not make arrive any faster.
+RESET_BUDGET: Final = Budget("reset", threshold=5, window_s=900)
+
 
 def _key(budget: Budget, realm: str, subject_id: UUID) -> str:
     return f"{KEY_PREFIX}:{budget.name}:{realm}:{subject_id}"
@@ -263,6 +293,7 @@ __all__ = [
     "OTP_BUDGET",
     "OTP_MAX_ATTEMPTS",
     "PASSWORD_BUDGET",
+    "RESET_BUDGET",
     "Budget",
     "check",
     "clear",
