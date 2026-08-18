@@ -129,16 +129,23 @@ def all_credential_env_keys() -> tuple[str, ...]:
     from apps.api.engine.cartesia import CartesiaEngine
     from apps.api.engine.fake import FakeEngine
 
-    by_name: dict[EngineName, type[VoiceEngine]] = {
-        "bolna": BolnaEngine,
-        "cartesia": CartesiaEngine,
-        "fake": FakeEngine,
-    }
-    # Exhaustiveness against the Literal rather than against this dict: a name added to
-    # `EngineName` without a line above is a failure here, not a silently missing key.
+    # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here.
+    # The first version of this wrote `{"bolna": ..., "cartesia": ..., "fake": ...}` and
+    # `tests/engine_name_drift_test.py` failed it immediately, correctly: this repo has
+    # exactly two homes for that set — `EngineName`/`SELECTABLE_ENGINES` (which names
+    # `ENGINE=` may take) and `WEBHOOK_AUTH_BY_ENGINE` (which names have an authenticity
+    # story) — and a third spelling drifts the first time either grows. The adapters
+    # already declare `name`, so the mapping is derivable and the literal bought nothing.
+    adapters: tuple[type[VoiceEngine], ...] = (BolnaEngine, CartesiaEngine, FakeEngine)
+    by_name = {adapter.name: adapter for adapter in adapters}
+    # Exhaustiveness against the Literal rather than against the tuple above: an engine
+    # added to `EngineName` without an adapter here is a failure, not a credential that
+    # silently stops being stripped.
     missing = set(get_args(EngineName)) - set(by_name)
     if missing:
-        raise AssertionError(f"engines with no entry in all_credential_env_keys: {sorted(missing)}")
+        raise AssertionError(
+            f"engines with no adapter in all_credential_env_keys: {sorted(missing)}"
+        )
     keys: list[str] = []
     for adapter in by_name.values():
         for key in adapter.credential_env_keys:
