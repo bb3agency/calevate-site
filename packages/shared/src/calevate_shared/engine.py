@@ -647,21 +647,46 @@ def vertex_openai_base_url(project: str) -> str:
 #: displayed their region). A static Vertex bearer would therefore be either a token that
 #: stops working sixty minutes after a publish, or a residency inversion.
 #:
-#: WHAT CLOSES IT, and nothing else does — two candidates, both OUTSIDE this repository:
+#: WHAT CLOSES IT — three routes, evaluated in full in D-402 and summarised here because
+#: the next reader of this constant will be looking for exactly this:
 #:
-#: 1. **A vendor answer.** Does the HOSTED Bolna platform accept `provider: "custom"` with
-#:    an arbitrary `base_url`, and can it hold a credential it refreshes? OPERATIONS §2
-#:    gate 16b names the exact call. `api.bolna.ai` and `docs.bolna.ai` are refused by
-#:    this environment's egress proxy, so it cannot be asked from here.
-#: 2. **A founder decision on an in-call hop.** The alternative is that WE mint the
-#:    bearer: an OpenAI-compatible route on `apps/voice-runtime` (already India-co-located
-#:    and already the home of in-call tool endpoints) that exchanges a service-account key
-#:    for a Vertex token and streams `asia-south1` back. That is a Calevate hop inside the
-#:    turn-latency budget and it is not an agent's call to take — D-402 records it as the
-#:    open question with the measurement that would decide it.
+#: * **(A) A Google AI Studio key** (`provider: "google"` — a long-lived static string that
+#:   fits Bolna's credential store exactly, and the only route that is a five-minute
+#:   change). **CLOSED, and on ONE ground rather than D-401's two.** Paying removes the
+#:   training-and-human-review objection: Google states it does not train on paid Developer
+#:   API data. The residency objection SURVIVES it — the Developer API has no region pinning
+#:   at all, the host carries no region, and there is no field in which to ask for one.
+#:   Taking it would be abandoning D-127's posture on the leg that carries the caller's
+#:   actual voice: a DPDP position change and a founder's call, not a shortcut. No code path
+#:   can reach it.
+#: * **(B) A token-broker proxy WE run in-region** — holds the service-account key, mints
+#:   and refreshes the bearer, forwards to `asia-south1`, registered with Bolna as a custom
+#:   model URL. Architecturally right, and three real costs: it sits IN the turn-latency
+#:   path (so it belongs beside `apps/voice-runtime`, not in `apps/api`); it is a NEW
+#:   DEPLOYABLE needing its own ROADMAP §6 entry, which this constant does not pre-authorise;
+#:   and **`POST /user/model/custom` carries NO credential field, so an unauthenticated
+#:   OpenAI-compatible endpoint on the public internet would be an OPEN RELAY FOR OUR VERTEX
+#:   SPEND** — an unguessable path is not authentication. A source-IP allowlist is the
+#:   pattern this repo already owns for this same vendor's unsigned webhooks
+#:   (`calevate_shared.config.bolna_source_ips`); whether it is ADEQUATE when the worst case
+#:   is somebody else's inference on our invoice rather than a forged event the poller
+#:   contradicts is itself a finding, and D-402 records it as one.
+#: * **(C) Ask Bolna.** One email, and it can make (B) unnecessary. `api.bolna.ai`,
+#:   `docs.bolna.ai` and `www.bolna.ai` are refused by this environment's egress proxy, so
+#:   it cannot be asked from here; D-402 carries the exact wording and OPERATIONS §2 gate
+#:   16b carries the test.
 #:
-#: UNTIL ONE OF THOSE LANDS, `agents/service.py` resolves the in-call leg to Sarvam and
-#: says why, in the shape of D-127's G-6: a fallback is never silent.
+#: RECOMMENDED ORDER: (C), then (B) if (C) comes back negative, and never (A) without an
+#: explicit founder decision to change the residency posture.
+#:
+#: UNTIL ONE OF THOSE LANDS, NOTHING SETS `ModelConfig.llm_provider` — not
+#: `agents/service.py`, not the seed, not the pilot gates — so every agent renders the
+#: LLM block byte-identically to what it rendered before D-400, on whatever `agents
+#: .llm_model` holds. That is stated as a fact about the tree rather than a promise,
+#: because it is the thing this constant is really asserting: a decision is recorded,
+#: the machinery to act on it is shipped and tested, and NO behaviour changed. When one
+#: of the routes lands, the resolver that starts setting the field is the same change
+#: that flips this constant.
 VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = False
 
 
