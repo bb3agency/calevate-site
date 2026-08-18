@@ -2,12 +2,22 @@
 
 import { ShieldAlert } from "lucide-react";
 
+import { StepUpPrompt } from "@/app/admin/stepUpPrompt";
 import { NoticeBox, ProblemNotice } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
+import { AUTHN_CODES } from "@/lib/authn/problems";
 
 /**
- * A failed WRITE on an ops screen — and the one failure that must not be rendered as a
- * generic red box.
+ * A failed CONFIRMED WRITE anywhere in the admin console — and the two failures that must
+ * not be rendered as a generic red box.
+ *
+ * Every write that sends `X-Confirm-Action` renders its failure through here: the ops
+ * console's halt / load-shed / TM registration / outbox replay / spend-cap recompute, the
+ * platform-wide do-not-call list, the platform config and secrets panels, a credit
+ * adjustment, a top-up restatement, a spend ceiling and a tenant erasure. It moved up out
+ * of `ops/` when the second of those two failures made it every confirmed write's
+ * business rather than the ops screens' (D-340); the import path is the only thing that
+ * changed.
  *
  * `step_up_required` is a 4xx, so `ProblemNotice` would print it in the same rose panel
  * as "the database is unreachable", under a title the operator answers by clicking the
@@ -32,6 +42,10 @@ import { ApiProblem } from "@/lib/api/client";
  * "try again", and a second bespoke error panel per failure mode is how a screen ends up
  * with an explanation for the case its author imagined and a blank for the rest.
  *
+ * `reauthentication_required` is the second, and it is routed to `StepUpPrompt` rather
+ * than explained here — see that module for why a curl-shaped `remediation` is the right
+ * answer in a log and the wrong one on a screen.
+ *
  * IT LIVES IN ITS OWN MODULE rather than inside `ops/page.tsx`, where it was written,
  * because the global do-not-call screen sends step-up headers on both of its writes and
  * would otherwise have needed a second copy of this exact paragraph and this exact panel.
@@ -39,9 +53,19 @@ import { ApiProblem } from "@/lib/api/client";
  * exports, so the choice was a shared module or a duplicate — and two consoles disagreeing
  * about what a refused confirmation means is the drift "one way per problem" is about.
  */
-export function WriteFailure({ error }: { error: unknown }) {
+export function WriteFailure({ error, onRetry }: { error: unknown; onRetry?: () => void }) {
   const problem = error instanceof ApiProblem ? error : null;
-  if (problem?.code !== "step_up_required") return <ProblemNotice error={error} />;
+  // The OTHER half of the same control (D-340). `X-Confirm-Action` answers "this screen
+  // meant to send this action"; step-up answers "the person at the keyboard is still
+  // them", and `apps/api/core/stepup.py` keeps them deliberately separate because neither
+  // substitutes for the other. They therefore need separate renderings: the panel below
+  // says "reload, this build is skewed", which is exactly the wrong instruction for a
+  // refusal an operator clears by proving a factor. Routed FIRST so the skew panel cannot
+  // claim a refusal it does not describe.
+  if (problem?.code === AUTHN_CODES.reauthenticationRequired) {
+    return <StepUpPrompt error={error} onRetry={onRetry} />;
+  }
+  if (problem?.code !== "step_up_required") return <ProblemNotice error={error} onRetry={onRetry} />;
   return (
     // `NoticeBox` carries no ARIA role of its own, and this one interrupts an operator
     // mid-task — the same announcement `ProblemNotice` makes for the failures it renders.

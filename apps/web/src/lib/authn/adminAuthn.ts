@@ -41,3 +41,41 @@ export async function confirmAdminBootstrap(input: {
 }): Promise<void> {
   await adminAuthn.request<void>("/bootstrap/confirm", { method: "POST", body: input });
 }
+
+/**
+ * Ask for a step-up code to be emailed to this operator (D-178, D-340).
+ *
+ * ADMIN REALM ONLY, mirroring the server structurally rather than by refusing at runtime:
+ * `authn/routes.py` declares `/step-up` inside `if realm == stepup.STEP_UP_REALM`, so a
+ * client-realm spelling would be a 404 — the same argument `/bootstrap/confirm` above
+ * makes, and the reason both live in this file instead of in the realm factory.
+ *
+ * No arguments and no address: the live session IS the subject (`service.request_step_up`),
+ * so there is nothing to probe and no way to make us mail a stranger.
+ */
+export async function requestStepUp(): Promise<void> {
+  await adminAuthn.request<void>("/step-up", { method: "POST" });
+}
+
+/**
+ * Answer the emailed step-up code, restamping this session's second factor.
+ *
+ * **THIS ROTATES THE SESSION.** `service.complete_step_up` treats re-proving a factor as a
+ * privilege change and mints a new identifier for it, which makes `realm.ts`'s ordering
+ * discipline load-bearing here for exactly the reason it is in `submitSecondFactor`:
+ * `reset()` FIRST, so no cached rotation result can answer for the session about to be
+ * superseded and no restore already in flight can resolve into it. Without that, a request
+ * still carrying the retired cookie is `reuse_detected` and the whole family is revoked —
+ * an operator who typed the RIGHT code signed out of everything.
+ *
+ * `adminAuthn.request` also puts the POST behind the rotation barrier, which is the other
+ * half: nothing else on this realm dispatches while the new cookie is being minted.
+ *
+ * The response body (`SessionOut`) is deliberately dropped. The session state this console
+ * renders comes from `AdminSessionProvider`'s own restore, and returning a second copy of
+ * it here would be two answers to "who am I" that can disagree.
+ */
+export async function verifyStepUp(code: string): Promise<void> {
+  adminAuthn.reset();
+  await adminAuthn.request<unknown>("/step-up/verify", { method: "POST", body: { code } });
+}

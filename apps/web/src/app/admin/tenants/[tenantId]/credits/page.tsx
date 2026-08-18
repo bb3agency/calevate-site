@@ -27,6 +27,7 @@ import {
   formatINR,
   formatIST,
 } from "@/components/ui";
+import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import {
   LEDGER_LIMIT,
@@ -946,7 +947,7 @@ function CorrectionPanel({
             </div>
           </div>
 
-          {correct.error != null && <ProblemNotice error={correct.error} />}
+          {correct.error != null && <WriteFailure error={correct.error} />}
           {correct.data && <CorrectionOutcome result={correct.data} clientName={clientName} />}
 
           <button
@@ -1305,7 +1306,7 @@ function RestatementPanel({
           </div>
         </div>
 
-        {restate.error != null && <ProblemNotice error={restate.error} />}
+        {restate.error != null && <WriteFailure error={restate.error} />}
         {restate.data && <RestatementOutcome result={restate.data} clientName={clientName} />}
 
         <button

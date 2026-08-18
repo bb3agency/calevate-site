@@ -21,7 +21,7 @@ import {
 import { useAdminAccess, type AdminAccess } from "@/app/admin/access";
 import { ConfigPanel } from "@/app/admin/ops/ConfigPanel";
 import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
-import { WriteFailure } from "@/app/admin/ops/writeFailure";
+import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   Card,
   DANGER_BUTTON,
