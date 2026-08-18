@@ -86,10 +86,8 @@ from calevate_shared.extraction import ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.ai_quota import (
-    ASSIST_LIST_PRICE_INR_PER_KTOK,
-    record_ai_assist_usage,
-)
+from apps.api.billing.ai_quota import record_ai_assist_usage
+from apps.api.billing.rates import LLM_INR_PER_KTOK
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -288,9 +286,9 @@ async def meter_assist(
         tokens_out=usage.output_tokens,
         # THE LIST PRICE, because it is the only price this deployment knows. The column
         # is `unit_cost_paid` and the GCP invoice is the truth the day one exists;
-        # `ASSIST_LIST_PRICE_INR_PER_KTOK` carries that caveat and its source.
-        price_in_inr_per_ktok=ASSIST_LIST_PRICE_INR_PER_KTOK["in"],
-        price_out_inr_per_ktok=ASSIST_LIST_PRICE_INR_PER_KTOK["out"],
+        # `LLM_INR_PER_KTOK` carries that caveat and its source.
+        price_in_inr_per_ktok=LLM_INR_PER_KTOK["in"],
+        price_out_inr_per_ktok=LLM_INR_PER_KTOK["out"],
         # `run_assist` builds `VertexGeminiExtractor(account, project)` with no model
         # argument, so the model that produced this usage is the default — read from the
         # constant rather than restated, so a change to it cannot leave the ledger

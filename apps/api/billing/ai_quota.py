@@ -98,7 +98,8 @@ before the model is called.
 Money is NUMERIC INR throughout (hard rule 7). No float is constructed in this module,
 every rupee that reaches a response goes through `billing.service.to_paise`, and the
 per-token prices this all rests on are in ONE table with their source
-(`ASSIST_LIST_PRICE_INR_PER_KTOK`) rather than typed into four unfalsifiable constants.
+(`billing/rates.py::LLM_INR_PER_KTOK`) rather than typed into four unfalsifiable
+constants.
 """
 
 from __future__ import annotations
@@ -116,6 +117,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import ist_month_end, parse_billing_month
+from apps.api.billing.rates import LLM_INR_PER_KTOK
 from apps.api.billing.service import (
     _IST_MONTH,
     _IST_MONTH_WINDOW,
@@ -186,44 +188,21 @@ def ktok(tokens: int) -> Decimal:
     return Decimal(tokens) / TOKENS_PER_KTOK
 
 
-#: THE PUBLISHED LIST PRICE of the assist model, in rupees per THOUSAND tokens — the
-#: unit `ai_assist_ktok_*` counts (`billing/models.py::AI_ASSIST_UNIT_TYPES`).
+#: WHERE THE PER-TOKEN PRICE WENT (D-400): `billing/rates.py::LLM_INR_PER_KTOK`, which
+#: this module now imports and uses directly.
 #:
-#: `gemini-2.5-flash` (`GEMINI_DEFAULT_LLM`) lists at **$0.30 / $2.50 per 1M tokens**
-#: in/out; at ₹95.66 to the dollar (RBI reference, 16 Aug 2026) that is ₹0.0287 and
-#: ₹0.2392 per 1,000 tokens. Both figures are 4dp because `unit_cost_paid` is
-#: NUMERIC(12,4) and a price this ledger cannot store is a price it cannot honour.
+#: It lived here as `ASSIST_LIST_PRICE_INR_PER_KTOK` — two INR literals with the exchange
+#: rate already folded in — for as long as the dashboard assist was the only thing this
+#: repository paid a language model for. D-400 ended that: the founder moved the IN-CALL
+#: LLM leg to the same paid Vertex account, so TRD §10 prices the same model at a
+#: different point in the same pipeline, and a price constant that has already multiplied
+#: dollars by an exchange rate cannot be corrected when either half moves. That is the
+#: D-103 / D-105 shape exactly, arriving on the money axis.
 #:
-#: ⚠ **THE MODEL MOVED AND THE PRICE MOVED WITH IT, WHICH IS WHAT THIS TABLE IS FOR.**
-#: These numbers were `gemini-3.1-flash-lite`'s ($0.25/$1.50) until the founder shipped
-#: 2.5 Flash instead — no source places any 3.x model in `asia-south1`. The output leg is
-#: 67% dearer and one reference assist went from ₹0.33475 to ₹0.50230, a **50% increase
-#: absorbed by editing two literals**, because everything downstream (`AI_ASSIST_NOMINAL_INR`,
-#: every `requests_*` figure on every screen) is derived. That is the whole argument for
-#: deriving them, and it has now been exercised rather than asserted.
-#:
-#: ⚠ **A LIST PRICE IS A VENDOR CLAIM**, and this one's standing is unusually good and
-#: says so precisely because the rest of this repo's Google evidence is not: it was READ,
-#: not summarised — LiteLLM's `model_prices_and_context_window.json` fetched from
-#: `raw.githubusercontent.com` and PARSED LOCALLY on 16 Aug 2026, where `gemini-2.5-flash`
-#: under `vertex_ai-language-models` gives `input_cost_per_token` 3e-07 and
-#: `output_cost_per_token` 2.5e-06. `docs.cloud.google.com` is still refused by this
-#: environment's proxy. **Do not trust a fetch SUMMARY of that file**: an earlier one
-#: misread the row as 7.5e-08/3e-07, which is a different vendor's Flash-Lite entry in the
-#: same 1.7 MB document — a summariser answering about the wrong row is indistinguishable
-#: from an answer, and this one would have under-priced every assist eightfold.
-#:
-#: They are the ESTIMATE's input and nothing else: the ledger stores what a caller says it
-#: actually paid, and the day a GCP invoice exists it is the truth — an OPERATIONS §2 gate
-#: on the day the project exists, not an engineering unknown.
-#:
-#: ⚠ **TWO MORE MOVES ARE ALREADY DATED**: `gemini-2.5-flash` retires 16 Oct 2026
-#: (`GEMINI_DEFAULT_LLM_RETIRES`) and the Flash tier's introductory pricing ends 1 Jan
-#: 2027. When either lands this table moves and everything derived from it follows.
-ASSIST_LIST_PRICE_INR_PER_KTOK: Final[dict[str, Decimal]] = {
-    "in": Decimal("0.0287"),
-    "out": Decimal("0.2392"),
-}
+#: So there is now ONE statement of the vendor's dollar price
+#: (`calevate_shared.engine.GEMINI_LIST_PRICE_USD_PER_MTOK`), ONE exchange rate
+#: (`rates.LIST_PRICE_USD_INR`), and ONE rupee table derived from them for every reader.
+#: The numbers are unchanged: ₹0.0287 and ₹0.2392 per 1,000 tokens.
 
 #: The reference assist this estimate is built on: tokens in, tokens out. Deliberately
 #: generous on BOTH legs. Input carries the response schema as well as the prompt and the
@@ -248,8 +227,8 @@ def reference_assist_cost_inr() -> Decimal:
     to the published estimate, and the number `tests/ai_quota_test.py` holds every
     product constant in this module to within an order of magnitude of."""
     return (
-        ktok(REFERENCE_ASSIST_TOKENS["in"]) * ASSIST_LIST_PRICE_INR_PER_KTOK["in"]
-        + ktok(REFERENCE_ASSIST_TOKENS["out"]) * ASSIST_LIST_PRICE_INR_PER_KTOK["out"]
+        ktok(REFERENCE_ASSIST_TOKENS["in"]) * LLM_INR_PER_KTOK["in"]
+        + ktok(REFERENCE_ASSIST_TOKENS["out"]) * LLM_INR_PER_KTOK["out"]
     )
 
 
@@ -1118,7 +1097,6 @@ __all__ = [
     "AI_ASSIST_NOMINAL_INR",
     "AI_OVERAGE_BLOCK_INR",
     "AI_QUOTA_INR",
-    "ASSIST_LIST_PRICE_INR_PER_KTOK",
     "ASSIST_META_KIND",
     "ASSIST_REF_PREFIX",
     "EXTRA_REFUSAL",

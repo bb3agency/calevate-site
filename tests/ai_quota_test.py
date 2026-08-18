@@ -1061,7 +1061,7 @@ def test_every_price_in_the_table_is_expressible_in_the_column_that_stores_it() 
     """`unit_cost_paid` is NUMERIC(12,4). A price with a fifth decimal place is a price
     this ledger silently rounds, which is the exact failure per-KTOK metering exists to
     avoid — a per-TOKEN price would store as 0.0000 and meter every assist as free."""
-    for leg, price in ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK.items():
+    for leg, price in ai_quota.LLM_INR_PER_KTOK.items():
         assert price == price.quantize(Decimal("0.0001")), f"{leg} price loses digits at 4dp"
         assert price > 0, leg
         # And the per-TOKEN price genuinely does NOT survive, which is the claim
@@ -1088,7 +1088,7 @@ def test_every_price_in_the_table_is_expressible_in_the_column_that_stores_it() 
     # The input leg is the load-bearing half of that claim, so it is pinned separately:
     # a threshold satisfied only by the output leg would let the input price rise into
     # survivability with this test still green.
-    input_per_token = ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["in"] / Decimal("1000")
+    input_per_token = ai_quota.LLM_INR_PER_KTOK["in"] / Decimal("1000")
     assert input_per_token.quantize(Decimal("0.0001")) == Decimal("0.0000"), (
         "the input leg now survives per-token storage — `billing/models.py`'s ktok "
         "argument rests on it storing as exactly zero"

@@ -180,3 +180,60 @@ def test_a_rate_outside_section_10_1_is_not_read() -> None:
     and neither is the rate card. Bounding the parse to §10.1 is what keeps a discussion
     of somebody else's pricing from being read as a claim about ours."""
     assert not guard.doc_tts_rates("Bulbul v3 costs ₹30 / 10,000 chars, they say.\n")
+
+
+# --- 4c: the in-call LLM cost curve (D-400) -----------------------------------
+#
+# THE SAME CLASS AS EVERYTHING ABOVE, ON A NUMBER NOBODY BILLS AGAINST YET — which is
+# what makes it the one most likely to rot. D-36 priced the in-call LLM leg at ₹0.00
+# because Sarvam 105B is free per token, and TRD §10 reasoned the whole margin from that
+# zero. D-400 moved the leg to a paid Vertex AI account, so §10 now quotes a curve that
+# `billing/rates.py::llm_cost_inr_per_minute` computes — and nothing charges against it,
+# so nothing else would ever notice the two drifting apart.
+
+
+def test_the_check_reads_the_real_llm_row_and_it_agrees_today() -> None:
+    """Wiring. A check reading an empty row would report OK on every mutation, which is
+    why `llm_cost_curve_drift` treats an empty reading as a FAILURE rather than a pass."""
+    quoted = guard.doc_llm_per_minute()
+    assert quoted, "TRD §10.1's Gemini LLM row did not parse — section 4c is reading nothing"
+    assert set(quoted) == {1, 5, 10}, quoted
+    assert not guard.llm_cost_curve_drift()
+
+
+def test_the_quoted_curve_rises_with_call_length() -> None:
+    """The shape is the finding, not the level: §6.1 resends the whole conversation every
+    turn, so input cost is quadratic in duration and per-minute cost RISES. A doc quoting
+    one flat rate would have lost that, and this is the assertion that would notice."""
+    quoted = guard.doc_llm_per_minute()
+    assert quoted[1] < quoted[5] < quoted[10], quoted
+
+
+def test_a_doc_side_drift_in_the_llm_curve_is_named() -> None:
+    """The likeliest direction, exactly as for the TTS card: someone edits the margin
+    table by hand and never touches the function it came out of."""
+    offenders = guard.llm_cost_curve_drift(_mutated("₹0.36 (5 min)", "₹0.29 (5 min)"))
+    assert any("5-minute call" in line for line in offenders), offenders
+
+
+def test_the_llm_row_disappearing_is_a_failure_and_not_a_pass() -> None:
+    """A check that goes quiet when its subject is reworded teaches the next reader to
+    reword it. Same argument `check_redaction_exposure.check_allowlist` makes when it
+    refuses to pass on a route table with no permissions in it at all."""
+    offenders = guard.llm_cost_curve_drift(
+        _mutated("| LLM — **Gemini 2.5 Flash", "| LLM — (moved)")
+    )
+    assert any("no longer carries" in line for line in offenders), offenders
+
+
+def test_the_doc_may_round_to_paise_without_being_reported() -> None:
+    """Calibration, and the one that would otherwise make this check harmful. The
+    function returns NUMERIC(12,4) because `unit_cost_paid` stores four decimals; §10
+    prints paise because a margin table is read by a person. Reporting ₹0.2310 against
+    ₹0.23 would train the next reader to print four decimals in prose to quiet a check."""
+    from apps.api.billing.rates import llm_cost_inr_per_minute
+
+    assert llm_cost_inr_per_minute(1) != guard.doc_llm_per_minute()[1], (
+        "this test is vacuous unless the function is genuinely more precise than the doc"
+    )
+    assert not guard.llm_cost_curve_drift()

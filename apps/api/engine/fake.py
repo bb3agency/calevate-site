@@ -82,7 +82,15 @@ _COST_PER_MIN = {
     "platform": Decimal("1.7500"),
     "network": Decimal("0.6000"),
     "stt": Decimal("0.5000"),
-    "llm": Decimal("0.0000"),  # Sarvam 105B is free per token (D-35)
+    # STILL ZERO, AND NOW FOR A DIFFERENT REASON (D-400). It was zero because the LLM
+    # leg WAS free — Sarvam 105B, free per token (D-35). The founder has moved that leg
+    # to paid Vertex AI, so "free" is no longer the reason; what keeps this at zero is
+    # that on a BYOK leg the ENGINE pays nothing and therefore reports nothing, and this
+    # dict is the engine's own cost breakdown. The Vertex spend lands on a GCP invoice
+    # the engine has never seen (`billing/rates.py::llm_cost_inr_per_minute` is where
+    # that side is modelled). A non-zero figure here would be this adapter inventing a
+    # vendor charge that no vendor makes.
+    "llm": Decimal("0.0000"),
     "tts": Decimal("1.2000"),
 }
 

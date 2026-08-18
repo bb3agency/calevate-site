@@ -65,7 +65,7 @@ CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
 # the argument for counting in thousands gets weaker as the output price rises, and the
 # day a model's output rounds to within a few percent this paragraph has to be re-argued
 # rather than re-stated. The prices themselves live in ONE place,
-# `billing/ai_quota.py::ASSIST_LIST_PRICE_INR_PER_KTOK`, with their source;
+# `billing/rates.py::LLM_INR_PER_KTOK`, with their source;
 # `tests/ai_quota_test.py` holds this paragraph to the arithmetic.
 AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
 
