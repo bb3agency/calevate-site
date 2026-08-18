@@ -306,6 +306,19 @@ table.
 `reconcile_credit_ledger.py`. It needs a `chars` input only a Sarvam usage export supplies —
 name that in the runbook.
 
+**DONE (D-374).** `scripts/correct_tts_tier.py`, the second of the two shapes: dry run by
+default, `--from-csv` for a vendor export, `--ref` as the idempotency key. It reads
+`billed_tier` OFF THE LEDGER rather than taking the operator's word for it — restating it
+from memory is how a correction writes the delta between two rungs the call was never on —
+and it refuses a malformed line instead of skipping it, because a batch that corrects some
+of its file and reports success is the half-applied state hard rule 4 exists to keep out.
+`tests/tts_tier_correction_script_test.py` exercises it. The console button was weighed and
+rejected in the module docstring: the input is a file an operator downloads from a vendor,
+so a button needs an upload, a parser and a review screen for a correction needed zero times
+so far. **The correction it invokes was also WRONG IN BOTH DIRECTIONS until this audit** —
+it never repriced the client's bill (D-372) and it moved a prepaid wallet by our supplier
+cost (D-373).
+
 ### P1.7 — `tts_tier_source` is written on every row and read by nothing; the register was wrong about why · SERIOUS · OURS
 
 The audit corrected this document. The earlier claim — *"the mapping from engine model name
