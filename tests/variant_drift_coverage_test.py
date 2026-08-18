@@ -320,10 +320,13 @@ async def test_an_experiment_arm_carries_no_knowledge_base_known_gap() -> None:
     the frozen `prompt_versions` row its `prompt_version_id` names, and
     `republish_running_variants` faithfully re-sends that same frozen body.
 
-    WHAT IT COSTS. Outbound dials are randomised into arms (`agents/assignment.py`;
-    inbound is answered by the agent itself, D-60), so for the length of a script test the
-    randomised share of a client's outbound calls answers with no knowledge base at all —
-    silently, on a phone line, with nothing on any screen saying so.
+    WHAT IT COSTS. Outbound dials are randomised into arms (`agents/assignment.assign`);
+    inbound reaches an arm only if a number is attached to that arm's vendor object, and
+    `phone_numbers.agent_id` is a foreign key into `agents`, so nothing of ours does that
+    (`assignment.arm_of_engine_ref` attributes one if the engine reports it, which is a
+    question of fact rather than a thing we arrange). So for the length of a script test
+    the randomised share of a client's OUTBOUND calls answers with no knowledge base at
+    all — silently, on a phone line, with nothing on any screen saying so.
 
     NOT FIXED HERE, and it is OURS rather than an external blocker. The two candidate
     resolutions are a real choice and neither is a line of code: fan the agent's live

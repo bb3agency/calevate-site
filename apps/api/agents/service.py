@@ -658,6 +658,12 @@ async def publish_variant(
 ) -> str:
     """Create or update the engine agent that speaks ONE arm.
 
+    **CALL `publish_variants` UNLESS YOU REALLY MEAN ONE ARM** (D-382). Every production
+    caller publishes a SET of arms in one transaction, and this function can only reclaim
+    the object IT created — a sibling failing afterwards rolls this arm's `engine_agent_ref`
+    and its routing row away and leaves its vendor object behind, named by nothing. The
+    plural owns that compensation; reaching past it reintroduces the leak.
+
     Why an engine agent per arm rather than a per-call prompt override: the portability
     contract carries the script on the AGENT (`AgentConfig.system_prompt`) and
     `start_outbound_call` takes a ref and a `CallContext` of variables — there is no
