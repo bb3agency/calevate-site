@@ -13,7 +13,8 @@ D-36, unchanged). Language is **Gemini 2.5 Flash on a PAID Vertex AI account,
 outright**, D-127 having already taken the dashboard surface. Three LLM surfaces, two of
 them not live and saying so in code: **in-call** is D-400's and
 `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False` (a regional Vertex endpoint takes a
-~1-hour OAuth2 bearer, Bolna stores static strings — D-402); **dashboard AI** is D-127's
+~1-hour OAuth2 bearer, Bolna stores static strings — D-402 evaluates three routes and
+recommends one; `agents/service.py::in_call_llm` is the switch that reads the constant); **dashboard AI** is D-127's
 and `GEMINI_MODEL_CONFIRMED_IN_REGION is False` (OPERATIONS §2 gate 14); **the first
 post-call extraction stays on Sarvam permanently** because it reads raw transcript text
 (`GEMINI_EXTRACTION_DEFAULT is False`, and D-400 does not move it). 2.5 because no 3.x

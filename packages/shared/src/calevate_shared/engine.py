@@ -679,14 +679,15 @@ def vertex_openai_base_url(project: str) -> str:
 #: RECOMMENDED ORDER: (C), then (B) if (C) comes back negative, and never (A) without an
 #: explicit founder decision to change the residency posture.
 #:
-#: UNTIL ONE OF THOSE LANDS, NOTHING SETS `ModelConfig.llm_provider` — not
-#: `agents/service.py`, not the seed, not the pilot gates — so every agent renders the
-#: LLM block byte-identically to what it rendered before D-400, on whatever `agents
-#: .llm_model` holds. That is stated as a fact about the tree rather than a promise,
-#: because it is the thing this constant is really asserting: a decision is recorded,
-#: the machinery to act on it is shipped and tested, and NO behaviour changed. When one
-#: of the routes lands, the resolver that starts setting the field is the same change
-#: that flips this constant.
+#: WHAT THIS CONSTANT ACTUALLY GATES, because it is not a note: `apps/api/agents/service
+#: .py::in_call_llm` reads it, and it is the ONE decision point for the whole leg. While
+#: it is False every agent renders the LLM block byte-identically to what it rendered
+#: before D-400, on whatever `agents.llm_model` holds. Flip it — with a `gcp_project_id`
+#: configured, which is a second necessary condition and not a formality — and the
+#: endpoint AND the model identifier move together, because sending a Sarvam identifier
+#: to Vertex is a 404 at dial time on a live phone line. Both arms are covered by
+#: `tests/in_call_llm_provider_test.py`, so this is a switch somebody has run rather than
+#: a decision waiting for the code that would act on it.
 VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = False
 
 

@@ -18,8 +18,9 @@ three surfaces separately, because two of them are not live and say so in code:
 
 1. **In-call** (inside the engine, BYOK) — D-400's decision, and
    **`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`**: a regional Vertex endpoint takes
-   a ~1-hour OAuth2 bearer and Bolna stores static strings, so no agent runs it yet
-   (D-402 names the two things that close it, both outside this repo). Bolna's own
+   a ~1-hour OAuth2 bearer and Bolna stores static strings, so no agent runs it yet.
+   `agents/service.py::in_call_llm` is the one switch that reads the constant; D-402
+   evaluates the three integration routes and recommends one, all outside this repo. Bolna's own
    `provider: "google"` is the AI Studio API — global host, D-127 disqualified it, and
    D-401 records that the easy route is the refused one.
 2. **Dashboard AI** (user-triggered, over redacted data) — D-127, live in code, and
