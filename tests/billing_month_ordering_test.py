@@ -38,7 +38,8 @@ from datetime import UTC, datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
 
-from apps.api.db.session import tenant_session
+from apps.api.billing.service import _IST_MONTH
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers.pipeline import _meter
 from sqlalchemy import text
 from tests.spend_caps_test import _call_row, _plan, _snapshot, _spend_state, _tenant
@@ -162,3 +163,31 @@ async def test_the_month_still_rolls_forward_when_the_new_month_arrives() -> Non
     assert month == "2026-09"
     assert Decimal(str(minutes)) == Decimal("2"), "the new month starts from this call alone"
     await _clean(tenant_id)
+
+
+# ============================================================================
+# 3. The SQL half of the same fact does not depend on the session's TimeZone
+# ============================================================================
+
+
+async def test_the_sql_billing_month_is_the_same_under_any_session_timezone() -> None:
+    """`_IST_MONTH` is interpolated into every query that buckets `usage_events` by
+    month, and it used to be `to_char(occurred_at + interval '5 hours 30 minutes', ...)`.
+
+    `to_char` on a `timestamptz` renders the instant in the SESSION's `TimeZone`, so
+    shifting first and formatting second is the IST month only while that setting is UTC.
+    It IS UTC on this database and nothing in `apps/` sets it — which is precisely why
+    this is a test rather than a comment: the property was held by an environment
+    variable, and the failure it hid is silent and moves money.
+
+    23:00 IST on the last of August is an August call under every session zone.
+    """
+    august_evening_ist = "timestamptz '2026-08-31 17:30:00+00'"
+    async with untenanted_session() as session:
+        for zone in ("UTC", "Asia/Kolkata", "America/New_York"):
+            # `SET LOCAL` so the change dies with this transaction and no sibling suite
+            # sharing this database ever sees it.
+            await session.execute(text(f"SET LOCAL TimeZone = '{zone}'"))
+            expression = _IST_MONTH.replace("occurred_at", august_evening_ist)
+            month = (await session.execute(text(f"SELECT {expression}"))).scalar()
+            assert month == "2026-08", f"the billing month moved under TimeZone={zone}"

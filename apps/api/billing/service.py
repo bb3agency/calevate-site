@@ -736,7 +736,26 @@ async def plan_tier_of(session: AsyncSession, tenant_id: UUID) -> str:
 # Billing months are IST (conventions: UTC in the DB, IST at the edge). A month that
 # rolls over at 05:30 IST would put an evening call in the wrong month and make a
 # client's invoice disagree with their own diary.
-_IST_MONTH = "to_char(occurred_at + interval '5 hours 30 minutes', 'YYYY-MM')"
+#
+# **`AT TIME ZONE`, NOT `+ interval '5 hours 30 minutes'`, AND THAT IS A CORRECTNESS FIX.**
+# `to_char` on a `timestamptz` renders the instant in the SESSION's `TimeZone`
+# (postgresql.org/docs/16/functions-formatting.html), so adding the offset first and
+# formatting second is the IST month only while that setting happens to be UTC. It is UTC
+# on this database and nothing in `apps/` sets it — but that made a money expression
+# depend on an environment variable, and the failure is silent. Measured against this
+# pg16, one instant, three session zones:
+#
+#     occurred_at = 2026-08-31 17:30:00+00   (= 23:00 IST on the 31st, an AUGUST call)
+#       TimeZone=UTC             + interval -> 2026-08   AT TIME ZONE -> 2026-08
+#       TimeZone=Asia/Kolkata    + interval -> 2026-09   AT TIME ZONE -> 2026-08
+#       TimeZone=America/New_York+ interval -> 2026-08   AT TIME ZONE -> 2026-08
+#
+# `timestamptz AT TIME ZONE 'Asia/Kolkata'` converts to a `timestamp` whose fields ARE
+# the IST wall clock, so `to_char` has nothing left to interpret and the session cannot
+# change the answer. The named zone rather than a literal `+05:30` for the same reason the
+# Python side uses a fixed offset with a comment: India has no DST today, and if that ever
+# changed the zone would follow it and a hardcoded offset would not.
+_IST_MONTH = "to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')"
 
 # "…and it is a CALL row", for the cost query that prices minutes. Spelled NEGATIVELY
 # rather than as a positive list of call unit types, and that is deliberate: a positive
