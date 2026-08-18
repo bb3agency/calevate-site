@@ -57,7 +57,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-from calevate_shared.config import Settings
+from calevate_shared.config import SDK_OWNED_ENV_KEYS, Settings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SEARCH_DIRS = ("apps", "packages", "scripts")
@@ -145,6 +145,18 @@ SDK_ENV_KEYS: dict[str, str] = {
         "The other half of the pair above, with the same owner and the same reason."
     ),
 }
+
+# THIS DICT IS PROSE; `SDK_OWNED_ENV_KEYS` IS THE MECHANISM (D-188). `Settings` must drop
+# exactly these keys from the `.env` it reads or refuse to construct at all, so the set is
+# now enforced in `calevate_shared.config` and this registry is the explanation of it.
+# Asserted at import rather than described, because a key documented here and missing
+# there is a repo-root process that crashes on boot, and a key there and missing here is
+# an undocumented exception to `extra="forbid"` — both silent.
+assert set(SDK_ENV_KEYS) == set(SDK_OWNED_ENV_KEYS), (
+    "SDK_ENV_KEYS and calevate_shared.config.SDK_OWNED_ENV_KEYS disagree: "
+    f"{sorted(set(SDK_ENV_KEYS) ^ set(SDK_OWNED_ENV_KEYS))}. They are one set — the "
+    "reason lives here, the enforcement lives there."
+)
 
 _KEY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=")
 _ENV_READERS = ("getenv", "environ")

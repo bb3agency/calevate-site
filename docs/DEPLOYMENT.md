@@ -84,11 +84,61 @@ Object storage: Cloudflare R2 (recordings, raw payloads, exports)
 
 ## 2. VPS baseline (once per VPS — raghava §2 verbatim)
 
-Packages: Docker Engine + Compose plugin (v2.24+ for `!reset`), nginx ≥1.24, certbot,
+Packages: Docker Engine + Compose plugin (v2.24+ for `!reset`), **nginx ≥1.25.1**, certbot,
 PostgreSQL 16 (pgvector optional — D-28 contingency), Node 22 (for web builds + pm2;
-see §7a — prefer building in CI), Python is NOT needed on the
-host (api/workers run containerized; builds happen in Docker), jq, `systemd-timesyncd`
+see §7a — prefer building in CI), ~~Python is NOT needed on the
+host (api/workers run containerized; builds happen in Docker)~~ — **struck by D-188, see
+below**, jq, `systemd-timesyncd`
 (webhook ±5-min skew checks depend on it).
+
+> **"Python is NOT needed on the host" is false, and believing it costs backup alerting
+> (D-188).** It is true of the three SERVICES — api, voice-runtime and workers all run
+> from the image, and migrations run from it too (`compose --profile migrate`), which is
+> the property §4a wants and which nothing here weakens. It is false of the host-side
+> tooling this repository also ships, and there are two kinds:
+>
+> * **`scripts/backup/app-python.sh`**, sourced by `alert-to-app.sh` and `heartbeat.sh`.
+>   It resolves `${CALEVATE_PYTHON:-$ROOT/.venv/bin/python}` and, finding nothing,
+>   exits `78` with `app-python: no interpreter at …`. `notify.sh` DEFAULTS its sink to
+>   `alert-to-app.sh`, so on a host built to the struck sentence **every backup alarm —
+>   a failed base backup, a stalled WAL archive, the 15-minute health check — reaches
+>   journald and nobody else.** The mechanism is not broken; it is uninstalled, and it
+>   fails loudly into a log no one is tailing at 4am.
+> * **`scripts/bootstrap_admin.py`**, whose §7a invocation is written as
+>   `uv run python -m scripts.bootstrap_admin`. There is no `uv` and no venv on a host
+>   built to §2, so as written it cannot run — **and it is the only way to create the
+>   first administrator**. Prefer the container form, which needs nothing on the host and
+>   is the same shape the deploy already uses for `scripts.seed`:
+>
+>   ```sh
+>   docker compose -p calevate -f compose.prod.yml run --rm --no-deps \
+>     --entrypoint python api -m scripts.bootstrap_admin --email you@example.com --role superadmin
+>   ```
+>
+> So: **the host needs Python 3.12 and `uv sync --all-packages` in the deploy root IF the
+> backup alert relay is to reach anybody** — which OPERATIONS §8's "backups verified"
+> requires — and otherwise does not. `runbooks/first-deploy.md` states it as a step rather
+> than leaving it to be discovered. The alternative (a container-based relay) is rejected
+> for now and named rather than assumed away: `alert-to-app.sh` runs on the DATABASE host
+> as the `postgres` user, deliberately outside the compose project, and giving that user
+> docker socket access to send an email would be a privilege trade far worse than the
+> problem.
+
+> **The nginx floor is 1.25.1 and it is not a preference — it was ≥1.24 here and both
+> documented baselines were versions this config cannot load (D-188).**
+> `infra/nginx/calevate.conf.template` uses the standalone `http2 on;` directive in all
+> four TLS server blocks. That directive **appeared in nginx 1.25.1**, replacing the
+> `listen ... http2` parameter deprecated in the same release. An older binary does not
+> warn and does not ignore it: `nginx -t` answers `unknown directive "http2"` and **no
+> server block loads at all** — the whole edge, not one vhost. Measured, not read:
+> nginx/1.24.0 fails at that line, and the identical rendered set is `test is successful`
+> on nginx/1.27. **Ubuntu 22.04 ships 1.18 and 24.04 ships 1.24**, so §1's "Ubuntu 22.04"
+> plus a stock `apt install nginx` produced a host that could never serve the site. A
+> stock VPS therefore needs the nginx.org mainline/stable repository, and that is now the
+> first thing §9 step 5 checks. `scripts/vps-deploy.sh::preflight_plan` refuses below
+> `NGINX_MIN_VERSION` before anything is built, migrated or swapped. **The template is
+> right and must not be "fixed" backwards** to `listen 443 ssl http2` — that spelling is
+> deprecated and warns on every reload, including the ones logrotate and certbot trigger.
 
 Hardening (all raghava-proven): non-root deploy user in `docker` group; SSH
 `PermitRootLogin no` + `PasswordAuthentication no`; ufw inbound 22/80/443 only;
@@ -1047,9 +1097,30 @@ above sends you to. It fails closed, so this was never a security hole; it was a
 deployment with no way in. After the first `vps-deploy.sh` run, once per host:
 
 ```sh
+# ON THE VPS: through the IMAGE, because §2 puts no Python and no uv on the host and the
+# `uv run` form this block used to carry therefore could not run there at all (D-188).
+# `--no-deps` so this never starts redis; `--rm` so it leaves nothing behind. Verified end
+# to end against a scratch database, including the no-mail-provider path below.
+docker compose -p calevate -f compose.prod.yml run --rm --no-deps \
+  --entrypoint python api -m scripts.bootstrap_admin \
+  --email ops@yourdomain.example --role superadmin --name "…"
+
+# ON A DEV BOX, where the venv exists:
 DATABASE_URL=… ALEMBIC_DATABASE_URL=… uv run python -m scripts.bootstrap_admin \
   --email ops@yourdomain.example --role superadmin --name "…"
 ```
+
+**It needs `AUDIT_CHAIN_SECRET`, and that is a BOOTSTRAP ORDERING rather than a
+preference (D-188).** Creating the first operator writes the `auth.admin_bootstrapped`
+audit row, and the hash chain refuses to sign without a key outside `local` — the script
+stops with `hmac_key_missing` before it touches the database. The key is normally
+console-managed (`platform_secrets`), and on a fresh host **the console cannot be the
+answer**: reaching it needs an operator, and creating one needs this key. So on the first
+run it comes from the environment, which beats the store by design (D-95's
+`env → db → default → refuse`). The compose form above reads `.env`, so add it there
+alongside the bootstrap eight and leave it there — `IDEMPOTENCY_SCOPE_SECRET` and
+`IMPERSONATION_GRANT_SECRET` are the same shape and `/healthz/ready` names all three
+until they are set.
 
 **BOTH URLs, and they are different roles.** `ALEMBIC_DATABASE_URL` is the owner role,
 because this writes the operator allowlist and the app role has no business holding write

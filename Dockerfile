@@ -35,12 +35,23 @@ FROM python:${PYTHON_VERSION} AS builder
 # a reproducibility hole: uv's resolver output is version-sensitive, so an unpinned uv
 # can produce a different tree from the same lockfile.
 #
-# NOT YET PINNED BY DIGEST. A tag is mutable; a digest is not. The digest could not be
-# resolved where this was written (no registry access), so it is left as a tag with this
-# note rather than a made-up sha256. Pinning it is a one-line change and belongs in the
-# first PR that runs a build with a network — see infra/nginx/README.md's sibling note
-# in DEPLOYMENT §4 on hand-first steps.
-COPY --from=ghcr.io/astral-sh/uv:0.8.17 /uv /uvx /bin/
+# PINNED BY DIGEST (D-188), which closes DEPLOYMENT §4d item 1. A tag is mutable; a
+# digest is not, and hard rule 9 is why a build input that someone else can move is not
+# acceptable. The tag is kept alongside the digest because Docker accepts
+# `name:tag@sha256:…` and resolves on the DIGEST — the tag is then documentation of which
+# release this is, and it cannot lie, because a mismatch is a pull failure rather than a
+# silent substitution.
+#
+# HOW THIS DIGEST WAS OBTAINED, because "a digest someone pasted" is worth no more than a
+# tag: `GET https://ghcr.io/v2/astral-sh/uv/manifests/0.8.17` with an anonymous pull token,
+# then `sha256sum` of the response BODY — which equals the value below and equals the
+# `docker-content-digest` header the registry returned. That is the digest's definition, so
+# this was verified rather than trusted. The manifest is an OCI image index carrying
+# linux/amd64. `docker pull` could not complete here (the blob CDN
+# `pkg-containers.githubusercontent.com` is refused by this environment's egress policy),
+# so the LAYERS behind this digest are unverified — the reference is exact, the bytes are
+# still first fetched on the VPS.
+COPY --from=ghcr.io/astral-sh/uv:0.8.17@sha256:e4644cb5bd56fdc2c5ea3ee0525d9d21eed1603bccd6a21f887a938be7e85be1 /uv /uvx /bin/
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -51,13 +62,37 @@ WORKDIR /app
 # Phase 1: third-party dependencies only. `--no-install-workspace` skips every workspace
 # member, so this layer is invalidated ONLY by uv.lock or a pyproject — not by app code,
 # which is what makes a code-only deploy a sub-minute build instead of a full resolve.
+#
+# `--all-packages` IS NOT OPTIONAL, AND ITS ABSENCE SHIPPED AN EMPTY VIRTUALENV (D-188).
+# This is a uv WORKSPACE whose root is `package = false` with `dependencies = []`. uv
+# syncs the ROOT project by default, so a bare `uv sync` here resolved the root's empty
+# dependency list, installed nothing, and exited 0 — the image's `/app/.venv` contained
+# three files and not one third-party package. Every service, `alembic upgrade head` and
+# every `scripts.*` module the deploy runs through `compose run` would have died on the
+# first import. It went unseen because the whole deploy path is unverified (§4d) and
+# because a successful `uv sync` that installs nothing looks exactly like a cache hit.
+# The repository already knew: README.md's command table, `.github/workflows/ci.yml` and
+# DEPLOYMENT §3/§8 all say `--all-packages`; this file was the one place that did not.
+# Verified by building both ways and counting `site-packages` (3 entries vs 150+).
+#
+# `--group errors` installs `sentry-sdk`, and it belongs in the IMAGE rather than on the
+# host. DEPLOYMENT §8 prescribed `uv sync --all-packages --group errors` "on the api and
+# worker host" — an instruction from before this Dockerfile existed and which the shipped
+# architecture cannot obey: §2 puts no Python on the host, and the venv lives inside an
+# image layer owned by a non-root user. So there was no reachable command that could turn
+# error reporting on, `core/observability.py`'s `except ImportError` branch was again the
+# only one reachable, and a host with `SENTRY_DSN` set would fail
+# `check_observability_ready` forever. Installing it costs voice-runtime nothing at import
+# time — `init_observability` imports the SDK only when a DSN is set — so the boot graph
+# hard rule 3 protects is unchanged. The opt-in is now `SENTRY_DSN`, which is the only
+# switch an operator ever actually had.
 COPY pyproject.toml uv.lock ./
 COPY apps/api/pyproject.toml apps/api/pyproject.toml
 COPY apps/voice-runtime/pyproject.toml apps/voice-runtime/pyproject.toml
 COPY apps/workers/pyproject.toml apps/workers/pyproject.toml
 COPY packages/shared/pyproject.toml packages/shared/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-workspace
+    uv sync --frozen --no-dev --all-packages --group errors --no-install-workspace
 
 # Phase 2: the workspace. `calevate-shared` is the only real distribution here (hatchling
 # build backend); apps/* are `package = false` virtual members that run from source, which
@@ -84,7 +119,7 @@ COPY alembic.ini alembic.ini
 # AFTER the sync, deliberately: neither is a workspace member, so copying them first would
 # invalidate the install layer on every edit to a shell script for nothing.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --all-packages --group errors
 COPY scripts scripts
 COPY .env.example .env.example
 
