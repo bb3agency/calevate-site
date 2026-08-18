@@ -6,11 +6,17 @@ relationship between what the ORM believes and what the database actually contai
 **Method.** Everything below is marked PROVEN (executed) or REASONED (read). Two scratch
 databases were created for this work and dropped afterwards — `d192_scratch` (round-trip
 target) and `d192_fresh` (pristine control) — so nothing here touched the shared
-development database except the one `alembic upgrade head` that applies this pass's own
-migration. No `make db-reset`, no bare `pytest`, no truncation.
+development database except targeted `pytest <file>` runs and `alembic upgrade head`. No
+`make db-reset`, no bare `pytest`, no truncation.
 
 Environment: PostgreSQL 16.15, 72 revision files, head before this pass `c7a1e93d40b8`
 (62 tables).
+
+> **State of the shared development database at the end of this pass: `e7b45c19a308`,
+> applied.** It took more than ninety attempts across ~50 minutes to find a lock window —
+> see §4's postscript, which is a finding in its own right. All 27 tests across
+> `dnc_global_scope_rls_test.py`, `orm_schema_fidelity_test.py` and `dnc_test.py` pass
+> against it.
 
 ---
 
@@ -200,18 +206,21 @@ be applied to the shared development database during this pass, and the reason i
 recording rather than working around. `pg_locks` showed **six sessions `idle in transaction`
 holding `AccessShareLock` on `organizations`, the oldest for thirteen minutes**, each parked
 after a `SELECT id, name, slug, status, vertical_template FROM organizations …`, and as the
-suites churned there was almost always at least one open transaction on the table. More than
-eighty retries at a 5s `lock_timeout` found no window. Every attempt failed cleanly and
-blocked nobody, which is the guard working — but a transaction held open for thirteen
-minutes around a plain SELECT is what makes DDL unschedulable, and it is the condition that
-turned the first attempt into an outage.
+suites churned there was almost always at least one open transaction on the table. **It took
+more than ninety retries across roughly fifty minutes at a 5s `lock_timeout` to find a
+window**, and it did eventually land. Every failed attempt aborted cleanly with nothing
+applied and blocked nobody, which is the guard working — but a transaction held open for
+thirteen minutes around a plain SELECT is what makes DDL unschedulable, and it is the
+condition that turned the very first attempt into an outage.
 
-That is not a reason to widen the timeout. A deploy runs migrations BEFORE the container
-swap with the old release still serving, and a clean abort is exactly the contract
-`run_migrations` in `scripts/vps-deploy.sh` already documents — abort with nothing applied,
-print the revision reached, `runbooks/deploy-failed.md` §3 owns the retry. The migration is
-verified on two scratch databases (up / down / up, plus round-trip fidelity against a
-pristine chain).
+That is not a reason to widen the timeout, and the retry loop was deliberately slowed
+part-way through: a queued `AccessExclusive` request stalls sibling readers for the whole
+wait, so retrying continuously means imposing a 5s stall on the table most of the time. The
+polite version attempts, backs off, and lets the queue drain. In a deploy that pacing is
+free — migrations run BEFORE the container swap with the old release still serving, and a
+clean abort is exactly the contract `run_migrations` in `scripts/vps-deploy.sh` already
+documents (abort with nothing applied, print the revision reached, `runbooks/deploy-failed.md`
+§3 owns the retry).
 
 **This is a repo-wide observation, not just this migration's:** no other migration in
 `alembic/versions/` sets `lock_timeout`, and several take `AccessExclusive` on `calls`,
