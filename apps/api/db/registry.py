@@ -226,6 +226,13 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "every column-driven sweep and invite a policy that would let one client's "
         "session see, or worse clear, the global halt. Holds no PII."
     ),
+    "platform_engine_health": (
+        "platform-scoped. One row per (engine, minute) counting the voice engine's "
+        "server-side failures, which is the state behind the `engine_error_spike` alarm "
+        "(OPERATIONS §4). The vendor is either answering or it is not — that is one fact "
+        "for the whole platform and there is no tenant whose row it could be. Holds an "
+        "engine name, a minute and two integers: no tenant id, no call, no number."
+    ),
     "platform_ai_spend": (
         "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
         "platform ceiling (D-127) — OUR bill to Google, not a client's, so there is no "

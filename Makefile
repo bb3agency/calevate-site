@@ -283,6 +283,15 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# campaign_dispatch_audit) own the behaviour and keep it. Negative controls in
 	# tests/compliance_guard_test.py.
 	uv run python -m scripts.check_compliance_invariants
+	# The alarm vocabulary, both directions (OPERATIONS §4, runbooks/alarm-index.md). A
+	# documented alarm with no call site is worse than no alarm — an operator reads the
+	# runbook and stops looking — and a raised alarm with no row is a page at 3am with
+	# nothing to look it up in. Three of the first kind and 44 of the second were live
+	# when this landed. Derived from the tree (every alert(), every ProblemError carrying
+	# a failure_stage, every ack meter, every host-side shell alarm), so no list is kept
+	# by hand; it REFUSES when it matches nothing. Negative controls in
+	# tests/alarm_wiring_guard_test.py.
+	uv run python -m scripts.check_alarm_wiring
 	# D-29's `check:docs-drift`. Here rather than in pytest for the reason the two above
 	# are: no database, no app boot, and its subject is the SHAPE of the repo — the doc
 	# set against the Makefile, the package scripts, the decision log and the code's own

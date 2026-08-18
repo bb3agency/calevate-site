@@ -133,4 +133,51 @@ class PlatformSecret(Base):
     retired_at: Mapped[datetime | None] = mapped_column()
 
 
-__all__ = ["PlatformConfigVersion", "PlatformSecret", "PlatformSetting"]
+class PlatformEngineHealth(Base):
+    """One minute of one voice engine's server-side failures (OPERATIONS §4).
+
+    THE STATE BEHIND `engine_error_spike`, and the reason it is a table rather than a
+    counter in a process: "5xx spike" is a RATE, and the calls that produce it are spread
+    over the api process pool and every ARQ worker. A module global would give each
+    process its own private idea of how broken the vendor is, and the threshold would then
+    mean N-times-more than it says — the identical defect D-160 fixed for the alert
+    admission window.
+
+    POSTGRES AND NOT REDIS, deliberately. Redis is already here and `core/alert_admission`
+    already counts in it, so the boring choice was available; it is refused because that
+    counter may only ever SUPPRESS an alert and this one CREATES one. A counter that can
+    invent a page has to be as durable as the thing it reports on, and Redis in this
+    deployment is an appendonly single container with no replica.
+
+    ONE ROW PER (engine, minute), incremented — not one row per failure. A hard vendor
+    outage retries thousands of times a minute; bounding the write to an upsert makes the
+    table's growth a function of TIME (1,440 rows per engine per day, pruned to
+    `RETENTION`) instead of a function of how bad the outage is.
+
+    NOT tenant-scoped and never will be: the vendor is either answering or it is not, and
+    that is one fact for the whole platform. Registered in
+    `db/registry.RLS_EXEMPT_TENANT_COLUMNS` with that as the written reason. Holds an
+    engine name, a minute and two integers — no tenant, no call, no number.
+    """
+
+    __tablename__ = "platform_engine_health"
+
+    #: Our engine name (`bolna`, `cartesia`, `fake`), never the vendor's.
+    engine: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The minute this row counts, truncated with `date_trunc('minute', now())`.
+    bucket_start: Mapped[datetime] = mapped_column(primary_key=True)
+    #: Requests that reached the vendor and came back 5xx.
+    server_errors: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+    #: Requests that never got an answer at all (DNS, TCP, TLS, read timeout). Counted
+    #: SEPARATELY from `server_errors` because the two have different first moves for an
+    #: operator — one is the vendor's application, the other is the path to it — and
+    #: summed by the spike rule, because from a dial's point of view they are one outage.
+    unreachable: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("0"))
+
+
+__all__ = [
+    "PlatformConfigVersion",
+    "PlatformEngineHealth",
+    "PlatformSecret",
+    "PlatformSetting",
+]

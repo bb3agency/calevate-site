@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import dispatch_call
 from apps.api.compliance.service import check_dispatch
-from apps.api.core.alerting import metrics_log
+from apps.api.core.alerting import record_speed_to_lead
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -64,14 +64,6 @@ _CONSUMED_KEYS = frozenset({"phone", "phone_number", "name"})
 # because they are different support tickets: this one is fixed in the lead form, that
 # one is the person's own answer and must never be "fixed" at all.
 NO_CONSENT_FIELD_RULE = "no_consent_field_configured"
-
-
-def record_speed_to_lead(seconds: float, *, outcome: str) -> None:
-    """The FLOWS §4 metric: form_ts → dial_ts, target < 60s. Named recorder per
-    BACKEND-PATTERNS §8 so it can become an SLO rule without renaming."""
-    metrics_log.info(
-        "metric", extra={"metric": "speed_to_lead_seconds", "value": seconds, "outcome": outcome}
-    )
 
 
 def normalize_phone(raw: str) -> str | None:
@@ -837,7 +829,6 @@ __all__ = [
     "mint_secret",
     "normalize_phone",
     "readable_mapping",
-    "record_speed_to_lead",
     "rotate_secret",
     "set_active",
     "validate_mapping",

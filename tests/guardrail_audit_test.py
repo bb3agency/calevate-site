@@ -289,6 +289,11 @@ class TestRlsCoverage:
             "platform_secrets",
             "platform_state",
             "platform_ai_spend",
+            # The state behind `engine_error_spike` (OPERATIONS §4): one row per
+            # (engine, minute) of vendor server errors. Platform state for the same
+            # reason `platform_state` is — the engine is answering or it is not, for
+            # everybody at once.
+            "platform_engine_health",
             "webhook_deliveries",
             # The THIRD shape, added by D-165: tables that are policied HARDER than a
             # tenant table rather than more loosely. `auth_credentials` and

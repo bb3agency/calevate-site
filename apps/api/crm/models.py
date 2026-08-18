@@ -12,10 +12,12 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -65,6 +67,17 @@ class Call(PKMixin, TimestampMixin, Base):
             f"outcome_tag IS NULL OR outcome_tag IN {OUTCOME_TAGS!r}", name="outcome_enum"
         ),
         CheckConstraint(f"sentiment IS NULL OR sentiment IN {SENTIMENTS!r}", name="sentiment_enum"),
+        # The complaint-spike check (`campaigns/complaint_spike.py`, OPERATIONS §4) is
+        # the first thing in this repo to filter calls by campaign, and it runs once per
+        # running campaign per 30-second dispatch tick. PARTIAL because inbound calls
+        # belong to no campaign and are the majority of this table; `started_at` is in
+        # the key because the check only ever looks at a rolling window.
+        Index(
+            "ix_calls_campaign_started",
+            "campaign_id",
+            "started_at",
+            postgresql_where=text("campaign_id IS NOT NULL"),
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(

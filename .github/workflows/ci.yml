@@ -222,6 +222,13 @@ jobs:
         # lists cannot drift apart again.
         run: uv run python -m scripts.check_wiring
 
+      - name: "Guardrail: alarms are wired and documented, both directions"
+        if: ${{ !cancelled() }}
+        # OPERATIONS §4 promised three alarms nothing raised, and 44 alarms that can page
+        # a human appeared in no document at all. Derived from the tree rather than from
+        # a list, and it REFUSES when it matches nothing. No database needed.
+        run: uv run python -m scripts.check_alarm_wiring
+
       - name: "Guardrail: docs drift (D-29 check:docs-drift)"
         if: ${{ !cancelled() }}
         # Commands the docs name resolve, `D-xx` references resolve, and SEC-COMP §3

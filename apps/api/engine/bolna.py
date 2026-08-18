@@ -76,6 +76,7 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
+from apps.api.engine.health import record_engine_failure
 
 log = get_logger(__name__)
 
@@ -632,6 +633,11 @@ class BolnaEngine:
             try:
                 response = await self._http().request(method, path, **kwargs)
             except httpx.HTTPError as exc:
+                # Counted before it is raised: "the vendor did not answer" is half of
+                # OPERATIONS §4's engine-spike alarm, and it is the half a TOTAL outage
+                # produces — a platform that is entirely down refuses the connection
+                # rather than answering 502. `engine/health.py` argues the pairing.
+                await record_engine_failure(self.name, kind="unreachable")
                 raise ProblemError(
                     kind="dependency",
                     code="engine_unreachable",
@@ -673,6 +679,11 @@ class BolnaEngine:
             # Never echo a vendor error body to a client — it is not user-safe and it
             # is not our vocabulary.
             log.warning("engine_error", extra={"status": response.status_code, "route": path})
+            if response.status_code >= 500:
+                # 5xx ONLY. A 4xx is OUR request being wrong and would drown the signal
+                # it is supposed to sharpen; 429 never reaches here at all, because the
+                # throttle ladder above breaks out with its own transient code.
+                await record_engine_failure(self.name, kind="server_error")
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
