@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { ScrollRegion } from "@/components/ui";
+
 import { LEGAL_DOCUMENTS } from "./index";
 import {
   CHROME_TOKENS,
@@ -111,22 +113,12 @@ function Block({ block }: { block: LegalBlock }) {
     case "table":
       return (
         // Focusable, and named from the caption — a scroll container a keyboard cannot
-        // reach is content a keyboard cannot read.
-        <div
-          className="mt-4 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0"
-          role="region"
-          aria-label={block.caption}
-          // THE ONE PLACE a non-interactive element must take focus. A container that
-          // scrolls horizontally is unreachable by keyboard unless it is focusable —
-          // that is axe's own `scrollable-region-focusable` rule and the WAI technique
-          // behind it — and the named `region` role is what gives a wide table a
-          // landmark a screen-reader user can jump to. The lint rule's default
-          // allowed-roles list knows only `tabpanel` and predates that guidance. Waived
-          // at one site with a reason, the shape components/callAudioPlayer.tsx uses for
-          // its media-has-caption waiver.
-          // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
-          tabIndex={0}
-        >
+        // reach is content a keyboard cannot read. This used to be the ONE place in the
+        // product that got that right, arguing the case inline; the argument (and the
+        // lint waiver) now live in `ScrollRegion`, which the other seventeen containers
+        // were moved onto in the same change. This site moved too rather than keeping a
+        // second copy of the shape.
+        <ScrollRegion label={block.caption} className="mt-4 -mx-4 px-4 sm:mx-0 sm:px-0">
           <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
             <caption className="pb-3 text-left text-sm font-semibold text-ink">
               {block.caption}
@@ -159,7 +151,7 @@ function Block({ block }: { block: LegalBlock }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       );
 
     case "callout": {

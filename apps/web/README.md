@@ -1,91 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# apps/web
 
-## Authentication (two Clerk applications, one Next app)
+## Authentication (two realms, one Next app, no vendor)
 
-TRD §11 and D-37 put the two realms in **two separate Clerk applications** — admin
-(`admin.calevate.tech`, invite-only) and client (`app.calevate.tech`, self-serve) —
-with separate cookies and no shared session logic. This app serves both hostnames, so
-both applications live in one codebase without ever being mounted together:
+TRD §11 puts the two realms in **two separate credential domains** — admin
+(`admin.calevate.tech`) and client (`app.calevate.tech`) — and CLAUDE.md forbids them
+sharing session logic. Since D-177 both are ours: there is no identity vendor, and the
+credential is an `HttpOnly`, `__Host-`-prefixed session cookie the browser attaches and no
+script can read.
 
-| Route tree | Clerk application | Mounted by |
-| --- | --- | --- |
-| `/c/**` | client, or **admin** under `?view=admin` (D-22) | `src/lib/api/session.tsx` |
-| `/signup`, `/sign-in`, `/sign-up` | client | the page itself |
-| `/admin/**` | admin | `src/app/admin/layout.tsx` |
+| Route tree | Session module | Mounted by |
+|---|---|---|
+| `/admin/**` | `lib/authn/adminSession.tsx` | `app/admin/layout.tsx` |
+| `/c/[slug]/**` | `lib/authn/clientSession.tsx` | `lib/api/session.tsx`, from `app/c/[slug]/layout.tsx` |
+| `/auth/**` | neither — these are the sign-in screens themselves | each page, via `AuthPageFrame` |
 
-clerk-js is a browser singleton (`window.Clerk`), so a document hosts exactly one
-application — which is why the realm is chosen where the session is chosen, in one
-place, and never by two files that could disagree. `src/lib/auth/` holds it:
-`mode.ts` (which credential this build presents), `clerkRuntime.tsx` (the vendor
-bridge), and `clientRealm.tsx` / `adminRealm.tsx`, which are twins on purpose and
-import each other never.
+The two session modules import each other never. `lib/authn/realm.ts` holds the factory
+they are both built from, and the realm is a **closure constant** fixed at import — a
+literal in every path, with no request-time input able to move a call between realms.
+`tests/authnSourceGuards.test.ts` pins that the factory is called exactly twice, with
+literals.
 
-### Environment
+Where the pieces live:
 
-**`apps/web/.env.example` is the canonical list** — every browser variable this package
-reads, with what each one decides. Copy it to `apps/web/.env.local` (git-ignored) or
-leave it alone: every value in it is the local default. Next loads `.env*` from THIS
-directory, never from the repo root, so the root `.env` the API reads has no effect here.
+- `lib/authn/mode.ts` — which credential this build presents (`session` | `dev`), decided
+  by configuration once and never inferred from what happens to work.
+- `lib/authn/realmSessions.ts` — the one branch on that mode, per realm.
+- `lib/authn/transport.ts` — the cookie-credentialed `fetch` for `/v1/auth/**`.
+- `lib/api/client.ts` — everything else, with `credentials: "include"` and an OPTIONAL
+  bearer that is only ever the local dev token.
 
-These are **browser** variables: `next build` inlines them, so changing one needs a
-rebuild, not a restart, and none of them is private — the value ships to every visitor in
-the bundle. They are deliberately not `Settings` fields (D-49). Both directions are a CI
-gate: `scripts/check_web_env_parity.py` fails the build when a key is read and not
-declared, declared and not read, named like a secret, or reached in a form Next cannot
-inline (`process.env[name]`, a destructure, an alias). Adding one means adding it to
-`apps/web/.env.example` in the same change.
+## Environment
 
-The three that Clerk sign-in turns on:
+`apps/web/.env.example` is the template and `scripts/check_web_env_parity.py` is the gate:
+every `NEXT_PUBLIC_*` the tree reads must be declared there and every declared one must be
+read. Authentication needs none of them — that is the point of D-177 — so the only
+auth-adjacent key is:
 
-```bash
-# Which credential the browser presents. Unset = `dev` locally, `clerk` in a
-# production build. `dev` in a production build FAILS THE BUILD, on purpose.
-NEXT_PUBLIC_AUTH_MODE=clerk
-
-# The two applications' publishable keys. They must name the SAME applications as
-# CLERK_CLIENT_PUBLISHABLE_KEY / CLERK_ADMIN_PUBLISHABLE_KEY on the API, which
-# derives each realm's JWKS host from its copy (`core/auth.py::jwks_url`).
-NEXT_PUBLIC_CLERK_CLIENT_PUBLISHABLE_KEY=pk_live_...
-NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY=pk_live_...
+```
+# Which credential the browser presents. Unset = `dev` locally, `session` in a
+# production build. An explicit `dev` in a production build FAILS THE BUILD.
+NEXT_PUBLIC_AUTH_MODE=
 ```
 
-Leave all three unset for local work: the app then mounts no Clerk at all and signs
-every request with `dev:<realm>:<id>`, which the API accepts only under `APP_ENV=local`
-with no Clerk secret for that realm (`apps/api/core/auth.py::_verify_dev_token`). A
-deployment set to `clerk` that has no publishable key renders a "sign-in is not
-configured" panel and refuses every request — it never falls back to a dev token.
+Leave it unset for local work: the app then speaks `dev:<realm>:<subject-uuid>`, which the
+API accepts only when `APP_ENV=local` AND the deployment holds no `PLATFORM_KEK`
+(`apps/api/core/auth.py::_verify_dev_token`). Both guards, always.
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`next.config.ts` refuses a DEPLOY build (`CALEVATE_DEPLOY_BUILD=1`) whose
+`NEXT_PUBLIC_API_BASE_URL` is empty — the failure that builds green, health-polls green
+and serves an unusable app.

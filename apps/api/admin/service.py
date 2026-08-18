@@ -448,9 +448,9 @@ async def _write_tenant_root(
         if owner_user_id is not None:
             # `ON CONFLICT DO NOTHING` for the same reason `accept_invitation` has it:
             # one owner per (tenant, user) whatever the caller retries. The user must
-            # already exist in `users` — the FK says so, and a signup whose Clerk
-            # mirror has not landed yet must fail the whole birth, not create a tenant
-            # nobody can enter.
+            # already exist in `users` — the FK says so, and an owner id naming
+            # nobody must fail the whole birth rather than create a tenant nobody can
+            # enter.
             await session.execute(
                 text(
                     "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, "

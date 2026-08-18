@@ -34,6 +34,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import service as campaigns
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
@@ -387,7 +388,19 @@ async def test_a_contact_whose_last_attempt_the_engine_refused_is_failed_and_cou
     assert await _contacts(tenant_id, campaign_id) == [("failed", 3)], (
         "the ladder is spent, so the contact stops rather than being re-claimed"
     )
-    assert await _calls_placed(tenant_id) == 0, "a refused dial writes no call row"
+    # ONE call row, and it is the INTENT row (D-181): the engine raised out of
+    # `start_outbound_call` with no code that proves it seized no line, so the platform
+    # records a call it may have been charged for rather than nothing at all. The
+    # `engine_call_id` is one we minted, which is how that state is told apart from a
+    # dial the vendor named.
+    assert await _calls_placed(tenant_id) == 1
+    async with tenant_session(tenant_id) as session:
+        engine_call_id = (
+            await session.execute(
+                text("SELECT engine_call_id FROM calls WHERE direction = 'outbound'")
+            )
+        ).scalar()
+    assert str(engine_call_id).startswith(UNCONFIRMED_ENGINE_CALL_PREFIX), engine_call_id
     async with tenant_session(tenant_id) as session:
         escalations = (
             await session.execute(

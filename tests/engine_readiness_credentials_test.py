@@ -53,26 +53,13 @@ def _object_store_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret-key")
 
 
-def _publishable_key(host: str) -> str:
-    """Clerk's publishable-key format: `pk_<env>_<base64(host + '$')>`.
-
-    Two DISTINCT hosts are part of "every non-engine requirement satisfied": readiness
-    now also reports a deployment whose two realms would verify against ONE Clerk
-    application (`core/auth.py::missing_realm_separation_keys`, driven in
-    `tests/authz_audit_test.py`). Without these the fixture would describe a deployment
-    that cannot separate its realms, and every assertion below would carry two extra keys
-    it is not about.
-    """
-    return "pk_test_" + base64.b64encode(f"{host}$".encode()).decode().rstrip("=")
-
-
 def _settings(**overrides: Any) -> Settings:
     """A production-shaped configuration with every non-engine requirement satisfied.
 
     Everything readiness checks OUTSIDE the engine is present, so any key these tests see
     reported came from the engine clause and nowhere else. `app_env="prod"` because the
-    Clerk and secret checks are skipped under `local`, and this file is about the branch a
-    real deployment takes.
+    secret checks are skipped under `local`, and this file is about the branch a real
+    deployment takes.
 
     `_env_file=None` is not optional: without it pydantic-settings reads this repo's
     `.env`, and the test would assert about whatever the developer's machine happens to
@@ -85,10 +72,6 @@ def _settings(**overrides: Any) -> Settings:
         "object_store_endpoint": "https://example.invalid",
         "object_store_bucket": "calevate-prod",
         "sarvam_api_key": "sk-sarvam",
-        "clerk_client_secret_key": "sk-client",
-        "clerk_admin_secret_key": "sk-admin",
-        "clerk_admin_publishable_key": _publishable_key("admin-clerk.calevate.tech"),
-        "clerk_client_publishable_key": _publishable_key("app-clerk.calevate.tech"),
         "impersonation_grant_secret": "i" * 32,
         "audit_chain_secret": "a" * 32,
         "idempotency_scope_secret": "d" * 32,

@@ -235,16 +235,16 @@ async def _make_admin(role: str = "superadmin") -> str:
     """A SUPERADMIN, because three of these routes check `ops:manage` before anything
     else and an `operator` would be refused 403 on them for a reason this census is not
     about."""
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 def _tenant_path_routes() -> list[tuple[str, str, list[str]]]:

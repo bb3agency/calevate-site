@@ -471,7 +471,9 @@ async def test_a_policy_below_the_trai_floor_cannot_delete_a_recording_early() -
     undone. This drives the job's half directly, with a TTL the CHECK would refuse."""
     tenant_id, call_id = await _tenant_with_old_call(30, "+919876511005")
     async with tenant_session(tenant_id) as session:
-        await _apply_one(session, category="recording", ttl_days=1, action="delete")
+        await _apply_one(
+            session, tenant_id=tenant_id, category="recording", ttl_days=1, action="delete"
+        )
 
     url = await _scalar(tenant_id, "SELECT recording_url FROM calls WHERE id = :c", c=call_id)
     assert url == "recordings/x.wav", "a 30-day-old recording survives a 1-day policy"

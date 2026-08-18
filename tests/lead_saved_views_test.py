@@ -38,14 +38,13 @@ def _client() -> AsyncClient:
 async def _second_member(t: Tenant, role: str = "owner") -> str:
     """Another real person on the SAME account, with their own dev token."""
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(t.tenant_id) as session:
         await session.execute(
@@ -55,7 +54,7 @@ async def _second_member(t: Tenant, role: str = "owner") -> str:
             ),
             {"id": uuid.uuid4(), "tid": t.tenant_id, "uid": user_id, "role": role},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
 # ------------------------------------------------------------------ hard rule 1
@@ -294,7 +293,6 @@ async def test_a_session_with_no_signed_in_user_owns_no_views_and_is_told_so() -
     anonymous = Principal(
         realm="client",
         user_id=None,
-        clerk_user_id=None,
         tenant_id=uuid.uuid4(),
         role="owner",
     )
@@ -311,7 +309,6 @@ async def test_a_session_with_no_signed_in_user_owns_no_views_and_is_told_so() -
             Principal(
                 realm="client",
                 user_id=signed_in_user,
-                clerk_user_id="user_x",
                 tenant_id=uuid.uuid4(),
                 role="owner",
             )

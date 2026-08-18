@@ -115,6 +115,53 @@ describe("tap targets", () => {
     ).toEqual([]);
   });
 
+  /**
+   * The narrowest control shape, which neither rule above reaches.
+   *
+   * The two rules above check the NAMED constants — `FIELD`, `PRIMARY_BUTTON` and their
+   * siblings. The leads table's inline status and owner selects are neither: they carried
+   * their own literal, `px-1 py-0.5 text-xs`, which is 12px text in a 16px line box plus
+   * 2px each side — about 20px, under SC 2.5.8's 24px AA floor. Both are WRITES, and a
+   * mis-tap on the status select moves a lead to a stage nobody chose; `RowFailure` only
+   * speaks after a FAILED edit, never after a wrong one.
+   *
+   * `py-0.5` and no lower, deliberately: `py-1` computes to exactly the 24px minimum, and
+   * a rule that also failed the controls which pass is one people learn to widen rather
+   * than obey.
+   */
+  const HAIRLINE_CONTROL = /text-xs/;
+  const THIN_PADDING = /\bpy-0\.5\b/;
+  const HAS_FLOOR = /min-h-|\bh-\d/;
+
+  it("no pressable control is text-xs with hairline padding and no height floor", () => {
+    const cramped: string[] = [];
+    for (const file of FILES) {
+      const source = read(file).split("\n");
+      source.forEach((line, i) => {
+        // `className=` on an element, or the body of a shared class constant — the leads
+        // one is a constant, so a check that only read JSX would have missed the exact
+        // control the finding named.
+        if (!/className|^\s*["`]/.test(line)) return;
+        if (!HAIRLINE_CONTROL.test(line) || !THIN_PADDING.test(line)) return;
+        if (HAS_FLOOR.test(line)) return;
+        const above = source.slice(Math.max(0, i - 3), i + 1).join(" ");
+        const isControl =
+          /<(select|button|input|a)\b|Select\b/.test(above) ||
+          /^(export )?const [A-Z][A-Z0-9_]* =/.test(source[Math.max(0, i - 1)]) ||
+          /^(export )?const [A-Z][A-Z0-9_]* =/.test(line);
+        // A `<span>` badge at this size is text, not a target; SC 2.5.8 is about targets.
+        if (isControl) cramped.push(`${rel(file)}:${i + 1} — ${line.trim()}`);
+      });
+    }
+    expect(
+      cramped,
+      `these pressable controls render around 20px tall, under WCAG 2.2 SC 2.5.8's 24px ` +
+        `minimum:\n  ${cramped.join("\n  ")}\n` +
+        `Add \`touch:min-h-11\` (the coarse-pointer variant in globals.css) or widen the ` +
+        `vertical padding.`,
+    ).toEqual([]);
+  });
+
   it("the shared button classes carry it too", () => {
     const ui = read(join(SRC, "components", "ui.tsx"));
     for (const name of [
@@ -177,6 +224,13 @@ describe("nothing is pinned wider than the narrowest phone", () => {
    *
    * The rule is therefore not "no minimums" but "a minimum either scrolls or waits for a
    * breakpoint that can honour it".
+   *
+   * `<ScrollRegion>` counts as a scroll container because it IS one — it is the component
+   * every table wrapper in the console was moved onto, and it carries `overflow-x-auto`
+   * plus the focusability that a bare wrapper was missing (see the keyboard rule below).
+   * Matching only the raw utility would have flagged every correct table the moment the
+   * shape was hoisted into a component, which is the reading-its-own-fix-as-a-violation
+   * failure the comment below already guards against once.
    */
   it("every min-w- utility either scrolls or is gated behind a breakpoint", () => {
     const offenders: string[] = [];
@@ -205,7 +259,7 @@ describe("nothing is pinned wider than the narrowest phone", () => {
           // had itself prompted. A check that reads its own documentation as a violation
           // is a check people turn off.
           const near = [code[i], ...previousCodeLines(code, i, 6)].join(" ");
-          if (/overflow-x-auto|overflow-auto|overflow-x-scroll/.test(near)) continue;
+          if (/overflow-x-auto|overflow-auto|overflow-x-scroll|<ScrollRegion\b/.test(near)) continue;
           offenders.push(`${rel(file)}:${i + 1} — ${match[2]}`);
         }
       });
@@ -279,5 +333,81 @@ describe("the mobile drawer is a drawer at every width", () => {
         ).toBe(true);
       }
     }
+  });
+});
+
+
+describe("every scroll container can be reached from a keyboard", () => {
+  /**
+   * There is no key that scrolls a non-focusable element.
+   *
+   * A wide table inside a bare `overflow-x-auto` div is content a keyboard-only user
+   * cannot read the right-hand side of — on the credit ledger and the invoice that is the
+   * money columns. Seventeen of the console's eighteen scroll containers were exactly
+   * that; the eighteenth (`lib/legal/document.tsx`) had argued the case inline and been
+   * copied by none of them. `ScrollRegion` is that shape hoisted, and every one of the
+   * eighteen now uses it.
+   *
+   * THE A11Y SWEEP CANNOT SEE THIS, which is why the rule lives here rather than there.
+   * axe's `scrollable-region-focusable` needs to know that an element actually scrolls,
+   * and jsdom implements no layout, so the rule never fires and the gate was green on all
+   * eighteen. A source check is what can go red.
+   */
+  const NOT_A_SCROLL_REGION: Record<string, string> = {
+    "components/ui.tsx": "`ScrollRegion` itself — this is the definition.",
+    "app/c/[slug]/integrations/page.tsx":
+      "The delivered-payload `<pre>` scrolls VERTICALLY (`max-h-80`), which `ScrollRegion` " +
+      "does not model — it hardcodes `overflow-x-auto`. It carries the same `role=region` " +
+      "+ `aria-label` + `tabIndex={0}` inline, and the assertion checks that rather than " +
+      "waiving it. (The screen's delivery-log table IS a `ScrollRegion`.)",
+  };
+
+  it("is a ScrollRegion, or is focusable in its own right", () => {
+    const unreachable: string[] = [];
+    for (const file of FILES) {
+      const source = read(file).split("\n");
+      source.forEach((line, i) => {
+        if (!/overflow-x-auto|overflow-auto|overflow-x-scroll/.test(line)) return;
+        // Only an element wearing the utility as a class is a container; the doc comments
+        // that explain the rule mention it too.
+        if (!/className/.test(line)) return;
+        const key = rel(file).replace(/^src\//, "");
+        if (!Object.hasOwn(NOT_A_SCROLL_REGION, key)) {
+          unreachable.push(`${rel(file)}:${i + 1} — ${line.trim()}`);
+          return;
+        }
+        // An exemption is from the COMPONENT, never from the rule: the site still has to
+        // take focus. The attributes sit in the same element, within a few lines.
+        const near = source.slice(Math.max(0, i - 8), i + 8).join(" ");
+        if (key !== "components/ui.tsx" && !/tabIndex=\{0\}/.test(near)) {
+          unreachable.push(`${rel(file)}:${i + 1} — exempted from ScrollRegion but not focusable`);
+        }
+      });
+    }
+    expect(
+      unreachable,
+      `these scroll containers cannot be scrolled by a keyboard:\n  ` +
+        `${unreachable.join("\n  ")}\n` +
+        `Wrap the content in \`<ScrollRegion label="…">\` (components/ui.tsx), which ` +
+        `carries role=region + tabIndex=0 + the accessible name.`,
+    ).toEqual([]);
+  });
+
+  it("carries an accessible name wherever it is used", () => {
+    // A `role="region"` with no name is not exposed as a landmark at all, so an unnamed
+    // one buys a screen-reader user a focus stop and nothing else. `label` is required by
+    // `ScrollRegion`'s type; this is the check that nobody passes an empty one.
+    const unnamed: string[] = [];
+    for (const file of FILES) {
+      const source = read(file).split("\n");
+      source.forEach((line, i) => {
+        if (!/<ScrollRegion\b/.test(line)) return;
+        const element = source.slice(i, i + 4).join(" ");
+        if (!/label=\{?["`{]/.test(element) || /label=""/.test(element)) {
+          unnamed.push(`${rel(file)}:${i + 1}`);
+        }
+      });
+    }
+    expect(unnamed, "ScrollRegion with no usable label").toEqual([]);
   });
 });

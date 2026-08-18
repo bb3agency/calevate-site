@@ -122,6 +122,14 @@ AUTH_EMAIL_JOB: Final = "deliver_auth_email"
 #: answer, since the purpose is inside the code's hash domain.
 LOGIN_CHALLENGE: Final = "login_challenge"
 
+#: The OTP purpose that re-proves a second factor for a session that already has one
+#: (C-09, D-178). Distinct from `LOGIN_CHALLENGE` for the reason `authn/models.OTP_PURPOSES`
+#: gives: the purpose is inside the code's HMAC domain and `issue_challenge` retires only
+#: its own purpose's live challenge, so a step-up request cannot silently retire the code an
+#: operator is mid-way through typing to finish signing in — and a login code cannot answer
+#: a step-up prompt.
+STEP_UP: Final = "step_up"
+
 #: What `sign_in` concluded. A closed vocabulary because the frontend switches on it.
 #: `otp_required` rather than `mfa_required`, because naming it after the MECHANISM is what
 #: stops the next reader looking for an authenticator app that does not exist.
@@ -419,6 +427,86 @@ async def refresh(*, verified: VerifiedSession, now: datetime | None = None) -> 
         return await rotate_session(session, verified=verified, now=now)
 
 
+# ──────────────────────── step-up re-authentication ──────────────────────────
+
+
+async def request_step_up(*, verified: VerifiedSession, now: datetime | None = None) -> None:
+    """Mail a fresh step-up code to the mailbox on file for this session's own subject.
+
+    Same shape as `resend_second_factor` and for the same reasons: no address parameter, so
+    there is nothing to probe and no way to make us mail a stranger; the caller already
+    holds a session, so this endpoint grants no capability they lack. What differs is the
+    PURPOSE, which keeps this challenge and a pending sign-in challenge from being each
+    other (`STEP_UP`).
+    """
+    realm, subject_id = verified.realm, verified.subject_id
+    subject = await load_subject(realm, subject_id)
+    if subject is None:
+        raise _invalid_credentials()
+    at = now or datetime.now(UTC)
+    async with credential_session() as session:
+        challenge = await otp.issue_challenge(
+            session, purpose=STEP_UP, realm=realm, subject_id=subject_id, now=at
+        )
+        await _enqueue_auth_email(
+            session,
+            kind=f"otp_{STEP_UP}",
+            realm=realm,
+            to=subject.email,
+            secret=challenge.code,
+        )
+    await _audit(action="auth.step_up_requested", realm=realm, subject_id=subject_id, ip=None)
+
+
+async def complete_step_up(
+    *, verified: VerifiedSession, code: str, ip: str | None, now: datetime | None = None
+) -> IssuedSession:
+    """Answer a step-up challenge, restamping `mfa_verified_at` to now. Rotates the session.
+
+    ROTATION, NOT AN `UPDATE`, for the reason `complete_second_factor` rotates: this IS a
+    privilege change — the session goes from "cannot lift the halt" to "can" — and OWASP's
+    session-fixation defence asks for a new identifier at exactly that moment.
+    `rotate_session` carries `absolute_expires_at` forward, so re-proving a factor cannot be
+    used to extend a session past the bound it was born with. That is the property that
+    stops step-up from being a session-renewal loop.
+    """
+    realm, subject_id = verified.realm, verified.subject_id
+    await check(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    at = now or datetime.now(UTC)
+    async with credential_session() as session:
+        ok = await otp.verify_challenge(
+            session, purpose=STEP_UP, realm=realm, subject_id=subject_id, code=code, now=at
+        )
+    if not ok:
+        await _audit(action="auth.step_up_failed", realm=realm, subject_id=subject_id, ip=ip)
+        await _spend_failure(OTP_BUDGET, realm=realm, subject_id=subject_id)
+        raise ProblemError(
+            kind="auth",
+            code="invalid_second_factor",
+            title="That code did not work",
+            detail="The code was not accepted.",
+            remediation="Check the most recent email, or ask for a new code.",
+        )
+    await clear(OTP_BUDGET, realm=realm, subject_id=subject_id)
+
+    # Re-read the operator, exactly as `complete_second_factor` does: somebody removed from
+    # the allowlist between asking for the code and typing it must not walk out of this
+    # holding a session whose second factor is one second old.
+    if await load_subject(realm, subject_id) is None:
+        raise _invalid_credentials()
+
+    async with credential_session() as session:
+        rotated = await rotate_session(session, verified=verified, mfa_verified_at=at, now=at)
+    await _audit(
+        action="auth.step_up_completed",
+        realm=realm,
+        subject_id=subject_id,
+        ip=ip,
+        object_id=str(rotated.session_id),
+    )
+    return rotated
+
+
 # ───────────────────────────── password reset ────────────────────────────────
 
 
@@ -697,9 +785,11 @@ __all__ = [
     "AUTH_EMAIL_JOB",
     "LOGIN_CHALLENGE",
     "MFA_REQUIRED_REALMS",
+    "STEP_UP",
     "LoginOutcome",
     "LoginStatus",
     "complete_second_factor",
+    "complete_step_up",
     "confirm_otp",
     "confirm_password_reset",
     "find_subject_for_session",
@@ -707,6 +797,7 @@ __all__ = [
     "refresh",
     "request_otp",
     "request_password_reset",
+    "request_step_up",
     "resend_second_factor",
     "sign_in",
     "sign_out",

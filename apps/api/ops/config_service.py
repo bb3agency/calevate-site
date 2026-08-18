@@ -115,7 +115,7 @@ async def read_rows(session: AsyncSession) -> dict[str, StoredRow]:
     rows = (
         await session.execute(
             text(
-                "SELECT s.key, s.updated_at, s.note, a.name, a.clerk_user_id, s.revision "
+                "SELECT s.key, s.updated_at, s.note, a.name, a.id, s.revision "
                 "FROM platform_settings s "
                 "LEFT JOIN admin_users a ON a.id = s.updated_by"
             )
@@ -125,14 +125,15 @@ async def read_rows(session: AsyncSession) -> dict[str, StoredRow]:
         str(key): StoredRow(
             # The operator's NAME, not their id: this is read by another operator, and a
             # uuid answers "who changed the calling window" with a second lookup. Falls
-            # back to the Clerk id when the admin row is gone (they left; the audit
-            # chain still has the id, and `audit_log` is the permanent record).
-            updated_by=name or clerk_id,
+            # back to the admin id for an operator with no name on file — it used to fall
+            # back to the Clerk id, which D-177 stopped writing, so the fallback would
+            # have degraded to a blank cell for every operator created since.
+            updated_by=name or (str(admin_id) if admin_id is not None else None),
             updated_at=updated_at.isoformat() if updated_at is not None else None,
             note=note,
             revision=int(revision),
         )
-        for key, updated_at, note, name, clerk_id, revision in rows
+        for key, updated_at, note, name, admin_id, revision in rows
     }
 
 

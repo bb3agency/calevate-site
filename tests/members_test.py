@@ -51,14 +51,13 @@ async def _colleague(
     could only produce the caller could not express a single one of them.
     """
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, name, created_at, updated_at) "
-                "VALUES (:i, :c, :e, :n, now(), now())"
+                "INSERT INTO users (id, email, name, created_at, updated_at) "
+                "VALUES (:i, :e, :n, now(), now())"
             ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com", "n": name},
+            {"i": user_id, "e": f"{user_id}@example.com", "n": name},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -68,7 +67,7 @@ async def _colleague(
             ),
             {"i": uuid.uuid4(), "t": tenant_id, "u": user_id, "r": role},
         )
-    return user_id, f"dev:client:{clerk_id}"
+    return user_id, f"dev:client:{user_id}"
 
 
 async def _role_of(tenant_id: uuid.UUID, user_id: uuid.UUID) -> str | None:
@@ -421,16 +420,16 @@ async def test_an_impersonating_operator_can_see_the_team_and_cannot_change_it()
 
 async def _make_operator() -> str:
     """An admin-realm operator (`admin:impersonate`), as a dev bearer token."""
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Support', 'operator', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Support', 'operator', now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": clerk_id},
+            {"i": admin_id},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 # --- removal: what happens to the work they were doing -------------------------

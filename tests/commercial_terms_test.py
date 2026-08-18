@@ -58,16 +58,16 @@ def _client() -> AsyncClient:
 async def _make_admin(role: str = "superadmin") -> str:
     """A real `admin_users` row plus the dev-token spelling of its realm — the idiom
     `route_shape_test` and `ops_spend_cap_recompute_test` both use."""
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def _tenant() -> UUID:

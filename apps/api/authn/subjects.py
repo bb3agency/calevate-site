@@ -97,9 +97,9 @@ _CLIENT_SELECT = (
 )
 
 #: The admin realm's liveness rule is ROW PRESENCE, and that is not an oversight.
-#: `admin_users` is an ops-managed allowlist rather than a mirror (`core/clerk_identity.py`
-#: is explicit that auto-creating one would be "privilege escalation wearing a race
-#: condition's clothes"), so an operator is removed by deleting the row. There is no
+#: `admin_users` is an ops-managed allowlist rather than a mirror — the retired Clerk
+#: mirror was explicit that auto-creating one would be "privilege escalation wearing a race
+#: condition's clothes" — so an operator is removed by deleting the row. There is no
 #: `deactivated_at` to check and adding one would create a second way to express the same
 #: fact — the exact drift CLAUDE.md's "one way per problem" forbids.
 _ADMIN_SELECT = "SELECT id, email, NULL AS email_verified_at FROM admin_users WHERE {predicate}"

@@ -25,6 +25,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
 from apps.api.core.rbac import iter_api_routes
 from apps.api.main import app
 from apps.workers.settings import CRON_JOBS, FUNCTIONS, WorkerSettings
@@ -49,6 +50,35 @@ def test_the_live_app_mounts_every_router_it_declares() -> None:
     declared = check_wiring.declared_routers()
     assert len(declared) >= 20, f"the router scan found only {len(declared)} — it is blind"
     assert not check_wiring.unmounted_routers(declared), check_wiring.unmounted_routers(declared)
+
+
+def test_a_scan_that_finds_no_routers_refuses_instead_of_passing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """D-176: the shape the audit of our own guardrails found here.
+
+    `declared_routers()` walks two directories with `rglob`, which yields nothing — and
+    raises nothing — when a directory is renamed or moved. Section 1 then finds no
+    declaration to compare against the route table and reports no offenders, so the whole
+    router half of this guard prints `OK (0 routers all mounted)`. Pointing both roots at
+    an empty tree is exactly that state, and it must now be a failure that says so.
+    """
+    monkeypatch.setattr(check_wiring, "API_ROOT", tmp_path)
+    monkeypatch.setattr(check_wiring, "VOICE_RUNTIME_ROOT", tmp_path)
+
+    assert check_wiring.declared_routers() == []
+    assert check_wiring.unmounted_routers() == [], "the vacuous pass this test exists for"
+    assert any("looking at the wrong place" in failure for failure in check_wiring.blind_spots())
+
+
+def test_a_column_scan_that_finds_almost_nothing_refuses(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The same property for section 3, whose left side is the declared-column set."""
+    monkeypatch.setattr(check_wiring, "SCAN_ROOTS", (tmp_path,))
+
+    assert any("fraction of the schema" in failure for failure in check_wiring.blind_spots())
 
 
 def test_an_unmounted_router_is_caught() -> None:

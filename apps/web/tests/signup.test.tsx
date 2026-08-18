@@ -64,9 +64,24 @@ function fill(): void {
   });
 }
 
+/**
+ * Render and let the realm's restore settle before touching the form (D-177).
+ *
+ * The page mounts `ClientSessionProvider` and shows the workspace form only to a caller
+ * with a live session — a stranger gets the panel explaining how accounts are obtained.
+ * The restore is a `fetch`, so a synchronous `render` returns with neither branch decided
+ * and `getByLabelText` finds nothing. `stubApi` answers the restore by default; this is
+ * what waits for it.
+ */
+async function mount(): Promise<void> {
+  await act(async () => {
+    render(<SignupPage />);
+  });
+}
+
 async function submit(routes: Record<string, unknown>): Promise<ApiCall[]> {
   const calls = stubApi(routes);
-  render(<SignupPage />);
+  await mount();
   fill();
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Create workspace" }));
@@ -196,8 +211,10 @@ describe("what a prospect types", () => {
       expect(made.url).not.toContain("owner@srisai.example");
       expect(made.url).not.toContain("Sri%20Sai");
     }
-    expect(calls.length).toBe(1);
-    const [call] = calls;
+    // TWO calls: the realm's session restore on mount, then the signup. The restore is
+    // named rather than counted away, so a THIRD call still fails this the way it should.
+    expect(calls.map((c) => c.path)).toEqual(["/v1/auth/client/session", SIGNUP]);
+    const call = calls[1];
     expect(call.method).toBe("POST");
     expect(call.path).toBe(SIGNUP);
     const body = JSON.parse(call.body ?? "{}");
@@ -205,11 +222,13 @@ describe("what a prospect types", () => {
     expect(body.billing_email).toBe("owner@srisai.example");
   });
 
-  it("makes no request at all before the form is submitted", () => {
+  it("makes no request at all before the form is submitted", async () => {
     const calls = stubApi({});
-    render(<SignupPage />);
+    await mount();
     fill();
-    expect(calls).toEqual([]);
+    // The realm's session restore is the ONE call a mount is allowed to make, and it is
+    // not "what a prospect typed" — nothing this screen collects has been sent.
+    expect(calls.map((c) => c.path)).toEqual(["/v1/auth/client/session"]);
   });
 });
 
@@ -241,9 +260,12 @@ describe("the success panel", () => {
 });
 
 describe("the framing this screen has to carry itself", () => {
-  it("scrolls on its own, because globals.css hides the document's overflow", () => {
+  it("scrolls on its own, because globals.css hides the document's overflow", async () => {
     stubApi({});
-    const { container } = render(<SignupPage />);
+    let container!: HTMLElement;
+    await act(async () => {
+      ({ container } = render(<SignupPage />));
+    });
     // `html, body { overflow: hidden }` is there for the `/c` and `/admin` shells, and
     // this route has neither. Without an overflow container of its own the submit button
     // is simply unreachable on a short viewport — a bug no type checker can see.

@@ -18,7 +18,8 @@ engine webhooks, the ops/admin surface and the schema/doc endpoints are never sh
 land** — a dropped engine webhook is a call whose lead never appears.
 
 It listed `/v1/auth` too, "so signing in survives maintenance", and that exemption was
-aimed at a route this API does not have. Clerk owns sessions (TRD §11); nothing under
+aimed at a route this API did not have while Clerk owned sessions (TRD §11). D-177
+brought them in-house, and `/v1/auth/**` is now real; nothing under
 `/v1/auth` mints one. The ONE route the prefix actually covered was
 `POST /v1/auth/signup` — a multi-table write that creates an organization, an agent, an
 extraction schema and a set of retention policies — so the exemption's only effect was

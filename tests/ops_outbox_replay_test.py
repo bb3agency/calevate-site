@@ -118,16 +118,15 @@ async def _make_admin(role: str = "superadmin") -> tuple[str, UUID]:
     the actor is the only thing that identifies THIS run's entry in a shared ledger.
     """
     admin_id = uuid.uuid4()
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": admin_id, "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}", admin_id
+    return f"dev:admin:{admin_id}", admin_id
 
 
 async def _replay(token: str, *, confirm: str | None = None, job: str | None = None) -> Response:

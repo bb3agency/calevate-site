@@ -15,7 +15,7 @@ db_down > redis_down > queue_stale > config_missing > none.
 
 `/healthz/ready` used to publish, to anyone who asked, the NAMES of the configuration
 keys this deployment has not installed yet — `fields[].field` is
-`runtime_config_missing_keys`, i.e. `BOLNA_API_KEY`, `CLERK_ADMIN_SECRET_KEY`,
+`runtime_config_missing_keys`, i.e. `BOLNA_API_KEY`, `PLATFORM_KEK`,
 `AUDIT_CHAIN_SECRET` — plus which of DB/Redis is down and how far behind the job queue
 is. Unauthenticated, exempt from the in-app rate limiter, and proxied from
 `api.calevate.tech` by `infra/nginx/calevate.conf.template`. That is a targeting oracle:
@@ -43,6 +43,7 @@ So the split is:
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
@@ -69,7 +70,7 @@ ARQ_QUEUE_KEY = "arq:queue"
 #: INJECTED RATHER THAN IMPORTED, and both halves of the reason are load-bearing:
 #:  - `core.auth` is outside voice-runtime's pinned import surface
 #:    (`tests/voice_runtime_import_surface_test.py`) and this module is inside it. An
-#:    `import` here would put the Clerk verifier and its JWKS client on the boot graph
+#:    `import` here would put the session verifier and the audit graph on the boot graph
 #:    of the service carrying live calls, to answer a question that service has no
 #:    authentication layer to ask (hard rule 3).
 #:  - it keeps "what counts as authorised" in the composition root (`core.bootstrap`)
@@ -77,11 +78,37 @@ ARQ_QUEUE_KEY = "arq:queue"
 HealthDetailGate = Callable[[Request], Awaitable[bool]]
 
 
+#: How long any single dependency probe may take before it IS the answer (D-182).
+#:
+#: A HEALTH ENDPOINT THAT HANGS IS WORSE THAN ONE THAT FAILS. This was the only wait in
+#: the repo with no bound: `SELECT 1` through `untenanted_session()` with no statement
+#: timeout, no connect timeout, and `pool_pre_ping`'s own `SELECT 1` hanging on the very
+#: same socket (`apps/voice-runtime/webhook_routes.py` states that pairing outright). A
+#: blackholed Postgres — dropped NAT mapping, firewall change, a host that stops answering
+#: without an RST — therefore made `/healthz/ready` block for ever instead of returning
+#: `503 db_down`, which is the one word it exists to produce, and every hung probe held a
+#: pooled connection for the life of the request.
+#:
+#: TWO SECONDS, and the number is chosen against its callers rather than picked: the two
+#: probes run in sequence, so `/healthz` answers in under 4s inside `vps-deploy.sh`'s
+#: `curl --max-time 5` and inside the compose healthcheck's `timeout: 5s`. It is the same
+#: bound voice-runtime already puts on its durable work (`_DURABLE_DEADLINE_S`), and it is
+#: deliberately UNDER `db.session._POOL_TIMEOUT_S` (5s): a probe that waited out the pool
+#: queue would report the database as healthy while no caller could reach it.
+_PROBE_BUDGET_S = 2.0
+
+
 async def _check_db() -> bool:
     try:
-        async with untenanted_session() as session:
+        async with asyncio.timeout(_PROBE_BUDGET_S), untenanted_session() as session:
             await session.execute(text("SELECT 1"))
         return True
+    except TimeoutError:
+        # NOT an exception to the caller: "the database did not answer in two seconds" is
+        # the same operational fact as "the database refused", and the orchestrator can
+        # act on `db_down` where it cannot act on a request that never returns.
+        log.warning("health_db_timeout", extra={"budget_s": _PROBE_BUDGET_S})
+        return False
     except Exception:
         log.warning("health_db_unavailable")
         return False
@@ -89,7 +116,13 @@ async def _check_db() -> bool:
 
 async def _check_redis() -> bool:
     try:
-        return bool(await get_redis().ping())
+        async with asyncio.timeout(_PROBE_BUDGET_S):
+            return bool(await get_redis().ping())
+    except TimeoutError:
+        # Belt and braces over `core/redis.py`'s `socket_timeout=2`: that bounds one
+        # socket operation, and a resolver that never answers is not one.
+        log.warning("health_redis_timeout", extra={"budget_s": _PROBE_BUDGET_S})
+        return False
     except Exception:
         log.warning("health_redis_unavailable")
         return False
@@ -97,7 +130,11 @@ async def _check_redis() -> bool:
 
 async def _queue_stats() -> tuple[int, float | None]:
     """(depth, oldest_waiting_seconds). ARQ scores its queue zset with the run-at
-    timestamp in ms, so the minimum score is the oldest ready job."""
+    timestamp in ms, so the minimum score is the oldest ready job.
+
+    Bounded by its CALLER (`ready`), which treats a breach as `redis_down` — the same
+    verdict a refused connection gets, and for the same reason.
+    """
     redis = get_redis()
     depth = int(await redis.zcard(ARQ_QUEUE_KEY))
     if depth == 0:
@@ -157,8 +194,11 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
         oldest: float | None = None
         if redis_ok:
             try:
-                depth, oldest = await _queue_stats()
+                async with asyncio.timeout(_PROBE_BUDGET_S):
+                    depth, oldest = await _queue_stats()
             except Exception:
+                # `TimeoutError` included, and folded in on purpose: a queue read that
+                # does not finish and one that errors are the same readiness answer.
                 redis_ok = False
         missing = runtime_config_missing_keys(get_settings())
         queue_stale = oldest is not None and oldest > QUEUE_STALE_AFTER_S

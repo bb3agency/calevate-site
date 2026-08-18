@@ -66,10 +66,11 @@ class User(PKMixin, TimestampMixin, Base):
 
     __tablename__ = "users"
 
-    # NULLABLE since b3d9f6a2c815 (D-170): a user created by redeeming a first-party
-    # invitation has no Clerk account to name. Every Clerk path still writes it, and UNIQUE
-    # still holds because Postgres treats NULLs as distinct. Dropping it is a later release
-    # (hard rule 8's two-step).
+    # NOTHING WRITES THIS ANY MORE (D-177), and nothing reads it. Step 1 of hard rule 8's
+    # two-step deprecation: the writers went with Clerk, the column stays one more release
+    # so the rows Clerk created are still identifiable if a question about them arrives.
+    # Recorded in `scripts/check_wiring.UNWIRED_BASELINE`, which is where this repo tracks
+    # a column with no toucher and what closes it — step 2 is the DROP migration.
     clerk_user_id: Mapped[str | None] = mapped_column(Text, unique=True)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str | None] = mapped_column(Text)
@@ -81,7 +82,7 @@ class User(PKMixin, TimestampMixin, Base):
     deactivated_at: Mapped[datetime | None]
     # When this mailbox was proved (D-170). Set by the `email_verify` OTP round trip, or
     # directly on invitation redemption — possession of a token emailed to the address IS
-    # the proof. What `accept_invitation`'s recipient binding trusts instead of Clerk.
+    # the proof, which is why redemption needs no address comparison at all.
     email_verified_at: Mapped[datetime | None]
 
 
@@ -127,16 +128,16 @@ class Invitation(PKMixin, TimestampMixin, Base):
 
 
 class AdminUser(PKMixin, TimestampMixin, Base):
-    """Separate realm (admin Clerk app) — NOT tenant-scoped."""
+    """The operator allowlist. Separate realm, separate session — NOT tenant-scoped."""
 
     __tablename__ = "admin_users"
     __table_args__ = (CheckConstraint(f"role IN {ADMIN_ROLES!r}", name="role_enum"),)
 
-    # NULLABLE since b3d9f6a2c815 (D-170), for the same reason as `User.clerk_user_id`:
-    # an operator created by `scripts/bootstrap_admin.py` has no Clerk account.
+    # Unwritten and unread since D-177, exactly as `User.clerk_user_id` — same two-step,
+    # same baseline entry, same DROP migration closes both.
     clerk_user_id: Mapped[str | None] = mapped_column(Text, unique=True)
-    # The address a first-party operator signs in with, and the address the bootstrap link
-    # is mailed to (D-171). Nullable because Clerk-era rows have none. UNIQUE on
+    # The address an operator signs in with, and the address the bootstrap link is mailed
+    # to (D-171). Nullable because Clerk-era rows have none. UNIQUE on
     # `lower(email)` via an expression index in the migration — SQLAlchemy cannot express
     # that as a column constraint, which is why it is `op.execute`'d there rather than
     # declared here; `check_metadata_columns` compares COLUMNS, and the index is asserted

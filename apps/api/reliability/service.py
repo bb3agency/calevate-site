@@ -375,6 +375,12 @@ async def enqueue_outbox_once(
 @dataclass(frozen=True, slots=True)
 class OutboxMessageRow:
     id: UUID
+    #: Always `OUTBOX_FLEET`, and READ BY NOTHING — `dispatch_outbox` never branches on
+    #: it. Carried here rather than dropped from the claim so the column's one consumer
+    #: is where a filter would go on the day D-162 closes by growing a second fleet; if
+    #: it closes the other way, this field and the column go in the same change. A reader
+    #: meeting `row.queue` and assuming it decides where the job runs is the exact
+    #: misreading the column's comment in `models.py` exists to prevent.
     queue: str
     job: str
     payload: dict[str, Any]
@@ -912,10 +918,10 @@ async def claim_inbox_event(
         # for an at-most-once engine event (D-31) "nobody is doing this work and the
         # key says duplicate" is a silently dropped call.
         #
-        # This is not hypothetical: `apps/api/tenancy/clerk_webhooks.py` COMMITS the
+        # This was not hypothetical: `tenancy/clerk_webhooks.py` (deleted in D-177) COMMITTED the
         # claim, then does the mirroring in a later transaction with no failure path
         # that marks the row failed — so any exception there leaves PROCESSING behind
-        # and every Clerk retry of that svix-id is answered "duplicate".
+        # and every retry of that svix-id was answered "duplicate".
         #
         # A recent PROCESSING row is a real concurrent delivery and still dedupes.
         retried = await session.execute(
@@ -989,6 +995,10 @@ __all__ = [
     "complete_idempotency",
     "defer_outbox_claim",
     "enqueue_outbox",
+    # Was missing while three modules imported it — `__all__` here is the module's
+    # statement of its own surface, and a name absent from it reads as internal to the
+    # next person deciding whether they may call it.
+    "enqueue_outbox_once",
     "fail_idempotency",
     "mark_inbox_enqueued",
     "mark_inbox_failed",

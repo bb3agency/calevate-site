@@ -44,9 +44,9 @@ async def operator() -> AsyncIterator[tuple[uuid.UUID, str]]:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, email, name, role, "
+                "INSERT INTO admin_users (id, email, name, role, "
                 "created_at, updated_at) "
-                "VALUES (:id, NULL, :email, 'MFA Probe', 'operator', now(), now())"
+                "VALUES (:id, :email, 'MFA Probe', 'operator', now(), now())"
             ),
             {"id": admin_id, "email": email},
         )
@@ -247,10 +247,10 @@ async def test_the_client_realm_needs_no_second_factor(
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": f"user_test_{user_id.hex}", "email": email},
+            {"id": user_id, "email": email},
         )
     async with credential_session() as session:
         await set_password(session, realm="client", subject_id=user_id, password=PASSWORD)
