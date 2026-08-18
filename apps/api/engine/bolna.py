@@ -27,17 +27,18 @@ transcriber entries carry recognised TEXT (hard rules 5/6). So it stays a PILOT 
 capture it at OPERATIONS §2 gate 4 beside the stopwatch that can falsify it, then decide
 what to store. Until then latency measurement is the stopwatch, not a field.
 
-Resilience shipped here: a request timeout and jittered backoff on 429 (SURFACES §3.3).
-The circuit breaker that section also describes is deliberately NOT built — see the
-throttle block below for what is and is not retried, and why.
+Resilience is NOT shipped here any more, and that is the point: the request timeout, the
+jittered 429 backoff (SURFACES §3.3) and the whole error ladder live in
+`engine/vendor_http.py`, which every adapter answers on. They used to be written out in
+this file and again in `cartesia.py`, and the two copies disagreed about a throttle and
+about a 2xx we cannot parse — see that module for what the divergence cost (D-240). The
+circuit breaker SURFACES §3.3 also describes is deliberately NOT built; the ladder says
+what is and is not retried, and why.
 """
 
 from __future__ import annotations
 
-import asyncio
-import random
 import re
-from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
@@ -76,68 +77,11 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
+from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 log = get_logger(__name__)
 
 BASE_URL = "https://api.bolna.ai"
-REQUEST_TIMEOUT_S = 10.0
-
-# --- Throttle handling (SURFACES §3.3) ---------------------------------------
-# Bolna's rate limits are unpublished (pilot item), so 429 is a response we will meet
-# without warning. Three deliberate limits on what we do about it:
-#
-# 1. **429 ONLY.** A 429 means the request was refused, not performed — the one status
-#    where retrying `POST /call` cannot dial a person twice. A 502/503/504 on the same
-#    endpoint is ambiguous, so those are reported, never repeated. Retrying a
-#    non-idempotent create because it "felt transient" is how a lead gets two calls.
-# 2. **Jitter, always.** Our workers are throttled in the same second and would
-#    otherwise retry in the same second; a synchronized herd is how a rate limit
-#    becomes an outage. Full jitter, and a `Retry-After` is a floor we never undercut.
-# 3. **A short ceiling.** Adapter calls happen inside request handlers as well as
-#    workers, so the adapter may stall a request by a second or two — not by two
-#    minutes. A `Retry-After` longer than the ceiling is not slept through: it is
-#    reported as `transient`, which is the caller's cue to reschedule the work.
-THROTTLE_STATUS = 429
-THROTTLE_MAX_ATTEMPTS = 3
-THROTTLE_BASE_S = 0.5
-THROTTLE_MAX_SLEEP_S = 8.0
-
-
-def _retry_after_seconds(response: httpx.Response) -> float | None:
-    """`Retry-After` in delay-seconds form. The HTTP-date form is not parsed on
-    purpose: a clock-skewed date is worse than no hint, and the fallback is a sane
-    backoff either way."""
-    raw = response.headers.get("retry-after")
-    if raw is None:
-        return None
-    try:
-        seconds = float(raw.strip())
-    except ValueError:
-        return None
-    return seconds if seconds >= 0 else None
-
-
-def throttle_delay_s(
-    attempt: int,
-    retry_after: float | None,
-    *,
-    rand: Callable[[], float] = random.random,
-) -> float:
-    """How long to wait before retry `attempt` (0-based). Never zero-variance.
-
-    `rand` is injected so the jitter is assertable in a test — an un-jittered backoff
-    passes every "does it retry" test ever written and still takes the platform down.
-    """
-    if retry_after is not None:
-        # Their number is a FLOOR. Jitter goes on top so we do not all wake together
-        # at exactly the moment they told everyone to wake.
-        return retry_after + THROTTLE_BASE_S * rand()
-    # Full jitter over an exponentially growing ceiling: the delay is uniform in
-    # [0, capped], so two workers throttled in the same second do not wake in the same
-    # second. A fixed backoff would just move the herd, not disperse it.
-    capped = min(THROTTLE_BASE_S * (2.0**attempt), THROTTLE_MAX_SLEEP_S)
-    return capped * rand()
-
 
 # Their 15-value status enum → our 8. Anything unmapped becomes `failed`, which is the
 # safe direction: a call we cannot classify must not look successful.
@@ -619,109 +563,25 @@ class BolnaEngine:
     async def _request(
         self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
     ) -> dict[str, Any]:
-        """One vendor round trip, with the throttle ladder and the error normalization.
+        """One vendor round trip, on the ONE ladder every adapter answers on.
 
-        `absent_is_success` exists for `delete_agent` and for nothing else: the Protocol
-        makes delete IDEMPOTENT, so "the object you asked me to remove is not here" is
-        that method's postcondition rather than a failure. It is opt-in per call site
-        because on every OTHER route a 404 is a real defect — `get_agent` raising on an
-        unknown ref is a contract clause, and a path we got wrong 404s exactly the same
-        way, which is how a wrong path gets FOUND (see `get_agent`'s note on gate 2).
+        The ladder — throttle backoff, the error vocabulary, the unreadable-success
+        refusal — lives in `engine/vendor_http.py` because it was written twice and the
+        two copies disagreed about a 429 and about a 2xx we cannot parse (D-240). What
+        stays here is the half that is genuinely Bolna's: the client, its base URL and
+        its bearer credential.
+
+        `self._http()` is called in this frame so a deployment with no `BOLNA_API_KEY`
+        still refuses with `engine_not_configured` before any transport exists.
         """
-        for attempt in range(THROTTLE_MAX_ATTEMPTS):
-            try:
-                response = await self._http().request(method, path, **kwargs)
-            except httpx.HTTPError as exc:
-                raise ProblemError(
-                    kind="dependency",
-                    code="engine_unreachable",
-                    title="Voice engine unreachable",
-                    detail="The voice platform did not respond.",
-                    failure_stage="CORE_LOGIC",
-                ) from exc
-            if response.status_code != THROTTLE_STATUS:
-                break
-            retry_after = _retry_after_seconds(response)
-            last_attempt = attempt == THROTTLE_MAX_ATTEMPTS - 1
-            if last_attempt or (retry_after is not None and retry_after > THROTTLE_MAX_SLEEP_S):
-                break
-            log.warning("engine_throttled", extra={"route": path, "attempt": attempt + 1})
-            await asyncio.sleep(throttle_delay_s(attempt, retry_after))
-
-        if response.status_code == THROTTLE_STATUS:
-            # Distinct from `engine_rejected` on purpose. A throttle says nothing about
-            # the request — so on the campaign path it must not burn a contact's retry
-            # budget for a reason that has nothing to do with the contact. `transient`
-            # is the ladder rung that means "identical retry can work" (503, retryable).
-            log.warning("engine_throttle_exhausted", extra={"route": path})
-            raise ProblemError(
-                kind="transient",
-                code="engine_rate_limited",
-                title="Voice engine is rate limiting us",
-                detail="The voice platform is temporarily refusing new requests.",
-                remediation="This will be retried automatically.",
-                failure_stage="CORE_LOGIC",
-            )
-        if absent_is_success and response.status_code == 404:
-            # NOT a swallowed error: the caller declared that an absent object satisfies
-            # it. Logged at info so a compensation that found nothing to compensate is
-            # still legible in the record — `delete_agent`'s caller is an orphan
-            # reclaimer, and "there was no orphan" is a fact worth having.
-            log.info("engine_delete_already_absent", extra={"route": path})
-            return {}
-        if response.status_code >= 400:
-            # Never echo a vendor error body to a client — it is not user-safe and it
-            # is not our vocabulary.
-            log.warning("engine_error", extra={"status": response.status_code, "route": path})
-            raise ProblemError(
-                kind="dependency",
-                code="engine_rejected",
-                title="Voice engine rejected the request",
-                detail="The voice platform could not complete this operation.",
-                failure_stage="CORE_LOGIC",
-            )
-        if not response.content:
-            # A successful DELETE may answer 204/empty. `response.json()` raises on an
-            # empty body, and a delete that "failed" only because the vendor said
-            # nothing is the worst possible lie on this particular path.
-            return {}
-        try:
-            payload = response.json()
-        except ValueError:
-            # A 2xx WITH A NON-JSON BODY (P2.2). The `>= 400` branch above raises first,
-            # so what reaches here is a success status carrying something that is not
-            # JSON: a WAF challenge, a proxy interstitial, a CDN maintenance page. Those
-            # are the ordinary failure modes of an API behind an edge, and they are
-            # indistinguishable from a real answer until the parse fails.
-            #
-            # `json.JSONDecodeError` is a `ValueError` — NOT a `ProblemError` and NOT an
-            # `httpx.HTTPError` — so it was caught by nothing. It surfaced as a raw 500
-            # with no code and no remediation on `create_agent`; it made
-            # `verify_publish`'s "never raises for a vendor-side failure" docstring
-            # false; and it DLQ'd the post-call pipeline and the reconciliation poller,
-            # which is D-31's guarantee of record.
-            #
-            # This repository had already solved it twice — `billing/payments.py` catches
-            # `ValueError` and `payment_order_test` pins it by name, and
-            # `engine/cartesia.py` has the guard. The adapter actually going to
-            # production is the one that missed it.
-            #
-            # RAISED rather than returning `{}` like Cartesia's, and the difference is
-            # deliberate: an empty dict here would flow on to callers that read fields
-            # out of it and fail somewhere further from the cause. The body is never
-            # echoed — it is not our vocabulary and it is not user-safe.
-            log.warning(
-                "engine_non_json_success",
-                extra={"status": response.status_code, "route": path},
-            )
-            raise ProblemError(
-                kind="dependency",
-                code="engine_bad_response",
-                title="Voice engine returned an unreadable response",
-                detail="The voice platform answered successfully with a body we could not read.",
-                failure_stage="CORE_LOGIC",
-            ) from None
-        return payload if isinstance(payload, dict) else {"data": payload}
+        return await vendor_request(
+            self._http(),
+            method,
+            path,
+            engine=self.name,
+            absent_is_success=absent_is_success,
+            **kwargs,
+        )
 
     # --- agent lifecycle -----------------------------------------------------
 
@@ -1404,10 +1264,6 @@ class BolnaEngine:
 
 __all__ = [
     "BASE_URL",
-    "THROTTLE_MAX_ATTEMPTS",
-    "THROTTLE_MAX_SLEEP_S",
-    "THROTTLE_STATUS",
     "BolnaEngine",
     "parse_transcript",
-    "throttle_delay_s",
 ]

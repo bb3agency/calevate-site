@@ -102,6 +102,7 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
+from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 log = get_logger(__name__)
 
@@ -127,8 +128,6 @@ API_VERSION: Final = "2026-04-03"
 # loud, and the safe direction to be wrong in.
 API_KEY_HEADER: Final = "X-API-Key"
 VERSION_HEADER: Final = "Cartesia-Version"
-
-REQUEST_TIMEOUT_S: Final = 10.0
 
 # A listing this long is assumed to be a page rather than a window. Conventional page
 # sizes cluster at 10/20/25/50/100; 20 is chosen as the smallest plausible one so the
@@ -342,40 +341,32 @@ class CartesiaEngine:
     async def _request(
         self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
     ) -> dict[str, Any]:
-        """One round trip. `absent_is_success` is `delete_agent`'s and nothing else's —
-        see `BolnaEngine._request`, which carries the argument for why it is opt-in per
-        call site rather than a blanket 404 policy."""
-        try:
-            response = await self._http().request(method, path, **kwargs)
-        except httpx.HTTPError as exc:
-            raise ProblemError(
-                kind="dependency",
-                code="engine_unreachable",
-                title="Voice platform is unreachable",
-                detail="The voice platform did not respond.",
-            ) from exc
-        if absent_is_success and response.status_code == 404:
-            # The declared postcondition, already satisfied. See `delete_agent`.
-            log.info("cartesia_delete_already_absent", extra={"method": method})
-            return {}
-        if response.status_code >= 400:
-            # The vendor's message is NOT forwarded (hard rule 2 upward, and a client
-            # cannot act on it). The status is logged; the code carries the meaning.
-            log.warning(
-                "cartesia_request_failed",
-                extra={"status": response.status_code, "method": method},
-            )
-            raise ProblemError(
-                kind="dependency",
-                code="engine_rejected",
-                title="Voice engine rejected the request",
-                detail="The voice platform refused the request.",
-            )
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-        return payload if isinstance(payload, dict) else {"data": payload}
+        """One vendor round trip, on the ONE ladder every adapter answers on.
+
+        THIS FILE USED TO CARRY ITS OWN COPY, and the copy disagreed with the other
+        adapter's on the two answers that matter most on a failure path (D-240):
+
+        * a **429** became `engine_rejected` — `dependency`, terminal, no backoff — so a
+          throttle burned a campaign contact's retry budget for a reason that had nothing
+          to do with the contact, and `apps.workers.pipeline.TRANSIENT_ENGINE_CODES`
+          (which dispatches on `engine_rate_limited`) could never see it;
+        * a **200 with a body we cannot parse** — a WAF challenge, a CDN interstitial —
+          became `{}`, and `get_execution` then returned a snapshot naming no call,
+          priced at nothing and holding no transcript. A conclusion drawn from nothing
+          wearing the shape of a measurement, which is exactly what
+          `VoiceEngine.get_agent`'s contract clause forbids.
+
+        `self._http()` is called in this frame so a deployment with no `CARTESIA_API_KEY`
+        still refuses with `engine_not_configured` before any transport exists.
+        """
+        return await vendor_request(
+            self._http(),
+            method,
+            path,
+            engine=self.name,
+            absent_is_success=absent_is_success,
+            **kwargs,
+        )
 
     # --- agent lifecycle -----------------------------------------------------
 

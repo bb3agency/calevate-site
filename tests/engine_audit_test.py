@@ -41,7 +41,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.redis import get_redis
 from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
-from apps.api.engine import bolna
+from apps.api.engine import vendor_http
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
 from apps.api.reliability import service as reliability
@@ -118,6 +118,16 @@ async def _conformance_failures(engine: VoiceEngine) -> list[str]:
         # suite says so to pytest, so it is how this harness reads it too; a clause whose
         # setup this loop cannot perform is a clause no saboteur below can ever fail.
         wants = next(iter(inspect.signature(fn).parameters), "engine")
+        if wants == LADDER_PARAM:
+            # NOT SKIPPED QUIETLY — see `test_the_transport_clauses_reject_a_drifted_
+            # ladder`, which is this function's counterpart for exactly these clauses.
+            # Their subject is not an adapter but a BUILDER that puts an HTTP-speaking
+            # adapter over a transport the clause writes; every saboteur in this file is
+            # a `FakeEngine`, which has no transport to point anywhere, so handing one in
+            # would fail these clauses with a `TypeError` for a reason that has nothing
+            # to do with the saboteur. That would make every saboteur below look better
+            # covered than it is.
+            continue
         subject = fixtures.saturated(engine) if wants == "saturated_engine" else engine
         try:
             await fn(subject)
@@ -470,6 +480,106 @@ async def test_the_conformance_suite_rejects_a_deliberately_broken_adapter(
         f"the conformance suite accepted the '{saboteur}' adapter — "
         "that behaviour is not covered by any clause"
     )
+
+
+#: The parameter name the transport-ladder clauses use for their subject. One spelling,
+#: shared by the skip above and the runner below, so the two cannot disagree about which
+#: clauses this file covers by the other route.
+LADDER_PARAM = "ladder"
+
+
+class _DriftedLadder(BolnaEngine):
+    """A real HTTP adapter whose transport ladder has drifted back to where it was.
+
+    This is not an invention: it is `cartesia._request` as it stood before D-240 —
+    no 429 handling at all, and a 2xx whose body will not parse collapsed into `{}`. It
+    is kept as a saboteur rather than deleted with the bug because the transport clauses
+    are the only thing standing between a future adapter and the same two answers, and a
+    clause nothing can fail is not a clause.
+    """
+
+    async def _request(
+        self, method: str, path: str, *, absent_is_success: bool = False, **kwargs: Any
+    ) -> dict[str, Any]:
+        try:
+            response = await self._http().request(method, path, **kwargs)
+        except httpx.HTTPError as exc:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_unreachable",
+                title="Voice engine unreachable",
+                detail="The voice platform did not respond.",
+            ) from exc
+        if absent_is_success and response.status_code == 404:
+            return {}
+        if response.status_code >= 400:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform refused the request.",
+            )
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        return payload if isinstance(payload, dict) else {"data": payload}
+
+
+def _drifted_ladder(handler: Callable[[httpx.Request], httpx.Response]) -> BolnaEngine:
+    return _DriftedLadder(
+        api_key="test-key",
+        fx_rate=Decimal("88.00"),
+        client=httpx.AsyncClient(
+            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
+        ),
+    )
+
+
+async def _transport_clause_failures(
+    build: Callable[[Callable[[httpx.Request], httpx.Response]], Any],
+) -> list[str]:
+    """Run every TRANSPORT-ladder clause against one adapter builder."""
+    suite = _suite()
+    failures: list[str] = []
+    for name, fn in vars(suite).items():
+        if not name.startswith("test_") or not inspect.iscoroutinefunction(fn):
+            continue
+        if next(iter(inspect.signature(fn).parameters), "engine") != LADDER_PARAM:
+            continue
+        try:
+            await fn(build)
+        except AssertionError:
+            failures.append(name)
+        except Exception as exc:  # a crash is a caught divergence too
+            failures.append(f"{name}[{type(exc).__name__}]")
+    return failures
+
+
+async def test_the_transport_clauses_reject_a_drifted_ladder() -> None:
+    """The counterpart to the saboteur run above, for the clauses it cannot reach.
+
+    `_conformance_failures` skips the transport clauses because its saboteurs are all
+    `FakeEngine`s with no transport. Without this, those clauses would be the only ones
+    in the suite that nothing has ever been proven to fail — which is the state the
+    transport ladder was already in before D-240, and the reason two adapters could
+    disagree about a 429 for as long as they did.
+    """
+    failures = await _transport_clause_failures(_drifted_ladder)
+    assert failures, (
+        "the transport-ladder clauses accepted an adapter that swallows a 200 it cannot "
+        "parse and reports a 429 as a flat rejection — they are not covering anything"
+    )
+
+
+async def test_the_transport_clauses_pass_every_shipped_adapter() -> None:
+    """And the other half: the clauses were not tightened by inventing a rule the real
+    adapters break."""
+    fixtures = _suite_fixtures()
+    for engine_id, build in fixtures.TRANSPORT_RECIPES.items():
+        assert await _transport_clause_failures(build) == [], (
+            f"{engine_id} fails a transport-ladder clause"
+        )
 
 
 async def test_the_shipped_adapters_still_pass_the_suite() -> None:
@@ -1179,14 +1289,14 @@ def _instant_backoff(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, float |
     the returned list records); it just returns zero so the suite does not sleep.
     """
     computed: list[tuple[int, float | None]] = []
-    real = bolna.throttle_delay_s
+    real = vendor_http.throttle_delay_s
 
     def _spy(attempt: int, retry_after: float | None, **kwargs: Any) -> float:
         computed.append((attempt, retry_after))
         assert real(attempt, retry_after) > 0, "the real backoff would not have waited"
         return 0.0
 
-    monkeypatch.setattr(bolna, "throttle_delay_s", _spy)
+    monkeypatch.setattr(vendor_http, "throttle_delay_s", _spy)
     return computed
 
 
@@ -1231,7 +1341,7 @@ async def test_an_exhausted_throttle_is_reported_as_transient_not_as_a_rejection
     assert raised.value.code == "engine_rate_limited"
     assert raised.value.status == 503
     assert raised.value.as_problem()["retryable"] is True
-    assert len(seen) == bolna.THROTTLE_MAX_ATTEMPTS, "it gave up at the wrong attempt count"
+    assert len(seen) == vendor_http.THROTTLE_MAX_ATTEMPTS, "it gave up at the wrong attempt count"
 
 
 async def test_a_non_throttle_failure_is_never_retried() -> None:
@@ -1254,18 +1364,18 @@ async def test_backoff_is_jittered_and_never_undercuts_retry_after() -> None:
     delay carries variance — that is how a rate limit turns into an outage. And when
     the vendor names a time, it is a floor: retrying before it is worse than useless.
     """
-    delays = {bolna.throttle_delay_s(0, None) for _ in range(50)}
+    delays = {vendor_http.throttle_delay_s(0, None) for _ in range(50)}
     assert len(delays) > 1, "the backoff is deterministic — every worker retries in lockstep"
     assert all(d >= 0 for d in delays)
 
     # Full jitter over an exponentially growing ceiling: bounded, but never a constant.
-    assert all(d <= bolna.THROTTLE_BASE_S for d in delays)
+    assert all(d <= vendor_http.THROTTLE_BASE_S for d in delays)
     assert all(
-        bolna.throttle_delay_s(3, None, rand=lambda: 1.0) <= bolna.THROTTLE_MAX_SLEEP_S
+        vendor_http.throttle_delay_s(3, None, rand=lambda: 1.0) <= vendor_http.THROTTLE_MAX_SLEEP_S
         for _ in range(5)
     )
 
-    honoured = bolna.throttle_delay_s(0, 2.0, rand=lambda: 0.0)
+    honoured = vendor_http.throttle_delay_s(0, 2.0, rand=lambda: 0.0)
     assert honoured >= 2.0, "we retried before the vendor said we could"
 
 
@@ -1711,7 +1821,7 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
             base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
         ),
     )
-    monkeypatch.setattr(bolna, "throttle_delay_s", lambda *a, **k: 0.0)
+    monkeypatch.setattr(vendor_http, "throttle_delay_s", lambda *a, **k: 0.0)
 
     with caplog.at_level("DEBUG"):
         snapshot = await engine.get_execution("exec_pii_one")

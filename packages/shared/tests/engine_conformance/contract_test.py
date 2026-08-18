@@ -11,9 +11,11 @@ Run: `make conformance` (or `uv run pytest -m conformance`).
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+import httpx
 import pytest
 from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
@@ -1189,4 +1191,226 @@ async def test_an_engine_side_campaign_object_is_not_claimable_yet(
         "this adapter claims engine-side campaign objects, but `VoiceEngine` has no "
         "campaign method for the suite to check the claim against — add the methods to "
         "the Protocol and rewrite this clause before declaring the capability"
+    )
+
+
+# =============================================================================
+# The TRANSPORT LADDER — what an adapter says when the VENDOR misbehaves (D-240)
+#
+# Every clause above measures an adapter against a well-behaved stub, so the whole
+# failure half of this seam was unmeasured — and the two real adapters had quietly
+# drifted apart across all of it. One retried a 429 and reported it `transient`; the
+# other reported the same 429 as a flat rejection with no backoff. One refused a 2xx it
+# could not parse; the other turned it into `{}` and built an `ExecutionSnapshot` out of
+# nothing. Neither divergence could fail a clause, because no clause existed.
+#
+# These take `ladder` — a builder that puts one HTTP-speaking adapter over a transport
+# the clause writes itself (conftest). `test_every_adapter_that_speaks_http_is_held_to_
+# the_transport_clauses` refuses to let a new vendor adapter join the roster without one.
+#
+# A vendor 404 is deliberately NOT re-tested here: it already has three clauses of its
+# own (`test_reading_an_agent_the_engine_never_created_is_reported`,
+# `test_reading_an_execution_the_engine_never_placed_is_reported`,
+# `test_ending_a_call_the_engine_does_not_hold_is_reported`), each stated in the
+# vocabulary of the METHOD whose contract it belongs to rather than in HTTP.
+#
+# `get_execution` is the probe throughout because it is the method where an invented
+# answer does the most damage: the post-call pipeline writes what it returns.
+# =============================================================================
+
+#: The same alias `conftest` declares, spelled again rather than imported. This module is
+#: also loaded BY PATH, outside pytest, by `tests/engine_audit_test.py`'s saboteur harness
+#: — where the conformance directory is not on `sys.path` and `import conftest` would be
+#: an ImportError that took the whole audit with it. One line of stdlib typing is the
+#: cheaper duplication.
+VendorHandler = Callable[[httpx.Request], httpx.Response]
+
+#: An id no stub has to know: these clauses supply the whole vendor.
+LADDER_CALL_ID = "call_under_test"
+
+
+def _refusal(exc: BaseException) -> tuple[str | None, str | None]:
+    """`(code, kind)` off whatever an adapter raised.
+
+    Read off the object rather than by importing our `ProblemError`, for the reason the
+    404 clauses above already give — "adapters raise our ProblemError; the type is
+    theirs". What the CONTRACT constrains is not the class but the DISCRIMINATOR: a
+    caller that cannot tell a throttle from a rejection cannot retry correctly, and
+    `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` dispatches on exactly these two
+    fields. An adapter that raises something carrying neither fails here with the
+    reason, which is the right answer too.
+    """
+    return getattr(exc, "code", None), getattr(exc, "kind", None)
+
+
+async def _refused(engine: VoiceEngine, *, what: str) -> BaseException:
+    """`get_execution` must have raised. Returns what it raised."""
+    try:
+        await engine.get_execution(LADDER_CALL_ID)
+    except Exception as exc:  # the type is theirs; `_refusal` reads the discriminator
+        return exc
+    raise AssertionError(
+        f"{what}: this adapter ANSWERED instead of raising, so a caller receives a call "
+        "record the vendor never produced"
+    )
+
+
+async def test_a_throttled_vendor_is_retried_rather_than_reported_as_a_failure(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """A 429 states the request was REFUSED, not performed — the one status where a
+    repeat cannot dial a person twice (SURFACES §3.3). An adapter that gives up on the
+    first one throws away work the vendor never did, and on the campaign path it spends a
+    contact's attempt on the vendor's load rather than on the contact.
+
+    `Retry-After: 0` so the adapter's real backoff still runs — jitter over a zero floor,
+    so sub-second — without this clause becoming a wall-clock test. Nothing below asserts
+    a duration; D-29's note about speed-dependent branches is why.
+    """
+    attempts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(request.url.path)
+        if len(attempts) == 1:
+            return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": "slow down"})
+        return httpx.Response(200, json={})
+
+    await ladder(handler).get_execution(LADDER_CALL_ID)
+
+    assert len(attempts) == 2, (
+        "this adapter did not retry a 429 — a throttle is the one refusal that is safe "
+        "to repeat, and giving up on it discards a request the vendor never performed"
+    )
+
+
+async def test_an_exhausted_throttle_is_transient_rather_than_a_rejection(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """`transient` (retryable) and `dependency` (terminal) send a caller to opposite
+    places. `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` and `apps.api.agents.service`
+    both dispatch on `engine_rate_limited` by name, so an adapter that collapses a rate
+    limit into `engine_rejected` turns "the vendor is busy" into "this call failed" — a
+    campaign contact marked failed for a reason that has nothing to do with the contact.
+    """
+    engine = ladder(
+        lambda request: httpx.Response(
+            429, headers={"Retry-After": "0"}, json={"error": "slow down"}
+        )
+    )
+
+    code, kind = _refusal(await _refused(engine, what="a vendor throttling every attempt"))
+
+    assert code == "engine_rate_limited", (
+        f"a throttle surfaced as {code!r}; every caller that dispatches on the code then "
+        "treats it as a terminal failure of the request itself"
+    )
+    assert kind == "transient"
+
+
+async def test_a_success_the_adapter_cannot_read_never_becomes_an_answer(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """THE CLAUSE THIS SECTION EXISTS FOR (D-240).
+
+    A 200 carrying a WAF challenge, a CDN interstitial or a truncated document is the
+    ordinary failure mode of an API behind an edge, and it is indistinguishable from a
+    real answer until the parse fails. An adapter that answers it with an empty payload
+    does not fail — it INVENTS. Measured on the adapter that did: `get_execution`
+    returned a snapshot naming no call (`engine_call_id=''`), priced at nothing, holding
+    no transcript and carrying `{}` as the vendor's own archived document. The post-call
+    pipeline writes that as a failed call, meters it at zero, and the reconciliation
+    poller then reads it as settled forever — with no alert anywhere.
+
+    `VoiceEngine.get_agent` already forbids exactly this shape in words: "a snapshot for
+    an agent nobody created is a conclusion drawn from nothing that looks like a
+    measurement". This is that rule with a transport behind it.
+    """
+    unreadable = {
+        "a WAF challenge": "<html><body>Attention Required! | Cloudflare</body></html>",
+        "a truncated document": '{"id": "exec_abc123", "status": "comp',
+        "whitespace": "   ",
+    }
+    for label, body in unreadable.items():
+
+        def handler(request: httpx.Request, text: str = body) -> httpx.Response:
+            return httpx.Response(200, text=text)
+
+        code, kind = _refusal(await _refused(ladder(handler), what=f"a 200 carrying {label}"))
+        assert code == "engine_bad_response", (
+            f"a 200 carrying {label} surfaced as {code!r} — an adapter that answers an "
+            "unreadable success with a VALUE fabricates a call record"
+        )
+        assert kind == "dependency"
+
+
+async def test_a_vendor_error_body_is_never_echoed_to_our_caller(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """A vendor's error body quotes the request, and our requests carry callers' numbers
+    (hard rule 6). It is also not our vocabulary and not user-safe (BACKEND-PATTERNS §3:
+    full detail logged server-side, generic body to the client). So the STATUS is the
+    evidence and the body is not — on every adapter, not just the one that was audited.
+    """
+    leaky = "rejected +919876543210: Ray ID 8f3a2b1c origin 10.0.0.7 token abcdef"
+    engine = ladder(lambda request: httpx.Response(502, text=leaky))
+
+    refusal = await _refused(engine, what="a 502 carrying the vendor's own error text")
+    code, _kind = _refusal(refusal)
+
+    assert code == "engine_rejected"
+    # Everything a caller can see of a refusal: what it says, and the fields our error
+    # ladder renders into problem+json.
+    rendered = " ".join(
+        [str(refusal), *(str(getattr(refusal, f, "")) for f in ("title", "detail", "remediation"))]
+    )
+    for secret in ("+919876543210", "Ray ID", "10.0.0.7", "abcdef"):
+        assert secret not in rendered, f"the vendor's error body reached our caller: {secret}"
+
+
+async def test_a_vendor_that_never_answers_is_reported_as_unreachable(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """A refused socket, a DNS failure and a read timeout are one fact to every caller —
+    "we do not know whether this happened" — and none of them may arrive as a bare
+    transport exception. `apps.workers.pipeline.TRANSIENT_ENGINE_CODES` reads
+    `engine_unreachable` by name, so an adapter that lets the transport exception escape
+    turns a network blip into a DLQ'd post-call pipeline.
+    """
+    for failure in (
+        httpx.ConnectError("connection refused"),
+        httpx.ReadTimeout("the vendor never finished"),
+    ):
+
+        def handler(request: httpx.Request, exc: httpx.HTTPError = failure) -> httpx.Response:
+            raise exc
+
+        code, kind = _refusal(
+            await _refused(ladder(handler), what=f"a transport {type(failure).__name__}")
+        )
+        assert code == "engine_unreachable", (
+            f"{type(failure).__name__} surfaced as {code!r} rather than as our own "
+            "unreachable code, so no caller can tell a blip from a rejection"
+        )
+        assert kind == "dependency"
+
+
+def test_every_adapter_that_speaks_http_is_held_to_the_transport_clauses(
+    transport_recipe_ids: frozenset[str],
+    http_speaking_engine_ids: frozenset[str],
+) -> None:
+    """The clauses above are only worth having if a new vendor cannot opt out of them.
+
+    `http_speaking_engine_ids` is derived from the roster by TYPE — every subject that is
+    not the fake engine — so a third vendor joining `ENGINE_IDS` lands in it without
+    anybody remembering to. This then fails until that adapter has a transport recipe,
+    which is the only way the failure-path clauses can reach it.
+    """
+    assert http_speaking_engine_ids, (
+        "the roster holds no real adapter any more; every clause above is now measuring "
+        "a test double against itself"
+    )
+    assert transport_recipe_ids == http_speaking_engine_ids, (
+        "an adapter in the roster speaks HTTP and has no entry in TRANSPORT_RECIPES, so "
+        "the transport-ladder clauses never run against it: "
+        f"{sorted(http_speaking_engine_ids - transport_recipe_ids)}"
     )
