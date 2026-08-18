@@ -169,6 +169,13 @@ jobs:
         # all of its columns from the comparison rather than failing it (D-176).
         run: uv run python -m scripts.check_metadata_columns
 
+      - name: "Guardrail: the image's two stages agree where the app lives"
+        if: ${{ !cancelled() }}
+        # The editable install bakes the builder's WORKDIR into a `.pth`, so a runtime
+        # stage that puts the tree anywhere else builds fine and cannot import. Static —
+        # needs no daemon, no registry, and no database.
+        run: uv run python -m scripts.check_image_paths
+
       - name: "Guardrail: bootstrap keys stay environment-only (D-95 §4)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_bootstrap_keys

@@ -202,6 +202,11 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# The six bootstrap keys may only ever be read from the environment (D-95 §4). A
 	# change that lets APP_ENV resolve from the console store is a security-posture
 	# inversion that reads like a harmless refactor, so it fails CI by name.
+	# The production image installs `calevate-shared` EDITABLE, which records the
+	# builder's WORKDIR as an absolute path in a `.pth`. A runtime stage that lands the
+	# tree anywhere else still builds, still lists the package, and cannot import it —
+	# D-188's shape one layer along. Negative controls in tests/image_paths_guard_test.py.
+	uv run python -m scripts.check_image_paths
 	uv run python -m scripts.check_bootstrap_keys
 	# Every console-managed setting says WHEN a change takes effect, and is bounded.
 	# `applies: live` on a key really read once at boot is a lie that costs an outage,
