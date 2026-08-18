@@ -375,7 +375,7 @@ const DASHBOARD = {
   calls_7d: 24,
   leads_new_7d: 9,
   hot_leads_open: 2,
-  avg_duration_s: 118,
+  avg_duration_s_7d: 118,
   sentiment_split: { positive: 12, neutral: 8, negative: 4 },
   outcome_split: { appointment_booked: 9, enquiry: 15 },
   after_hours_captured_7d: 4,

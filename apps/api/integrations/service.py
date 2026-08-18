@@ -22,25 +22,47 @@ Delivery outcomes land in `webhook_deliveries(direction='out')`, which is the fo
 half of SEC-COMP §5 and the data the "webhook activity" screen reads.
 
 **WHAT THAT TABLE CAN AND CANNOT ANSWER, because two documents send an investigator to
-it and one of them overstates it (R-9).** The OUT direction is complete: `record_delivery`
-upserts a row per delivery id whatever the outcome, so every attempt we made — delivered,
-failed, skipped — is on file with its status, its attempts and its `payload_ref`. The IN
-direction is NOT a record of what arrived, and must not be read as one:
-`apps/voice-runtime/webhook_routes.py` writes its row inside `if claimed:`, so a delivery
-refused at the source-IP check, refused as unkeyable, refused over the size cap, timed out
-reading its body, or answered `duplicate` by the inbox leaves NOTHING here. That is
-deliberate — a row per hostile POST on an unauthenticated public endpoint is a write
-amplifier an attacker controls — and it means the population an intrusion investigation
-most wants (SEC-COMP §4 / OPERATIONS §7's "scope via audit_log/webhook_deliveries") is
-exactly the population absent from the table. What carries that signal instead is the
-alert stream: the source rejection, the size cap and the unkeyable payload each fire a
-coded `alert()` (`webhook_source_rejected`, `webhook_payload_too_large`,
-`webhook_unkeyable`) carrying the source IP where it exists, and `duplicate` is deliberately
-silent because it is ordinary traffic rather than an incident. Those alerts and the
-receiver's own log lines are what an investigator should be pointed at for inbound scope,
-NOT this table's `direction='in'` rows. Closing the gap properly needs a bounded,
-aggregated counter rather than a row per refusal, which needs the metrics pipeline
-`DEPLOYMENT.md` §8 defers.
+it and one of them used to overstate it (R-9).** The OUT direction is complete:
+`record_delivery` upserts a row per delivery id whatever the outcome, so every attempt we
+made — delivered, failed, skipped — is on file with its status, its attempts and its
+`payload_ref`. The IN direction is NOT a record of what arrived, and must not be read as
+one: `apps/voice-runtime/webhook_routes.py` writes its row inside `if claimed:`, so a
+delivery refused at the source-IP check, refused over the size cap, refused as unkeyable,
+or abandoned at the claim deadline leaves NOTHING here. The population an intrusion
+investigation most wants is exactly the population absent from the table, and what carries
+that signal instead is the alert stream — `INBOUND_REFUSAL_ALERTS` below is the list,
+derived once and cited by OPERATIONS §7 rather than re-typed there.
+
+**THIS GAP IS NOT CLOSED, AND THE REASON IT USED TO GIVE WAS WRONG** (D-219). It said
+"closing it properly needs a bounded, aggregated counter rather than a row per refusal,
+which needs the metrics pipeline `DEPLOYMENT.md` §8 defers". D-204 falsified the second
+half while this was standing: `platform_engine_health` IS a bounded, aggregated
+minute-bucket counter, it lives in Postgres, and it shipped without any metrics pipeline.
+So the deferral had to be re-argued or discharged, and it survives on two reasons that are
+about this endpoint rather than about missing infrastructure:
+
+1. **Hard rule 3.** All four refusals happen on the receiver's ack path, and three of them
+   happen before the request has become an event at all — the source check reads no body
+   by design, "on a public, unsigned endpoint that ordering is the difference between a
+   rejection and a memory-exhaustion primitive". A counter written there is a DB write
+   beyond the minimal event row, which is the rule, not a preference.
+2. **The write rate is the CALLER'S to choose.** `platform_engine_health` is written from
+   OUR outbound failures, at a rate we control, which is what makes an upsert-per-event
+   affordable there. On an unauthenticated public endpoint the same pattern hands a prober
+   one database write per POST. A minute bucket is a smaller ROW than a row per refusal;
+   it is the same NUMBER of writes, so it does not answer the objection that rejected the
+   row per refusal — it only makes the amplifier tidier.
+
+   What would answer it is in-process aggregation flushed on a timer, and that is a
+   stateful receiver: hard rule 3's other half, and state that dies with a container the
+   deploy recreates on every release (`DEPLOYMENT.md` §4b).
+
+**`duplicate` IS NOT ONE OF THE FOUR.** R-9 listed it, and it is the one inbound outcome
+that leaves no `webhook_deliveries` row and is still durably recorded:
+`claim_inbox_event` bumps `webhook_inbox_events.duplicate_count` on the transition's own
+row. It raises no alert because ordinary retries are not an incident — but a burst of
+them is queryable evidence of a replay, which "deliberately silent" wrongly implied it
+was not.
 
 **Two endpoint kinds, ONE definition of "delivered".** D-23 promises webhooks *and*
 Google Sheets. They differ only in the transport at the very end: the fan-out, the
@@ -148,6 +170,25 @@ DELIVERY_HEADER = "X-Calevate-Delivery"
 # audit, pinned by a test).
 DELIVERY_TIMEOUT_S = 10.0
 MAX_ATTEMPTS = WORKER_MAX_TRIES
+
+#: The four inbound outcomes that leave NO row in `webhook_deliveries`, by the alert code
+#: each one raises. This is the list an intrusion investigation reads for inbound scope,
+#: and it is here — beside the module docstring that argues why the table cannot answer —
+#: rather than only in `runbooks/` and OPERATIONS §7, because two prose copies of a list
+#: of alarm codes is how one of them goes stale (`scripts/check_alarm_wiring.py` exists
+#: for that defect class).
+#:
+#: ORDERED AS THE RECEIVER REACHES THEM, which is also strongest-evidence first: the
+#: source rejection carries the caller's IP, the size cap and the unkeyable payload carry
+#: the engine only, and the claim timeout is ours rather than theirs (the database did not
+#: answer inside `_DURABLE_DEADLINE_S`) and belongs on the list so an investigator reading
+#: a gap in the accepted traffic can tell an attack from an outage.
+INBOUND_REFUSAL_ALERTS = (
+    "webhook_source_rejected",
+    "webhook_payload_too_large",
+    "webhook_unkeyable",
+    "webhook_claim_timeout",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -833,6 +874,7 @@ __all__ = [
     "DELIVERY_HEADER",
     "EVENT_HEADER",
     "EVENT_TYPES",
+    "INBOUND_REFUSAL_ALERTS",
     "MAX_ATTEMPTS",
     "SHEET_DELIVERY_HEADER",
     "SHEET_KIND",

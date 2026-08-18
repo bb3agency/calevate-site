@@ -3119,7 +3119,7 @@
             "title": "After Hours Captured 7D",
             "type": "integer"
           },
-          "avg_duration_s": {
+          "avg_duration_s_7d": {
             "anyOf": [
               {
                 "type": "integer"
@@ -3128,7 +3128,7 @@
                 "type": "null"
               }
             ],
-            "title": "Avg Duration S"
+            "title": "Avg Duration S 7D"
           },
           "calls_7d": {
             "title": "Calls 7D",

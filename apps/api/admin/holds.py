@@ -78,6 +78,16 @@ class TenantHolds:
         return bool(self.rules)
 
 
+#: "Nobody is waiting on us for this account", as a value rather than as a literal.
+#:
+#: It exists because a caller that can decide the answer WITHOUT asking still has to
+#: produce the same type `read_tenant_holds` produces — `tenant_overview` skips the read
+#: entirely for a tier no blocker applies to (D-218). Spelling `TenantHolds(rules=())` at
+#: that call site would be a second place that knows what an empty answer looks like, and
+#: the first thing to drift if this dataclass ever grows a field.
+NO_HOLDS = TenantHolds(rules=())
+
+
 async def read_tenant_holds(session: AsyncSession, *, tenant_id: UUID) -> TenantHolds:
     """THE "is this tenant waiting on us" predicate, on the caller's RLS-scoped session.
 
@@ -161,6 +171,7 @@ async def held_tenants(directory: AsyncSession) -> list[HeldTenant]:
 
 
 __all__ = [
+    "NO_HOLDS",
     "HeldTenant",
     "TenantHolds",
     "held_tenants",

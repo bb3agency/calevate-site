@@ -47,22 +47,26 @@ class OutboxMessage(PKMixin, Base):
         Index("ix_outbox_pending", "status", "created_at"),
     )
 
-    # **THIS COLUMN ROUTES NOTHING, AND IT NEVER HAS.** Read that before you believe the
-    # name: `service.OUTBOX_FLEET` is its only writer and writes one constant, and no
-    # reader anywhere branches on it — `dispatch_outbox` publishes without it and
-    # `WorkerSettings` sets no `queue_name`, so every job lands on arq's single default
-    # queue whatever this says. Believing otherwise is the expensive mistake (an operator
-    # assuming notifications are isolated from CRM deliveries when they share one
-    # worker's ten slots), which is why the warning sits on the column rather than only
-    # beside the constant.
+    # **THIS COLUMN ROUTES NOTHING, IT NEVER HAS, AND IT IS BEING REMOVED.** Read that
+    # before you believe the name: no reader anywhere branches on it — `dispatch_outbox`
+    # publishes without it and `WorkerSettings` sets no `queue_name`, so every job lands
+    # on arq's single default queue whatever this says. Believing otherwise is the
+    # expensive mistake (an operator assuming notifications are isolated from CRM
+    # deliveries when they share one worker's ten slots), which is why the warning sits
+    # on the column rather than only beside the constant.
     #
-    # It is kept, not dropped, and D-162 is the record: it closes EITHER by dropping the
-    # column in hard rule 8's two steps OR by a second worker fleet with
-    # `WorkerSettings.queue_name` filtering on it. Honouring it today means a second
-    # deployable for a platform with no clients (ROADMAP §6), and passing arq
-    # `_queue_name` with no worker consuming that queue would silently stop every
-    # notification. `service.OUTBOX_FLEET` carries the full argument.
-    queue: Mapped[str] = mapped_column(Text, nullable=False)
+    # D-217 closed D-162's fork by dropping it rather than by growing a second worker
+    # fleet, in hard rule 8's two steps. **Step 1 has shipped and is this shape**: no
+    # application statement names the column any more, migration `b7e4c1a90d38` gives it
+    # a server default so both `INSERT`s can omit it, and `OutboxMessageRow` no longer
+    # carries it. The database is now its only writer.
+    #
+    # **Step 2 is `DROP COLUMN`, and this declaration goes in that same change.** It is
+    # still declared here because the column still exists and `orm_schema_fidelity_test`
+    # compares the two — a model that lies about the schema is a worse defect than a
+    # column awaiting its drop. `server_default` mirrors the migration so a fresh
+    # `create_all` and a migrated database agree.
+    queue: Mapped[str] = mapped_column(Text, nullable=False, server_default="default")
     job: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
     # "This exact side effect, once" — a PARTIAL UNIQUE index, so once-only is a database

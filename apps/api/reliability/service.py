@@ -264,28 +264,29 @@ async def sweep_idempotency(session: AsyncSession) -> int:
 # --- Outbox -------------------------------------------------------------------
 
 
-#: The one worker fleet this deployment runs, written into `outbox_messages.queue`.
+#: The one worker fleet this deployment runs. It is no longer written by anything here.
 #:
-#: THE PARAMETER THAT USED TO CHOOSE THIS IS GONE, and that is step 1 of a two-step
-#: deprecation (hard rule 8), not a simplification (P6.8). Six call sites passed
-#: `queue="notifications"` or `queue="default"`; the column is NOT NULL and
-#: `claim_outbox_batch` selects it — and then `dispatch_outbox` published WITHOUT it and
-#: `WorkerSettings` sets no `queue_name`, so every job landed on arq's single default
-#: queue regardless. **It read as routing and routed nothing**, which is the shape that
-#: makes an operator believe notifications are isolated from CRM deliveries when they are
-#: sharing one worker's ten slots — a belief that costs most on the night it matters.
+#: **THE COLUMN IS GOING AWAY, AND THIS IS THE RELEASE THAT STOPS WRITING IT** (D-217,
+#: closing D-162's open fork). `outbox_messages.queue` read as routing and routed
+#: nothing: `dispatch_outbox` publishes without it, `WorkerSettings` sets no
+#: `queue_name`, and arq routes by `enqueue_job(_queue_name=...)`, so every message ever
+#: enqueued landed on arq's single default queue whatever the column said. D-162 removed
+#: the caller's CHOICE and left the value; this removes the value. Migration
+#: `b7e4c1a90d38` gives the column a server default so both `INSERT`s can stop naming it
+#: and an old container in the deploy swap keeps working; step 2 is `DROP COLUMN` in the
+#: next release, with no code change beside it (hard rule 8).
 #:
-#: It was also a SECOND ENCODING of a fact already on the row: every call site chose the
-#: value as a pure function of `job`. So there was nothing to preserve.
+#: HONOURING IT WAS THE OTHER FORK AND IS STILL REFUSED, for the reason it always was:
+#: one arq worker consumes exactly one queue, so a second value here means a SECOND
+#: DEPLOYABLE (container, deploy step, CI job) for a platform with no clients yet —
+#: ROADMAP §6 requires a decision for that and CLAUDE.md's "monolith module before new
+#: service" argues against it. Passing `_queue_name` with no worker consuming that queue
+#: would silently stop every notification.
 #:
-#: HONOURING IT WAS THE OTHER FORK AND IS DELIBERATELY NOT TAKEN TODAY. arq routes by
-#: `enqueue_job(_queue_name=...)` consumed by a worker whose `WorkerSettings.queue_name`
-#: matches, and one worker consumes exactly one queue — so honouring this column means a
-#: SECOND DEPLOYABLE (container, deploy step, CI job) for a platform with no clients yet,
-#: which ROADMAP §6 requires a decision for and CLAUDE.md's "monolith module before new
-#: service" argues against. Worse, passing `_queue_name` today with no worker consuming
-#: that queue would silently stop every notification. D-162 records the fork and names
-#: what closes it: the column is dropped, or a second fleet arrives with a filter on it.
+#: WHY THE CONSTANT SURVIVES AT ALL. It is the value the database now defaults to, and
+#: `tests/outbox_queue_deprecation_test.py` asserts the two agree — a default in a
+#: migration and a constant in a service that quietly diverge is how a column comes back
+#: to life. It goes in the same change as the column.
 OUTBOX_FLEET = "default"
 
 
@@ -296,15 +297,19 @@ async def enqueue_outbox(
     payload: dict[str, Any],
 ) -> UUID:
     """Write the side effect in the CALLER'S transaction. Do not commit here — the
-    whole point is that this row and the domain write share a fate."""
+    whole point is that this row and the domain write share a fate.
+
+    `queue` is not named: see `OUTBOX_FLEET`. The database defaults it until the column
+    is dropped.
+    """
     message_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO outbox_messages (id, queue, job, payload, status, attempt_count, "
-            "created_at, updated_at) VALUES (:id, :queue, :job, CAST(:payload AS jsonb), "
+            "INSERT INTO outbox_messages (id, job, payload, status, attempt_count, "
+            "created_at, updated_at) VALUES (:id, :job, CAST(:payload AS jsonb), "
             "'pending', 0, now(), now())"
         ),
-        {"id": message_id, "queue": OUTBOX_FLEET, "job": job, "payload": json.dumps(payload)},
+        {"id": message_id, "job": job, "payload": json.dumps(payload)},
     )
     return message_id
 
@@ -349,8 +354,8 @@ async def enqueue_outbox_once(
     row = (
         await session.execute(
             text(
-                "INSERT INTO outbox_messages (id, queue, job, payload, dedupe_key, status, "
-                "attempt_count, created_at, updated_at) VALUES (:id, :queue, :job, "
+                "INSERT INTO outbox_messages (id, job, payload, dedupe_key, status, "
+                "attempt_count, created_at, updated_at) VALUES (:id, :job, "
                 "CAST(:payload AS jsonb), :dedupe_key, 'pending', 0, now(), now()) "
                 # The conflict target is the PARTIAL index, so it must be spelled as the
                 # same predicate: naming the column alone does not match a partial index
@@ -362,7 +367,6 @@ async def enqueue_outbox_once(
             ),
             {
                 "id": message_id,
-                "queue": OUTBOX_FLEET,
                 "job": job,
                 "payload": json.dumps(payload),
                 "dedupe_key": dedupe_key,
@@ -375,13 +379,12 @@ async def enqueue_outbox_once(
 @dataclass(frozen=True, slots=True)
 class OutboxMessageRow:
     id: UUID
-    #: Always `OUTBOX_FLEET`, and READ BY NOTHING — `dispatch_outbox` never branches on
-    #: it. Carried here rather than dropped from the claim so the column's one consumer
-    #: is where a filter would go on the day D-162 closes by growing a second fleet; if
-    #: it closes the other way, this field and the column go in the same change. A reader
-    #: meeting `row.queue` and assuming it decides where the job runs is the exact
-    #: misreading the column's comment in `models.py` exists to prevent.
-    queue: str
+    # `queue` USED TO BE HERE. It carried `outbox_messages.queue` — always the same
+    # constant, and `dispatch_outbox` never branched on it — on the argument that the
+    # claim is where a filter would go if D-162 ever closed by growing a second fleet.
+    # D-162 closed the other way (D-217), so the field went with the write: a dataclass
+    # attribute whose only job is to hold a column nobody reads is the same defect as the
+    # column, one layer up. The claim below no longer selects it either.
     job: str
     payload: dict[str, Any]
     attempt_count: int
@@ -448,14 +451,13 @@ async def claim_outbox_batch(
                     "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
                     "locked_until = now() + :lease, updated_at = now() FROM picked "
                     "WHERE o.id = picked.id "
-                    "RETURNING o.id, o.queue, o.job, o.payload, o.attempt_count"
+                    "RETURNING o.id, o.job, o.payload, o.attempt_count"
                 ),
                 {"limit": limit, "lease": OUTBOX_CLAIM_LEASE},
             )
         ).all()
     return [
-        OutboxMessageRow(id=r[0], queue=r[1], job=r[2], payload=r[3] or {}, attempt_count=r[4])
-        for r in rows
+        OutboxMessageRow(id=r[0], job=r[1], payload=r[2] or {}, attempt_count=r[3]) for r in rows
     ]
 
 

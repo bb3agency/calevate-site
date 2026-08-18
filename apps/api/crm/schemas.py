@@ -703,7 +703,23 @@ class DashboardOut(Strict):
     calls_7d: int
     leads_new_7d: int
     hot_leads_open: int
-    avg_duration_s: int | None = None
+    # THE WINDOW IS IN THE NAME, like every other bounded number on this model (D-215).
+    #
+    # This shipped as `avg_duration_s` and was the only tile here with no time bound at
+    # all — the mean of every completed call the account has ever made, on a polled
+    # endpoint, over a table nothing deletes from. It was the one field whose name did
+    # not say its window because it did not have one.
+    #
+    # Renamed rather than quietly re-scoped: the number a client reads changes, and a
+    # field that keeps its name while changing its meaning is the version of this fix
+    # that costs somebody a support call. `PerformanceOut.avg_duration_s` keeps ITS name
+    # because its window is a field on the same response (`days`), which is the other
+    # honest way to say it.
+    #
+    # None, never 0, when no completed call fell inside the window: "no calls to measure"
+    # and "the calls averaged nothing" are different facts, the same rule
+    # `PerformanceOut.connect_rate_pct` follows.
+    avg_duration_s_7d: int | None = None
     sentiment_split: dict[str, int] = Field(default_factory=dict)
     outcome_split: dict[str, int] = Field(default_factory=dict)
     after_hours_captured_7d: int = 0

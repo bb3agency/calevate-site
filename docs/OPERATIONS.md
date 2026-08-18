@@ -621,8 +621,14 @@ one differs from a summary below, the runbook is the authority.
     investigator must know which half they are holding: the table records deliveries we
     CLAIMED, so a request we rejected at the door leaves no row in it. For inbound scope,
     read the alert codes instead — `webhook_source_rejected`, `webhook_payload_too_large`,
-    `webhook_unkeyable` — which is exactly where a refused or malformed delivery lands. A
-    duplicate is deliberately silent and is not evidence of anything.
+    `webhook_unkeyable`, `webhook_claim_timeout` — which is exactly where a refused,
+    oversized, unkeyable or abandoned delivery lands. That list is derived from
+    `integrations.service.INBOUND_REFUSAL_ALERTS`, which is where it is maintained.
+  - **A `duplicate` is silent but not invisible** (D-219, correcting an earlier reading).
+    It raises no alert, because ordinary vendor retries are not an incident — and
+    `webhook_inbox_events.duplicate_count` counts every one of them on the transition's
+    own row, so a REPLAY burst is queryable evidence. "Not evidence of anything" was
+    wrong about the only inbound outcome this platform records durably without alerting.
 - **Runaway campaign**: auto-pause on cap/complaint alarm; verify DNC + template status;
   client comms template ready.
 - **Deletion request**: FLOWS §9 procedure; 7-day internal SLA; proof certificate issued.

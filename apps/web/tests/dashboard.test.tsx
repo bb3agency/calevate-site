@@ -45,7 +45,7 @@ const EMPTY_DASHBOARD: Dashboard = {
   calls_7d: 0,
   leads_new_7d: 0,
   hot_leads_open: 0,
-  avg_duration_s: null,
+  avg_duration_s_7d: null,
   sentiment_split: {},
   outcome_split: {},
   after_hours_captured_7d: 0,

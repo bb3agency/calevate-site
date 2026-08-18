@@ -5250,8 +5250,8 @@ export interface components {
              * @default 0
              */
             after_hours_captured_7d: number;
-            /** Avg Duration S */
-            avg_duration_s?: number | null;
+            /** Avg Duration S 7D */
+            avg_duration_s_7d?: number | null;
             /** Calls 7D */
             calls_7d: number;
             /** Calls Today */
