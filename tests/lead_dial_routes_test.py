@@ -33,10 +33,12 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.compliance.service import add_to_dnc
+from apps.api.core.errors import ProblemError
 from apps.api.crm import routes
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
+from apps.api.engine.fake import FakeEngine
 from sqlalchemy import text
 
 
@@ -45,6 +47,18 @@ def _daytime(monkeypatch: pytest.MonkeyPatch) -> None:
     """11:00 IST — inside the platform window, so a refusal here is never the clock."""
     fixed = datetime(2026, 8, 11, 5, 30, tzinfo=UTC) + timedelta(hours=5, minutes=30)
     monkeypatch.setattr("apps.api.compliance.service.ist_now", lambda: fixed)
+
+
+def _no_reraise_client() -> httpx.AsyncClient:
+    """A client that lets an unhandled server exception become a 500 response instead of
+    re-raising it into the test — the only way to assert on the state a crashed request
+    leaves behind."""
+    from apps.api.main import app
+
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://api",
+    )
 
 
 def _client() -> httpx.AsyncClient:
@@ -63,14 +77,13 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID, str, dict[str, str]]
     """
     reset_engine_cache()
     user_id = uuid7()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     slug = f"dial-{uuid.uuid4().hex[:8]}"
     created = await admin_service.create_organization(
@@ -100,7 +113,7 @@ async def _dialable_tenant() -> tuple[uuid.UUID, uuid.UUID, str, dict[str, str]]
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
-    headers = {"Authorization": f"Bearer dev:client:{clerk_id}", "X-Org-Slug": slug}
+    headers = {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": slug}
     return tenant_id, agent_id, slug, headers
 
 
@@ -671,3 +684,202 @@ async def test_an_unpresignable_recording_is_a_named_dependency_failure(
     assert body["type"].endswith("recording_unavailable"), body
     assert body["retryable"] is True, "storage being down is worth retrying; the client is told so"
     assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def _settle_calls(tenant_id: uuid.UUID) -> None:
+    """Leave no live call row behind.
+
+    A `queued` row spends a line out of the PLATFORM-WIDE outbound pool (FLOWS §5 rule 1)
+    for a full hour, and this repo's tests share one Postgres with other suites and other
+    pytest processes — `campaign_dispatch_audit_test` carries the same teardown for the
+    same reason. The two tests below deliberately create rows for calls that were never
+    answered, so they are the ones that would strand.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET status = 'completed', updated_at = now() "
+                "WHERE status IN ('queued', 'ringing', 'in_progress')"
+            )
+        )
+
+
+# --------------------------------- the two failure paths the buttons must survive
+#
+# Both are D-181. They drive a raise through the middle of a request that has already
+# had a side effect the world can see — a vendor that may have started dialling, and an
+# audit write that fails after the customer's phone has rung — because the success path
+# says nothing about either.
+
+
+async def test_a_dial_the_engine_may_have_started_leaves_a_call_row_and_refuses_to_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The engine is asked, and the answer is lost (a read timeout, a reset, a proxy 502
+    after the vendor committed). The button cannot claim the call was placed and must not
+    invite a second press that rings the customer again.
+
+    The row is the whole point: `dispatch_call` commits it BEFORE the vendor can seize a
+    line, so the call the client may have been charged for is on their own call log
+    rather than nowhere. The old ordering could not write one — the row's key was the
+    answer that never came.
+    """
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+
+    async def lost_response(self: object, ref: str, to: str, ctx: object) -> str:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_unreachable",
+            title="Voice engine unreachable",
+            detail="The voice platform did not respond.",
+        )
+
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", lost_response)
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": str(uuid.uuid4())},
+        )
+
+    assert response.status_code >= 500, response.text
+    body = response.json()
+    assert body["type"].endswith("/dial_unconfirmed"), body
+    assert "ring them twice" in body["remediation"], (
+        "the person reading this is about to press the button again"
+    )
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
+        "a dial the vendor may have accepted must not be an invisible charge"
+    )
+    await _settle_calls(tenant_id)
+
+
+async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CORRECTNESS 1, on the button whose side effect is a person's phone.
+
+    The claim used to be INSERTed into the request's own transaction, which
+    `core/deps.db` rolls back on any exception. So a raise anywhere after the dial — the
+    audit chain refusing to write, a statement timeout, a severed connection — erased the
+    claim while the customer had already been called, and the retry the
+    `Idempotency-Key` exists to answer placed a SECOND call.
+
+    Driven with the audit write raising, because that is the failure the audit report
+    names and because it sits exactly between the dial and the response.
+    """
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    key = str(uuid.uuid4())
+
+    async def refuse_to_audit(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("audit chain unavailable")
+
+    # Patched and restored BY HAND rather than through `monkeypatch.undo()`: undo() is
+    # per-test, not per-call, so it would also revert the autouse `_daytime` clock pin —
+    # and the retry below would then be refused by the calling-hours gate instead of
+    # dialling, i.e. a green test that proves nothing.
+    original_write_audit = routes.write_audit
+    routes.write_audit = refuse_to_audit  # type: ignore[assignment]
+    # `raise_app_exceptions=False`: this failure is deliberately NOT one the error ladder
+    # has a rung for — an unhandled exception is exactly what the audit report names —
+    # and the test is about what the SERVER is left holding, not about the 500.
+    async with _no_reraise_client() as http:
+        first = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+    assert first.status_code >= 500, first.text
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], "one press, one call"
+
+    # THE RETRY, same key, with the audit write working again — i.e. the client doing
+    # exactly what an Idempotency-Key is for.
+    routes.write_audit = original_write_audit  # type: ignore[assignment]
+    async with _client() as http:
+        second = await http.post(
+            f"/v1/leads/{lead_id}/call",
+            json={"agent_id": str(agent_id)},
+            headers={**headers, "Idempotency-Key": key},
+        )
+    assert second.status_code != 200 or second.json()["status"] != "queued", second.text
+    assert await _outbound_calls(tenant_id) == [(phone, "queued")], (
+        "the retry rang the customer a second time — the claim did not survive the failure"
+    )
+    await _settle_calls(tenant_id)
+
+
+async def test_staff_cannot_reach_the_recording_audio(monkeypatch: pytest.MonkeyPatch) -> None:
+    """S-1 / D-181. THE AUDIO IS THE SOURCE OF THE TEXT the redaction apparatus protects.
+
+    A caller who reads out an Aadhaar number, a card number or an OTP is masked in
+    `text_redacted` and audible in the `.wav`. SEC-COMP §5 and DATA-MODEL §2 both say
+    `staff` never sees unredacted call content, the raw transcript route is
+    `calls:read_raw` + audit, and the CSV export was MOVED to `calls:read_raw` for
+    exactly this reason — while this route stayed on `calls:read`, which `core/rbac.py`
+    grants to staff. It was audited unredacted access: the audit half of hard rule 5
+    without the role half.
+
+    The owner arm is the positive control: the route still works for the role that may
+    hear it, so this is a gate rather than a route that broke.
+    """
+    tenant_id, agent_id, slug, owner_headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    call_id = await _finished_call(tenant_id, agent_id, lead_id, phone)
+    key = f"recordings/{tenant_id}/{call_id}.mp3"
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET recording_url = :k WHERE id = :i"),
+            {"k": key, "i": call_id},
+        )
+    staff_headers = await _staff_of(tenant_id, slug)
+
+    # The presigner is never reached on the staff arm — the point is that the gate
+    # refuses before anything is minted — so it is stubbed only for the owner control.
+    monkeypatch.setattr("apps.workers.storage.presigned_url", lambda k, ttl_s: f"https://s3/{k}")
+
+    async with _client() as http:
+        refused = await http.get(f"/v1/calls/{call_id}/recording", headers=staff_headers)
+        allowed = await http.get(f"/v1/calls/{call_id}/recording", headers=owner_headers)
+
+    assert refused.status_code == 403, refused.text
+    assert refused.json()["kind"] == "permission"
+    assert key not in refused.text, "a refusal must not name the object it refused"
+    assert allowed.status_code == 200, allowed.text
+    assert key in allowed.json()["url"]
+
+    async with untenanted_session() as session:
+        reads = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM audit_log WHERE action = 'recording.read' "
+                    "AND object_id = :oid"
+                ),
+                {"oid": str(call_id)},
+            )
+        ).scalar()
+    assert int(reads or 0) == 1, "the read that was allowed is the only one recorded"
+
+
+async def _staff_of(tenant_id: uuid.UUID, slug: str) -> dict[str, str]:
+    """A second member of the SAME org, holding `staff` — the role a client hands a
+    junior telecaller."""
+    user_id = uuid7()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
+            ),
+            {"id": user_id, "email": f"{user_id}@example.com"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, 'staff', now(), now())"
+            ),
+            {"id": uuid7(), "tid": tenant_id, "uid": user_id},
+        )
+    return {"Authorization": f"Bearer dev:client:{user_id}", "X-Org-Slug": slug}

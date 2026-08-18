@@ -234,10 +234,30 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
     delivery_id = UUID(str(payload["delivery_id"])) if payload.get("delivery_id") else uuid7()
     attempt = int(ctx.get("job_try", 1))
 
+    # ── 1. READ, and close. ────────────────────────────────────────────────────────
+    #
+    # NO TRANSACTION IS HELD ACROSS THE VENDOR CALL, and the vendor here is the CLIENT'S
+    # OWN CRM (D-182). This used to be one `tenant_session` wrapping the load, the POST
+    # and the write: a receiver that answers in nine seconds — an overloaded receiver, not
+    # a dead one — parked one pooled connection per in-flight job, inside an open
+    # transaction, for the whole nine. arq's default `max_jobs` is 10 against a
+    # 16-connection pool with `max_overflow=1`, so ten slow deliveries starved the campaign
+    # dispatch tick, which then reported `dispatch_tick_overrun` and pointed the operator
+    # at the dispatcher for one client's slow CRM.
+    #
+    # Same shape `pipeline._copy_recording_once` uses for its 120-second vendor download
+    # and `campaign_dispatch._dispatch_for_campaign` uses for its claim, followed rather
+    # than re-invented (BACKEND-PATTERNS §5).
     async with tenant_session(tenant_id) as session:
         endpoint = await service.load_endpoint(session, endpoint_id)
-        if endpoint is None:
-            log.info("outbound_endpoint_gone", extra={"tenant_id": str(tenant_id)})
+        already_delivered = endpoint is not None and (
+            _kind_of(endpoint) == service.SHEET_KIND
+            and await service.delivery_status(session, delivery_id) == "delivered"
+        )
+
+    if endpoint is None:
+        log.info("outbound_endpoint_gone", extra={"tenant_id": str(tenant_id)})
+        async with tenant_session(tenant_id) as session:
             await service.record_delivery(
                 session,
                 delivery_id=delivery_id,
@@ -247,29 +267,49 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
                 attempts=attempt,
                 status_code=None,
             )
-            return "endpoint_inactive"
+        return "endpoint_inactive"
 
-        if _kind_of(endpoint) == service.SHEET_KIND and (
-            await service.delivery_status(session, delivery_id) == "delivered"
-        ):
-            # A sheet cannot deduplicate for us and a duplicate row in a document a
-            # human is reading cannot be un-seen, so the delivery log — the same row the
-            # forensic screen shows, not a second bespoke mechanism — is the guard. Only
-            # `delivered` blocks: a recorded ATTEMPT must not, or the ladder below would
-            # be decorative. Not applied to the webhook path, which is documented
-            # at-least-once and whose receivers dedupe on the envelope id
-            # (WEBHOOKS §1.5).
-            log.info("outbound_delivery_duplicate", extra={"delivery_id": str(delivery_id)})
-            return "duplicate"
+    if already_delivered:
+        # A sheet cannot deduplicate for us and a duplicate row in a document a human is
+        # reading cannot be un-seen, so the delivery log — the same row the forensic
+        # screen shows, not a second bespoke mechanism — is the guard. Only `delivered`
+        # blocks: a recorded ATTEMPT must not, or the ladder below would be decorative.
+        # Not applied to the webhook path, which is documented at-least-once and whose
+        # receivers dedupe on the envelope id (WEBHOOKS §1.5).
+        #
+        # READING IT ONE TRANSACTION EARLIER COSTS THIS GUARD NOTHING, which is why the
+        # split is safe: the write it races is `record_delivery` below, and that only
+        # commits AFTER the append it would suppress has already happened. A concurrent
+        # duplicate saw `pending` under the old shape too — the row was uncommitted for
+        # the whole ten seconds of the append. What actually keeps a retry from appending
+        # twice is that arq runs one attempt at a time under one job id, and this guard
+        # catches the retry AFTER the previous attempt committed.
+        log.info("outbound_delivery_duplicate", extra={"delivery_id": str(delivery_id)})
+        return "duplicate"
 
-        result = await _deliver_to_endpoint(
-            endpoint=endpoint,
-            tenant_id=tenant_id,
-            event=event,
-            data=data,
-            delivery_id=delivery_id,
-            attempt=attempt,
-        )
+    # ── 2. The third party, with nothing checked out. ──────────────────────────────
+    result = await _deliver_to_endpoint(
+        endpoint=endpoint,
+        tenant_id=tenant_id,
+        event=event,
+        data=data,
+        delivery_id=delivery_id,
+        attempt=attempt,
+    )
+    # Object storage is a network round trip of its own, and it is best-effort by
+    # design — it belongs on this side of the session boundary for the same reason the
+    # delivery does.
+    payload_ref = await _retain_body(
+        tenant_id=tenant_id,
+        endpoint_id=endpoint_id,
+        delivery_id=delivery_id,
+        event=event,
+        data=data,
+        result=result,
+    )
+
+    # ── 3. WRITE the outcome, in a transaction that opens after every wait is over. ──
+    async with tenant_session(tenant_id) as session:
         await service.record_delivery(
             session,
             delivery_id=delivery_id,
@@ -288,14 +328,7 @@ async def deliver_outbound_webhook(ctx: dict[str, Any], payload: dict[str, Any])
             reason=None if result.delivered else result.error,
             # The KEY of the body, never the body. Written in the same statement as the
             # status, so a delivery row and the evidence behind it arrive together.
-            payload_ref=await _retain_body(
-                tenant_id=tenant_id,
-                endpoint_id=endpoint_id,
-                delivery_id=delivery_id,
-                event=event,
-                data=data,
-                result=result,
-            ),
+            payload_ref=payload_ref,
         )
 
     if result.delivered:

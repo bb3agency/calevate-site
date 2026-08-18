@@ -49,6 +49,46 @@ trying to work out why nobody can sign in.
 
 Every one of them is RFC-9457 problem+json — `ProblemError` is the only thing raised here,
 and `core/errors.install_error_handlers` renders it.
+
+═══ NO ROUTE HERE HONOURS `Idempotency-Key`, AND THAT IS THE DECISION (D-178) ═══
+
+`reliability.claim_idempotency` exists, CORS allows the header through, and both
+password-reset forms send one. None of these routes takes the dependency, and none will.
+
+THE REASON IS THE SCOPE. An idempotency record is keyed on `(scope_key, route, method,
+idempotency_key)`, and everything about whether serving a cached response is safe collapses
+into "can two different callers compute the same scope?" (`scripts/check_idempotency_scope.py`,
+D-175). `scope_key` therefore takes `tenant_id: UUID | None` and `user_id: UUID | None` and
+nothing else — the annotations are the guard, because mypy strict refuses a `str` at every
+call site. **The routes that a double submit could plausibly hurt are the unauthenticated
+ones**, and an unauthenticated caller has no principal: the only candidate scopes are the
+submitted email address and the client address, which are respectively a value any stranger
+can type and the value D-175 exists because a reference platform used. Two strangers sharing
+a scope is caller A being served caller B's stored response. There is no version of this
+where the header buys more than it costs, so it is not taken.
+
+WHAT PROTECTS EACH ROUTE INSTEAD, since "no idempotency key" is only an answer if something
+else is:
+
+  * `password/reset/confirm`, `bootstrap/confirm`, `invitations/accept` — the token is
+    burned by ONE `UPDATE … WHERE used_at IS NULL … RETURNING` (`tokens.redeem_token`,
+    `invitations`' CAS). Two concurrent submissions produce exactly one winner at the
+    database, which is a stronger statement than a replay cache makes. The loser is told the
+    link is spent, and that is CORRECT rather than a wart: nothing here can distinguish the
+    person who double-clicked from somebody replaying a leaked link, and the safe answer to
+    both is the same.
+  * `password/reset/request`, `login/otp/resend`, `otp/request`, `step-up` — issuing retires
+    the previous secret (`tokens.invalidate_outstanding`, `otp.issue_challenge`), so a double
+    submit leaves ONE live secret rather than two, which is the property idempotency would
+    have been asked to provide. The residue is a second email, bounded by the `auth` rate
+    profile and by `throttle`'s per-subject budget.
+  * `login`, `login/otp`, `step-up/verify` — a second submission spends a throttle budget and
+    either succeeds identically or is refused; the session rotation is a CAS on
+    `superseded_at IS NULL`, so two concurrent rotations cannot both mint a live token.
+
+`tests/authn_idempotency_test.py` asserts the absence as a property — no handler in this
+module reads the header — and drives the double submit on both reset routes so the sentences
+above are measured rather than believed.
 """
 
 from __future__ import annotations
@@ -59,7 +99,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from apps.api.authn import bootstrap, invitations, service
+from apps.api.authn import bootstrap, invitations, service, stepup
 from apps.api.authn.cookies import (
     clear_session_cookie,
     enforce_same_origin,
@@ -170,12 +210,11 @@ class BootstrapConfirmIn(BaseModel):
 
 
 class InviteAcceptWithPasswordIn(BaseModel):
-    # NAMED TO AVOID A COLLISION, not for style. `tenancy/routes.py` already exports
-    # `AcceptInviteIn`/`AcceptInviteOut` for the Clerk-era endpoint. Two models with one
-    # name make FastAPI disambiguate BOTH into fully-qualified schema ids
-    # (`apps__api__tenancy__routes__AcceptInviteIn`), which renames the EXISTING schema in
-    # the committed contract and breaks the generated client for a route this change does
-    # not otherwise touch. Renaming ours costs nothing and leaves theirs alone.
+    # THE NAME IS NOW FREE — `tenancy/routes.py`'s `AcceptInviteIn`/`AcceptInviteOut` went
+    # with the Clerk-era endpoint in D-177 — and the name STAYS, because renaming it would
+    # rename the schema in the committed OpenAPI contract and regenerate every consumer of
+    # `apps/web/src/lib/api/schema.d.ts` for no gain. It also still says the true thing:
+    # this model carries a password, which the vendor-era one could not.
     model_config = ConfigDict(extra="forbid")
 
     token: str = Field(min_length=20, max_length=200)
@@ -469,6 +508,54 @@ def _realm_router(realm: str) -> APIRouter:
         )
         return Response(status_code=204)
 
+    if realm == stepup.STEP_UP_REALM:
+
+        @router.post(
+            "/step-up",
+            status_code=202,
+            response_model=None,
+            summary="Email a code to re-prove this operator's second factor before a "
+            "dangerous action",
+        )
+        async def step_up_request(
+            request: Request, verified: VerifiedSession = Depends(authed)
+        ) -> Response:
+            """The first half of C-09 (D-178).
+
+            ADMIN REALM ONLY, declared rather than refused — same structural choice as
+            `/bootstrap/confirm`. The client realm requires no second factor
+            (`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route
+            with nothing to re-prove and nobody to call it.
+
+            Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that
+            has never proved one is at the ordinary sign-in gate, not this one.
+            """
+            _require_enabled()
+            enforce_same_origin(request)
+            await service.request_step_up(verified=verified)
+            return Response(status_code=202)
+
+        @router.post(
+            "/step-up/verify",
+            response_model=SessionOut,
+            summary="Answer the step-up code, restamping this session's second factor",
+        )
+        async def step_up_verify(
+            payload: SecondFactorIn,
+            request: Request,
+            response: Response,
+            verified: VerifiedSession = Depends(authed),
+        ) -> SessionOut:
+            """Rotates the session — see `service.complete_step_up` on why re-proving a
+            factor is a privilege change and why it cannot extend the absolute bound."""
+            _require_enabled()
+            enforce_same_origin(request)
+            rotated = await service.complete_step_up(
+                verified=verified, code=payload.code, ip=client_request_ip(request)
+            )
+            _set_cookie(response, request, realm, rotated)
+            return await _session_out(realm, verified.subject_id, mfa_complete=True)
+
     if realm == bootstrap.ADMIN_REALM:
 
         @router.post(
@@ -540,13 +627,12 @@ invite_router = APIRouter(prefix="/v1/auth/client", tags=["auth-client"])
 async def accept_invitation_with_password(
     payload: InviteAcceptWithPasswordIn, request: Request, response: Response
 ) -> InviteAcceptWithPasswordOut:
-    """The first-party twin of `POST /v1/invitations/accept`.
+    """THE invitation-redemption endpoint. There is no other (D-177).
 
-    The Clerk one still exists and still works — both credential paths coexist until
-    AUTH-MIGRATION §5 step 6. What differs is that this one needs no prior account, because
-    there is no vendor to have made one: it takes the password in the same call.
-
-    The `/invite?token=...` page contract is unchanged (`apps/authn/invitations.py`).
+    It needs no prior account, because there is no vendor to have made one: it takes the
+    password in the same call, and takes the address from the invitation rather than
+    comparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and
+    `/invite?token=` answers `410 Gone` naming the page that replaced it.
     """
     _require_enabled()
     enforce_same_origin(request)

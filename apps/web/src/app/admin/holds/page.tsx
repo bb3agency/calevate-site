@@ -9,6 +9,7 @@ import {
   NOTICE_TONES,
   NoticeBox,
   ProblemNotice,
+  ScrollRegion,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -142,7 +143,7 @@ export default function HeldAccountsPage() {
             hint="Every self-serve account has its identity verified and its first campaign released. This list fills up on its own as new accounts sign up."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Accounts held on us">
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
@@ -159,7 +160,7 @@ export default function HeldAccountsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )}
       </Card>
 

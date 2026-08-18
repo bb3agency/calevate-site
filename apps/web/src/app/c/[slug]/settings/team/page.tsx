@@ -21,7 +21,6 @@ import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { lookup } from "@/lib/lookup";
 import {
   ROLE_COPY,
-  inviteLink,
   useInviteMember,
   useMembers,
   usePendingInvitations,
@@ -171,7 +170,7 @@ export default function TeamPage() {
             </div>
           )}
 
-          {issued && <IssuedLink invitation={issued} />}
+          {issued && <IssuedInvite invitation={issued} />}
         </Card>
       )}
 
@@ -311,49 +310,32 @@ export default function TeamPage() {
 }
 
 /**
- * The link, shown once.
+ * Confirmation that the invitation was sent — NOT the link.
  *
- * Not a "we emailed them" message, because we did not: the client realm has no mailer
- * yet, and claiming a send that did not happen is how an invite sits unopened for a week.
+ * This panel used to print the raw invite token and tell the owner to forward it, because
+ * the client realm had no mailer. It has had one since D-170, and the printed token was
+ * the last half of D-185's finding: a token anyone but the invitee can see is a token
+ * that can be redeemed by anyone but the invitee, which let an owner squat a stranger's
+ * address (D-190 removed the field from the response entirely, so there is nothing left
+ * here to print).
+ *
+ * The copy says what actually happened — queued, not delivered. The outbox dispatches it
+ * within seconds, but "we emailed them" would be a claim about a vendor's behaviour that
+ * this screen has no way to observe, and the sentence a client needs when it does not
+ * arrive is "check the spam folder, or revoke and re-invite", not a link to paste.
  */
-function IssuedLink({ invitation }: { invitation: CreatedInvitation }) {
-  const [copied, setCopied] = useState(false);
-  // Built from `inviteLink`, not spelled out here: this screen and `/invite` disagreeing
-  // about the path is exactly the defect that made every link it printed a 404.
-  const link = inviteLink(
-    invitation.token,
-    typeof window === "undefined" ? undefined : window.location.origin,
-  );
-
+function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) {
   return (
     <div className="mt-4">
-      <NoticeBox tone="ok" title={`Invite link for ${invitation.email_masked}`}>
+      <NoticeBox tone="ok" title={`Invitation sent to ${invitation.email_masked}`}>
         <p>
-          Send this to them yourself — we do not email it. It works once, only for that
-          address, and stops working {formatIST(invitation.expires_at)}.
+          We have emailed them a link. It works once, only from that address, and stops
+          working {formatIST(invitation.expires_at)}.
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <code
-            className="max-w-full overflow-x-auto rounded-md border border-line bg-surface px-2 py-1 font-mono text-xs text-ink"
-            data-testid="invite-link"
-          >
-            {link}
-          </code>
-          <button
-            type="button"
-            className={SECONDARY_BUTTON_SM}
-            onClick={() => {
-              void navigator.clipboard?.writeText(link);
-              setCopied(true);
-            }}
-          >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-            {copied ? "Copied" : "Copy link"}
-          </button>
-        </div>
         <p className="mt-2 text-xs">
-          We cannot show this link again — it is stored only as a fingerprint. If it is
-          lost, revoke the invite below and create a new one.
+          If it does not arrive, ask them to check their spam folder. We cannot show or
+          re-send the link — it is stored only as a fingerprint, so revoke the invite below
+          and create a new one instead.
         </p>
       </NoticeBox>
     </div>

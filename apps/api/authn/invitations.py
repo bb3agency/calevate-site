@@ -1,27 +1,23 @@
 """Redeeming an invitation without a vendor in the middle (D-170).
 
-═══ THE URL CONTRACT THIS HAS TO FIT ═══
+═══ THE URL CONTRACT ═══
 
-`apps/web/src/app/invite/page.tsx` already exists and already takes `/invite?token=...`.
-That page is not changing in this slice (`apps/web` is out of scope), so the invariant this
-module has to respect is: **the token still travels in the `token` query parameter of
-`/invite`, and the page still POSTs it to the API.** What changes is which API call it
-makes, and what else it has to send.
+The token travels in the `token` query parameter and the page POSTs it here. The page is
+`apps/web/src/app/(auth)/auth/accept-invitation` (D-174); the Clerk-era `/invite?token=`
+now answers `410 Gone` and points at it, rather than rotting as a second door
+(D-177).
 
-Today: the invitee signs up with Clerk FIRST, arrives at `/invite` already authenticated,
-and `POST /v1/invitations/accept` takes `{token}` and reads the identity off the Clerk
-session. The address binding is `users.email` (populated from Clerk's verified addresses)
-compared against `invitations.email`.
+The vendor flow this replaced: the invitee signed up with Clerk FIRST, arrived at `/invite`
+already authenticated, and `POST /v1/invitations/accept` took `{token}` and read the
+identity off the Clerk session, binding on a comparison between `users.email` and
+`invitations.email`.
 
 First-party: there is no vendor to sign up with, so the invitee has NO ACCOUNT when they
-open the link. The single call therefore has to do what the two calls used to:
+open the link. The single call therefore does what the two calls used to:
 `POST /v1/auth/client/invitations/accept` takes `{token, password, name}`, and it creates
 the user, sets the password, creates the membership and issues a session — in that order,
 and with the address taken from the INVITATION rather than from anything the caller typed.
-
-**`POST /v1/invitations/accept` is untouched and still works.** Both paths coexist until
-the cutover, which is the whole point of the flag; deleting the Clerk one is
-AUTH-MIGRATION §5 step 6.
+It is the ONLY invitation-redemption endpoint this API has (D-177).
 
 ═══ WHY THE ADDRESS IS NEVER TAKEN FROM THE REQUEST ═══
 
@@ -36,9 +32,45 @@ removes the one enumeration-adjacent refusal from the flow, and it means a forwa
 link creates an account belonging to the ORIGINAL invitee's address — which is what
 "single-use, bound to the recipient" is supposed to mean.
 
-The address is also marked verified on creation, and that is sound rather than convenient:
-possession of a token that was emailed to it IS proof the mailbox receives mail. That is the
-same evidence an `email_verify` round trip produces, arrived at one step earlier.
+═══ THE ADDRESS IS *NOT* MARKED VERIFIED HERE, AND THIS PARAGRAPH USED TO SAY IT WAS ═══
+
+The claim was: "possession of a token that was emailed to it IS proof the mailbox receives
+mail — the same evidence an `email_verify` round trip produces, arrived at one step
+earlier." Every clause of that is sound except its premise, and the premise is false in this
+tree (D-185).
+
+**The token is not emailed.** `InvitationCreatedOut.token` hands the raw token back to the
+INVITER in the API response, because the client realm has no invitation mailer and the owner
+is expected to send the link themselves — that field's own docstring says so. So possession
+of the token proves the mailbox OR being the person who issued the invitation, and those are
+not the same fact. `email_verified_at = now()` was therefore asserting something nobody had
+established, and the vendor whose console used to establish it is gone (D-177): S-2's
+question survived the deletion of the file S-2 pointed at.
+
+What it bought an attacker, end to end, and none of the steps needs a defect anywhere else:
+an owner of ANY tenant — a trial signup is enough — issues an invitation to
+`victim@target.example`, reads the token out of their own 201 response, redeems it, and
+gets a GLOBAL `users` row on an address they do not control, marked verified, holding a
+password they chose. `uq_users_email_lower` guarantees that is the ONLY row for that
+address. When the real target tenant later invites the real victim, the block below finds
+that row, leaves the squatter's password alone (correctly — see the next section), and
+attaches the membership to it. The squatter then signs in with their own password. The
+client realm has no second factor (`service.MFA_REQUIRED_REALMS` is `{"admin"}`), so a
+password is the entire credential.
+
+So the address starts UNVERIFIED and becomes verified the way every other address in this
+system does: an `email_verify` OTP round trip (`POST /v1/auth/client/otp/request` +
+`/otp/verify` → `subjects.mark_email_verified`), which is already built, already registered
+with the mailer, and already the thing `SessionOut.email_verified` reports.
+
+WHAT IS STILL OPEN, said plainly rather than left to be discovered: a squatter can still
+take an address hostage — the real person's redemption is now refused instead of
+hijacked, which is a denial of service rather than an account takeover, and that is a
+strict improvement rather than a closure. It closes completely when the invitation token
+stops being returned to the inviter and is emailed instead, which needs the invitation mail
+template and the owner-facing screen that currently displays the token
+(`apps/web/src/app/(client)/…` and `apps/workers/notifications.py`). That is the one thing
+D-185 does not do.
 
 ═══ AN INVITATION FOR SOMEBODY WHO ALREADY HAS AN ACCOUNT ═══
 
@@ -47,6 +79,13 @@ many-to-many). The user row is reused and **the password is NOT touched** — `h
 is checked first, and an existing credential is left exactly as it is. Overwriting it would
 mean anybody who can get an invitation issued to your address can reset your password,
 which turns an invite into an account takeover.
+
+That refusal to overwrite is right, and it is also what makes the squat stick: the honest
+invitee cannot displace a credential somebody else set. So reuse now carries a condition —
+**an account that already has a password may only take on a NEW membership once its address
+has been proven.** A first membership still rides on the inviter vouching inside their own
+tenant, which is the tenant they already control and where the invitation grants nothing
+they could not grant anyway; a SECOND organisation asks for the mailbox.
 """
 
 from __future__ import annotations
@@ -62,6 +101,7 @@ from apps.api.admin import service as admin_service
 from apps.api.authn.credentials import set_password
 from apps.api.authn.service import has_password
 from apps.api.authn.sessions import IssuedSession, issue_session
+from apps.api.authn.subjects import load_subject
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -78,7 +118,7 @@ log = get_logger(__name__)
 #: The client realm, spelled once. An invitation is always a CLIENT-realm artifact —
 #: operators are added by `scripts/bootstrap_admin.py` and the ops console, never by an
 #: emailed link, because `admin_users` is an allowlist and auto-creating a row in it is the
-#: "privilege escalation wearing a race condition's clothes" `core/clerk_identity.py` names.
+#: "privilege escalation wearing a race condition's clothes" the retired Clerk mirror named.
 INVITE_REALM = "client"
 
 
@@ -94,7 +134,7 @@ class AcceptedInvitation:
 
 
 def _invalid() -> ProblemError:
-    """Unknown, used, expired — one answer, matching the existing Clerk path's wording so
+    """Unknown, used, expired — one answer, keeping the wording the Clerk-era path used so
     the two flows are indistinguishable to somebody probing tokens."""
     return ProblemError(
         kind="business_rule",
@@ -145,6 +185,36 @@ async def accept_with_password(
 
     user_id, created = await _find_or_create_user(email=invited_email, name=name, at=at)
 
+    # D-185. The one condition on reuse. Reached ONLY when this redemption did not create
+    # the row and the row already carries a credential — i.e. somebody has signed in as this
+    # address before, and it was not proved to be theirs. Ordered before the membership and
+    # before the session so a refusal leaves nothing behind: the invitation is not burned
+    # (`admin_service.accept_invitation` has not run), so the real owner can still redeem it
+    # after verifying.
+    #
+    # `created` is checked first and is not redundant with `has_password`: a row this call
+    # just inserted has no password yet, so the second clause would pass anyway — but only
+    # by accident of ordering, and a later change that set the password earlier would
+    # silently start refusing every first-time invitee.
+    if not created and await has_password(INVITE_REALM, user_id):
+        subject = await load_subject(INVITE_REALM, user_id)
+        if subject is None or subject.email_verified_at is None:
+            log.info("auth_invitation_refused_unverified_account", extra={"user_id": str(user_id)})
+            raise ProblemError(
+                kind="business_rule",
+                code="invitation_account_unverified",
+                title="Confirm your email address first",
+                detail=(
+                    "An account already exists for this address and its email address has "
+                    "not been confirmed. It has to be confirmed before the account can join "
+                    "another organisation."
+                ),
+                remediation=(
+                    "Sign in to the account you already have, confirm the email address "
+                    "from your account settings, then open this invitation again."
+                ),
+            )
+
     if not await has_password(INVITE_REALM, user_id):
         async with credential_session() as session:
             await set_password(
@@ -163,7 +233,7 @@ async def accept_with_password(
                 text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
             )
         ).scalar()
-        # In the tenant transaction, exactly as the Clerk path does it, so the membership
+        # In the tenant transaction, as the Clerk-era path did, so the membership
         # and its evidence commit together.
         await write_audit(
             scoped,
@@ -190,21 +260,28 @@ async def accept_with_password(
 async def _find_or_create_user(*, email: str, name: str | None, at: datetime) -> tuple[UUID, bool]:
     """The `users` row for this address, creating it if this is a new person.
 
-    `clerk_user_id` is left NULL, which migration `b3d9f6a2c815` made possible: a
-    first-party account has no vendor id and inventing a placeholder would put a fake value
-    under a UNIQUE constraint that the Clerk mirror still relies on.
+    `clerk_user_id` is not written, which migration `b3d9f6a2c815` made possible and D-177
+    made permanent: nothing anywhere writes that column any more, and the column itself
+    survives one more release under hard rule 8's two-step (recorded in
+    `scripts/check_wiring.UNWIRED_BASELINE`).
 
-    `email_verified_at` is set on creation — see the module docstring on why possession of
-    the emailed token is the proof.
+    `email_verified_at` is NOT set here (D-185) — see the module docstring on why possession
+    of the token is not proof of the mailbox while the token is handed to the inviter. The
+    column is left NULL and an `email_verify` OTP round trip is what fills it.
 
-    The INSERT is guarded by a re-read rather than by `ON CONFLICT`, because there is no
-    unique constraint on `users.email` to conflict against (migration `b3d9f6a2c815` says
-    why it could not safely add one). Two simultaneous redemptions of the same invitation
-    are already impossible — `accept_invitation`'s CAS admits one — so the only race this
-    could lose is two DIFFERENT invitations to the same address arriving in the same
-    millisecond, which yields a duplicate `users` row that `subjects.resolve_by_email`
-    refuses loudly rather than resolving wrongly. That is the honest failure mode, and it
-    is named here so the next reader does not have to derive it.
+    THE INSERT IS GUARDED BY `ON CONFLICT`, WHICH IT WAS NOT (D-178). It was a read then a
+    write, because there was no unique constraint on `users.email` to conflict against; the
+    race it could lose was two DIFFERENT invitations to the same address arriving in the same
+    millisecond, and what it lost was a duplicate `users` row — after which
+    `subjects.resolve_by_email` refused that address for BOTH people, loudly and forever, and
+    a human had to merge rows before either could sign in. Migration `c7a1e93d40b8` adds
+    `uq_users_email_lower` (unique on `lower(email)` where the row is live), so the race is
+    now decided by the database: the loser's INSERT returns nothing, it re-reads, and it
+    finds the winner's row. One live account per address, upheld by the constraint rather
+    than by two callers arriving in a convenient order.
+
+    The re-read after a conflict is not the old read repeated — `ON CONFLICT DO NOTHING`
+    tells us a row exists but not which, and its id is the whole return value.
     """
     needle = email.casefold()
     async with untenanted_session() as session:
@@ -217,14 +294,43 @@ async def _find_or_create_user(*, email: str, name: str | None, at: datetime) ->
         if existing is not None:
             return UUID(str(existing[0])), False
         user_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, name, email_verified_at, "
-                "created_at, updated_at) "
-                "VALUES (:id, NULL, :email, :name, :at, :at, :at)"
-            ),
-            {"id": user_id, "email": email, "name": name, "at": at},
-        )
+        inserted = (
+            await session.execute(
+                text(
+                    # `clerk_user_id` is absent from the column list rather than written as
+                    # NULL: D-177 says nothing writes it, and naming it here — even to say
+                    # NULL — is what would have to be found and removed when hard rule 8's
+                    # second step drops the column.
+                    # `email_verified_at` is absent from the column list, not written as
+                    # NULL: the default IS NULL, and naming it would read as a deliberate
+                    # value rather than as the absence of a fact (D-185).
+                    "INSERT INTO users (id, email, name, created_at, updated_at) "
+                    "VALUES (:id, :email, :name, :at, :at) "
+                    # The index predicate is repeated so Postgres can INFER the partial
+                    # unique index; without it the statement is rejected outright rather
+                    # than silently matching a different constraint.
+                    "ON CONFLICT (lower(email)) WHERE deactivated_at IS NULL DO NOTHING "
+                    "RETURNING id"
+                ),
+                {"id": user_id, "email": email, "name": name, "at": at},
+            )
+        ).first()
+        if inserted is None:
+            winner = (
+                await session.execute(
+                    text("SELECT id FROM users WHERE lower(email) = :e AND deactivated_at IS NULL"),
+                    {"e": needle},
+                )
+            ).first()
+            if winner is None:  # pragma: no cover — the conflicting row was deactivated
+                # between the INSERT and this read, which no application path does.
+                raise ProblemError.conflict(
+                    "account_address_contended",
+                    "That address is being claimed by another request right now.",
+                    remediation="Try the invitation link again in a moment.",
+                )
+            log.info("auth_user_insert_lost_race", extra={"user_id": str(winner[0])})
+            return UUID(str(winner[0])), False
     log.info("auth_user_created_from_invitation", extra={"user_id": str(user_id)})
     return user_id, True
 

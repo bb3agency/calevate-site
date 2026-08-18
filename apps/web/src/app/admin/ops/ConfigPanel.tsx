@@ -166,9 +166,12 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     prefixes: ["otel_", "release_version", "sentry_"],
   },
   {
-    title: "Identity",
-    hint: "Clerk applications and object storage.",
-    prefixes: ["clerk_", "object_store_"],
+    // The `clerk_` prefix went with the vendor (D-177) — authentication has no
+    // console-managed setting at all now, and a prefix matching nothing would be a group
+    // that renders empty on a screen whose job is to say what is installed.
+    title: "Storage",
+    hint: "Where recordings, transcripts and exports are kept.",
+    prefixes: ["object_store_"],
   },
 ];
 

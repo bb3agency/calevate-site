@@ -8,6 +8,7 @@ import {
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   formatIST,
 } from "@/components/ui";
@@ -242,7 +243,7 @@ export default function IntegrationsPage() {
                     type="button"
                     disabled={!write.allowed || deactivate.isPending}
                     onClick={() => deactivate.mutate(endpoint.id)}
-                    className="rounded-md border border-slate-300 px-2 py-0.5 text-xs disabled:opacity-50 dark:border-slate-600"
+                    className="rounded-md border border-slate-300 px-2 py-1.5 text-xs disabled:opacity-50 dark:border-slate-600"
                   >
                     Turn off
                   </button>
@@ -277,7 +278,7 @@ export default function IntegrationsPage() {
         {deliveries.isLoading ? (
           <Skeleton rows={3} />
         ) : deliveries.data?.length ? (
-          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+          <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
             <table className="w-full min-w-[500px] text-sm">
             <thead>
               <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
@@ -322,7 +323,7 @@ export default function IntegrationsPage() {
                             )
                           }
                           title="Shows the exact data we sent, personal details included. The read is written to your audit log."
-                          className="rounded-md border border-slate-300 px-2 py-0.5 text-xs dark:border-slate-600"
+                          className="rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
                         >
                           {openPayload === delivery.id ? "Hide" : "View"}
                         </button>
@@ -344,7 +345,7 @@ export default function IntegrationsPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </ScrollRegion>
         ) : deliveries.error ? null : (
           <EmptyState
             title="Nothing sent yet"
@@ -366,7 +367,7 @@ export default function IntegrationsPage() {
               <button
                 type="button"
                 onClick={() => setOpenPayload(null)}
-                className="ml-auto rounded-md border border-slate-300 px-2 py-0.5 text-xs dark:border-slate-600"
+                className="ml-auto rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
               >
                 Close
               </button>
@@ -392,7 +393,19 @@ export default function IntegrationsPage() {
                     sent it, and what you see below is where our copy stops.
                   </p>
                 )}
-                <pre className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-slate-800">
+                {/* Focusable for the same reason every `ScrollRegion` is, on the other
+                    axis: `max-h-80` makes this a VERTICALLY scrolling container, and
+                    there is no key that scrolls a non-focusable element, so a keyboard
+                    reader could see the first 320px of a payload and no more. Not
+                    `ScrollRegion` itself — that component is the sideways case and
+                    hardcodes `overflow-x-auto`; the waiver's argument is written there. */}
+                <pre
+                  role="region"
+                  aria-label="Delivered payload"
+                  // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- see above
+                  tabIndex={0}
+                  className="mt-2 max-h-80 overflow-auto rounded-md bg-slate-100 p-3 font-mono text-xs whitespace-pre-wrap break-all dark:bg-slate-800"
+                >
                   {payload.data.body}
                 </pre>
               </>

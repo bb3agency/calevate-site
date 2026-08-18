@@ -38,8 +38,8 @@ ENVIRONMENTS: tuple[str, ...] = get_args(Environment)
 #
 # APP_ENV is here for a different and larger reason. `Settings.app_env` used to default
 # to `"local"`, which is the only value under which `_verify_dev_token` accepts
-# `dev:<realm>:<clerk_user_id>` — a credential whose subject the caller picks — and
-# `runtime_config_missing_keys` skips its Clerk checks under the same branch, so
+# `dev:<realm>:<subject-uuid>` — an authentication bypass — and
+# `runtime_config_missing_keys` skipped its provider checks under the same branch, so
 # `/healthz/ready` still said "ready". A production deploy that simply forgot the
 # variable was therefore unauthenticated AND silent about it.
 #
@@ -563,23 +563,18 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # opens a disqualified endpoint and whose absence is the CORRECT state.
         if not cfg.sarvam_api_key:
             missing.append("SARVAM_API_KEY")
-        if not cfg.clerk_client_secret_key:
-            missing.append("CLERK_CLIENT_SECRET_KEY")
-        if not cfg.clerk_admin_secret_key:
-            missing.append("CLERK_ADMIN_SECRET_KEY")
-        # The SECRET keys above say this deployment can talk to Clerk. They say nothing
-        # about WHOSE keys each realm verifies signatures with, and that is the property
-        # TRD §11 / D-37 rest on: `core/auth.py::jwks_url` argues that one JWKS for both
-        # realms leaves `admin_users` membership as the only thing between a client token
-        # and the operator console. A prod host with both secrets and neither PUBLISHABLE
-        # key resolved both realms to `CLERK_FRONTEND_API` and answered this function with
-        # `[]` — the same shape of silent gap as the `app_env` default above.
-        #
-        # Imported inside the function for the reason `missing_engine_credential_keys` is:
-        # `core.auth` imports THIS module, so a module-level import is a cycle.
-        from apps.api.core.auth import missing_realm_separation_keys
-
-        missing.extend(missing_realm_separation_keys(cfg))
+        # AUTHENTICATION HAS NO KEY TO REPORT HERE ANY MORE, and that is the point of
+        # D-177 rather than an omission. This block used to demand `CLERK_CLIENT_SECRET_KEY`
+        # and `CLERK_ADMIN_SECRET_KEY`, plus `missing_realm_separation_keys` — a check that
+        # the two realms resolved to two Clerk applications, because a prod host with both
+        # secrets and neither publishable key collapsed them onto one JWKS host and still
+        # answered this function with `[]`. There is nothing left for either to be wrong
+        # about: the realms are separated by the session token's hash domain, the `realm`
+        # predicate beside it and the per-realm cookie name (AUTH-MIGRATION §3), none of
+        # which a deployment can configure, and all three are pinned by
+        # `tests/authn_session_test.py` and `tests/realm_boundary_test.py`. What a
+        # deployment CAN still get wrong is `PLATFORM_KEK`, which every password is
+        # peppered with — reported below, where it always was.
         # D-22 view-as signs its grants with this and REFUSES to mint or verify without
         # it outside `local` (`core/impersonation.py::_signing_key`). Reported here so a
         # deploy that forgot it is a red readiness probe, not an operator discovering

@@ -34,6 +34,7 @@ from apps.api.core.context import Principal
 from apps.api.core.envelope import MASKED, build_ring, kek_ring
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from apps.api.ops.secret_routes import (
@@ -91,10 +92,10 @@ async def _admin_id() -> uuid.UUID:
         admin = uuid.uuid4()
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Secrets Test', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Secrets Test', 'superadmin', now(), now())"
             ),
-            {"i": admin, "c": f"admin_{uuid.uuid4().hex[:12]}"},
+            {"i": admin},
         )
         return admin
 
@@ -751,9 +752,7 @@ async def test_installing_a_credential_with_no_admin_identity_is_refused() -> No
     satisfied, so what is pinned here is the identity check and not the header in front
     of it.
     """
-    principal = Principal(
-        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
-    )
+    principal = Principal(realm="admin", user_id=None, tenant_id=None, role=None)
     async with untenanted_session() as session:
         with pytest.raises(ProblemError) as raised:
             await set_secret_route(
@@ -763,6 +762,10 @@ async def test_installing_a_credential_with_no_admin_identity_is_refused() -> No
                 BackgroundTasks(),
                 principal,
                 KEY,
+                # The gate a request resolves through `Depends(step_up_gate)`; called
+                # directly, the test supplies it. `present=False` is the shape a
+                # caller with no first-party admin cookie has (D-178).
+                StepUp(present=False, verified_at=None),
                 x_confirm_action=secret_confirmation(KEY),
             )
     assert raised.value.code == "secret_actor_unknown"
