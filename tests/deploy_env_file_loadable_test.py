@@ -123,3 +123,37 @@ def test_a_misspelled_key_in_env_is_still_refused(tmp_path: Path) -> None:
     ):
         Settings()
     assert "databse_url" in str(caught.value)
+
+
+def test_env_file_none_really_means_no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_env_file=None` disables the dotenv source, including the filtered one (D-197).
+
+    `settings_customise_sources` swaps pydantic-settings' dotenv source for
+    `_AppDotEnvSource`, which drops SDK-owned keys. It used to build that replacement from
+    `cls.model_config` — the CLASS default — and therefore ignored what the caller asked
+    for, so `Settings(_env_file=None)` read `.env` anyway.
+
+    That is not merely a broken test hook. `_env_file=None` is the documented way for a
+    process to say it has no dotenv, and a production host with a leftover `.env` beside
+    the binary would have been read by a process that had explicitly disabled it. `APP_ENV`
+    is exactly the kind of key such a file carries, and `app_env` is one of the two facts
+    under which dev tokens are accepted (D-49).
+
+    The repository's own `.env` is what makes this test meaningful rather than theoretical:
+    it exists, it sets `APP_ENV`, and with the defect present the field below is populated
+    from it. Skipped rather than silently passing if it is absent, because a green
+    assertion about a file that is not there proves nothing.
+    """
+    if not Path(".env").exists():
+        pytest.skip("no repository .env to be wrongly read; this test needs the hazard present")
+
+    monkeypatch.delenv("APP_ENV", raising=False)
+    with pytest.raises(ValidationError) as exc:
+        Settings(  # type: ignore[call-arg]
+            _env_file=None,
+            database_url="postgresql+psycopg://u:p@h:5432/d",
+            redis_url="redis://h:6379/0",
+        )
+    assert "app_env" in str(exc.value), (
+        "`_env_file=None` must mean no dotenv — a value here came off disk"
+    )

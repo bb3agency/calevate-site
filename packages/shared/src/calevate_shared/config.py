@@ -155,14 +155,36 @@ class Settings(BaseSettings):
         rather than changed: the only edit is swapping the dotenv source for the one that
         drops `SDK_OWNED_ENV_KEYS`. See that constant for why the shipped `.env` was
         otherwise unloadable.
+
+        THE REPLACEMENT IS BUILT FROM THE SOURCE WE WERE HANDED, NOT FROM `model_config`.
+        It read `cls.model_config.get("env_file")`, which is the CLASS default and ignores
+        what the caller asked for — so `Settings(_env_file=None)`, the documented way to
+        say "this process has no dotenv", loaded `.env` anyway. That is not only a broken
+        test hook: a production host with a leftover `.env` beside the binary would be read
+        by a process that had explicitly disabled it, and `APP_ENV` is exactly the kind of
+        key such a file carries. `tests/app_env_required_test.py` caught it, because it
+        describes a forgetful deploy as "`_env_file=None` plus this dict and nothing else"
+        and the value came back anyway.
+
+        `dotenv_settings` already carries the caller's own resolution of every one of these
+        options, so copying them off it keeps the ONLY behavioural change the filtering of
+        SDK-owned keys.
         """
+        source = dotenv_settings
         return (
             init_settings,
             env_settings,
             _AppDotEnvSource(
                 settings_cls,
-                env_file=cls.model_config.get("env_file"),
-                env_file_encoding=cls.model_config.get("env_file_encoding"),
+                env_file=getattr(source, "env_file", cls.model_config.get("env_file")),
+                env_file_encoding=getattr(
+                    source, "env_file_encoding", cls.model_config.get("env_file_encoding")
+                ),
+                case_sensitive=getattr(source, "case_sensitive", None),
+                env_prefix=getattr(source, "env_prefix", None),
+                env_nested_delimiter=getattr(source, "env_nested_delimiter", None),
+                env_ignore_empty=getattr(source, "env_ignore_empty", None),
+                env_parse_none_str=getattr(source, "env_parse_none_str", None),
             ),
             file_secret_settings,
         )
