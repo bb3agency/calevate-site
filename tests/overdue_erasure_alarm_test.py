@@ -130,6 +130,10 @@ def _unreached(result: str) -> int:
     return int(dict(part.split("=") for part in result.split())["unreached"])
 
 
+def _probed(result: str) -> int:
+    return int(dict(part.split("=") for part in result.split())["probed"])
+
+
 # ============================================================================
 # What is and is not overdue
 # ============================================================================
@@ -320,3 +324,87 @@ def test_the_probe_is_actually_registered_as_a_cron() -> None:
         or "report_overdue_erasures" in job.coroutine.__qualname__
     ]
     assert registered, "the overdue-erasure probe exists and nothing schedules it"
+
+
+# ============================================================================
+# The walk's own ceiling (D-364)
+# ============================================================================
+
+
+def test_the_deadline_leaves_real_headroom_under_arqs_job_timeout() -> None:
+    """The arithmetic the whole bound rests on, asserted rather than left in a comment.
+
+    Past `job_timeout` arq cancels the tick, and `CancelledError` is one of the three
+    exceptions it RETRIES — so an unbounded walk on a fleet it has outgrown is cancelled,
+    re-run, cancelled, re-run, and then finished by `job_try > max_tries`. The alarm
+    watching DPDP §12 stops running, and the only trace is a generic job-failure notice
+    that cannot say which alarm went dark.
+
+    The margin is checked, not just the ordering: a deadline a few seconds under the
+    timeout would be cancelled by the alert and the session teardown that follow it.
+    """
+    timeout = timedelta(seconds=worker_settings.WorkerSettings.job_timeout)
+    assert timeout > dispatcher.ERASURE_PROBE_DEADLINE, (
+        "the walk's own budget is at or past the timeout that kills it, so the bound "
+        "can never be the thing that stops the tick"
+    )
+    assert timeout - dispatcher.ERASURE_PROBE_DEADLINE >= timedelta(seconds=60), (
+        "the alert, the last tenant session's close and the pool teardown all run AFTER "
+        "the deadline; a margin under a minute is racing the cancellation"
+    )
+
+
+async def test_a_walk_that_runs_out_of_time_stops_and_says_so(
+    alerts: _Alerts, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE DEFECT D-364 CLOSES, driven rather than argued.
+
+    The walk costs one `tenant_session` per ORGANIZATION — `deletion_requests` is
+    FORCE-RLS'd — over the whole directory rather than the published tenants, hourly.
+    That is the cost shape P6.2 measured at ~3 minutes on ~16k organizations and removed
+    from the nightly retention sweep; this job reinstated it on a schedule 24 times more
+    frequent, with no ceiling at all.
+
+    The deadline is monkeypatched to zero rather than the clock being wound, because the
+    property under test is "the walk notices it is out of budget and announces it", not
+    "180 seconds is enough" — which is a fact about a machine and not about this code.
+    """
+    tenant_id = await _tenant()
+    await _open_request(tenant_id, age=dispatcher.ERASURE_OVERDUE_AFTER + timedelta(minutes=30))
+
+    async def _two_tenants() -> list[uuid.UUID]:
+        return [tenant_id, uuid.UUID(int=0)]
+
+    monkeypatch.setattr(dispatcher, "_all_tenants", _two_tenants)
+    monkeypatch.setattr(dispatcher, "ERASURE_PROBE_DEADLINE", timedelta(seconds=0))
+
+    result = await dispatcher.report_overdue_erasures({})
+
+    assert _probed(result) == 0, (
+        f"a spent budget must stop the walk before the first probe: {result}"
+    )
+    fired = [c[1] for c in alerts.calls]
+    assert "erasure_probe_deadline_exhausted" in fired, (
+        f"the walk stopped part-way through the fleet and said nothing, so "
+        f"overdue_erasures=0 reads as a clean fleet: {fired}"
+    )
+    # And it is NOT filed as the overdue alarm: a truncated walk found nothing because it
+    # looked at nothing, which is a different incident with a different answer.
+    assert "erasure_requests_overdue" not in fired, fired
+
+
+async def test_a_walk_that_finishes_inside_its_budget_is_not_reported_as_truncated(
+    alerts: _Alerts, only: Any
+) -> None:
+    """The half that decides whether the alarm above is ever read. Every healthy tick
+    completes the fleet, and one that announced truncation anyway would be the
+    false-positive failure this repo corrects its alarms for."""
+    tenant_id = await _tenant()
+    only(tenant_id)
+    await _open_request(tenant_id, age=dispatcher.ERASURE_OVERDUE_AFTER + timedelta(minutes=30))
+
+    result = await dispatcher.report_overdue_erasures({})
+
+    assert _probed(result) == 1, result
+    assert _overdue(result) == 1, result
+    assert "erasure_probe_deadline_exhausted" not in [c[1] for c in alerts.calls]
