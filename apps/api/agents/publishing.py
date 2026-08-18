@@ -114,7 +114,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
-from apps.api.engine import get_engine
+from apps.api.engine import engine_capabilities, get_engine
 
 log = get_logger(__name__)
 
@@ -294,6 +294,19 @@ class VerificationState:
     #: passed one, which is the entire `AgentSnapshot.*_readable` doctrine.
     confirmed: bool
     headline: str
+    #: **CAN THIS DEPLOYMENT PUBLISH TO ITS VOICE PLATFORM AT ALL?** (D-281)
+    #:
+    #: Not a fact about this agent — a fact about the engine, read from
+    #: `EngineCapabilities.hosts_agents()`. False means the selected platform's agents are
+    #: programs deployed to it elsewhere, so there is no create endpoint and no prompt
+    #: read-back, and `publish_agent` refuses every attempt by name.
+    #:
+    #: IT IS ON THIS OBJECT AND NOT A NEW ONE because a screen asking "what is the state
+    #: of publishing for this agent" must get one answer, and "unverified, and also
+    #: impossible" from two endpoints is how a console comes to offer a button a route
+    #: refuses — the divergence D-93 exists to remove. Every other field here describes a
+    #: publish that HAPPENED; this one says whether the next one can.
+    publishable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -630,12 +643,34 @@ _VERIFY_HEADLINE: dict[str, str] = {
 
 
 def _verification_state(row: _AgentRow) -> VerificationState:
+    # THE ENGINE'S OWN ANSWER, ASKED FIRST (D-281). `engine_capabilities()` is synchronous
+    # and makes no network call — `VoiceEngine.capabilities` is an attribute precisely so a
+    # screen deciding whether to render a control can read it — so this costs a dict lookup
+    # and buys the console the one thing it could not previously know: that Publish will
+    # refuse whatever this agent's own columns say.
+    publishable = engine_capabilities().hosts_agents()
+    if not publishable:
+        return VerificationState(
+            state=row.verify_state,
+            verified_at=None,
+            confirmed=False,
+            # It OUTRANKS the two sentences below, and that is the point rather than an
+            # ordering accident: "not on the platform yet" invites an operator to press
+            # Publish, and on this engine pressing it can only ever fail. Told before the
+            # attempt, in our own vocabulary and without naming the vendor (hard rule 2).
+            headline=(
+                "The voice platform for this account does not host agents built here, so "
+                "this agent cannot be published to it."
+            ),
+            publishable=False,
+        )
     if not row.published:
         return VerificationState(
             state=row.verify_state,
             verified_at=None,
             confirmed=False,
             headline="This agent is not on the voice platform yet; there is nothing to confirm.",
+            publishable=True,
         )
     return VerificationState(
         state=row.verify_state,
@@ -648,6 +683,7 @@ def _verification_state(row: _AgentRow) -> VerificationState:
             row.verify_state,
             "We hold no readable verdict about what the voice platform is running.",
         ),
+        publishable=True,
     )
 
 
@@ -713,6 +749,14 @@ async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
         ref = row["engine_agent_ref"]
+        # `not_published` COVERS THE EXTERNALLY-DEPLOYED ENGINE TOO, and it does so
+        # truthfully rather than by luck (D-281): `publish_agent` refuses on such an
+        # engine, so no agent can hold an `engine_agent_ref` on it, so this branch is the
+        # one every agent takes. It needs no new state and no migration — "this agent is
+        # not on the voice platform" is exactly what is true — and the sentence below is
+        # already the right one to show. What it must NOT do is fall through to
+        # `verify_publish`, which would ask an engine that has no prompt to read back;
+        # that guard is in `verify_publish` itself, so a future caller cannot lose it.
         if not isinstance(ref, str) or not ref:
             return EngineDrift(
                 agent_id=str(agent_id),

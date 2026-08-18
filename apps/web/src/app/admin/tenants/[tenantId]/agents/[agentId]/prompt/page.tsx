@@ -413,6 +413,24 @@ function GoLivePanel({
               nothing to act on here yet.
             </p>
           )
+        ) : !pending.engine_verification.publishable ? (
+          /*
+           * THE BUTTON IS NOT OFFERED, because pressing it can only ever fail (D-281).
+           * This deployment's voice platform does not host agents built here — its agents
+           * are deployed to it separately, so there is no create endpoint and no prompt
+           * read-back — and `publish_agent` refuses every attempt by name. A screen that
+           * rendered Publish anyway would be offering a control the route cannot honour,
+           * which is exactly the divergence the capability descriptor exists to remove.
+           * The sentence is the server's own (`engine_verification.headline`), never a
+           * second wording that could drift from the refusal.
+           */
+          <NoticeBox
+            tone="warn"
+            icon={<AlertTriangle className="h-5 w-5" />}
+            title="This agent cannot be published from here"
+          >
+            <p className="mt-0.5 text-xs">{pending.engine_verification.headline}</p>
+          </NoticeBox>
         ) : pending.published ? (
           <p className="text-sm text-ink-muted">
             This agent is on the voice platform. Script changes reach it through Apply
@@ -655,7 +673,17 @@ function LiveConfirmation({
         )}
       </div>
 
-      {!verification.confirmed && published && (
+      {!verification.publishable && (
+        /* The reason this agent has nothing to confirm, said once here as well as on the
+           publish panel: an operator who scrolls straight to this card must not read
+           "nothing confirmed" as a publish that went wrong. */
+        <p className="mt-2 text-xs text-ink-muted">
+          Publishing is unavailable on this deployment&rsquo;s voice platform, so there is
+          nothing for a read-back to confirm.
+        </p>
+      )}
+
+      {verification.publishable && !verification.confirmed && published && (
         /* Amber and unmissable, because the failure this covers looks like success from
            every other angle: the agent says `live`, the version list says the right
            number, and nobody has established that a caller hears any of it. */

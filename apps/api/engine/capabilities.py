@@ -42,6 +42,7 @@ from calevate_shared.engine import (
     EngineCapabilityName,
     SpeechLeg,
     VoiceEngine,
+    carries_truthful_answer_floor,
 )
 
 from apps.api.core.errors import ProblemError
@@ -70,6 +71,11 @@ _REMEDIATION: Final[dict[EngineCapabilityName, str]] = {
     "llm": (
         "The voice platform in use supplies its own language model, so a model cannot "
         "be selected here."
+    ),
+    "agent_hosting": (
+        "The voice platform in use does not host agents built here — its agents are "
+        "deployed to it separately — so this agent cannot be published to it. Contact us "
+        "before configuring an agent for this account."
     ),
     "campaigns": (
         "Campaigns are dispatched by Calevate rather than by the voice platform; nothing "
@@ -220,6 +226,77 @@ def require_speech_leg(leg: SpeechLeg, *, engine: VoiceEngine, value: str | None
         raise engine_lacks(leg, engine=engine.name)
 
 
+#: The refusal for a dial whose per-call prompt does not carry hard rule 5's floor.
+#:
+#: ITS OWN CODE, NOT `engine_capability_absent`, and the distinction is the one
+#: `engine_caller_id_not_configured` already makes against `engine_not_configured`: an
+#: absent capability is a platform fact an operator can only accept, while this is a
+#: request that arrived without the one thing that makes it legal to place. Different
+#: cause, different fix, different person — and a client reading a problem `type` cannot
+#: tell them apart if they share a code.
+#:
+#: It is in `DIAL_NOT_PLACED_CODES` (`agents/service.py`) because it is raised BEFORE any
+#: HTTP request leaves this process: no line was seized, so the contact keeps its place on
+#: the ladder and the dial can be retried once the prompt is right.
+ENGINE_COMPLIANCE_FLOOR_ABSENT: Final = "engine_compliance_floor_absent"
+
+
+def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: str | None) -> None:
+    """Refuse a dial that would place a call with no truthful-answer rule on it.
+
+    THE GUARD FOR THE SHAPE WHERE HARD RULE 5 HAS NOWHERE ELSE TO LIVE (D-282). On a
+    `control_plane` engine the directive is agent-record state that `publish_agent` wrote
+    and `verification.judge` PROVED the engine holds, so a dial carries no prompt and this
+    is a no-op. On an `external_deployment` engine there is no agent record and no
+    read-back, so the prompt riding the call is the only vehicle left — and a call placed
+    without it is an agent that can be scripted into claiming it is human.
+
+    **`prompt_on_the_wire` IS WHAT THE ADAPTER IS ABOUT TO SEND, NOT WHAT IT WAS HANDED**,
+    and the difference is the whole reason the argument is not `ctx`. An adapter that
+    receives `CallContext.system_prompt` and has no request field to put it in would pass a
+    context-shaped check and dial anyway, silently dropping the floor — which is precisely
+    the failure mode `require_speech_leg` exists to stop one layer down, where an engine
+    that dictates its voice must REFUSE our voice rather than drop it. So each adapter
+    passes the expression it puts in its body, and one that has no such field passes
+    `None` and is refused every time. `CartesiaEngine.start_outbound_call` is that case.
+
+    WHY IT LIVES HERE rather than in each adapter. Two adapters spelling the same
+    compliance check is the shape `compose_engine_prompt` was created to delete — one
+    composer, one rule, so a third adapter cannot be written by somebody reading only the
+    vendor's docs. This is that argument applied to the check rather than the string.
+
+    WHY IT IS NOT IN `dispatch_call`. A guard in the caller is a guard the next caller
+    routes around, and `start_outbound_call` already has three. The adapter is the last
+    line before the vendor, which is where a floor belongs.
+
+    Raises rather than returning a verdict, because there is exactly one correct response
+    and no caller has a reason to make its own decision about it.
+    """
+    if engine.capabilities.hosts_agents():
+        return
+    if carries_truthful_answer_floor(prompt_on_the_wire):
+        return
+    log.error(
+        "engine_call_compliance_floor_absent",
+        extra={"engine": engine.name, "agent_hosting": engine.capabilities.agent_hosting},
+    )
+    raise ProblemError(
+        kind="dependency",
+        code=ENGINE_COMPLIANCE_FLOOR_ABSENT,
+        title="This call cannot be placed",
+        # No prompt text and no vendor name (hard rules 2 and 6): what a caller can act on
+        # is that the agent is not carrying the rules, not what the rules say.
+        detail=(
+            "The agent for this call is not carrying the rules that make it answer "
+            "truthfully about being an AI and about recording, so the call was not placed."
+        ),
+        remediation=(
+            "Publish the agent again. If it keeps failing, contact us — the voice "
+            "platform for this account cannot hold an agent's script."
+        ),
+    )
+
+
 # NO `provisionable_series()` HERE. It existed, was exported, had no callers, and its
 # docstring claimed the campaign gate matches on the engine's series — the gate matches on
 # OUR `phone_numbers.series`, which is a DLT 140/160 decision in our own schema and not a
@@ -229,11 +306,13 @@ def require_speech_leg(leg: SpeechLeg, *, engine: VoiceEngine, value: str | None
 
 __all__ = [
     "ENGINE_CAPABILITY_ABSENT",
+    "ENGINE_COMPLIANCE_FLOOR_ABSENT",
     "NO_CREDENTIALS_REASON",
     "EngineCapabilityAbsentError",
     "engine_capabilities",
     "engine_lacks",
     "engine_not_configured",
+    "require_call_compliance_floor",
     "require_capability",
     "require_speech_leg",
 ]

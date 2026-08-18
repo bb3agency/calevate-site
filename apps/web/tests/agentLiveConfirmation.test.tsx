@@ -45,6 +45,10 @@ const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
 const CONFIRMED = {
   state: "applied",
   confirmed: true,
+  // The engine hosts agents of ours. `false` is the other shape (D-281) and it hides the
+  // read-back's amber prompt as well as the Publish button, because there is nothing a
+  // republish could confirm — `agentGoLive.test.tsx` covers that case.
+  publishable: true,
   verified_at: "2026-08-15T09:20:00Z",
   headline: "The voice platform was read back and is running this script and voice.",
 };
@@ -52,6 +56,7 @@ const CONFIRMED = {
 const UNREACHABLE = {
   state: "unreachable",
   confirmed: false,
+  publishable: true,
   verified_at: null,
   headline:
     "The voice platform accepted this publish and did not answer when we read it back, " +

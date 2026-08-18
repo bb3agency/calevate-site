@@ -13570,6 +13570,10 @@
             "title": "Headline",
             "type": "string"
           },
+          "publishable": {
+            "title": "Publishable",
+            "type": "boolean"
+          },
           "state": {
             "title": "State",
             "type": "string"
@@ -13591,7 +13595,8 @@
           "state",
           "verified_at",
           "confirmed",
-          "headline"
+          "headline",
+          "publishable"
         ],
         "title": "VerificationOut",
         "type": "object"

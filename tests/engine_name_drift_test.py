@@ -217,10 +217,18 @@ def test_every_selectable_engine_has_an_authenticity_story() -> None:
         "engine. Add the entry to WEBHOOK_AUTH_BY_ENGINE with the adapter's declaration."
     )
 
+    # THE OTHER DIRECTION IS AN ALLOWLIST, NOT A COUNT. Both entries are conformance
+    # FIXTURES — one `FakeEngine` instance per capability axis the suite has to exercise
+    # (`fake-restricted` signs its webhooks, `fake-deployed` deploys its agents
+    # elsewhere) — and each is named here so a third has to be argued for rather than
+    # appear. They are keyed separately because `WEBHOOK_AUTH_BY_ENGINE` is keyed by NAME
+    # and the receiver reads that table: two instances sharing one name while declaring
+    # different capabilities is the ambiguity the table cannot survive. Neither is in
+    # `config.EngineName`, so neither can reach a deployment.
     unselectable = sorted(set(WEBHOOK_AUTH_BY_ENGINE) - SELECTABLE_ENGINES)
-    assert unselectable == ["fake-restricted"], (
-        "the only engine allowed to have an authenticity story without being selectable "
-        f"is the conformance fixture `fake-restricted`; found {unselectable}"
+    assert unselectable == ["fake-deployed", "fake-restricted"], (
+        "the only engines allowed to have an authenticity story without being selectable "
+        f"are the conformance fixtures; found {unselectable}"
     )
 
 

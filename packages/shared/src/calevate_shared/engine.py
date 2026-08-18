@@ -53,6 +53,48 @@ WebhookAuthMethod = Literal["hmac", "source_ip", "none"]
 #: is not offered.)
 SpeechControl = Literal["ours", "engine"]
 
+#: WHERE AN AGENT COMES FROM — the question this port asked with its shape rather than
+#: with a field, and got wrong (D-280).
+#:
+#: ``control_plane`` — the engine holds an AGENT OBJECT we create and configure over its
+#: own API. `create_agent` POSTs a config, `update_agent` edits it, and the system prompt
+#: (with hard rule 5's `TRUTHFUL_ANSWER_DIRECTIVE` inside it) is AGENT-RECORD STATE that
+#: `get_agent` reads back. This is Bolna, and it is the only shape this contract used to
+#: admit.
+#:
+#: ``external_deployment`` — the agent is a PROGRAM DEPLOYED OUTSIDE THIS SYSTEM and the
+#: engine's API can only observe it. There is no create endpoint, the agent record carries
+#: no prompt, no greeting and no model, and our prompt can only reach the agent as PER-CALL
+#: DATA (`CallContext.system_prompt`). Cartesia Line is this shape: `AgentSummary` carries
+#: `git_repository`/`git_deploy_branch` where a hosted platform would carry a script, and
+#: `PATCH /agents/{id}` accepts exactly `{description, name, tts_language, tts_voice}`
+#: (VERIFIED-SDK, `docs/vendor/cartesia/agents-control-plane.md`).
+#:
+#: WHY THIS IS A CAPABILITY AND NOT A BRANCH IN THE PUBLISH PATH. TRD §10.5 opened by
+#: asking whether this contract is vendor-neutral or merely Bolna-shaped, and answered
+#: itself: *"those look identical while only one vendor exists"*. It is Bolna-shaped, and
+#: the shape is not a field name — it is the ASSUMPTION that an engine will host an agent
+#: of ours at all. An assumption cannot be refused by name, cannot be declared by an
+#: adapter, and cannot be exercised by the conformance suite. A capability member can be
+#: all three, which is the same argument `SpeechControl` makes about a dictated voice.
+#:
+#: WHAT IT COSTS AN ``external_deployment`` ENGINE, and none of it is optional:
+#:
+#: * `create_agent` and `get_agent` REFUSE by name (`engine_lacks("agent_hosting")`). The
+#:   prompt read-back in particular must refuse rather than answer `readable=False`
+#:   forever: the `AgentSnapshot.*_readable` tri-state means "we could not FIND the field",
+#:   which is a reason to go and look at the adapter. On this shape there is nothing to
+#:   look for, and reporting a permanent platform fact as a lookup failure sends every
+#:   future reader after a bug that is not there.
+#: * `publish_agent` refuses, because publishing IS creating-and-verifying and neither
+#:   half exists. Nothing is ever recorded `live`.
+#: * **HARD RULE 5 RIDES THE CALL.** `start_outbound_call` must send `ctx.system_prompt`
+#:   and must REFUSE a context that does not carry `TRUTHFUL_ANSWER_MARKER` — the prompt
+#:   is the only vehicle left, so a dial without one is an agent that can be scripted into
+#:   claiming it is human. An adapter with no per-call prompt field at all must refuse
+#:   EVERY dial by name; a weaker floor is not an option this vocabulary offers.
+AgentHosting = Literal["control_plane", "external_deployment"]
+
 #: Every capability an adapter answers for, as a closed set — because each value is a
 #: refusal reason an operator reads, a metric label, and the argument to
 #: `EngineCapabilities.speech_control`. A free-form string here would let a typo become
@@ -61,6 +103,7 @@ EngineCapabilityName = Literal[
     "stt",
     "tts",
     "llm",
+    "agent_hosting",
     "campaigns",
     "knowledge_base",
     "numbers",
@@ -114,6 +157,16 @@ class EngineCapabilities(BaseModel):
     tts: SpeechControl
     #: The LLM. `ours` wherever the engine takes `model=` + `api_key=`.
     llm: SpeechControl
+    #: WHERE AN AGENT COMES FROM (D-280) — see `AgentHosting` for the full argument and
+    #: for what an `external_deployment` engine owes hard rule 5 instead.
+    #:
+    #: THE FIELD THIS DESCRIPTOR WAS MISSING, and the one whose absence made the whole
+    #: descriptor read as complete. Six of the seven questions above are about what an
+    #: engine can do WITH an agent; none of them asked whether it will hold one. So a
+    #: vendor with no create endpoint could declare a full, honest capability profile and
+    #: still have `create_agent`, `update_agent` and the prompt read-back describing a
+    #: platform it does not run — which is exactly the state D-270 found Cartesia in.
+    agent_hosting: AgentHosting
     #: Does the engine hold CAMPAIGN objects of its own? False does not mean campaigns
     #: are impossible — ours are dispatched entirely from `apps/api/campaigns` and
     #: `apps/workers` — it means there is nothing engine-side to configure or reconcile.
@@ -154,6 +207,18 @@ class EngineCapabilities(BaseModel):
         """Is `leg` BYOK — i.e. is our `ModelConfig` value for it meaningful at all?"""
         return self.speech_control(leg) == "ours"
 
+    def hosts_agents(self) -> bool:
+        """Will this engine hold an agent object of ours — create it, configure it, and
+        answer what it is running?
+
+        A METHOD RATHER THAN `agent_hosting == "control_plane"` AT EACH CALLER, for
+        `speech_control`'s reason: the comparison is spelled in the publish path, in two
+        adapters, in the conformance suite and in the console pre-flight, and a fifth
+        caller writing `!= "external_deployment"` would be correct today and wrong the
+        day a third hosting shape lands.
+        """
+        return self.agent_hosting == "control_plane"
+
     def provisions(self, series: NumberSeries) -> bool:
         """Can this engine provision a number in `series`? Asked per SERIES rather than
         as one boolean because "can buy a number" and "can buy a 140-series number" are
@@ -170,6 +235,11 @@ class EngineCapabilities(BaseModel):
         """
         if name in ("stt", "llm", "tts"):
             return self.is_ours(name)
+        if name == "agent_hosting":
+            # True only for `control_plane`. Same reading as a speech leg: "does this
+            # engine have agents" is never the question — every voice engine does — the
+            # question is whether one of OURS can live there.
+            return self.hosts_agents()
         if name == "campaigns":
             return self.campaigns
         if name == "knowledge_base":
@@ -206,6 +276,16 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # executed. It is never selectable as `ENGINE=` (`config.EngineName` does not include
     # it), so it can reach no deployment.
     "fake-restricted": "hmac",
+    # The EXTERNALLY-DEPLOYED fixture (`fake.EXTERNAL_DEPLOYMENT_CAPABILITIES`, D-280):
+    # the same adapter run with an agent-is-a-deployed-program set of answers. It is the
+    # only engine in this codebase that satisfies the ALTERNATIVE half of hard rule 5 —
+    # the prompt riding `CallContext.system_prompt` on every dial — so without it that
+    # half of the contract, of `start_outbound_call` and of the conformance split is code
+    # no test has ever executed. `none` because it inherits the default fake's webhook
+    # posture: the axis under test here is agent hosting, and giving it a second
+    # difference would stop the clause saying which one it measured. Never selectable as
+    # `ENGINE=` (`config.EngineName` does not include it), so it can reach no deployment.
+    "fake-deployed": "none",
     # Cartesia Line's webhooks are AUTHENTICATED BY SOMETHING WE CANNOT CHECK YET, and
     # `hmac` is this Literal's only value that fails CLOSED. What is read at source is
     # that webhooks exist at all (`AgentSummary.webhook_id` in their generated client);
@@ -494,6 +574,24 @@ TRUTHFUL_ANSWER_DIRECTIVE: Final = (
 )
 
 
+def carries_truthful_answer_floor(prompt: str | None) -> bool:
+    """Does this prompt carry the one rule no client may withdraw?
+
+    ONE PREDICATE, so the three places that ask — the two adapters that put the floor on a
+    per-call payload, the conformance clause that probes them, and
+    `scripts/check_compliance_invariants` — cannot disagree about what "carries it" means.
+    It is deliberately the same containment test `AgentSnapshot.carries_prompt_marker`
+    applies to a read-back, and for the same reason: any rendering that KEPT THE TEXT
+    satisfies the rule, and requiring the whole block verbatim would fail on a vendor that
+    re-wraps long strings.
+
+    `None` and `""` are False rather than an error. A missing prompt is the commonest way
+    the floor goes absent — `CallContext.system_prompt` defaults to None — and the caller's
+    next act is a named refusal, not an exception it has to catch.
+    """
+    return prompt is not None and TRUTHFUL_ANSWER_MARKER in prompt
+
+
 class ModelConfig(BaseModel):
     """BYOK model selection — plain config strings (D-04/D-20/D-36), so changing a
     model is a config edit + regression run, never a code change."""
@@ -780,6 +878,26 @@ class CallContext(BaseModel):
     context_note: str | None = None
     prior_call_summary: str | None = None
     fields: dict[str, str] = Field(default_factory=dict)
+    #: THE WHOLE SYSTEM PROMPT, for engines whose agent record cannot hold one
+    #: (`EngineCapabilities.agent_hosting == "external_deployment"`, D-280).
+    #:
+    #: Composed by `compose_engine_prompt`, so it carries the opening line, the client's
+    #: script and `TRUTHFUL_ANSWER_DIRECTIVE` in that order — the same string a
+    #: `control_plane` adapter puts on the agent object. On an externally-deployed engine
+    #: this is the ONLY vehicle hard rule 5 has: there is no agent record to write it to
+    #: and no read-back to score it on, so the floor either rides this field or the engine
+    #: is refused for dialling. `start_outbound_call` on such an adapter must refuse a
+    #: context whose prompt does not carry `TRUTHFUL_ANSWER_MARKER`.
+    #:
+    #: `None` on a `control_plane` engine, and that is not an omission: there the prompt is
+    #: agent-record state that `publish_agent` wrote and `verification.judge` scored, and
+    #: sending a second copy per call would be two places one string is authoritative —
+    #: the drift this repo treats as a defect even when both copies agree.
+    #:
+    #: NOT A LOG TARGET. Business content rather than transcript text, so hard rule 6 does
+    #: not forbid carrying it; nothing should log it either. `CallContext` is dumped into
+    #: vendor request bodies by design and into nothing else.
+    system_prompt: str | None = None
 
 
 class NumberSpec(BaseModel):
@@ -1062,7 +1180,28 @@ class VoiceEngine(Protocol):
         """
         ...
 
-    async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef: ...
+    async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
+        """Put an agent of OURS on the engine and return its handle.
+
+        **ONLY MEANINGFUL WHERE `capabilities.hosts_agents()` IS TRUE** (D-280). An
+        `external_deployment` engine has no create operation at all — its agents are
+        programs deployed from a repository — and this method must REFUSE by name there,
+        through `engine_lacks("agent_hosting")`, rather than POST to an endpoint the
+        vendor does not serve.
+
+        WHY REFUSING BEATS THE THREE ALTERNATIVES, each of which was on the table:
+
+        * **Deleting the method** breaks every `control_plane` adapter and the port with
+          it. The shape is real for the engine we actually rent.
+        * **Leaving it to 404** turns a structural fact into an intermittent-looking
+          vendor error, at the moment of the publish, on a path that has already committed
+          our side of the transaction. Nothing above can tell it from an outage.
+        * **Inventing an "adopt the deployed agent by name" fallback** puts an agent live
+          whose prompt we did not write and cannot read back, so hard rule 5 would rest on
+          a repository nobody here can see. That is a product decision with a compliance
+          consequence, not a rename, and it is gated (OPERATIONS §2 gate 19(a)).
+        """
+        ...
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None: ...
 
@@ -1091,6 +1230,20 @@ class VoiceEngine(Protocol):
         An unknown ref must RAISE, not return an empty snapshot. A caller reading back an
         agent that does not exist is a caller about to record "prompt not applied" for an
         agent it never created — or worse, "no dangling reference" about a phantom.
+
+        **THIS IS THE PROMPT READ-BACK, so it REFUSES BY NAME on an `external_deployment`
+        engine** (D-280) — `engine_lacks("agent_hosting")`, not a snapshot with three
+        `_readable` flags permanently False. The tri-state means "the adapter could not
+        FIND the field", which is a reason to go and look at the adapter; on an engine
+        whose agent record HAS no prompt, no greeting and no model there is nothing to
+        find, and every future reader would be sent after a bug that is not there. The
+        two facts are as different as `knowledge_base_refs_readable` False is from an
+        empty list, and for the same reason.
+
+        The parts of the read that DO survive on such an engine — the agent's name, its
+        voice, its documents — are not lost by refusing here: they were never what this
+        method is for. Its two promises (APPLIED-not-ACCEPTED, and D-41's dangling handle)
+        both rest on properties an externally-deployed agent does not carry.
         """
         ...
 
@@ -1136,7 +1289,36 @@ class VoiceEngine(Protocol):
 
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
-    ) -> CallHandle: ...
+    ) -> CallHandle:
+        """Dial `to` with agent `ref`, carrying `ctx` into the call.
+
+        **WHERE HARD RULE 5 LIVES ON AN `external_deployment` ENGINE** (D-280). On a
+        `control_plane` engine the truthful-answer directive is agent-record state that
+        `publish_agent` wrote and `verification.judge` proved, and `ctx.system_prompt` is
+        None. On an externally-deployed engine there is no agent record to write and no
+        read-back to prove, so the prompt travels HERE — and an adapter for such an engine
+        owes this method two things, neither of them optional:
+
+        * it must SEND `ctx.system_prompt` on the dial; and
+        * it must REFUSE, by name, a context whose prompt does not carry
+          `TRUTHFUL_ANSWER_MARKER` — including a context carrying no prompt at all.
+
+        **AN ADAPTER THAT CANNOT DO THE FIRST MUST REFUSE EVERY DIAL.** "Degrades
+        honestly" never means a weaker floor for one vendor: an agent that can be scripted
+        into claiming it is human is the one failure this rule exists to make impossible,
+        and a platform where we cannot prevent it is a platform we do not dial from. The
+        refusal is named and carries a remediation; a silent dial is not an option.
+
+        THE CHECK IS THE ADAPTER'S, not the caller's, and deliberately so. `dispatch_call`
+        composes the prompt and hands it over, but a guard in the caller is a guard one
+        future caller can route around — and this method has three callers already. The
+        conformance suite probes it from both sides (a floor-less context must be refused,
+        a floor-carrying one must be accepted or refused by name), which is the same
+        negative-probe shape `transfer` uses for the same reason: this method returns a
+        handle, not a read-back, so "it sent our prompt" and "it dropped our prompt" are
+        otherwise the same observation.
+        """
+        ...
 
     async def end_call(self, call_id: str) -> None:
         """Hang up a call that is in progress, from OUTSIDE it.
@@ -1249,6 +1431,7 @@ __all__ = [
     "E164",
     "WEBHOOK_AUTH_BY_ENGINE",
     "AgentConfig",
+    "AgentHosting",
     "AgentSnapshot",
     "CallContext",
     "CallHandle",

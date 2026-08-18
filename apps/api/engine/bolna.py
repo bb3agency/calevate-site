@@ -82,6 +82,7 @@ from apps.api.core.settings import get_settings
 from apps.api.engine.capabilities import (
     NO_CREDENTIALS_REASON,
     engine_not_configured,
+    require_call_compliance_floor,
     require_capability,
     require_speech_leg,
 )
@@ -669,10 +670,19 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 #   not just our column) and not a flag flip. OPERATIONS §2 gate 18 asks the one thing
 #   that decides it: does the hosted agent object accept a transfer tool, and is there any
 #   REST route that transfers a live execution?
+# * `agent_hosting="control_plane"` (D-280). Bolna is the shape this port was written
+#   around and the reason it read as vendor-neutral for as long as it did: `POST /v2/agent`
+#   creates the object, `PUT /v2/agent/{id}` edits it, `GET /v2/agent/{id}` answers what it
+#   holds, and the system prompt — with hard rule 5's directive inside it — is agent-record
+#   state (`agent_prompts.task_1.system_prompt` in `_agent_body`). Nothing about that is
+#   assumed: it is the surface this adapter has always called. What the value BUYS is that
+#   the assumption is now written down and refusable, so the engine that does NOT work this
+#   way can say so instead of being discovered at a 404.
 BOLNA_CAPABILITIES = EngineCapabilities(
     stt="ours",
     tts="ours",
     llm="ours",
+    agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
@@ -848,6 +858,57 @@ class BolnaEngine:
                                 "agent_flow_type": "streaming",
                                 "family": "openai",
                                 "model": cfg.models.llm_model,
+                                # SENT EXPLICITLY, and the reason is that NOT sending them
+                                # was a decision nobody had taken (D-283).
+                                #
+                                # READ AT SOURCE, bolna-ai/bolna@cd2e192, `bolna/models.py`:
+                                # `Llm.max_tokens` defaults to **100** and
+                                # `Llm.temperature` to **0.1**, and
+                                # `task_manager.__setup_llm` reads both with bare
+                                # subscripts off `llm_agent_config`. Our body omitted
+                                # them, so the stored `agent_config.model_dump()` filled
+                                # the vendor's defaults and every agent on the platform
+                                # ran with a 100-token ceiling on each reply — a real
+                                # product knob, silently inherited.
+                                #
+                                # WHY 400 AND NOT 100. A cap is a SAFETY VALVE against a
+                                # runaway generation, not a style control: brevity is the
+                                # script's job, and a ceiling that bites mid-sentence does
+                                # not shorten a reply, it truncates one — the TTS then
+                                # speaks a fragment and hangs. 100 is close enough to a
+                                # normal turn to bite, and it is worse in OUR language than
+                                # the number suggests: token fertility (tokens per word) is
+                                # ~2.1-2.3 for Telugu against ~1.2-1.4 for English on
+                                # general tokenizers, and Sarvam's own reaches 1.4-2.1 for
+                                # Indic — so 100 tokens is roughly 45 Telugu words, and a
+                                # receptionist reading back three appointment slots passes
+                                # that. 400 clears every legitimate turn while still
+                                # bounding a monologue a caller would have to sit through.
+                                # (Fertility figures: FLORES-200 tokenizer comparisons,
+                                # searched 18 Aug 2026 — arxiv.org/pdf/2605.29379 and the
+                                # IndicSuperTokenizer report. REPORTED, NOT READ against
+                                # Sarvam's own tokenizer, and it does not need to be: the
+                                # decision is "leave headroom", and the direction is not in
+                                # doubt.) The LLM leg is Sarvam 105B, FREE PER TOKEN
+                                # (D-35/D-36, TRD §10), so the headroom costs nothing on the
+                                # money path — the only cost of a higher cap is a longer
+                                # worst-case utterance, which `max_call_duration_s` already
+                                # bounds from the other side.
+                                #
+                                # WHY 0.1 — THE VENDOR'S DEFAULT IS RIGHT, AND IS SENT
+                                # ANYWAY. This agent reads a client's script and carries
+                                # `TRUTHFUL_ANSWER_DIRECTIVE` underneath it; the failure we
+                                # care about is the model paraphrasing away a compliance
+                                # sentence or improvising a price, and low temperature is
+                                # the setting that makes that rarest. Raising it buys
+                                # "sounds more natural", which is a prompt-and-voice problem
+                                # on a phone call rather than a sampling one. It is written
+                                # here rather than inherited because a vendor default is
+                                # somebody else's release note: a compliance-bearing prompt
+                                # is not a thing to leave on a number that can change
+                                # without our deploying.
+                                "max_tokens": 400,
+                                "temperature": 0.1,
                             },
                             "synthesizer": {
                                 "provider": cfg.models.tts_provider,
@@ -1012,6 +1073,19 @@ class BolnaEngine:
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
     ) -> CallHandle:
+        # A NO-OP FOR THIS ENGINE, and here for the reason `_agent_body`'s speech guards
+        # are (D-282): Bolna holds the agent, so hard rule 5's directive is agent-record
+        # state that `publish_agent` wrote and `verification.judge` PROVED it is running,
+        # and `ctx.system_prompt` is None. The guard reads the descriptor rather than the
+        # vendor name, so narrowing `BOLNA_CAPABILITIES.agent_hosting` — which is what a
+        # vendor deprecating its agent API would look like — changes what this adapter
+        # will dial, instead of leaving a field that says one thing and a dial that does
+        # another.
+        #
+        # `prompt_on_the_wire=None` is honest rather than a shrug: this body carries no
+        # prompt because it does not need to, and the guard reads the capability to decide
+        # whether that is a floor being dropped or a floor living somewhere better.
+        require_call_compliance_floor(engine=self, prompt_on_the_wire=None)
         # `user_data` dynamic variables are rendered into the prompt — our CallContext
         # mechanism for lead callbacks (D-21).
         user_data = {k: v for k, v in ctx.fields.items() if v}

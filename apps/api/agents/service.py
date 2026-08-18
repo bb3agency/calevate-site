@@ -84,6 +84,7 @@ from calevate_shared.engine import (
     DisclosurePosture,
     ModelConfig,
     VoiceEngine,
+    compose_engine_prompt,
     compose_opening_line,
 )
 from sqlalchemy import text
@@ -99,7 +100,8 @@ from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
-from apps.api.engine import get_engine
+from apps.api.engine import get_engine, require_capability
+from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
@@ -143,11 +145,16 @@ DIAL_NOT_PLACED_CODES = frozenset(
         # 429 with the ladder exhausted. The adapter's own note says a throttle "says
         # nothing about the request", and it is raised instead of sending it on.
         "engine_rate_limited",
-        # All three are raised BEFORE any HTTP request leaves this process.
+        # All of these are raised BEFORE any HTTP request leaves this process.
         "engine_not_configured",
         "engine_capability_unverified",
         "engine_capability_absent",
         "engine_caller_id_not_configured",
+        # The dial arrived without the truthful-answer rule on it, or reached an engine
+        # that has nowhere to put one (D-282). Refused inside the adapter before the
+        # request is built, so no line was seized and the contact keeps its place — the
+        # same standing as a missing caller id, and for the same reason.
+        ENGINE_COMPLIANCE_FLOOR_ABSENT,
     }
 )
 
@@ -335,6 +342,33 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
     )
 
 
+def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: dict[str, object]) -> str | None:
+    """The prompt this dial must CARRY, or None when the engine already holds it.
+
+    THE PRODUCTION WRITER OF `CallContext.system_prompt` (D-282), and the reason the field
+    is not a fixture. On a `control_plane` engine the prompt is agent-record state that
+    `publish_agent` wrote and `verification.judge` PROVED the engine is running, so a
+    second copy per call would be one string with two authorities — the drift this repo
+    treats as a defect even when both copies agree. On an `external_deployment` engine
+    there is no agent record, so this is the only vehicle hard rule 5 has and every dial
+    carries it.
+
+    IT GOES THROUGH `_to_config` AND `compose_engine_prompt`, never a second rendering.
+    That is the argument `engine_drift_for` already makes for reusing `_to_config`: a
+    prompt built here by hand would be a second expression of our intent, and the two
+    would diverge on the part nobody reads — which on this path is the platform-rules
+    block underneath the script, i.e. exactly the part that may not be lost.
+
+    The adapter still checks what it received (`require_call_compliance_floor`). A guard
+    here and a guard there is not two ways to do one thing: this composes, that refuses,
+    and the refusal is the one that has to survive a future caller reaching
+    `start_outbound_call` without coming through this function.
+    """
+    if engine.capabilities.hosts_agents():
+        return None
+    return compose_engine_prompt(_to_config(tenant_id, agent))
+
+
 async def _reclaim_orphan(engine: VoiceEngine, agent_id: UUID, ref: str, reason: str) -> None:
     """A vendor-side agent we created and then could not record. DELETE IT, or log it.
 
@@ -428,8 +462,23 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # through — see the predicate, which argues why a billing stop is not an access stop.
     await assert_account_open(session, tenant_id=tenant_id)
 
-    agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
     engine = get_engine()
+    # SECOND, and still before the lock and the vendor (D-281). Publishing IS
+    # creating-an-agent-and-proving-what-it-holds, and on an engine whose agents are
+    # programs deployed elsewhere neither half exists: there is no `create_agent` to call
+    # and no prompt to read back. Asking the capability here turns that from a 404 arriving
+    # mid-transaction — indistinguishable from a vendor outage, so an operator retries it
+    # for ever — into one named refusal with a remediation, raised before anything has been
+    # written or dialled.
+    #
+    # NOT a softer "record it as pending". Nothing about this agent is pending: no future
+    # publish on this deployment can succeed, and a status that implies otherwise is the
+    # silent success this refusal exists to remove. What the console shows instead comes
+    # from the same capability (`agents/publishing._verification_state`), so the button is
+    # not offered in the first place.
+    require_capability("agent_hosting", engine=engine)
+
+    agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
     config = _to_config(tenant_id, agent)
 
     existing_ref = agent["engine_agent_ref"]
@@ -833,6 +882,7 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name,
                 context_note=context_note,
+                system_prompt=_call_prompt_for(engine, tenant_id, agent),
             ),
         )
     except Exception as exc:

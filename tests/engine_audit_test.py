@@ -1449,7 +1449,6 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",
-        "document_ids",
         "duration_seconds",
         "from_number_id",
         "has_more",
@@ -1462,12 +1461,15 @@ _VENDOR_ONLY_KEYS = frozenset(
         # clearest example in this list of why the ban is per vendor noun rather than per
         # concept.
         "telephony_params",
-        # Cartesia's spelling of the same greeting field. VENDOR-ONLY rather than shared
-        # despite being an ordinary English word: nothing of ours is called an
-        # `introduction` — `AgentSnapshot` calls it `greeting` — so the word appearing
-        # outside the adapter is a vendor shape that escaped, which is what the scan is
-        # for.
-        "introduction",
+        # `introduction` AND `document_ids` USED TO BE HERE and were removed by D-281,
+        # which is the third way an entry can go stale and the one the clause below could
+        # not have guessed: the vendor did not rename either field and neither entry was
+        # fictional — the OPERATIONS that read them stopped existing. Cartesia's agent
+        # record carries no prompt, no greeting and no document list, so `create_agent`,
+        # `update_agent` and `get_agent` refuse on `agent_hosting` rather than reading a
+        # response with those keys in it. A word no adapter reads cannot escape from one,
+        # which is the whole premise of this list; if a Cartesia agent read ever comes back
+        # (gate 19(a)), both entries come back with it.
         "outbound_calls",
         # `start_time`/`end_time` are Cartesia's names for the two instants everything
         # else in this repo calls `started_at`/`ended_at` — `ExecutionSnapshot`,
