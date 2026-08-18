@@ -1044,21 +1044,32 @@ ListingIncompleteReason = Literal[
     "full_page_suspected",
     # We followed continuations until our own bound stopped us. There is more.
     "page_cap_reached",
-    # A continuation pointed back at a page we had ALREADY fetched. The URLs repeat, so
-    # walking on would re-read the same page forever; we stopped and the window is not
-    # fully covered. Kept narrow on purpose: an operator reading this goes looking for
-    # two identical continuation URLs and must find them.
-    "next_link_loop",
-    # A continuation we had never seen before came back carrying only executions we had
-    # already collected. Not a loop — the URLs differ — but the walk stopped making
-    # progress, so it is a vendor repeating content rather than a broken link.
+    # A page we had never fetched came back carrying only executions we had already
+    # collected. The walk stopped making progress, so it is a vendor repeating content:
+    # continuing would burn the page cap on identical pages and then report the wrong
+    # reason. Named for the link era and kept, because the CONDITION is the same whether
+    # the next page is named by a cursor (Cartesia) or by a page number (Bolna).
     "next_link_no_progress",
-    # The response held NO executions at all and still offered a continuation. Nothing was
-    # re-served and nothing looped: either the window is genuinely empty and the vendor
-    # hands out a `next` regardless, or it pages in a shape we do not understand.
-    # `pages_fetched` says which page it was — 1 means the FIRST page came back empty.
-    "empty_page_with_next",
 ]
+# `next_link_loop` AND `empty_page_with_next` USED TO BE MEMBERS AND ARE GONE (D-360).
+#
+# Both were reachable only through a continuation URL the vendor handed us and we GET as
+# given: the first meant that URL repeated, the second meant a page carried no rows and
+# still offered one. `BolnaEngine._next_link` was the only code that could produce either,
+# and D-353 deleted it — Bolna publishes `page_number`/`page_size`/`has_more`, so the
+# adapter builds its own page URLs and there is no vendor-supplied link to loop or to
+# trail an empty page. Cartesia pages on its own `starting_after` cursor and emits neither.
+#
+# REMOVED RATHER THAN LEFT AS SPARE VOCABULARY. This Literal is the alphabet an operator
+# reads off an alert, and `docs/OPERATIONS.md` documents each value as something they may
+# see. A value no adapter can emit is a runbook entry for an event that cannot happen —
+# the "column nobody reads" defect, in a type rather than a table. Nothing persists these
+# (they reach a log line and an alert string, never a DB column), so narrowing the Literal
+# costs no migration; mypy is what would catch an adapter still trying to emit one.
+#
+# An adapter whose vendor DOES hand out continuation links may need them back. Adding a
+# member is a one-line change plus a runbook line — and it should come WITH the adapter
+# that emits it, which is the only state in which either label means anything.
 
 
 class ExecutionListing(BaseModel):

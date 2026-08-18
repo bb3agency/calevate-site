@@ -155,16 +155,21 @@ What the harness found before any credentials existed, and what it therefore can
 - gate 6's **pagination** criterion is now MEASURED as far as our side can measure it,
   and declared as an assumption for the rest. `list_executions` returns an
   `ExecutionListing`, not a bare list: `complete=False` plus a reason
-  (`explicit_more` where the payload claims more, `full_page_suspected` where the row
-  count lands exactly on a conventional page size, `page_cap_reached` where our own bound
-  stopped a walk that was still producing, `next_link_loop` where a continuation URL
-  repeated, `next_link_no_progress` where a new continuation re-served rows we already
-  had, `empty_page_with_next` where a page carried no executions and still offered a
-  continuation) is what the adapter says when it cannot vouch
+  (`explicit_more` where the payload claims more and names no page we can fetch,
+  `full_page_suspected` where a full page came back with no `has_more` at all,
+  `page_cap_reached` where our own bound stopped a walk that was still producing, and
+  `next_link_no_progress` where a page we had not read re-served only rows we already
+  had) is what the adapter says when it cannot vouch
   for the window, and `reconcile_executions` turns that into an alert, a metric
   (`reconciliation_listing_incomplete`) and a job result that does not read as a quiet
-  tick. **What the pilot still has to settle is the vendor's behaviour itself** — whether
-  Bolna paginates, at what size, and in what form. Nothing in-process can: a listing
+  tick. Two former values, `next_link_loop` and `empty_page_with_next`, are GONE (D-360):
+  both could only arise from following a continuation URL the vendor handed us, which no
+  adapter does any more, and a documented alert value no code can emit sends an operator
+  hunting a condition that cannot occur. **What the pilot still has to settle is the
+  vendor's behaviour itself** — not WHETHER Bolna paginates, which their OpenAPI spec now
+  answers (`page_number`/`page_size` max 50/`has_more`, D-350), but whether the server
+  honours it: whether `has_more` tells the truth and whether `from` really bounds the
+  window. Nothing in-process can settle that: a listing
   cannot report what it omitted, and a pilot window holds far too few executions to reach
   any plausible page size, so `complete=True` here means "nothing in the response
   suggested otherwise". The dashboard count (`gate6.executions_in_window`) is the only
