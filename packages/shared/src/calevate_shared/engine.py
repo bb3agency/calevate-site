@@ -161,11 +161,12 @@ class EngineCapabilities(BaseModel):
     #: for what an `external_deployment` engine owes hard rule 5 instead.
     #:
     #: THE FIELD THIS DESCRIPTOR WAS MISSING, and the one whose absence made the whole
-    #: descriptor read as complete. Six of the seven questions above are about what an
-    #: engine can do WITH an agent; none of them asked whether it will hold one. So a
-    #: vendor with no create endpoint could declare a full, honest capability profile and
-    #: still have `create_agent`, `update_agent` and the prompt read-back describing a
-    #: platform it does not run — which is exactly the state D-270 found Cartesia in.
+    #: descriptor read as complete. Every other member asks what an engine can do WITH an
+    #: agent — whose voice, whose model, whose knowledge base, whose numbers — and not one
+    #: of them asked whether it will hold an agent of ours at all. So a vendor with no
+    #: create endpoint could declare a full, honest capability profile and still have
+    #: `create_agent`, `update_agent` and the prompt read-back describing a platform it
+    #: does not run, which is exactly the state D-270 found Cartesia in.
     agent_hosting: AgentHosting
     #: Does the engine hold CAMPAIGN objects of its own? False does not mean campaigns
     #: are impossible — ours are dispatched entirely from `apps/api/campaigns` and
