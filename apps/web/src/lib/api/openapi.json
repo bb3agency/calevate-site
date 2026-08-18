@@ -19210,7 +19210,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Where this list's consent came from (SEC-COMP \u00a73) \u2014 draft campaigns only",
+        "summary": "Where this list's consent came from (SEC-COMP \u00a73) \u2014 before the campaign starts",
         "tags": [
           "campaigns"
         ],

@@ -107,6 +107,18 @@ ALERT_OPTIN_CHANNELS = ("self_serve_console", "operator_recorded")
 # the service cannot drift into three spellings of the same idea.
 ALERT_OPTIN_SELF_SERVE = "self_serve_console"
 ALERT_OPTIN_OPERATOR = "operator_recorded"
+# The `dnc_list.source` values a CLIENT may delete from their own suppression list, and
+# therefore the ONE definition of how STRONG a suppression is. `manual` means "somebody
+# in this office typed it" and a mistyped digit has to be fixable; every other source
+# records a CONSUMER's own request, which an account that can delete it can un-hear
+# (TCCCPR: no re-solicitation of an opted-out subscriber for ninety days).
+#
+# It lives HERE, beside `DncEntry`, rather than in `compliance/dnc.py` where it was
+# written, because two modules need it and they cannot import each other: `dnc.py`
+# normalises through `ingest.service`, which imports `compliance.service`, so
+# `compliance.service` importing `dnc.py` would close a cycle. `dnc.REMOVABLE_SOURCES`
+# re-exports this name and stays the vocabulary the routes speak.
+DNC_REMOVABLE_SOURCES: tuple[str, ...] = ("manual",)
 # The categories a tenant may set a retention period for. Mirrors
 # `ck_retention_policies_category_enum` — the CHECK is the source of truth and this
 # tuple must not drift from it (DATA-MODEL §9, §10).

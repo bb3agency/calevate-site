@@ -184,6 +184,36 @@ async def _resolve_agent(
     return (row[0], row[1]) if row else None
 
 
+async def _withdrawn_route_tenant(
+    session: AsyncSession, engine: str, engine_agent_ref: str | None
+) -> UUID | None:
+    """The tenant a ref USED to belong to, when `_resolve_agent` found nothing.
+
+    Only ever called on the miss path, and only to make the alarm actionable. "We have
+    never heard of this agent" and "this agent's account was erased and its number is
+    still pointed at the voice platform" are the same silence to `_resolve_agent` and
+    completely different jobs for whoever is paged: the first is a mis-provisioned agent
+    (`engine_agent_unmapped` has always meant that), the second is a telephony number
+    somebody has to go and release, and it can only be discovered by a stranger ringing
+    it (D-189, `workers/retention._WITHDRAW_ROUTES_SQL`).
+
+    A tenant id is an id, so hard rule 6 permits it in the alert; the number that is
+    still routed is not ours to log.
+    """
+    if not engine_agent_ref:
+        return None
+    row = (
+        await session.execute(
+            text(
+                "SELECT tenant_id FROM engine_agent_routes "
+                "WHERE engine_agent_ref = :ref AND engine = :engine AND NOT active"
+            ),
+            {"ref": engine_agent_ref, "engine": engine},
+        )
+    ).first()
+    return UUID(str(row[0])) if row else None
+
+
 # --- job 1: ingest ------------------------------------------------------------
 
 # The same ladder, and the same reasoning, as `outbound_webhooks.RETRY_BACKOFF_S`: one
@@ -362,12 +392,34 @@ async def _ingest_stages(
     if resolved is None:
         # An event for an agent we do not know: never invent a tenant, never drop it
         # silently. This is how a mis-provisioned agent gets noticed on day one.
-        alert(
-            "WORKER_TERMINAL",
-            "engine_agent_unmapped",
-            detail=f"engine={engine_name}",
-            execution_id=execution_id,
-        )
+        #
+        # TWO SILENCES, TWO JOBS (D-189). A ref that was never mapped is a
+        # mis-provisioned agent. A ref whose routing was WITHDRAWN is an offboarded
+        # client whose number is still pointed at the voice platform, and somebody has
+        # to release it with the telephony provider — a fact nothing else in the system
+        # can discover, because the only symptom is a stranger ringing the old number.
+        # Both stop the ingest; only one of them is fixed by looking at a publish.
+        async with untenanted_session() as session:
+            withdrawn_for = await _withdrawn_route_tenant(session, engine_name, agent_ref)
+        if withdrawn_for is not None:
+            alert(
+                "WORKER_TERMINAL",
+                "engine_agent_route_withdrawn",
+                detail=(
+                    f"engine={engine_name}; this account's routing was withdrawn "
+                    "(offboarding/erasure) and its number is still live — release it "
+                    "with the telephony provider and remove the agent at the engine"
+                ),
+                tenant_id=str(withdrawn_for),
+                execution_id=execution_id,
+            )
+        else:
+            alert(
+                "WORKER_TERMINAL",
+                "engine_agent_unmapped",
+                detail=f"engine={engine_name}",
+                execution_id=execution_id,
+            )
         if inbox_row_id:
             async with untenanted_session() as session:
                 await mark_inbox_failed(

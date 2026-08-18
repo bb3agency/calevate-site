@@ -194,7 +194,14 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "Copies held by the voice engine are reported as 'unconfirmed_pending_vendor_api'. "
     "The engine's deletion API is undocumented (pilot gate), so this certificate does "
     "not claim a deletion it cannot show. Confirm the engine-side erasure in writing "
-    "before telling the client their data is gone everywhere.",
+    "before telling the client their data is gone everywhere. The agents themselves are "
+    "also still configured at the voice platform, and the telephone numbers are still "
+    "pointed at them by the telephony provider. This erasure withdraws the routing on "
+    "our side, so nothing further reaching those agents is recorded here — but until "
+    "somebody removes the agents at the voice platform and releases the numbers with the "
+    "telephony provider, a person dialling this client's old number still reaches an "
+    "answering agent. Both are manual steps with those vendors, and the first call after "
+    "this certificate is what raises the alarm that they are outstanding.",
     "The knowledge base this client's agents answered from is not erased — the sources "
     "they uploaded, the version currently live, and the copies held by the managed "
     "retrieval service. This erasure has no subject to search that content FOR, so "
@@ -280,18 +287,28 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         ),
     ),
     ErasureLimitation(
-        what="Copies held by the voice engine that carried these calls.",
+        what=(
+            "Copies held by the voice engine that carried these calls, and the agents "
+            "and telephone numbers still configured with those vendors."
+        ),
         keyword="engine",
         outcome="unconfirmed",
         why=(
             "The engine is a third-party platform and its deletion API is undocumented, "
             "so this certificate reports engine-side deletion as "
             "'unconfirmed_pending_vendor_api' rather than claiming something it cannot "
-            "show."
+            "show. The agents are also still configured there and the numbers still "
+            "route to them. This erasure withdraws the routing on our side — the account "
+            "acquires no further caller records — but removing the agents and releasing "
+            "the numbers are manual steps with the voice platform and the telephony "
+            "provider, and until they are taken a caller dialling the old number still "
+            "reaches an answering agent."
         ),
         authority=(
             "SECURITY-COMPLIANCE §4 — the vendor erasure commitment is an open "
-            "contractual item (pilot gate 12(f))."
+            "contractual item (pilot gate 12(f)). FLOWS §9 puts releasing or porting "
+            "the number in the offboarding flow; it is a telephony-provider action, "
+            "not one this system can perform."
         ),
     ),
     ErasureLimitation(

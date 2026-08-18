@@ -2270,7 +2270,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Where this list's consent came from (SEC-COMP §3) — draft campaigns only
+         * Where this list's consent came from (SEC-COMP §3) — before the campaign starts
          * @description The answer path for a draft created before the provenance columns existed.
          *
          *     Audited: a client's assertion about where five thousand phone numbers came from is

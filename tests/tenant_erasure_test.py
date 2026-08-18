@@ -43,6 +43,7 @@ from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
+from apps.workers.pipeline import _resolve_agent, _withdrawn_route_tenant
 from apps.workers.retention import ANONYMIZED_PHONE, REDACTED_MARK, execute_tenant_erasure
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -693,3 +694,68 @@ async def test_audio_inside_the_trai_floor_is_scheduled_rather_than_orphaned() -
     assert proof["scope"]["recordings_within_trai_floor"] == 1
     assert proof["scope"]["recordings_destroyed"] == 0
     assert proof["recording_hold_until"], "the certificate gives a date, not 'indefinitely'"
+
+
+# --- 8. an erased account stops COLLECTING, not just holding (D-189) ------------------
+
+
+@pytest.mark.anyio
+async def test_an_erased_tenant_records_no_further_inbound_call() -> None:
+    """Erasing the account withdraws its voice-platform routing, in the same transaction.
+
+    Every other assertion in this file is about what the tenant HAD. This one is about
+    what it can still ACQUIRE, which nothing stopped: `engine_agent_routes` is the one
+    bridge from the engine's id space into ours (`workers/pipeline._resolve_agent`), the
+    vendor's agent is still configured and the client's number still points at it, so
+    the first inbound call after the certificate was issued re-created a `calls` row and
+    everything hanging off it — full caller records under a tenant_id whose certificate
+    says the account is erased, and which the client's own people are locked out of
+    (`core/auth.py` refuses a churned org).
+
+    Asserted through the real resolver rather than by reading the column, because the
+    resolver is what decides whether a record gets written at all.
+    """
+    tenant_id, agent_id, _ = await _tenant()
+    ref = f"withdrawn_{uuid.uuid4().hex[:10]}"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                "agent_id, active, created_at, updated_at) "
+                "VALUES ('fake', :r, :t, :a, true, now(), now())"
+            ),
+            {"r": ref, "t": tenant_id, "a": agent_id},
+        )
+    await _churn(tenant_id)
+    token = await _admin()
+
+    filed = await _post(token, tenant_id, confirm=_confirm(tenant_id))
+    assert filed.status_code == 201, filed.text
+    request_id = filed.json()["request_id"]
+
+    async with untenanted_session() as session:
+        assert await _resolve_agent(session, "fake", ref) is not None, "live before the erasure"
+
+    await _run_worker(tenant_id, request_id)
+
+    async with untenanted_session() as session:
+        assert await _resolve_agent(session, "fake", ref) is None, (
+            "an erased account is still routing inbound calls into itself"
+        )
+        # The row survives, inactive: it is what tells an operator WHOSE number is still
+        # live when the next stranger rings it, which no other record can answer.
+        assert await _withdrawn_route_tenant(session, "fake", ref) == tenant_id
+
+    async with _client() as http:
+        read = await http.get(
+            f"{BASE.format(tenant_id=tenant_id)}/{request_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    proof = read.json()["proof"]
+    routes = proof["actions"]["engine_agent_routes"]
+    assert routes.startswith("1 voice-platform routing"), routes
+    # And the certificate must not let a reader infer the vendor-side agent went with it.
+    engine_clause = next(
+        line for line in proof["limitations"] if "voice platform" in line and "manual" in line
+    )
+    assert "still reaches an answering agent" in engine_clause
