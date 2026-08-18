@@ -95,6 +95,22 @@ export function needsSecondFactor(error: unknown): boolean {
   return codeOf(error) === AUTHN_CODES.secondFactorRequired;
 }
 
+/**
+ * A step-up refusal: the session is fine, the second factor is stale (D-178, D-210).
+ *
+ * SOFT, like `second_factor_required` and for the same reason — this is a navigation to
+ * a code prompt, not a logout. `isSessionGone` deliberately does not include it, so
+ * nothing here can clear a live session over a five-minute clock.
+ *
+ * NOT the same as `step_up_required`, which is the OTHER half of the gate — the
+ * `X-Confirm-Action` echo — and means the console and the API disagree about the action
+ * string. A code prompt cannot fix that one, so it stays a rendered failure
+ * (`app/admin/ops/writeFailure.tsx`) rather than a prompt.
+ */
+export function needsReauthentication(error: unknown): boolean {
+  return codeOf(error) === AUTHN_CODES.reauthenticationRequired;
+}
+
 /** A 429 from either budget — the failure budget (`too_many_attempts`) or the middleware. */
 export function isRateLimited(error: unknown): boolean {
   const code = codeOf(error);

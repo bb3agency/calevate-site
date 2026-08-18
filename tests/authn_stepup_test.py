@@ -318,7 +318,11 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    assert sites == 15, f"found {sites} step-up call sites, expected 15; the census went stale"
+    # 16: the fifteen dangerous mutations, plus D-210's door —
+    # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
+    # client account rather than on changing something. Counted the same way because the
+    # census is about the pairing, not about the verb.
+    assert sites == 16, f"found {sites} step-up call sites, expected 16; the census went stale"
 
 
 # ═══════════════ the flow that clears the refusal ═══════════════

@@ -15,7 +15,7 @@
  * browser half mirrors that by having no client-realm spelling of it either.
  */
 
-import { createRealmAuthn } from "./realm";
+import { createRealmAuthn, type AuthnSession } from "./realm";
 
 /** The admin realm's session. One instance, module-scoped, never re-created. */
 export const adminAuthn = createRealmAuthn("admin");
@@ -40,4 +40,38 @@ export async function confirmAdminBootstrap(input: {
   password: string;
 }): Promise<void> {
   await adminAuthn.request<void>("/bootstrap/confirm", { method: "POST", body: input });
+}
+
+/* --- Step-up: re-proving a factor without leaving the screen (D-178, D-210) --------
+ *
+ * `POST /v1/auth/admin/step-up` and `.../step-up/verify` are declared on the ADMIN
+ * router only (`apps/api/authn/routes.py`: the client realm requires no second factor,
+ * so a client-realm step-up would be a route with nothing to re-prove and nobody to call
+ * it). The browser half mirrors that structurally by living here and having no
+ * client-realm spelling — the same choice `confirmAdminBootstrap` above makes.
+ *
+ * Both go through `adminAuthn.request`, so both wait on the rotation barrier, and that is
+ * not a detail: answering a step-up code ROTATES the session server-side
+ * (`service.complete_step_up`), and a concurrent request still carrying the retired token
+ * is read as replay and revokes the whole family (RFC 9700 §4.14.2 — `realm.ts`).
+ */
+
+/** Email this operator a `step_up`-purpose code. Issuing one retires the previous. */
+export async function requestAdminStepUp(): Promise<void> {
+  await adminAuthn.request<void>("/step-up", { method: "POST" });
+}
+
+/**
+ * Answer the code, restamping `mfa_verified_at` on this session.
+ *
+ * `reset()` FIRST, exactly as `submitSecondFactor` does and for the same reason: the
+ * route rotates, so no cached rotation result may answer for the session it replaced, and
+ * no restore already in flight may resolve into it.
+ */
+export async function confirmAdminStepUp(code: string): Promise<AuthnSession> {
+  adminAuthn.reset();
+  return await adminAuthn.request<AuthnSession>("/step-up/verify", {
+    method: "POST",
+    body: { code },
+  });
 }

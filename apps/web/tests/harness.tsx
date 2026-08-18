@@ -4,6 +4,7 @@ import type { ReactElement } from "react";
 import { expect, vi } from "vitest";
 
 import { clearImpersonationGrants } from "@/lib/api/admin";
+import { dismissStepUpPrompt } from "@/lib/authn/stepUpPrompt";
 import { API_BASE } from "@/lib/api/client";
 import { ClientRealmProvider } from "@/lib/api/session";
 import { adminAuthn } from "@/lib/authn/adminAuthn";
@@ -177,6 +178,11 @@ export function stubApi(routes: Routes): ApiCall[] {
   // test's screen makes, depending on file order. Cleared where the network is replaced,
   // because that is what the cache is a cache of.
   clearImpersonationGrants();
+  // Same argument, third piece of module state: a step-up prompt left open by one test
+  // would be open when the next one renders the admin shell, and every caller waiting on
+  // it would still be waiting. Dismissing settles them `false`, which is the outcome that
+  // makes a leaked ask fail loudly rather than resolve into a test that never asked.
+  dismissStepUpPrompt();
   const calls: ApiCall[] = [];
   vi.stubGlobal(
     "fetch",
