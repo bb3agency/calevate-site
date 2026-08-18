@@ -734,16 +734,72 @@ async def test_a_list_that_grew_after_its_scrub_does_not_launch_on_it() -> None:
         )
         assert not any(rule.startswith("national_dnd") for rule in _rules(ready))
 
+    # A SEPARATE TRANSACTION, because that is what an upload is (D-313). The rule is now
+    # "was this contact created after the provider fixed the list", and `created_at` is
+    # `now()` — TRANSACTION-start time — so adding contacts inside the same transaction
+    # that recorded the scrub back-dates them to before it. Two requests, two
+    # transactions, which is the only shape this sequence has in production.
+    async with tenant_session(tenant_id) as session:
         await campaign_service.add_contacts(
             session,
             tenant_id=tenant_id,
             campaign_id=campaign_id,
             contacts=[{"phone": "9876500072", "name": None}],
         )
+    async with tenant_session(tenant_id) as session:
         grown = await campaign_service.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id
         )
     assert "national_dnd_scrub_incomplete" in _rules(grown), _rules(grown)
+
+
+async def test_the_scrubs_own_suppressions_do_not_make_room_for_unscrubbed_contacts() -> None:
+    """D-313, and the reason the rule stopped being a count comparison.
+
+    `submitted_count` is measured BEFORE the provider's blocked numbers are marked
+    `dnc_blocked`, so a run that suppressed three leaves the live pending count three
+    below the number the old gate compared it against — and three brand-new contacts the
+    national register never saw fit exactly into that gap with the gate reporting green.
+    Every other way pending falls (a dial, the launch DNC pass, an erasure) widens the
+    same hole.
+    """
+    tenant_id, agent_id, _slug, _token = await _tenant()
+    campaign_id = await _campaign(
+        tenant_id, agent_id, phones=("9876500091", "9876500092", "9876500093")
+    )
+
+    async with tenant_session(tenant_id) as session:
+        recorded = await record_test_scrub(
+            session, campaign_id, blocked_numbers=["9876500091", "9876500092"]
+        )
+    assert recorded.suppressed == 2, "the run has to suppress something to open the gap"
+
+    async with tenant_session(tenant_id) as session:
+        await campaign_service.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": "9876500094"}, {"phone": "9876500095"}],
+        )
+    async with tenant_session(tenant_id) as session:
+        pending = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
+                    "AND status = 'pending'"
+                ),
+                {"cid": campaign_id},
+            )
+        ).scalar()
+        blockers = _rules(
+            await campaign_service.launch_blockers(
+                session, tenant_id=tenant_id, campaign_id=campaign_id
+            )
+        )
+    assert int(pending or 0) <= recorded.submitted, (
+        "the whole point of this case is that the COUNT still looks fine"
+    )
+    assert "national_dnd_scrub_incomplete" in blockers, blockers
 
 
 async def test_a_recorded_scrub_cannot_be_edited_or_deleted() -> None:
