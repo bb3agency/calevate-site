@@ -167,7 +167,13 @@ function Block({ block }: { block: LegalBlock }) {
         >
           {/* The tone in words. Colour is not a signal a screen reader can use, and it is
               not a reliable one on a cheap screen in daylight. */}
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+          {/* `text-ink-muted`, not `-faint`, and the reason is the BACKGROUND rather than
+              the emphasis: this label is the one place the faint tier sits on a tinted
+              panel (`bg-brand-soft/60` composites to #f0f9f4), which costs it the last
+              tenth it needed — measured 4.43:1 in Chromium against the 4.5:1 WCAG 2.2
+              SC 1.4.3 asks for. The muted tier clears it on both tints with room to
+              spare, and a callout's own label was never the faintest thing on the page. */}
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
             {warning ? "Important" : "Note"}
           </p>
           <p className="mt-1 text-[15px] font-semibold text-ink">
@@ -224,7 +230,14 @@ function TableOfContents({ doc }: { doc: LegalDocument }) {
           <li key={section.id}>
             <a
               href={`#${section.id}`}
-              className="text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
+              // `inline-block py-1`, and it is the target box rather than the type that
+              // needed it: WCAG 2.2 SC 2.5.8 wants 24x24 CSS px, and an inline anchor in
+              // a list is exactly as tall as its 20px line box. The SC's "inline"
+              // exception does NOT cover this — it is for a link inside a sentence of
+              // running prose, and a table of contents is navigation, one link per row.
+              // Measured in Chromium: 17px before, 28px after, with no visible reflow
+              // because the `space-y-2` gaps absorb the padding.
+              className="inline-block py-1 text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
             >
               {section.heading}
             </a>
@@ -234,7 +247,7 @@ function TableOfContents({ doc }: { doc: LegalDocument }) {
                   <li key={sub.id}>
                     <a
                       href={`#${sub.id}`}
-                      className="underline decoration-line underline-offset-4 hover:decoration-brand"
+                      className="inline-block py-1 underline decoration-line underline-offset-4 hover:decoration-brand"
                     >
                       {sub.heading}
                     </a>
@@ -333,7 +346,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
               <li key={other.slug}>
                 <Link
                   href={`/legal/${other.slug}`}
-                  className="text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
+                  className="inline-block py-1 text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
                 >
                   {other.shortTitle}
                 </Link>

@@ -14,7 +14,22 @@
   /* Brand. `brand` is the resting green, `strong` the pressed/primary-button green,
      `bright` the accent used for dots, badges and the live-state pip, `soft` the tint
      behind every icon medallion. */
-  --brand: #16a05d;
+  /*
+   * CONTRAST IS NOT A TASTE QUESTION, and `#16a05d` was the wrong answer to it (D-341).
+   *
+   * Measured in Chromium with axe-core on the built pages: white on `#16a05d` is
+   * **3.38:1** and `#16a05d` on white is the same, against WCAG 2.2 SC 1.4.3's 4.5:1
+   * for text under 18.66px/14pt-bold. That is 69 `bg-brand` sites (every primary button,
+   * including the landing page's only call to action) and 35 `text-brand` sites, all
+   * failing, on every route in the product. `#128050` is the same hue and chroma family
+   * one step down: 4.97:1 both ways, 4.54:1 on `--brand-soft`, and still a clear step
+   * lighter than `--brand-strong` so the resting/pressed pair reads as a pair.
+   *
+   * The jsdom axe sweep CANNOT see this — `tests/a11y.ts` disables `color-contrast`
+   * because jsdom has no layout and axe cannot resolve a computed colour without one.
+   * It took a real browser, which is why the number is quoted here rather than the rule.
+   */
+  --brand: #128050;
   --brand-strong: #0f6b3d;
   /* The pressed/hover green under `--brand-strong`. It exists because the primary
      button in the design DARKENS on hover rather than lightening, and approximating
@@ -30,9 +45,25 @@
   --surface: #ffffff;
   --line: #e2e8f0;
 
+  /*
+   * Three text tiers, and ALL THREE clear 4.5:1 on both surfaces (D-341).
+   *
+   * `--text-faint` was `#94a3b8`: **2.56:1** on `--surface`, 2.45:1 on `--app` and
+   * 2.46:1 on the legal parchment. It is not decoration — it carries the field hints
+   * under every form input, the "Operator console" / "Nothing here places a call"
+   * chips in both auth shells, and the definition labels in the privacy notice and the
+   * terms. axe reported it on every public route, 18 nodes on the privacy notice alone.
+   *
+   * Each tier moved down one slate step rather than collapsing into its neighbour, so
+   * the hierarchy the design uses survives: muted `#475569` (7.58:1) and faint
+   * `#64748b` (4.76:1 on white, 4.58:1 on parchment, 4.56:1 on `--app`). There is no
+   * lighter value that passes — 4.5:1 against white bottoms out at about `#697586` —
+   * so "a bit fainter" is not available at AA and pretending otherwise is what put
+   * `#94a3b8` here.
+   */
   --text: #171a1c;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  --text-muted: #475569;
+  --text-faint: #64748b;
 }
 
 /*
@@ -65,8 +96,12 @@
   --line: #1e293b;
 
   --text: #f8fafc;
-  --text-muted: #94a3b8;
-  --text-faint: #64748b;
+  /* The same two-step move as the light palette, in the other direction: `#94a3b8` was
+     6.96:1 on `--surface` and fine, but `#64748b` beneath it was 3.75:1 and was not.
+     Nothing toggles `.dark` yet (see the variant's note above), so this is unreachable
+     today — which is exactly why it is fixed now rather than discovered by the toggle. */
+  --text-muted: #cbd5e1;
+  --text-faint: #94a3b8;
 }
 
 @theme inline {
