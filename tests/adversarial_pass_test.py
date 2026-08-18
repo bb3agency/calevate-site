@@ -297,8 +297,7 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden() -> None
             # A body may also carry an id (`POST /leads/{id}/call` names the agent), and
             # it has to be the NEIGHBOUR's for the same reason the path does.
             sent = {
-                k: (ids.get(v.strip("{}"), v) if isinstance(v, str) else v)
-                for k, v in body.items()
+                k: (ids.get(v.strip("{}"), v) if isinstance(v, str) else v) for k, v in body.items()
             }
             response = await http.request(
                 method, path, headers={**headers, **extra_headers}, json=sent

@@ -567,7 +567,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
  * otherwise render its own refusal, and a screen that half-works against an API refusing
  * every call is worse than one honest page.
  */
-export const MFA_PROBLEM_CODES = ["second_factor_required"] as const;
+const MFA_PROBLEM_CODES = ["second_factor_required"] as const;
 
 /**
  * The admin realm's 30-minute idle bound, warned about rather than sprung.

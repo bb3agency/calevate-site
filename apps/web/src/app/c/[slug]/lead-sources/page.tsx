@@ -1,5 +1,6 @@
 "use client";
 
+import { deliveryRowKeys } from "@/lib/leadSourceRows";
 import { useState, type ReactNode } from "react";
 import {
   CheckCircle2,
@@ -43,7 +44,6 @@ import {
   useRotateLeadSourceSecret,
   useSetLeadSourceActive,
   useTestWebhook,
-  type IngestActivityItem,
   type LeadSource,
   type LeadSourceDryRun,
   type MetaSetup,
@@ -166,43 +166,6 @@ const CREATABLE_SOURCES = ["website_form", "meta_lead_ads", "zoho", "sheets", "c
 
 const sourceLabel = (source: string) => lookup(SOURCE_LABELS, source) ?? source;
 
-/**
- * A React key per delivery row, for a payload that does not carry the row's identity.
- *
- * The old key was `` `${lead_source_id}-${event_key}` ``, above a comment asserting "one
- * inbox row per (source, sender's id) by unique constraint". That is not what arrives
- * here. `apps/api/ingest/routes.py` maps BOTH the `ingest:{digest}` and `meta:{leadgen_id}`
- * provider keyspaces onto the same `lead_source_id` and the same source name, and
- * `IngestActivityItemOut` carries neither the provider string nor the prefix — so the
- * row's real identity is `(provider, event_key)` and the console is handed only the half
- * that cannot tell the two keyspaces apart. `tests/leadSources.test.tsx` already rendered
- * the collision and passed anyway, printing React's duplicate-key warning into a green
- * run; React's documented behaviour on duplicate keys is that children "may be duplicated
- * and/or omitted", which on this table is a row a client is looking at to find out
- * whether their form reached us.
- *
- * THE REAL FIX IS ONE FIELD ON THE SERVER — put the keyspace prefix (or the raw
- * `provider`) on `IngestActivityItemOut`; the route has the value in hand and discards it
- * on the way out. That is `apps/api`'s to make, and this file cannot reach it.
- *
- * What this does instead is refuse to be wrong with the payload it has: identity plus its
- * OCCURRENCE COUNT among identical identities, which is unique by construction whatever
- * the server sends. The rejected alternative is the array index, which is unique too and
- * re-keys every row whenever the 30-second refetch reorders the table — this key survives
- * a reorder for every row whose identity is unambiguous, i.e. all of them until the
- * server actually collides. Delete it, and this comment, when the field lands.
- */
-export function deliveryRowKeys(
-  items: readonly IngestActivityItem[],
-): [IngestActivityItem, string][] {
-  const seen = new Map<string, number>();
-  return items.map((item) => {
-    const identity = `${item.lead_source_id}-${item.event_key}`;
-    const nth = seen.get(identity) ?? 0;
-    seen.set(identity, nth + 1);
-    return [item, nth === 0 ? identity : `${identity}#${nth}`];
-  });
-}
 
 export default function LeadSourcesPage() {
   const session = useClientSession();

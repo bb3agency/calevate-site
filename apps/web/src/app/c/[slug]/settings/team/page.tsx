@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Copy, KeyRound, Mail, ShieldCheck, Trash2, UserMinus, UserPlus } from "lucide-react";
+import { KeyRound, Mail, ShieldCheck, Trash2, UserMinus, UserPlus } from "lucide-react";
 
 import {
   Card,
