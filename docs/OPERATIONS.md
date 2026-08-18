@@ -653,8 +653,8 @@ disclosure + consent verified on a real recording · caps set · backups verifie
 alerts firing to Sri's phone · **error reports and traces verified as ARRIVING (§2 gate
 15) — `check_observability_ready` green is the configuration half and not this item** ·
 client owner trained on Leads table (15-min session) ·
-DPA + privacy notice signed · invoice template ready · **admin-realm MFA switched on in
-the admin Clerk application** · **`GET /healthz/ready` answers `ready` — last, because it
+DPA + privacy notice signed · invoice template ready · **the admin realm's emailed second factor proved on
+staging** (it is on unconditionally — D-177; what needs proving is that the mail arrives) · **`GET /healthz/ready` answers `ready` — last, because it
 is the only item on this list the platform can answer for itself**.
 
 **`/healthz/ready` is the go-live gate and this is the line that polls it.** `core/health.py`
@@ -672,8 +672,11 @@ curl -sS -i -H "Authorization: Bearer <a session holding ops:manage>" \
 ```
 
 200 + `"status":"ready"` is the pass. 503 + `"status":"not_ready"` names its own reason in
-`degradation_mode` — `db_down`, `redis_down`, `queue_stale`, `config_missing` — and
-`config_missing` lists the keys in `fields[]`. **Send the credential**: without
+`degradation_mode` — `db_down`, `schema_behind`, `redis_down`, `queue_stale`,
+`config_missing`, in that priority order — and `config_missing` lists the keys in
+`fields[]`. `schema_behind` (D-390) means THIS IMAGE CARRIES MIGRATIONS THE DATABASE
+HAS NOT APPLIED: run `uv run alembic upgrade head` against it. A database at a
+revision this image has never heard of is a rollback and stays green on purpose. **Send the credential**: without
 `ops:manage` the endpoint answers the status word alone and nothing else (D-128 — it used
 to publish the names of the credentials this deployment had not installed yet, to anyone
 who asked, which is a targeting oracle at exactly the moment it is most useful to a
@@ -690,32 +693,44 @@ vendor.
 **Three of those items have a pass condition that deployed code does not satisfy on its
 own**, stated here because they have previously been read as done:
 
-- **Admin-realm MFA switched on** = a DASHBOARD change in the ADMIN Clerk application
-  (the one whose publishable key is `NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY`), not a
-  deploy. The API already refuses any admin-realm session that did not complete a second
-  factor (`core/auth.py::verify_token`, SEC-COMP §5), and that refusal is the enforcement
-  — but it can only refuse; it cannot make Clerk OFFER a second factor. Two settings, and
-  both must be checked by a human against a live tenant, because neither is observable
-  from this repo:
+- **Admin-realm MFA switched on** = **nothing to switch on any more (D-177), and this
+  entry described a vendor account that does not exist (D-393).** It used to name a DASHBOARD
+  change in "the ADMIN Clerk application" whose publishable key is
+  `NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY`, told an operator to enable TOTP and backup
+  codes, and warned that a custom JWT template dropping the `fva` claim would produce
+  `403 mfa_claim_missing`. There is no Clerk, no such key, no TOTP, no `fva` claim and no
+  such error code — `core/auth._require_second_factor` says so in its own docstring, and
+  `apps/api/authn/` is the only thing that mints a credential. A gate naming a console
+  nobody can open is worse than an unticked gate: it cannot be satisfied and it cannot be
+  refused, so it is carried forward for ever.
 
-  1. **Enable a second-factor strategy and require it** — turn on TOTP (authenticator
-     app) and backup codes in the admin application's user-and-authentication settings,
-     and turn on its "Require MFA" organization/instance setting so operators are walked
-     through enrolment at sign-in. Without this, every operator meets `403 mfa_required`
-     with no way to satisfy it: the console explains the refusal, and that is all it can
-     do. Enrol the first superadmin BEFORE the setting goes live, or the first person to
-     sign in is locked out of the console that would let them fix it.
-  2. **Leave the admin application on the DEFAULT session-token claims.** The check reads
-     the `fva` claim, which is present on the default token and absent from a custom JWT
-     template that does not list it. A template that drops it fails closed —
-     `403 mfa_claim_missing` on every admin route — which is the safe direction and an
-     outage all the same. If a template is ever needed on this realm, `fva` goes in it.
+  **What is true instead.** `authn/service.MFA_REQUIRED_REALMS` is `{"admin"}`, a frozen
+  constant with no setting behind it, so the admin realm's second factor is ON, on every
+  deployment, and cannot be turned off. The factor is an **emailed one-time code**
+  (`LoginStatus` is `otp_required` and not `mfa_required` precisely so the next reader
+  does not go looking for an authenticator app), minted in the same transaction as the
+  session. An admin credential that never answered one carries `mfa_verified_at IS NULL`
+  and is refused `401 second_factor_required` on the auth router and on every other
+  router alike — one code, one condition.
 
-  **Verification is a two-person, five-minute check against staging**, and it is the only
-  proof that counts: sign in as an operator WITHOUT a second factor enrolled and confirm
-  `GET /v1/ops/platform` answers 403 `mfa_required`; enrol, sign out, sign in again, and
-  confirm the same call answers 200. Record the result in `docs/evidence/` the way the
-  backup drill is recorded — an untested auth control is a claim, not a control.
+  **So the real precondition is EMAIL, and it is the same one the alerts gate below
+  needs**: `EMAIL_PROVIDER` + its credential + `NOTIFICATIONS_FROM` + a sender domain
+  verified with the provider. Without them nobody can complete a sign-in, which means
+  nobody can reach the console — and `RESEND_API_KEY` is in `ENV_ONLY_KEYS`, so the
+  credential that fixes it cannot be installed from the console either. That is now a
+  **readiness failure** rather than a boot-log warning (D-392): `/healthz/ready` answers
+  503 `config_missing` and names the missing key in `fields[]`, so this line and the
+  `GET /healthz/ready` item at the top of the checklist are the same question asked once.
+
+  **Its two-person check, unchanged in shape and changed in content**: sign in to the
+  admin console on staging as an operator, confirm the password step answers
+  `otp_required` rather than a session, confirm `GET /v1/ops/platform` with that
+  half-authenticated credential answers `401 second_factor_required`, then answer the
+  emailed code and confirm the same call answers 200. `tests/authn_mfa_test.py` drives
+  both directions against the database; **what staging proves and the tests cannot is
+  that the mail arrives** — which is the whole of what is left outside this repo here.
+  Record the result in `docs/evidence/` the way the backup drill is recorded — an
+  untested auth control is a claim, not a control.
 
   **DONE (D-178), and this entry used to say the opposite**: requiring a FRESH second
   factor for the high-risk actions BACKEND-PATTERNS §7 lists — the big red switch, cap
