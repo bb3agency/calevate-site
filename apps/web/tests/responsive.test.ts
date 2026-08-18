@@ -411,3 +411,53 @@ describe("every scroll container can be reached from a keyboard", () => {
     expect(unnamed, "ScrollRegion with no usable label").toEqual([]);
   });
 });
+
+
+/**
+ * WCAG 2.2 SC 2.5.8 Target Size (Minimum), for the link lists a browser measured under it.
+ *
+ * Chromium + axe over the eleven public routes reported `target-size` on 78 nodes, all of
+ * one shape: an anchor that is the whole content of an `<li>` in a navigation list, so its
+ * box is exactly its line box — 11px in the marketing footer, 17px in a legal document's
+ * table of contents. The SC's "inline" exception does not reach them: that exception is for
+ * a link inside a sentence of running prose, and a list of policy links is navigation.
+ *
+ * The fix is `inline-block` plus vertical padding, which turns a 17px line box into a 28px
+ * target without moving anything (the lists' existing `space-y` gaps absorb it). This rule
+ * is the static half — the browser is the instrument, per this file's header — and it is
+ * written as "these four anchors carry the padding" rather than as a general rule, because
+ * a general one would need layout to tell an anchor that is inline in prose from one that
+ * is a list row of its own. The list below is the one a browser actually measured.
+ */
+describe("a navigation link's tap target", () => {
+  const LEGAL_LINK_LISTS: [string, RegExp][] = [
+    ["lib/legal/document.tsx", /href=\{`#\$\{section\.id\}`\}/],
+    ["lib/legal/document.tsx", /href=\{`#\$\{sub\.id\}`\}/],
+    ["lib/legal/document.tsx", /href=\{`\/legal\/\$\{other\.slug\}`\}/],
+    ["app/page.tsx", /href=\{`\/legal\/\$\{doc\.slug\}`\}/],
+  ];
+
+  it("is at least 24px tall in every legal navigation list", () => {
+    const flat: string[] = [];
+    for (const [file, anchor] of LEGAL_LINK_LISTS) {
+      const source = readFileSync(join(SRC, file), "utf8").split("\n");
+      const at = source.findIndex((line) => anchor.test(line));
+      expect(
+        at,
+        `${file}: no line matching ${anchor} — has the link list moved?`,
+      ).toBeGreaterThan(-1);
+      // The padding has to be on the ANCHOR and not on the `<li>`: SC 2.5.8 measures the
+      // target, and a padded parent leaves the clickable box exactly where it was.
+      const element = source.slice(at, at + 12).join(" ");
+      if (!/className="[^"]*inline-block[^"]*py-1/.test(element)) {
+        flat.push(`${file}:${at + 1}`);
+      }
+    }
+    expect(
+      flat,
+      `these navigation links are only their line box tall, under SC 2.5.8's 24px:\n  ` +
+        `${flat.join("\n  ")}\n` +
+        `Add \`inline-block py-1\` to the anchor's own className.`,
+    ).toEqual([]);
+  });
+});

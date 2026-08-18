@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 
 import { useAdminAccess } from "@/app/admin/access";
-import { WriteFailure } from "@/app/admin/ops/writeFailure";
+import { WriteFailure } from "@/app/admin/writeFailure";
 import {
   Card,
   DANGER_BUTTON,

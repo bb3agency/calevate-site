@@ -67,7 +67,11 @@ const STATUS_ICONS: Record<string, typeof PhoneCall> = {
 };
 
 const STATUS_MEDALLIONS: Record<string, string> = {
-  completed: "bg-brand-soft text-brand",
+  // `text-brand-strong`, like the other thirty `bg-brand-soft` sites. `--brand` on
+  // `--brand-soft` measures 3.08:1 and this pill carries TEXT, so AA wants 4.5:1;
+  // `--brand-strong` gives 6.01:1 on the same ground. `tests/contrastTokens.test.ts`
+  // pins the pairing so the next status colour cannot reintroduce it.
+  completed: "bg-brand-soft text-brand-strong",
   no_answer: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
   busy: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
   voicemail: "bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400",
