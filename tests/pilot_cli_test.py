@@ -28,6 +28,19 @@ from scripts.pilot.safety import PilotRefusedError
 
 
 def _settings(**overrides: Any) -> Settings:
+    """A settings object built from THESE values and nothing the machine happens to hold.
+
+    `_env_file=None` is not optional and this file was missing it: without it
+    pydantic-settings reads the repository's own `.env`, so
+    `test_preflight_names_the_gates_each_missing_item_blocks` — whose whole subject is
+    which keys are ABSENT — asserted about a developer's credentials rather than about
+    the preflight. On a checkout whose `.env` carries `BOLNA_API_KEY` (the ordinary state
+    of a machine that has run the pilot) it failed on a clean process, with nothing
+    concurrent and no ordering involved; on CI, where `.env` does not exist, it passed.
+    `tests/engine_readiness_credentials_test.py::_settings` states the same requirement in
+    its docstring and D-197 is the last time this class of borrowing cost a deploy — this
+    is the one caller that had not been brought into line.
+    """
     base: dict[str, Any] = {
         "app_env": "local",
         "database_url": "postgresql+psycopg://u:p@localhost:5432/x",
@@ -36,7 +49,7 @@ def _settings(**overrides: Any) -> Settings:
         "object_store_bucket": "calevate",
     }
     base.update(overrides)
-    return Settings(**base)
+    return Settings(_env_file=None, **base)  # type: ignore[arg-type]
 
 
 # --- preflight ----------------------------------------------------------------

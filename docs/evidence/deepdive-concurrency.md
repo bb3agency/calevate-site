@@ -301,9 +301,41 @@ raises and alerts on a stable code instead.
 
 ---
 
+## FOUND WHILE SWEEPING, NOT A CONCURRENCY DEFECT
+
+### F-4 — One test asserted about the machine's `.env` instead of about its subject — **PROVEN**, fixed
+
+`tests/pilot_cli_test.py::_settings` built `Settings(**base)` without `_env_file=None`, so
+pydantic-settings read the repository's own `.env`.
+`test_preflight_names_the_gates_each_missing_item_blocks` is entirely about which keys are
+ABSENT, so on any checkout whose `.env` carries `BOLNA_API_KEY` — the ordinary state of a
+machine that has run the pilot — it failed on a clean process with nothing concurrent and
+no ordering involved, while passing on CI, where no `.env` exists. Reproduced by running
+that file alone.
+
+`tests/engine_readiness_credentials_test.py::_settings` states the same requirement in its
+docstring ("`_env_file=None` is not optional") and D-197 is the last time this class of
+borrowing cost a deploy; this was the one caller not brought into line. Fixed by adding
+`_env_file=None`, with the argument in the docstring.
+
 ## STILL OPEN
 
-Nothing here waits on engineering. One thing waits on something outside this repo:
+Nothing here waits on engineering, and nothing waits on a vendor, a registration or a
+commercial term. Two things are handed on rather than fixed:
 
-* **Nothing.** No finding in this pass is blocked on a vendor, a registration or a
-  commercial term.
+1. **`tests/engine_readiness_credentials_test.py::test_bolna_still_answers_exactly_as_it_did`
+   fails in a long ordered run and passes alone.** Not mine, and proven so rather than
+   assumed: it reproduces with both of this pass's new test files excluded from the
+   ordering, and the value it returns is `[]` where it owes `["BOLNA_API_KEY"]` — i.e.
+   something earlier in the run makes a `Settings` built with `_env_file=None` see that
+   key anyway. That is D-197's defect class (`_env_file=None` not meaning no dotenv) and
+   `apps/api/core/settings.py`'s territory, not concurrency or time. F-4 above is the
+   same family and was inside reach; this one needs the culprit identified by bisecting
+   the ordered run, which is the settings/harness sibling's surface.
+2. **The campaign-dispatch tests are not isolated from a second pytest process.** Eight of
+   them failed in one of this pass's control runs (`assert 'pending' == 'dialing'`, "the
+   open window lets the same campaign dial") purely because another worktree was running
+   the suite at the same time: the databases are separate but **Redis is not**, and
+   `campaign_dispatch._tick_lease` and every arq queue live in it. Worth knowing before
+   anybody reads a campaign failure as a code defect. Not fixed here because the fix is a
+   per-run Redis namespace, which is a harness decision affecting every sibling at once.
