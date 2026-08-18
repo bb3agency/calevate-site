@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -129,7 +129,15 @@ class MemberOut(BaseModel):
     summary="Who is on this account's team — ids and display names, never emails",
 )
 async def list_members(
-    session: Session, _: Principal = Depends(requires("org:read"))
+    session: Session,
+    # BOUNDED, like every other list this API serves (D-302). A team picker's page is not
+    # where a tenant's row count belongs: the whole result is materialised in memory and
+    # serialised, so an account that grew past what a picker can render was an allocation
+    # decided by somebody else's data. Two hundred is the house ceiling (`GET /v1/calls`,
+    # `GET /v1/leads`), and it is the DEFAULT here rather than fifty because a picker that
+    # silently shows half a team is a worse failure than a long list.
+    limit: int = Query(200, ge=1, le=200),
+    _: Principal = Depends(requires("org:read")),
 ) -> list[MemberOut]:
     """The team, for any control that has to name a colleague (M3 lead assignment).
 
@@ -155,8 +163,9 @@ async def list_members(
                 "WHERE u.deactivated_at IS NULL "
                 # Named people first, then by seniority of joining: a picker whose order
                 # changes between renders is a picker people mis-click.
-                "ORDER BY u.name NULLS LAST, m.created_at"
-            )
+                "ORDER BY u.name NULLS LAST, m.created_at LIMIT :limit"
+            ),
+            {"limit": limit},
         )
     ).all()
     return [MemberOut(id=row[0], name=row[1], role=row[2]) for row in rows]
@@ -316,7 +325,11 @@ async def invite_member(
     summary="Invitations that can still be redeemed",
 )
 async def list_invitations(
-    session: Session, _: Principal = Depends(requires("org:read"))
+    session: Session,
+    # Bounded for the reason `list_members` is, with one more: an unused invitation is a
+    # row the CALLER mints, so the length of this list is caller-controlled.
+    limit: int = Query(200, ge=1, le=200),
+    _: Principal = Depends(requires("org:read")),
 ) -> list[InvitationOut]:
     """`org:read`, deliberately. Who currently holds a key to this account is part of
     "who has access", which is the question a support session exists to answer; the
@@ -329,7 +342,7 @@ async def list_invitations(
             invited_at=row.invited_at,
             expires_at=row.expires_at,
         )
-        for row in await members_service.list_pending_invitations(session)
+        for row in await members_service.list_pending_invitations(session, limit=limit)
     ]
 
 

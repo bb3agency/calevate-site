@@ -22,11 +22,11 @@ Where the two agree, this document treats it as VERIFIED-SDK.
 |---|---|---|---|
 | 1 | `Cartesia-Version: 2026-04-03`, "which their harness sends on every call setup" | **VERIFIED-SDK — wrong, twice** | `API_VERSION` → `2026-08-14`. `2026-04-03` is `line/voice_agent_app.py:129`, returned by OUR agent to their harness in the `POST /chats` body; it versions the in-call websocket protocol, not the REST API. Test asserts the literal. |
 | 2 | Auth is `X-API-Key` (REPORTED) | **VERIFIED-SDK — superseded** | `Authorization: Bearer <key>`, as both generated clients build for every operation incl. `client.agents.*`. `X-API-Key` is published in Cartesia's own skills repo but beside older version pins. Sending both was rejected: two credential headers hide which one was honoured. |
-| 3 | `POST /agents` creates an agent (INFERRED) | **CONTRADICTED** | No `create` method in either generated client; agents are deployed from git via the `cartesia` CLI. Behaviour unchanged (the port requires the method) — relabelled CONTRADICTED, with the real path written down. Gate 19(a). |
-| 4 | The agent object carries `system_prompt`, `introduction`, `model`, `language`, `webhook_url` | **CONTRADICTED / partly fixed** | `PATCH /agents/{id}` accepts exactly `{description, name, tts_language, tts_voice}`. `language` → `tts_language` (fixed); invented `webhook_url` removed (fixed); `system_prompt`/`introduction`/`model` kept and labelled, because removing them breaks the conformance suite's hard-rule-5 clauses for a reason unrelated to our mapping. Gate 19(a). |
+| 3 | `POST /agents` creates an agent (INFERRED) | **CONTRADICTED** | No `create` method in either generated client; agents are deployed from git via the `cartesia` CLI. Relabelled here; **ACTED ON in D-281** — `create_agent` now refuses through `engine_lacks("agent_hosting")` before any request is built, and `publish_agent` asks the same capability first, so nothing is written. Gate 19(a) is now the confirmation that it really 404s rather than the work. |
+| 4 | The agent object carries `system_prompt`, `introduction`, `model`, `language`, `webhook_url` | **CONTRADICTED / fixed in two steps** | `PATCH /agents/{id}` accepts exactly `{description, name, tts_language, tts_voice}`. D-271 fixed `language` → `tts_language` and removed the invented `webhook_url`, and KEPT `system_prompt`/`introduction`/`model` because removing them broke the suite's hard-rule-5 clauses for a reason unrelated to our mapping. **D-281 removed `_agent_body` entirely**: with `agent_hosting` on the descriptor those clauses branch on the capability instead, so there is no longer a reason to send fields the agent object does not have. Gate 19(a). |
 | 5 | `PATCH /agents/{id}` is the update verb (INFERRED) | **VERIFIED-SDK — right** | No change. The reasoning (partial body must not clear unnamed fields) was right for the right reason. |
 | 6 | `DELETE /agents/{id}` — "NO PUBLIC DOCUMENTATION FOUND" | **VERIFIED-SDK — the route exists** | Finding withdrawn. The remaining assumption is narrower: what a REPEAT delete answers, sharpened by `AgentSummary.deleted_at` hinting at soft deletion. |
-| 7 | `GET /agents/{id}` can read the prompt/greeting/model back | **CONTRADICTED** | `AgentSummary` has none of them. Against a real account every publish scores `unreadable`. Relabelled; behaviour unchanged. Gate 19(a). |
+| 7 | `GET /agents/{id}` can read the prompt/greeting/model back | **CONTRADICTED** | `AgentSummary` has none of them. **D-281**: `get_agent` refuses by name rather than reporting `readable=False` for ever — the tri-state means *the adapter could not FIND the field*, which is a reason to go and look at the adapter, and there is nothing here to find. A permanent `unreadable` verdict is not wrong, not actionable, and indistinguishable from an adapter somebody should fix. Gate 19(a). |
 | 8 | Call id is `agent_call_id` | **VERIFIED-SDK — wrong** | `AgentCall.id`. `_CALL_ID_KEYS` reordered so the verified name leads. |
 | 9 | Timestamps are `started_at`/`created_at`/`ended_at` | **VERIFIED-SDK — wrong** | `start_time`/`end_time`. Fixed, old names kept as fallbacks. Without this every real snapshot had no timestamps. |
 | 10 | Numbers are top-level `from_number`/`to_number` | **VERIFIED-SDK — wrong** | Nested `telephony_params.{from,to}`. Fixed. Open question recorded, not invented away: their docs call `from` the AGENT's number and `to` the CALLER's, which reads inverted on an inbound call, and there is no `direction` field. Gate 19(d). |
@@ -41,19 +41,30 @@ Where the two agree, this document treats it as VERIFIED-SDK.
 | 19 | `POST /agents/calls` places outbound calls | **REPORTED-DOCS only** | Unchanged. Absent from both generated clients; the shape comes from one search snippet. `from_number_id` corroborated as a real concept by `GET /agents/{id}/phone-numbers` returning `{id, number}`. Gate 19(b). |
 | 20 | `/agents/{id}/documents` CRUD (INFERRED from the sourced query path) | **still INFERRED, and weaker** | Neither generated client has a documents resource at all. Also newly noted: even the SOURCED query path authenticates with a per-call agent JWT, not the account key this adapter holds. Unchanged; `knowledge_base=True` stands because retrieval demonstrably exists. Gate 19(f). |
 | 21 | `webhook_auth="hmac"` — "their webhooks are signed (TRD §10.5)" | **REPORTED-DOCS, and probably not an HMAC** | **Deliberately unchanged.** Webhooks exist (`AgentSummary.webhook_id`, VERIFIED-SDK); no SDK carries a scheme; one snippet describes an `x-webhook-secret` SHARED SECRET header. `WebhookAuthMethod` is `hmac\|source_ip\|none`, so there is no truthful third value, and `hmac` is the only one that fails CLOSED in both halves. Comments in the adapter and in `WEBHOOK_AUTH_BY_ENGINE` now say exactly this. Gate 19(e). |
-| 22 | `stt="engine"`, `tts="engine"`, `llm="ours"` | **VERIFIED-SDK — stands** | `PATCH` accepting `tts_voice` does not make TTS ours: the value is a Cartesia voice id addressing Sonic, and nothing in D-36's Bulbul catalogue names one. No flag weakened. |
+| 22 | `stt="engine"`, `tts="engine"`, `llm="ours"` | **VERIFIED-SDK — the speech legs stand; the LLM leg did not** | `PATCH` accepting `tts_voice` does not make TTS ours: the value is a Cartesia voice id addressing Sonic, and nothing in D-36's Bulbul catalogue names one. **`llm` moved `ours` → `engine` under D-281**, from the same evidence that settled `agent_hosting` rather than to make anything pass: `SpeechControl` defines `ours` as "our model strings REACH THE VENDOR", and on Line `LlmAgent(model=...)` lives in the deployed program while `AgentSummary` has no `model`. The VENDOR fact is untouched — Sarvam 105B really does run on Line through LiteLLM — and TRD §10.5's table still says so. See `docs/evidence/engine-port-neutrality.md`. |
 | 23 | `number_series=frozenset()`, `transfer=False` | **unchanged** | Both still correct and still for the reasons already recorded. |
 
 ## What was deliberately NOT done, and why
 
-* **The port was not changed.** `VoiceEngine` requires `create_agent` and a prompt
-  read-back; Cartesia offers neither. Expressing that needs a new `EngineCapabilities`
-  member, a conformance clause that respects it, a `FakeEngine` profile, and a publish
-  path that degrades honestly. Doing it on the same afternoon the evidence arrived would
-  be a large change to the one seam the whole engine story rests on, made against a vendor
-  we have no account with. It is written down instead — in the module docstring, in TRD
-  §10.5's correction 2, and as gate 19(a) — which is the difference between a deferral and
-  a decision.
+* **The port was not changed** — and that deferral is now CLOSED (D-280…D-282,
+  `docs/evidence/engine-port-neutrality.md`). `VoiceEngine` required `create_agent` and a
+  prompt read-back; Cartesia offers neither. Expressing that needed a new
+  `EngineCapabilities` member, a conformance clause that respects it, a `FakeEngine`
+  profile and a publish path that degrades honestly, which was too large to do on the same
+  afternoon the evidence arrived, against a vendor we hold no account with. It was written
+  down instead — module docstring, TRD §10.5 correction 2, gate 19(a) — which is the
+  difference between a deferral and a decision, and the entry is kept here so the next
+  reader can see the deferral was named before it was paid.
+
+  What landed: `EngineCapabilities.agent_hosting` (`control_plane | external_deployment`);
+  `create_agent`, `update_agent`, `get_agent` and `publish_agent` refusing by name;
+  `CallContext.system_prompt` as the per-call home hard rule 5 gets on the second shape,
+  with `require_call_compliance_floor` inside every adapter's dial; **this adapter
+  refusing every dial**, because its outbound body has no prompt field to carry the floor;
+  and `fake.EXTERNAL_DEPLOYMENT_CAPABILITIES` exercising the branch that does dial. Rows 3,
+  4 and 7 below are therefore CONTRADICTED **and acted on**, not CONTRADICTED and left
+  running. Row 22's `llm="ours"` moved to `engine` in the same change and for the same
+  evidence — see the port-neutrality note.
 * **`WebhookAuthMethod` was not widened.** See row 21.
 * **No capability flag was weakened to make anything pass.** The three that could have
   been (`knowledge_base`, `llm`, `tts`) are all unchanged.

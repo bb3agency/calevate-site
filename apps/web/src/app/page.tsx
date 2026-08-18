@@ -756,7 +756,11 @@ export default function Home() {
                   <li key={doc.slug}>
                     <Link
                       href={`/legal/${doc.slug}`}
-                      className="text-ink-faint underline-offset-4 hover:text-ink hover:underline"
+                      // `inline-block py-1`: see `lib/legal/document.tsx`'s table of
+                      // contents for the argument. These eight were an 11px-tall target
+                      // in a wrapped list — the shortest in the product — and this is the
+                      // footer a payment aggregator's reviewer clicks through.
+                      className="inline-block py-1 text-ink-faint underline-offset-4 hover:text-ink hover:underline"
                     >
                       {doc.title}
                     </Link>

@@ -1050,7 +1050,7 @@ why the engine port is where the work belongs:
 | Webhook auth | unsigned → IP allowlist + execution-id dedupe | authenticated by an UNSOURCED scheme — see correction 2 | receiver must not hard-code one model |
 | Indian DID / DLT 140/160 | yes | **no** | **the blocker** — see below |
 | Concurrency | no tier cap | 1/3/5/10 by tier | a business constraint, not a code one |
-| **Agent hosting** | agent object we POST a config into | **the agent IS a deployed git repository** — see correction 2 | **the port does not survive it** |
+| **Agent hosting** | agent object we POST a config into | **the agent IS a deployed git repository** — see correction 2 | `EngineCapabilities.agent_hosting`; publishing refuses by name and the floor rides the call (D-280…D-282) |
 
 > ⚠ **CORRECTION (recorded the day it was found).** This table first said Cartesia Line
 > has **no** built-in knowledge base, and concluded that T0 retrieval would need our own
@@ -1085,17 +1085,29 @@ why the engine port is where the work belongs:
 >   not an HMAC. `WEBHOOK_AUTH_BY_ENGINE["cartesia"]` stays `"hmac"` because it is the only
 >   value in that Literal that fails CLOSED, and the comment there says so.
 >
-> **What this costs, stated plainly.** `VoiceEngine.create_agent` and the
+> **What this cost, and what closed it.** `VoiceEngine.create_agent` and the
 > prompt/greeting/model half of `get_agent` describe a platform Cartesia does not run, so
-> `apps/api/agents/verification.py` would score every publish `unreadable` and hard rule 5
-> could not be enforced from this repository at all — on Cartesia the disclosure lives in
-> the deployed agent program. The port needs a way to say *"this engine does not host an
-> agent of ours"*, which `EngineCapabilities` cannot express today. **That is the real
-> content of "build for the switch", and it is now a named piece of work rather than a
-> reassurance** (OPERATIONS §2 gate 16(a)). The adapter is relabelled, not rewritten: the
-> parts that DO survive — read an agent, rename it, delete it, read a call, list calls —
-> are now verified rather than assumed, and the parts that do not are marked CONTRADICTED
-> at the line.
+> `apps/api/agents/verification.py` would have scored every publish `unreadable` and hard
+> rule 5 could not have been enforced from this repository at all. The port needed a way to
+> say *"this engine does not host an agent of ours"*, which `EngineCapabilities` could not
+> express — so D-270 relabelled the adapter rather than rewriting it, and named the work.
+>
+> ⚠ **THAT WORK IS DONE (D-280…D-282), and `docs/evidence/engine-port-neutrality.md` is the
+> account of it.** `EngineCapabilities.agent_hosting` is
+> `control_plane | external_deployment`; Cartesia declares the second, its three
+> agent-write methods and `publish_agent` refuse by name through the one capability
+> refusal, and the admin console asks the same capability so the Publish button is not
+> offered. **Hard rule 5 did not get weaker to accommodate it**: on the second shape the
+> truthful-answer directive rides `CallContext.system_prompt`, every adapter's dial runs
+> `require_call_compliance_floor`, and an adapter with no request field for a prompt —
+> which is Cartesia's outbound shape today — **refuses every dial** rather than placing one
+> with a weaker floor. `fake.EXTERNAL_DEPLOYMENT_CAPABILITIES` exercises the branch that
+> DOES dial, in CI, with no account. `CARTESIA_CAPABILITIES.llm` moved `ours` → `engine`
+> as a consequence: the vendor really does run Sarvam through LiteLLM (the row above is
+> about the VENDOR and stays correct), but no endpoint this adapter holds can carry a
+> `ModelConfig` value, which is `transfer`'s argument applied to a speech leg. What remains
+> is OPERATIONS §2 **gate 19**, whose (a) and (b) turn two named refusals back into
+> behaviour the hour an API key exists.
 
 **The blocker is telephony, and it is the only one that is not ours to fix in code.** Our
 entire compliance spine — PE/TM registration, DLT headers and templates, the
@@ -1123,14 +1135,20 @@ an unpublished Enterprise price, which resets the analysis rather than continuin
 
 **What we build NOW, and what we deliberately do not.** We build the capability
 descriptor on the engine port, we make the conformance suite prove a capability claim
-rather than trust it, and we run the whole system in tests against a capability-restricted
-engine that dictates speech and answers the KB question differently — the Cartesia shape — so the places
-that cannot survive those answers are found now, cheaply, and not on a migration weekend.
-We do **not** write a Cartesia adapter. This repo's own doctrine says an adapter written
-against an imagined API is worse than none because it looks finished, and Cartesia's docs
-are egress-blocked here, so any adapter written today would be invention with a version
-number on it. The day the trigger fires, the vendor work is one class against a contract
-that has already been proven neutral.
+rather than trust it, and we run the whole system in tests against capability-restricted
+engines — one that dictates speech and answers the KB question differently, and one whose
+agents are deployed to it from elsewhere — so the places that cannot survive those answers
+are found now, cheaply, and not on a migration weekend.
+
+⚠ This paragraph used to end *"We do not write a Cartesia adapter"*, on the sound argument
+that an adapter written against an imagined API is worse than none because it looks
+finished. **One exists** (`apps/api/engine/cartesia.py`), and the argument was right: it
+looked finished, and D-270 found six wire-level facts invented and three methods
+describing endpoints the vendor does not serve. What made the difference was not writing
+less but marking evidence at the line, harvesting the vendor's own generated clients into
+`docs/vendor/cartesia/`, and — D-280…D-282 — teaching the port to REFUSE what the adapter
+cannot do instead of pretending. The day the trigger fires, the remaining vendor work is
+gate 19, not a class.
 
 ### 10.6 Running two engines at once — the concrete Cartesia implementation plan
 

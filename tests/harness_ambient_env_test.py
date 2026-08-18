@@ -142,3 +142,43 @@ def _is_ignored(relative: str) -> bool:
         if line.strip() and not line.startswith("#")
     }
     return relative in patterns or os.path.basename(relative) in patterns
+
+
+def test_the_strip_reaches_the_vendor_keys_a_dev_env_file_carries() -> None:
+    """The widening, and the door it closes (`.env`, not an exported variable).
+
+    `AMBIENT_CREDENTIALS` was written for shell-exported names; `_no_ambient_credentials`
+    now also strips `engine.all_credential_env_keys()`. That matters because pydantic
+    reads this repo's `.env` into the same `os.environ` the strip clears, so a developer
+    holding a real `BOLNA_API_KEY` — which is the normal state of a machine doing vendor
+    work — was running a suite in which two tests asserting a key is ABSENT could not
+    pass. Same class as the `COHERE_API_KEY` case above, one layer wider.
+
+    Asserted against the DERIVED list rather than a literal, so a fourth engine's key is
+    covered here the moment its adapter declares one.
+    """
+    from apps.api.engine import all_credential_env_keys
+
+    keys = all_credential_env_keys()
+    assert keys, "no engine declares a credential key — this assertion would be vacuous"
+    for name in keys:
+        assert name not in os.environ, (
+            f"{name} is visible to the suite. Two readiness tests assert this key is "
+            "ABSENT, so a machine holding one runs a different suite from CI"
+        )
+
+
+def test_every_engine_in_the_literal_has_an_entry_in_the_derived_list() -> None:
+    """The exhaustiveness check inside `all_credential_env_keys` actually fires.
+
+    It raises rather than returning a short tuple, because a silently-missing engine is a
+    key that stops being stripped with nothing going red. This calls it to prove the
+    raise is not sitting behind an unreachable branch.
+    """
+    from typing import get_args
+
+    from apps.api.engine import all_credential_env_keys
+    from calevate_shared.config import EngineName
+
+    all_credential_env_keys()  # raises AssertionError if an engine has no entry
+    assert len(get_args(EngineName)) >= 3, "the Literal shrank — re-read the mapping"

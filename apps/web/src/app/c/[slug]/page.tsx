@@ -226,7 +226,7 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
                   href={href(`/c/${slug}/calls/${call.id}`)}
                   className="flex items-center gap-4 rounded-lg px-4 py-3 hover:bg-black/[0.02] dark:hover:bg-white/[0.03]"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong">
                     {call.status === "completed" ? (
                       <CheckCircle2 className="h-4 w-4" />
                     ) : (

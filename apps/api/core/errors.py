@@ -57,6 +57,52 @@ _DEFAULT_STATUS: dict[ErrorKind, int] = {
 
 _RETRYABLE: frozenset[ErrorKind] = frozenset({"dependency", "transient"})
 
+# THE LADDER'S FLOOR: what a person can DO about a failure of this kind when the raise
+# site said nothing (D-300).
+#
+# `remediation` is one of the five extensions BACKEND-PATTERNS §3 puts on the ladder, and
+# it was the only one that could be absent: `kind`, `retryable`, `title` and `detail` are
+# constructor arguments, `trace_id` comes from the correlation id, and `remediation` was
+# an optional keyword 104 raise sites remembered and 66 did not. The ones that forgot
+# were not the obscure ones — `forbidden()` and `unauthorized()` are raised by
+# `auth.requires()` on EVERY 403 and EVERY 401 in the product, the framework handlers
+# below answer every unknown path, every wrong method and every schema failure, and the
+# generic 500 is what a caller sees when nothing else caught. So the most reachable
+# failures on the whole HTTP surface were the ones with no next step on them, while a
+# rare business rule three modules deep had a sentence.
+#
+# A DEFAULT PER KIND RATHER THAN 66 EDITS, because the alternative rots in one direction
+# only: a new raise site is written by someone reading a neighbouring one, and the
+# neighbour that forgot is the cheaper example to copy. This closes the class instead of
+# its instances — including in `apps/api/engine/`, whose vendor failures surface as 502s
+# to a client who cannot be told to "check the identifier" — and an explicit
+# `remediation=` still wins, so every sentence already written stays exactly as written.
+#
+# Each line is what the CALLER can do, never what we would do: "contact support with the
+# trace id" is an action a person can take, "the team has been alerted" is not.
+_DEFAULT_REMEDIATION: dict[ErrorKind, str] = {
+    "validation": "Correct the fields named in this response and send the request again.",
+    "auth": (
+        "Sign in again — your session may have expired, or this credential is not accepted here."
+    ),
+    "permission": (
+        "Ask an account owner for the permission this action needs, or perform it from an "
+        "account that has it."
+    ),
+    "not_found": "Check the identifier and the account you are signed in to.",
+    "conflict": "Reload the record — something changed since you loaded it — then try again.",
+    "business_rule": "Change the request so it meets the rule described here, then try again.",
+    "dependency": (
+        "An outside service did not answer. Wait a minute and try again; if it keeps "
+        "happening, quote the trace id on this response to support."
+    ),
+    "transient": "Try again in a few seconds.",
+    "internal": (
+        "Try again in a moment. If it keeps happening, quote the trace id on this response "
+        "to support."
+    ),
+}
+
 
 class ProblemError(Exception):
     """Raise this, never HTTPException — the handler renders problem+json.
@@ -100,8 +146,10 @@ class ProblemError(Exception):
         }
         if instance:
             body["instance"] = instance
-        if self.remediation:
-            body["remediation"] = self.remediation
+        # Never absent: the raise site's sentence when it wrote one, this kind's floor
+        # otherwise. `remediation` is the extension a screen renders as the next step, and
+        # a failure with no next step is the one a user files a ticket about.
+        body["remediation"] = self.remediation or _DEFAULT_REMEDIATION[self.kind]
         if self.fields:
             body["fields"] = self.fields
         trace_id = correlation_id_var.get()
@@ -223,12 +271,24 @@ def install_error_handlers(app: FastAPI) -> None:
         }
         fallback: ErrorKind = "internal" if exc.status_code >= 500 else "business_rule"
         kind: ErrorKind = by_status.get(exc.status_code, fallback)
+        # The two the ROUTER raises, which no handler is reached to explain. Their kind's
+        # floor would be wrong for both: a 404 from an unknown PATH is not "check the
+        # identifier and the account", and a 405 lands on `business_rule`'s "change the
+        # request so it meets the rule described here" when the rule is the method itself.
+        by_status_remediation: dict[int, str] = {
+            404: (
+                "Check the URL. If it came from our own console, quote the trace id on "
+                "this response to support."
+            ),
+            405: "Use the HTTP method this endpoint documents — see /docs for the schema.",
+        }
         problem = ProblemError(
             kind=kind,
             code=f"http_{exc.status_code}",
             title=str(exc.detail) if exc.status_code < 500 else "Internal server error",
             detail=str(exc.detail) if exc.status_code < 500 else "Something went wrong.",
             status=exc.status_code,
+            remediation=by_status_remediation.get(exc.status_code),
         )
         headers = dict(exc.headers or {})
         return _problem_response(problem.as_problem(request.url.path), headers)

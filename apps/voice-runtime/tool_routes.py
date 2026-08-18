@@ -54,7 +54,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import Any, Literal
 
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -64,6 +64,7 @@ from apps.api.core.settings import get_settings
 from calevate_shared.client_address import client_ip
 from engine_intake import engine_label, execution_key, verify_source
 from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel, ConfigDict
 
 # The ack accounting, the bounded read and the deadlines, from the receiver that already
 # owns them. Private by convention, not by intent — see the module docstring. `TOOL_ACK`
@@ -90,9 +91,25 @@ OPTOUT_JOB = "record_in_call_optout"
 _MAX_TOOL_BODY = 4096
 
 
+class ToolAckOut(BaseModel):
+    """The in-call tool's ack, declared for the reason `WebhookAckOut` is (D-303).
+
+    "Accepted" is the only thing this route can truthfully say — the suppression is
+    written by a worker a few hundred milliseconds later — so the status is a one-value
+    `Literal` rather than a free string, and the model refuses anything else.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["accepted"]
+    execution_id: str
+    job_id: str
+
+
 @router.post(
     "/{engine}/opt-out",
     status_code=202,
+    response_model=ToolAckOut,
     summary="In-call opt-out (engine custom function) — queues the suppression",
 )
 async def in_call_opt_out(engine: str, request: Request, response: Response) -> dict[str, str]:

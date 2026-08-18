@@ -4,6 +4,8 @@ import Link from "next/link";
 import { use, useState } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2 } from "lucide-react";
 
+import { WriteFailure } from "@/app/admin/writeFailure";
+
 import {
   Card,
   EmptyState,
@@ -124,7 +126,7 @@ export default function CommercialsPage({
             confirmation={terms.data.loosening_confirmation}
             write={write}
           />
-          {save.error != null && <ProblemNotice error={save.error} />}
+          {save.error != null && <WriteFailure error={save.error} />}
           {save.data && (
             <NoticeBox tone={save.data.changed ? "ok" : "neutral"} icon={<CheckCircle2 className="h-5 w-5" />}>
               <p className="text-xs">

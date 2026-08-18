@@ -21,6 +21,7 @@ from calevate_shared.engine import (
     TRUTHFUL_ANSWER_MARKER,
     WEBHOOK_AUTH_BY_ENGINE,
     AgentConfig,
+    AgentHosting,
     CallContext,
     CostBreakdown,
     EngineCapabilities,
@@ -31,6 +32,7 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     VoiceEngine,
+    compose_engine_prompt,
 )
 from calevate_shared.events import TERMINAL_STATUSES, CallStatus
 
@@ -90,6 +92,67 @@ def _agent_config(
     )
 
 
+#: Every hosting shape an engine may declare, DERIVED FROM THE TYPE rather than retyped —
+#: the `NUMBER_SERIES_VALUES` argument, and the reason a third shape cannot be added to the
+#: port without the roster clause below noticing that nothing exercises it.
+AGENT_HOSTING_VALUES: tuple[AgentHosting, ...] = AgentHosting.__args__  # type: ignore[attr-defined]
+
+#: The ref of an agent an EXTERNALLY-DEPLOYED engine already holds.
+#:
+#: On that shape an account HAS agents whether or not our API client made them — they are
+#: programs deployed from a repository — so a clause that needs a ref cannot get one from
+#: `create_agent`, which refuses. Both subjects of this shape answer about this ref: the
+#: Cartesia stub seeds it (`_cartesia_handler`), and `FakeEngine`'s call and knowledge-base
+#: methods are keyed on whatever ref they are given.
+DEPLOYED_AGENT_REF = "agent_deployed"
+
+
+async def _agent_ref(engine: VoiceEngine, cfg: AgentConfig | None = None) -> str:
+    """A ref this engine will answer about — created where it hosts agents, adopted where
+    it does not.
+
+    THE SPLIT IS READ OFF THE CAPABILITY, never off a name, so a third vendor joining the
+    roster lands on the right side of it without anybody remembering to add a branch —
+    the property `http_speaking_engine_ids` gets from deriving by TYPE.
+    """
+    if not engine.capabilities.hosts_agents():
+        return DEPLOYED_AGENT_REF
+    return await engine.create_agent(cfg if cfg is not None else _agent_config(engine))
+
+
+def _dial_context(engine: VoiceEngine, cfg: AgentConfig, **fields: str) -> CallContext:
+    """The context `dispatch_call` would build for THIS engine.
+
+    The suite must not hand every adapter the same context: on a `control_plane` engine the
+    prompt is agent-record state and a per-call copy would be a second authority for one
+    string, while on an `external_deployment` engine it is the only place hard rule 5 can
+    live and a dial without it must be refused. `agents/service._call_prompt_for` makes
+    exactly this decision in production, from the same capability, and a fixture that made
+    it differently would be testing a system we do not run.
+    """
+    prompt = None if engine.capabilities.hosts_agents() else compose_engine_prompt(cfg)
+    return CallContext(system_prompt=prompt, **fields)
+
+
+async def _place_call(engine: VoiceEngine, *, to: str = "+919876543210") -> str | None:
+    """Dial once through whichever shape this engine is, or None if it refuses by name.
+
+    `cartesia` is the refusing case and it is not a failure: its outbound body has no field
+    a prompt could ride in, so it declines every dial rather than placing one with no
+    truthful-answer rule on it (D-282). A clause that needs a placed call has nothing to
+    measure there and says so by skipping, rather than by asserting something weaker.
+    """
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    try:
+        return await engine.start_outbound_call(ref, to, _dial_context(engine, cfg))
+    except Exception as exc:
+        assert _refusal(exc)[0] == "engine_compliance_floor_absent", (
+            f"this adapter refused a dial for a reason other than the compliance floor: {exc!r}"
+        )
+        return None
+
+
 def _assert_cost_is_re_derivable(cost: CostBreakdown) -> None:
     """Hard rule 7, stated as a checkable property.
 
@@ -121,6 +184,12 @@ async def test_adapter_satisfies_the_protocol(engine: VoiceEngine) -> None:
 async def test_create_and_update_agent_returns_a_stable_ref(engine: VoiceEngine) -> None:
     """`engine_agent_ref` is the join key between their world and ours; if it were not
     stable, webhook→tenant resolution would break for every existing agent."""
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     cfg = _agent_config(engine)
     ref = await engine.create_agent(cfg)
     assert isinstance(ref, str) and ref
@@ -151,6 +220,12 @@ async def test_agent_read_back_reports_the_agent_it_was_asked_about(
     PREPENDS the disclosure line, hard rule 5), so `==` would fail on a correctly applied
     update. `AgentSnapshot.carries_prompt_marker` is the contract's answer to that.
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     first = _agent_config(
         engine,
         name="Sunrise Clinic receptionist",
@@ -220,6 +295,12 @@ async def test_a_read_back_carries_the_opening_line_the_engine_was_given(
     into a welcome message, a preamble or a header, and any rendering that KEPT THE TEXT
     satisfies both the rule and this clause.
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     cfg = _agent_config(
         engine,
         agent_id="0199a0b0-0000-7000-8000-00000000000c",
@@ -281,6 +362,12 @@ async def test_every_adapter_puts_the_truthful_answer_rule_on_the_engine(
     the whole deployment. Which is the right direction, and exactly why it must be caught
     here rather than by a client on the phone.
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     cfg = _agent_config(
         engine,
         agent_id="0199a0b0-0000-7000-8000-00000000001d",
@@ -313,6 +400,12 @@ async def test_an_agent_with_no_opening_notice_still_carries_the_truthful_answer
     holding whatever the vendor had before, which is what `verification._greeting_verdict`
     scores in the negative.
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     cfg = _agent_config(
         engine,
         agent_id="0199a0b0-0000-7000-8000-00000000001e",
@@ -406,6 +499,12 @@ async def test_delete_agent_removes_exactly_the_agent_it_names_and_is_idempotent
        carry a marked assumption that a vendor answers 404 rather than 400 to a repeat,
        which no stub can settle (OPERATIONS §2 gate 2).
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     kept = await engine.create_agent(_agent_config(engine, name="Kept receptionist"))
     doomed = await engine.create_agent(
         _agent_config(
@@ -465,6 +564,11 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
         # none there is no dangling handle to ask about, and the clause that DOES apply
         # is `test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods`.
         return
+    if not engine.capabilities.hosts_agents():
+        # D-41's OTHER precondition: the question is "does the AGENT still reference the
+        # handle", and an engine that holds no agent record of ours has no object to ask.
+        # `get_agent` refuses by name there rather than answering `readable=False`.
+        return
     ref = await engine.create_agent(_agent_config(engine))
     handle = await engine.attach_kb(
         ref, KBSourceRef(kb_id="kb_readback", title="Fees", text="A consultation costs 500.")
@@ -492,12 +596,26 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
 
 
 async def test_outbound_call_returns_a_handle(engine: VoiceEngine) -> None:
-    ref = await engine.create_agent(_agent_config(engine))
-    handle = await engine.start_outbound_call(
-        ref,
-        "+919876543210",
-        CallContext(lead_name="Ravi", context_note="Called about the 6pm slot"),
-    )
+    """A dial that IS placed answers with a handle, and the context reaches it.
+
+    An adapter that refuses to dial at all is not a failure of this clause — it is
+    `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`'s subject, and the
+    refusal it must give is asserted there by name. What this clause forbids is the third
+    outcome: a dial that neither places a call nor says why.
+    """
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    try:
+        handle = await engine.start_outbound_call(
+            ref,
+            "+919876543210",
+            _dial_context(engine, cfg, lead_name="Ravi", context_note="Called about the 6pm slot"),
+        )
+    except Exception as exc:
+        assert _refusal(exc)[0] == "engine_compliance_floor_absent", (
+            f"this adapter neither placed the call nor named the compliance floor: {exc!r}"
+        )
+        return
     assert isinstance(handle, str) and handle
 
 
@@ -534,8 +652,9 @@ async def test_ending_a_call_the_engine_does_not_hold_is_reported(
 async def test_execution_snapshot_is_fully_normalized(engine: VoiceEngine) -> None:
     """The isolation boundary (hard rule 2): whatever the vendor sends, what comes out
     is OUR shape, OUR status vocabulary and OUR currency."""
-    ref = await engine.create_agent(_agent_config(engine))
-    handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    handle = await _place_call(engine)
+    if handle is None:
+        return  # this adapter refuses to dial at all — see `_place_call`
     snapshot = await engine.get_execution(handle)
 
     assert isinstance(snapshot, ExecutionSnapshot)
@@ -588,9 +707,18 @@ async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
     Note what is NOT asserted: any field name, anywhere. The suite reads the document's
     length and its parseability and nothing else — it may not look inside either.
     """
-    ref = await engine.create_agent(_agent_config(engine))
-    first = await engine.start_outbound_call(ref, "+919876543210", CallContext(lead_id="lead-1"))
-    second = await engine.start_outbound_call(ref, "+919876543211", CallContext(lead_id="lead-2"))
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    try:
+        first = await engine.start_outbound_call(
+            ref, "+919876543210", _dial_context(engine, cfg, lead_id="lead-1")
+        )
+    except Exception as exc:
+        assert _refusal(exc)[0] == "engine_compliance_floor_absent", repr(exc)
+        return  # this adapter refuses to dial at all — see `_place_call`
+    second = await engine.start_outbound_call(
+        ref, "+919876543211", _dial_context(engine, cfg, lead_id="lead-2")
+    )
     assert first != second, "this engine minted one handle for two calls"
 
     one = (await engine.get_execution(first)).raw_document
@@ -622,8 +750,9 @@ async def test_billable_ready_implies_terminal(engine: VoiceEngine) -> None:
     """The trap this closes: Bolna's cost/recording/transcript are null until
     `completed` (~2-3 min after disconnect). A pipeline that triggered on 'terminal'
     would meter zeros. `billable_ready` must never be true before `terminal`."""
-    ref = await engine.create_agent(_agent_config(engine))
-    handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    handle = await _place_call(engine)
+    if handle is None:
+        return  # this adapter refuses to dial at all — see `_place_call`
     snapshot = await engine.get_execution(handle)
     if snapshot.billable_ready:
         assert snapshot.terminal
@@ -633,8 +762,9 @@ async def test_billable_ready_implies_terminal(engine: VoiceEngine) -> None:
 async def test_transcript_turns_are_ordered_and_speaker_tagged(engine: VoiceEngine) -> None:
     """Extraction, redaction and the call-detail view all index by `idx` and switch on
     `speaker`; a gap or a vendor speaker label leaking through breaks all three."""
-    ref = await engine.create_agent(_agent_config(engine))
-    handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    handle = await _place_call(engine)
+    if handle is None:
+        return  # this adapter refuses to dial at all — see `_place_call`
     snapshot = await engine.get_execution(handle)
     turns = snapshot.transcript
 
@@ -653,8 +783,7 @@ async def test_transcript_turns_are_ordered_and_speaker_tagged(engine: VoiceEngi
 async def test_list_executions_backs_the_reconciliation_poller(engine: VoiceEngine) -> None:
     """D-31 promotes the poller from safety net to guarantee of record — so this
     method is not optional, and it must return the same normalized shape."""
-    ref = await engine.create_agent(_agent_config(engine))
-    await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    await _place_call(engine)
     listing = await engine.list_executions(since=datetime.now(UTC) - timedelta(hours=1))
     rows = listing.snapshots
     assert all(isinstance(r, ExecutionSnapshot) for r in rows)
@@ -788,7 +917,7 @@ async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await engine.create_agent(_agent_config(engine))
+    ref = await _agent_ref(engine)
     handle = await engine.attach_kb(
         ref,
         KBSourceRef(kb_id="kb_1", title="Clinic hours", text="Mon-Sat 9am-8pm", language="te-IN"),
@@ -818,7 +947,7 @@ async def test_detach_kb_actually_removes_exactly_the_source_it_names(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await engine.create_agent(_agent_config(engine))
+    ref = await _agent_ref(engine)
     superseded = await engine.attach_kb(
         ref, KBSourceRef(kb_id="kb_detach_v1", title="Fees", text="A consultation costs 500.")
     )
@@ -858,7 +987,7 @@ async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await engine.create_agent(_agent_config(engine))
+    ref = await _agent_ref(engine)
     reported: Exception | None = None
     try:
         await engine.detach_kb(ref, "kb_this_engine_never_issued")
@@ -949,6 +1078,12 @@ async def test_a_byok_speech_leg_is_accepted_and_a_dictated_one_is_refused_by_na
     on, and this clause is what stops an adapter declaring `engine` and quietly
     accepting anyway.
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     caps = engine.capabilities
     for leg, field, value in (
         ("stt", "stt_model", "saaras:v3"),
@@ -1011,6 +1146,12 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
 
     An adapter with no BYOK leg at all is exempt: there is nothing of ours to read back.
     """
+    if not engine.capabilities.hosts_agents():
+        # This engine's agents are deployed to it from elsewhere: there is no agent record
+        # to create, configure or read back, and all three methods refuse by name. The
+        # clause that measures that refusal — and the alternative home hard rule 5 gets
+        # instead — is `test_agent_hosting_decides_where_the_truthful_answer_rule_lives`.
+        return
     cfg = _agent_config(
         engine, name="Speech read-back", agent_id="0199a0b0-0000-7000-8000-0000000000d0"
     )
@@ -1064,7 +1205,7 @@ async def test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods(
     """
     if engine.capabilities.knowledge_base:
         return
-    ref = await engine.create_agent(_agent_config(engine))
+    ref = await _agent_ref(engine)
     source = KBSourceRef(kb_id="kb_absent", title="Fees", text="A consultation costs 500.")
     for label, call in (
         ("attach_kb", lambda: engine.attach_kb(ref, source)),
@@ -1095,8 +1236,16 @@ async def test_transfer_matches_the_declaration_either_way(engine: VoiceEngine) 
     nothing in the suite could see it. That is the single clearest piece of evidence
     that declarations needed to be checkable.
     """
-    ref = await engine.create_agent(_agent_config(engine))
-    handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    handle = await _place_call(engine)
+    if handle is None:
+        # This adapter refuses to dial, so there is no live call to transfer and the
+        # positive half of this clause has no subject. The NEGATIVE half still runs:
+        # an engine declaring no transfer must refuse one for a call it does not hold.
+        assert not engine.capabilities.transfer, (
+            "this adapter advertises engine-side transfer and cannot place a call to "
+            "transfer, so the claim can never be exercised"
+        )
+        return
     refusal: Exception | None = None
     try:
         await engine.transfer(handle, "+919000000000", warm=False)
@@ -1166,6 +1315,167 @@ async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngi
             f"this adapter declares it cannot provision the {series} series and returned "
             "a number anyway, which would be recorded as dialable"
         )
+
+
+async def test_agent_hosting_decides_where_the_truthful_answer_rule_lives(
+    engine: VoiceEngine,
+) -> None:
+    """HARD RULE 5 ON BOTH SHAPES, AND THE SPLIT DERIVED FROM THE CAPABILITY (D-280/D-282).
+
+    Every clause above this one assumes the engine holds an agent of ours: `create_agent`
+    makes it, `get_agent` reads the prompt back, and `verification.judge` scores the
+    truthful-answer marker on what came back. **That assumption is not a fact about voice
+    engines, it is a fact about Bolna** — TRD §10.5 asked whether this contract is
+    vendor-neutral or merely Bolna-shaped and answered itself, *"those look identical while
+    only one vendor exists"*. On Cartesia Line the agent is a deployed repository: no
+    create endpoint, no prompt on the agent record, nothing to read back.
+
+    So the contract has two shapes, and an engine must satisfy exactly the one it declares.
+    The branch is taken from `EngineCapabilities.agent_hosting`, never from a name, so a
+    third vendor cannot join the roster unmeasured — the same derivation
+    `test_every_adapter_that_speaks_http_is_held_to_the_transport_clauses` uses for the
+    transport ladder (D-240).
+
+    **`control_plane`** — the existing clauses apply unchanged, and this one only checks
+    they were reachable at all: the engine took an agent and the marker came back.
+
+    **`external_deployment`** — three properties, and none of them is a softening:
+
+    1. `create_agent` and `get_agent` REFUSE, naming `agent_hosting`. Not a 404, not a
+       snapshot with `readable=False` for ever: an operator must be able to ask before
+       calling and get the same answer the method gives.
+    2. **A dial without the truthful-answer rule on it is REFUSED.** With no agent record
+       there is nowhere else for the rule to live, so a call placed without it is an agent
+       that can be scripted into claiming it is human — the one thing hard rule 5 exists to
+       make impossible.
+    3. **A dial WITH the rule is either placed, or refused by name.** Both are legitimate
+       and the difference is what the adapter can actually put on the wire. What is NOT
+       legitimate is the third outcome: accepting the dial and dropping the prompt, which
+       is `require_speech_leg`'s silent-drop failure one layer up and is invisible from
+       everywhere except a caller's phone.
+
+    THE NEGATIVE PROBE IS THE FALSIFIER, for `transfer`'s reason: `start_outbound_call`
+    returns a handle and offers no read-back, so "it carried our prompt" and "it dropped
+    our prompt" are the same observation from here. An adapter that can really carry the
+    floor can therefore be required to REFUSE a call that has none — and one that cannot
+    carry it must refuse both. `tests/engine_capability_test.py` observes the positive
+    round trip on the fixture that IS its own vendor, which is the only place it can be
+    observed at all.
+    """
+    cfg = _agent_config(
+        engine, name="Hosting probe", agent_id="0199a0b0-0000-7000-8000-0000000000e0"
+    )
+
+    if engine.capabilities.hosts_agents():
+        ref = await engine.create_agent(cfg)
+        snapshot = await engine.get_agent(ref)
+        assert snapshot.carries_prompt_marker(TRUTHFUL_ANSWER_MARKER) is True, (
+            "this engine declares that it holds our agent, and the rule a client cannot "
+            "switch off is not in what it holds"
+        )
+        return
+
+    for label, call in (
+        ("create_agent", lambda: engine.create_agent(cfg)),
+        ("get_agent", lambda: engine.get_agent(DEPLOYED_AGENT_REF)),
+    ):
+        refusal: Exception | None = None
+        try:
+            await call()
+        except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+            refusal = exc
+        assert refusal is not None, (
+            f"`{label}` succeeded on an engine that declares its agents are deployed "
+            "elsewhere — so either the descriptor is wrong or this adapter is writing to "
+            "an endpoint the vendor does not serve"
+        )
+        assert getattr(refusal, "capability", None) == "agent_hosting", (
+            f"`{label}` refused without naming `agent_hosting`, so a console cannot tell "
+            "a platform that will never host this agent from a platform having a bad day"
+        )
+
+    ref = DEPLOYED_AGENT_REF
+    floorless: Exception | None = None
+    try:
+        await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    except Exception as exc:
+        floorless = exc
+    assert floorless is not None, (
+        "this adapter placed a call with no system prompt on an engine that holds no "
+        "prompt of ours — nothing in that call makes the agent answer truthfully about "
+        "being an AI, and no read-back anywhere could detect it afterwards"
+    )
+    assert _refusal(floorless)[0] == "engine_compliance_floor_absent", (
+        "the refusal does not name the compliance floor, so an operator reading it "
+        f"cannot tell it from a transient dialling failure and will retry: {floorless!r}"
+    )
+
+    # And a dial that DOES carry the floor: placed, or refused by the same named code.
+    # Anything else — a different error, or a success this suite cannot account for — is
+    # an adapter doing something with our prompt that nobody has described.
+    try:
+        handle = await engine.start_outbound_call(ref, "+919876543210", _dial_context(engine, cfg))
+    except Exception as exc:
+        assert _refusal(exc)[0] == "engine_compliance_floor_absent", (
+            "this adapter refused a dial that carried the truthful-answer rule, for a "
+            f"reason that is not the compliance floor: {exc!r}"
+        )
+        return
+    assert isinstance(handle, str) and handle, (
+        "this adapter accepted a floor-carrying dial and returned no handle"
+    )
+
+
+async def test_an_externally_deployed_engine_claims_no_byok_leg(
+    engine: VoiceEngine,
+) -> None:
+    """`ModelConfig` reaches an engine through the agent object, so no agent object means
+    no BYOK leg — derived, not declared per vendor.
+
+    `SpeechControl`'s own docstring is what makes this a contract rule rather than an
+    observation about Cartesia: `ours` means *"our provider and model strings REACH THE
+    VENDOR and run on OUR key"*. Every path by which they could is a write to an agent
+    record — `_agent_body` on Bolna, `PATCH /agents/{id}` on Cartesia — and on an engine
+    whose agents are deployed elsewhere there is no such record and `create_agent`/
+    `update_agent` refuse. A leg declared `ours` there is a claim nothing in this suite
+    could ever contradict, sitting in the same descriptor as six that are enforced and
+    borrowing their credibility — exactly what
+    `test_an_engine_side_campaign_object_is_not_claimable_yet` refuses for `campaigns`.
+
+    The day a vendor of this shape accepts a model on the CALL the way a prompt can ride
+    one, this clause is the thing that has to be rewritten first, and failing it is the
+    intended way to find that out.
+    """
+    if engine.capabilities.hosts_agents():
+        return
+    dictated = [leg for leg in ("stt", "llm", "tts") if engine.capabilities.is_ours(leg)]
+    assert not dictated, (
+        f"this engine holds no agent record of ours and still claims BYOK on {dictated} — "
+        "there is no endpoint through which a ModelConfig value could reach it, so the "
+        "claim cannot be exercised or contradicted by anything"
+    )
+
+
+def test_every_agent_hosting_shape_is_exercised_by_the_roster(
+    declared_agent_hostings: frozenset[str],
+) -> None:
+    """A hosting shape no subject declares is a branch of the contract nothing runs.
+
+    Derived from `AgentHosting` rather than counted, so adding a third shape to the port
+    fails here until a subject declares it — the roster clause's argument
+    (`test_every_adapter_that_speaks_http_is_held_to_the_transport_clauses`) applied to the
+    axis this whole section is about. Without it the `external_deployment` half could be
+    deleted from every adapter and the suite would go green.
+
+    SYNC, like that roster clause and for its reason: its subject is the ROSTER rather than
+    an adapter, and `tests/engine_audit_test.py`'s saboteur harness hands an adapter to
+    every coroutine clause it finds. A saboteur is not a roster.
+    """
+    missing = sorted(set(AGENT_HOSTING_VALUES) - declared_agent_hostings)
+    assert not missing, (
+        f"no adapter in the roster declares {missing}, so every clause that branches on "
+        "agent hosting is measuring one half of the contract"
+    )
 
 
 async def test_an_engine_side_campaign_object_is_not_claimable_yet(

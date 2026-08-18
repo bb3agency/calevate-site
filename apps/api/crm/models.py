@@ -122,6 +122,13 @@ class Call(PKMixin, TimestampMixin, Base):
     # different question and stays where it is.
     crm_notified_at: Mapped[datetime | None]
     engine_payload_ref: Mapped[str | None] = mapped_column(Text)  # raw vendor payload (debug only)
+    # The one-way handle a DPDP erasure leaves behind when it clears this row's numbers
+    # (D-310, migration c1e9a4f7d302). Without it an erased call is orphaned from its
+    # subject forever — the two phone columns were the only join — so records that arrive
+    # for that call AFTER the certificate (a call still in flight when the erasure ran)
+    # could never be reached by the same person's standing instruction. Same construction
+    # as `deletion_requests.subject_ref`, for the same reason.
+    erased_subject_ref: Mapped[str | None] = mapped_column(Text)
 
 
 class TranscriptTurn(PKMixin, TimestampMixin, Base):

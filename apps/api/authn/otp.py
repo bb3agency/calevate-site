@@ -46,6 +46,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.codes import code_fingerprints, new_otp_code
+from apps.api.authn.locks import lock_subject_credentials
 from apps.api.authn.models import AUTHN_REALMS, OTP_PURPOSES
 from apps.api.authn.throttle import OTP_MAX_ATTEMPTS
 from apps.api.core.logging import get_logger
@@ -90,9 +91,18 @@ async def issue_challenge(
     The retirement is `consumed_at = now` rather than a DELETE, so the row survives to be
     counted: a burst of unconsumed challenges for one subject is what a "resend" abuse
     pattern looks like, and deleting the evidence would make it invisible.
+
+    **THE RETIREMENT AND THE MINT ARE ONE CRITICAL SECTION** (D-320). They are two
+    statements, and two overlapping calls used to interleave into two live challenges with
+    both codes valid — measured, not argued — which is precisely the "resend resets the
+    attempt budget" failure the module docstring says this rule prevents.
+    `authn.locks.lock_subject_credentials` is why that can no longer happen; the partial
+    unique index behind it (`ux_auth_otp_challenges_live`) is why a future caller cannot
+    reintroduce it silently.
     """
     _refuse_unknown(purpose, realm)
     at = now or datetime.now(UTC)
+    await lock_subject_credentials(session, realm=realm, subject_id=subject_id)
     await session.execute(
         text(
             "UPDATE auth_otp_challenges SET consumed_at = :now, updated_at = :now "

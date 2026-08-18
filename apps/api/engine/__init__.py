@@ -20,6 +20,8 @@ engine and to ask what it can do.
 
 from __future__ import annotations
 
+from typing import get_args
+
 from calevate_shared.config import EngineName, Settings
 from calevate_shared.engine import EngineCapabilities, VoiceEngine
 
@@ -107,6 +109,51 @@ def missing_engine_credential_keys(cfg: Settings) -> tuple[str, ...]:
     return () if adapter.holds_credentials() else adapter.credential_env_keys
 
 
+def all_credential_env_keys() -> tuple[str, ...]:
+    """Every environment variable ANY engine adapter reads a credential from.
+
+    DERIVED from `EngineName` and the adapters, never retyped — a fourth engine is
+    covered by the function that already exists rather than by an edit somebody has to
+    remember. `credential_env_keys` is a class-level attribute with a default on all three
+    adapters, so this needs no `Settings` and no constructed engine, which is what lets
+    `tests/conftest.py` call it before any configuration exists.
+
+    Its one caller is the test harness. `_no_ambient_credentials` strips these for the
+    same reason it strips `AWS_*`: a developer whose `.env` carries a real vendor key was
+    silently running a DIFFERENT suite from CI, and the two readiness tests that assert a
+    key is ABSENT failed on their machine and nowhere else — the exact class
+    `tests/harness_ambient_env_test.py` was written to end, arriving through a door that
+    file did not cover.
+    """
+    from apps.api.engine.bolna import BolnaEngine
+    from apps.api.engine.cartesia import CartesiaEngine
+    from apps.api.engine.fake import FakeEngine
+
+    # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here.
+    # The first version of this wrote `{"bolna": ..., "cartesia": ..., "fake": ...}` and
+    # `tests/engine_name_drift_test.py` failed it immediately, correctly: this repo has
+    # exactly two homes for that set — `EngineName`/`SELECTABLE_ENGINES` (which names
+    # `ENGINE=` may take) and `WEBHOOK_AUTH_BY_ENGINE` (which names have an authenticity
+    # story) — and a third spelling drifts the first time either grows. The adapters
+    # already declare `name`, so the mapping is derivable and the literal bought nothing.
+    adapters: tuple[type[VoiceEngine], ...] = (BolnaEngine, CartesiaEngine, FakeEngine)
+    by_name = {adapter.name: adapter for adapter in adapters}
+    # Exhaustiveness against the Literal rather than against the tuple above: an engine
+    # added to `EngineName` without an adapter here is a failure, not a credential that
+    # silently stops being stripped.
+    missing = set(get_args(EngineName)) - set(by_name)
+    if missing:
+        raise AssertionError(
+            f"engines with no adapter in all_credential_env_keys: {sorted(missing)}"
+        )
+    keys: list[str] = []
+    for adapter in by_name.values():
+        for key in adapter.credential_env_keys:
+            if key not in keys:
+                keys.append(key)
+    return tuple(keys)
+
+
 def reset_engine_cache() -> None:
     """Tests switch engines between cases; production never calls this."""
     _instances.clear()
@@ -115,6 +162,7 @@ def reset_engine_cache() -> None:
 __all__ = [
     "EngineCapabilities",
     "EngineCapabilityAbsentError",
+    "all_credential_env_keys",
     "build_engine",
     "engine_capabilities",
     "engine_lacks",

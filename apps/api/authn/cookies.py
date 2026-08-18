@@ -175,6 +175,16 @@ def read_token(request: Request, realm: str) -> str | None:
     one. Both leave the stripped name a live credential whenever there is no prefixed one to
     prefer — which is precisely the signed-out visitor the attack targets.
 
+    FOUND TWICE, INDEPENDENTLY (D-198, and again as D-330 by a red-team pass that branched
+    before the fix landed). The second pass drove it over HTTP against a live MFA-complete
+    admin session and reached the same conclusion by a different route, which is worth
+    recording: the defect was not subtle to anyone who looked, only to a reader of the
+    module docstring who took "the prefix defends against fixation" as covering the
+    fallback the next function down was doing. That pass's variant also accepted the
+    PREFIXED name on a plain-HTTP request; this one does not, because a browser will not
+    send a `__Host-` cookie over cleartext anyway and a name that cannot legitimately
+    arrive should not be read.
+
     A deployment that gains TLS between a sign-in and the next request stops reading the
     cookie it wrote and the person signs in again. That is the safe direction, it happens
     once per deployment, and `clear_session_cookie` still clears both names so nothing is

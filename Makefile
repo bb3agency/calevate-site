@@ -3,7 +3,7 @@
 # was missing from this list, which meant a stray file or directory named `guardrails`
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
-.PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
+.PHONY: help dev up down check lint lint-check types test db-reset seed-dev eval eval-ci \
         qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept
@@ -24,6 +24,7 @@ help:  ## List targets
 	@echo '  make check       - lint-check, mypy, pytest+ratchet, guardrails, eval, web [CI gate]'
 	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
+	@echo '  make seed-dev    - LOCAL ONLY: demo tenant + login credentials for both panels'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
 	@echo '  make qa-report CLIENT=slug VERTICAL=clinic - client-facing QA report'
 	@echo '  make qa-report-publish CLIENT=slug VERTICAL=clinic - same, stored for their Quality screen'
@@ -136,6 +137,14 @@ db-reset:
 	uv run python -m scripts.db_reset
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
+
+# NOT part of `db-reset`, and not part of `check`. A developer who wants a populated
+# database asks for one; a developer who wants a clean one must not have three accounts
+# and six calls appear in it because a reset happened to imply them. The script refuses
+# any APP_ENV but `local` on its own (tests/seed_dev_guard_test.py), so this target
+# cannot be the thing that seeds a deployed host either.
+seed-dev:  ## LOCAL ONLY: demo tenant, demo calls, and the login credentials for both panels
+	uv run python -m scripts.seed_dev
 
 # Expanded only when the `eval` recipe actually runs, so `make help` stays quiet.
 # Without it `make eval` ran `--client=` and exited 0 — a harness reporting success
@@ -277,6 +286,13 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# each row saying what it verifies in place of a session, checked against the live
 	# app (D-173). Needs the app to boot, like check_openapi_fresh above it.
 	uv run python -m scripts.check_public_routes
+	# The OTHER thing a route table can be wrong about, and the one no permission check
+	# can see: a response whose LENGTH is decided by somebody's row count. Every
+	# list-shaped response either takes a `limit` the schema bounds, or is declared with
+	# what bounds it instead (a constant, a registry, a schema ceiling, the client count).
+	# Needs the app to boot, like the two checks above it. Negative controls, including
+	# four routes mounted on the real app, live in tests/list_bounds_guard_test.py.
+	uv run python -m scripts.check_list_bounds
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
 	# database and its subject is the SHAPE of the tree — the same class of question
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
@@ -319,6 +335,14 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# set against the Makefile, the package scripts, the decision log and the code's own
 	# vocabulary. Negative controls in tests/docs_drift_guard_test.py.
 	uv run python -m scripts.check_docs_drift
+	# The deploy WORKFLOW against the deploy SCRIPT (D-290). A CD workflow and a deploy
+	# script are two descriptions of one procedure and the workflow is the copy nobody runs
+	# by hand, so every flag it passes must be one the script parses, no step of the script
+	# may be reimplemented in it, and every secret/var it reads must be in DEPLOYMENT.md.
+	# Also `bash -n` on each `run:` block: CI shellchecks `git ls-files '*.sh'` and a
+	# workflow's inline bash is in no such file. Exit 2 = refused. Negative controls in
+	# tests/deploy_workflow_guard_test.py.
+	uv run python -m scripts.check_deploy_workflow
 
 # --- Backup/restore drill (OPERATIONS §6, runbooks/backup-restore-drill.md) ---
 # Its own .PHONY line, same reasoning as the pilot block below.

@@ -16,6 +16,7 @@ import {
   RestrictionNote,
   Skeleton,
 } from "@/components/ui";
+import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
 import {
@@ -396,7 +397,7 @@ function ErasurePanel({
           {erase.isPending ? "Erasing…" : "Erase this client's data"}
         </button>
       </form>
-      {erase.error != null && <ProblemNotice error={erase.error} />}
+      {erase.error != null && <WriteFailure error={erase.error} />}
     </Card>
   );
 }

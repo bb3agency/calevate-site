@@ -51,7 +51,9 @@ do instead is carry the verdict all the way to the screen, so "live" never rende
 without saying what was actually confirmed.
 
 HARD RULE 2. Nothing here imports an adapter or sees a vendor field: it consumes
-`AgentSnapshot` and `EngineCapabilities` and returns our own verdict.
+`AgentSnapshot` and `EngineCapabilities` and returns our own verdict. The one import from
+`apps.api.engine` is the capability REFUSAL — the seam's own vocabulary, not a vendor's —
+and it is the same one every other surface raises for an absent capability.
 
 HARD RULE 6. `detail` names fields and verdicts, never prompt bodies — the strings here
 reach a log line and a banner.
@@ -72,6 +74,7 @@ from calevate_shared.engine import (
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.engine import engine_lacks
 
 log = get_logger(__name__)
 
@@ -107,8 +110,10 @@ class PublishVerification:
     #: The disclosure in the PROMPT — the second copy, and the weaker evidence: an
     #: instruction the model may reorder or drop, not an utterance that is played.
     #: Recorded because both adapters deliberately send it in both places (belt and
-    #: braces, `cartesia._agent_body` argues it), so an engine holding one and not the
-    #: other is a fact worth being able to see rather than one to average away.
+    #: braces, `bolna._agent_body` argues it), so an engine holding one and not the
+    #: other is a fact worth being able to see rather than one to average away. Only a
+    #: `control_plane` engine reaches this at all: an externally-deployed one has no agent
+    #: record to hold either copy, which is why `verify_publish` refuses it outright.
     #: `None` when the agent volunteers no opening at all — there is no second copy of
     #: an empty string, and `"" in anything` is True, which is a verdict about nothing.
     prompt_disclosure_applied: bool | None
@@ -302,6 +307,20 @@ async def verify_publish(
     into the `unreachable` VERDICT and returned. The one thing this function must never
     do is return `applied` because it did not look.
     """
+    # THE ONE EXCEPTION TO "NEVER RAISES", AND IT IS NOT A VENDOR FAILURE (D-281). An
+    # engine whose agents are deployed elsewhere has no prompt to read back at all —
+    # `get_agent` refuses by name — and swallowing that into `unreachable` would record
+    # "the vendor did not answer" about a vendor that answered perfectly and was asked a
+    # question its platform does not have. `unreachable` is a transient thing an operator
+    # retries; this is permanent, and the retry is the cost of confusing them.
+    #
+    # No caller can reach this today: `publish_agent` asks the same capability before it
+    # writes anything, and `engine_drift_for` short-circuits on an agent with no
+    # `engine_agent_ref` — which is every agent on such an engine, because publishing
+    # refuses. It is here so that a FUTURE caller which forgets gets the named refusal
+    # rather than a verdict that reads like a blip.
+    if not engine.capabilities.hosts_agents():
+        raise engine_lacks("agent_hosting", engine=engine.name)
     try:
         snapshot = await engine.get_agent(ref)
     except ProblemError as exc:

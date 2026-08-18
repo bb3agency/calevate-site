@@ -961,7 +961,9 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     return int(version)
 
 
-async def list_sources(session: AsyncSession, *, status: str | None = None) -> list[dict[str, Any]]:
+async def list_sources(
+    session: AsyncSession, *, status: str | None = None, limit: int = 200
+) -> list[dict[str, Any]]:
     """The tenant's sources, newest activity first; `status` filters, RLS scopes.
 
     A status this column cannot hold is REFUSED rather than answered with `[]`. The
@@ -989,9 +991,9 @@ async def list_sources(session: AsyncSession, *, status: str | None = None) -> l
             text(
                 "SELECT id, agent_id, name, kind, status, version, is_active, published_at, "
                 "(SELECT count(*) FROM kb_documents d WHERE d.source_id = kb_sources.id) "
-                f"FROM kb_sources {clause} ORDER BY updated_at DESC"
+                f"FROM kb_sources {clause} ORDER BY updated_at DESC LIMIT :limit"
             ),
-            {"status": status} if status else {},
+            {"status": status, "limit": limit} if status else {"limit": limit},
         )
     ).all()
     return [

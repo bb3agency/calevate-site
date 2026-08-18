@@ -353,3 +353,96 @@ async def test_a_null_reference_is_still_a_legal_draft(
             },
         )
     assert response.status_code == 201, response.text
+
+
+# ── THE FIFTH WRITE PATH (D-331) ─────────────────────────────────────────────
+#
+# D-193 closed four. `POST /v1/admin/tenants/{tenant_id}/numbers` was the fifth, and it
+# was missed because it is the only one of the set on the ADMIN router: it takes its
+# tenant from the path rather than from a session, so it is invisible to a sweep that
+# thinks in terms of "a client naming a neighbour's row". The hazard is identical —
+# `agent_id` is an FK into `agents`, PostgreSQL validates it with row security bypassed,
+# and the row lands in a tenant that cannot see the agent it points at.
+
+
+async def _admin_token() -> str:
+    admin_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, clerk_user_id, email, name, role, "
+                "created_at, updated_at) VALUES (:id, NULL, :email, 'Xref Operator', "
+                "'superadmin', now(), now())"
+            ),
+            {"id": admin_id, "email": f"xref-{admin_id.hex[:10]}@calevate-test.example"},
+        )
+    return f"dev:admin:{admin_id}"
+
+
+def _spare_number() -> str:
+    """A globally unique E.164, because `phone_numbers.e164` is UNIQUE across tenants."""
+    return f"+9198{uuid.uuid4().int % 100_000_000:08d}"
+
+
+async def test_a_provisioned_number_cannot_name_a_neighbours_agent(
+    neighbours: tuple[dict[str, object], dict[str, object]],
+) -> None:
+    """Driven exactly as it was found: 201 before the fix, 404 after.
+
+    404 and never 403, for `db/ownership.py`'s reason — from inside a tenant, "that id is
+    not yours" and "there is no such id" are the same fact, and telling them apart
+    publishes the existence of a neighbour's agents to whoever can type a uuid.
+    """
+    org_a, org_b = neighbours
+    agent_a = await _agent_of(uuid.UUID(str(org_a["id"])))
+    token = await _admin_token()
+
+    async with _client() as http:
+        response = await http.post(
+            f"/v1/admin/tenants/{org_b['id']}/numbers",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"e164": _spare_number(), "series": "160", "agent_id": str(agent_a)},
+        )
+
+    assert response.status_code == 404, response.text
+    assert _problem(response) == "not_found"
+
+    # And nothing was stored. Without this the test would pass against a fix that
+    # refused the RESPONSE after writing the row, which is the shape a late guard takes.
+    async with untenanted_session() as session:
+        stray = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM phone_numbers WHERE agent_id = :aid AND tenant_id = :tid"
+                ),
+                {"aid": agent_a, "tid": org_b["id"]},
+            )
+        ).scalar_one()
+    assert int(stray) == 0
+
+
+async def test_provisioning_a_number_against_this_tenants_own_agent_still_works(
+    neighbours: tuple[dict[str, object], dict[str, object]],
+) -> None:
+    """The non-vacuity half. Without it the fix could be an unconditional refusal and
+    every assertion above would still be green."""
+    _org_a, org_b = neighbours
+    agent_b = await _agent_of(uuid.UUID(str(org_b["id"])))
+    token = await _admin_token()
+
+    async with _client() as http:
+        attached = await http.post(
+            f"/v1/admin/tenants/{org_b['id']}/numbers",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"e164": _spare_number(), "series": "160", "agent_id": str(agent_b)},
+        )
+        # `agent_id` is nullable and a number provisioned before its agent exists is the
+        # ordinary onboarding order — the guard must no-op on None, not refuse it.
+        unattached = await http.post(
+            f"/v1/admin/tenants/{org_b['id']}/numbers",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"e164": _spare_number(), "series": "standard"},
+        )
+
+    assert attached.status_code == 201, attached.text
+    assert unattached.status_code == 201, unattached.text

@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 
+import { WriteFailure } from "@/app/admin/writeFailure";
 import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
@@ -367,7 +368,7 @@ function SecretForm({
         );
       }}
     >
-      {save.error && <ProblemNotice error={save.error} />}
+      {save.error && <WriteFailure error={save.error} />}
       {test.error && <ProblemNotice error={test.error} />}
 
       {/* THE VERDICT, before the value is stored. Rendered as itself rather than as
@@ -633,7 +634,7 @@ export function KeyManagementPanel({
           </>
         )}
 
-        {rewrap.error && <ProblemNotice error={rewrap.error} />}
+        {rewrap.error && <WriteFailure error={rewrap.error} />}
         {rewrap.data && (
           <NoticeBox
             tone={rewrap.data.unreadable.length > 0 ? "stop" : "ok"}

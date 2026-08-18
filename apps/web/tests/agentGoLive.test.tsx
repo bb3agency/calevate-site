@@ -76,6 +76,9 @@ function pending(over: Record<string, unknown> = {}) {
     engine_verification: {
       state: "unverified",
       confirmed: false,
+      // This deployment's engine hosts agents of ours, so Publish is offered at all. The
+      // `false` case has its own test below.
+      publishable: true,
       verified_at: null,
       headline: "This agent is not on the voice platform yet; there is nothing to confirm.",
     },
@@ -216,6 +219,42 @@ describe("putting an agent on the voice platform for the first time", () => {
     expect(
       screen.queryByRole("button", { name: /Publish to the voice platform/ }),
     ).toBeNull();
+  });
+
+  it("offers no publish at all when the voice platform cannot host this agent", async () => {
+    // D-281. This deployment's platform deploys its agents from elsewhere: there is no
+    // create endpoint and no prompt read-back, so `POST /publish` refuses every attempt by
+    // name. A screen that rendered the button anyway would be offering a control the route
+    // cannot honour — the exact divergence the capability descriptor exists to remove, and
+    // the reason `publishable` rides on the same object as the rest of the publish state
+    // rather than on a second endpoint the screen might not ask.
+    await render({
+      [PENDING_PATH]: pending({
+        published: false,
+        engine_verification: {
+          state: "unverified",
+          confirmed: false,
+          publishable: false,
+          verified_at: null,
+          headline:
+            "The voice platform for this account does not host agents built here, so " +
+            "this agent cannot be published to it.",
+        },
+      }),
+    });
+
+    // `findAllByText`, because the same server sentence is deliberately rendered TWICE —
+    // once where the button would be, and once on the read-back card, so an operator who
+    // scrolls straight to "what was confirmed" does not read "nothing confirmed" as a
+    // publish that went wrong. Both copies are the SERVER'S wording, never a second one
+    // this screen invents.
+    expect(await screen.findAllByText(/does not host agents built here/i)).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: /Publish to the voice platform/ }),
+    ).toBeNull();
+    // And it does not fall through to the "never reached the voice platform" warning,
+    // which invites exactly the press this state cannot honour.
+    expect(screen.queryByText(/has never reached the voice platform/)).toBeNull();
   });
 
   it("renders the server's refusal verbatim instead of a sentence of its own", async () => {

@@ -270,6 +270,10 @@ async def list_endpoints(
     # own integration config invisible to the support person looking at their
     # screen, for no security gain: nothing here is written, and secrets are shown
     # as fingerprints only.
+    # Bounded (D-302). An endpoint is a row the CLIENT creates, and `deactivate_endpoint`
+    # is a soft disable — deactivated rows stay on this list — so its length is
+    # caller-controlled and only ever grows.
+    limit: int = Query(200, ge=1, le=200),
     _: Principal = Depends(requires("org:read")),
 ) -> list[EndpointOut]:
     # Every kind, not just `webhook`. The old filter made a `google_sheets` row — the
@@ -281,8 +285,9 @@ async def list_endpoints(
         await session.execute(
             text(
                 "SELECT id, url, events, active, secret_ref, created_at, kind "
-                "FROM outbound_webhooks ORDER BY created_at DESC"
-            )
+                "FROM outbound_webhooks ORDER BY created_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
         )
     ).all()
     return [

@@ -93,11 +93,27 @@ provider field at all).
 
 ## Consequences for `VoiceEngine`
 
-* `create_agent` — **contradicted**. No endpoint. OPERATIONS §2 gate 19(a).
+* `create_agent` — **contradicted**. No endpoint. Since D-281 it REFUSES by name
+  (`engine_lacks("agent_hosting")`) rather than POSTing; OPERATIONS §2 gate 19(a) is now
+  the confirmation that it really 404s, not the work.
 * `update_agent` — path and verb **confirmed**; the body is four fields, and the prompt
-  is not among them. Our compliance prompt cannot reach a Cartesia agent this way.
+  is not among them. Our compliance prompt cannot reach a Cartesia agent this way, so it
+  refuses too: its only caller is a publish whose `create_agent` already refused, and
+  leaving it live would make it reachable only by an adoption path that does not exist.
 * `get_agent` — path **confirmed**; `system_prompt`, `greeting` and `model` can never be
-  read back, so `verification.judge` would report `unreadable` on every publish.
+  read back. It refuses rather than answering `readable=False` for ever: the
+  `AgentSnapshot._readable` tri-state means *the adapter could not FIND the field*, which
+  is a reason to go and look at the adapter, and there is nothing here to find.
+* **Where the prompt goes instead** — nowhere, on this adapter, today. The port's answer
+  for this shape is `CallContext.system_prompt` riding the dial; `POST /agents/calls`
+  (REPORTED-DOCS) has no field for one, and the per-call `agent: {system_prompt,
+  introduction}` read at source belongs to the WebSocket Calls API. So the adapter refuses
+  every dial rather than placing a call with no truthful-answer rule on it (D-282), and
+  gate 19(b) is the observation that changes it.
+* `llm` speech control — **`ours` → `engine`** (D-281). The vendor runs Sarvam through
+  LiteLLM inside the DEPLOYED PROGRAM; `AgentSummary` has no `model` and
+  `AgentUpdateParams` is four fields none of which is one, so no `ModelConfig` value can
+  reach this engine through this port. Same argument as `transfer=False`.
 * `delete_agent` — path and verb **confirmed** (previously marked "no public
   documentation found"). What a repeat delete answers is still unverified.
 * `provision_number` — `GET /agents/{id}/phone-numbers` exists, so numbers are attached

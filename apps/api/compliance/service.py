@@ -119,9 +119,28 @@ def ist_now() -> datetime:
 def within_calling_hours(
     now_ist: datetime | None = None, window: tuple[time, time] = DEFAULT_WINDOW
 ) -> bool:
+    """HALF-OPEN: `start <= t < end`, so 21:00:00 IST is OUTSIDE (D-311).
+
+    The rule is written as a PROHIBITION, not as a permission: TCCCPR 2018 forbids a
+    commercial communication "between 2100 hours and 0900 hours" (TRAI's own framing,
+    carried forward from TCCCPR 2010 reg. 12 and unchanged by the Second Amendment of
+    12 Feb 2025). 21:00:00 is the first instant of the forbidden band, not the last of
+    the permitted one — so an inclusive upper bound, which is what this was, put a dial
+    on the wrong side of it for the whole of the 21:00:00 second. A subscriber's
+    complaint carries a wall-clock time, and "21:00" on a complaint is a violation on
+    its face whatever our comparison operator thought.
+
+    It also makes this repo say one thing about a time window: `agents/business_hours.
+    is_after_hours` already uses `opens <= t < closes`, and two conventions for one
+    concept is the drift CLAUDE.md names as a defect even when both work — with the
+    extra property here that the two disagreed in the UNSAFE direction.
+
+    The lower bound stays inclusive, and that asymmetry is the rule's: 09:00:00 is the
+    first instant OUTSIDE the forbidden band, so the window opens on it.
+    """
     current = (now_ist or ist_now()).time()
     start, end = window
-    return start <= current <= end
+    return start <= current < end
 
 
 # The client-facing wording of the two lifecycle refusals. Shared with the campaign

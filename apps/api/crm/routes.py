@@ -1301,7 +1301,12 @@ async def call_lead(
 )
 async def performance_panel(
     session: Session,
-    days: int = 30,
+    # BOUNDED at both ends (D-302). `days` was an unbounded int that goes straight into
+    # the window of four aggregate scans of `calls`, so `?days=100000` was a full-table
+    # aggregate any `calls:read` holder could ask for, repeatedly, inside the ordinary
+    # rate limit. A year is past every window this panel offers and is a cheap ceiling;
+    # `ge=1` refuses the zero-width window that returned a panel of zeroes.
+    days: int = Query(30, ge=1, le=365),
     _: Principal = Depends(requires("calls:read")),
 ) -> PerformanceOut:
     # `model_validate`, not a passthrough: the model is `extra="forbid"`, so a key the

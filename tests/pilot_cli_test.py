@@ -28,6 +28,17 @@ from scripts.pilot.safety import PilotRefusedError
 
 
 def _settings(**overrides: Any) -> Settings:
+    """A configuration these tests DECLARE rather than borrow.
+
+    `_env_file=None` is the load-bearing argument and its absence was a real failure:
+    without it pydantic-settings reads this repo's own `.env`, so on a machine that had a
+    real `BOLNA_API_KEY` in it the preflight found a key the test never gave it and
+    `blocked_gates()` came back without the three API gates — a KeyError, on that machine
+    and nowhere else. `engine_readiness_credentials_test._settings` already carried the
+    argument and the comment; this is the same file's sibling, brought into line rather
+    than fixed a second way. `tests/conftest._no_ambient_credentials` now strips the
+    vendor keys from `os.environ` too, which closes the other half of the same door.
+    """
     base: dict[str, Any] = {
         "app_env": "local",
         "database_url": "postgresql+psycopg://u:p@localhost:5432/x",
@@ -36,7 +47,7 @@ def _settings(**overrides: Any) -> Settings:
         "object_store_bucket": "calevate",
     }
     base.update(overrides)
-    return Settings(**base)
+    return Settings(_env_file=None, **base)  # type: ignore[arg-type]
 
 
 # --- preflight ----------------------------------------------------------------

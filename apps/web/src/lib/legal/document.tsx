@@ -231,7 +231,7 @@ function TableOfContents({ doc }: { doc: LegalDocument }) {
           <li key={section.id}>
             <a
               href={`#${section.id}`}
-              className="text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
+              className="inline-block py-1 text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
             >
               {section.heading}
             </a>
@@ -241,7 +241,7 @@ function TableOfContents({ doc }: { doc: LegalDocument }) {
                   <li key={sub.id}>
                     <a
                       href={`#${sub.id}`}
-                      className="underline decoration-line underline-offset-4 hover:decoration-brand"
+                      className="inline-block py-1 underline decoration-line underline-offset-4 hover:decoration-brand"
                     >
                       {sub.heading}
                     </a>
@@ -341,7 +341,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
               <li key={other.slug}>
                 <Link
                   href={`/legal/${other.slug}`}
-                  className="text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
+                  className="inline-block py-1 text-ink underline decoration-line underline-offset-4 hover:decoration-brand"
                 >
                   {other.shortTitle}
                 </Link>

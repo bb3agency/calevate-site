@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 
+import { WriteFailure } from "@/app/admin/writeFailure";
 import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
@@ -960,8 +961,8 @@ function ConfigForm({
       {/* Suppressed while the conflict box is up: it is carrying the same refusal, with
           the choices attached. Every other failure still gets the full problem+json
           rendering, including its remediation. */}
-      {!refused && save.error && <ProblemNotice error={save.error} />}
-      {!refused && revert.error && <ProblemNotice error={revert.error} />}
+      {!refused && save.error && <WriteFailure error={save.error} />}
+      {!refused && revert.error && <WriteFailure error={revert.error} />}
 
       <label className="block">
         <span className={FIELD_LABEL}>New value</span>

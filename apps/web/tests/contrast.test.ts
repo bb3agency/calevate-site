@@ -259,6 +259,41 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
     ).toEqual([]);
   });
 
+  it("puts no text-brand on a bg-brand-soft ground", () => {
+    /*
+     * The sibling of the `bg-brand` scan above, and it caught a live one.
+     *
+     * `--brand` on `--brand-soft` is 3.08:1. That pairing was the "completed" pill on the
+     * calls screen and one medallion on the client home — small text on the busiest
+     * screen the client console has. Thirty other `bg-brand-soft` sites already wrote
+     * `text-brand-strong` (6.01:1 on the same ground), so those two were outliers rather
+     * than a convention, and the palette-level guard in `contrastTokens.test.ts` could
+     * not see them: the tokens are each fine, it is the COMBINATION that is not.
+     *
+     * Scanned per line, like the `bg-brand` check, because that is where the pairing is
+     * written. A className split across lines would slip through — accepted for the same
+     * reason it is accepted there: every occurrence in this tree is on one line, and a
+     * scan that tried to reassemble JSX would be a parser with its own bugs.
+     */
+    const files = sourceFiles();
+    expect(files.length, "no source files — this scan is looking nowhere").toBeGreaterThan(40);
+    const offenders: string[] = [];
+    for (const file of files) {
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, index) => {
+          if (!/bg-brand-soft/.test(line)) return;
+          if (!/(?<![-\w:])text-brand(?=[ "'`])/.test(line)) return;
+          offenders.push(`${relativeToWeb(file)}:${index + 1}`);
+        });
+    }
+    expect(
+      offenders,
+      "`text-brand` on `bg-brand-soft` is 3.08:1 — below WCAG 1.4.3 AA. Use " +
+        "`text-brand-strong` (6.01:1), which is what every other bg-brand-soft site uses.",
+    ).toEqual([]);
+  });
+
   it("refuses white text on --brand, which is a fill and not a button", () => {
     // `components/ui.tsx` argues this in prose above `PRIMARY_BUTTON`: #16A05D is the
     // medallion and fill colour, #0F6B3D is the button. The marketing page had put white

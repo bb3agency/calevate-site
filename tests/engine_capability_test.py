@@ -22,13 +22,23 @@ Three questions, one file, and none of them is answered by the conformance suite
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
 
 import httpx
 import pytest
-from apps.api.engine import engine_capabilities, engine_lacks
+from apps.api.core.errors import ProblemError
+from apps.api.engine import (
+    engine_capabilities,
+    engine_lacks,
+    require_capability,
+)
+from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.capabilities import (
     ENGINE_CAPABILITY_ABSENT,
+    ENGINE_COMPLIANCE_FLOOR_ABSENT,
     NO_CREDENTIALS_REASON,
     EngineCapabilityAbsentError,
 )
@@ -41,8 +51,32 @@ from apps.api.engine.cartesia import (
     CartesiaEngine,
     parse_transcript,
 )
-from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
-from calevate_shared.engine import WEBHOOK_AUTH_BY_ENGINE, CallContext
+from apps.api.engine.fake import (
+    DEFAULT_FAKE_CAPABILITIES,
+    DICTATED_SPEECH_CAPABILITIES,
+    EXTERNAL_DEPLOYMENT_CAPABILITIES,
+    FakeEngine,
+)
+from calevate_shared.engine import (
+    TRUTHFUL_ANSWER_DIRECTIVE,
+    TRUTHFUL_ANSWER_MARKER,
+    WEBHOOK_AUTH_BY_ENGINE,
+    AgentConfig,
+    CallContext,
+    ModelConfig,
+)
+
+
+def _agent_config() -> AgentConfig:
+    """A minimal publishable agent — every adapter's write methods take one of these."""
+    return AgentConfig(
+        tenant_id="0199a0b0-0000-7000-8000-000000000001",
+        agent_id="0199a0b0-0000-7000-8000-000000000002",
+        name="Sunrise Clinic receptionist",
+        direction="inbound",
+        system_prompt="You are the receptionist for Sunrise Clinic.",
+        opening_line="Idi AI assistant.",
+    )
 
 
 def _cartesia(*, api_key: str | None = "k", from_number_id: str | None = "num_1") -> CartesiaEngine:
@@ -109,7 +143,13 @@ async def test_an_engine_without_credentials_refuses_through_the_one_shared_buil
     raised: ProblemError | None = None
     with caplog.at_level("WARNING"):
         try:
-            await unconfigured.get_agent("anything")
+            # `get_execution`, NOT `get_agent`: since D-281 the prompt read-back refuses on
+            # `agent_hosting` before it ever looks for a credential, which is the right
+            # ORDER (a platform that will never answer the question is a stronger fact than
+            # a missing key) and makes it useless as a credential probe. Reading a call is a
+            # verified Cartesia operation, so it reaches the vendor boundary and refuses
+            # there — which is the thing this clause is about.
+            await unconfigured.get_execution("anything")
         except ProblemError as exc:
             raised = exc
     assert raised is not None, "an adapter with no credential must refuse at the boundary"
@@ -194,14 +234,27 @@ async def test_cartesia_will_not_dial_without_a_caller_id() -> None:
     """
     with pytest.raises(Exception) as raised:
         await _cartesia(from_number_id=None).start_outbound_call(
-            "agent_1", "+919876543210", CallContext()
+            "agent_1",
+            "+919876543210",
+            # A floor-CARRYING context, because since D-282 an empty one is refused one
+            # line earlier: this adapter's agents are deployed elsewhere, so a dial with no
+            # truthful-answer rule on it never reaches the caller-id question. Passing the
+            # composed prompt is what makes this clause still measure the ORDER it names.
+            CallContext(system_prompt=f"Script.\n\n{TRUTHFUL_ANSWER_DIRECTIVE}"),
         )
     # ITS OWN CODE. This asserted `engine_not_configured`, which is the CREDENTIAL
     # refusal — one machine code for two causes (P2.6). An operator reading a
     # problem+json `type` could not tell "we hold no API key" from "we hold an API key
     # and no outbound number": different fixes, different people, and the remediation
     # text was already saying so in prose while the machine field said otherwise.
-    assert getattr(raised.value, "code", "") == "engine_caller_id_not_configured"
+    # THE FLOOR OUTRANKS THE CALLER ID, and that ordering is now what this clause pins.
+    # Both refusals are named and both are correct; the one that must come first is the
+    # compliance failure rather than the configuration one, because an operator who fixes a
+    # caller id and dials again must not discover the floor problem on a live line. The
+    # caller-id branch itself is unreachable on this adapter until gate 19(b) says which
+    # outbound field carries a prompt, and `_agent_body`'s removal is why: see
+    # `test_cartesia_refuses_every_dial_because_the_floor_cannot_ride_the_call`.
+    assert getattr(raised.value, "code", "") == ENGINE_COMPLIANCE_FLOOR_ABSENT
 
 
 async def test_cartesia_pins_the_api_version_on_every_request() -> None:
@@ -216,7 +269,7 @@ async def test_cartesia_pins_the_api_version_on_every_request() -> None:
 
     def capture(request: httpx.Request) -> httpx.Response:
         seen.update(dict(request.headers))
-        return httpx.Response(200, json={"id": "agent_1"})
+        return httpx.Response(200, json={"documents": []})
 
     engine = CartesiaEngine(api_key="secret", from_number_id="n1")
     engine._client = httpx.AsyncClient(  # the client `_http` would build, with our transport
@@ -227,7 +280,10 @@ async def test_cartesia_pins_the_api_version_on_every_request() -> None:
         },
         transport=httpx.MockTransport(capture),
     )
-    await engine.get_agent("agent_1")
+    # `list_kb`, NOT `get_agent`: since D-281 the prompt read-back refuses on
+    # `agent_hosting` before building a request, so it can no longer prove a header was
+    # sent. Any operation this adapter still performs does — this one is a plain GET.
+    await engine.list_kb("agent_1")
 
     assert seen.get("cartesia-version") == API_VERSION
     assert seen.get("authorization") == "Bearer secret"
@@ -400,16 +456,30 @@ def test_cartesia_declares_no_indian_number_class() -> None:
         assert not CARTESIA_CAPABILITIES.provisions(series)  # type: ignore[arg-type]
 
 
-def test_cartesia_keeps_the_one_byok_leg_and_gives_up_the_other_two() -> None:
-    """The founder's instinct, scored. Right about the LLM, wrong about speech.
+def test_cartesia_claims_no_byok_leg_through_a_port_that_reaches_no_agent() -> None:
+    """The founder's instinct was right about the VENDOR, and this port cannot use it.
 
     Line routes the LLM through LiteLLM (`model=` + `api_key=`), so D-36's free-per-token
-    Sarvam leg survives the move. Its TTS/STT config carries a Cartesia `voice_id` and a
-    language and NO provider field, so those two legs are the engine's. One of three.
+    Sarvam leg really does run on Line — TRD §10.5's table says so about the VENDOR and
+    stays correct. What changed under D-281 is the reading of `SpeechControl`, whose own
+    docstring defines `ours` as "our provider and model strings REACH THE VENDOR": on this
+    platform `LlmAgent(model=...)` is a constructor call inside the DEPLOYED PROGRAM,
+    `AgentSummary` carries no `model`, and `AgentUpdateParams` is four fields none of which
+    is one. There is no endpoint this adapter holds through which a `ModelConfig` value
+    could arrive — the same argument `transfer=False` already makes about a transfer
+    feature the vendor genuinely has.
+
+    NOT a flag weakened to make something pass. It is the descriptor saying LESS, derived
+    from the same VERIFIED-SDK absence that settled `agent_hosting` — and with the three
+    agent-write methods refusing, `require_speech_leg` no longer runs on this adapter at
+    all, so `llm="ours"` would have become a claim nothing could contradict.
     """
-    assert CARTESIA_CAPABILITIES.is_ours("llm") is True
-    assert CARTESIA_CAPABILITIES.is_ours("tts") is False
-    assert CARTESIA_CAPABILITIES.is_ours("stt") is False
+    assert CARTESIA_CAPABILITIES.agent_hosting == "external_deployment"
+    for leg in ("stt", "llm", "tts"):
+        assert CARTESIA_CAPABILITIES.is_ours(leg) is False, (
+            f"`{leg}` is declared ours on an engine that holds no agent record of ours, so "
+            "nothing in this repository could send a value for it or read one back"
+        )
 
 
 # --- 3. the receiver's table matches the adapters ------------------------------
@@ -423,7 +493,232 @@ def test_every_engine_in_the_webhook_auth_table_is_an_engine_we_ship() -> None:
     deleted — would leave the receiver authenticating deliveries for a name nothing can
     produce, and no adapter-side test can see it because no adapter has that name.
     """
-    shipped = {"bolna", "fake", "fake-restricted", "cartesia"}
+    shipped = {"bolna", "fake", "fake-restricted", "fake-deployed", "cartesia"}
     assert set(WEBHOOK_AUTH_BY_ENGINE) == shipped
     assert WEBHOOK_AUTH_BY_ENGINE["cartesia"] == "hmac"
     assert WEBHOOK_AUTH_BY_ENGINE["bolna"] == "source_ip"
+
+
+# --- 4. agent hosting: the two homes hard rule 5 has (D-280..D-282) -------------
+
+
+async def test_cartesia_refuses_the_three_agent_methods_that_describe_no_endpoint() -> None:
+    """D-281. The port used to require a create endpoint Cartesia does not serve.
+
+    `cartesia-python`'s `AgentsResource` has `retrieve`, `update`, `list`, `delete`,
+    `list_phone_numbers` and `list_templates` and NO `create`; `AgentSummary` carries
+    `git_repository`/`git_deploy_branch` and no prompt, greeting or model. D-270 could
+    only relabel the three methods that assume otherwise, because `EngineCapabilities`
+    had no way to say "this engine does not host an agent of ours". It has one now.
+
+    ALL THREE, and by the SAME capability: a caller that asked before calling must get
+    the answer the method gives, which is the whole of D-93. `create_agent` refusing
+    while `update_agent` accepted would leave the second reachable by any caller
+    supplying a ref it invented — and on this shape every ref is invented.
+    """
+    engine = _cartesia()
+    cfg = _agent_config()
+    for label, call in (
+        ("create_agent", lambda: engine.create_agent(cfg)),
+        ("update_agent", lambda: engine.update_agent("agent_1", cfg)),
+        ("get_agent", lambda: engine.get_agent("agent_1")),
+    ):
+        with pytest.raises(EngineCapabilityAbsentError) as raised:
+            await call()
+        assert raised.value.capability == "agent_hosting", label
+        problem = raised.value.as_problem()
+        assert problem["remediation"], f"`{label}` refused with nothing a human can do"
+        assert "cartesia" not in str(problem).lower(), (
+            "the vendor name reached a client (hard rule 2) — which engine is running is "
+            "our deployment detail and a client cannot act on it"
+        )
+
+
+async def test_cartesia_refuses_every_dial_because_the_floor_cannot_ride_the_call() -> None:
+    """D-282. Hard rule 5 did not get weaker to accommodate an engine that cannot hold it.
+
+    With no agent record, the truthful-answer directive can only reach a Cartesia call as
+    per-call data. The outbound shape this adapter implements (`POST /agents/calls`,
+    REPORTED-DOCS) names `from_number_id`, `agent_id`, `ringing_timeout_seconds` and
+    `outbound_calls` — no prompt field — and the per-call prompt that IS read at source
+    (`agent: {system_prompt, introduction}` on a `start` event) belongs to the WebSocket
+    Calls API, which this adapter does not speak.
+
+    So it refuses, and it refuses even when the CALLER supplies a perfectly good prompt:
+    `require_call_compliance_floor` is asked what this adapter puts ON THE WIRE, not what
+    it was handed. A context-shaped check would have let a floor-carrying context satisfy
+    the guard while the request body dropped it — the silent drop the guard exists for.
+    """
+    engine = _cartesia()
+    carried = CallContext(system_prompt=f"Script.\n\n{TRUTHFUL_ANSWER_DIRECTIVE}")
+    for label, ctx in (("no prompt", CallContext()), ("a valid prompt", carried)):
+        with pytest.raises(ProblemError) as raised:
+            await engine.start_outbound_call("agent_1", "+919876543210", ctx)
+        assert raised.value.code == ENGINE_COMPLIANCE_FLOOR_ABSENT, (
+            f"dialling with {label} was refused for some other reason, or placed"
+        )
+
+
+async def test_an_externally_deployed_engine_carries_our_prompt_onto_the_call() -> None:
+    """THE POSITIVE HALF OF THE ALTERNATIVE CONTRACT, observed rather than asserted.
+
+    The conformance suite can only probe this negatively — `start_outbound_call` returns a
+    handle and offers no read-back, so "it carried our prompt" and "it dropped our prompt"
+    are the same observation from the port, which is exactly `transfer`'s problem. Here the
+    fixture IS its own vendor, so the round trip can be watched end to end: the prompt goes
+    in on the `CallContext` and comes back off the call the engine is running.
+
+    Without this, `EXTERNAL_DEPLOYMENT_CAPABILITIES` would prove only that an engine of
+    that shape refuses things, and the branch where one actually dials would be contract
+    nothing executes.
+    """
+    engine = FakeEngine(capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES, name="fake-deployed")
+    prompt = f"You are the receptionist.\n\n{TRUTHFUL_ANSWER_DIRECTIVE}"
+    handle = await engine.start_outbound_call(
+        "agent_deployed", "+919876543210", CallContext(system_prompt=prompt)
+    )
+    assert engine.call_prompt(handle) == prompt, (
+        "the engine is not running the prompt it was dialled with, so the truthful-answer "
+        "rule reached nothing — and no read-back anywhere on this shape could detect it"
+    )
+    assert TRUTHFUL_ANSWER_MARKER in (engine.call_prompt(handle) or ""), (
+        "the prompt that reached the call does not carry the rule a client cannot switch off"
+    )
+
+
+async def test_a_dial_with_no_floor_is_refused_and_one_with_a_floor_is_placed() -> None:
+    """Both directions on one engine, because only the pair is falsifiable.
+
+    An adapter that refused everything would satisfy the negative half and be useless; one
+    that accepted everything would satisfy the positive half and be dangerous. The clause
+    that matters is that the SAME engine answers differently to the two contexts, which is
+    the shape `test_a_claimed_verification_method_actually_rejects_somebody` uses for
+    webhook methods and `require_speech_leg` uses for a dictated voice.
+    """
+    engine = FakeEngine(capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES, name="fake-deployed")
+    with pytest.raises(ProblemError) as raised:
+        await engine.start_outbound_call("agent_deployed", "+919876543210", CallContext())
+    assert raised.value.code == ENGINE_COMPLIANCE_FLOOR_ABSENT
+
+    # A prompt that is REAL but does not carry the rule — the case a hand-rolled adapter
+    # produces, and the one a "is there a prompt at all" check would wave through.
+    with pytest.raises(ProblemError):
+        await engine.start_outbound_call(
+            "agent_deployed", "+919876543210", CallContext(system_prompt="You are helpful.")
+        )
+
+    handle = await engine.start_outbound_call(
+        "agent_deployed",
+        "+919876543210",
+        CallContext(system_prompt=f"Script.\n\n{TRUTHFUL_ANSWER_DIRECTIVE}"),
+    )
+    assert isinstance(handle, str) and handle
+
+
+async def test_an_engine_that_hosts_agents_needs_no_per_call_prompt() -> None:
+    """The other half of the split, so the guard cannot become "every dial needs a prompt".
+
+    On a `control_plane` engine the directive is agent-record state that `publish_agent`
+    wrote and `verification.judge` PROVED the engine is running. A second copy per call
+    would be one string with two authorities, and the guard must not demand one — a dial
+    that started failing on Bolna because an unrelated engine cannot hold a prompt is the
+    regression this asserts against.
+    """
+    engine = FakeEngine()
+    ref = await engine.create_agent(_agent_config())
+    handle = await engine.start_outbound_call(ref, "+919876543210", CallContext())
+    assert isinstance(handle, str) and handle
+    assert engine.call_prompt(handle) is None, (
+        "a control-plane engine was handed a per-call prompt, so one agent's script now "
+        "has two authorities and they can disagree"
+    )
+
+
+def test_the_hosting_capability_answers_through_the_one_generic_ask() -> None:
+    """`has("agent_hosting")` and `hosts_agents()` are one fact, for `is_ours`'s reason.
+
+    A caller holding a capability NAME (a screen, a metric label, the refusal builder) and
+    a caller holding the descriptor must not be able to get different answers — that
+    divergence is what `EngineCapabilityName` is a closed Literal to prevent.
+    """
+    for caps in (DEFAULT_FAKE_CAPABILITIES, DICTATED_SPEECH_CAPABILITIES):
+        assert caps.hosts_agents() is True
+        assert caps.has("agent_hosting") is True
+    for caps in (EXTERNAL_DEPLOYMENT_CAPABILITIES, CARTESIA_CAPABILITIES):
+        assert caps.hosts_agents() is False
+        assert caps.has("agent_hosting") is False
+
+
+async def test_publishing_to_an_engine_that_hosts_no_agents_is_refused_not_recorded() -> None:
+    """The publish path degrades honestly: it refuses, and the console is told first.
+
+    A publish that "succeeded" against an engine with no create endpoint is the defect
+    D-281 removes. `publish_agent` asks the capability before the account check's lock and
+    before the vendor, so nothing is written and no `engine_agent_ref` can exist — which is
+    also why `engine_drift_for` reports `not_published` truthfully on such an engine
+    without needing a new state or a migration.
+    """
+    engine = FakeEngine(capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES, name="fake-deployed")
+    with pytest.raises(EngineCapabilityAbsentError) as raised:
+        require_capability("agent_hosting", engine=engine)
+    assert raised.value.capability == "agent_hosting"
+    assert raised.value.as_problem()["remediation"], (
+        "an operator who cannot publish must be told what to do instead"
+    )
+
+
+async def test_bolna_sends_the_reply_ceiling_and_the_sampling_it_chose() -> None:
+    """D-283. Unsent means the vendor's defaults apply, and one of them was a real knob.
+
+    VERIFIED-OSS at `bolna-ai/bolna@cd2e192`, `bolna/models.py`: `Llm.max_tokens` defaults
+    to **100** and `Llm.temperature` to **0.1**, and `task_manager.__setup_llm` reads both
+    with bare subscripts off `llm_agent_config`. Our body omitted them, so the stored
+    `agent_config.model_dump()` filled the defaults and every agent on the platform ran
+    with a 100-token ceiling on each reply that nobody had chosen.
+
+    ASSERTED AS LITERALS, not against a constant, for the reason
+    `test_cartesia_pins_the_rest_api_version_and_not_the_line_websocket_one` gives: a test
+    comparing a value to itself would have passed just as happily with the wrong number in
+    it. What the numbers ARE is argued at the line in the adapter — briefly: a cap is a
+    safety valve rather than a style control, 100 tokens is ~45 Telugu words at the
+    fertility Indic scripts actually carry, and the LLM leg is free per token so headroom
+    costs nothing; 0.1 is the vendor's default and is RIGHT for an agent that must not
+    paraphrase a compliance sentence away, which is exactly why it is written down rather
+    than inherited from somebody else's release note.
+    """
+    seen: dict[str, Any] = {}
+
+    def capture(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content or b"{}"))
+        return httpx.Response(200, json={"agent_id": "agent_1"})
+
+    engine = BolnaEngine(
+        api_key="k",
+        fx_rate=Decimal("88.00"),
+        client=httpx.AsyncClient(
+            base_url="https://api.bolna.ai", transport=httpx.MockTransport(capture)
+        ),
+    )
+    await engine.create_agent(
+        _agent_config().model_copy(
+            update={
+                "models": ModelConfig(
+                    stt_provider="sarvam",
+                    stt_model="saaras:v3",
+                    llm_model="sarvam-105b",
+                    tts_provider="sarvam",
+                    tts_voice="bulbul:v3",
+                )
+            }
+        )
+    )
+
+    llm = seen["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]
+    assert llm["max_tokens"] == 400, (
+        "the reply ceiling is not sent, so the vendor's 100-token default applies and "
+        "every agent reply is truncated mid-sentence at roughly 45 Telugu words"
+    )
+    assert llm["temperature"] == 0.1, (
+        "the sampling temperature is not sent, so it rides a vendor default that can "
+        "change without our deploying — on a prompt carrying the truthful-answer rule"
+    )

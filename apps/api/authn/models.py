@@ -42,6 +42,7 @@ from sqlalchemy import (
     SmallInteger,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -280,6 +281,19 @@ class AuthOtpChallenge(PKMixin, TimestampMixin, Base):
             "realm",
             "subject_id",
             "purpose",
+        ),
+        # ONE LIVE CHALLENGE, in `pg_catalog` (D-320, migration `f1c8b7d5a903`). The
+        # module docstring states the rule and `authn.locks.lock_subject_credentials`
+        # enforces it; this is what a future writer that forgets the lock meets instead of
+        # silently minting a second valid code. See the migration for why the lock, and
+        # not this index, is the mechanism callers rely on.
+        Index(
+            "ux_auth_otp_challenges_live",
+            "realm",
+            "subject_id",
+            "purpose",
+            unique=True,
+            postgresql_where=text("consumed_at IS NULL"),
         ),
     )
 

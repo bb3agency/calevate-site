@@ -2619,7 +2619,12 @@
         "properties": {
           "custom": {
             "additionalProperties": {
+              "maxLength": 200,
               "type": "string"
+            },
+            "maxProperties": 10,
+            "propertyNames": {
+              "maxLength": 128
             },
             "title": "Custom",
             "type": "object"
@@ -6447,6 +6452,25 @@
         "title": "KbDriftOut",
         "type": "object"
       },
+      "KbReviewOut": {
+        "additionalProperties": false,
+        "description": "The review verdict, as a DECLARED model rather than a `dict[str, str]` (D-303).\n\nThese two handlers returned a bare mapping, which is not a shape \u2014 it is the absence\nof one. Three things read a response model and none of them can read a mapping:\n`scripts/check_redaction_exposure.py` walks response models and is structurally blind\nto a route that declares none, the generated TypeScript client renders it as an index\nsignature so the frontend hand-writes its own interface, and BACKEND-PATTERNS \u00a71's\n\"the response model IS the output whitelist\" has nothing to whitelist. Nothing leaked\nhere \u2014 the value is a literal three lines below \u2014 but the guardrail could not have\nsaid so, which is the same argument `tests/response_shape_test.py` already made for\nthe panels.",
+        "properties": {
+          "status": {
+            "enum": [
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "KbReviewOut",
+        "type": "object"
+      },
       "KekOut": {
         "additionalProperties": false,
         "description": "The key-management panel's read (\u00a78 panel 4): which KEK is live, and what is\nstill wrapped under something else.\n\n`pending` is the number that decides whether a rotation is FINISHED. While it is\nabove zero the retired KEK must stay in the environment, because removing it would\nmake those rows permanently unreadable \u2014 and that is a decision an operator makes\nfrom this number, so it is published rather than implied.",
@@ -8409,6 +8433,26 @@
           "dlt_status"
         ],
         "title": "NumberCreatedOut",
+        "type": "object"
+      },
+      "NumberDltStatusOut": {
+        "additionalProperties": false,
+        "description": "What the number's DLT status is now \u2014 declared, for `KbReviewOut`'s reasons.",
+        "properties": {
+          "dlt_status": {
+            "enum": [
+              "pending",
+              "registered",
+              "blocked"
+            ],
+            "title": "Dlt Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dlt_status"
+        ],
+        "title": "NumberDltStatusOut",
         "type": "object"
       },
       "NumberOut": {
@@ -12248,6 +12292,7 @@
           "uri": {
             "anyOf": [
               {
+                "maxLength": 2048,
                 "type": "string"
               },
               {
@@ -12325,6 +12370,28 @@
         "title": "TemplateOut",
         "type": "object"
       },
+      "TemplateRegisteredOut": {
+        "additionalProperties": false,
+        "description": "The template we just filed, and the ONE status a registration may start in.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "submitted",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "TemplateRegisteredOut",
+        "type": "object"
+      },
       "TemplateStatusIn": {
         "additionalProperties": false,
         "properties": {
@@ -12355,6 +12422,27 @@
           "status"
         ],
         "title": "TemplateStatusIn",
+        "type": "object"
+      },
+      "TemplateStatusOut": {
+        "additionalProperties": false,
+        "description": "The registrar's verdict as recorded \u2014 declared, for `KbReviewOut`'s reasons.",
+        "properties": {
+          "status": {
+            "enum": [
+              "draft",
+              "submitted",
+              "approved",
+              "rejected"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "TemplateStatusOut",
         "type": "object"
       },
       "TenantErasureAcceptedOut": {
@@ -13570,6 +13658,10 @@
             "title": "Headline",
             "type": "string"
           },
+          "publishable": {
+            "title": "Publishable",
+            "type": "boolean"
+          },
           "state": {
             "title": "State",
             "type": "string"
@@ -13591,7 +13683,8 @@
           "state",
           "verified_at",
           "confirmed",
-          "headline"
+          "headline",
+          "publishable"
         ],
         "title": "VerificationOut",
         "type": "object"
@@ -15264,6 +15357,18 @@
               "title": "Agent Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -16080,11 +16185,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Register Template V1 Admin Tenants  Tenant Id  Dlt Templates Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TemplateRegisteredOut"
                 }
               }
             },
@@ -16145,11 +16246,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Set Template Status V1 Admin Tenants  Tenant Id  Dlt Templates  Template Id  Status Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TemplateStatusOut"
                 }
               }
             },
@@ -16510,6 +16607,18 @@
               "title": "Tenant Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -16721,11 +16830,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Approve Kb V1 Admin Tenants  Tenant Id  Kb  Source Id  Approve Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/KbReviewOut"
                 }
               }
             },
@@ -16837,11 +16942,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Reject Kb V1 Admin Tenants  Tenant Id  Kb  Source Id  Reject Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/KbReviewOut"
                 }
               }
             },
@@ -17060,11 +17161,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "type": "string"
-                  },
-                  "title": "Response Set Number Dlt Status V1 Admin Tenants  Tenant Id  Numbers  Number Id  Dlt Status Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/NumberDltStatusOut"
                 }
               }
             },
@@ -17230,6 +17327,20 @@
     "/v1/agents": {
       "get": {
         "operationId": "list_agents_v1_agents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -17319,6 +17430,7 @@
     },
     "/v1/agents/{agent_id}": {
       "get": {
+        "description": "ONE row, by id, under the caller's own RLS session \u2014 so a neighbour's agent id and\nan id nobody minted are the same 404 (hard rule 1).",
         "operationId": "get_agent_v1_agents__agent_id__get",
         "parameters": [
           {
@@ -17687,11 +17799,6 @@
         "operationId": "login_otp_resend_v1_auth_admin_login_otp_resend_post",
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -17778,11 +17885,6 @@
         },
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -17874,11 +17976,6 @@
         },
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -17955,11 +18052,6 @@
         "operationId": "step_up_request_v1_auth_admin_step_up_post",
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -18133,11 +18225,6 @@
         "operationId": "login_otp_resend_v1_auth_client_login_otp_resend_post",
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -18224,11 +18311,6 @@
         },
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -18320,11 +18402,6 @@
         },
         "responses": {
           "202": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
             "description": "Successful Response"
           },
           "default": {
@@ -19034,6 +19111,20 @@
     "/v1/campaigns": {
       "get": {
         "operationId": "list_campaigns_v1_campaigns_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20281,6 +20372,20 @@
     "/v1/integrations/endpoints": {
       "get": {
         "operationId": "list_endpoints_v1_integrations_endpoints_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20453,6 +20558,20 @@
       "get": {
         "description": "`org:read`, deliberately. Who currently holds a key to this account is part of\n\"who has access\", which is the question a support session exists to answer; the\nauthority to hand one out is the separate thing, and it is `org:manage` above.",
         "operationId": "list_invitations_v1_invitations_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20577,6 +20696,18 @@
               ],
               "title": "Status"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -20692,6 +20823,20 @@
       "get": {
         "description": "The list that made the ID box on the lead-sources screen unnecessary.\n\nTenant scoping is RLS and only RLS (hard rule 1) \u2014 there is no `WHERE tenant_id`\nhere, because a hand-written predicate beside the policy is a second, weaker\nboundary that the next query forgets.",
         "operationId": "list_lead_sources_v1_lead_sources_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -22054,6 +22199,20 @@
       "get": {
         "description": "The team, for any control that has to name a colleague (M3 lead assignment).\n\nTHE TENANCY CONTROL IS THE JOIN. `users` is a GLOBAL table with no RLS \u2014 identity\ncrosses tenants (DATA-MODEL \u00a72) \u2014 so `SELECT id, name FROM users` under a tenant\nsession would return every user of the platform. `memberships` is FORCE-RLS'd on\n`tenant_id`, so driving the query from it is what scopes the answer, and there is no\n`WHERE tenant_id` here for the reason the whole codebase gives: a hand-written\nfilter is a filter that can be forgotten, and its presence invites trusting it\ninstead of the policy.\n\nDeactivated accounts are excluded. A deactivated user is refused at the auth guard\non every request (BACKEND-PATTERNS \u00a77), so offering them as an assignee would be\noffering work to somebody who cannot open the account \u2014 and `crm.service` refuses\nthe assignment for the same reason, so a picker that listed them would be a control\nwhose options the server rejects.",
         "operationId": "list_members_v1_members_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -23068,6 +23227,8 @@
             "required": false,
             "schema": {
               "default": 30,
+              "maximum": 365,
+              "minimum": 1,
               "title": "Days",
               "type": "integer"
             }
