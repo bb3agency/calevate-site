@@ -271,6 +271,15 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
 	# tmp tree and a doctored route table, live in tests/wiring_guard_test.py.
 	uv run python -m scripts.check_wiring
+	# The half-wired shapes `check_wiring` declines, said in its own docstring: a column
+	# something WRITES and nothing reads (the write/read distinction it says it cannot
+	# make), a `Settings` knob nothing consumes, a public function nothing names, a stub
+	# body standing in for logic, a broad handler whose body does nothing at all, and a
+	# TODO/FIXME deferring work without naming what closes it. Needs no database and no
+	# app boot; exit 2 = REFUSED when a scan cannot see its own subject, on `check_wiring`
+	# and `check_metadata_columns`' terms. Negative controls in
+	# tests/half_wired_guard_test.py, one per section plus the states that must NOT fail.
+	uv run python -m scripts.check_half_wired
 	# Hard rule 5 over the whole tree (D-29's `check:compliance-invariants`). Here and
 	# not in pytest for two reasons: its schema half reads pg_catalog exactly as
 	# `check_rls_coverage` does, and its subject is the SHAPE of every dial path rather

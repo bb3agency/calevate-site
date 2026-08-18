@@ -149,6 +149,12 @@ class CampaignContact(PKMixin, TimestampMixin, Base):
     last_attempt_at: Mapped[datetime | None]
     next_attempt_at: Mapped[datetime | None]
     last_call_id: Mapped[UUID | None] = mapped_column(ForeignKey("calls.id", ondelete="SET NULL"))
+    # WRITE-STOPPED, step 1 of hard rule 8's two-step (D-233). It held
+    # `sha256(phone_e164)[:16]` — unsalted, over a ~10^9 space — and nothing ever read it:
+    # `service.add_contacts` dedupes within a batch on the normalized number and across
+    # batches on `UNIQUE (campaign_id, phone_e164)`. The only remaining statement naming
+    # it is retention's `_CAMPAIGN_CONTACT_ERASE_SQL`, which NULLs the values older rows
+    # still carry; the DROP migration is what removes the column and this line.
     dedupe_hash: Mapped[str | None] = mapped_column(Text)
 
 

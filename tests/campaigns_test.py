@@ -338,6 +338,48 @@ async def test_contact_upload_dedupes_and_counts_malformed_without_guessing() ->
     assert rows[1][1] == {"city": "Hyderabad"}, "extra CSV columns ride along for the prompt"
 
 
+async def test_a_contact_upload_stores_no_hash_of_the_number() -> None:
+    """`campaign_contacts.dedupe_hash` is not written any more, and this is why.
+
+    It held `sha256(phone)[:16]`, unsalted, in the table whose erasure story is that the
+    number goes — and Indian mobile E.164 is a ~10^9 space, so a truncated unsalted digest
+    of one is the number back in a few seconds of enumeration. Nothing read it: the batch
+    dedupes on `seen` and cross-batch on `ON CONFLICT (campaign_id, phone_e164)`, both on
+    the number itself. Kept as a live assertion rather than a comment because the tempting
+    "fix" for the guard that flags it is to put the write back with a reader bolted on.
+    """
+    tenant_id, agent_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        campaign_id = await _create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="no hash",
+            classification="service",
+            number_id=None,
+            dlt_template_id=None,
+            concurrency=1,
+        )
+        await service.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": "9876544444"}],
+        )
+        hashes = (
+            (
+                await session.execute(
+                    text("SELECT dedupe_hash FROM campaign_contacts WHERE campaign_id = :c"),
+                    {"c": campaign_id},
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    assert hashes == [None], "the upload must leave no derivative of the phone number"
+
+
 async def test_contacts_cannot_be_added_to_a_running_campaign() -> None:
     tenant_id, _, campaign_id = await _ready_campaign()
     async with tenant_session(tenant_id) as session:

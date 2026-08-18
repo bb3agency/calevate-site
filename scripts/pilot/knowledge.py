@@ -330,8 +330,10 @@ async def probe_kb_agent_linkage(
             **measurements,
         )
     elif not listed_primary and not listed_control:
-        deleted = await _delete_is_accepted(engine, primary.ref, primary_handle)
+        deleted, refused_with = await _delete_is_accepted(engine, primary.ref, primary_handle)
         measurements["delete_accepted_handle"] = int(deleted)
+        if refused_with is not None:
+            measurements["delete_refused_with"] = refused_with
         if deleted:
             check = failed(
                 "kb_list_carries_agent_linkage",
@@ -348,8 +350,11 @@ async def probe_kb_agent_linkage(
                 "kb_list_carries_agent_linkage",
                 "Both lists were empty AND the engine refused to delete the handle it "
                 "returned, so we cannot tell a linkage-blind list from an attach that "
-                "never took effect. Re-run; if it repeats, the attach path is the "
-                "defect and this question is not answerable until it is fixed.",
+                "never took effect. `delete_refused_with` names what raised — if it is "
+                "one of ours rather than the vendor's, the prober is the defect and this "
+                "run says nothing about the engine. Re-run; if it repeats, the attach "
+                "path is the defect and this question is not answerable until it is "
+                "fixed.",
                 **measurements,
             )
     else:
@@ -402,14 +407,26 @@ def agent_ref_reader_from_engine(engine: object) -> AgentKbRefReader | None:
     return reader
 
 
-async def _delete_is_accepted(engine: KbEngine, ref: EngineAgentRef, kb: EngineKBRef) -> bool:
-    """Does the engine accept a DELETE for this handle? A `True` is proof the knowledge
-    base existed — the contract requires detaching an unknown handle to RAISE (D-41)."""
+async def _delete_is_accepted(
+    engine: KbEngine, ref: EngineAgentRef, kb: EngineKBRef
+) -> tuple[bool, str | None]:
+    """Does the engine accept a DELETE for this handle, and if not, what refused it?
+
+    A `True` is proof the knowledge base existed — the contract requires detaching an
+    unknown handle to RAISE (D-41).
+
+    THE SECOND HALF OF THE ANSWER USED TO BE THROWN AWAY. `except Exception: return
+    False` collapsed "the vendor says this handle is unknown" — the informative answer —
+    with "our own adapter raised a TypeError", and the gate then reported a knowledge
+    base as absent on the strength of a bug in the prober. Broad is right here (a vendor
+    client raises whatever it likes), so the exception's CLASS is carried out instead of
+    discarded, and the caller puts it in the sub-check that a human reads.
+    """
     try:
         await engine.detach_kb(ref, kb)
-    except Exception:
-        return False
-    return True
+    except Exception as exc:
+        return False, type(exc).__name__
+    return True, None
 
 
 async def _best_effort_detach(engine: KbEngine, ref: EngineAgentRef, kb: EngineKBRef) -> None:

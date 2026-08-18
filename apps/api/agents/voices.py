@@ -268,12 +268,6 @@ def voice_selection_capability(engine: VoiceEngine | None = None) -> VoiceSelect
     return VoiceSelectionCapability(available=True, control=control, voices=CATALOG)
 
 
-def voice_selection_available() -> bool:
-    """The boolean a screen wants — the SAME selector the route uses, so a screen that
-    offers the picker and a route that refuses it cannot disagree."""
-    return voice_selection_capability().available
-
-
 __all__ = [
     "CATALOG",
     "ENGINE_DICTATES_TTS_REASON",
@@ -287,6 +281,5 @@ __all__ = [
     "get_voice",
     "is_supported_voice",
     "voice_ids",
-    "voice_selection_available",
     "voice_selection_capability",
 ]

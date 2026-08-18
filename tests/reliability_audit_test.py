@@ -22,6 +22,7 @@ import asyncio
 import json
 import time
 import uuid
+from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
@@ -40,6 +41,25 @@ RUN = uuid.uuid4().hex[:12]
 SCOPE = f"audit-scope-{RUN}"
 ROUTE = "/v1/leads/{lead_id}/call"
 PROVIDER = f"audit-{RUN}"
+
+
+@contextmanager
+def monkeypatched_recorder(capture: Any) -> Any:
+    """Swap `alerting._record` for the duration of one call.
+
+    The recorders are thin wrappers over one structured log line, so asserting on the
+    LINE would mean asserting on log capture ordering across a shared root logger. This
+    asserts on the call instead: the series name, the value and the labels are the whole
+    contract a metrics pipeline would consume.
+    """
+    from apps.api.core import alerting
+
+    original = alerting._record
+    alerting._record = capture
+    try:
+        yield
+    finally:
+        alerting._record = original
 
 
 def key(name: str) -> str:
@@ -382,6 +402,61 @@ async def test_only_one_of_two_takeovers_of_an_abandoned_claim_wins() -> None:
 
 
 # ============================================================================= INBOX
+
+
+async def test_closing_an_inbox_row_reports_how_long_the_deferred_half_took() -> None:
+    """`processed_at` had no reader: the row recorded arrival and completion and nothing
+    asked the difference. The only latency number this system published was the ACK the
+    caller waits for — capped at 500ms by hard rule 3 exactly BECAUSE the work is
+    deferred — so a fast ack over a stalled pipeline looked identical to a healthy one.
+    """
+    ek = key("handling")
+    recorded: list[tuple[str, float, dict[str, str]]] = []
+
+    def _capture(name: str, value: float, **labels: str) -> None:
+        recorded.append((name, value, labels))
+
+    async with untenanted_session() as session:
+        claim = await rel.claim_inbox_event(
+            session, provider=PROVIDER, event_key=ek, payload_hash=rel.body_hash({"a": 1})
+        )
+        with monkeypatched_recorder(_capture):
+            await rel.mark_inbox_processed(session, row_id=claim.row_id)
+
+    assert [name for name, _, _ in recorded] == ["inbox_handling_ms"]
+    _, value, labels = recorded[0]
+    assert labels == {"provider": PROVIDER}
+    assert value >= 0.0
+
+
+async def test_the_dispatch_tick_reports_how_long_the_oldest_enqueued_row_has_waited() -> None:
+    """`enqueued_at` had no reader either. A row parked at `enqueued` is a webhook whose
+    arq job never came back; the reconciliation poller repairs the call regardless, which
+    is precisely why nothing else in the system would ever say the job had stopped."""
+    ek = key("stuck")
+    recorded: list[tuple[str, float, dict[str, str]]] = []
+
+    def _capture(name: str, value: float, **labels: str) -> None:
+        recorded.append((name, value, labels))
+
+    async with untenanted_session() as session:
+        claim = await rel.claim_inbox_event(
+            session, provider=PROVIDER, event_key=ek, payload_hash=rel.body_hash({"b": 2})
+        )
+        await rel.mark_inbox_enqueued(session, row_id=claim.row_id)
+        await session.execute(
+            text(
+                "UPDATE webhook_inbox_events SET enqueued_at = now() - interval '90 seconds' "
+                "WHERE id = :id"
+            ),
+            {"id": claim.row_id},
+        )
+        with monkeypatched_recorder(_capture):
+            await rel.record_outbox_metrics(session)
+
+    lags = [value for name, value, _ in recorded if name == "inbox_lag_seconds"]
+    assert len(lags) == 1, f"one inbox lag reading per tick, got {recorded}"
+    assert lags[0] >= 89.0, "the oldest still-enqueued row is what the tick reports"
 
 
 async def test_a_duplicate_delivery_is_one_row_and_one_unit_of_work() -> None:

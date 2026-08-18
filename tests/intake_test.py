@@ -30,6 +30,7 @@ import pytest
 from apps.api.admin import intake
 from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
+from apps.api.agents import t0
 from apps.api.agents.prompts import write_prompt_version
 from apps.api.campaigns import service as campaigns_service
 from apps.api.core.errors import ProblemError
@@ -151,7 +152,7 @@ async def test_the_compiled_t0_context_is_stored_as_the_build_artifact_it_is() -
         ).first()
     assert row is not None
     body, compiled = row
-    assert compiled and compiled.startswith(intake.T0_HEADER)
+    assert compiled and compiled.startswith(t0.T0_HEADER)
     assert compiled in body, "the body carries the block the artifact records"
 
 
@@ -190,7 +191,7 @@ async def test_regenerating_replaces_the_facts_and_keeps_the_hand_written_sectio
             agent_id=agent_id,
             body=(
                 "[IDENTITY] Sunrise Dental receptionist.\n"
-                f"{intake.T0_HEADER}\nHours: closed on Mondays\n"
+                f"{t0.T0_HEADER}\nHours: closed on Mondays\n"
                 "[GUARDRAILS] Never quote a treatment plan over the phone.\n"
             ),
             notes="hand written",
@@ -209,7 +210,7 @@ async def test_regenerating_replaces_the_facts_and_keeps_the_hand_written_sectio
     assert "closed on Mondays" not in body, "the stale block is replaced, not appended to"
     assert "Never quote a treatment plan" in body, "hand-written sections survive"
     assert "[IDENTITY] Sunrise Dental receptionist." in body
-    assert body.index(intake.T0_HEADER) < body.index("[GUARDRAILS]"), "section order held"
+    assert body.index(t0.T0_HEADER) < body.index("[GUARDRAILS]"), "section order held"
 
 
 async def test_the_intake_seeds_the_knowledge_base_awaiting_approval() -> None:

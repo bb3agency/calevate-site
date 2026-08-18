@@ -42,7 +42,6 @@ INVALID_STATUS_TRANSITION, naming what was found), or no visible campaign has th
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, time
@@ -626,11 +625,24 @@ async def add_contacts(
             duplicate += 1
             continue
         seen.add(phone)
+        # `dedupe_hash` IS NOT WRITTEN, and stopping was the fix rather than finding it a
+        # reader. It held `sha256(phone)[:16]`, unsalted — and Indian mobile E.164 is a
+        # ~10^9 space anyone enumerates in seconds, so the column was the caller's number
+        # in a form that reverses, in a table whose whole erasure story is that the number
+        # goes. Nothing has ever read it: this upload dedupes on `seen` within the batch
+        # and on `ON CONFLICT (campaign_id, phone_e164)` across batches, both of which use
+        # the number itself, and the only other statement naming the column is retention's
+        # erasure, which NULLs it. A hash of PII stored for no reader is a DPDP
+        # minimisation finding, not a spare index.
+        #
+        # The column survives this release under hard rule 8 — never DROP in the release
+        # that stops writing — so rows already carrying a hash keep being cleared by
+        # `_CAMPAIGN_CONTACT_ERASE_SQL`. D-233 names the DROP migration that closes it.
         result = await session.execute(
             text(
                 "INSERT INTO campaign_contacts (id, tenant_id, campaign_id, phone_e164, name, "
-                "custom, status, attempts, dedupe_hash, created_at, updated_at) VALUES "
-                "(:id, :tid, :cid, :phone, :name, CAST(:custom AS jsonb), 'pending', 0, :hash, "
+                "custom, status, attempts, created_at, updated_at) VALUES "
+                "(:id, :tid, :cid, :phone, :name, CAST(:custom AS jsonb), 'pending', 0, "
                 "now(), now()) ON CONFLICT (campaign_id, phone_e164) DO NOTHING"
             ),
             {
@@ -640,7 +652,6 @@ async def add_contacts(
                 "phone": phone,
                 "name": str(row.get("name") or "").strip() or None,
                 "custom": json.dumps({k: v for k, v in row.items() if k not in ("phone", "name")}),
-                "hash": hashlib.sha256(phone.encode()).hexdigest()[:16],
             },
         )
         if rowcount_of(result):

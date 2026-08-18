@@ -87,12 +87,13 @@ from apps.api.kb import service as kb_service
 
 log = get_logger(__name__)
 
-# The section marker PROMPT-GUIDE §2 uses. Sections start at column 0 with `[NAME]`,
-# which is what makes a block replaceable without a parser.
-T0_HEADER = "[T0 FACTS]"
-# Where a freshly compiled block is inserted when the prompt has no block yet: before
-# the task flow, i.e. the position PROMPT-GUIDE §2's template order puts it in.
-_INSERT_BEFORE = ("[TASK FLOW]", "[TOOLS]", "[GUARDRAILS]", "[WRAP]")
+# The section marker and the splice both live in `agents/t0.py`, which OWNS the block
+# format (PROMPT-GUIDE §2). This module used to carry byte-identical copies of both,
+# with `tests/t0_recompile_test.py` pinning them to the same output — a test whose whole
+# job was to stop two copies drifting. The reason given for the copy was a cycle,
+# `admin.intake → kb.service → agents.t0 → admin.intake`, which the arrow at the top of
+# this file already disproves: intake imports `agents.t0` directly, and `t0` imports
+# nothing from `admin`. One definition; the pinning test now asserts there is only one.
 _KB_SOURCE_NAME = "Business facts (intake)"
 
 DAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -316,7 +317,7 @@ def compile_t0_facts(facts: IntakeFacts) -> str:
     No escalation numbers and no language list: neither is a fact the agent says, and
     the size budget (§2: ~2,500 tokens total) is spent on what a caller asks about.
     """
-    lines: list[str] = [T0_HEADER]
+    lines: list[str] = [t0.T0_HEADER]
     hours = _hours_line(_hours_map(facts))
     if hours:
         lines.append(hours)
@@ -337,47 +338,11 @@ def compile_t0_facts(facts: IntakeFacts) -> str:
     return "\n".join(lines)
 
 
-def splice_t0_block(body: str | None, block: str, *, identity: str) -> str:
-    """Put `block` where the prompt's [T0 FACTS] section is, or where it should be.
-
-    Replacing rather than appending is the whole rule: PROMPT-GUIDE §2 says the block is
-    auto-generated and regenerated, so a second copy of stale hours sitting above the
-    fresh ones is not a merge, it is an agent that quotes two opening times. Everything
-    outside the block — guardrails an operator wrote by hand, the task flow, the wrap —
-    is not this compiler's to touch.
-    """
-    if not body or not body.strip():
-        # Nothing to splice into: the agent has no prompt yet, which is the ordinary
-        # state of a wizard that has not reached step 4. The identity line is derived
-        # from rows we already hold (business name, agent role) — the drafted prompt
-        # itself, with its style, task flow and guardrails, is step 4's work.
-        return f"[IDENTITY] {identity}\n{block}\n"
-
-    lines = body.splitlines()
-    start = next((i for i, line in enumerate(lines) if line.startswith(T0_HEADER)), None)
-    if start is None:
-        anchor = next(
-            (
-                i
-                for i, line in enumerate(lines)
-                if any(line.startswith(marker) for marker in _INSERT_BEFORE)
-            ),
-            len(lines),
-        )
-        return "\n".join([*lines[:anchor], block, *lines[anchor:]]).rstrip() + "\n"
-
-    end = next(
-        (i for i in range(start + 1, len(lines)) if lines[i].startswith("[")),
-        len(lines),
-    )
-    return "\n".join([*lines[:start], block, *lines[end:]]).rstrip() + "\n"
-
-
 def kb_seed_text(facts: IntakeFacts) -> str:
     """The same facts as a KB source body — paragraph-separated, because `chunk_text`
     splits on paragraphs and a chunk is what gets read aloud."""
     block = compile_t0_facts(facts)
-    return "\n\n".join(line for line in block.splitlines() if line != T0_HEADER)
+    return "\n\n".join(line for line in block.splitlines() if line != t0.T0_HEADER)
 
 
 # ------------------------------------------------------------------- the step
@@ -587,7 +552,7 @@ async def record_intake(
         session,
         tenant_id=tenant_id,
         agent_id=agent_id,
-        body=splice_t0_block(body, block, identity=f"{business_name} receptionist."),
+        body=t0.splice_t0_block(body, block, identity=f"{business_name} receptionist."),
         notes=_PROMPT_NOTES,
         created_by=recorded_by,
         compiled_t0_context=block,
@@ -881,7 +846,6 @@ def _parse_uuid(value: Any) -> UUID | None:
 __all__ = [
     "DAYS",
     "SHEET_VERSION",
-    "T0_HEADER",
     "Branch",
     "DayHours",
     "EscalationContact",
@@ -896,7 +860,6 @@ __all__ = [
     "read_intake",
     "record_intake",
     "save_intake_draft",
-    "splice_t0_block",
     "submission_blockers",
     "unfinished_onboardings",
 ]

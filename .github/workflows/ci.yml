@@ -215,6 +215,15 @@ jobs:
         # lists cannot drift apart again.
         run: uv run python -m scripts.check_wiring
 
+      - name: "Guardrail: half-wired sweep (CLAUDE.md)"
+        if: ${{ !cancelled() }}
+        # The shapes `check_wiring` declines by name: a column something WRITES and
+        # nothing reads, a `Settings` knob nothing consumes, a public function nothing
+        # references, a stub body, a broad handler whose body does nothing, a TODO with no
+        # closer. No database, no app boot; exit 2 = refused rather than a green OK on a
+        # tree it could not read.
+        run: uv run python -m scripts.check_half_wired
+
       - name: "Guardrail: docs drift (D-29 check:docs-drift)"
         if: ${{ !cancelled() }}
         # Commands the docs name resolve, `D-xx` references resolve, and SEC-COMP §3
