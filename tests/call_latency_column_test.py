@@ -48,6 +48,19 @@ SOURCE_ROOTS = (REPO_ROOT / "apps", REPO_ROOT / "packages")
 # week. What is forbidden is naming THE COLUMN.
 _COLUMN_MENTION = re.compile(r"\b(calls|Call)\.latency\b")
 
+#: A mention that is ABOUT the removal is not a promise — it is the evidence the next
+#: reader inherits instead of re-deriving, which CLAUDE.md asks for in as many words
+#: ("a comment that records the rejected alternative is worth more than the code it sits
+#: above"). The first version of this guard forbade the name outright and went red on
+#: `flags/registry.py` explaining WHY the column is gone, i.e. it punished exactly the
+#: comment that stops somebody adding it back.
+#:
+#: Deliberately narrow: the line must say so itself. "Dropped", "removed", or the
+#: revision that did it. A mention that merely sits near such a word in the same file
+#: does not qualify — the file is the wrong unit, because a module can explain the
+#: removal in its docstring and still promise the column two hundred lines below.
+_REMOVAL_CONTEXT = re.compile(r"\b(dropped|removed|deleted|no longer|stopped being)\b|f1a7c39d5be2")
+
 
 def test_model_declares_no_latency_column() -> None:
     """Nothing named `latency` is mapped on `Call` — the autogenerate guard."""
@@ -106,6 +119,19 @@ def test_no_source_file_still_promises_the_column(root: Path) -> None:
         for path in sorted(root.rglob("*.py"))
         if "__pycache__" not in path.parts
         for number, line in enumerate(path.read_text().splitlines(), start=1)
-        if _COLUMN_MENTION.search(line)
+        if _COLUMN_MENTION.search(line) and not _REMOVAL_CONTEXT.search(line)
     ]
     assert offenders == []
+
+
+def test_a_line_that_promises_the_column_is_still_an_offender() -> None:
+    """The narrowing above must not have turned the guard off.
+
+    Without this, `_REMOVAL_CONTEXT` could be widened until every mention slips past and
+    the guard reports a clean sweep of nothing — the failure mode `check_wiring`'s
+    `blind_spots()` exists for, arriving through an exemption instead of an empty scan.
+    """
+    promises = "        # `calls.latency` holds the vendor's first-audio number."
+    explains = "        # `calls.latency` was dropped in migration f1a7c39d5be2."
+    assert _COLUMN_MENTION.search(promises) and not _REMOVAL_CONTEXT.search(promises)
+    assert _COLUMN_MENTION.search(explains) and _REMOVAL_CONTEXT.search(explains)

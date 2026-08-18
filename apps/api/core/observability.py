@@ -63,7 +63,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
 from calevate_shared.config import email_transport_reason
@@ -1429,8 +1429,14 @@ def init_observability(service: str) -> str:
                 # is installed the real types arrive and this errors. The mypy job now
                 # installs the same group production does, which is what makes the cast a
                 # decision rather than a thing nobody could see.
-                before_send=cast("Any", scrub_event),
-                before_breadcrumb=cast("Any", scrub_breadcrumb),
+                # `type: ignore`, NOT a `cast`. The expression must stay literally
+                # `before_send=scrub_event`, because `check_sentry_hooks` reads this line
+                # and refuses anything else — "the hook is the enforcement point for hard
+                # rule 6 on the error path; a different function there is a different
+                # guarantee, and this check cannot judge it". A cast satisfied mypy and
+                # blinded that guard, which is a worse trade than the one below.
+                before_send=scrub_event,  # type: ignore[arg-type]
+                before_breadcrumb=scrub_breadcrumb,
                 # NO `traces_sample_rate`. It used to be 0.1/1.0, which turned on
                 # Sentry's own performance tracing — a SECOND tracing pipeline beside
                 # the OTel one, carrying SQL descriptions and full outbound URLs, and
