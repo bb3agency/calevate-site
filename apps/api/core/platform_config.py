@@ -301,6 +301,9 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "smtp_use_tls": AppliesRule(LIVE),
     "notifications_from": AppliesRule(LIVE),
     "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
+    # workers/tls_expiry reads it inside the daily cron, so the next run uses the new
+    # value with no restart.
+    "tls_origin_address": AppliesRule(LIVE),
     "whatsapp_enabled": AppliesRule(LIVE),  # workers/whatsapp, per send
     "whatsapp_provider": AppliesRule(LIVE),
     "whatsapp_template_hot_lead": AppliesRule(LIVE),

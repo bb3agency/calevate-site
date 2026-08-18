@@ -71,6 +71,7 @@ from apps.workers.retention import (
     execute_tenant_erasure,
     prune_reliability_tables,
 )
+from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -206,6 +207,16 @@ CRON_JOBS = [
         minute={20},
         max_tries=WORKER_MAX_TRIES,
     ),
+    # OPERATIONS §4's cert-expiry alarm. DAILY and not hourly: the quantity it measures
+    # moves once a day, and certbot's own renewal timer runs twice a day — a check that
+    # ran more often would only re-discover the same number and spend the alert path's
+    # dedupe window on it. 04:05, after the nightly retention jobs have finished with the
+    # database and well before anybody would act on the result.
+    #
+    # `max_tries` EXPLICIT for the reason its neighbours give: `cron()` defaults it to 1.
+    # This job is idempotent to the point of being read-only — one TLS handshake — so a
+    # retried attempt costs nothing and a lost one costs a day of not knowing.
+    cron(traced_job(check_tls_expiry), hour={4}, minute={5}, max_tries=WORKER_MAX_TRIES),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     #

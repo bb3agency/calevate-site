@@ -593,6 +593,37 @@ def record_pipeline_lag(seconds: float, *, stage: str) -> None:
     _record("pipeline_lag_seconds", seconds, stage=stage)
 
 
+def record_speed_to_lead(seconds: float, *, outcome: str) -> None:
+    """Web form submitted → outbound dial placed. FLOWS §4 step 4 targets < 60s.
+
+    A RECORDER RATHER THAN THE `metrics_log` CALL IT REPLACED. `ingest/service.py` emitted
+    this series by hand, which made it invisible to the vocabulary this section says is
+    the SLO rule language — the one metric in the tree with a number in a document and no
+    name in the code.
+    """
+    _record("speed_to_lead_seconds", seconds, outcome=outcome)
+
+
+def record_dispatch_tick(seconds: float) -> None:
+    """How long one campaign dispatch tick took, against its 30-second interval.
+
+    Read beside `dispatch_tick_overrun`, which is the alarm for the same quantity: the
+    counter is the trend and the alarm is the breach, and an operator asking "how close
+    have we been running" needs the first.
+    """
+    _record("dispatch_tick_seconds", seconds)
+
+
+def record_campaign_dials(*, dialled: int, blocked: int) -> None:
+    """One tick's outcome: how many contacts were rung and how many the gate refused.
+
+    `blocked` is a LABEL rather than a second series because the pair is only meaningful
+    together — a tick with 0 dialled means nothing until you know whether 40 were blocked
+    or there was simply nothing to do.
+    """
+    _record("campaign_dials", dialled, blocked=str(blocked))
+
+
 def record_outbox_lag(seconds: float) -> None:
     _record("outbox_lag_seconds", seconds)
 
@@ -637,13 +668,16 @@ __all__ = [
     "alert",
     "configure_alerts",
     "flush_alerts",
+    "record_campaign_dials",
     "record_compliance_block",
+    "record_dispatch_tick",
     "record_extraction_failure",
     "record_outbox_dlq_depth",
     "record_outbox_lag",
     "record_pipeline_lag",
     "record_reconciliation_listing_incomplete",
     "record_reconciliation_repair",
+    "record_speed_to_lead",
     "record_tool_ack_ms",
     "record_webhook_ack_ms",
     "record_webhook_replay_divergence",

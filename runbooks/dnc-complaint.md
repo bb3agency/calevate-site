@@ -299,3 +299,68 @@ and recording a scrub anyway would be evidence of something that did not happen.
 contact, not as a `dnc_list` row: NCPR preference is category-scoped and per list, so
 loading it into `dnc_list` would refuse lawful transactional traffic to the same person.
 §6 above is the different thing — an absolute platform-wide suppression naming one number.
+
+## 9. `campaign_complaint_spike` — a campaign is generating opt-outs
+
+You were paged with `campaign_complaint_spike`, and **the campaign is already paused.**
+It stopped itself: five or more of its connected calls in the last 24 hours ended in an
+opt-out, and that was at least 10% of them (`apps/api/campaigns/complaint_spike.py`
+argues all three numbers). This is FLOWS §5's mid-campaign safety doing what it exists
+for; nothing further is dialling on that campaign.
+
+**Read the counts as a leading indicator, not as complaints.** What was measured is
+people who told the agent to stop — every one of them is a `consent_ledger` withdrawal and
+a `dnc_list` row, and all of them are already suppressed. A TRAI complaint is filed with an
+access provider and arrives, if it ever does, days later as a letter. The reason five is
+the trigger is that **five unique complaints inside ten days obliges the TSP to suspend the
+client's outgoing service** (TCCCPR Second Amendment, in force 12 February 2025). Anyone who
+files is in the population we just counted. This is the last cheap moment.
+
+### 9.1 Confirm what was measured
+
+```sql
+SET LOCAL app.tenant_id = '<tenant-uuid>';
+SELECT count(*) AS connected,
+       count(*) FILTER (WHERE EXISTS (
+         SELECT 1 FROM consent_ledger cl
+         WHERE cl.call_id = c.id AND cl.status = 'withdrawn' AND cl.purpose = 'marketing'
+       )) AS optouts
+FROM calls c
+WHERE c.campaign_id = '<campaign-uuid>' AND c.status = 'completed'
+  AND coalesce(c.started_at, c.created_at) >= now() - interval '24 hours';
+```
+
+Then read WHY people opted out. `consent_ledger.evidence` carries the detector, the rule
+and the matched words — that is the fastest way to tell "the list is wrong" from "the
+script is wrong":
+
+- **Everyone says they never signed up** → the list. Ask the client for the consent
+  artefact behind `campaigns.consent_source`; §6 of this file is where a number gets a
+  platform-wide suppression if a regulator is already involved.
+- **People know the client but object to the call** → the script, the hour, or the
+  frequency. Check `campaigns.calling_hours` and the retry policy.
+
+### 9.2 Decide with the client, then act
+
+The pause is ours; resuming is theirs to ask for and yours to allow. Three outcomes:
+
+1. **The list is bad.** Cancel the campaign. Do not resume it — the remaining contacts are
+   from the same list. A new campaign against a scrubbed list is a new `campaign_id` with
+   no history, which is the honest way to start again.
+2. **The script or the hour is bad.** Fix it, then resume. **Resuming while the 24-hour
+   window still holds the spike will re-pause the campaign on the next tick**, and that is
+   deliberate: nothing about the campaign changed in the ten minutes after somebody pressed
+   resume. Wait the window out, or cancel and relaunch.
+3. **It is a false alarm** — a tiny campaign where five people out of thirty genuinely had
+   nothing to do with each other. Rare, and still worth one look at the list before
+   resuming.
+
+### 9.3 What NOT to do
+
+- **Do not unblock the numbers.** Every opt-out counted here is already suppressed and
+  every suppression is a person's instruction. Removing one to "clean up the metric" is
+  the one action in this file that is unlawful.
+- **Do not raise the threshold to stop the alarm.** It is derived from the number that
+  suspends the client's service; moving it moves the alarm past the event it exists to
+  precede.
+- **Do not resume and watch.** The next tick re-evaluates, so "watching" means dialling.

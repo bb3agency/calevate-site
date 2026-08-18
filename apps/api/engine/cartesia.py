@@ -102,6 +102,7 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
+from apps.api.engine.health import record_engine_failure
 
 log = get_logger(__name__)
 
@@ -348,6 +349,9 @@ class CartesiaEngine:
         try:
             response = await self._http().request(method, path, **kwargs)
         except httpx.HTTPError as exc:
+            # Same pairing as the Bolna adapter: an engine that answers nothing is the
+            # shape a total outage takes, and OPERATIONS §4's spike alarm must see it.
+            await record_engine_failure(self.name, kind="unreachable")
             raise ProblemError(
                 kind="dependency",
                 code="engine_unreachable",
@@ -365,6 +369,12 @@ class CartesiaEngine:
                 "cartesia_request_failed",
                 extra={"status": response.status_code, "method": method},
             )
+            if response.status_code >= 500:
+                # 5xx only — a 4xx is our request being wrong. This adapter has no
+                # throttle ladder, so a 429 lands here; it is deliberately NOT counted,
+                # for the reason `engine/health.py` gives: rate limiting is the vendor
+                # working as designed.
+                await record_engine_failure(self.name, kind="server_error")
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",

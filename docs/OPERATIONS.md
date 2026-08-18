@@ -357,23 +357,39 @@ and a second delivery mechanism is a second thing to be broken on the night it i
   payload that can say nobody is watching, so the console leads with it rather than
   burying it. `never_checked` is distinct from `in_sync` for the same reason
   `live_verify_state`'s `unverified` is distinct from `unreachable`.
-- **What triggers one — and which of them EXIST.** This list was written as a design and
-  read for months as an inventory; D-183 found that three of its entries had no call site
-  anywhere in the tree, so the list now says which is which. An alarm somebody believes in
-  and that cannot fire is worse than a gap they know about.
-  - **Implemented and fired from code**: webhook failures > 3/5min; pipeline lag > 5 min;
-    **cap approaching (80%)/breached** (`billing/caps.announce_cap_headroom`, D-183, called
-    from the meter's own write so it cannot be forgotten by a caller); nightly job failures;
-    host backup failure (below).
-  - **NOT implemented, and each names what it waits on**: *complaint-spike on campaign* and
-    *engine 5xx spike* are rates over counters, so they need either the metrics pipeline
-    DEPLOYMENT §8 defers or a producer at the complaint and adapter-error sites;
-    *cert/domain expiry* is a systemd timer beside the backup units in `infra/`, not a
-    Python alarm at all; *latency p95 breach 15-min sustained* needs the same counter
-    store as the two rate alarms.
-  - **The rule D-183 fixed in place**: no alarm may depend on a `record_*` metric, because
-    every recorder in `core/alerting.py` writes to a stream nothing reads. Alarms travel
-    `alert()`'s D-49 email path and announce at the producing write.
+- **What triggers one: `runbooks/alarm-index.md`, and this line no longer tries to be the
+  list.** It was written as a design and read for months as an inventory; D-183 found that
+  three of its eight entries had no call site anywhere and rewrote it to say which was
+  which. D-202 closed the three and removed the reason the distinction had to be made in
+  prose at all: the trigger list named no CODES, so nothing could check it.
+  - **The three that were missing now exist**, each with a threshold argued at its call
+    site and a runbook section: `campaign_complaint_spike`
+    (`campaigns/complaint_spike.py`, D-203 — pauses the campaign as FLOWS §5 promises),
+    `engine_error_spike` (`engine/health.py`, D-204), and `tls_certificate_expiring` /
+    `tls_certificate_unreadable` (`workers/tls_expiry.py`, D-205).
+  - **D-183's rule holds and is now enforced rather than remembered**: no alarm may depend
+    on a `record_*` metric, because every recorder writes to a stream nothing reads. All
+    three announce at the producing write and travel `alert()`'s D-49 email path. The two
+    that need a RATE keep their state in Postgres — `platform_engine_health` for the
+    engine, `calls` + `consent_ledger` for the complaints — because a rate held in a
+    process means something different per process (D-160's defect), and because a counter
+    that can invent a page must be as durable as what it reports on.
+  - **`latency p95 breach 15-min sustained` is still not implemented**, and it is the one
+    entry that genuinely needs the metrics pipeline DEPLOYMENT §8 defers: a percentile over
+    a sliding window is not a counter, and computing it from the `webhook_ack_ms` /
+    `tool_ack_ms` log lines would mean building the scraper inside the alarm. `webhook_ack_slow`
+    and `tool_ack_slow` fire per breach today, which is the honest subset.
+  - **The index is the vocabulary now**, and `scripts/check_alarm_wiring.py` fails CI in
+    BOTH directions: a documented alarm with no call site (the defect above), and a raised
+    alarm with no row — which was the larger half nobody had counted, 44 codes that could
+    page a human and appeared in no document at all. It derives the raised set from the
+    tree (every `alert()`, every `ProblemError` carrying a `failure_stage`, every `*_code`
+    on an ack meter, every host-side shell alarm) and REFUSES when it matches nothing, so
+    it cannot rot into a list somebody keeps.
+  - **What stays external, named rather than implied**: DOMAIN-registration expiry (the
+    registrar is the authority, the notice goes to the registrant, and the remedy is a
+    payment no code can make — keep that address one a human reads), the Cloudflare edge
+    certificate, and the Cloudflare zone settings generally.
 - **The host backup chain crosses a PROCESS boundary, not a vocabulary one.** Backups run
   on the host as `postgres`, outside every Python process, so they cannot CALL `alert()` —
   they emit the same shape (`failure_stage=HOST_BACKUP` with a stable code) to journald and
