@@ -173,6 +173,13 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 "(id, tenant_id, email, role, token_hash) VALUES (:i, :t, :email, 'staff', :hash)",
                 {"email": f"inv-{uuid.uuid4().hex[:6]}@example.com", "hash": uuid.uuid4().hex},
             ),
+            (
+                "request_id",
+                "deletion_requests",
+                "(id, tenant_id, phone_e164, scope, requested_at) "
+                "VALUES (:i, :t, '+919000000003', 'all', now())",
+                {},
+            ),
         )
         for key, table, clause, extra in rows:
             row_id = uuid.uuid4()
@@ -184,47 +191,74 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
     return ids
 
 
-#: (method, template, body). The body is the SMALLEST one that passes validation, because
-#: a 422 would mean the sweep never reached the tenant check — see the assertion below.
-_IDOR_ROUTES: tuple[tuple[str, str, dict[str, object]], ...] = (
-    ("GET", "/v1/agents/{agent_id}", {}),
-    ("GET", "/v1/agents/{agent_id}/engine-state", {}),
-    ("GET", "/v1/agents/{agent_id}/experiment", {}),
-    ("GET", "/v1/agents/{agent_id}/pending", {}),
-    ("GET", "/v1/calls/{call_id}", {}),
-    ("GET", "/v1/calls/{call_id}/callback", {}),
-    ("POST", "/v1/calls/{call_id}/callback", {}),
-    ("GET", "/v1/calls/{call_id}/recording", {}),
-    ("GET", "/v1/calls/{call_id}/transcript/raw", {}),
-    ("GET", "/v1/campaigns/{campaign_id}", {}),
+#: (method, template, body, headers). The body is the SMALLEST one that passes validation,
+#: because a 422 would mean the sweep never reached the tenant check — see the assertion
+#: below. `headers` is the same argument one step earlier: the two routes that require an
+#: `Idempotency-Key` refuse a request without one BEFORE they look at the id, so a sweep
+#: that sent none would be asserting 400 on them and proving nothing about tenancy.
+_IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
+    ("GET", "/v1/agents/{agent_id}", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/engine-state", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/experiment", {}, {}),
+    ("GET", "/v1/agents/{agent_id}/pending", {}, {}),
+    ("GET", "/v1/calls/{call_id}", {}, {}),
+    ("GET", "/v1/calls/{call_id}/callback", {}, {}),
+    ("POST", "/v1/calls/{call_id}/callback", {}, {}),
+    ("GET", "/v1/calls/{call_id}/recording", {}, {}),
+    ("GET", "/v1/calls/{call_id}/transcript/raw", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}", {}, {}),
     (
         "POST",
         "/v1/campaigns/{campaign_id}/consent-provenance",
         {"source": "existing_customer", "collected_at": "2026-01-01T00:00:00+00:00"},
+        {},
     ),
-    ("POST", "/v1/campaigns/{campaign_id}/launch", {}),
-    ("GET", "/v1/campaigns/{campaign_id}/launch-check", {}),
-    ("POST", "/v1/campaigns/{campaign_id}/pause", {}),
-    ("POST", "/v1/campaigns/{campaign_id}/recurrence", {"days": [1], "at": "10:00"}),
-    ("POST", "/v1/campaigns/{campaign_id}/resume", {}),
-    ("POST", "/v1/campaigns/{campaign_id}/schedule", {"start_at": "2027-01-01T10:00:00+05:30"}),
-    ("DELETE", "/v1/campaigns/{campaign_id}/schedule", {}),
-    ("DELETE", "/v1/dnc/{entry_id}", {}),
-    ("DELETE", "/v1/integrations/endpoints/{endpoint_id}", {}),
-    ("DELETE", "/v1/invitations/{invitation_id}", {}),
-    ("DELETE", "/v1/lead-sources/{webhook_id}", {}),
-    ("POST", "/v1/lead-sources/{webhook_id}/enable", {}),
-    ("POST", "/v1/lead-sources/{webhook_id}/meta/redrive", {}),
-    ("POST", "/v1/lead-sources/{webhook_id}/meta/setup", {}),
-    ("POST", "/v1/lead-sources/{webhook_id}/rotate-secret", {}),
-    ("POST", "/v1/lead-sources/{webhook_id}/test", {"payload": {"name": "x"}}),
-    ("PATCH", "/v1/leads/views/{view_id}", {}),
-    ("DELETE", "/v1/leads/views/{view_id}", {}),
-    ("GET", "/v1/leads/{lead_id}", {}),
-    ("PATCH", "/v1/leads/{lead_id}", {}),
-    ("GET", "/v1/leads/{lead_id}/timeline", {}),
-    ("PATCH", "/v1/members/{user_id}", {"role": "staff", "expected_role": "owner"}),
-    ("DELETE", "/v1/members/{user_id}", {}),
+    ("POST", "/v1/campaigns/{campaign_id}/launch", {}, {}),
+    ("GET", "/v1/campaigns/{campaign_id}/launch-check", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/pause", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/recurrence", {"days": [1], "at": "10:00"}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/resume", {}, {}),
+    ("POST", "/v1/campaigns/{campaign_id}/schedule", {"start_at": "2027-01-01T10:00:00+05:30"}, {}),
+    ("DELETE", "/v1/campaigns/{campaign_id}/schedule", {}, {}),
+    ("DELETE", "/v1/dnc/{entry_id}", {}, {}),
+    ("DELETE", "/v1/integrations/endpoints/{endpoint_id}", {}, {}),
+    ("DELETE", "/v1/invitations/{invitation_id}", {}, {}),
+    ("DELETE", "/v1/lead-sources/{webhook_id}", {}, {}),
+    ("POST", "/v1/lead-sources/{webhook_id}/enable", {}, {}),
+    ("POST", "/v1/lead-sources/{webhook_id}/meta/redrive", {}, {}),
+    ("POST", "/v1/lead-sources/{webhook_id}/meta/setup", {}, {}),
+    ("POST", "/v1/lead-sources/{webhook_id}/rotate-secret", {}, {}),
+    ("POST", "/v1/lead-sources/{webhook_id}/test", {"payload": {"name": "x"}}, {}),
+    ("PATCH", "/v1/leads/views/{view_id}", {}, {}),
+    ("DELETE", "/v1/leads/views/{view_id}", {}, {}),
+    ("GET", "/v1/leads/{lead_id}", {}, {}),
+    ("PATCH", "/v1/leads/{lead_id}", {}, {}),
+    ("GET", "/v1/leads/{lead_id}/timeline", {}, {}),
+    ("PATCH", "/v1/members/{user_id}", {"role": "staff", "expected_role": "owner"}, {}),
+    # Added by the D-193 pass: six `{id}` routes the sweep did not drive. All six already
+    # refused correctly — they are here so that stays true, not because they broke.
+    ("PATCH", "/v1/agents/{agent_id}/disclosure", {"ai_disclosure_enabled": False}, {}),
+    (
+        "POST",
+        "/v1/calls/{call_id}/assist",
+        {"question": "what did the caller ask for?"},
+        {"Idempotency-Key": "idor-sweep-assist"},
+    ),
+    (
+        "POST",
+        "/v1/campaigns/{campaign_id}/contacts",
+        {"contacts": [{"phone": "+919000000004"}]},
+        {},
+    ),
+    ("GET", "/v1/compliance/deletion-requests/{request_id}", {}, {}),
+    ("GET", "/v1/kb/sources/{source_id}/preview", {}, {}),
+    (
+        "POST",
+        "/v1/leads/{lead_id}/call",
+        {"agent_id": "{agent_id}"},
+        {"Idempotency-Key": "idor-sweep-call"},
+    ),
+    ("DELETE", "/v1/members/{user_id}", {}, {}),
 )
 
 
@@ -255,12 +289,20 @@ async def test_a_neighbours_object_id_is_not_found_and_never_forbidden() -> None
     headers = {"Authorization": f"Bearer {token_b}", "X-Org-Slug": str(org_b["slug"])}
     offenders: list[str] = []
     async with _client() as http:
-        for method, template, body in _IDOR_ROUTES:
+        for method, template, body, extra_headers in _IDOR_ROUTES:
             path = template
             for key, value in ids.items():
                 path = path.replace("{" + key + "}", value)
             assert "{" not in path, f"{template}: the sweep has no id for this parameter"
-            response = await http.request(method, path, headers=headers, json=body)
+            # A body may also carry an id (`POST /leads/{id}/call` names the agent), and
+            # it has to be the NEIGHBOUR's for the same reason the path does.
+            sent = {
+                k: (ids.get(v.strip("{}"), v) if isinstance(v, str) else v)
+                for k, v in body.items()
+            }
+            response = await http.request(
+                method, path, headers={**headers, **extra_headers}, json=sent
+            )
             payload = response.json() if response.content else {}
             code = (
                 str(payload.get("type", "")).rsplit("/", 1)[-1]
@@ -282,7 +324,7 @@ async def test_the_idor_sweep_is_driving_routes_that_exist() -> None:
     from apps.api.core.rbac import iter_api_routes
 
     mounted = {(method, route.path) for route in iter_api_routes(app) for method in route.methods}
-    missing = [f"{m} {t}" for m, t, _ in _IDOR_ROUTES if (m, t) not in mounted]
+    missing = [f"{m} {t}" for m, t, _b, _h in _IDOR_ROUTES if (m, t) not in mounted]
     assert not missing, f"the sweep addresses routes that no longer exist: {missing}"
     assert len(_IDOR_ROUTES) >= 30, f"only {len(_IDOR_ROUTES)} routes swept"
 

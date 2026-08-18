@@ -69,6 +69,7 @@ from apps.api.compliance.service import (
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.ingest.service import normalize_phone
@@ -522,6 +523,20 @@ async def create_campaign(
     also make the requirement depend on which version of the frontend the browser
     happens to be running; making it mandatory at the gate makes it depend on nothing.
     """
+    # EVERY id the caller supplied, resolved under the caller's own RLS before anything
+    # is stored. All three are foreign keys, and PostgreSQL checks those with row
+    # security bypassed, so without this a client can file a campaign against a
+    # neighbour's agent, dial from their DLT-registered header or cite their registered
+    # voice template (`db/ownership.py` carries the mechanism and the harm). Every
+    # consumer downstream does fail closed — the launch gate's joins run under this same
+    # session, so a foreign number reads back as `number_missing` — but the reference is
+    # STORED, one un-scoped join away from disclosure, and the campaign it produces is a
+    # row the client owns and can never launch or explain: `_campaign_facts` INNER JOINs
+    # `agents`, so its own launch-check answers "Campaign not found".
+    await assert_visible(session, "agent", agent_id)
+    await assert_visible(session, "phone_number", number_id)
+    await assert_visible(session, "dlt_template", dlt_template_id)
+
     # Validated HERE, at the only write path, so the column can never hold a window
     # the dispatcher would have to second-guess. None = "platform window applies".
     window = _validated_window(calling_hours) if calling_hours is not None else None

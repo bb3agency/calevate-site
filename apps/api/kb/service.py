@@ -32,6 +32,7 @@ from apps.api.agents.t0 import KnowledgeFact, recompile_t0
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
 from apps.api.kb.models import KB_STATUSES
@@ -163,37 +164,6 @@ def _wrap_long_sentence(sentence: str) -> list[str]:
     return pieces
 
 
-async def _assert_agent_is_ours(session: AsyncSession, agent_id: UUID) -> None:
-    """Refuse an agent this session's tenant cannot see.
-
-    Row-level security does not cover this on its own, and the two places it does not
-    reach are both on this INSERT.
-
-    `kb_sources.agent_id` is a FOREIGN KEY, and PostgreSQL runs referential-integrity
-    checks with row security bypassed — that is deliberate on their side, so integrity
-    cannot be defeated by visibility. The consequence here is that a row carrying tenant
-    B's `tenant_id` (which the policy's WITH CHECK does enforce) may name tenant A's
-    agent, and the insert succeeds.
-
-    `(agent_id, name, version)` is a UNIQUE INDEX, and unique indexes are likewise
-    evaluated over every row in the table rather than the visible ones. So that
-    unauthorised row takes a slot tenant A can no longer use: A's own submission then
-    fails on a constraint violation caused by a row A cannot see, cannot list and cannot
-    delete — a cross-tenant denial of service, plus an existence oracle for B, who
-    learns from the error whether A already holds a source of that name.
-
-    The read below is the fix and it must stay a READ, executed on the caller's own
-    session: `agents` is FORCE-RLS'd, so "visible here" is exactly "this tenant's".
-    Comparing the caller-supplied `tenant_id` against something else the caller supplied
-    would prove nothing about the database.
-    """
-    visible = (
-        await session.execute(text("SELECT 1 FROM agents WHERE id = :aid"), {"aid": agent_id})
-    ).scalar()
-    if visible is None:
-        raise ProblemError.not_found("Agent")
-
-
 async def submit_source(
     session: AsyncSession,
     *,
@@ -239,7 +209,15 @@ async def submit_source(
             detail="The submitted content is empty.",
         )
 
-    await _assert_agent_is_ours(session, agent_id)
+    # Hard rule 1 does not reach this INSERT on its own: PostgreSQL runs
+    # referential-integrity checks with row security bypassed, so `kb_sources.agent_id`
+    # would accept another tenant's agent (`db/ownership.py` carries the mechanism).
+    # The consequence is worse HERE than elsewhere because of the unique index below:
+    # `(agent_id, name, version)` is evaluated over every row rather than the visible
+    # ones, so an unauthorised row takes a slot the owning tenant can no longer use —
+    # their own submission then fails on a constraint violation caused by a row they
+    # cannot see, list or delete, and the error is an existence oracle besides.
+    await assert_visible(session, "agent", agent_id)
 
     # `MAX(version) + 1` under an advisory lock on the named source, not a read-then-write.
     # Two people submitting under the same name at the same instant — the shape a client's

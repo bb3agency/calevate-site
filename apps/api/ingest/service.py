@@ -44,6 +44,7 @@ from apps.api.core.alerting import metrics_log
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.integrations import service as integrations
 
@@ -620,19 +621,6 @@ def validate_mapping(mapping: dict[str, str]) -> dict[str, str]:
     return cleaned
 
 
-async def _agent_is_ours(session: AsyncSession, agent_id: UUID) -> bool:
-    """Hard rule 1 in one query: the session is tenant-scoped, so an agent belonging to
-    anyone else reads back as zero rows and this returns False.
-
-    Worth doing even though `inbound_webhooks.agent_id` has a foreign key: the FK is to
-    the GLOBAL `agents` table and knows nothing about tenancy, so it would happily
-    accept another tenant's agent id and leave a config row that dispatches through it.
-    """
-    return (
-        await session.execute(text("SELECT 1 FROM agents WHERE id = :aid"), {"aid": agent_id})
-    ).first() is not None
-
-
 async def create_lead_source(
     session: AsyncSession,
     *,
@@ -650,8 +638,10 @@ async def create_lead_source(
     that silently 404s every delivery while its screen says it exists.
     """
     cleaned = validate_mapping(mapping)
-    if agent_id is not None and not await _agent_is_ours(session, agent_id):
-        raise ProblemError.not_found("Agent")
+    # The FK on `inbound_webhooks.agent_id` is to `agents` and knows nothing about
+    # tenancy — PostgreSQL checks it with row security bypassed — so without this a
+    # config row could dispatch through another tenant's agent (`db/ownership.py`).
+    await assert_visible(session, "agent", agent_id)
 
     needs_supplied = source in CLIENT_SUPPLIED_SECRET_SOURCES
     if needs_supplied and not supplied_secret:
