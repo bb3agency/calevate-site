@@ -482,7 +482,7 @@ function RecordForm({
           <button
             type="submit"
             disabled={save.isPending || blocked !== null || !write.allowed}
-            className="rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md bg-brand-strong px-3 py-1.5 text-xs font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
           >
             {save.isPending ? "Recording…" : "Record verification"}
           </button>

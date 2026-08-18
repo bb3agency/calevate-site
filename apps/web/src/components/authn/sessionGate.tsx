@@ -27,7 +27,13 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { PlugZap, ShieldAlert } from "lucide-react";
 
-import { Card, NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import {
+  Card,
+  MAIN_CONTENT_ID,
+  NoticeBox,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from "@/components/ui";
 import type { RealmSessionStatus } from "@/lib/authn/useRealmSession";
 
 export interface SessionGateProps {
@@ -40,6 +46,26 @@ export interface SessionGateProps {
   onRetry: () => void;
   /** What a `partial` session should do next — the emailed-code step. */
   secondFactor?: ReactNode;
+  /**
+   * True when this gate IS the whole document, which is the two SHELLS' case: it replaces
+   * the sidebar and the `<main>` alike, so nothing else on the page supplies a landmark
+   * or a heading.
+   *
+   * It is off by default because the other two callers — `/auth/account` and
+   * `/auth/admin` — render this gate INSIDE `AuthPageFrame`'s `<main>` and beneath their
+   * own `<h1>`, where a second landmark and a second level-one heading would be the
+   * defect this prop exists to remove, one level up.
+   *
+   * MEASURED, in a real browser, because jsdom cannot see any of it: axe over the built
+   * app reported `landmark-one-main`, `page-has-heading-one` and `region` on a gated
+   * `/admin`, and `skip-link` ("the skip-link target should exist and be focusable") on a
+   * gated `/c/<slug>` — the client shell renders `SkipLink` outside its provider so a
+   * reader can bypass the navigation while the session resolves, and the `#main-content`
+   * it points at lives inside that provider, so in exactly the state the control was
+   * added for it pointed at nothing. `tests/a11y.ts` names all four rules as ones its
+   * jsdom sweep reports inapplicable.
+   */
+  landmark?: boolean;
 }
 
 export function SessionGate({
@@ -48,9 +74,32 @@ export function SessionGate({
   signInPath,
   onRetry,
   secondFactor,
+  landmark = false,
 }: SessionGateProps) {
+  /**
+   * The document's one `main`, when this gate is the document.
+   *
+   * The heading is `sr-only`: the branches below each carry their own visible title, and
+   * a second visible heading over "We could not reach Calevate" would be design noise —
+   * but a document with no level-one heading gives a screen-reader user no way to name
+   * where they are, which is what `page-has-heading-one` is about.
+   */
+  const frame = (body: ReactNode): ReactNode =>
+    landmark ? (
+      <main
+        id={MAIN_CONTENT_ID}
+        tabIndex={-1}
+        className="mx-auto w-full max-w-lg flex-1 overflow-y-auto p-6"
+      >
+        <h1 className="sr-only">Calevate {realmLabel}</h1>
+        {body}
+      </main>
+    ) : (
+      <>{body}</>
+    );
+
   if (status === "restoring") {
-    return (
+    return frame(
       <Card>
         {/* `role="status"` with `aria-live="polite"`: a gate that renders silently is a
             screen reader user waiting on nothing. `Skeleton` is the app's loading shape
@@ -67,7 +116,7 @@ export function SessionGate({
   }
 
   if (status === "partial") {
-    return (
+    return frame(
       <Card>
         <div className="space-y-3 text-sm text-ink-muted">
           <NoticeBox
@@ -91,7 +140,7 @@ export function SessionGate({
   }
 
   if (status === "unreachable") {
-    return (
+    return frame(
       <Card>
         <div className="space-y-3 text-sm text-ink-muted">
           {/* NOT "you are signed out". Nothing here is evidence of that — see the file
@@ -121,7 +170,7 @@ export function SessionGate({
     );
   }
 
-  return (
+  return frame(
     <Card>
       <div className="space-y-3 text-sm text-ink-muted">
         <NoticeBox

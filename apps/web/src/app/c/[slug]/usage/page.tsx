@@ -373,7 +373,7 @@ function SpendLimit({ session }: { session: Session }) {
           <button
             type="submit"
             disabled={!write.allowed || save.isPending}
-            className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
           >
             {save.isPending ? "Saving…" : "Save limit"}
           </button>
@@ -544,7 +544,7 @@ function TopUp({ session }: { session: Session }) {
         <button
           type="submit"
           disabled={!write.allowed || !amount.trim() || intent.isPending}
-          className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
         >
           {intent.isPending ? "Working…" : "Get payment details"}
         </button>

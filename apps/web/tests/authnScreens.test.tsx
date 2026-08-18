@@ -177,6 +177,82 @@ describe("§5.7 defect 5 — the password does not survive the code step", () =>
     const code = await screen.findByLabelText("Six-digit code");
     await waitFor(() => expect(document.activeElement).toBe(code));
   });
+
+  /**
+   * The SAME argument, in the other direction — the half nobody wrote.
+   *
+   * "Use a different email address" unmounts the whole code step, including the button
+   * that was just pressed. The focus rule the test above pins is not about the code field
+   * in particular; it is that a step change must not drop focus on `<body>`, and it holds
+   * on the way back exactly as it does on the way in. A keyboard user who backs out of the
+   * code step should land in the field they came back to fill.
+   */
+  it("moves focus back to the email field when the step is abandoned", async () => {
+    await renderPage(<AdminSignInPage />, {
+      ...OTP_ROUTES,
+      "POST /v1/auth/admin/logout": {},
+    });
+    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "operator@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    await screen.findByLabelText("Six-digit code");
+    fireEvent.click(screen.getByRole("button", { name: /Use a different email address/ }));
+
+    const emailField = await screen.findByLabelText("Email address");
+    await waitFor(() => expect(document.activeElement).toBe(emailField));
+  });
+
+  /**
+   * A refusal the screen has stopped meaning must go with the thing it refused.
+   *
+   * Wrong code, then "Send a new code": the resend succeeds, a fresh code is on its way,
+   * the field is cleared and the cooldown restarts — and the sentence saying the code was
+   * wrong is still on screen, now attached to nothing. On a step whose only other feedback
+   * is a countdown, a person reads that stale sentence as the resend having failed and
+   * presses again, into a cooldown that refuses them.
+   */
+  it("clears the wrong-code refusal when a new code is successfully sent", async () => {
+    // Installed BEFORE the render: `useCountdown`'s interval is created by an effect, and
+    // an interval scheduled on the real clock is not one `advanceTimersByTime` can fire.
+    // `shouldAdvanceTime` keeps awaited promises settling while the clock is fake.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    await renderPage(<AdminSignInPage />, {
+      ...OTP_ROUTES,
+      "POST /v1/auth/admin/login/otp": problem(401, {
+        type: `urn:calevate:auth/${AUTHN_CODES.invalidSecondFactor}`,
+        title: "Unauthorized",
+        detail: "That code is not right.",
+        kind: "auth",
+      }),
+    });
+    fireEvent.change(await screen.findByLabelText("Email address"), { target: { value: "operator@example.com" } });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "correct-horse-battery" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const codeField = await screen.findByLabelText("Six-digit code");
+    fireEvent.change(codeField, { target: { value: "000000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Finish signing in" }));
+    expect((await screen.findByRole("alert")).textContent).toBeTruthy();
+
+    // Past the courtesy cooldown, so the resend the test drives is the BUTTON a person
+    // presses — calling the realm's method directly would bypass the mutation whose
+    // `onSuccess` is the thing under test. `useCountdown` recomputes from an absolute
+    // deadline, so moving the fake clock moves both the deadline and the interval that
+    // re-reads it.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(61_000);
+    });
+    const resendButton = screen.getByRole("button", { name: /Send a new code/ });
+    expect((resendButton as HTMLButtonElement).disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(resendButton);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
 });
 
 describe("§5.7 defect 4 — one countdown, not two", () => {

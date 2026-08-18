@@ -31,8 +31,26 @@
   --line: #e2e8f0;
 
   --text: #171a1c;
-  --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  /*
+   * THREE INK LEVELS, ALL OF WHICH CARRY SMALL TEXT — so all three are held to WCAG
+   * 1.4.3 AA's 4.5:1, and `tests/contrast.test.ts` computes it against `--surface` and
+   * `--app` on every run.
+   *
+   * They used to be #64748b / #94a3b8, and `--text-faint` was **2.56:1 on white**. That
+   * is not a near miss: it is roughly half the required separation, on the token this
+   * console writes every hint, caption and secondary label in, for SMB staff reading a
+   * 12px line on a low-end Android. axe-core in a real Chromium reported it on seven of
+   * nine documents; jsdom could never see it, which is why `tests/a11y.ts` disables the
+   * rule and names the palette as where it is settled.
+   *
+   * The fix moves BOTH, because raising faint alone to a passing value lands it exactly
+   * on muted and collapses two tokens into one — a hierarchy the design would then no
+   * longer have, which the next person restores by picking a lighter grey and putting
+   * this defect straight back. So muted takes slate-600 (7.58:1) and faint takes muted's
+   * old slate-500 (4.76:1 / 4.56:1). Same family, same relationship, both legible.
+   */
+  --text-muted: #475569;
+  --text-faint: #64748b;
 }
 
 /*
@@ -65,8 +83,15 @@
   --line: #1e293b;
 
   --text: #f8fafc;
+  /*
+   * The dark half of the same failure, and it was the worse-looking of the two on paper:
+   * `--text-faint` at #64748b is 3.75:1 on `--surface`. Muted already passes at 6.96:1
+   * and stays; faint moves UP the slate ramp rather than down, because on a dark ground
+   * "fainter" means lighter, and lands at 5.08:1 / 5.74:1 while staying visibly dimmer
+   * than muted.
+   */
   --text-muted: #94a3b8;
-  --text-faint: #64748b;
+  --text-faint: #7c8a9c;
 }
 
 @theme inline {
