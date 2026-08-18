@@ -41,6 +41,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
+
 #: A fresh dialable Indian mobile per test. `dnc_list` global rows outlive a test (they
 #: belong to no tenant and no fixture tears them down), so a constant would couple runs.
 def _number() -> str:
@@ -226,15 +227,19 @@ async def test_the_restrictive_policy_exists_for_both_write_verbs(verb: str) -> 
     try:
         async with owner.connect() as conn:
             found = (
-                await conn.execute(
-                    text(
-                        "SELECT p.polname FROM pg_policy p JOIN pg_class c "
-                        "ON c.oid = p.polrelid WHERE c.relname = 'dnc_list' "
-                        "AND p.polpermissive IS FALSE AND p.polcmd = :cmd"
-                    ),
-                    {"cmd": "w" if verb == "UPDATE" else "d"},
+                (
+                    await conn.execute(
+                        text(
+                            "SELECT p.polname FROM pg_policy p JOIN pg_class c "
+                            "ON c.oid = p.polrelid WHERE c.relname = 'dnc_list' "
+                            "AND p.polpermissive IS FALSE AND p.polcmd = :cmd"
+                        ),
+                        {"cmd": "w" if verb == "UPDATE" else "d"},
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
     finally:
         await owner.dispose()
     assert found, f"dnc_list has no RESTRICTIVE policy scoped FOR {verb}"

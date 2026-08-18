@@ -24,9 +24,16 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
-# D-34 runs BOTH motions on ONE product: a self-serve org is the same `organizations`
-# row as a managed one, distinguished by this column, so nothing forks.
-PLAN_TIERS = ("managed", "self_serve", "trial")
+# NO `PLAN_TIERS` HERE. It was declared in this file too — the identical three-tuple, three
+# hundred lines from the one in `tenancy/models.py` that the `plan_tier` CHECK is built
+# from — and NOTHING imported it (D-192, `grep -rn PLAN_TIERS apps packages tests scripts`).
+# Two spellings of one enum is a defect while they still agree, and this copy was the one
+# that could drift silently because no constraint and no test read it. The column lives on
+# `organizations`, so its vocabulary lives with that model; billing reads the tier off the
+# row like everything else.
+#
+# D-34 runs BOTH motions on ONE product: a self-serve org is the same `organizations` row as
+# a managed one, distinguished by that column, so nothing forks.
 CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
 
 # The DASHBOARD-AI units (D-127 G-3, migration e1a7c93d5b02). Their own unit types

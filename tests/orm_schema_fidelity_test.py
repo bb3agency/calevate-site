@@ -42,10 +42,12 @@ PostgreSQL is backed by an index that `add_index` would name.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 from apps.api.db.registry import TENANT_TABLES, Base
 from scripts.check_metadata_columns import compare_entries
-from sqlalchemy import create_engine, text
+from sqlalchemy import CheckConstraint, create_engine, text
 
 #: Ops that mean "the models declare this and the database does not have it". The direction
 #: with no legitimate instance — see the module docstring for why the mirror is excluded.
@@ -132,6 +134,64 @@ def test_the_models_declare_nothing_the_database_does_not_have(url: str) -> None
         "write the migration that creates it, or delete the declaration — leaving it means "
         "the next autogenerate proposes it, and a model is not a place to record an "
         "intention (e7c3d10a9f52: 'a deprecation that un-deprecates itself')."
+    )
+
+
+def test_every_orm_check_constraint_exists_in_the_database(url: str) -> None:
+    """RED before D-192 on `organizations.plan_tier`.
+
+    `compare_metadata` does not diff CHECK constraints AT ALL, so this direction is invisible
+    to every guard in the repo, and a `CheckConstraint` in a model is a DDL instruction that
+    SQLAlchemy never evaluates client-side. Declaring one and not migrating it therefore puts
+    the rule in a place that cannot refuse a row — `plan_tier` had been that way since D-39,
+    and the database happily took `'enterprise_platinum'`.
+
+    MATCHED ON THE PREDICATE, NOT THE NAME. Names drift harmlessly (`ck_platform_state_
+    tm_status_enum` in the model against `ck_platform_state_tm_registration_enum` in the
+    database; three constraints whose model name already carried the `ck_<table>_` prefix the
+    naming convention adds again). A test keyed on names would report six cosmetic failures
+    and get switched off, which is the failure mode `check_metadata_columns` describes. What
+    cannot drift harmlessly is the SET OF VALUES a constraint admits, so each model check is
+    reduced to the literals it names and looked for in some constraint on the same table.
+    """
+    engine = create_engine(url)
+    try:
+        with engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT c.relname, pg_get_constraintdef(con.oid) FROM pg_constraint con "
+                    "JOIN pg_class c ON c.oid = con.conrelid "
+                    "JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public' "
+                    "WHERE con.contype = 'c'"
+                )
+            ).all()
+    finally:
+        engine.dispose()
+
+    live: dict[str, list[str]] = {}
+    for table_name, definition in rows:
+        live.setdefault(table_name, []).append(definition)
+
+    unenforced = []
+    for table_name, table in sorted(Base.metadata.tables.items()):
+        for constraint in table.constraints:
+            if not isinstance(constraint, CheckConstraint):
+                continue
+            literals = set(re.findall(r"'([A-Za-z0-9_]+)'", str(constraint.sqltext)))
+            if not literals:
+                continue  # a purely numeric or column-only predicate; nothing to match on
+            if not any(
+                literals <= set(re.findall(r"'([A-Za-z0-9_]+)'", definition))
+                for definition in live.get(table_name, [])
+            ):
+                unenforced.append(f"{table_name}.{constraint.name} -> {sorted(literals)}")
+
+    assert not unenforced, (
+        f"{unenforced}: declared as a CheckConstraint on the ORM model and no constraint on "
+        "that table admits the same values. A CheckConstraint is a DDL instruction — "
+        "SQLAlchemy never evaluates it — so a rule that was never migrated is a rule nothing "
+        "enforces, and `compare_metadata` does not report CHECK constraints in either "
+        "direction. Write the ALTER TABLE, or delete the declaration."
     )
 
 
