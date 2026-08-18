@@ -17,6 +17,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
+from calevate_shared.engine import AgentSnapshot, EngineAgentRef
 from sqlalchemy import text
 
 
@@ -215,3 +216,82 @@ async def test_a_live_agent_rollback_republishes_the_prompt_to_the_engine() -> N
     assert get_engine() is engine, "same cached instance the service published through"
     config = engine._agents[ref]
     assert config.system_prompt == body_one, "the ENGINE got the rolled-back prompt"
+
+
+async def test_a_rollback_the_engine_strips_the_truthful_answer_rule_from_is_refused() -> None:
+    """Hard rule 5 on the RECOVERY path, which is the one nobody watches.
+
+    A rollback is the click an operator makes while a bad script is taking calls, and it
+    is the one publish this repository lets run without a second confirmation
+    (`rollback_prompt`: "making the recovery path wait for a second click would cost more
+    than it protects"). That makes it exactly the publish where a silently-dropped
+    `TRUTHFUL_ANSWER_DIRECTIVE` would go unnoticed: the operator is watching the script
+    change, and the directive sits at the END of the prompt, where a vendor's length
+    ceiling truncates.
+
+    It goes through `publish_agent`, so the read-back and the refusal apply — asserted
+    here rather than assumed, because "the rollback reaches the engine" (above) is a
+    claim about the script alone and would stay green with the rule gone.
+    """
+    reset_engine_cache()
+    tenant_id, agent_id = await _tenant()
+
+    class DirectiveTruncatingEngine(FakeEngine):
+        """A vendor with a prompt-length ceiling: it keeps the head and drops the tail.
+
+        The read-back returns the SCRIPT ALONE. `compose_engine_prompt` prepends the
+        opening line and appends the platform rules, so answering with `cfg.system_prompt`
+        is precisely "everything after the script fell off the end" — the truncation
+        shape, not an invented one. Overriding the read-back rather than the write is
+        deliberate: the vendor accepted the bytes, which is what makes this class of
+        failure invisible to any caller that scores a publish by its status code.
+        """
+
+        async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+            snapshot = await super().get_agent(ref)
+            return snapshot.model_copy(update={"system_prompt": self._agents[ref].system_prompt})
+
+    async with tenant_session(tenant_id) as session:
+        first = await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="Version one: the receptionist script the client approved.",
+            notes=None,
+            created_by=None,
+        )
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="Version two: the experiment the client wants rolled back.",
+            notes=None,
+            created_by=None,
+        )
+    ref = await _make_live(tenant_id, agent_id)
+
+    import apps.api.engine as engine_module
+
+    previous = dict(engine_module._instances)
+    engine_module._instances["fake"] = DirectiveTruncatingEngine()
+    try:
+        async with tenant_session(tenant_id) as session:
+            with pytest.raises(ProblemError) as raised:
+                await prompts.rollback_prompt(
+                    session, tenant_id=tenant_id, agent_id=agent_id, version=first
+                )
+    finally:
+        engine_module._instances.clear()
+        engine_module._instances.update(previous)
+
+    assert raised.value.code == "engine_publish_not_applied"
+    # And the refusal is total: the transaction rolled back, so no row claims the
+    # rolled-back version is live on a platform observed not to be running the rule.
+    async with tenant_session(tenant_id) as session:
+        state = (
+            await session.execute(
+                text("SELECT live_verify_state FROM agents WHERE id = :a"), {"a": agent_id}
+            )
+        ).scalar()
+    assert state != "applied", "the row recorded a verdict the read-back never reached"
+    assert ref is not None
