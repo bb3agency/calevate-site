@@ -448,8 +448,68 @@ async def test_money_stays_numeric_in_the_service_and_becomes_a_string_on_the_wi
     assert row.spend_used_inr == Decimal("900.5000")
 
     wire = _out(row)
-    assert isinstance(wire.spend_used_inr, str) and wire.spend_used_inr == "900.5000"
-    assert wire.spend_cap_inr == "1000.0000"
+    # PAISE on the wire, storage precision in the row. The ledger keeps NUMERIC(12,4);
+    # `_out` quantizes because `formatINR` truncates — see the next test for the value
+    # where the two answers differ.
+    assert isinstance(wire.spend_used_inr, str) and wire.spend_used_inr == "900.50"
+    assert wire.spend_cap_inr == "1000.00"
+
+
+async def test_the_operators_spend_line_and_the_clients_agree_to_the_paisa() -> None:
+    """The same defect D-375 fixed on the client's wallet, on the operator's screen.
+
+    `spend_state.billed_inr` is NUMERIC(12,4) and four decimals is what it ORDINARILY
+    holds — a prepaid call is debited `rates.prepaid_billed_inr`, quantized at `MONEY_Q`,
+    so any `self_serve_inr_per_min` that is not a divisor of 60 produces one on the first
+    call (95 seconds at ₹6.50/min is ₹10.2917). This screen stringified that figure raw
+    while `billing/cap_routes.py` — the CLIENT's view of the very same row — already sent
+    it through `to_paise`.
+
+    The two ends round in OPPOSITE directions, which is what turns a formatting
+    inconsistency into a disagreement: `to_paise` is ROUND_HALF_UP (`billing.rates
+    .ROUNDING`, the repo's one mode, chosen because it is what an Indian tax invoice is
+    checked against) and `apps/web`'s `formatINR` TRUNCATES the fraction to two digits —
+    deliberately, because it formats digits without ever parsing them (hard rule 7's
+    frontend shadow). So ₹489.7050 read ₹489.70 to the operator and ₹489.71 to the
+    client, off one row, in one instant, on the line an operator quotes while deciding
+    whether to raise a ceiling.
+
+    ₹489.7050 rather than a round figure for the reason `money_walk_test` states about
+    every fixture in this repo: a rounding defect cannot show itself against round
+    numbers, and the assertion this replaces pinned ₹900.5000, which quantizes to itself.
+    """
+    from apps.api.admin.health_routes import _out
+    from apps.api.billing.service import to_paise
+
+    account = await _account()
+    async with tenant_session(account.tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO plans (id, tenant_id, hard_cap_spend, created_at, updated_at) "
+                "VALUES (:i, :t, 500, now(), now())"
+            ),
+            {"i": uuid7(), "t": account.tenant_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO spend_state (tenant_id, month, minutes_used, spend_used, "
+                "billed_inr, capped, created_at, updated_at) "
+                "VALUES (:t, :m, 0, 489.7050, 489.7050, false, now(), now())"
+            ),
+            {"t": account.tenant_id, "m": current_billing_month()},
+        )
+
+    row = await _judge(account)
+    assert row is not None
+    assert row.spend_used_inr == Decimal("489.7050"), (
+        "the LEDGER keeps its full precision — only the wire is quantized"
+    )
+
+    wire = _out(row)
+    assert wire.spend_used_inr == str(to_paise(row.spend_used_inr)) == "489.71", (
+        "the operator's spend line must be the same paisa the client's own cap screen "
+        "shows; publishing the storage precision hands it to a formatter that truncates"
+    )
 
 
 async def test_a_healthy_account_is_absent_rather_than_green() -> None:

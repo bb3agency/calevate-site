@@ -26,10 +26,16 @@ open and refreshes; an audit chain that grows a row per poll stops being readabl
 argument `kyc_routes.py` makes for the client's own screen, and `holds_routes.py` for the
 work list). Every ACTION taken from it writes its own entry.
 
-**Money is a STRING on the wire.** `spend_used_inr` and `spend_cap_inr` are `Decimal`
-through billing (hard rule 7) and are stringified here, for the reason `UsagePanelOut`
-states: a JSON float cannot hold a rupee amount exactly, and `Number()` on INR is how
-₹10,159.00 becomes ₹10,158.999999999998.
+**Money is a STRING on the wire, AND IT IS QUANTIZED TO PAISE FIRST.** `spend_used_inr`
+and `spend_cap_inr` are `Decimal` through billing (hard rule 7) and are stringified here,
+for the reason `UsagePanelOut` states: a JSON float cannot hold a rupee amount exactly,
+and `Number()` on INR is how ₹10,159.00 becomes ₹10,158.999999999998.
+
+The QUANTIZATION is the second half and it was missing — this screen stringified
+`spend_state.billed_inr` at its NUMERIC(12,4) storage precision, and `apps/web`'s
+`formatINR` truncates where `billing.service.to_paise` rounds half-up. See `_out` for the
+measurement; it is the same defect D-375 fixed on the client's own wallet, on the
+operator's screen, and `billing/cap_routes.py` already had it right.
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.health import CallBasis, ClientHealth, HealthSignal, Severity, client_health
+from apps.api.billing.service import to_paise
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
@@ -144,8 +151,27 @@ def _out(row: ClientHealth) -> ClientHealthOut:
         calls_prev_7d=row.volume.calls_prev_7d,
         calls_basis=row.volume.basis,
         last_call_at=row.volume.last_call_at,
-        spend_used_inr=str(row.spend_used_inr),
-        spend_cap_inr=None if row.spend_cap_inr is None else str(row.spend_cap_inr),
+        # `to_paise`, for the same reason and with the same measurement as D-375 on the
+        # client's own wallet — this is the SECOND surface that skipped the one rounding
+        # function, and it is the operator's half of the same pair of screens.
+        #
+        # `spend_used_inr` is `spend_state.billed_inr`, NUMERIC(12,4), and four decimals
+        # is what it ordinarily holds: a prepaid call is debited
+        # `rates.prepaid_billed_inr`, quantized at `MONEY_Q`, so any
+        # `self_serve_inr_per_min` that is not a divisor of 60 produces one on the first
+        # call — 95 seconds at ₹6.50/min is ₹10.2917. `apps/web`'s `formatINR` TRUNCATES
+        # a fraction to two digits (deliberately: it formats digits without ever parsing
+        # them, hard rule 7's frontend shadow) where `to_paise` rounds half-up, so at a
+        # `billed_inr` of ₹489.7050 THIS screen said ₹489.70 while `billing/cap_routes.py`
+        # — which already went through `to_paise` — showed the client ₹489.71 for the
+        # same row in the same instant. One paisa, on the "spend cap near" line an
+        # operator quotes to a client while deciding whether to raise their ceiling.
+        #
+        # The screen's own docstring already says "this is a rupee AMOUNT, not a rate, so
+        # two decimals is the right precision". It was right; the server was not sending
+        # two.
+        spend_used_inr=str(to_paise(row.spend_used_inr)),
+        spend_cap_inr=None if row.spend_cap_inr is None else str(to_paise(row.spend_cap_inr)),
     )
 
 
