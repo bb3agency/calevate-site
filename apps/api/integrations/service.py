@@ -21,6 +21,27 @@ about their own data, recorded in the config row rather than assumed.
 Delivery outcomes land in `webhook_deliveries(direction='out')`, which is the forensic
 half of SEC-COMP §5 and the data the "webhook activity" screen reads.
 
+**WHAT THAT TABLE CAN AND CANNOT ANSWER, because two documents send an investigator to
+it and one of them overstates it (R-9).** The OUT direction is complete: `record_delivery`
+upserts a row per delivery id whatever the outcome, so every attempt we made — delivered,
+failed, skipped — is on file with its status, its attempts and its `payload_ref`. The IN
+direction is NOT a record of what arrived, and must not be read as one:
+`apps/voice-runtime/webhook_routes.py` writes its row inside `if claimed:`, so a delivery
+refused at the source-IP check, refused as unkeyable, refused over the size cap, timed out
+reading its body, or answered `duplicate` by the inbox leaves NOTHING here. That is
+deliberate — a row per hostile POST on an unauthenticated public endpoint is a write
+amplifier an attacker controls — and it means the population an intrusion investigation
+most wants (SEC-COMP §4 / OPERATIONS §7's "scope via audit_log/webhook_deliveries") is
+exactly the population absent from the table. What carries that signal instead is the
+alert stream: the source rejection, the size cap and the unkeyable payload each fire a
+coded `alert()` (`webhook_source_rejected`, `webhook_payload_too_large`,
+`webhook_unkeyable`) carrying the source IP where it exists, and `duplicate` is deliberately
+silent because it is ordinary traffic rather than an incident. Those alerts and the
+receiver's own log lines are what an investigator should be pointed at for inbound scope,
+NOT this table's `direction='in'` rows. Closing the gap properly needs a bounded,
+aggregated counter rather than a row per refusal, which needs the metrics pipeline
+`DEPLOYMENT.md` §8 defers.
+
 **Two endpoint kinds, ONE definition of "delivered".** D-23 promises webhooks *and*
 Google Sheets. They differ only in the transport at the very end: the fan-out, the
 per-endpoint redaction, the delivery id, the forensic row and the retry ladder are
@@ -76,6 +97,32 @@ SHEET_KIND = "google_sheets"
 # when it has a delivery path, and `tests/sheets_sync_test.py` asserts the two sets match
 # so the reverse (a kind a client can configure and nothing delivers) cannot come back.
 DELIVERABLE_KINDS: tuple[str, ...] = (WEBHOOK_KIND, SHEET_KIND)
+
+
+def subscribed_endpoint_sql(alias: str) -> str:
+    """The predicate for "which endpoints does this event fan out to", spelled ONCE.
+
+    Binds `:event` and `:kinds` — pass `{"event": ..., "kinds": list(DELIVERABLE_KINDS)}`.
+
+    EXPORTED BECAUSE IT WAS RESTATED, and the restatement was already wrong.
+    `workers/pipeline._pipeline_settled` probes "was a CRM fan-out owed for this call"
+    and its own docstring says it mirrors this predicate; it asked `active = true AND
+    'call.completed' = ANY(events)` and left the `kind` half out. The two agree today
+    only because `ck_outbound_webhooks_kind_enum` happens to allow exactly
+    `DELIVERABLE_KINDS` — so the day a third kind lands in the CHECK ahead of its
+    delivery worker (the ordinary way a third kind arrives), `enqueue_event` writes zero
+    outbox rows for that tenant while the probe expects the artefact anyway, and every
+    completed call becomes a permanent `unfinished_pipeline` the poller re-drives once an
+    hour WITH A BILLED EXTRACTION. Two spellings of one rule is a defect while they still
+    agree; this is the same move `billing.caps.over_cap_sql` and
+    `pipeline.EXTRACTION_OWED_SQL` already make.
+
+    `alias` is required rather than defaulted: both call sites sit in a query with other
+    tables in scope, and an unqualified `events`/`kind` resolving to somebody else's
+    column is precisely the silent wrong answer this function exists to stop.
+    """
+    return f"{alias}.active = true AND {alias}.kind = ANY(:kinds) AND :event = ANY({alias}.events)"
+
 
 #: The arq job this module fans out to, promoted from a bare literal (P6.9). A job name
 #: passed inline is invisible to `tests/job_registration_test.py`, whose entire purpose is
@@ -251,8 +298,8 @@ async def enqueue_events(
     endpoints = (
         await session.execute(
             text(
-                "SELECT id, mapping FROM outbound_webhooks WHERE active = true "
-                "AND kind = ANY(:kinds) AND :event = ANY(events)"
+                "SELECT w.id, w.mapping FROM outbound_webhooks w WHERE "
+                + subscribed_endpoint_sql("w")
             ),
             {"event": event, "kinds": list(DELIVERABLE_KINDS)},
         )
@@ -812,5 +859,6 @@ __all__ = [
     "sheet_row",
     "sheet_worksheet",
     "sign_payload",
+    "subscribed_endpoint_sql",
     "verify_signature",
 ]

@@ -6,11 +6,25 @@ CLIENT_VPS_SETUP_GUIDE, CLOUDFLARE_SHARED_VPS_DEPLOYMENT_GUIDE, MASTER_DEPLOYMEN
 HARDENING_HISTORY). Where this doc says "raghava-proven" it means: running in production,
 with the failure modes already found and fixed there. Decisions D-25…D-27 in ROADMAP §6.
 
-## 0. Hosting decision (D-25 — supersedes D-13's scope, not its reasoning)
+## 0. Hosting decision (D-25 for the scope, D-180 for the provider and region)
 
 The calevate.tech site is NOT in the live-call path — the rented engine (Bolna, D-31)
-hosts the entire voice pipeline in v1. So the site stack (web, api, workers, webhook receiver) hosts on a
-**general-purpose VPS (Hetzner-class); India co-location is NOT required for it.**
+hosts the entire voice pipeline in v1. So the site stack (web, api, workers, webhook
+receiver) needs only a **general-purpose VPS; India co-location is NOT REQUIRED for it.**
+
+**The host is nevertheless an Indian one: a Hostinger India VPS (D-180).** Read the two
+sentences together, because they are not in tension and the difference matters when
+somebody quotes one of them: co-location is not a *requirement* of this stack, and the
+founder bought it anyway. What that buys is one leg of the residency question and not the
+question — R2 runs `AWS_REGION=auto`, Bolna's recordings were observed on `us-east-1`, and
+Resend and Sentry are operated outside India, so **an Indian host does not make the data
+plane India-resident and nothing here may claim it does** (D-180, LEGAL-SURFACE F-1).
+
+Everything below that reasons from a EUROPEAN VPS — chiefly the ~150 ms worked example in
+the amendment — was an argument about the host D-25 assumed, not about the one being
+rented. The in-call carve-out it reaches survives on its own merits; the latency figure
+does not, and is left in place struck rather than silently re-numbered, because a number
+nobody re-measured is worth less than the record that it went stale.
 
 The India-latency requirement survives in one place: **any in-call-path service**.
 With D-28 (RAG/memory = managed API service), the likely M3 shape is the engine calling
@@ -19,9 +33,13 @@ the provider directly — putting NOTHING of ours in the call path.
 > ⚠ **AMENDED (Aug 2026, after D-38 + SURFACES §2b).** "Nothing to co-locate" no longer
 > holds unconditionally. **In-call actions put our endpoint in the audio path**: when the
 > agent books a slot, sends a WhatsApp mid-call, or hits a custom API, the *engine* calls
-> *us* while the caller waits. A Hetzner-class European VPS answering a Bolna-India call
+> *us* while the caller waits. ~~A Hetzner-class European VPS answering a Bolna-India call
 > adds ~150ms each way — enough to blow an in-call tool budget on its own, before our
-> handler does any work.
+> handler does any work.~~ **Struck by D-180**: the host is in India, so this particular
+> figure is measuring a machine nobody is renting. The CONCLUSION below survives without
+> it, on a different and weaker argument — an in-call endpoint's budget is 100ms total
+> (CLAUDE.md), so it wants to be near the engine whatever the baseline is, and "near" is
+> now a question to answer by measurement rather than one this paragraph already answered.
 >
 > Consequence, decided here so it is not discovered late: **the moment we ship the first
 > in-call action, that endpoint (and only that endpoint) moves to an India-region host** —
@@ -418,9 +436,12 @@ What is done about it:
 - **Order.** workers first (no reader waits on them; a job landing in their gap sits in
   Redis), then api, then **voice-runtime last** — its gap is the only one that costs a
   call, so it is the shortest-lived and the last thing to happen.
-- **Graceful stop.** `stop_grace_period` is 30s for voice-runtime (longer than its 2s
-  durable deadline plus the ack budget) and 60s for workers, so in-flight work finishes
-  instead of being killed.
+- **Graceful stop.** `stop_grace_period` is 30s for api and voice-runtime (each longer
+  than its uvicorn `--timeout-graceful-shutdown`, 25s and 20s, so the drain finishes and
+  the lifespan's shutdown hooks still get to run) and 60s for workers, so in-flight work
+  finishes instead of being killed. The api's was ABSENT until D-182, which meant Docker's
+  10-second default against a 25-second drain: every api deploy ended in SIGKILL.
+  `tests/worker_reliability_test.py` pins drain < grace for all three services.
 - **The safety net already exists.** A delivery arriving in voice-runtime's gap gets no
   ack; Bolna does not retry (D-31); the reconciliation poller recovers it on a 10-minute
   tick. Leads appear late, not never. This is the same net OPERATIONS §5 leans on.

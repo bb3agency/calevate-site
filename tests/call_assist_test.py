@@ -46,6 +46,7 @@ import pytest
 from apps.api.billing import ai_quota
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist
+from apps.api.crm import routes as crm_routes
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import extraction as extraction_module
@@ -852,3 +853,54 @@ def test_the_route_declares_a_mutating_permission_that_exists_and_is_granted() -
         "an assist spends money, so a D-22 read-only operator must be refused it"
     )
     assert route.methods == {"POST"}
+
+
+async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_pay_again(
+    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CORRECTNESS 1 (D-181): the claim used to roll back with the side effect it guards.
+
+    `claim_idempotency` INSERTed the `processing` record into the REQUEST's transaction.
+    `core/deps.db` rolls that transaction back on any exception — so a raise anywhere
+    after `run_assist` (the audit chain refusing to write, a statement timeout, a severed
+    connection) erased the claim, the usage rows and the audit row while **Google had
+    already been paid**, and the retry with the same key — which is what the key is for —
+    paid a second time.
+
+    Driven with the audit write raising, because that is the failure the audit report
+    names and it sits between the payment and the response. What must be true afterwards
+    is one thing: the second request with the same key does not reach Vertex.
+    """
+    tenant_id, slug, token = await _make_tenant()
+    call_id = await _call_with_transcript(tenant_id)
+    google = FakeVertex()
+    use_fake_vertex(monkeypatch, google)
+    headers = _headers(token, slug, key=f"crash-{uuid.uuid4().hex[:8]}")
+
+    async def refuse_to_audit(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("audit chain unavailable")
+
+    # Patched and restored BY HAND rather than through `monkeypatch.undo()`: undo() is
+    # per-test, not per-call, so it would also revert `vertex_configured`'s environment
+    # and the retry below would be refused as `assist_no_credential` — a green test that
+    # never reached the model. (That is not hypothetical; it is what this test did first.)
+    original_write_audit = crm_routes.write_audit
+    crm_routes.write_audit = refuse_to_audit  # type: ignore[assignment]
+    # The 500 is not the subject; what the crashed request left behind is. `_client()`
+    # re-raises an unhandled server exception into the test, which would end it before
+    # the retry.
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
+    ) as http:
+        first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
+    assert first.status_code >= 500, first.text
+    assert len(google.generate_requests) == 1, "the provider was paid once"
+
+    crm_routes.write_audit = original_write_audit  # type: ignore[assignment]
+    async with _client() as http:
+        second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
+
+    assert len(google.generate_requests) == 1, (
+        f"the retry paid Google a second time (status {second.status_code}): the claim "
+        "did not survive the failure it exists to survive"
+    )

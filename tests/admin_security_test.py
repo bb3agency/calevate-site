@@ -20,16 +20,16 @@ from tests.impersonation_grant_test import view_as_headers
 
 
 async def _make_admin(role: str = "superadmin") -> str:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', :role, now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', :role, now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id, "role": role},
+            {"id": admin_id, "role": role},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 def _client() -> AsyncClient:
@@ -143,17 +143,23 @@ async def test_an_invitation_can_only_be_burned_once() -> None:
     )
     tenant_id = created["id"]
     user_id = uuid.uuid4()
+    # UNIQUE PER RUN, not the literal it used to be. `users` now carries
+    # `uq_users_email_lower` (migration c7a1e93d40b8), and this test never deleted its row,
+    # so a fixed address made the SECOND run of the suite fail on a collision with the
+    # first — the shared-database discipline `tests/shared_state_assertion_guard_test.py`
+    # explains, arriving as a constraint violation instead of a wrong count.
+    invitee_email = f"invitee-{user_id.hex[:10]}@example.com"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": user_id, "c": f"u_{user_id.hex[:10]}", "e": "invitee@example.com"},
+            {"i": user_id, "e": invitee_email},
         )
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
-            session, tenant_id=tenant_id, email="invitee@example.com", role="owner", created_by=None
+            session, tenant_id=tenant_id, email=invitee_email, role="owner", created_by=None
         )
         stored = (await session.execute(text("SELECT token_hash FROM invitations"))).scalar()
 
@@ -191,10 +197,16 @@ async def test_admin_can_list_tenants_with_health() -> None:
     assert {"id", "name", "slug", "status", "calls_7d", "leads"} <= set(body[0])
 
 
-async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
-    """The chicken-and-egg the `/v1/invitations/accept` route exists for: a new invitee
-    is authenticated but has no membership, and creating one is the point. Every other
-    authenticated route would 403 them, correctly."""
+async def test_an_invitee_arrives_with_no_account_and_leaves_with_a_membership() -> None:
+    """The chicken-and-egg the redemption route exists for, in its D-177 shape.
+
+    It used to be "authenticated but membership-less": the invitee had a vendor account
+    and this route only made the `memberships` row. There is no such intermediate state
+    now — `POST /v1/auth/client/invitations/accept` creates the account, sets its password,
+    burns the invitation and issues the session in one call — so the "before" half of this
+    test is a caller with NO credential at all, and the "after" half is the session the
+    call handed back.
+    """
     created = await service.create_organization(
         name="Accept Clinic",
         slug=f"acc-{uuid.uuid4().hex[:8]}",
@@ -204,56 +216,40 @@ async def test_an_invitee_can_accept_before_they_have_any_membership() -> None:
         created_by=None,
     )
     tenant_id = created["id"]
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
-    user_id = uuid.uuid4()
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
-            ),
-            {"i": user_id, "c": clerk_id, "e": f"{clerk_id}@example.com"},
-        )
+    email = f"invitee-{uuid.uuid4().hex[:8]}@example.com"
     async with tenant_session(tenant_id) as session:
         _invitation_id, token = await service.create_invitation(
-            session,
-            tenant_id=tenant_id,
-            email=f"{clerk_id}@example.com",
-            role="owner",
-            created_by=None,
+            session, tenant_id=tenant_id, email=email, role="owner", created_by=None
         )
 
-    headers = {"Authorization": f"Bearer dev:client:{clerk_id}"}
     async with _client() as http:
-        # Before accepting, a normal tenant route refuses them.
-        blocked = await http.get("/v1/leads", headers=headers)
-        accepted = await http.post("/v1/invitations/accept", json={"token": token}, headers=headers)
-        after = await http.get("/v1/leads", headers={**headers, "X-Org-Slug": created["slug"]})
+        # Before accepting, a tenant route refuses a caller with no credential.
+        blocked = await http.get("/v1/leads", headers={"X-Org-Slug": str(created["slug"])})
+        accepted = await http.post(
+            "/v1/auth/client/invitations/accept",
+            json={"token": token, "password": "admin-security-invitee-password"},
+        )
 
-    assert blocked.status_code == 403, "no membership, no tenant data"
+    assert blocked.status_code == 401, "no credential, no tenant data"
     assert accepted.status_code == 200, accepted.text
     assert accepted.json()["slug"] == created["slug"]
     assert accepted.json()["role"] == "owner"
-    assert after.status_code == 200, "the membership the accept created now works"
+
+    # The membership the redemption created is real, read through the tenant's own
+    # session rather than through the cookie the call set — this suite drives the API
+    # with dev bearers and has no cookie jar, and the membership is the fact under test.
+    async with tenant_session(tenant_id) as session:
+        members = (await session.execute(text("SELECT count(*) FROM memberships"))).scalar()
+    assert members == 1
 
 
 async def test_a_bad_or_reused_invite_token_is_indistinguishable() -> None:
     """An attacker guessing tokens must not learn whether one exists, is used, or has
     expired — all three answer identically."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
-    async with untenanted_session() as session:
-        await session.execute(
-            text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
-            ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": f"{clerk_id}@example.com"},
-        )
     async with _client() as http:
         response = await http.post(
-            "/v1/invitations/accept",
-            json={"token": "x" * 40},
-            headers={"Authorization": f"Bearer dev:client:{clerk_id}"},
+            "/v1/auth/client/invitations/accept",
+            json={"token": "x" * 40, "password": "admin-security-invitee-password"},
         )
     assert response.status_code == 422
     assert response.json()["type"].endswith("/invitation_invalid")

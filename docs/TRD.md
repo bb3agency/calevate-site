@@ -53,7 +53,10 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   OPERATIONS §8: turning on "Require MFA" in the admin Clerk application, and leaving
   that application on the default session-token claims (a custom JWT template that drops
   `fva` locks the console out with `mfa_claim_missing`).
-- **Storage:** R2/Spaces, SSE encryption, presigned URLs (5-min TTL), never public.
+- **Storage:** R2/Spaces, SSE encryption, presigned URLs (5 min for everything except a
+  call recording, whose link is sized to the recording per D-153 and capped at
+  `RECORDING_LINK_CEILING_S` — the widest credential window this platform opens, so it
+  is named rather than averaged away), never public.
 - **Observability:** OpenTelemetry traces; Sentry (errors); operator alerts by email.
   LLM tracing (prompt versions, per-call token cost, latency breakdown) is a NAMED GAP,
   not a component — see the correction below.
@@ -334,7 +337,9 @@ scorecard — D-31]:
   webhook_url in agent_config; fires on status transitions (scheduled → queued →
   in-progress → completed); pre-call webhooks from tools share the shape. No delivery
   history, no replay tooling. Authenticity = **source-IP allowlist (13.203.39.153)
-  enforced at nginx AND in-app**, plus dedupe on execution_id; webhook payloads are
+  enforced IN-APP, and there only** (nginx does D-27 real_ip restoration and no `allow`;
+  SECURITY-COMPLIANCE §5 carries why the edge layer is declined rather than pending),
+  plus dedupe on execution_id; webhook payloads are
   treated as hints — the authenticated Get Execution fetch is the truth. Consequently
   the **10-min List-Executions reconciliation poller (FLOWS §3) is the guarantee of
   record**, not a safety net. Empirical delivery behavior re-tested at pilot.

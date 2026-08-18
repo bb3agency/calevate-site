@@ -22,10 +22,16 @@ import {
 import { adminAccess, useAdminMe } from "@/app/admin/access";
 import { Providers } from "@/app/providers";
 import { NavDrawer } from "@/components/navDrawer";
-import { NOTICE_TONES, NoticeBox } from "@/components/ui";
+import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
-import { AdminRealmClerkProvider } from "@/lib/auth/adminRealm";
+import { currentNavItem } from "@/lib/nav";
+import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
+import {
+  AdminSessionGate,
+  AdminSessionProvider,
+  useAdminSessionRow,
+} from "@/lib/authn/adminSession";
 
 /**
  * Admin realm shell — `admin.calevate.tech`.
@@ -169,25 +175,25 @@ const NAV: NavGroup[] = [
 ];
 
 /**
- * The heading the header shows, taken from the SAME list the sidebar renders.
+ * The nav entry this path belongs to — the ONE answer the header title and the sidebar
+ * highlight both read.
  *
- * Longest match wins, so `/admin/tenants/<id>/kyc` keeps "Clients" (the section it
- * belongs to) rather than falling through, and `/admin/new` keeps its own name instead of
- * inheriting `/admin`'s — which is what a plain `startsWith` in list order would give.
+ * They used to be two rules four lines apart: the title by longest prefix and the
+ * highlight (with it `aria-current="page"`) by exact match, so on `/admin/tenants/<id>`
+ * and its seven children the header read "Clients" while the sidebar lit nothing. The
+ * comment on `/admin/ops/dnc` above even relies on the longest-match rule in prose while
+ * the highlight beside that title was computed by the other one.
  *
- * Not exported: Next's route-file typing rejects any export from a `layout.tsx` that is
- * not one of its own conventions (`OmitWithTag` in `.next/types`), and a helper that has
- * to leave the file to be tested would be a second copy of the nav list waiting to happen.
- * It is asserted through the rendered header instead, which is what a reader sees anyway.
+ * The rule itself is `lib/nav.currentNavItem`, not a local copy: Next's route-file typing
+ * rejects any export from a `layout.tsx` that is not one of its own conventions
+ * (`OmitWithTag` in `.next/types`), so a rule the client shell also needs cannot live
+ * here. What stays here is only the fallback label, which is per-shell.
  */
-function currentTitle(pathname: string): string {
-  let best: NavItem | undefined;
-  for (const item of NAV.flatMap((group) => group.items)) {
-    if (pathname === item.href || pathname.startsWith(`${item.href}/`)) {
-      if (!best || item.href.length > best.href.length) best = item;
-    }
-  }
-  return best?.label ?? "Clients";
+function currentItem(pathname: string): NavItem | undefined {
+  return currentNavItem(
+    NAV.flatMap((group) => group.items),
+    pathname,
+  );
 }
 
 /**
@@ -220,9 +226,12 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
   // ONE identity read for the whole nav — `adminAccess` is a pure verdict on it, so the
   // number of entries can change without breaking the rules of hooks.
   const me = useAdminMe();
+  // The SAME entry the header names — see `currentItem`. Identity comparison rather than
+  // a second match: two computations cannot disagree if there is only one.
+  const current = currentItem(pathname);
 
   const renderItem = (item: NavItem) => {
-    const active = pathname === item.href;
+    const active = item === current;
     const Icon = item.icon;
     const access = adminAccess(me, item.permission, item.action);
 
@@ -480,7 +489,7 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
         {/* The screens themselves carry no `<h1>`: the title lives here, derived from the
             nav, so it cannot say one thing in the sidebar and another on the page. */}
         <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">
-          {currentTitle(pathname)}
+          {currentItem(pathname)?.label ?? "Clients"}
         </h1>
       </div>
 
@@ -500,40 +509,29 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
 }
 
 /**
- * The console, behind the ADMIN Clerk application.
+ * The console, behind the ADMIN realm's own session (D-177).
  *
- * This is the edit `app/(auth)/admin/sign-in/…/page.tsx` names as "the one remaining
- * one": mounting the admin application on the sign-in page let an operator sign IN, but
- * nothing put that session on the rest of `/admin/**`. Against a real Clerk deployment
- * every screen here called `/v1/admin/*` with a credential `adminRealmToken` could not
- * produce, so the whole surface was a wall of `AuthProblem` refusals — correct, in that
- * it never fell back to anything, and useless, in that the sign-in page that would have
- * fixed it was one nobody was sent to.
- *
- * `protect` is what sends them: `<Show when="signed-in" fallback={<RedirectToSignIn/>}>`
- * inside `AdminRealmClerkProvider`, which redirects to `ADMIN_SIGN_IN_PATH` and renders
- * null (not the fallback) while clerk-js is still deciding — so a signed-in operator
- * never flashes a redirect on the way in.
+ * `AdminSessionProvider` runs the restore-on-mount that `lib/authn/adminSession.tsx`
+ * describes: one `GET /v1/auth/admin/session` through the `__Host-` cookie the browser
+ * cannot read, single-flighted, with a deadline and a generation counter.
+ * `AdminSessionGate` then paints nothing but the gate until that answers `ready` — an
+ * ALLOWLIST, so a status somebody adds later cannot fall through to the console.
  *
  * Three things this deliberately does NOT do:
  *
  * 1. **It does not share a line of session logic with the client realm.** The import is
- *    `lib/auth/adminRealm`, whose twin `clientRealm` it never touches — two Clerk
- *    applications, two publishable keys, two cookies (CLAUDE.md conventions, TRD §11,
- *    D-37). `lib/api/session.tsx` mounts the client realm's provider the same way for
- *    `/c/<slug>`; that this file reads like that one is the shape of the rule, not a
- *    shared helper waiting to be extracted — a `realm` parameter on one provider is one
- *    bad conditional away from presenting an admin credential on a client surface.
- * 2. **It does not wrap the sign-in page.** `/admin/sign-in` lives in `app/(auth)/`, off
- *    this layout's filesystem chain, precisely so this `protect` cannot redirect a
- *    signed-out operator into a page it would itself protect — an infinite redirect.
- *    That file's own docstring is the other half of this comment.
- * 3. **It changes nothing about a local run.** `AdminRealmClerkProvider` returns
- *    `children` untouched when `AUTH_MODE === "dev"` (lib/auth/mode.ts: unset variable
- *    outside a production build), so with no Clerk keys configured the console renders
- *    exactly the tree it rendered before and keeps speaking `dev:admin:` — no provider,
- *    no clerk-js, no network. `tests/adminAuth.test.tsx` pins that, because "the console
- *    still works locally" is the property this edit could most easily have broken.
+ *    `lib/authn/adminSession`, whose twin `clientSession` it never touches — two modules,
+ *    two module-scoped `createRealmAuthn` instances, two caches (CLAUDE.md conventions,
+ *    TRD §11). That this file reads like `c/[slug]/layout.tsx` is the shape of the rule,
+ *    not a shared helper waiting to be extracted: a `realm` parameter on one provider is
+ *    one bad conditional away from presenting an admin credential on a client surface.
+ * 2. **It does not wrap the sign-in page.** `/auth/admin/**` lives in `app/(auth)/`, off
+ *    this layout's filesystem chain, precisely so this gate cannot redirect a signed-out
+ *    operator into a page it would itself gate — an infinite redirect. `AdminGuestOnly`
+ *    is that page's own inverse guard, with its own `"guest"` audience.
+ * 3. **It changes nothing about a local run.** A `dev:admin:<uuid>` bearer is still what
+ *    a local box speaks (`core/auth.py`'s two guards), and the restore call answers from
+ *    it exactly as it answers from a cookie — the transport sends both.
  *
  * The provider sits OUTSIDE `Providers` on purpose. Everything below it makes
  * authenticated calls the moment it mounts — `useAdminMe` and `useHeldTenants` fire from
@@ -545,30 +543,46 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
  *
  * ## This is an EXPLANATION, never the gate
  *
- * The gate is `apps/api/core/auth.py::verify_token`, which refuses every admin-realm
- * token whose Clerk session did not complete a second factor (`fva[1] == -1`). Nothing
- * in this file makes anything safe: a browser that skipped this component would get 403
- * `mfa_required` on every single request instead of a sentence, which is precisely the
- * failure this removes. `tests/admin_mfa_test.py` is where the property lives.
+ * The gate is `apps/api/core/auth.py::_require_second_factor`, which refuses every
+ * admin-realm session whose `mfa_verified_at` is NULL. Nothing in this file makes anything
+ * safe: a browser that skipped this component would get `second_factor_required` on every
+ * single request instead of a sentence, which is precisely the failure this removes.
+ * `tests/admin_mfa_test.py` is where the property lives.
  *
- * ## Why it hangs off the identity read rather than off a Clerk hook
+ * ## Why it hangs off the identity read rather than off the session row
  *
- * `useAdminMe()` is the first authenticated call this shell makes, on every route, and
- * it goes through the same verifier as everything else — so the answer it gets IS the
- * deployment's real MFA policy, including the `mfa_claim_missing` case where the admin
- * Clerk application is misconfigured and the browser has no way to know. Reading
- * `user.twoFactorEnabled` from clerk-js instead would render this panel from the
- * BROWSER's opinion of the session, which can be true while the API still refuses (a
- * session signed in before enrolment, a token minted from a template without `fva`) and
- * false while it does not. The refusal that matters is the server's, so that is the one
- * that speaks.
+ * `useAdminMe()` is the first authenticated call this shell makes, on every route, and it
+ * goes through the same verifier as everything else — so the answer it gets IS the
+ * deployment's real MFA policy. Reading `mfa_complete` off the restored `SessionOut`
+ * instead would render this panel from the BROWSER's copy of a fact the server re-decides
+ * per request. The refusal that matters is the server's, so that is the one that speaks.
+ *
+ * ONE CODE, because the server has one condition. `mfa_claim_missing` went with Clerk
+ * (D-177): it existed because a custom JWT template could silently drop the `fva` claim
+ * and "unknown" had to fail closed, and a NULL column cannot be ambiguous. `mfa_required`
+ * became `second_factor_required`, which is the code the auth router already raised for
+ * the identical state.
  *
  * It REPLACES the console rather than sitting above it: every panel underneath would
- * otherwise render its own 403, and a screen that half-works against an API refusing
- * every call is worse than one honest page (`clerkRuntime.tsx` makes the same choice for
- * an unconfigured realm).
+ * otherwise render its own refusal, and a screen that half-works against an API refusing
+ * every call is worse than one honest page.
  */
-export const MFA_PROBLEM_CODES = ["mfa_required", "mfa_claim_missing"] as const;
+export const MFA_PROBLEM_CODES = ["second_factor_required"] as const;
+
+/**
+ * The admin realm's 30-minute idle bound, warned about rather than sprung.
+ *
+ * `authn/sessions.REALM_TIMEOUTS` ends an idle operator session server-side, and until
+ * D-177 the only screen that warned about it was `/auth/admin` — the one page an operator
+ * is not on while they work. Mounting it here is the seam that was missing: the warning
+ * belongs where the form somebody is halfway through filling in lives.
+ *
+ * `enabled` off the session row rather than off the gate's status, so it never runs a
+ * countdown for a session that does not exist.
+ */
+function AdminIdleWarning() {
+  return <AdminIdleTimeoutModal enabled={useAdminSessionRow() !== null} />;
+}
 
 function AdminMfaGate({ children }: { children: React.ReactNode }) {
   const me = useAdminMe();
@@ -600,23 +614,38 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
-    <AdminRealmClerkProvider protect>
-      <Providers>
-        <AdminMfaGate>
-          {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
-              to. The document scrolls by default; a shell that clips its own content is
-              the only thing that needs the document to stop. */}
-          <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
-            <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
-              <main className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6">
-                <div className="mx-auto max-w-[1280px]">{children}</div>
-              </main>
+    <AdminSessionProvider>
+      <AdminSessionGate>
+        <Providers>
+          <AdminIdleWarning />
+          <AdminMfaGate>
+            {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
+                to. The document scrolls by default; a shell that clips its own content is
+                the only thing that needs the document to stop. */}
+            <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+              {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
+                  same target id and same position as the client shell's, because the two
+                  shells are siblings and a reader who learns the control in one must find
+                  it in the other. */}
+              <SkipLink />
+              <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+              <div className="flex flex-1 flex-col overflow-hidden">
+                <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
+                {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
+                    does not take focus, which is the classic reason a skip link does
+                    nothing on the next Tab. */}
+                <main
+                  id={MAIN_CONTENT_ID}
+                  tabIndex={-1}
+                  className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+                >
+                  <div className="mx-auto max-w-[1280px]">{children}</div>
+                </main>
+              </div>
             </div>
-          </div>
-        </AdminMfaGate>
-      </Providers>
-    </AdminRealmClerkProvider>
+          </AdminMfaGate>
+        </Providers>
+      </AdminSessionGate>
+    </AdminSessionProvider>
   );
 }

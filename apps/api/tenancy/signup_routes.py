@@ -3,9 +3,9 @@
 Mounted under `/v1/auth` for two reasons that happen to agree: it is the sign-in
 surface's sibling, and `/v1/auth/` is on `rbac.PUBLIC_PREFIXES` — which is the honest
 classification, because **no permission can gate a caller who has no organization
-yet**. The locks on this route are a verified Clerk identity (`current_identity`, the
-same dependency the invitation-accept route uses for the same reason) and the signup
-quota. Both are asserted in `tests/self_serve_test.py`.
+yet**. The locks on this route are a verified first-party session with no membership
+(`current_identity`) and the signup quota. Both are asserted in
+`tests/self_serve_test.py`.
 
 The business logic lives in `tenancy/signup.py`; this file is the boundary: shapes in,
 shapes out, and the order the checks run in.
@@ -38,7 +38,7 @@ log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/auth", tags=["signup"])
 
-Identity = Annotated[tuple[UUID, str], Depends(current_identity)]
+Identity = Annotated[UUID, Depends(current_identity)]
 
 # The languages an agent can actually disclose itself in. Not a free string: hard rule
 # 5 says the disclosure line is never null, and `create_organization` derives it from
@@ -86,26 +86,25 @@ class SignupOut(BaseModel):
     status_code=201,
     summary="Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)",
     description=(
-        "The caller is a Clerk-verified user with no organization yet. Creates the "
+        "The caller holds a first-party session and no organization yet. Creates the "
         "organization, its receptionist agent, its extraction schema and its retention "
         "policies, and makes the caller its owner. The wallet starts empty, so the "
         "compliance gate refuses outbound calls until it is topped up."
     ),
 )
-async def signup(payload: SignupIn, request: Request, identity: Identity) -> SignupOut:
+async def signup(payload: SignupIn, request: Request, user_id: Identity) -> SignupOut:
     """Order matters: is signup open → is this caller within quota → is the request
     coherent → build the tenant.
 
     The quota is consumed before the DB work and after the cheap checks, so a malformed
     body is free and a refused slug is not (see `assert_signup_quota`).
     """
-    user_id, clerk_user_id = identity
     await assert_signup_open()
     # THE CALLER'S ADDRESS, not the socket peer. Behind the edge the peer is nginx,
     # so the per-IP half of the quota was one bucket for the entire internet — a
     # 30/hour cap on the PLATFORM (see `assert_signup_quota`).
     caller_ip = client_request_ip(request)
-    await assert_signup_quota(clerk_user_id=clerk_user_id, ip=caller_ip)
+    await assert_signup_quota(user_id=user_id, ip=caller_ip)
 
     if payload.vertical_template not in VERTICAL_TEMPLATES:
         # `create_organization` falls back to the clinic template for an unknown

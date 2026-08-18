@@ -9,6 +9,7 @@ import {
   FilterChip,
   NoticeBox,
   ProblemNotice,
+  ScrollRegion,
   Skeleton,
   StatTile,
 } from "@/components/ui";
@@ -204,7 +205,7 @@ function Report({ report }: { report: QaReport }) {
       </p>
 
       <Card title="What we tested" bodyClassName="p-0">
-        <div className="overflow-x-auto">
+        <ScrollRegion label="What we tested">
           <table className="w-full min-w-[560px] text-sm">
             <caption className="sr-only">
               Scenario classes replayed against your agent, and what a pass proves
@@ -232,7 +233,7 @@ function Report({ report }: { report: QaReport }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </ScrollRegion>
       </Card>
 
       <Card title="Deliberate attacks">
@@ -250,7 +251,7 @@ function Report({ report }: { report: QaReport }) {
             None. Every field in your leads list was captured on every scenario that contained it.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Fields the agent does not yet reliably pick up">
             <table className="w-full min-w-[420px] text-sm">
               <caption className="px-6 pt-4 text-left text-sm text-ink-muted">
                 Fields the agent does not yet reliably pick up. They come back{" "}
@@ -278,7 +279,7 @@ function Report({ report }: { report: QaReport }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )}
       </Card>
 

@@ -26,14 +26,11 @@ it stops being a finding.
 
 from __future__ import annotations
 
-import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -63,38 +60,6 @@ async def _nothing_writes_the_organization_soft_delete() -> bool:
     return True
 
 
-async def _an_unmirrored_identity_is_refused_as_unauthenticated() -> bool:
-    """BEHAVIOURAL, over the route an invitee actually hits.
-
-    A client-realm token for a Clerk id that verifies and has no `users` row — exactly the
-    state between Clerk's signup and our Svix mirror. 401 is the gap; a 4xx-that-says-wait
-    or a 503 is the fix.
-
-    CLOSED by D-124, and kept as the regression test this file's docstring promises. With
-    no Clerk secret configured — this environment — the just-in-time reconcile cannot run,
-    so the answer is the transient `identity_mirror_pending` 503 rather than 401. If it
-    ever returns to 401 the equality below turns red with no entry to match it.
-    """
-    unmirrored = f"user_{uuid.uuid4().hex[:12]}"
-    async with untenanted_session() as session:
-        # Belt and braces: prove the id really is absent, so a probe that passed because
-        # of a colliding fixture would be impossible.
-        present = (
-            await session.execute(
-                text("SELECT 1 FROM users WHERE clerk_user_id = :c"), {"c": unmirrored}
-            )
-        ).first()
-    if present is not None:  # pragma: no cover - a 96-bit collision
-        return False
-    async with _client() as http:
-        response = await http.post(
-            "/v1/invitations/accept",
-            headers={"Authorization": f"Bearer dev:client:{unmirrored}"},
-            json={"token": "a" * 40},
-        )
-    return response.status_code == 401
-
-
 #: key → the probe that answers "is this gap still real?". An entry must have a probe; a
 #: probe may outlive its entry (see the module docstring).
 PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
@@ -107,9 +72,15 @@ PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
     "organizations_soft_delete_has_readers_but_no_writer": (
         _nothing_writes_the_organization_soft_delete
     ),
-    "an_unmirrored_clerk_identity_reads_as_a_permanent_auth_failure": (
-        _an_unmirrored_identity_is_refused_as_unauthenticated
-    ),
+    # `an_unmirrored_clerk_identity_reads_as_a_permanent_auth_failure` STOOD HERE and is
+    # deleted with its subject rather than kept as a regression test (D-177). The rule
+    # above — a probe may outlive its entry, because a closed gap whose predicate keeps
+    # answering False IS a regression test — depends on the predicate still measuring
+    # something. This one cannot: it drove `POST /v1/invitations/accept`, which no longer
+    # exists, so it answered False because the route 405s. A probe that passes for a
+    # reason unrelated to its subject is worse than no probe, and there is nothing left to
+    # regress TO: there is no mirror, so "a verified credential whose `users` row has not
+    # landed yet" is not a state this system has.
 }
 
 

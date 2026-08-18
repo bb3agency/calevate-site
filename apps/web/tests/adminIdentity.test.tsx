@@ -7,7 +7,9 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import type { TenantSummary } from "@/lib/api/admin";
 import { HOLDS_PATH } from "@/lib/api/holds";
 
-import { problem, renderAdminPage, type Routes } from "./harness";
+import { act } from "@testing-library/react";
+
+import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
 
 /**
  * What the admin realm's identity read drives — the nav and the screens' own gates.
@@ -52,9 +54,33 @@ const SUPERADMIN = me({
   permissions: ["admin:tenants", "agents:read", "billing:read", "ops:manage", "org:read"],
 });
 
+/**
+ * Render the shell with the session restored and `/v1/admin/me` still open.
+ *
+ * Two reads, two states, and only the second one is what this file is about. `act` lets
+ * the gate resolve; `stillLoading()` keeps the identity query pending for as long as the
+ * assertion needs.
+ */
+async function renderShellWithIdentityInFlight(): Promise<HTMLElement> {
+  let container!: HTMLElement;
+  await act(async () => {
+    container = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      shell({ [ADMIN_ME_PATH]: stillLoading() }),
+    ).container;
+  });
+  return container;
+}
+
 /** The shell's own reads: the identity and the header's hold count. */
 function shell(over: Routes = {}): Routes {
-  return { [ADMIN_ME_PATH]: OPERATOR, [HOLDS_PATH]: [], ...over };
+  return {
+    [ADMIN_ME_PATH]: OPERATOR,
+    [HOLDS_PATH]: [],
+    ...over,
+  };
 }
 
 function tenant(over: Partial<TenantSummary> = {}): TenantSummary {
@@ -139,16 +165,15 @@ describe("the admin nav, once the console knows who it is", () => {
     }
   });
 
-  it("keeps every entry live while the identity read is still in flight", () => {
-    // Rendered WITHOUT awaiting: this is the first paint, before any response. Nothing
-    // may be withdrawn here and then given back — an entry that flashes out and in is
-    // indistinguishable from a bug, and the API refuses the request anyway.
-    const { container } = renderAdminPage(
-      <AdminLayout>
-        <p>screen</p>
-      </AdminLayout>,
-      shell(),
-    );
+  it("keeps every entry live while the identity read is still in flight", async () => {
+    // The IDENTITY read is what must not withdraw an entry — an entry that flashes out
+    // and in is indistinguishable from a bug, and the API refuses the request anyway.
+    //
+    // The session restore is a DIFFERENT read and is awaited first (D-177): before it
+    // answers there is no console at all, only the gate, so "the nav is still complete"
+    // is not a question that can be asked. `/v1/admin/me` is held open by
+    // `stillLoading()` so the state under test is the one this test is named for.
+    const container = await renderShellWithIdentityInFlight();
 
     expect(container.querySelector('a[href="/admin/ops"]')).not.toBeNull();
     expect(container.textContent).not.toContain("ops:manage");

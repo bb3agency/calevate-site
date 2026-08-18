@@ -6,7 +6,7 @@ import type { Agent } from "@/lib/api/agents";
 import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
-import { problem, renderClientPage, type Routes } from "./harness";
+import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
 
 /**
  * The campaigns screen either side of the launch panel.
@@ -347,12 +347,18 @@ describe("the three reads the create form is built from", () => {
   });
 
   it("makes no claim while /v1/agents is still in flight", async () => {
-    // The third state §52 names, and the one an empty list is most convincing in. The
-    // frame is reached by asserting immediately after the render, before the stubbed
-    // fetch resolves — the same technique the progress-tile test above uses.
+    // The third state §52 names, and the one an empty list is most convincing in.
+    //
+    // IN FLIGHT IS HELD, NOT RACED. This used to assert immediately after the render and
+    // trust that the stubbed fetch had not resolved yet — which is not a property of the
+    // code under test, it is a property of how fast the box is. It held locally and lost
+    // in CI, where the sentence had already appeared by the assertion. `stillLoading()`
+    // hands back a promise that never settles, so the in-flight frame is a state the test
+    // OWNS rather than a window it hopes to hit. No amount of waiting could have fixed
+    // this one: the failure is the query resolving too EARLY.
     const { container } = await renderClientPage(
       <CampaignsPage />,
-      landingRoutes([], { "/v1/agents": [] }),
+      landingRoutes([], { "/v1/agents": stillLoading() }),
     );
 
     // A premise check: the form really is on screen, so the absence below is the gate
@@ -360,9 +366,15 @@ describe("the three reads the create form is built from", () => {
     expect(container.textContent).toContain("New campaign");
     expect(container.textContent).not.toContain(NO_AGENT_CLAIM);
     expect(screen.queryByRole("alert")).toBeNull();
+  });
 
-    // …and once the empty list lands, the sentence appears — so the guard is not simply
-    // suppressing it for good.
+  it("makes the claim once the empty list actually lands", async () => {
+    // The other half of the test above, which used to be its last two lines: with the
+    // in-flight frame now held open forever, the "and then it appears" half needs its own
+    // render — otherwise the guard could be suppressing the sentence for good and this
+    // suite would not notice.
+    await renderClientPage(<CampaignsPage />, landingRoutes([], { "/v1/agents": [] }));
+
     await screen.findByText(new RegExp(NO_AGENT_CLAIM));
   });
 

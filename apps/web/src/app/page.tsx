@@ -22,6 +22,7 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { Faq } from "@/components/marketing/faq";
 import { HeroStagger, Reveal, SmoothScroll } from "@/components/marketing/motion";
 import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
+import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 
 /**
  * Root of `app.calevate.tech` — one of exactly two screens a stranger can reach.
@@ -55,7 +56,7 @@ import { SIGNUP_CONTACT_EMAIL, SIGNUP_OPEN } from "@/lib/api/signup";
  *   object storage on Cloudflare R2 with `AWS_REGION=auto`; SECURITY-COMPLIANCE §4
  *   records Bolna call recordings observed on S3 `us-east-1` and marks the residency
  *   posture as something to be pinned in a CONTRACT that does not exist yet; Clerk,
- *   Resend and Sentry are all outside India; and no deploy has ever run, so the hosting
+ *   Resend and Sentry were all outside India (Clerk has since gone, D-177); and no deploy has ever run, so the hosting
  *   region is genuinely undecided rather than merely unwritten — a founder's decision
  *   this page must not pre-empt. What survives is the one narrow claim that is
  *   ENFORCED: model endpoints are pinned to an Indian region, and
@@ -259,7 +260,7 @@ export default function Home() {
             <span className="text-base font-semibold tracking-tight text-ink">Calevate</span>
             <nav className="flex items-center gap-2">
               <Link
-                href="/sign-in"
+                href={CLIENT_SIGN_IN_PATH}
                 className="rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
               >
                 Sign in
@@ -633,7 +634,7 @@ export default function Home() {
                   — the URL your account manager gave you.
                 </p>
                 <Link
-                  href="/sign-in"
+                  href={CLIENT_SIGN_IN_PATH}
                   className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-strong underline underline-offset-2 dark:text-brand-bright"
                 >
                   Sign in

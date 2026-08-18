@@ -81,15 +81,20 @@ from __future__ import annotations
 
 import secrets
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, NamedTuple
 from uuid import UUID
 
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.service import dispatch_call
+from apps.api.agents.service import (
+    UNCONFIRMED_ENGINE_CALL_PREFIX,
+    DialUnconfirmedError,
+    dispatch_call,
+)
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
@@ -535,18 +540,18 @@ async def _dispatch_for_campaign(
     is what a cron tick overrunning `job_timeout` (300s) or a worker caught mid-tick by
     a deploy actually raises — and it is one of the three exceptions arq 0.28 RETRIES.
 
-    With the claim committed first, that same failure leaves the contact in `dialing`.
-    Nothing re-claims it; `_reap_stuck_dialing` returns it to the ladder after 30
-    minutes. One dial, one attempt, no second ring. The same split also delivers what
-    `agents.service.dispatch_call` already promises in its own docstring — a call row
-    that survives even when our side fails afterwards, rather than an invisible charge —
-    and it stops a DB transaction being held open across an engine HTTP round trip.
+    With the claim committed first, that same failure leaves the contact in `dialing`,
+    pointing at the call row `dispatch_call` committed before it dialled. Nothing
+    re-claims it; `_reap_stuck_dialing` settles it after 30 minutes — back on the ladder
+    if the vendor named the call, terminally if it never did, because a dial we cannot
+    prove did not ring must not be retried. One dial, one attempt, no second ring. The
+    split also stops a DB transaction being held open across an engine HTTP round trip.
     """
     max_attempts = int(retry_policy.get("max_attempts", 3))
     dialled = blocked = exhausted = 0
 
     async with tenant_session(tenant_id) as session:
-        await _reap_stuck_dialing(session, campaign_id)
+        await _reap_stuck_dialing(session, campaign_id, tenant_id=tenant_id)
 
         # THE STANDING COMPLIANCE GATE (hard rule 5), asked in the SAME transaction
         # that claims the contacts, so a registration revoked a moment ago cannot slip
@@ -655,7 +660,13 @@ async def _dispatch_for_campaign(
                 continue
 
             try:
-                handle = await dispatch_call(
+                # THE LINK IS WRITTEN BEFORE THE PHONE CAN RING, in `dispatch_call`'s
+                # intent transaction. `last_call_id` is the ONLY join between a call and
+                # the contact it was placed for — `resolve_campaign_contact` matches on
+                # it — and writing it after the dial returned meant a lost response left
+                # a contact with no link, which `_reap_stuck_dialing` then returned to
+                # the ladder and rang a second time.
+                await dispatch_call(
                     session,
                     tenant_id=tenant_id,
                     agent_id=UUID(str(agent_id)),
@@ -663,8 +674,29 @@ async def _dispatch_for_campaign(
                     phone_e164=phone,
                     lead_name=name,
                     context_note=None,
+                    on_reserved=_link_contact_to_call(contact_id),
                 )
-            except Exception as exc:  # engine refused: schedule the retry ladder
+            except DialUnconfirmedError as unconfirmed:
+                # THE THIRD OUTCOME: the engine may have started this call. Not the
+                # ladder — a retry here is a second unsolicited call to somebody whose
+                # phone may already have rung, which is the thing the compliance gate
+                # exists to prevent. The contact is finished with, the escalation tells
+                # the client a human should look, and the unconfirmed `calls` row
+                # `dispatch_call` committed is what an operator reconciles against.
+                await _settle_unconfirmed_dial(
+                    session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id
+                )
+                log.warning(
+                    "campaign_dial_unconfirmed",
+                    extra={
+                        "campaign_id": str(campaign_id),
+                        "call_id": str(unconfirmed.call_id),
+                        "code": unconfirmed.code,
+                    },
+                )
+                exhausted += 1
+                continue
+            except Exception as exc:  # engine refused BEFORE dialling: the retry ladder
                 spent = await _record_failure(
                     session,
                     contact_id,
@@ -686,14 +718,6 @@ async def _dispatch_for_campaign(
             # pipeline calls resolve_campaign_contact() with the outcome. Marking it
             # "connected" here would claim a conversation happened because a dial was
             # accepted, and would complete the campaign while calls were still ringing.
-            await session.execute(
-                text(
-                    "UPDATE campaign_contacts SET updated_at = now(), "
-                    "last_call_id = (SELECT id FROM calls WHERE engine_call_id = :h) "
-                    "WHERE id = :id"
-                ),
-                {"h": handle, "id": contact_id},
-            )
             dialled += 1
 
     async with tenant_session(tenant_id) as session:
@@ -890,10 +914,112 @@ async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:
         )
 
 
-async def _reap_stuck_dialing(session: Any, campaign_id: UUID) -> int:
+def _link_contact_to_call(
+    contact_id: UUID,
+) -> Callable[[AsyncSession, UUID], Awaitable[None]]:
+    """`dispatch_call`'s `on_reserved` hook: point the contact at the intent row.
+
+    Runs INSIDE the transaction that inserts the `calls` row and commits with it, which
+    is both what the FK needs (`campaign_contacts.last_call_id → calls.id`) and the whole
+    point: the pointer is durable before the vendor can seize a line.
+    """
+
+    async def link(session: AsyncSession, call_id: UUID) -> None:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET last_call_id = :call, updated_at = now() "
+                "WHERE id = :id"
+            ),
+            {"call": call_id, "id": contact_id},
+        )
+
+    return link
+
+
+async def _settle_unconfirmed_dial(
+    session: Any, contact_id: UUID, *, tenant_id: UUID, campaign_id: UUID
+) -> None:
+    """A dial we cannot prove did not ring: terminal, and the client is told.
+
+    NOT `_record_failure`'s ladder, and not `_refuse_contact`'s refund. Both of those end
+    in another dial to the same person, and the one fact we have here is that this person
+    may already have been called. `failed` with the escalation is the same ending an
+    exhausted ladder gets — the state the client's screen already explains and the
+    follow-up message already covers — so this outcome needs no vocabulary of its own on
+    a screen; what tells the two apart is the `calls` row, which is `queued` with an
+    `engine_call_id` we minted (`agents.service.UNCONFIRMED_ENGINE_CALL_PREFIX`).
+    """
+    await _exhaust_contact(session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id)
+
+
+async def _exhaust_contact(
+    session: Any, contact_id: UUID, *, tenant_id: UUID | None, campaign_id: UUID | None
+) -> None:
+    """Terminal `failed` + the once-per-contact escalation. One writer, three callers:
+    the spent ladder, an unconfirmed dial, and the reaper's unconfirmed backstop."""
+    await session.execute(
+        text("UPDATE campaign_contacts SET status = 'failed', updated_at = now() WHERE id = :id"),
+        {"id": contact_id},
+    )
+    if tenant_id is None or campaign_id is None:
+        log.info("campaign_contact_exhausted", extra={"escalation_queued": False})
+        return
+    # Local import: `whatsapp` is a worker peer and a module-level import here would drag
+    # the notification stack into the dispatch tick's hot path.
+    from apps.workers.whatsapp import enqueue_campaign_escalation
+
+    queued = await enqueue_campaign_escalation(
+        session, tenant_id=tenant_id, campaign_id=campaign_id, contact_id=contact_id
+    )
+    # Ids only, never the contact's number (hard rule 6).
+    log.info(
+        "campaign_contact_exhausted",
+        extra={"campaign_id": str(campaign_id), "escalation_queued": queued},
+    )
+
+
+async def _reap_stuck_dialing(session: Any, campaign_id: UUID, *, tenant_id: UUID) -> int:
     """A dial whose call never produced a terminal event would pin a contact in
     `dialing` forever and the campaign would never complete. After 30 minutes — far
-    longer than any call we bill for — it goes back on the ladder."""
+    longer than any call we bill for — it goes back on the ladder.
+
+    EXCEPT when the call it is pinned to is one the vendor never named. That is the
+    signature of a dial whose response we lost (`dispatch_call` commits the intent row
+    with an `engine_call_id` of its own and stamps the vendor's over it only on a clean
+    return), and returning THAT contact to `pending` is exactly the second ring this
+    whole path exists to prevent. Those are exhausted instead, with the escalation, and
+    the unconfirmed `calls` row is the operator's reconciliation handle.
+
+    This is the backstop rather than the main defence: `_dispatch_for_campaign` settles a
+    `DialUnconfirmedError` the moment it happens. What reaches here is the case that outruns
+    an `except` clause — a `CancelledError` through the dial, i.e. a worker killed
+    mid-tick, which is a `BaseException` and by design not caught there.
+    """
+    stranded = (
+        (
+            await session.execute(
+                text(
+                    "SELECT cc.id FROM campaign_contacts cc "
+                    "JOIN calls c ON c.id = cc.last_call_id "
+                    "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' "
+                    "AND cc.last_attempt_at < now() - interval '30 minutes' "
+                    "AND c.engine_call_id LIKE :unconfirmed"
+                ),
+                {"cid": campaign_id, "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%"},
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for contact_id in stranded:
+        await _exhaust_contact(
+            session, UUID(str(contact_id)), tenant_id=tenant_id, campaign_id=campaign_id
+        )
+        log.warning(
+            "campaign_dial_unconfirmed_reaped",
+            extra={"campaign_id": str(campaign_id), "contact_id": str(contact_id)},
+        )
+
     result = await session.execute(
         text(
             "UPDATE campaign_contacts SET status = 'pending', "
@@ -903,7 +1029,7 @@ async def _reap_stuck_dialing(session: Any, campaign_id: UUID) -> int:
         ),
         {"cid": campaign_id},
     )
-    return rowcount_of(result)
+    return rowcount_of(result) + len(stranded)
 
 
 async def _record_failure(
@@ -937,36 +1063,26 @@ async def _record_failure(
     with a log line rather than guessed at.
     """
     if attempts >= max_attempts:
-        await session.execute(
-            text(
-                "UPDATE campaign_contacts SET status = 'failed', updated_at = now() WHERE id = :id"
-            ),
-            {"id": contact_id},
-        )
-        if tenant_id is not None and campaign_id is not None:
-            # Local import: `whatsapp` is a worker peer and a module-level import here
-            # would drag the notification stack into the dispatch tick's hot path.
-            from apps.workers.whatsapp import enqueue_campaign_escalation
-
-            queued = await enqueue_campaign_escalation(
-                session, tenant_id=tenant_id, campaign_id=campaign_id, contact_id=contact_id
-            )
-            # Ids only, never the contact's number (hard rule 6).
-            log.info(
-                "campaign_contact_exhausted",
-                extra={"campaign_id": str(campaign_id), "escalation_queued": queued},
-            )
-        else:
-            log.info("campaign_contact_exhausted", extra={"escalation_queued": False})
+        await _exhaust_contact(session, contact_id, tenant_id=tenant_id, campaign_id=campaign_id)
         return True
     backoffs = retry_policy.get("backoff_minutes") or [30, 120]
     minutes = int(backoffs[min(attempts - 1, len(backoffs) - 1)])
+    # ONE CLOCK ON THIS COLUMN, and it is the database's. The rung used to be computed in
+    # Python (`datetime.now(UTC) + timedelta(...)`) while the claim that reads it back
+    # compares against `now()` — and `_refuse_contact` and `_reap_stuck_dialing`, the two
+    # other writers of this column, both already used `now() + interval`. A worker host
+    # whose clock trails the database's therefore made every rung EARLY by the skew, and
+    # an early rung on a retry ladder is a second call to a person sooner than the policy
+    # says. `make_interval(mins => :minutes)` is the parameterised form of the interval
+    # literal the siblings use (PostgreSQL 9.4+); an interval cannot be built by
+    # concatenating a bind parameter into a literal without inviting injection.
     await session.execute(
         text(
-            "UPDATE campaign_contacts SET status = 'pending', next_attempt_at = :next, "
+            "UPDATE campaign_contacts SET status = 'pending', "
+            "next_attempt_at = now() + make_interval(mins => :minutes), "
             "updated_at = now() WHERE id = :id"
         ),
-        {"next": datetime.now(UTC) + timedelta(minutes=minutes), "id": contact_id},
+        {"minutes": minutes, "id": contact_id},
     )
     return False
 

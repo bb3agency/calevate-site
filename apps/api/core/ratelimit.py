@@ -11,10 +11,10 @@ do:
    shares a bucket with every other user of that tenant AND with anyone else on that
    ISP's CGNAT. The tenant is only knowable after authentication (see
    `core/auth.py::charge_tenant_quota`), which is inside the app.
-2. **Per-family isolation.** The edge sees one `/hooks` vhost. Our five `/hooks` routes
-   are lead intake, Meta intake (GET verify + POST), the Razorpay payment callback and
-   the Clerk identity mirror; sharing one bucket means a lead-intake flood 429s the
-   PAYMENT webhook. They get separate profiles here, and ingest is keyed on the
+2. **Per-family isolation.** The edge sees one `/hooks` vhost. Our `/hooks` routes are
+   lead intake, Meta intake (GET verify + POST) and the Razorpay payment callback;
+   sharing one bucket means a lead-intake flood 429s the PAYMENT webhook. They get
+   separate profiles here, and ingest is keyed on the
    `webhook_id` in the path — the natural per-tenant dimension for a surface with no
    session.
 3. **Cost weighting.** A 1-row read and a 20,000-row CSV export are one request each to
@@ -130,9 +130,6 @@ PROFILES: dict[str, LimitProfile] = {
     # The payment provider's callback. Its own bucket because losing one of these means
     # a client paid and was not credited until the reconciliation sweep.
     "webhook_payment": LimitProfile("webhook_payment", per_client=300, per_tenant=None),
-    # Clerk's user/organization mirror (D-124). Its own bucket for the same reason: a
-    # dropped mirror event is a signup that cannot complete.
-    "webhook_identity": LimitProfile("webhook_identity", per_client=300, per_tenant=None),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -231,7 +228,6 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/auth/**", "auth"),
     Rule("/hooks/v1/ingest/**", "webhook_ingest"),
     Rule("/hooks/v1/razorpay", "webhook_payment"),
-    Rule("/hooks/v1/clerk", "webhook_identity"),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),

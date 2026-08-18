@@ -63,10 +63,10 @@ async def live_user() -> AsyncIterator[tuple[uuid.UUID, str]]:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, name, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, 'Enum Probe', now(), now())"
+                "INSERT INTO users (id, email, name, created_at, updated_at) "
+                "VALUES (:id, :email, 'Enum Probe', now(), now())"
             ),
-            {"id": user_id, "cid": f"user_test_{user_id.hex}", "email": email},
+            {"id": user_id, "email": email},
         )
     async with credential_session() as session:
         await set_password(session, realm=REALM, subject_id=user_id, password=PASSWORD)
