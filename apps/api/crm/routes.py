@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
+from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.auth import client_request_ip, requires
@@ -1360,8 +1361,26 @@ async def usage_panel(
             # Credits only mean something for the self-serve motion (D-34); showing a
             # managed client a ₹0 wallet would invite a support ticket about a concept
             # that does not apply to them.
+            #
+            # **`to_paise`, like every other money field on this panel (D-375).** This was
+            # the ONE field that published `credit_ledger.balance_after` at its
+            # NUMERIC(12,4) storage precision, and the inconsistency was not cosmetic on
+            # either side of the wire. `billing.service.to_paise` is documented as "the
+            # ONE place a rupee amount is rounded ... so no two surfaces can round the
+            # same number differently", and every credit route already goes through it —
+            # while `formatINR`, which draws this figure, TRUNCATES the fraction to two
+            # digits rather than rounding it. So one wallet read on two screens: at a
+            # balance of ₹489.7050 the admin console said ₹489.71 and the client's own
+            # panel said ₹489.70. Four-decimal balances are ordinary, not exotic — a
+            # prepaid debit is `prepaid_billed_inr`, quantized at `MONEY_Q`, and any
+            # `self_serve_inr_per_min` that is not a divisor of 60 produces one on the
+            # first call. The LEDGER keeps its full precision; only the wire is quantized.
+            #
+            # `PREPAID_TIERS` rather than the literal pair, because that tuple is the one
+            # place the motion is named and a third prepaid tier added to it must not
+            # silently stop showing a wallet here.
             "credit_balance_inr": (
-                str(balance.amount_inr) if tier in ("self_serve", "trial") else None
+                str(billing.to_paise(balance.amount_inr)) if tier in PREPAID_TIERS else None
             ),
         }
     )
