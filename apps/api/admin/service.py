@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 import secrets
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from hashlib import sha256
 from typing import Any
 from uuid import UUID
@@ -498,7 +498,16 @@ async def create_invitation(
         text(
             "INSERT INTO invitations (id, tenant_id, email, role, token_hash, expires_at, "
             "created_by, created_at, updated_at) VALUES (:id, :tid, :email, :role, :hash, "
-            ":expires, :by, now(), now())"
+            # ONE CLOCK PER DEADLINE (D-322). This was `datetime.now(UTC) + INVITE_TTL`,
+            # the API process's clock, while BOTH readers of the column compare it with
+            # the database's: `expires_at > now()` in the pending-invitation probe above
+            # and in `accept_invitation`'s burn. A deadline written by one clock and
+            # judged by another is wrong by the skew between them — and by the age of the
+            # transaction as well, because `now()` is transaction START time while the
+            # Python expression is evaluated when the statement is built, so an invitation
+            # created after other work in the same request silently outlived its stated
+            # 72 hours by however long that work took.
+            "now() + make_interval(secs => :ttl_s), :by, now(), now())"
         ),
         {
             "id": invitation_id,
@@ -506,7 +515,7 @@ async def create_invitation(
             "email": email,
             "role": role,
             "hash": sha256(raw.encode()).hexdigest(),
-            "expires": datetime.now(UTC) + INVITE_TTL,
+            "ttl_s": INVITE_TTL.total_seconds(),
             "by": created_by,
         },
     )

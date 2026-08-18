@@ -20,7 +20,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Literal
 from uuid import UUID
 
@@ -159,7 +159,19 @@ async def claim_idempotency(
         text(
             "INSERT INTO idempotency_records (id, scope_key, route, method, idempotency_key, "
             "request_hash, status, expires_at, created_at, updated_at) "
-            "VALUES (:id, :scope, :route, :method, :key, :hash, 'processing', :expires, "
+            # ONE CLOCK PER DEADLINE (D-322). `expires_at` used to be
+            # `datetime.now(UTC) + IDEMPOTENCY_TTL` — the API process's clock — while
+            # `created_at`, every `updated_at`, the lease comparison in the CAS below and
+            # `sweep_idempotency`'s `expires_at < now()` are all the DATABASE's. Two
+            # clocks on one deadline is wrong twice over: by the app/DB skew, and by the
+            # age of the transaction, because `now()` is transaction START time and the
+            # Python expression is evaluated when the statement is built. A claim taken
+            # 300ms into a request therefore bought a record 300ms of extra life, and one
+            # taken on a host 40s ahead of the database bought 40 seconds. Measured on
+            # this tree: with a 500ms statement ahead of the claim, `expires_at -
+            # created_at` came back 500ms over `IDEMPOTENCY_TTL`.
+            "VALUES (:id, :scope, :route, :method, :key, :hash, 'processing', "
+            "now() + make_interval(secs => :ttl_s), "
             "now(), now()) "
             "ON CONFLICT (scope_key, route, method, idempotency_key) DO NOTHING "
             "RETURNING id"
@@ -171,7 +183,7 @@ async def claim_idempotency(
             "method": method,
             "key": key,
             "hash": request_hash,
-            "expires": datetime.now(UTC) + IDEMPOTENCY_TTL,
+            "ttl_s": IDEMPOTENCY_TTL.total_seconds(),
         },
     )
     if inserted.first() is not None:
@@ -233,6 +245,23 @@ async def claim_idempotency(
     )
 
 
+# The states a claim's outcome may be reported FROM. Both terminal writers below carry it
+# as a CAS guard, and it is load-bearing rather than decorative — the same sentence
+# `mark_outbox_failed` makes about its own `AND status = 'pending'`, applied to the two
+# writers that were missing it (D-321).
+#
+# THE RACE IT CLOSES IS ONE THIS MODULE DELIBERATELY CREATES. `claim_idempotency` hands a
+# lapsed `processing` record to a SECOND holder by design — "a crashed attempt must not own
+# the key until the TTL sweep" — so from that moment two callers legitimately hold the same
+# `record_id`, and the first one is by definition the one whose report arrives late. With no
+# guard, `fail_idempotency` from the abandoned attempt overwrites the `completed` the second
+# one wrote: the stored response is lost and the NEXT retry of the same `Idempotency-Key` is
+# answered `fresh`, so the mutation runs a second time. On `POST /v1/leads/{id}/call` that is
+# a second real phone call to a member of the public; on `POST /v1/calls/{id}/assist` it is a
+# second paid model run. Reproduced in `tests/reliability_late_report_test.py`.
+_IDEMPOTENCY_OPEN = "'processing'"
+
+
 async def complete_idempotency(
     session: AsyncSession,
     *,
@@ -240,20 +269,41 @@ async def complete_idempotency(
     response_status: int,
     response_payload: dict[str, Any],
 ) -> None:
-    await session.execute(
+    """Record the stored response. CAS on `processing` — see `_IDEMPOTENCY_OPEN`."""
+    result = await session.execute(
         text(
             "UPDATE idempotency_records SET status = 'completed', response_status = :status, "
-            "response_payload = CAST(:payload AS jsonb), updated_at = now() WHERE id = :id"
+            "response_payload = CAST(:payload AS jsonb), updated_at = now() "
+            f"WHERE id = :id AND status = {_IDEMPOTENCY_OPEN}"
         ),
         {"id": record_id, "status": response_status, "payload": json.dumps(response_payload)},
     )
+    if rowcount_of(result) == 0:
+        _late_report("idempotency_late_completion", record_id)
 
 
 async def fail_idempotency(session: AsyncSession, *, record_id: UUID) -> None:
-    await session.execute(
-        text("UPDATE idempotency_records SET status = 'failed', updated_at = now() WHERE id = :id"),
+    """Release the key so the caller's own retry is not refused. CAS on `processing`."""
+    result = await session.execute(
+        text(
+            "UPDATE idempotency_records SET status = 'failed', updated_at = now() "
+            f"WHERE id = :id AND status = {_IDEMPOTENCY_OPEN}"
+        ),
         {"id": record_id},
     )
+    if rowcount_of(result) == 0:
+        _late_report("idempotency_late_failure", record_id)
+
+
+def _late_report(event: str, row_id: UUID) -> None:
+    """An outcome reported for a claim somebody else already resolved.
+
+    A WARNING rather than a raise: the reporting attempt has nothing left to do about it
+    and its own request has already been answered. It is not nothing either — it means an
+    attempt outlived its lease, which is the signal that `CLAIM_LEASE` is shorter than
+    something real in production, and an operator who never sees it cannot learn that.
+    """
+    log.warning(event, extra={"row_id": str(row_id)})
 
 
 async def sweep_idempotency(session: AsyncSession) -> int:
@@ -957,24 +1007,43 @@ async def mark_inbox_enqueued(session: AsyncSession, *, row_id: UUID) -> None:
     )
 
 
+# The states an inbox claim's outcome may be reported FROM (D-321). `processing` is what
+# `claim_inbox_event` writes; `enqueued` is what the voice-runtime receiver writes before
+# handing the event to a worker, and the worker's terminal report arrives from there.
+#
+# Same race, same shape, sharper consequence than the idempotency one: `claim_inbox_event`
+# hands a lapsed `processing` row to a second consumer on purpose, because "an at-most-once
+# engine event whose key says duplicate is a silently dropped call". Without a guard, the
+# abandoned consumer's `mark_inbox_failed` reopens an event the second consumer already
+# marked `processed`, and the vendor's next retry re-drives the whole post-call pipeline for
+# a call that has already been metered, extracted and notified on.
+_INBOX_OPEN = "('processing', 'enqueued')"
+
+
 async def mark_inbox_processed(session: AsyncSession, *, row_id: UUID) -> None:
-    await session.execute(
+    """Close the claim permanently. CAS on an OPEN claim — see `_INBOX_OPEN`."""
+    result = await session.execute(
         text(
             "UPDATE webhook_inbox_events SET status = 'processed', processed_at = now(), "
-            "updated_at = now() WHERE id = :id"
+            f"updated_at = now() WHERE id = :id AND status IN {_INBOX_OPEN}"
         ),
         {"id": row_id},
     )
+    if rowcount_of(result) == 0:
+        _late_report("inbox_late_processed", row_id)
 
 
 async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) -> None:
-    await session.execute(
+    """Release the claim so a retry can take it. CAS on an OPEN claim — see `_INBOX_OPEN`."""
+    result = await session.execute(
         text(
             "UPDATE webhook_inbox_events SET status = 'failed', last_error = :error, "
-            "updated_at = now() WHERE id = :id"
+            f"updated_at = now() WHERE id = :id AND status IN {_INBOX_OPEN}"
         ),
         {"id": row_id, "error": error[:500]},
     )
+    if rowcount_of(result) == 0:
+        _late_report("inbox_late_failure", row_id)
 
 
 __all__ = [
