@@ -97,6 +97,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
@@ -934,7 +935,18 @@ async def provision_number(
     as a 500. The index sees all tenants because it is the database's, not the
     session's. This is the one place where letting the constraint be the authority is
     the *only* correct answer short of widening RLS for a uniqueness question.
+
+    `agent_id` IS THE FIFTH D-193 WRITE PATH (D-331). It is a foreign key into `agents`,
+    it arrives in the request body, and PostgreSQL validates a foreign key with row
+    security bypassed — so `POST /v1/admin/tenants/<A>/numbers` naming tenant B's agent
+    answered 201 and left tenant A holding a calling number that points at a neighbour's
+    agent. `assert_visible` resolves it under THIS session's RLS first, which is why it
+    must run before the INSERT rather than beside it: the check is the database's answer
+    to "can this tenant see that row", not a comparison between two values the caller
+    supplied. `None` stays legitimate — a number provisioned before its agent exists is
+    the ordinary onboarding order.
     """
+    await assert_visible(session, "agent", agent_id)
     number_id = uuid7()
     try:
         await session.execute(
