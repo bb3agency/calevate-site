@@ -334,9 +334,22 @@ class FakeEngine:
 
     async def end_call(self, call_id: str) -> None:
         call = self._calls.get(call_id)
-        if call is not None:
-            call["status"] = "completed"
-            call["ended_at"] = datetime.now(UTC)
+        if call is None:
+            # RAISES, mirroring both real adapters' 404 (D-187). This used to return
+            # quietly, which is the `get_execution` and `transfer` divergence a third
+            # time: `BolnaEngine` POSTs `/executions/{id}/stop` and `CartesiaEngine`
+            # POSTs `/agents/calls/{id}/end`, and each surfaces the vendor's refusal —
+            # so the offline pipeline reported a hang-up nobody performed. `end_call`
+            # has ONE observable failure (claiming to have stopped a call it did not),
+            # and an adapter that shrugs has removed it.
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine rejected the request",
+                detail="The voice platform does not hold that call.",
+            )
+        call["status"] = "completed"
+        call["ended_at"] = datetime.now(UTC)
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
         # Used to succeed unconditionally while the Bolna adapter raised. Two adapters
