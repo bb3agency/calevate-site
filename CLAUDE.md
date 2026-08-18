@@ -105,6 +105,39 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    that stops writing a column (two-step deprecation).
 9. **Supply Chain Security**: Be highly vigilant of supply chain attacks (e.g., the July 2025 ESLint malware which dropped trojanized DLLs via `postinstall` scripts). As an AI agent, you must actively monitor `package-lock.json`/`pnpm-lock.yaml` diffs for suspicious transient dependencies when installing new packages. Never blindly add unknown packages to `allowBuilds` in `pnpm-workspace.yaml`. If `pnpm` blocks a `postinstall` script, verify its legitimacy first. Use `pnpm audit` regularly and inject `resolutions`/`overrides` to pin safe versions if an upstream dependency is compromised.
 
+10. **Never push without a green coverage ratchet.** `uv run python -m scripts.check_coverage_ratchet`
+    is the gate that has failed this repo's CI more than every other gate combined, and it
+    fails for a reason that is invisible from a diff: it scores the run it is handed, so a
+    suite that did not pass makes it **REFUSE TO SCORE** and exit 2 — CI red, on work that
+    may be entirely fine. So before any push:
+
+    ```
+    uv run pytest tests packages -q          # must be 0 failed, 0 errored, 0 collection errors
+    uv run python -m scripts.check_coverage_ratchet
+    ```
+
+    Read the refusal literally. **"REFUSED TO SCORE" is not a coverage problem** — it names
+    a failing test, and the fix is that test, never the baseline. Three things make it
+    refuse that are NOT your change, and each has its own answer:
+
+    - **A dirty or stale store.** Run against a database migrated base→head and a Redis db
+      nobody else is using; a sibling's rows, a sibling's `_tick_lease` or a half-applied
+      chain all read as failures. `alembic heads` must print ONE head — a parallel branch's
+      migration re-pointed at a stale parent forks the chain, and `upgrade head` then
+      refuses to choose.
+    - **CPU contention.** Several suites are speed-dependent (D-29 exists because of nine
+      such CI runs). A failure that PASSES STANDALONE is contention, not a defect — say so
+      rather than "fixing" it.
+    - **Ambient credentials.** A real key in `.env` reaches `os.environ`, and the tests that
+      assert a key is ABSENT fail on your machine and nowhere else. `tests/conftest.
+      _no_ambient_credentials` strips the ones we know about; a NEW vendor variable must be
+      added there, derived rather than retyped.
+
+    **Editing `tests/fixtures/coverage_baseline.json` to quiet it is the one forbidden
+    response** — it is an equality gate that only shrinks, so a hand-widened baseline makes
+    the next person's PR fail instead of yours. If uncovered units genuinely went up, write
+    the tests; if a unit is genuinely unreachable, say which and why in the commit.
+
 ## Conventions
 
 - Python 3.12, FastAPI, Pydantic v2 everywhere at boundaries; SQLAlchemy 2.0 typed ORM;

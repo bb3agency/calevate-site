@@ -135,6 +135,29 @@ businesses' customer data under Indian telecom and privacy law.
   (`uv run python -m scripts.eval --client=<slug>`) and attach the report to
   the PR.
 
+### The coverage ratchet gates every push (CLAUDE.md hard rule 10)
+
+Before pushing anything, in this order:
+
+```
+uv run pytest tests packages -q          # 0 failed, 0 errored, 0 collection errors
+uv run python -m scripts.check_coverage_ratchet
+```
+
+It scores the run it is handed, so a suite that did not pass makes it **REFUSE TO SCORE**
+and exit 2 — CI goes red on work that may be entirely fine. "REFUSED TO SCORE" names a
+failing TEST, not a coverage shortfall, and the fix is that test.
+
+Three causes are not your change: a dirty or stale store (`alembic heads` must print ONE
+head), CPU contention (a failure that passes standalone is contention — say so rather than
+"fixing" it), and a real vendor key in `.env` reaching `os.environ` (`tests/conftest.
+_no_ambient_credentials` strips the known ones; a new vendor variable must be added there,
+derived rather than retyped).
+
+**Never edit `tests/fixtures/coverage_baseline.json` to quiet it.** It is an equality gate
+that only shrinks, so a hand-widened baseline makes the next person's PR fail instead of
+yours. CLAUDE.md hard rule 10 carries the full argument.
+
 ## PR conventions
 
 Small vertical slices aligned to `docs/ROADMAP.md` milestones. PR description links the
