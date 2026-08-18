@@ -135,9 +135,44 @@ def _is_secure(request: Request) -> bool:
 def read_token(request: Request, realm: str) -> str | None:
     """The session token this request presents for this realm, if any.
 
-    Tries the secure name first and the stripped one second, so a single deployment can
-    serve both without the caller knowing which it is.
+    ═══ THE STRIPPED NAME IS NOT READ ON A TLS REQUEST (D-330) ═══
+
+    This function used to try `__Host-calevate_<realm>_session` first and
+    `calevate_<realm>_session` second, unconditionally, "so a single deployment can serve
+    both without the caller knowing which it is". That sentence was true and it VOIDED THE
+    ONE PROPERTY THE PREFIX IS HERE FOR, which the module docstring above states in as many
+    words: `__Host-` "makes the cookie host-only to the API origin, so no sibling subdomain
+    and no compromised `*.calevate.tech` host can set or overwrite it. This is the one
+    attribute that defends against cookie FIXATION from a neighbouring host."
+
+    The prefix stops a sibling setting the PREFIXED name. It says nothing about the bare
+    one — `Set-Cookie: calevate_admin_session=<attacker's own live token>; Domain=
+    .calevate.tech; Path=/` from any host under the registrable domain (a dangling CNAME, a
+    marketing subdomain, anything nobody thought was security-relevant) is a cookie the
+    browser then attaches to every `api.calevate.tech` request, and this function accepted
+    it. A victim who has not signed in yet is silently operating inside the ATTACKER's
+    account: whatever they type — a lead list, a knowledge-base document, an invitation —
+    lands somewhere the attacker can read. That is textbook session fixation, and it is the
+    exact attack `__Host-` was chosen to prevent.
+
+    So the name that may be read is decided by the SAME predicate that decides which name is
+    SET (`_is_secure`), and the two are now symmetric by construction rather than by
+    coincidence:
+
+      * TLS request  -> the `__Host-` name ONLY. A sibling cannot set it, so a cookie that
+        arrives under it came from this origin.
+      * plain HTTP   -> either name. Nothing is lost by being permissive here: a browser
+        will not send a `__Host-` cookie over plain HTTP at all (the prefix implies
+        `Secure`), so the stripped name is the only one a local console can present — and on
+        a cleartext connection no cookie is trustworthy against a network attacker anyway,
+        which is why the prefix is dropped there in the first place.
+
+    REJECTED: deciding this from `APP_ENV`. `_is_secure` already exists, `set_session_cookie`
+    already uses it, and a second predicate for "is this deployment TLS" is how the read side
+    and the write side come to disagree — which is precisely the defect this closes.
     """
+    if _is_secure(request):
+        return request.cookies.get(cookie_name(realm, secure=True))
     for secure in (True, False):
         token = request.cookies.get(cookie_name(realm, secure=secure))
         if token:
