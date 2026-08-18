@@ -3,8 +3,9 @@
 One question, asked from inside the image being deployed, so that `scripts/vps-deploy.sh`
 can tell a forward deploy from a rollback before it runs `alembic upgrade head`.
 
-WHY IT EXISTS. The documented rollback is `git checkout <previous-sha>` followed by
-`vps-deploy.sh --all --no-pull`, and `--all` puts the python services in the plan, which
+WHY IT EXISTS. The documented rollback is `vps-deploy.sh --checkout <previous-sha> --all`
+(it was `git checkout` then `--all --no-pull` until D-291 gave the deploy workflow one
+flag to reach), and `--all` puts the python services in the plan, which
 means migrations run — `alembic upgrade head` from the OLDER image. If the deploy being
 rolled back carried a migration, the database is now at a revision whose script does not
 exist in that older image, and alembic resolves `alembic_version` against its script

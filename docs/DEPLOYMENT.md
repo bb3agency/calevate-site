@@ -274,10 +274,166 @@ restarts voice-runtime) comes from the same map plus `--no-deps`, not from job s
 a single component is still deployable alone via `workflow_dispatch` with
 `components: voice-runtime`.
 
-**Runner discipline** (raghava-proven): one runner dir per project
-(`~/actions-runner-calevate`), installed via their `install-github-runner.sh` pattern
-(`--labels "self-hosted,calevate-vps" --unattended --replace`, `svc.sh install/start`);
-never `cp -r` a configured runner; `verify-cd-status.sh`-style preflight after setup.
+**Rollback is reachable from the workflow, which is what makes the kill switch a last
+resort rather than the first move.** `workflow_dispatch` takes an optional `commit_sha`;
+when it is set the job runs `scripts/vps-deploy.sh --checkout <sha>` instead of
+`--expected-sha <ci-sha>`, and the two are mutually exclusive by construction (§3b).
+
+### 3a. The self-hosted runner — the exact steps, none of which has been run
+
+**Nothing below has been executed.** There is no VPS, no runner, and no repo Secret. This
+is a checklist for a human with a shell on the box, written out because the raghava
+teardown (`docs/evidence/raghava-deploy-teardown.md`) shows every one of these choices
+being made badly somewhere, and because a runner is the one component here that holds a
+credential to this GitHub repository.
+
+**As which user.** The `calevate` deploy user from §2 — the one that owns
+`/var/www/calevate` and is in the `docker` group. NOT root: the runner executes whatever a
+workflow file says, so a root runner turns every merge into root on the production host.
+NOT a second service account either, because the deploy has to be able to write the
+checkout and talk to the Docker socket, and a runner that needs `sudo` for the ordinary
+path is a runner whose sudoers entry grows until it is root with extra steps. The only
+privileged thing the deploy does is install nginx config, and that goes through
+`infra/privileged/` — one command, empty argument list (§11).
+
+1. **Get a registration token.** GitHub → repo → Settings → Actions → Runners → *New
+   self-hosted runner* → Linux x64. The page shows the current release URL and a token
+   that **expires in one hour**. Do not reuse a token from an older set of instructions.
+
+2. **Install it, as the deploy user**, in a directory named for this project — one runner
+   directory per repository, never a `cp -r` of a configured one (a copied runner carries
+   the other repo's credentials in `.credentials` and will service its jobs):
+
+   ```sh
+   sudo -iu calevate
+   mkdir -p ~/actions-runner-calevate && cd ~/actions-runner-calevate
+   # URL and version exactly as the GitHub page shows them
+   curl -o runner.tar.gz -L https://github.com/actions/runner/releases/download/v<X.Y.Z>/actions-runner-linux-x64-<X.Y.Z>.tar.gz
+   tar xzf runner.tar.gz && rm runner.tar.gz
+   ./config.sh --url https://github.com/<org>/calevate-site \
+               --token <REGISTRATION_TOKEN> \
+               --name calevate-vps \
+               --labels self-hosted,calevate-vps \
+               --unattended --replace
+   ```
+
+   **The label is not optional and is not a variable.** `.github/workflows/deploy.yml`
+   targets `[self-hosted, calevate-vps]` literally. The reference implementation reads it
+   from a repo Variable with a fallback to bare `self-hosted`, which is right for a
+   template synced across many client repos and wrong here: the fallback is a misroute
+   waiting for the day a second runner registers anywhere in the org, and this repo has
+   exactly one VPS. A label typo therefore shows up as a job that queues forever, which is
+   loud, rather than as a deploy landing on somebody else's host, which is not.
+
+3. **Survive reboot.** The runner is a systemd unit, installed by its own script — this is
+   the one place `sudo` is used, and it is used as the deploy user's shell:
+
+   ```sh
+   sudo ./svc.sh install calevate     # unit runs AS calevate, not as root
+   sudo ./svc.sh start
+   sudo ./svc.sh status               # must say "active (running)"
+   systemctl is-enabled actions.runner.*.service   # must say "enabled"
+   ```
+
+   `svc.sh install <user>` writes `/etc/systemd/system/actions.runner.<org>-<repo>.<name>.service`
+   with `User=calevate` and `WantedBy=multi-user.target`. Verify both in the unit file
+   before believing it; `enabled` is what makes it come back after a reboot, and `active`
+   alone does not.
+
+4. **Confirm it is Online** in Settings → Actions → Runners, with the label
+   `calevate-vps` shown beside it. Only now is it safe to restrict SSH (§2): deploys stop
+   needing port 22 entirely, because the runner dials OUT to GitHub over 443 and GitHub
+   never opens a connection to the VPS. There is no deploy key, no `VPS_SSH_PRIVATE_KEY`,
+   and nothing in GitHub that can reach this host if the runner is stopped.
+
+5. **Set the repo Secrets and Variables** (Settings → Secrets and variables → Actions).
+   The split is raghava's convention and worth keeping: **paths are Secrets, flags and
+   hostnames are Variables**, because a Variable is readable by anyone with repo read
+   access and a path names our directory layout on a live host.
+
+   | Type | Name | Value | Read by |
+   |---|---|---|---|
+   | Secret | `VPS_CLIENT_PATH` | `/var/www/calevate` | every step |
+   | Variable | `VPS_DEPLOY_ENABLED` | `true` — **set this LAST** | the job `if` |
+   | Variable | `NGINX_AUTO_RELOAD` | `1` only if you want CD to reload the edge; unset = render and print | `render_nginx` |
+   | Variable | `ROOT_DOMAIN` | `calevate.tech` | `render_nginx` |
+   | Variable | `TLS_LIVE_DIR` | `/etc/letsencrypt/live/calevate.tech` | `render_nginx` |
+   | Variable | `ORIGIN_CERT_PATH` | `/etc/ssl/calevate/origin.pem` | `render_nginx` |
+   | Variable | `ORIGIN_KEY_PATH` | `/etc/ssl/calevate/origin.key` | `render_nginx` |
+
+   That is the whole list, and `scripts/check_deploy_workflow.py` fails CI if the workflow
+   ever reads a name this table does not carry. **No application secret is here and none
+   ever will be**: those live in `/var/www/calevate/.env`, placed by a human from the
+   secrets manager (§6), and no workflow writes that file.
+
+6. **Prove it before trusting it.** With `VPS_DEPLOY_ENABLED` still unset, run the
+   workflow by hand from the Actions tab with `dry_run: true`. It must reach *Deploy* and
+   print a plan. Then set `VPS_DEPLOY_ENABLED=true` and push a no-op commit; §9 step 8 is
+   green when CI passes, the deploy job starts by itself, and the summary banner names the
+   commit you pushed.
+
+**Turning it off in an incident.** Settings → Variables → `VPS_DEPLOY_ENABLED` → `false`
+(or delete it). Every job is skipped from the next event onwards; a run already in flight
+is NOT cancelled, and that is deliberate — cancelling between the migration and the swap
+manufactures the half-deployed state §4a exists to prevent. To stop a run in flight, stop
+it at the box (`sudo ./svc.sh stop` in the runner directory) and finish the deploy by hand.
+Prefer a rollback (`commit_sha` dispatch, §3b) over the kill switch when the problem is the
+release rather than the pipeline.
+
+**Revoking the runner** — do this if the VPS is rebuilt, sold, or suspected:
+
+```sh
+sudo ./svc.sh stop && sudo ./svc.sh uninstall
+./config.sh remove --token <REMOVAL_TOKEN>    # Settings -> Runners -> the runner -> Remove
+```
+
+If the box is gone and you cannot run `config.sh remove`, delete the runner from
+Settings → Actions → Runners; the registration is server-side and removing it there is
+what actually revokes the credential. The `.credentials` file left on a disposed disk is a
+long-lived token to this repository, so a wipe is not a substitute for the removal.
+
+**Ongoing cost.** GitHub deprecates old runner versions once or twice a year and emails
+about it. Re-registering is steps 1–3 again in the same directory (`--replace` makes it
+idempotent), about five minutes.
+
+### 3b. Rolling back without an SSH session
+
+A deploy path with no reachable rollback is a deploy path whose only incident control is
+the kill switch, and the kill switch does not undeploy anything. So `workflow_dispatch`
+takes an optional **`commit_sha`**: Actions → Deploy → *Run workflow*, paste the previous
+good sha, run it. `.deploy-state/history` on the box is where that sha comes from, and the
+failure banner of the run that broke prints the same advice.
+
+The workflow does no git work of its own. It passes `--checkout <sha>` to
+`scripts/vps-deploy.sh`, which fetches, moves the checkout to exactly that commit, and
+deploys it — **one flag, in the one file that already knows how to move a deploy
+checkout**. It was two commands (`git checkout` then `--all --no-pull`) until the workflow
+needed to reach it, and a workflow doing its own `git checkout` would be a second copy of
+that knowledge in a file nobody runs by hand; `scripts/check_deploy_workflow.py` now
+refuses one. `--expected-sha` is deliberately not passed alongside it: the flag that
+chooses the commit and the flag that verifies it would be one value checking itself.
+
+Three things follow from that, all of them deliberate:
+
+- **The image is usually already there.** Each deploy tags `calevate/app:<12-char sha>`
+  and the newest five are kept, so a rollback is a swap and not a serial `docker build` on
+  a host that is by definition having a bad day.
+- **The schema does not roll back with the code**, and by hard rule 8 it does not need to.
+  The migrate step recognises a database that is ahead of the artefact, prints
+  **MIGRATIONS SKIPPED**, and carries on to the swap (§4a).
+- **The checkout is left detached, and the next automatic deploy REFUSES.** Otherwise the
+  first green CI after a rollback pulls back to the branch tip and redeploys the release
+  you just rolled away from, unattended, with nobody deciding it. The refusal names both
+  ways out: another `commit_sha` dispatch to roll forward onto a fix, or
+  `git -C /var/www/calevate checkout main` to resume automatic deploys.
+  `tests/deploy_checkout_flag_test.py` drives both halves against a real git tree.
+
+`commit_sha` accepts 7–40 hex characters and refuses a branch or tag name, because a ref
+names whatever it points at when the line runs and this flag exists to deploy one specific
+artefact.
+
+**Unrun.** No rollback has ever been executed on a host — the flag's git behaviour is
+tested, the deploy it triggers is not (§4d, `docs/evidence/push-to-deploy.md`).
 
 ## 4. vps-deploy.sh — BUILT (`scripts/vps-deploy.sh`)
 
@@ -457,7 +613,7 @@ The revision is recorded before *and* after precisely so that a manual downgrade
 target rather than a guess.
 
 **On a ROLLBACK the migrate step is skipped, and that is the same rule read backwards.**
-The documented rollback checks out the previous commit and re-runs `--all`, which puts the
+The documented rollback (`--checkout <previous-sha> --all`, §3b) puts the
 python services in the plan, which runs migrations — from the older image. If the deploy
 being rolled back carried a migration, the database is at a revision that image has no
 script for, and alembic resolves `alembic_version` against its script directory before it
@@ -544,12 +700,19 @@ loaded, no migration applied on a VPS.
    hostnames answer through Cloudflare.
 5. **Measure the swap gap** (§4b) for api and voice-runtime, and write the numbers into
    §4b. *Pass condition*: a number replaces "a few seconds".
-6. **Enable CD last.** Set `VPS_DEPLOY_ENABLED=true` only after steps 1–5, and only after
-   one full manual deploy has succeeded. *Pass condition*: §9 step 8's full CD cycle
-   verified green.
+6. **Enable CD last.** Register the runner and set the Secrets/Variables per §3a, then
+   set `VPS_DEPLOY_ENABLED=true` — only after steps 1–5, and only after one full manual
+   deploy has succeeded. *Pass condition*: §9 step 8's full CD cycle verified green.
+7. **Drill the rollback once, deliberately, before you need it** (§3b). Deploy a trivial
+   commit, then dispatch the workflow with `commit_sha` set to the one before it. *Pass
+   condition*: the run reaches the summary banner, `.deploy-state/history` shows the older
+   sha, the image was reused rather than rebuilt, and the NEXT automatic deploy refuses
+   with the detached-checkout message until `git checkout main` is run on the box. Nothing
+   about this has been executed and the script's own tests cannot execute it.
 
 Until step 6, **this repo has a deploy mechanism and no automatic deploys**, which is the
-correct state for something nobody has run yet.
+correct state for something nobody has run yet. Step 7 is the one people skip; the first
+rollback should not be the first time anybody has seen one.
 
 ## 5. nginx + TLS + Cloudflare (raghava config, four adaptations)
 
@@ -917,9 +1080,10 @@ this repository** → 4. clone repo, place `.env` from the secrets manager AND
 working through §4d's six hand-first items →
 5. nginx + TLS, **in the order 5a gives**, because the obvious order deadlocks →
 6. flip Cloudflare orange + Full (strict), verify with `dig +short` (CF IPs) and the
-525 checklist → 7. install runner + repo Secrets/Variables, **the privileged scripts and
+525 checklist → 7. install runner + repo Secrets/Variables **exactly as §3a lists them**,
+**the privileged scripts and
 the hygiene timer (9.7a)**, **and only now set `VPS_DEPLOY_ENABLED=true`** → 8. one full CD cycle
-(push → CI → auto-deploy) verified green → **9. backups (below — the longest step, and
+(push → CI → auto-deploy) verified green, **then the rollback drill of §4d step 7** → **9. backups (below — the longest step, and
 the one this order previously assumed away)** → 10. configure Bolna per-agent webhook URLs against hooks.calevate.tech + verify the
 source-IP allowlist (13.203.39.153 via CF real_ip, D-27/D-31) rejects a spoofed test
 delivery and accepts a real one → 11. pre-launch checklist (OPERATIONS §8).

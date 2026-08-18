@@ -40,12 +40,16 @@
 #   scripts/vps-deploy.sh voice-runtime         # exactly one component, by name
 #   scripts/vps-deploy.sh --dry-run --all       # print the plan, change nothing
 #   scripts/vps-deploy.sh --expected-sha <sha>  # abort unless HEAD is that commit
+#   scripts/vps-deploy.sh --checkout <sha> --all   # ROLLBACK: deploy that exact commit
 #
 # Options:
 #   --all                 deploy every component
 #   --changed             deploy components affected since the last recorded deploy
 #                         (the default when no component is named)
 #   --expected-sha SHA    refuse to deploy anything other than this commit
+#   --checkout SHA        fetch, then move the deploy checkout to that commit and deploy
+#                         it. THE ROLLBACK PATH, and the only supported way to deploy a
+#                         commit that is not the branch tip. Implies --no-pull.
 #   --no-pull             do not `git pull`; deploy the tree as it stands
 #   --dry-run             resolve and print the plan; touch nothing
 #   -h, --help            this text
@@ -169,9 +173,10 @@ MODE=changed
 DRY_RUN=0
 DO_PULL=1
 EXPECTED_SHA=""
+CHECKOUT_SHA=""
 SELECTED=()
 
-usage() { sed -n '2,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,54p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -180,6 +185,19 @@ while [[ $# -gt 0 ]]; do
     --dry-run)      DRY_RUN=1; shift ;;
     --no-pull)      DO_PULL=0; shift ;;
     --expected-sha) EXPECTED_SHA=${2:?--expected-sha needs a value}; shift 2 ;;
+    --checkout)
+      CHECKOUT_SHA=${2:?--checkout needs a value}
+      # A COMMIT, never a ref. `--checkout main` would deploy whatever the branch points
+      # at by the time this line runs, which is the exact ambiguity `--expected-sha`
+      # exists to remove — and the caller that reaches for this flag is rolling back,
+      # i.e. is choosing one artefact on purpose. Hex only, so the value is also
+      # incapable of being an option or a path.
+      [[ "$CHECKOUT_SHA" =~ ^[0-9a-f]{7,40}$ ]] \
+        || die "--checkout takes a commit sha (7-40 hex chars), not '$CHECKOUT_SHA'.
+     A branch or tag name is refused on purpose: it names whatever it points at when this
+     runs, and this flag exists to deploy one specific artefact."
+      DO_PULL=0
+      shift 2 ;;
     -h|--help)      usage; exit 0 ;;
     -*)             die "unknown option: $1 (try --help)" ;;
     *)
@@ -535,7 +553,34 @@ check_cloudflare_ip_age() {
 
 sync_checkout() {
   step "sync checkout"
-  if (( DO_PULL )); then
+  if [[ -n "$CHECKOUT_SHA" ]]; then
+    # THE ROLLBACK PATH, and the reason it lives here rather than in the caller. Before
+    # this flag the documented rollback was two commands — `git checkout <sha>` then
+    # `vps-deploy.sh --all --no-pull` — which meant every caller that wanted to roll back
+    # had to know how to move the checkout. `.github/workflows/deploy.yml` is such a
+    # caller and cannot be trusted with a second copy of that knowledge: a workflow that
+    # does its own git surgery is a workflow that drifts from this file. One flag, one
+    # place, and `scripts/check_deploy_workflow.py` refuses a workflow that reaches past
+    # it.
+    log "--checkout: moving the deploy checkout to $CHECKOUT_SHA"
+    git -C "$ROOT" fetch --prune origin
+    git -C "$ROOT" rev-parse --verify --quiet "${CHECKOUT_SHA}^{commit}" >/dev/null \
+      || die "$CHECKOUT_SHA is not a commit in this checkout, even after fetching origin.
+     Check the sha against 'git -C $ROOT log --oneline' or .deploy-state/history."
+    # Detached on purpose: the tree is deliberately off the branch tip, and the pull path
+    # below refuses to run from there rather than silently undoing this.
+    git -C "$ROOT" checkout --detach "$CHECKOUT_SHA"
+  elif (( DO_PULL )); then
+    # A detached HEAD here means a previous run rolled this host back. `git pull --ff-only`
+    # from detached HEAD fails with a message about no upstream, which reads like a git
+    # misconfiguration and not like what it is.
+    git -C "$ROOT" symbolic-ref -q HEAD >/dev/null || die \
+      "the checkout is detached at $(git -C "$ROOT" rev-parse --short HEAD), which is what a
+     rollback leaves behind. This deploy would have pulled straight back onto the branch
+     tip — i.e. undone the rollback — so it stops instead.
+       roll forward to a fix:  scripts/vps-deploy.sh --checkout <sha> --all
+       resume automatic CD:    git -C $ROOT checkout main
+     Automatic deploys stay stuck here until one of those is run, by design."
     git -C "$ROOT" pull --ff-only
   else
     log "--no-pull: deploying the tree as it stands"
@@ -737,8 +782,10 @@ verify_bootstrap_env() {
 # Is the database at a revision this image has never heard of?
 #
 # THE ROLLBACK CASE, and the only one this answers. `runbooks/deploy-failed.md` §4 and the
-# summary banner both tell an operator to roll back with `git checkout <previous-sha>` and
-# `--all --no-pull`. `--all` puts the python services in the plan, so `run_migrations`
+# summary banner both tell an operator to roll back with `--checkout <previous-sha> --all`
+# (it was two commands, `git checkout` then `--all --no-pull`, until the workflow needed a
+# reachable rollback and one caller-proof form). `--all` puts the python services in the
+# plan, so `run_migrations`
 # would run `alembic upgrade head` FROM THE OLDER IMAGE — and if the deploy being rolled
 # back carried a migration, alembic resolves the stored `alembic_version` against its own
 # script directory first and dies with `Can't locate revision identified by '<rev>'`
@@ -1084,7 +1131,7 @@ summary() {
   else
     printf 'db revision: %s -> %s\n' "${DB_REVISION_BEFORE:-unchanged}" "${DB_REVISION_AFTER:-unchanged}"
   fi
-  printf 'rollback   : git -C %s checkout <previous-sha> && scripts/vps-deploy.sh --all --no-pull\n' "$ROOT"
+  printf 'rollback   : %s/scripts/vps-deploy.sh --checkout <previous-sha> --all\n' "$ROOT"
   printf '             (code only — the database does NOT roll back with it, and the\n'
   printf '              deploy will SAY SO and skip the migration rather than failing on\n'
   printf '              a revision the older image has no script for. It reuses that\n'
