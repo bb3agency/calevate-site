@@ -65,7 +65,7 @@ from typing import Literal
 from uuid import UUID
 
 from apps.api.billing.rates import TtsTier, tier_correction_inr
-from apps.api.billing.service import record_tier_correction, to_paise
+from apps.api.billing.service import record_tier_correction
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -199,7 +199,26 @@ async def correct(
 
 
 def format_report(rows: list[Row], *, applied: bool, ref: str) -> str:
-    """Ids, rungs and rupees. Never a name, never a number (hard rule 6)."""
+    """Ids, rungs and rupees. Never a name, never a number (hard rule 6).
+
+    **AT THE LEDGER'S OWN PRECISION, NOT AT PAISE, AND THE LINES THEREFORE ADD UP.**
+    This printed `to_paise` on each row and `to_paise` of the raw total, which is the
+    "a figure quantized twice arrives twice" defect `money_walk_test` exists for — and it
+    is reachable on ordinary inputs, not on contrived ones. Measured: two calls of 2,996
+    characters corrected premium→value are ₹-4.4940 each; paise-rounded per line that
+    prints ₹-4.49 twice, adding to ₹-8.98 beside a total of `to_paise(-8.9880)` = ₹-8.99.
+    A report whose own lines do not add to its own total is the first thing its reader
+    checks.
+
+    The fix is NOT `allocate_paise` here, and the difference from the invoice matters: an
+    invoice must publish paise because a client pays in paise, so its lines are ALLOCATED
+    to the total. This is an operator's account of rows that were written, and
+    `usage_events.unit_cost_paid` is NUMERIC(12,4) — `tier_correction_inr` already
+    quantizes at `MONEY_Q`, so the deltas ARE exact at four decimals and printing them
+    unrounded is both the truth about the ledger and exactly additive. Rounding a row to
+    make a total add up would misstate the row; not rounding at all makes the question
+    disappear.
+    """
     mode = "APPLIED" if applied else "DRY RUN (nothing written)"
     lines = [f"tts tier correction {ref} — {mode}", f"{len(rows)} line(s) read", ""]
     moved = sum(
@@ -208,10 +227,10 @@ def format_report(rows: list[Row], *, applied: bool, ref: str) -> str:
     for row in rows:
         lines.append(
             f"  {row.call_id}  {row.billed_tier or '-'} -> {row.actual_tier}  "
-            f"{row.chars} chars  INR {to_paise(row.delta_inr)}  [{row.status}]"
+            f"{row.chars} chars  INR {row.delta_inr}  [{row.status}]"
         )
     lines.append("")
-    lines.append(f"net change to OUR recorded cost for this batch: INR {to_paise(moved)}")
+    lines.append(f"net change to OUR recorded cost for this batch: INR {moved}")
     lines.append(
         "a correction moves our cost ledger and the rung the minutes are priced on "
         "(D-372); a prepaid wallet does not move (D-373)"

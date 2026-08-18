@@ -204,3 +204,56 @@ def test_the_two_argument_shapes_are_alternatives_and_neither_is_optional() -> N
         ]
     )
     assert args.apply is False, "writing is never the default"
+
+
+def test_the_reports_lines_add_up_to_its_own_total() -> None:
+    """A report whose lines do not add to its own total is the first thing its reader
+    checks, and this one's did not.
+
+    THE DEFECT. `format_report` printed `to_paise` on each row AND `to_paise` of the raw
+    sum — the "a figure quantized twice arrives twice" shape `money_walk_test` exists
+    for. It is reachable on ORDINARY inputs: 2,996 characters corrected premium→value is
+    ₹-4.4940, which pays ₹-4.49 per line, so two such calls print lines adding to ₹-8.98
+    beside a total of `to_paise(-8.9880)` = ₹-8.99.
+
+    The fix is to print the LEDGER's own precision rather than to allocate: an invoice
+    must publish paise because a client pays in paise, but this is an operator's account
+    of rows that were written, `unit_cost_paid` is NUMERIC(12,4), and
+    `tier_correction_inr` already quantizes at `MONEY_Q` — so the deltas are exact at
+    four decimals and printing them unrounded is both true to the ledger and exactly
+    additive. Rounding a row to make a total add up would misstate the row.
+
+    2,996 is chosen for the reason every fixture in `money_walk_test` is chosen: a
+    rounding defect cannot show itself against round numbers, and the character counts
+    the other tests in this file use (10,000) are exactly the ones that hide it.
+    """
+    rows = [
+        script.Row(
+            call_id=uuid7(),
+            chars=2996,
+            actual_tier="value",
+            billed_tier="premium",
+            delta_inr=rates.tier_correction_inr(
+                chars=2996, billed_tier="premium", actual_tier="value"
+            ),
+            status="pending",
+        )
+        for _ in range(2)
+    ]
+    assert rows[0].delta_inr == Decimal("-4.4940"), "the fixture's own arithmetic moved"
+
+    report = script.format_report(rows, applied=False, ref="ops-sum")
+    printed = [
+        Decimal(line.split("INR ")[1].split()[0])
+        for line in report.splitlines()
+        if "  INR " in line
+    ]
+    total_line = next(line for line in report.splitlines() if line.startswith("net change"))
+    total = Decimal(total_line.split("INR ")[1].strip())
+
+    assert len(printed) == 2, "the walk did not find both line items"
+    assert sum(printed, Decimal("0")) == total, (
+        f"the report's lines add to {sum(printed, Decimal('0'))} beside a stated total of "
+        f"{total} — an operator's first check on a correction batch is that it adds up"
+    )
+    assert total == Decimal("-8.9880")
