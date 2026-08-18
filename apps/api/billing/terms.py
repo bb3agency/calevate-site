@@ -57,6 +57,7 @@ from uuid import UUID
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.caps import lock_tenant_spend_state, recompute_capped
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -337,6 +338,15 @@ class TermsWriteResult:
     # What this write superseded, for the audit summary and for the response. `None`
     # when the tenant had no terms in effect at the new row's start instant.
     superseded: PlanRecord | None
+    # True when this write leaves the tenant OVER their ceiling right now — i.e. the
+    # operator has just stopped this client's outbound calling for the rest of the
+    # month. The same fact `caps.CapWriteResult.capped_now` carries for the client's own
+    # stop button, and its consumers are the two places an operator looks after changing
+    # a ceiling: the `plan.terms_recorded` audit row (a ceiling change that stopped a
+    # client's calling is exactly what that log is for) and the structured log line.
+    # `False` when nothing is in effect for the current billing month, which is also
+    # "not capped".
+    capped_now: bool = False
 
 
 async def record_terms(
@@ -355,12 +365,42 @@ async def record_terms(
     `clock_timestamp()` rather than `now()`, so two rows written in one transaction have
     distinct stamps and "newest" stays a total order — the same reason
     `tests/plan_effective_dating_test.py` gives for its fixture.
+
+    **IT RE-ARMS THE GATE, AND THAT USED TO BE THE HALF NOBODY DID.** `hard_cap_min` /
+    `hard_cap_spend` are written HERE and nowhere else, `over_cap_sql` compares them
+    through `LEAST(hard, client)`, and the only thing that can stop a dial is
+    `spend_state.capped` (`compliance.check_dispatch` reads that boolean and nothing
+    else). This function wrote the ceiling and left the flag alone, so a TIGHTENING did
+    nothing until the next completed call happened to meter — and for an outbound-only
+    tenant the next completed call is precisely what the ceiling was supposed to stop.
+    Measured on this tree before the fix (`tests/admin_cap_arms_the_gate_test.py` is the
+    reproduction): ₹480 already billed for the month, operator writes
+    `hard_cap_spend = ₹100`, `spend_state.capped` stays `false` and `check_dispatch`
+    still returns `allowed=True`.
+
+    `billing/caps.py::apply_client_caps` had this right for the CLIENT's own stop button
+    and states the argument in as many words — "a cap accepted whose gate is not armed
+    is a cap that does nothing until the next call meters". The two surfaces write the
+    two halves of ONE ceiling, so they now do the same thing, through the same
+    `recompute_capped` rather than a second UPDATE: there is one definition of "over
+    cap" across all three writers of the flag.
+
+    **The lock is taken FIRST, before the read this write depends on.** A ceiling read
+    outside `lock_tenant_spend_state` is the same check-then-write hole a balance read
+    outside `lock_tenant_credits` is, and the concurrent writer is the post-call meter —
+    which reads `plans` and writes `spend_state` in one statement, so a row lock cannot
+    span it (that function carries the Postgres semantics). Re-entrant, so the
+    `recompute_capped` below re-taking it costs nothing.
     """
+    await lock_tenant_spend_state(session, tenant_id)
     # The row this one supersedes, resolved AT THE NEW ROW'S START — not at now. A
     # change dated for next month supersedes whatever will be in force then, and
     # comparing it against today's row would call an unchanged future write a change.
     superseded = await plan_in_effect(session, tenant_id=tenant_id, at=terms.effective_from)
     if superseded is not None and _same_terms(superseded, terms):
+        # Nothing was written, so nothing can have moved the ceiling. Deliberately NOT
+        # recomputed here: the flag is derived from terms this call did not change, and
+        # re-deriving it would make an idempotent no-op into a write.
         return TermsWriteResult(plan_id=superseded.id, changed=False, superseded=None)
 
     plan_id = uuid7()
@@ -381,6 +421,10 @@ async def record_terms(
             "effective_to": terms.effective_to,
         },
     )
+    # AFTER the insert and inside the same transaction, so a ceiling that is accepted and
+    # a gate that is armed are one atomic fact. `None` = no `spend_state` row for the
+    # current billing month, i.e. nothing metered yet, which is not capped.
+    capped = await recompute_capped(session, tenant_id=tenant_id)
     log.info(
         "commercial_terms_recorded",
         extra={
@@ -393,9 +437,14 @@ async def record_terms(
             "supersedes": str(superseded.id) if superseded else None,
             "dated": terms.effective_from is not None,
             "ends": terms.effective_to is not None,
+            # Whether this write stopped the client's outbound calling. Not an amount —
+            # a client's commercial terms stay off the log line (see above).
+            "capped_now": bool(capped),
         },
     )
-    return TermsWriteResult(plan_id=plan_id, changed=True, superseded=superseded)
+    return TermsWriteResult(
+        plan_id=plan_id, changed=True, superseded=superseded, capped_now=bool(capped)
+    )
 
 
 __all__ = [

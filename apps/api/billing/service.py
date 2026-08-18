@@ -906,7 +906,7 @@ async def rung_seconds(
     """(SECONDS, our cost) per TTS rung for one billing month. THE query.
 
     Split out of `_tier_totals` when the meter needed the same month's rungs to price a
-    call's increment against (`overage_increment_inr`). It returns SECONDS rather than
+    call's increment against (`month_increment`). It returns SECONDS rather than
     minutes deliberately: seconds are what the ledger stores and they are exact, so a
     caller that has to reconstruct "the month before this call" can subtract there and
     quantize afterwards. Subtracting from the QUANTIZED minutes instead would not
@@ -1039,7 +1039,7 @@ def priced_overage(
     button stops their outbound calling before their bill justifies it.
 
     So the meter no longer has a rule. It asks this function what the month costs with
-    the call and without it, and charges the difference (`overage_increment_inr`).
+    the call and without it, and charges the difference (`month_increment`).
 
     **AN UNPRICED PLAN ACCRUES NOTHING**, and that is the same deliberate refusal
     `b1d5c8e73f04` settled and `client_billed_inr` used to carry: `usage_summary` passes
@@ -1078,7 +1078,28 @@ def priced_overage(
     )
 
 
-async def overage_increment_inr(
+@dataclass(frozen=True, slots=True)
+class MonthIncrement:
+    """What ONE call adds to the two month totals `spend_state` counts.
+
+    Both are DIFFERENCES of the same month's ledger read with and without this call, so
+    both telescope: whatever order the month's calls meter in, the running totals are
+    exactly the figures `usage_summary` publishes for that month. That is the property
+    that makes the cap and the client's own panel about the same month.
+    """
+
+    #: What this call adds to `usage_summary.minutes_used`. Paise-exact, because that is
+    #: the quantum `_tier_totals` allocates the whole month at.
+    minutes: Decimal
+    #: What this call adds to a MANAGED month's overage bill. Meaningless for a prepaid
+    #: tenant, whose every minute is charged at the list price with no allowance in
+    #: front of it (`rates.prepaid_billed_inr` is that tier's answer) — the field is
+    #: still computed rather than branched on here, because the read it comes from is
+    #: the same one `minutes` needs and a second query is what the caller would pay.
+    overage_inr: Decimal
+
+
+async def month_increment(
     session: AsyncSession,
     *,
     tenant_id: UUID,
@@ -1088,8 +1109,30 @@ async def overage_increment_inr(
     included_min: Decimal,
     rate: Decimal,
     rate_value: Decimal | None,
-) -> Decimal:
-    """What one call ADDS to a managed month's overage bill — the invoice's own arithmetic.
+) -> MonthIncrement:
+    """What one call ADDS to a month's minutes and to its overage bill — the panel's and
+    the invoice's own arithmetic, in the currency of a counter.
+
+    **WHY MINUTES ARE HERE AND NOT COMPUTED BY THE CALLER, which is where they were.**
+    The meter used to pass its own `duration_s / 60` straight into
+    `spend_state.minutes_used`, so the counter accumulated a per-call quotient at the
+    column's NUMERIC(14,4) scale while `usage_summary.minutes_used` was the month's total
+    seconds divided once and allocated to paise. Two spellings of "how many minutes has
+    this tenant used this month", and the cap (`over_cap_sql` compares `minutes_used`) was
+    enforced against one while the client's own "minutes left" was published from the
+    other. Measured on this tree, four calls of 3847 / 2913 / 611 / 137 seconds:
+
+        spend_state.minutes_used   125.1333   <- the ceiling was judged against this
+        usage_summary              125.13     <- and the client was shown this
+
+    The drift is the sum of the per-call rounding errors and it only ever grows within a
+    month, so on a busy tenant the two land either side of an integer ceiling and the
+    panel says there are minutes left while the gate has already stopped the dialling.
+    Deriving the increment from the LEDGER makes the counter equal to the published
+    figure exactly rather than approximately: `rung_minutes` guarantees its parts sum to
+    `to_paise(total_seconds / 60)`, so the increments telescope to precisely the number
+    `usage_summary` prints, and every increment is a two-decimal value the column stores
+    without rounding at all.
 
     `after - before`, where both are `priced_overage` over the month's per-rung SECONDS
     and `before` is the ledger with this call's seconds taken back off its own rung. Two
@@ -1122,19 +1165,29 @@ async def overage_increment_inr(
     # and a caller that passed seconds the ledger does not hold should get the honest
     # "this call added nothing" instead of an exception on a metered call.
     before_seconds[tier] = max(Decimal("0"), before_seconds[tier] - seconds)
+    after_minutes = rung_minutes(after_seconds)
+    before_minutes = rung_minutes(before_seconds)
     after = priced_overage(
-        minutes_by_rung=rung_minutes(after_seconds),
+        minutes_by_rung=after_minutes,
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
     )
     before = priced_overage(
-        minutes_by_rung=rung_minutes(before_seconds),
+        minutes_by_rung=before_minutes,
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
     )
-    return after.total_inr - before.total_inr
+    return MonthIncrement(
+        # Summed over the rungs rather than re-divided: `rung_minutes` allocates the
+        # month's paise so that its three parts add to `to_paise(seconds / 60)` exactly,
+        # which is `usage_summary.minutes_used`. Summing the parts IS that figure; a
+        # second division would be a fourth spelling of it.
+        minutes=sum(after_minutes.values(), _ZERO_PAISE)
+        - sum(before_minutes.values(), _ZERO_PAISE),
+        overage_inr=after.total_inr - before.total_inr,
+    )
 
 
 async def usage_summary(
@@ -1229,7 +1282,7 @@ async def usage_summary(
     value_rate = Decimal(str(plan[5])) if plan and plan[5] is not None else None
     # PRICED THROUGH THE ONE MONTH-PRICING FUNCTION, which `build_invoice` prints the
     # lines of and which the METER now charges each call the difference in
-    # (`overage_increment_inr`). This panel's total is literally the sum of the lines
+    # (`month_increment`). This panel's total is literally the sum of the lines
     # that will be printed — the identity the invoice promises, held by construction
     # instead of by a reconciliation that bent the last line to fit — and it is now the
     # same identity the live counter holds.
@@ -1385,6 +1438,41 @@ def calling_revenue_inr(
 
     The retainer is deliberately NOT included: it is published as its own figure on both
     surfaces, and adding it here would double it wherever both are shown.
+
+    **A MEASURED RESIDUAL ON THE PREPAID BRANCH, recorded here so the next reader
+    inherits the evidence rather than re-deriving it (D-254).** This figure and the money
+    actually taken off a prepaid wallet are not the same arithmetic and cannot both be:
+
+    * the WALLET is debited per call, `to_paise`-scale-4 of `rate x (this call's seconds
+      / 60)` (`rates.prepaid_billed_inr`, through `charge_for_call`). A call is charged
+      for its own length, which is the only rule a client can be shown per entry;
+    * this is `rate x the month's PUBLISHED minute count`, which is paise-rounded once
+      by `_tier_totals`. It multiplies out against the `minutes_used` printed beside it
+      — the arithmetic a client actually does on a panel.
+
+    Measured on this tree, ten calls of 7/7/7/13/41/59/101/137/211/307 seconds at ₹6.00:
+
+        wallet debited (sum of `usage` entries)   ₹89.0000
+        spend_state.billed_inr                   ₹89.0000   <- equals the wallet, by
+                                                                construction (the meter
+                                                                hands both the same
+                                                                figure from the same
+                                                                function)
+        this function, on the closed month        ₹88.98    <- 14.83 min x ₹6.00
+
+    The gap is bounded by half a paisa of minutes times the rate — under ₹0.05 at any
+    rate this product would quote — and it is systematic rather than random: the panel
+    prices the ROUNDED minute count. Feeding it the exact seconds instead would close it
+    against the wallet and open it against the panel, because ₹89.00 is not
+    `14.83 x ₹6.00` and a figure a client cannot multiply out is the defect
+    `billing/invoice.py` spent a whole slice removing.
+
+    **So there is no engineering-only answer, and the one that closes it is already named
+    as a founder decision**: `docs/evidence/deepdive-money.md` N-2 — what a prepaid
+    statement IS (a receipt for top-ups received, a statement of consumption, or both).
+    If the WALLET is the statement, this branch reads the ledger and the question of
+    re-derivation disappears; if the panel is, the wallet's per-call rule is what has to
+    move. Neither is ours to pick.
     """
     if plan_tier in PREPAID_TIERS:
         return get_settings().self_serve_inr_per_min * minutes
