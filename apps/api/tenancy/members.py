@@ -377,7 +377,9 @@ class PendingInvitation:
     expires_at: datetime
 
 
-async def list_pending_invitations(session: AsyncSession) -> list[PendingInvitation]:
+async def list_pending_invitations(
+    session: AsyncSession, *, limit: int = 200
+) -> list[PendingInvitation]:
     """Invitations that are still redeemable — the keys to this account that exist in
     somebody's inbox right now.
 
@@ -389,8 +391,10 @@ async def list_pending_invitations(session: AsyncSession) -> list[PendingInvitat
         await session.execute(
             text(
                 "SELECT id, email, role, created_at, expires_at FROM invitations "
-                "WHERE used_at IS NULL AND expires_at > now() ORDER BY created_at DESC"
-            )
+                "WHERE used_at IS NULL AND expires_at > now() ORDER BY created_at DESC "
+                "LIMIT :limit"
+            ),
+            {"limit": limit},
         )
     ).all()
     return [

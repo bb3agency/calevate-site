@@ -188,6 +188,28 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
                 {"i": row_id, "t": tenant_id, "a": agent_id, "u": user_id, **extra},
             )
             ids[key] = str(row_id)
+
+        # A delivery hangs off the endpoint above rather than off the tenant, and that is
+        # the point of sweeping it: `webhook_deliveries` carries NO RLS policy of its own
+        # (engine webhooks land before a tenant is resolved), so the only thing standing
+        # between tenant B and the object key of tenant A's delivered CRM body is the
+        # `endpoint_id IN (SELECT id FROM outbound_webhooks)` subquery in
+        # `integrations.service.delivery_body_ref`. Every other row here is protected by a
+        # policy; this one is protected by a clause somebody has to keep writing.
+        delivery_id = uuid.uuid4()
+        await s.execute(
+            text(
+                "INSERT INTO webhook_deliveries "
+                "(id, direction, event_type, status, attempts, payload_ref, endpoint_id) "
+                "VALUES (:i, 'out', 'lead.created', 'delivered', 1, :ref, :endpoint)"
+            ),
+            {
+                "i": delivery_id,
+                "ref": f"deliveries/{uuid.uuid4().hex}.json",
+                "endpoint": uuid.UUID(ids["endpoint_id"]),
+            },
+        )
+        ids["delivery_id"] = str(delivery_id)
     return ids
 
 
@@ -259,6 +281,10 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
         {"Idempotency-Key": "idor-sweep-call"},
     ),
     ("DELETE", "/v1/members/{user_id}", {}, {}),
+    # Added by the route sweep (D-301): the ONE `{id}` route in the client path space the
+    # list above never addressed, and the one with the most to lose — it answers with the
+    # unredacted body we POSTed to a CRM, from a table with no RLS policy on it.
+    ("GET", "/v1/integrations/deliveries/{delivery_id}/payload", {}, {}),
 )
 
 
@@ -326,6 +352,60 @@ async def test_the_idor_sweep_is_driving_routes_that_exist() -> None:
     missing = [f"{m} {t}" for m, t, _b, _h in _IDOR_ROUTES if (m, t) not in mounted]
     assert not missing, f"the sweep addresses routes that no longer exist: {missing}"
     assert len(_IDOR_ROUTES) >= 30, f"only {len(_IDOR_ROUTES)} routes swept"
+
+
+#: Client-path-space `{id}` routes the sweep deliberately does not drive, and why. The
+#: bar is that the id is NOT an object reference a neighbour could name — otherwise the
+#: entry is an exemption for the exact case the sweep exists to catch.
+_NOT_AN_OBJECT_REFERENCE: dict[str, str] = {}
+
+
+async def test_every_id_route_in_the_client_space_is_swept() -> None:
+    """The half the sweep did not have, and the reason it missed one for two audits.
+
+    `_IDOR_ROUTES` is a hand-written list checked for one direction only — every entry
+    names a live route. Nothing asked the other direction: is every live route in the
+    list? So a `{id}` route added afterwards was not swept, and nothing anywhere went
+    red. `GET /v1/integrations/deliveries/{delivery_id}/payload` was exactly that route
+    — the unredacted CRM body, on the one table in this module with no RLS policy — and
+    it was found by walking the route table, not by reading the list.
+
+    Derived from the live app, so the list can only fall behind the routes for as long as
+    it takes CI to run. Admin and ops paths are out of scope here for the reason
+    `route_shape_test` gives: nothing in `/v1/admin` or `/v1/ops` is reachable with a
+    client credential at all, and `admin_security_test` owns that boundary.
+    """
+    from apps.api.core.rbac import PUBLIC_PREFIXES, iter_api_routes
+
+    swept = {(method, path) for method, path, _b, _h in _IDOR_ROUTES}
+    unswept = []
+    for route in iter_api_routes(app):
+        if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
+            continue
+        if route.path.startswith(("/v1/admin", "/v1/ops")):
+            continue
+        if "{" not in route.path:
+            continue
+        for method in sorted(route.methods or []):
+            if (method, route.path) in swept:
+                continue
+            if f"{method} {route.path}" in _NOT_AN_OBJECT_REFERENCE:
+                continue
+            unswept.append(f"{method} {route.path}")
+
+    assert not unswept, (
+        "these client-realm routes take a caller-supplied id that the IDOR sweep never "
+        f"drives with a neighbour's real value: {unswept}. Add them to _IDOR_ROUTES with "
+        "a seeded row, or record in _NOT_AN_OBJECT_REFERENCE why the id names nothing a "
+        "neighbour owns."
+    )
+    # The registry may only ever shrink: an exemption whose route is gone is a standing
+    # permission waiting for the path to be reused (`check_public_routes` clause 2).
+    live = {
+        f"{method} {route.path}" for route in iter_api_routes(app) for method in route.methods or []
+    }
+    stale = sorted(set(_NOT_AN_OBJECT_REFERENCE) - live)
+    assert not stale, f"_NOT_AN_OBJECT_REFERENCE names routes that no longer exist: {stale}"
 
 
 # --- 2. one credential, one bucket ---------------------------------------------------

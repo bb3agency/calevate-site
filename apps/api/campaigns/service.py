@@ -1111,7 +1111,7 @@ async def set_template_status(
         raise ProblemError.not_found("DLT template")
 
 
-async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
+async def list_campaigns(session: AsyncSession, *, limit: int = 100) -> list[dict[str, Any]]:
     """Newest first, with the two counts the list actually needs — and the one blocker
     the list cannot otherwise see.
 
@@ -1151,9 +1151,9 @@ async def list_campaigns(session: AsyncSession) -> list[dict[str, Any]]:
                 "    WHEN c.consent_source = ANY(:refused) THEN 'consent_source_refused' "
                 "  END END AS consent_provenance_blocker "
                 "FROM campaigns c LEFT JOIN campaign_contacts cc ON cc.campaign_id = c.id "
-                "GROUP BY c.id ORDER BY c.created_at DESC LIMIT 100"
+                "GROUP BY c.id ORDER BY c.created_at DESC LIMIT :limit"
             ),
-            {"refused": list(REFUSED_CONSENT_SOURCES)},
+            {"refused": list(REFUSED_CONSENT_SOURCES), "limit": limit},
         )
     ).all()
     return [

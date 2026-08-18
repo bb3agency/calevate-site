@@ -976,3 +976,94 @@ def test_the_acks_with_nothing_to_say_answer_204_rather_than_a_constant() -> Non
         success = {code: body for code, body in responses.items() if code.startswith("2")}
         assert set(success) == {"204"}, f"{method.upper()} {path} still advertises a 2xx body"
         assert "content" not in success["204"], f"{method.upper()} {path} 204 carries a schema"
+
+
+# --- the sweep, derived rather than listed (D-303) ------------------------------------
+
+#: 2xx operations whose body legitimately has no declared model, and why. Keyed
+#: `"METHOD /path"`. The bar is that there is nothing to whitelist — a byte stream, a
+#: plain-text echo, or an ops contract that is deliberately open-ended AND gated.
+_UNMODELLED_SUCCESS: dict[str, str] = {
+    "GET /healthz": (
+        "the probe contract (BACKEND-PATTERNS §6): a status word to everybody and a "
+        "`checks`/`fields[]` detail that only an `ops:manage` holder sees. Its shape is "
+        "deliberately open-ended and it carries no tenant data."
+    ),
+    "GET /healthz/live": "the same probe contract; a two-key literal that touches nothing.",
+    "GET /healthz/ready": "the same probe contract, plus queue depth and missing config keys.",
+    "GET /v1/leads/export.csv": (
+        "a CSV byte stream, not JSON — there is no model to declare. Its redaction is "
+        "covered at runtime by tests/crm_egress_redaction_test.py."
+    ),
+    "POST /v1/leads/export.csv": (
+        "a CSV byte stream, not JSON — see the GET twin. The POST shape exists so a "
+        "phone-number `search` travels in a body rather than a query string."
+    ),
+    "POST /v1/numbers/purchase": (
+        "there is no success response to model: the handler is `NoReturn` and ends in a "
+        "raise on every path (`kyc_not_verified`, then "
+        "`number_provisioning_not_configured`). The 202 is the status it will answer "
+        "with the day a provisioning adapter lands, and modelling a body for it now "
+        "would publish a shape no caller can ever receive."
+    ),
+    "GET /hooks/v1/ingest/meta/{webhook_id}": (
+        "Meta's subscription handshake, which must echo `hub.challenge` verbatim as "
+        "plain text — a JSON model would break the handshake."
+    ),
+}
+
+
+def test_no_success_response_in_the_whole_app_is_an_undeclared_shape() -> None:
+    """The generalisation of the test above, and the reason it had to be written.
+
+    `test_the_openapi_response_schemas_are_inspectable` drives eleven operations BY NAME.
+    It is a list, so it can only ever be behind the app: five admin routes
+    (`.../kb/{source_id}/approve`, `/reject`, `/numbers/{number_id}/dlt-status` and the
+    two DLT template writes) shipped `dict[str, str]` response models the whole time that
+    list was green, because nobody had put them on it.
+
+    Derived off the LIVE spec instead: every 2xx with a body must reference a schema that
+    declares properties. The exemptions are enumerated with reasons — the same move
+    `check_public_routes` makes — so a new free-form response is a reviewed line rather
+    than a silence.
+    """
+    from scripts.check_redaction_exposure import _is_freeform_object
+
+    spec = app.openapi()
+    offenders: list[str] = []
+    checked = 0
+    for path, operations in spec["paths"].items():
+        for method, operation in operations.items():
+            if method not in {"get", "post", "put", "patch", "delete"}:
+                continue
+            key = f"{method.upper()} {path}"
+            for code, response in operation.get("responses", {}).items():
+                if not code.startswith("2"):
+                    continue
+                content = response.get("content")
+                if not content:
+                    continue  # 204 and friends — the test above owns those.
+                if key in _UNMODELLED_SUCCESS:
+                    continue
+                schema = next(iter(content.values())).get("schema", {})
+                checked += 1
+                if _is_freeform_object(schema) or schema == {}:
+                    offenders.append(f"{key} -> {code} is a free-form object")
+    assert not offenders, (
+        "these operations answer with an undeclared shape, so the redaction guardrail "
+        f"cannot inspect them and the typed client cannot describe them: {offenders}"
+    )
+    assert checked >= 120, f"only {checked} success responses inspected — the walk is broken"
+
+
+def test_the_unmodelled_exemptions_still_name_live_operations() -> None:
+    """The registry may only shrink (`check_public_routes` clause 2). An exemption that
+    outlives its route is a standing permission waiting for the path to be reused."""
+    spec = app.openapi()
+    live = {
+        f"{method.upper()} {path}"
+        for path, operations in spec["paths"].items()
+        for method in operations
+    }
+    stale = sorted(set(_UNMODELLED_SUCCESS) - live)
+    assert not stale, f"_UNMODELLED_SUCCESS names operations that no longer exist: {stale}"

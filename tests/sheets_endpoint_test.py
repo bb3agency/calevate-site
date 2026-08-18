@@ -569,7 +569,7 @@ async def test_a_sheets_endpoint_is_visible_on_the_clients_integrations_screen()
     sheet_id = await _seed_sheet(tenant_id)
 
     async with tenant_session(tenant_id) as session:
-        listed = await list_endpoints(session, _=None)  # type: ignore[arg-type]
+        listed = await list_endpoints(session, limit=200, _=None)  # type: ignore[arg-type]
 
     by_id = {row.id: row for row in listed}
     assert set(by_id) == {webhook_id, sheet_id}
@@ -597,7 +597,7 @@ async def test_the_client_can_turn_off_what_they_configured(
         await deactivate_endpoint(created.id, session, _request(), _principal(tenant_id))
 
     async with tenant_session(tenant_id) as session:
-        listed = await list_endpoints(session, _=None)  # type: ignore[arg-type]
+        listed = await list_endpoints(session, limit=200, _=None)  # type: ignore[arg-type]
         fanned = await service.enqueue_event(
             session, tenant_id=tenant_id, event="lead.created", data={"lead_id": "1"}
         )
@@ -658,7 +658,7 @@ async def test_the_listed_sheet_says_a_credential_is_attached_without_disclosing
     bare = await _seed_sheet(tenant_id, secret_ref=None)
 
     async with tenant_session(tenant_id) as session:
-        listed = await list_endpoints(session, _=None)  # type: ignore[arg-type]
+        listed = await list_endpoints(session, limit=200, _=None)  # type: ignore[arg-type]
 
     by_id = {row.id: row for row in listed}
     assert by_id[attached].secret_fingerprint is not None
@@ -678,7 +678,7 @@ async def test_no_credential_reference_reaches_a_log_line(
 
     with caplog.at_level(logging.DEBUG):
         async with tenant_session(tenant_id) as session:
-            await list_endpoints(session, _=None)  # type: ignore[arg-type]
+            await list_endpoints(session, limit=200, _=None)  # type: ignore[arg-type]
 
     rendered = "\n".join(formatter.format(record) for record in caplog.records)
     assert CREDENTIAL_REF not in rendered
@@ -707,9 +707,9 @@ async def test_another_tenants_endpoints_are_zero_rows_on_this_screen(
         )
 
     async with tenant_session(owner) as session:
-        mine = await list_endpoints(session, _=None)  # type: ignore[arg-type]
+        mine = await list_endpoints(session, limit=200, _=None)  # type: ignore[arg-type]
     async with tenant_session(neighbour) as session:
-        theirs = await list_endpoints(session, _=None)  # type: ignore[arg-type]
+        theirs = await list_endpoints(session, limit=200, _=None)  # type: ignore[arg-type]
 
     assert [row.id for row in mine] == [created.id]
     assert created.id not in {row.id for row in theirs}

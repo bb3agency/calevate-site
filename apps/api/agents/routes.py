@@ -44,12 +44,12 @@ until someone regenerates them (`pnpm gen:api`) — deliberately not done here.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from calevate_shared.engine import DisclosurePosture, compose_opening_line
 from calevate_shared.extraction import ExtractionField
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -117,52 +117,72 @@ class PublishOut(BaseModel):
     status: str
 
 
+#: The roster query, spelled once and reached from both routes below (D-302).
+#:
+#: It used to live inside `list_agents`, and `get_agent` CALLED THAT HANDLER and filtered
+#: the result in Python — "RLS-scoped; small list per tenant in v1", said the comment.
+#: Bounding the list turned that belief into a defect a reader could see: with a `LIMIT`
+#: on the roster, the 201st agent of an account would be a 404 on its own detail route,
+#: found by nothing except the person whose screen it is. Asking for the one row by id is
+#: also the query that should always have been here — one indexed lookup instead of a
+#: scan of every agent plus their extraction schemas, on the route a dashboard opens most.
+_AGENT_ROSTER = (
+    "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
+    "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
+    "a.ai_disclosure_line, a.ai_disclosure_enabled, "
+    "a.recording_notice_line, a.recording_notice_enabled "
+    "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+    "WHERE a.deleted_at IS NULL"
+)
+
+
+def _agent_out(r: Any) -> AgentOut:
+    return AgentOut(
+        id=r[0],
+        name=r[1],
+        direction=r[2],
+        status=r[3],
+        language_primary=r[4],
+        disclosure_line=r[5],
+        engine=r[6],
+        published=bool(r[7]),
+        extraction_fields=[ExtractionField.model_validate(f) for f in (r[8] or [])],
+        ai_disclosure_line=r[9],
+        ai_disclosure_enabled=bool(r[10]),
+        recording_notice_line=r[11],
+        recording_notice_enabled=bool(r[12]),
+        # Through the ONE composer, so the roster, the publish path and the engine
+        # cannot disagree about what this agent opens with (D-163).
+        opening_line=compose_opening_line(
+            DisclosurePosture(
+                ai_disclosure_line=str(r[9]),
+                ai_disclosure_enabled=bool(r[10]),
+                recording_notice_line=str(r[11]),
+                recording_notice_enabled=bool(r[12]),
+            )
+        ),
+    )
+
+
 @router.get(
     "/v1/agents", response_model=list[AgentOut], openapi_extra=permission_meta("agents:read")
 )
 async def list_agents(
-    session: Session, _: Principal = Depends(requires("agents:read"))
+    session: Session,
+    # Bounded (D-302). An agent list is short in every account we have, and "short in
+    # every account we have" is exactly the assumption that stops being true without
+    # anyone editing this file — each row here carries the agent's whole extraction
+    # schema, so the response grows in two dimensions at once.
+    limit: int = Query(200, ge=1, le=200),
+    _: Principal = Depends(requires("agents:read")),
 ) -> list[AgentOut]:
     rows = (
         await session.execute(
-            text(
-                "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
-                "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
-                "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-                "a.recording_notice_line, a.recording_notice_enabled "
-                "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-                "WHERE a.deleted_at IS NULL ORDER BY a.created_at"
-            )
+            text(f"{_AGENT_ROSTER} ORDER BY a.created_at LIMIT :limit"),
+            {"limit": limit},
         )
     ).all()
-    return [
-        AgentOut(
-            id=r[0],
-            name=r[1],
-            direction=r[2],
-            status=r[3],
-            language_primary=r[4],
-            disclosure_line=r[5],
-            engine=r[6],
-            published=bool(r[7]),
-            extraction_fields=[ExtractionField.model_validate(f) for f in (r[8] or [])],
-            ai_disclosure_line=r[9],
-            ai_disclosure_enabled=bool(r[10]),
-            recording_notice_line=r[11],
-            recording_notice_enabled=bool(r[12]),
-            # Through the ONE composer, so the roster, the publish path and the engine
-            # cannot disagree about what this agent opens with (D-163).
-            opening_line=compose_opening_line(
-                DisclosurePosture(
-                    ai_disclosure_line=str(r[9]),
-                    ai_disclosure_enabled=bool(r[10]),
-                    recording_notice_line=str(r[11]),
-                    recording_notice_enabled=bool(r[12]),
-                )
-            ),
-        )
-        for r in rows
-    ]
+    return [_agent_out(r) for r in rows]
 
 
 @router.get(
@@ -173,11 +193,17 @@ async def list_agents(
 async def get_agent(
     agent_id: UUID, session: Session, _: Principal = Depends(requires("agents:read"))
 ) -> AgentOut:
-    agents = await list_agents(session)  # RLS-scoped; small list per tenant in v1
-    found = next((a for a in agents if a.id == agent_id), None)
-    if found is None:
+    """ONE row, by id, under the caller's own RLS session — so a neighbour's agent id and
+    an id nobody minted are the same 404 (hard rule 1)."""
+    row = (
+        await session.execute(
+            text(f"{_AGENT_ROSTER} AND a.id = :aid"),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:
         raise ProblemError.not_found("Agent")
-    return found
+    return _agent_out(row)
 
 
 @router.post(

@@ -209,7 +209,9 @@ async def write_prompt_version(
     return version
 
 
-async def list_prompt_versions(session: AsyncSession, agent_id: UUID) -> list[dict[str, Any]]:
+async def list_prompt_versions(
+    session: AsyncSession, agent_id: UUID, *, limit: int = 100
+) -> list[dict[str, Any]]:
     """History, newest first. `active` = the version `agents.system_prompt_id` names —
     derived from the pointer rather than stored, so it cannot drift.
 
@@ -227,9 +229,9 @@ async def list_prompt_versions(session: AsyncSession, agent_id: UUID) -> list[di
                 "SELECT pv.id, pv.version, pv.notes, pv.created_at, "
                 "(pv.id = a.system_prompt_id) AS active "
                 "FROM prompt_versions pv JOIN agents a ON a.id = pv.agent_id "
-                "WHERE pv.agent_id = :aid ORDER BY pv.version DESC"
+                "WHERE pv.agent_id = :aid ORDER BY pv.version DESC LIMIT :limit"
             ),
-            {"aid": agent_id},
+            {"aid": agent_id, "limit": limit},
         )
     ).all()
     return [

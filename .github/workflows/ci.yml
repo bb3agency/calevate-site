@@ -338,6 +338,13 @@ jobs:
         # against the module that serves it.
         run: uv run python -m scripts.check_public_routes
 
+      - name: "Guardrail: no response grows with a caller's row count (D-302)"
+        if: ${{ !cancelled() }}
+        # Every list-shaped response either takes a `limit` the schema bounds, or is
+        # declared with what bounds it instead. An unbounded list is a route that works
+        # until the first client succeeds at using the product.
+        run: uv run python -m scripts.check_list_bounds
+
       - name: "Quality gate: regression suite (ratchet)"
         if: ${{ !cancelled() }}
         # Exits non-zero only on a REGRESSION against the committed per-model baseline,
