@@ -588,8 +588,12 @@ def test_a_runner_pass_on_a_human_gate_is_downgraded_without_a_written_source() 
 async def test_a_recorded_payload_replays_through_the_bolna_adapter(tmp_path: Path) -> None:
     """What the capture is FOR (OPERATIONS §2 gates 1/2/4/7/8).
 
-    The adapter is hand-maintained from documentation — Bolna publishes no OpenAPI spec —
-    so a captured payload is the only thing that can falsify it. This test proves the
+    The adapter's shapes are read from the vendor's published OpenAPI document (D-350),
+    which makes a captured payload MORE valuable rather than less: a specification is what
+    the vendor says the server does, and only a real payload can disagree with the server.
+    It is also the only artefact that can settle what the spec is silent or
+    self-contradictory on — the cost unit, whether `agent_welcome_message` survives a
+    read-back, whether `usage_breakdown` is emitted at all. This test proves the
     redacted fixture is still adapter-grade input: if redaction broke the shape (a number
     that no longer parses, a transcript that no longer splits), the pilot would have
     captured a souvenir instead of a test.

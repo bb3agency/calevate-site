@@ -93,9 +93,10 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 ## 3. Voice Stack (locked, with verification gates)
 
 Primary engine: **Bolna** (api.bolna.ai, Bearer auth; agent CRUD under /v2 — legacy
-unversioned paths are deprecated, never call them; no published OpenAPI spec, so the
-adapter's typed models are hand-maintained from docs.bolna.ai + payloads captured
-during the pilot; doc index at bolna.ai/docs/llms.txt). Adopted by D-31 (supersedes
+unversioned paths are deprecated, never call them; the adapter's typed models are read
+from the vendor's OWN published OpenAPI 3.1 document — `references/openapi.yml` in
+`bolna-ai/skills`, pinned and checksummed in `docs/vendor/bolna/hosted-oas.md` — and no
+longer hand-maintained from prose, D-350). Adopted by D-31 (supersedes
 D-02's ThinnestAI pick), gated on the pilot scorecard.
 Models (per-agent config, BYOK):
 - STT: **Sarvam Saaras V3** (22 Indian languages, streaming, code-mixed) — their docs
@@ -316,9 +317,14 @@ scorecard — D-31]:
   are an API client (CRUD/provisioning), a webhook consumer, and a custom-function
   server (their agent calls our endpoints mid-call; no documented timeout — measure at
   pilot, design async regardless). Bearer auth, base api.bolna.ai; agent CRUD under
-  /v2/agent (legacy unversioned paths deprecated); /call and /executions/{id}
-  unversioned. No published OpenAPI spec — typed models hand-maintained from docs +
-  captured payloads (pilot artifact, committed as evidence).
+  /v2/agent (legacy unversioned paths deprecated); /call, /call/{id}/stop and
+  /executions/{id} unversioned — and note that the EXECUTIONS LISTING is per agent,
+  `GET /v2/agent/{agent_id}/executions`, not a global collection: there is no
+  `/executions` collection at all, which is what D-353 fixed. A published OpenAPI 3.1
+  spec exists and the typed models are read from it (`docs/vendor/bolna/hosted-oas.md`
+  holds the pin, the checksum and the complete endpoint inventory). A captured payload
+  is still a pilot artifact worth committing — a spec is what the vendor says the server
+  does, not what it does.
 - **Outbound**: POST /call {agent_id, recipient_phone_number E.164} → execution_id;
   per-call context via `user_data` dynamic variables rendered into the agent prompt —
   OUR CallContext mechanism for lead callbacks; scheduled_at ISO-8601+tz built in.

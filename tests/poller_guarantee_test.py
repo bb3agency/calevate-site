@@ -458,16 +458,24 @@ async def test_a_summary_listing_row_does_not_certify_a_call_as_finished(
     The probe reads what a call was OWED off the snapshot the poller is holding, and
     the poller is holding a row from `list_executions` — which TRD §5 calls a SUMMARY
     ("the poller's listing rows are summaries", `VoiceEngine.get_execution`). Nothing in
-    the contract requires a listing row to carry the cost and the transcript, no adapter
-    promises it, and Bolna publishes no OpenAPI spec, so whether their `GET /executions`
-    rows are as rich as `GET /executions/{id}` is a VENDOR BEHAVIOUR NOBODY HAS VERIFIED
-    (D-31/D-32; OPERATIONS §2 gate 6).
+    the contract requires a listing row to carry the cost and the transcript, and no
+    adapter promises it, so whether a listing row is as rich as a fetch is a VENDOR
+    BEHAVIOUR NOBODY HAS VERIFIED (D-31/D-32; OPERATIONS §2 gate 6).
+
+    THE REASON HAS CHANGED AND THE CONCLUSION HAS NOT (D-350). This used to argue from
+    "Bolna publishes no OpenAPI spec"; they publish one, and it makes the question SHARPER
+    rather than answering it. `GET /v2/agent/{agent_id}/executions` returns
+    `AgentExecutionV2List`, whose `data[]` is declared as `AgentExecution` — the very same
+    schema `GET /executions/{execution_id}` returns. So on paper a listing row IS a full
+    execution. What no schema can say is whether the server POPULATES the expensive fields
+    (`transcript`, `cost_breakdown`, `extracted_data`) on a list response, and a
+    `nullable`-everywhere schema is exactly how a server that omits them still validates.
+    A spec is what the vendor says the server does.
 
     The conformance suite cannot fail on it either: `FakeEngine.list_executions` builds
     its rows with the same `_snapshot_from` as `get_execution`, and the Bolna stub's
-    `GET /executions` returns whole `BOLNA_COMPLETED` documents. Both adapters therefore
-    make listing rows and fetches indistinguishable, which is precisely the assumption at
-    issue.
+    listing branch returns whole `BOLNA_COMPLETED` documents. Both adapters therefore make
+    listing rows and fetches indistinguishable, which is precisely the assumption at issue.
 
     If the assumption is wrong, the failure is silent and total for one population:
     a completed call whose pipeline died, on an agent with no extraction schema and a
