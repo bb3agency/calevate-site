@@ -177,6 +177,14 @@ PLAN_TIERS_SQL = "('managed', 'self_serve', 'trial')"
 # LOCAL, so it reverts with this migration's transaction (`alembic/env.py` sets
 # `transaction_per_migration=True`, so that boundary is exactly this revision).
 #
+# THIS NEEDS NOTHING FROM THE DEPLOY SCRIPT, checked rather than assumed. A timeout aborts
+# the revision with nothing applied, which is precisely the contract `run_migrations` in
+# `scripts/vps-deploy.sh` already documents — "a failure leaves the database at the last
+# revision that fully applied … this aborts, prints the revision it reached, and leaves
+# it", with `runbooks/deploy-failed.md` §3 owning the retry. Migrations run BEFORE the
+# container swap, so the old release keeps serving on the old schema meanwhile. A retry
+# loop in the deploy would be a second mechanism for a case that one already handles.
+#
 # REJECTED: the NOT VALID / VALIDATE split. It is the right answer for a large table, and it
 # buys nothing here for two reasons. The AccessExclusive window it shrinks is the SCAN, and
 # the scan is not what hurt; and inside one transaction the lock taken by NOT VALID is held

@@ -195,6 +195,18 @@ stamps, whose retry then fails on "constraint already exists") for a scan this t
 not notice. Recorded in the migration so the next reader inherits the measurement rather
 than re-deriving it.
 
+**Postscript, and it is the same finding seen from the other end.** The migration could not
+be applied to the shared development database during this pass, and the reason is worth
+recording rather than working around. `pg_locks` showed **six sessions `idle in transaction`
+holding `AccessShareLock` on `organizations`, the oldest for thirteen minutes**, each parked
+after a `SELECT id, name, slug, status, vertical_template FROM organizations …`. Twenty-eight
+retries at a 5s `lock_timeout` never found a window. Every attempt failed cleanly and blocked
+nobody, which is the guard working — but a transaction held open for thirteen minutes around
+a plain SELECT is what makes DDL unschedulable, and it is the condition that turned the first
+attempt into an outage. The migration is verified on two scratch databases (up / down / up,
+plus round-trip fidelity against a pristine chain); the shared database is at
+`c7a1e93d40b8` and the next `alembic upgrade head` in a quiet moment carries it forward.
+
 **This is a repo-wide observation, not just this migration's:** no other migration in
 `alembic/versions/` sets `lock_timeout`, and several take `AccessExclusive` on `calls`,
 `leads` and `organizations`. Not fixed here — retrofitting 72 applied revisions changes
@@ -221,6 +233,38 @@ now exists in the tree with its measurement attached.
 | `make guardrails` | full run | PROVEN exit 0 |
 
 ## FOUND, NOT FIXED — with the reason
+
+### A tenant session can hard-DELETE its own `organizations` row (PROVEN)
+
+`organizations`' `tenant_isolation` policy is `FOR ALL` with
+`USING ((id = GUC) OR (id IN <member orgs>) OR (app.admin = 'on'))` and
+`WITH CHECK (id = GUC)`. `WITH CHECK` is not consulted on DELETE — the same PostgreSQL
+fact `e4f2a86b13d7` was written about — so `USING` alone decides, and it admits the
+session's own org. Proven as `calevate_app` against `d192_fresh` on a childless org:
+`DELETE 1`.
+
+That contradicts the stated lifecycle: FLOWS §9 makes offboarding an explicit workflow,
+`deleted_at` is the soft delete, and `tenant_erasure_requests` is described in
+`db/registry.py` as "the only thing in this product that writes
+`organizations.deleted_at`".
+
+**Why it is not an incident.** No route or worker issues this statement (grep: the only
+`DELETE FROM organizations` in the tree is a test cleanup). And every organization
+`create_organization` makes carries children — agent, retention policies, extraction
+schema — behind `ON DELETE RESTRICT`, so a real org's delete fails on the FK. The
+protection today is therefore the foreign keys, by accident, rather than the policy, by
+design.
+
+**Why I did not fix it, precisely.** The fix is a `RESTRICTIVE FOR DELETE` policy, the
+same shape as this pass's two DNC ones. `tests/dispatch_scale_test.py:323` deliberately
+hard-deletes organizations **from a `tenant_session`** as its cleanup, so that policy
+breaks an existing test on contact. Shipping it needs the cleanup moved to an untenanted
+session in the same change, and a full-suite run to find any other fixture doing the same
+— which I could not take safely on a development database four sibling agents were running
+suites against. **What closes it:** move `dispatch_scale_test`'s cleanup off the tenant
+session, add the restrictive policy, run the suite. One change, no external blocker.
+
+### Unindexed foreign-key child columns
 
 **33 foreign-key child columns have no index leading with that column** (PROVEN via
 `pg_index.indkey[0]`). The ones that would matter are children of `calls`:
