@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,9 +85,14 @@ async def prompt_history(
     tenant_id: UUID,
     agent_id: UUID,
     _: AgentsWrite,
+    # Bounded (D-302). `prompt_versions` is APPEND-ONLY by design — every publish, every
+    # rollback and every T0 recompile writes a row and nothing ever deletes one — so this
+    # is the one admin list whose length grows without anybody creating anything.
+    # Newest-first, so the default page is the part of the history anyone reads.
+    limit: int = Query(100, ge=1, le=200),
 ) -> list[PromptVersionOut]:
     async with tenant_session(tenant_id) as scoped:
-        rows = await prompts.list_prompt_versions(scoped, agent_id)
+        rows = await prompts.list_prompt_versions(scoped, agent_id, limit=limit)
     return [PromptVersionOut.model_validate(row) for row in rows]
 
 

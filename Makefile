@@ -266,6 +266,13 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# each row saying what it verifies in place of a session, checked against the live
 	# app (D-173). Needs the app to boot, like check_openapi_fresh above it.
 	uv run python -m scripts.check_public_routes
+	# The OTHER thing a route table can be wrong about, and the one no permission check
+	# can see: a response whose LENGTH is decided by somebody's row count. Every
+	# list-shaped response either takes a `limit` the schema bounds, or is declared with
+	# what bounds it instead (a constant, a registry, a schema ceiling, the client count).
+	# Needs the app to boot, like the two checks above it. Negative controls, including
+	# four routes mounted on the real app, live in tests/list_bounds_guard_test.py.
+	uv run python -m scripts.check_list_bounds
 	# Half-wired features (CLAUDE.md). Here rather than in pytest because it needs no
 	# database and its subject is the SHAPE of the tree — the same class of question
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a

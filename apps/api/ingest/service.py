@@ -692,7 +692,7 @@ async def create_lead_source(
     return webhook_id, minted
 
 
-async def list_lead_sources(session: AsyncSession) -> list[LeadSourceSummary]:
+async def list_lead_sources(session: AsyncSession, *, limit: int = 200) -> list[LeadSourceSummary]:
     """Every lead source this tenant has. Scoped by RLS, never by a WHERE clause —
     the session's GUC is the tenancy boundary and a hand-written predicate beside it
     would be a second, weaker one."""
@@ -701,8 +701,9 @@ async def list_lead_sources(session: AsyncSession) -> list[LeadSourceSummary]:
             text(
                 "SELECT id, source, agent_id, active, mapping, secret_ref, "
                 "previous_secret_ref, previous_secret_expires_at, created_at, updated_at "
-                "FROM inbound_webhooks ORDER BY created_at DESC"
-            )
+                "FROM inbound_webhooks ORDER BY created_at DESC LIMIT :limit"
+            ),
+            {"limit": limit},
         )
     ).all()
     now = datetime.now(UTC)

@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -338,9 +338,14 @@ class TemplateOut(Strict):
 )
 async def list_campaigns(
     session: Session,
+    # The ceiling was already 100 — as a literal inside `service.list_campaigns`'s SQL,
+    # where no caller could see it and no caller could get past it (D-302). A cap the
+    # contract does not state is indistinguishable, from the outside, from a client who
+    # has 100 campaigns; the same number is now the DEFAULT and the schema says so.
+    limit: int = Query(100, ge=1, le=200),
     _: Principal = Depends(requires("leads:read")),
 ) -> list[CampaignSummaryOut]:
-    rows = await service.list_campaigns(session)
+    rows = await service.list_campaigns(session, limit=limit)
     return [CampaignSummaryOut.model_validate(row) for row in rows]
 
 

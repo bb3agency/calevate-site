@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, Query, Request
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -383,6 +383,9 @@ class PendingInviteOut(BaseModel):
 )
 async def list_tenant_invitations(
     tenant_id: UUID,
+    # The same ceiling as the client-realm twin, `GET /v1/invitations` (D-302): one
+    # question, one bound, so an operator and the client are reading the same list.
+    limit: int = Query(200, ge=1, le=200),
     principal: Principal = Depends(requires("org:read", realm="admin")),
 ) -> list[PendingInviteOut]:
     """`org:read`, NOT `admin:tenants`, and `tests/impersonation_reads_test.py` is why.
@@ -411,7 +414,7 @@ async def list_tenant_invitations(
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
-        rows = await members_service.list_pending_invitations(scoped)
+        rows = await members_service.list_pending_invitations(scoped, limit=limit)
     return [
         PendingInviteOut(
             id=row.id,
@@ -893,6 +896,25 @@ class RejectIn(BaseModel):
     reason: str = Field(min_length=3, max_length=500)
 
 
+class KbReviewOut(BaseModel):
+    """The review verdict, as a DECLARED model rather than a `dict[str, str]` (D-303).
+
+    These two handlers returned a bare mapping, which is not a shape — it is the absence
+    of one. Three things read a response model and none of them can read a mapping:
+    `scripts/check_redaction_exposure.py` walks response models and is structurally blind
+    to a route that declares none, the generated TypeScript client renders it as an index
+    signature so the frontend hand-writes its own interface, and BACKEND-PATTERNS §1's
+    "the response model IS the output whitelist" has nothing to whitelist. Nothing leaked
+    here — the value is a literal three lines below — but the guardrail could not have
+    said so, which is the same argument `tests/response_shape_test.py` already made for
+    the panels.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["approved", "rejected"]
+
+
 class PublishOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -903,6 +925,7 @@ class PublishOut(BaseModel):
 
 @router.post(
     "/tenants/{tenant_id}/kb/{source_id}/approve",
+    response_model=KbReviewOut,
     openapi_extra=permission_meta("agents:write"),
     summary="Approval gate (D-28: stays ours whichever RAG provider wins)",
     description=(
@@ -919,7 +942,7 @@ async def approve_kb(
     session: AdminSession,
     request: Request,
     principal: Principal = Depends(requires("agents:write", realm="admin")),
-) -> dict[str, str]:
+) -> KbReviewOut:
     """Approve, and audit ONLY a real approval.
 
     A repeat is a success but not a second `kb.approved` row: the audit log answers
@@ -941,11 +964,12 @@ async def approve_kb(
             object_id=str(source_id),
             ip=client_request_ip(request),
         )
-    return {"status": "approved"}
+    return KbReviewOut(status="approved")
 
 
 @router.post(
     "/tenants/{tenant_id}/kb/{source_id}/reject",
+    response_model=KbReviewOut,
     openapi_extra=permission_meta("agents:write"),
     summary="Refuse a submitted source, with a reason the client can act on",
     description=(
@@ -962,7 +986,7 @@ async def reject_kb(
     session: AdminSession,
     request: Request,
     principal: Principal = Depends(requires("agents:write", realm="admin")),
-) -> dict[str, str]:
+) -> KbReviewOut:
     """Reject, and audit ONLY a real rejection — see `approve_kb` for why."""
     async with tenant_session(tenant_id) as scoped:
         rejected = await kb_service.reject_source(
@@ -979,7 +1003,7 @@ async def reject_kb(
             ip=client_request_ip(request),
             summary={"reason": payload.reason},
         )
-    return {"status": "rejected"}
+    return KbReviewOut(status="rejected")
 
 
 @router.post(
@@ -1144,6 +1168,14 @@ class DltStatusIn(BaseModel):
     dlt_status: Literal["pending", "registered", "blocked"]
 
 
+class NumberDltStatusOut(BaseModel):
+    """What the number's DLT status is now — declared, for `KbReviewOut`'s reasons."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dlt_status: Literal["pending", "registered", "blocked"]
+
+
 class RegisterTemplateIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1157,6 +1189,23 @@ class TemplateStatusIn(BaseModel):
 
     status: Literal["draft", "submitted", "approved", "rejected"]
     dlt_ref: str | None = Field(default=None, max_length=120)
+
+
+class TemplateRegisteredOut(BaseModel):
+    """The template we just filed, and the ONE status a registration may start in."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    status: Literal["submitted"]
+
+
+class TemplateStatusOut(BaseModel):
+    """The registrar's verdict as recorded — declared, for `KbReviewOut`'s reasons."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["draft", "submitted", "approved", "rejected"]
 
 
 class DltRegistrationIn(BaseModel):
@@ -1297,6 +1346,7 @@ async def provision_number(
 
 @router.post(
     "/tenants/{tenant_id}/numbers/{number_id}/dlt-status",
+    response_model=NumberDltStatusOut,
     openapi_extra=permission_meta("admin:tenants"),
     summary="Record what the DLT registrar decided about this number",
 )
@@ -1307,7 +1357,7 @@ async def set_number_dlt_status(
     session: AdminSession,
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
-) -> dict[str, str]:
+) -> NumberDltStatusOut:
     async with tenant_session(tenant_id) as scoped:
         await agents_service.set_number_dlt_status(
             scoped, number_id=number_id, dlt_status=payload.dlt_status
@@ -1322,11 +1372,12 @@ async def set_number_dlt_status(
         ip=client_request_ip(request),
         summary={"dlt_status": payload.dlt_status},
     )
-    return {"dlt_status": payload.dlt_status}
+    return NumberDltStatusOut(dlt_status=payload.dlt_status)
 
 
 @router.post(
     "/tenants/{tenant_id}/dlt-templates",
+    response_model=TemplateRegisteredOut,
     openapi_extra=permission_meta("admin:tenants"),
     status_code=201,
     summary="Register a voice template — created `submitted`, never `approved`",
@@ -1337,7 +1388,7 @@ async def register_template(
     session: AdminSession,
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
-) -> dict[str, str]:
+) -> TemplateRegisteredOut:
     """A mistyped tenant uuid is a 404 here, and it used to be a 500.
 
     `dlt_templates.tenant_id` has an FK, so an id no organization holds reached the
@@ -1365,11 +1416,12 @@ async def register_template(
         ip=client_request_ip(request),
         summary={"classification": payload.classification},
     )
-    return {"id": str(template_id), "status": "submitted"}
+    return TemplateRegisteredOut(id=template_id, status="submitted")
 
 
 @router.post(
     "/tenants/{tenant_id}/dlt-templates/{template_id}/status",
+    response_model=TemplateStatusOut,
     openapi_extra=permission_meta("admin:tenants"),
     summary="Approve or reject per the registrar — `approved` unlocks the launch gate",
 )
@@ -1380,7 +1432,7 @@ async def set_template_status(
     session: AdminSession,
     request: Request,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
-) -> dict[str, str]:
+) -> TemplateStatusOut:
     """AUDITED, and deliberately NOT a `transition_status` state machine. Checked 2026-08.
 
     This is a registrar-fact RECORDER, the same species as `set_number_dlt_status` above
@@ -1428,7 +1480,7 @@ async def set_template_status(
         ip=client_request_ip(request),
         summary={"status": payload.status},
     )
-    return {"status": payload.status}
+    return TemplateStatusOut(status=payload.status)
 
 
 @router.post(

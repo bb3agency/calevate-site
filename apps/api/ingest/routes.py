@@ -1183,6 +1183,10 @@ def _ingest_path(webhook_id: UUID, source: str) -> str:
 )
 async def list_lead_sources(
     session: SessionDep,
+    # Bounded (D-302), like the activity feed below it: a lead source is a row the CLIENT
+    # creates and `DELETE` only deactivates, so the length of this list is
+    # caller-controlled.
+    limit: int = Query(200, ge=1, le=200),
     # A READ permission on a read, same as the activity view beside it: nothing here is
     # written and no secret VALUE is returned, so hiding it from a read-only
     # impersonating operator (D-22) would cost support the screen and buy nothing.
@@ -1207,7 +1211,7 @@ async def list_lead_sources(
                 created_at=row.created_at,
                 updated_at=row.updated_at,
             )
-            for row in await service.list_lead_sources(session)
+            for row in await service.list_lead_sources(session, limit=limit)
         ],
         secret_header=SECRET_HEADER,
     )

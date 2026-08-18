@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -49,7 +49,13 @@ class SubmitIn(Strict):
     kind: Literal["text", "url", "file"] = "text"
     #: Where the content came from, for kinds we cannot yet read. Written, never read —
     #: no fetcher and no parser exists (TRD §6's offline ingestion step).
-    uri: str | None = None
+    #:
+    #: BOUNDED, because it is STORED (D-302). It was the only string on this model with
+    #: no ceiling, so the durable size of a `kb_sources` row was set by the body cap
+    #: rather than by anything about a URI. 2048 is the conventional URL ceiling —
+    #: IE's historic limit, and what nginx, Apache and every URL-shaped column in this
+    #: repo assume (RFC 9110 §4.1 sets no limit and says servers must impose one).
+    uri: str | None = Field(default=None, max_length=2048)
 
 
 class SourceOut(Strict):
@@ -88,9 +94,16 @@ class ChunkOut(Strict):
 async def list_sources(
     session: Session,
     status: str | None = None,
+    # Bounded (D-302): a knowledge source is a row the CLIENT mints, one per document
+    # they submit, and nothing prunes the archived ones — so the length of this list is
+    # caller-controlled and grows for the life of the account.
+    limit: int = Query(200, ge=1, le=200),
     _: Principal = Depends(requires("agents:read")),
 ) -> list[SourceOut]:
-    return [SourceOut.model_validate(r) for r in await service.list_sources(session, status=status)]
+    return [
+        SourceOut.model_validate(r)
+        for r in await service.list_sources(session, status=status, limit=limit)
+    ]
 
 
 @router.post(
