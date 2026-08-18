@@ -1,11 +1,13 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { Suspense } from "react";
 import { describe, expect, it } from "vitest";
 
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import type { QaSample } from "@/lib/api/qaSamples";
 
-import { browserOffline, problem } from "./harness";
+import { browserOffline, problem, stubApi } from "./harness";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
 /**
@@ -244,5 +246,58 @@ describe("reviewing a sampled call", () => {
     expect(container.textContent).not.toContain("Every sampled call has been reviewed");
     expect(container.textContent).toContain("The sampling queue could not be read");
   });
+});
 
+/**
+ * SEC-COMP §5: an admin read of a client's call is ALWAYS audited.
+ *
+ * `GET /v1/admin/qa-samples/{id}` writes an `audit_log` row in the same transaction as
+ * the read (quality/sampling_routes.py::get_qa_sample) — the shape
+ * `crm/routes.py::get_raw_transcript` uses, because this discloses one tenant's
+ * conversation to somebody outside that tenant. The row is what makes "who looked at this
+ * client's calls" answerable at all.
+ *
+ * The hook holds `staleTime: Infinity` so a poll cannot flood that trail, and until this
+ * test the same setting also swallowed the deliberate SECOND OPEN: a reviewer who worked
+ * two samples and came back to the first got the cached copy, so the trail recorded one
+ * disclosure where there had been two. `refetchOnMount: "always"` is the setting that
+ * separates the two cases — a navigation costs a row, a timer still costs none.
+ *
+ * Rendered through ONE `QueryClient` across two mounts, because a fresh client per render
+ * is a fresh cache and the test would pass whatever the hook did.
+ */
+describe("re-opening a sampled call", () => {
+  const DETAIL_PATH = "/v1/admin/qa-samples/s1";
+
+  it("reads the server again, so the second look is audited too", async () => {
+    const calls = stubApi({ [DETAIL_PATH]: { sample: SAMPLE, call: CALL } });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const openIt = async () => {
+      let result!: ReturnType<typeof render>;
+      await act(async () => {
+        result = render(
+          <QueryClientProvider client={client}>
+            <Suspense fallback={null}>
+              <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />
+            </Suspense>
+          </QueryClientProvider>,
+        );
+      });
+      return result;
+    };
+
+    const first = await openIt();
+    await screen.findByText(/Sri Traders/);
+    expect(calls.filter((c) => c.path === DETAIL_PATH).length).toBe(1);
+
+    // Navigating away unmounts the screen; the cache outlives it, which is the whole
+    // point of the cache and the whole danger here.
+    first.unmount();
+
+    const second = await openIt();
+    await waitFor(() => expect(calls.filter((c) => c.path === DETAIL_PATH).length).toBe(2));
+    second.unmount();
+  });
 });

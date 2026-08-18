@@ -593,12 +593,67 @@ def record_pipeline_lag(seconds: float, *, stage: str) -> None:
     _record("pipeline_lag_seconds", seconds, stage=stage)
 
 
+def record_speed_to_lead(seconds: float, *, outcome: str) -> None:
+    """Web form submitted → outbound dial placed. FLOWS §4 step 4 targets < 60s.
+
+    A RECORDER RATHER THAN THE `metrics_log` CALL IT REPLACED. `ingest/service.py` emitted
+    this series by hand, which made it invisible to the vocabulary this section says is
+    the SLO rule language — the one metric in the tree with a number in a document and no
+    name in the code.
+    """
+    _record("speed_to_lead_seconds", seconds, outcome=outcome)
+
+
+def record_dispatch_tick(seconds: float) -> None:
+    """How long one campaign dispatch tick took, against its 30-second interval.
+
+    Read beside `dispatch_tick_overrun`, which is the alarm for the same quantity: the
+    counter is the trend and the alarm is the breach, and an operator asking "how close
+    have we been running" needs the first.
+    """
+    _record("dispatch_tick_seconds", seconds)
+
+
+def record_campaign_dials(*, dialled: int, blocked: int) -> None:
+    """One tick's outcome: how many contacts were rung and how many the gate refused.
+
+    `blocked` is a LABEL rather than a second series because the pair is only meaningful
+    together — a tick with 0 dialled means nothing until you know whether 40 were blocked
+    or there was simply nothing to do.
+    """
+    _record("campaign_dials", dialled, blocked=str(blocked))
+
+
 def record_outbox_lag(seconds: float) -> None:
     _record("outbox_lag_seconds", seconds)
 
 
 def record_outbox_dlq_depth(depth: int) -> None:
     _record("outbox_dlq_depth", depth)
+
+
+def record_inbox_lag(seconds: float) -> None:
+    """The outbox's mirror image, on the side D-31 says is only a HINT.
+
+    An inbox row sits at `enqueued` from the moment the receiver hands the work to arq
+    until the job reports back. A rising oldest-`enqueued_at` therefore means the ingest
+    job is not finishing — the exact failure the reconciliation poller exists to survive,
+    and the one that is otherwise invisible because the poller quietly does the work and
+    the inbox row is simply never revisited. `webhook_inbox_events.enqueued_at` was
+    written and read by nothing at all before this recorder.
+    """
+    _record("inbox_lag_seconds", seconds)
+
+
+def record_inbox_handling_ms(ms: float, *, provider: str) -> None:
+    """End to end for ONE webhook: arrival (`created_at`) to `processed_at`.
+
+    `record_webhook_ack_ms` measures what the CALLER waited for, which hard rule 3 caps
+    at 500ms precisely because the real work is deferred. This measures the deferred
+    half, so the two together say whether a fast ack is buying a fast pipeline or hiding
+    a slow one.
+    """
+    _record("inbox_handling_ms", ms, provider=provider)
 
 
 def record_extraction_failure(*, reason: str) -> None:
@@ -637,13 +692,18 @@ __all__ = [
     "alert",
     "configure_alerts",
     "flush_alerts",
+    "record_campaign_dials",
     "record_compliance_block",
+    "record_dispatch_tick",
     "record_extraction_failure",
+    "record_inbox_handling_ms",
+    "record_inbox_lag",
     "record_outbox_dlq_depth",
     "record_outbox_lag",
     "record_pipeline_lag",
     "record_reconciliation_listing_incomplete",
     "record_reconciliation_repair",
+    "record_speed_to_lead",
     "record_tool_ack_ms",
     "record_webhook_ack_ms",
     "record_webhook_replay_divergence",

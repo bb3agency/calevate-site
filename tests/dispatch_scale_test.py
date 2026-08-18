@@ -251,11 +251,17 @@ async def _population() -> AsyncIterator[Population]:
     33,000 organizations to prove it. These rows have exactly three dependents, all
     written here, all removed here, in FK order.
 
-    Writes and deletes go through `tenant_session`: `organizations`' policy is
-    `USING (id = app.tenant_id ...)` with `WITH CHECK (id = app.tenant_id)`, so a
-    tenant-scoped session covers both halves with no widening at all. `admin_session`
-    would do the delete in one statement, but it is the ADMIN-REALM widening (hard rule
-    1) and a fixture is not an admin-realm principal.
+    Writes go through `tenant_session`; the organization's DELETE goes through
+    `admin_session`, and that split is the point rather than a convenience. This fixture
+    used to do both on the tenant session, arguing that it needed no widening because
+    `organizations`' policy is `USING (id = app.tenant_id ...)` with
+    `WITH CHECK (id = app.tenant_id)` — but `WITH CHECK` is not consulted on DELETE, so
+    what that actually relied on was a tenant session being able to hard-delete its own
+    tenancy anchor. Migration `d1b8f30c94a7` closes that, and the cleanup moves rather
+    than the schema staying open to accommodate a fixture. The widening it takes is the
+    narrow one: `app.admin` widens `USING` on `organizations` ONLY (it unlocks no calls,
+    no leads, no transcripts, and no `WITH CHECK` anywhere), and it is used here to
+    remove rows this fixture minted itself.
     """
     tag = f"dscale-pop-{uuid.uuid4().hex[:8]}"
     dispatchable: list[uuid.UUID] = []
@@ -319,8 +325,22 @@ async def _population() -> AsyncIterator[Population]:
                     await session.execute(
                         text("DELETE FROM agents WHERE tenant_id = :id"), {"id": tenant_id}
                     )
-                await session.execute(
+            # The organization goes through an ADMIN session, not the tenant's own.
+            # `organizations_delete_admin_only` (migration d1b8f30c94a7) is RESTRICTIVE
+            # FOR DELETE: a tenant session may no longer destroy its own tenancy anchor,
+            # because `WITH CHECK` is not consulted on DELETE and `USING` alone had been
+            # letting it. RLS filters rather than raises, so a cleanup left on the tenant
+            # session would have gone on "succeeding" while leaking every organization
+            # this fixture mints — which is why the rowcount is asserted rather than
+            # assumed. The comment above promises this fails loudly; this is what makes
+            # that true.
+            async with admin_session() as session:
+                removed = await session.execute(
                     text("DELETE FROM organizations WHERE id = :id"), {"id": tenant_id}
+                )
+                assert removed.rowcount == 1, (
+                    f"cleanup could not remove organization {tenant_id}: a population this "
+                    "test cannot remove is the very defect this file is about"
                 )
 
 

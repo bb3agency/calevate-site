@@ -27,6 +27,7 @@ import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
+import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import {
   AdminSessionGate,
   AdminSessionProvider,
@@ -615,9 +616,18 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AdminSessionProvider>
-      <AdminSessionGate>
+      {/* `landmark`: the gate replaces the entire shell, so it owns the document's
+          `main` and its heading while it is on screen. See `SessionGate`. */}
+      <AdminSessionGate landmark>
         <Providers>
           <AdminIdleWarning />
+          {/* Mounted OUTSIDE `AdminMfaGate` and above every screen, because the refusal it
+              answers can arrive from anywhere — including from inside the transport, while
+              `lib/api/admin.ts` mints a view-as grant, where no screen is in scope
+              (D-210). One subscriber, sixteen gated routes; see
+              `lib/authn/stepUpPrompt.ts` for why the ask is an external store. It renders
+              nothing until something asks. */}
+          <StepUpPrompt />
           <AdminMfaGate>
             {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
                 to. The document scrolls by default; a shell that clips its own content is

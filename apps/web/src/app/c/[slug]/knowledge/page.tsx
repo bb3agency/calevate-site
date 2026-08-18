@@ -248,7 +248,7 @@ export default function KnowledgePage() {
                    luck, and a dead button with the explanation off-screen is the 403 we
                    are trying not to ship. */
                 title={write.reason ?? undefined}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-1.5 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="h-3.5 w-3.5" />
                 {submit.isPending ? "Submitting…" : "Submit for review"}

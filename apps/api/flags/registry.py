@@ -118,6 +118,18 @@ class FlagSpec:
     #: it is how a flag is landed before the feature it gates — but it is not a state
     #: anybody should have to discover from a grep.
     consumed_by: str | None
+    #: What has to happen before `consumed_by` can be filled in. REQUIRED exactly when
+    #: `consumed_by` is None, and forbidden otherwise, enforced by
+    #: `assert_flag_registry_wellformed`.
+    #:
+    #: CLAUDE.md: "A deferral is a decision-log entry naming what closes it, or it is not
+    #: a deferral." `consumed_by: None` was that deferral without the naming half — a
+    #: switch an operator can flip, that does nothing, with no statement anywhere of what
+    #: would make it do something. The rule is not "flags must be consumed": landing the
+    #: mechanism before the feature is deliberate and stays legal. The rule is that the
+    #: unconsumed state has to say what ends it, which is the difference between a plan
+    #: and a leftover.
+    blocked_by: str | None = None
 
 
 # KEYED BY `str`, NOT BY `FlagName`, and the asymmetry is the point. Every name that
@@ -131,17 +143,30 @@ FLAGS: Final[dict[str, FlagSpec]] = {
     "call_timing_breakdown": FlagSpec(
         description=(
             "Show the per-call timing breakdown (STT, LLM and TTS segments, and the "
-            "engine's own turn latency) on this client's call detail screen. A DEBUG "
-            "VIEW: it renders numbers we already record on the call row, changes nothing "
-            "about how a call is placed, answered, metered or billed, and is invisible to "
-            "the client's own callers."
+            "engine's own turn latency) on this client's call detail screen, once those "
+            "numbers exist. A DEBUG VIEW: it would change nothing about how a call is "
+            "placed, answered, metered or billed, and is invisible to the client's own "
+            "callers. Leave it off — there is nothing behind it yet."
         ),
         default=False,
-        # NOTHING READS THIS YET, and the console says so beside the switch. It is
-        # declared here so this slice ships a mechanism with a real subject rather than
-        # an empty screen; wiring the call detail view to it is its own change, because
-        # introducing a mechanism and rewiring a feature in one diff is unreviewable.
+        # NOTHING READS THIS, and the console says so beside the switch. It is declared
+        # here so the mechanism ships with a real subject rather than an empty screen;
+        # wiring the view is its own change, because introducing a mechanism and rewiring
+        # a feature in one diff is unreviewable.
         consumed_by=None,
+        # This description USED TO SAY the view "renders numbers we already record on the
+        # call row", and that stopped being true when `calls.latency` — the column that
+        # held {stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_p50, turn_p95} and was written by
+        # nothing — was dropped in migration f1a7c39d5be2. So the flag gated a screen
+        # that had no data, over a sentence promising data that did not exist.
+        blocked_by=(
+            "the numbers themselves. The in-call audio path runs inside the rented engine "
+            "(D-33), so nothing we trace is inside it, and the vendor's own per-component "
+            "timings are neither the same measurements nor validated against a stopwatch "
+            "— which is OPERATIONS §2 pilot gate 4, and needs a Bolna account placing a "
+            "real call. `calls.latency` was dropped in migration f1a7c39d5be2 for exactly "
+            "this reason; the gate is what re-opens both."
+        ),
     ),
 }
 
@@ -196,6 +221,22 @@ def assert_flag_registry_wellformed() -> None:
             raise FlagRegistryError(
                 f"flag {name!r} has no usable description. The console renders it beside "
                 "the switch; an operator deciding whether to flip it has nothing else."
+            )
+        blocked = (spec.blocked_by or "").strip()
+        if spec.consumed_by is None and len(blocked) < 20:
+            raise FlagRegistryError(
+                f"flag {name!r} is declared, settable and read by nothing, and does not "
+                "say what would change that. Give it a `blocked_by` naming what closes "
+                "it — a vendor gate, a measurement, a decision — or delete the flag. "
+                "CLAUDE.md: a deferral is a statement of what closes it, or it is not a "
+                "deferral."
+            )
+        if spec.consumed_by is not None and blocked:
+            raise FlagRegistryError(
+                f"flag {name!r} names both a consumer ({spec.consumed_by}) and a blocker. "
+                "The blocker is what stands in the way of a consumer; once one exists the "
+                "sentence is stale, and a stale blocker is how an operator concludes a "
+                "live switch does nothing."
             )
 
 

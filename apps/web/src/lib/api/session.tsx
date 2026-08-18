@@ -129,13 +129,19 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
   // sends them to the sign-in page of whichever realm this document restored — so an
   // operator whose admin session lapsed mid-handoff lands on the ADMIN sign-in, not on a
   // client one that could never let them back in.
+  // `landmark`: this gate replaces the WHOLE console shell — sidebar, header and
+  // `<main>` — so when it renders there is no other landmark and no heading in the
+  // document, and the shell's `SkipLink` (which is deliberately outside this provider)
+  // points at a `#main-content` that does not exist. Measured in a real browser: axe
+  // reported `skip-link`, `region` and, on the admin side, `landmark-one-main` and
+  // `page-has-heading-one`. See `SessionGate`'s prop.
   return viewAsRequested ? (
     <AdminSessionProvider>
-      <AdminSessionGate>{realm}</AdminSessionGate>
+      <AdminSessionGate landmark>{realm}</AdminSessionGate>
     </AdminSessionProvider>
   ) : (
     <ClientSessionProvider>
-      <ClientSessionGate>{realm}</ClientSessionGate>
+      <ClientSessionGate landmark>{realm}</ClientSessionGate>
     </ClientSessionProvider>
   );
 }

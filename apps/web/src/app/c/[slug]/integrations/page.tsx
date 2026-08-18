@@ -111,7 +111,25 @@ export default function IntegrationsPage() {
   const payloadAccess = useWriteAccess(session, "calls:read_raw", "open a delivered payload");
   const mayReadPayload = payloadAccess.allowed;
   const [openPayload, setOpenPayload] = useState<string | null>(null);
-  const payload = useDeliveryPayload(session, openPayload);
+  const payload = useDeliveryPayload(session);
+  /**
+   * Open = ask the server for THIS delivery. Close, or switch to another row, = throw the
+   * previous answer away first.
+   *
+   * Both halves matter. Asking every time is what makes the audit trail count looks
+   * rather than sessions (`useDeliveryPayload`). Resetting is what stops the panel showing
+   * the last body for the instant before the new request lands — which on a SWITCH would
+   * be a different customer's details under the new row's heading.
+   */
+  const togglePayload = (deliveryId: string) => {
+    payload.reset();
+    if (openPayload === deliveryId) {
+      setOpenPayload(null);
+      return;
+    }
+    setOpenPayload(deliveryId);
+    payload.mutate(deliveryId);
+  };
 
   return (
     <div className="space-y-5">
@@ -317,11 +335,7 @@ export default function IntegrationsPage() {
                       {delivery.payload_stored ? (
                         <button
                           type="button"
-                          onClick={() =>
-                            setOpenPayload((current) =>
-                              current === delivery.id ? null : delivery.id,
-                            )
-                          }
+                          onClick={() => togglePayload(delivery.id)}
                           title="Shows the exact data we sent, personal details included. The read is written to your audit log."
                           className="rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
                         >
@@ -366,7 +380,7 @@ export default function IntegrationsPage() {
               </h3>
               <button
                 type="button"
-                onClick={() => setOpenPayload(null)}
+                onClick={() => togglePayload(openPayload)}
                 className="ml-auto rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
               >
                 Close

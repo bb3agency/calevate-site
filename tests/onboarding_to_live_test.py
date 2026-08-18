@@ -41,6 +41,7 @@ from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.member_invitations_test import mailed_invitation_token
 
 PUBLISH = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish"
 INTAKE = "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake"
@@ -452,7 +453,10 @@ async def test_the_wizards_invitation_is_redeemable_and_lands_the_right_role() -
         _owner_token, owner_id = await _user(email)
         accepted = await http.post(
             ACCEPT,
-            json={"token": minted.json()["token"], "password": "onboarding-invitee-password"},
+            json={
+                "token": await mailed_invitation_token(email),
+                "password": "onboarding-invitee-password",
+            },
         )
 
     assert accepted.status_code == 200, accepted.text
@@ -600,6 +604,10 @@ async def test_the_console_can_cancel_the_invitation_it_just_issued() -> None:
             json={"email": email, "role": "owner"},
         )
         assert first.status_code == 201, first.text
+        # Captured NOW, because the token lives in the invitee's mailbox rather than in the
+        # response (D-198) and `mailed_invitation_token` reads the newest mail for an
+        # address — after the reissue below that would be the second link, not this one.
+        first_token = await mailed_invitation_token(email)
         blocked = await http.post(
             INVITE.format(tenant_id=tenant_id),
             headers=headers,
@@ -619,13 +627,15 @@ async def test_the_console_can_cancel_the_invitation_it_just_issued() -> None:
         )
 
     assert reissued.status_code == 201, reissued.text
-    assert reissued.json()["token"] != first.json()["token"]
+    assert await mailed_invitation_token(email) != first_token, (
+        "the reissue mailed the same secret as the invitation that was cancelled"
+    )
     # And the cancelled one is dead, not merely superseded.
     _owner_token, _owner_id = await _user(email)
     async with _client() as http:
         replay = await http.post(
             ACCEPT,
-            json={"token": first.json()["token"], "password": "onboarding-invitee-password"},
+            json={"token": first_token, "password": "onboarding-invitee-password"},
         )
     assert replay.status_code == 422, replay.text
     assert replay.json()["type"].endswith("/invitation_invalid")
@@ -650,7 +660,10 @@ async def test_an_accepted_invitation_cannot_be_cancelled_out_from_under_its_mem
         _owner_token, owner_id = await _user(email)
         await http.post(
             ACCEPT,
-            json={"token": minted.json()["token"], "password": "onboarding-invitee-password"},
+            json={
+                "token": await mailed_invitation_token(email),
+                "password": "onboarding-invitee-password",
+            },
         )
         late = await http.delete(
             f"{INVITE.format(tenant_id=tenant_id)}/{minted.json()['id']}", headers=headers
@@ -736,18 +749,23 @@ async def test_the_pending_list_drops_an_invitation_once_it_is_redeemed() -> Non
     email = f"owner-{uuid.uuid4().hex[:8]}@example.com"
 
     async with _client() as http:
-        minted = await http.post(
-            INVITE.format(tenant_id=tenant_id),
-            headers=headers,
-            json={"email": email, "role": "owner"},
-        )
+        assert (
+            await http.post(
+                INVITE.format(tenant_id=tenant_id),
+                headers=headers,
+                json={"email": email, "role": "owner"},
+            )
+        ).status_code == 201
         assert (
             len((await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)).json()) == 1
         )
         _owner_token, _owner_id = await _user(email)
         await http.post(
             ACCEPT,
-            json={"token": minted.json()["token"], "password": "onboarding-invitee-password"},
+            json={
+                "token": await mailed_invitation_token(email),
+                "password": "onboarding-invitee-password",
+            },
         )
         after = await http.get(INVITE.format(tenant_id=tenant_id), headers=headers)
 

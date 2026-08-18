@@ -98,7 +98,7 @@ export function StatTile({
         <div
           className={clsx(
             "flex h-10 w-10 shrink-0 items-center justify-center rounded-full",
-            tone === "strong" ? "bg-brand text-white" : "bg-brand-soft text-brand-strong",
+            tone === "strong" ? "bg-brand-strong text-white" : "bg-brand-soft text-brand-strong",
           )}
         >
           {icon}

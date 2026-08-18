@@ -256,6 +256,26 @@ class Settings(BaseSettings):
         default="http://localhost:8100", max_length=255, pattern=r"^https?://[^\s]+$"
     )
 
+    # `host:port` of the ORIGIN that terminates TLS for our public hostnames — the nginx
+    # on the deployment host, reached from inside a container through the gateway
+    # `compose.prod.yml` already wires as `host.docker.internal`.
+    #
+    # IT IS NOT THE PUBLIC HOSTNAME, AND THAT IS THE WHOLE POINT (OPERATIONS §4,
+    # `workers/tls_expiry.py`). Traffic is proxied by Cloudflare in Full (strict), so a
+    # TLS handshake to `hooks.calevate.tech` returns CLOUDFLARE's edge certificate, which
+    # renews itself and is not ours to lose. The certificate that can actually expire is
+    # the origin's — the certbot lineage nginx serves — and the only way to see it is to
+    # handshake with the origin directly and name the host in SNI. nginx applies its
+    # `deny all` for non-Cloudflare addresses at the HTTP layer, AFTER the handshake, so
+    # the certificate is readable from here even though a request would not be served.
+    #
+    # Defaulted rather than left empty so that a host which configures nothing still
+    # checks — the same choice `BACKUP_ALERT_COMMAND` makes for the same reason. The
+    # check is a stated no-op under `APP_ENV=local`.
+    tls_origin_address: str = Field(
+        default="host.docker.internal:443", max_length=255, pattern=r"^[^\s:/]+:\d{1,5}$"
+    )
+
     # Engine selection is per-environment; `fake` is the default for local work so
     # the whole pipeline runs offline (DEV-SETUP.md §3).
     engine: EngineName = "fake"
@@ -377,9 +397,14 @@ class Settings(BaseSettings):
     # is a coherent deployment, and a readiness probe that goes red for an absent optional
     # feature is a probe operators learn to ignore.
     gcp_service_account_json: str | None = None
-    # Embeddings are provider-managed if the D-28 RAG service bundles them;
-    # Cohere is only needed if the bake-off selects a store that does not.
-    cohere_api_key: str | None = None
+    # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
+    # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
+    # therefore offered to an operator on the ops console as a key they could install —
+    # and NOTHING in this repository ever read it. D-28 makes retrieval a managed API
+    # service that owns its own embeddings, so no code path has ever needed one. A knob
+    # that does nothing is worse than no knob: an operator who installs it believes the
+    # embeddings leg is configured. If a future retrieval provider requires us to embed,
+    # the field comes back in the same change as the code that reads it.
 
     # THE SIX `CLERK_*` FIELDS THAT WERE HERE ARE GONE (D-177). Two publishable keys, two
     # secret keys, a frontend-API hostname and a Svix webhook secret — the whole vendor

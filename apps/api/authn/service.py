@@ -90,6 +90,7 @@ from apps.api.authn.subjects import Subject, load_subject, mark_email_verified, 
 from apps.api.authn.throttle import (
     OTP_BUDGET,
     PASSWORD_BUDGET,
+    RESET_BUDGET,
     Budget,
     check,
     clear,
@@ -523,20 +524,52 @@ async def request_password_reset(
 
     Returns `None` on every path — there is no branch a caller can observe. OWASP's Forgot
     Password Cheat Sheet asks for "a consistent message for both existent and non-existent
-    accounts" AND that "responses return in a consistent amount of time"; the second half is
-    the one implementations skip, and it is met here by the unknown path doing the same
-    quantity of work rather than by a sleep that guesses.
+    accounts" AND that "responses return in a consistent amount of time".
 
-    A reset request for an address with no account still consumes a throttle budget against
-    a pseudo-subject, so an attacker cannot use "does this eventually 429" as the oracle the
-    body refuses to be.
+    ═══ THE BUDGET IS SPENT BEFORE THE BRANCH, AND IT USED NOT TO BE (D-198) ═══
+
+    The throttle call sat INSIDE the `subject is None` arm, so an address with no account
+    was refused with 429 after five requests and a real one answered 202 indefinitely.
+    Measured, not inferred: eight requests for a live address produced eight 202s and eight
+    queued emails; six for an unknown one produced 429 `too_many_attempts`. That is the
+    identical back door `pseudo_subject`'s docstring closes on the sign-in path — "an
+    attacker could tell real addresses from fake ones by whether a burst of attempts
+    eventually produced a 429" — reappearing on the one form in this product that takes an
+    arbitrary stranger's address as its whole input. It also meant nothing at all bounded
+    reset mail to a known address.
+
+    So the key is chosen first (`subject.subject_id`, or the stable pseudo-subject derived
+    from the address) and the SAME two calls run on both paths, in the same order, before
+    anything else happens. `RESET_BUDGET` is its own budget and not `OTP_BUDGET`; that
+    constant argues why, and the argument is a denial-of-service one rather than a tidiness
+    one.
+
+    ═══ WHAT REMAINS UNEQUAL, SAID PLAINLY ═══
+
+    The wall clock. The known path performs a token invalidation, a token insert, an outbox
+    insert and an audit append (which takes the chain's advisory lock); the unknown path
+    performs neither. Measured on the target hardware that is 8.1ms against 2.4ms — a 3.4x
+    ratio and a 5.7ms absolute gap, against the sign-in path's four-orders-of-magnitude gap
+    that `hashing._dummy_hash` exists to close. This function's docstring used to claim the
+    two paths did "the same quantity of work", and that was never true here; claiming it
+    was the defect, because it stopped anybody measuring.
+
+    It is NOT equalised by giving the unknown path an Argon2 verification it has no reason
+    to perform: that is 20-30ms of CPU handed to an unauthenticated caller who supplies the
+    address, i.e. a denial-of-service lever bought to close a gap smaller than ordinary
+    internet jitter. The 429 oracle was the one an attacker could actually read off a
+    response, and it is closed; this one is recorded rather than papered over.
     """
     _refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
     subject = await resolve_by_email(realm, email)
+    # Before the branch, so that nothing about which arm is taken can be read off the
+    # limiter. The pseudo-subject is derived through the code key, so the Redis keyspace
+    # does not become a plaintext list of addresses somebody tried (`pseudo_subject`).
+    budget_subject = subject.subject_id if subject is not None else pseudo_subject(realm, email)
+    await check(RESET_BUDGET, realm=realm, subject_id=budget_subject)
+    await record_failure(RESET_BUDGET, realm=realm, subject_id=budget_subject)
     if subject is None:
-        await check(OTP_BUDGET, realm=realm, subject_id=pseudo_subject(realm, email))
-        await record_failure(OTP_BUDGET, realm=realm, subject_id=pseudo_subject(realm, email))
         log.info("auth_reset_unknown_subject", extra={"realm": realm})
         return
 
@@ -620,6 +653,12 @@ async def confirm_password_reset(
         )
         await revoke_subject_sessions(session, realm=realm, subject_id=subject.subject_id, now=at)
     await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject.subject_id)
+    # And the REQUEST budget, because this link being redeemed is proof the person asking
+    # for the links is the person who owns the mailbox. Leaving it spent would mean somebody
+    # who needed two attempts to find the right email is refused their next legitimate reset
+    # for the rest of the window, which is the shape of penalty `throttle.clear` exists to
+    # prevent (D-198).
+    await clear(RESET_BUDGET, realm=realm, subject_id=subject.subject_id)
     await _audit(action="auth.password_changed", realm=realm, subject_id=subject.subject_id, ip=ip)
 
 
@@ -737,9 +776,18 @@ async def _enqueue_auth_email(
     `outbox_messages.payload` is a jsonb column in the same database — so for the ten
     seconds before the dispatcher picks it up, the plaintext token exists in a row. The
     alternative is storing a reversible copy somewhere else, which is the same exposure with
-    more moving parts. What bounds it: the row is deleted on successful dispatch, the token
-    is single-use and short-lived, and `hide_parameters=True` on the engine keeps it out of
-    any DBAPI error string. It is NOT logged, and `redact_mapping` covers the audit path.
+    more moving parts. What bounds it: the token is single-use and short-lived,
+    `hide_parameters=True` on the engine keeps it out of any DBAPI error string, it is NOT
+    logged, `redact_mapping` covers the audit path — and the payload is CLEARED by the
+    statement that marks the row published (`reliability.service.mark_outbox_published`).
+
+    **THAT LAST CLAUSE USED TO READ "the row is deleted on successful dispatch", AND IT WAS
+    FALSE.** Publishing UPDATEs the row; nothing deleted it until
+    `retention.prune_reliability_tables` reached it ninety days later. So the bound this
+    paragraph rested on did not exist, and a live reset token sat in a jsonb column for a
+    quarter of a year. The scrub is now part of the same statement as the status flip, which
+    is what makes the sentence true rather than intended — `tests/outbox_payload_scrub_test.py`
+    is the assertion, because a comment cannot fail a build.
     """
     await enqueue_outbox(
         session,

@@ -62,7 +62,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
 from apps.api.core.settings import get_settings
 from calevate_shared.client_address import client_ip
-from engine_intake import execution_key, verify_source
+from engine_intake import engine_label, execution_key, verify_source
 from fastapi import APIRouter, Request, Response
 
 # The ack accounting, the bounded read and the deadlines, from the receiver that already
@@ -117,7 +117,8 @@ async def _opt_out(
             "ROUTE_HANDLER",
             "tool_source_rejected",
             detail=verdict.reason,
-            engine=engine,
+            # Bounded for the receiver's reason — see `webhook_routes._receive`.
+            engine=engine_label(engine),
             source_ip=source_ip or "unknown",
         )
         raise ProblemError.unauthorized("This caller is not permitted to call this tool.")

@@ -26,16 +26,27 @@ confirmation" — so the check moved here and the ops routes import it. A second
 
 The ACTION STRINGS deliberately stay with their routes. They are ops procedures printed
 in runbooks and pinned literal-by-literal by tests (`platform_confirmation`,
-`spend_cap_confirmation`, `outbox_replay_confirmation`, `spend_ceiling_confirmation`);
-what is shared is the comparison and the refusal, not the vocabulary.
+`spend_cap_confirmation`, `outbox_replay_confirmation`, `spend_ceiling_confirmation`,
+`tenant_erasure_confirmation`, `view_as_confirmation`); what is shared is the comparison
+and the refusal, not the vocabulary.
+
+The gate also guards a DOOR rather than a mutation in one place — `admin/routes.py::
+mint_impersonation_grant` (D-210). Entering a client's account is the single act behind
+which every tenant-realm read an operator can reach sits, including the raw transcript
+BACKEND-PATTERNS §7 names, so the second factor is asked for once at the door instead of
+being bolted onto reads that have no admin-realm session to check it against. That route
+is also the one call site where satisfying the gate is not the only way through: a console
+extending a view-as session it already holds presents the live grant instead, bounded at
+`core/impersonation.VIEW_AS_MAX_AGE` from the step-up that started it. The alternative
+there is argued in that constant, not here.
 
 ═══ WHY THIS IS A DEPENDENCY AND THE CHECK ITSELF IS SYNCHRONOUS ═══
 
 Freshness is read off the session row, which is a database read. The obvious shape — make
 `require_step_up` async and let it open a `credential_session` where it is called — BREAKS
 A LOAD-BEARING INVARIANT: `db/session.py` runs `max_overflow=0` and says in as many words
-that this is safe "only because no code path here holds two sessions at once". Two of the
-fifteen call sites (`admin/routes.py::record_commercial_terms`,
+that this is safe "only because no code path here holds two sessions at once". Some call
+sites (`admin/routes.py::record_commercial_terms`,
 `billing/credit_routes.py`'s adjustment) sit INSIDE an open `tenant_session`, because the
 action string is derived from a row they had to read first. A second checkout there is a
 pool that can deadlock against itself under `pool_size` concurrent incidents — on the

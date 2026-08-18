@@ -72,12 +72,49 @@ MAX_EXPORT_ROWS = 20_000
 #: semantic and the one users already expect from every storefront they have used.
 FieldFilters = dict[str, list[str]]
 
-#: How many facets a panel may offer at once. The researched range is 5-7 facets per
-#: results page before a filter rail stops being scannable; 8 leaves room for a client
-#: whose capture list is genuinely enum-heavy without turning the rail into the screen.
-#: A tenant with more enum fields gets the first eight IN SCHEMA ORDER and is told how
-#: many were left out, rather than silently seeing a subset.
-MAX_FACET_FIELDS = 8
+#: The rail's whole latency budget, in milliseconds. Researched number, and the one
+#: `lead_facets` has always claimed to be inside; it is a ceiling on the SCREEN, not on
+#: any one query, because a filter rail is a single thing to the person waiting for it.
+FACET_RAIL_BUDGET_MS = 200
+
+#: What one facet costs at the volume `list_leads` names as the point where a lead table
+#: stops being small: **~50 ms** for a `GROUP BY` over 50,001 tenant leads, measured with
+#: `EXPLAIN (ANALYZE, BUFFERS)` as the app role with RLS in the plan (PG 16.15). It is
+#: the whole cost — a facet count must read every row in scope by definition, so there is
+#: no index and no rewrite that makes one facet cheaper. Rounded UP from the 47.4-50.6 ms
+#: measured band, because a budget divided by an optimistic cost is not a budget.
+FACET_QUERY_COST_MS = 50
+
+#: How many facets a panel may offer at once — DERIVED, not chosen (D-216).
+#:
+#: This was 8, on the research that 5-7 facets per results page is the point a filter
+#: rail stops being scannable, "with room for a client whose capture list is genuinely
+#: enum-heavy". That is a good argument about SCANNABILITY and it was the only argument
+#: the number had: eight facets is eight sequential round trips, ~400 ms at six figures,
+#: and `lead_facets`' own docstring promised the rail was "nowhere near" its 200 ms
+#: budget. A ceiling nothing enforces is a promise, so the ceiling is now the budget
+#: divided by what one facet costs, and widening either input moves it automatically.
+#:
+#: **The single-round-trip rewrite was written and measured before this was chosen, not
+#: assumed away.** Both shapes were tried against the same 50,001-lead tenant: a
+#: `CROSS JOIN unnest(keys)` with a per-facet `row_number()` window (209-221 ms, 12 MB
+#: spilled to disk) and `GROUP BY GROUPING SETS ((1),(2),…,(8))` (223 ms). Both are ~2.8x
+#: better than eight sequential queries and BOTH ARE STILL OVER THE BUDGET, because
+#: PostgreSQL will not hash-aggregate either one: it has no `n_distinct` for
+#: `data ->> 'key'` on a jsonb column whose key is bound at runtime, estimates every row
+#: as its own group, and picks a sort. Forcing the hash shows the floor is 111 ms — real,
+#: and unreachable without an `enable_sort = off` nobody should ship. So the rewrite buys
+#: a 2.8x speedup, does not buy the budget, and costs the readability its rejection was
+#: argued on. Bounding buys the budget outright.
+#:
+#: **What the client gets is a refusal they can act on, and it already exists**: the
+#: first `MAX_FACET_FIELDS` facetable fields IN SCHEMA ORDER, plus
+#: `FacetSet.omitted_field_count`, which the rail renders as "N more capture fields are
+#: filterable but not shown here — ask us to reorder your capture list if you need one of
+#: them". Reordering the extraction schema is the action, and it is one an operator can
+#: take today. No shipped vertical template declares more than two enum fields, so this
+#: bound is twice what anything on the platform uses.
+MAX_FACET_FIELDS = FACET_RAIL_BUDGET_MS // FACET_QUERY_COST_MS
 
 #: How many distinct values one facet may offer. Declared enum values are always shown;
 #: this bounds the UNDECLARED ones a client's data can also contain (a schema edited
@@ -631,14 +668,31 @@ async def lead_facets(
     `status_counts_matching_search` already applies one screen element over, so the two
     numbers on this page mean the same kind of thing.
 
-    **One query per facet, deliberately.** The single-round-trip alternative is a UNION
-    ALL over the same scope, and it was written and rejected: every branch omits a
-    DIFFERENT filter, so every branch needs its own uniquely-named binds and its own
-    clause list, which is the whole scope builder duplicated per branch for the sake of
-    seven fewer round trips on a query that reads a tenant's own lead table over a local
-    socket. `MAX_FACET_FIELDS` bounds the count at eight; the researched budget for a
-    facet rail is 200ms and this is nowhere near it. Revisit if a tenant's lead table
-    passes six figures, which is the same threshold `list_leads` names for pagination.
+    **One query per facet, and the COUNT is what keeps that affordable** (D-216). The
+    single-round-trip alternative was written and rejected twice, on different grounds
+    each time. First as a UNION ALL: every branch omits a DIFFERENT filter, so every
+    branch needs its own uniquely-named binds and its own clause list — the whole scope
+    builder duplicated per branch. Then, when a measurement said the rail was over its
+    budget, as the two shapes that avoid that duplication: a `CROSS JOIN unnest(keys)`
+    with a per-facet `row_number()` window, and `GROUP BY GROUPING SETS`. Both were
+    measured against the same tenant, both are ~2.8x faster than the sequential loop at
+    eight facets, and **both are still over the 200 ms budget** — PostgreSQL will not
+    hash-aggregate either, because it has no `n_distinct` for a jsonb key bound at
+    runtime and therefore estimates every row as its own group. The numbers are on
+    `MAX_FACET_FIELDS`. So the loop stays and the COUNT is bounded instead:
+    `MAX_FACET_FIELDS` is now `FACET_RAIL_BUDGET_MS // FACET_QUERY_COST_MS`, which is
+    four, and a client with more facetable fields is told so rather than shown a rail
+    that takes half a second.
+
+    **MEASURED, because "nowhere near it" was a claim about an empty table.** One facet
+    over 50,001 leads is 47.4-50.6 ms / 2,682 buffers (PG 16.15, `EXPLAIN (ANALYZE,
+    BUFFERS)` as the app role with RLS in the plan) — and was 70.5-74.9 ms with 13 MB
+    spilled to disk until the `MATERIALIZED` fence below went in. No index changes the
+    remaining cost: a facet count reads every row in scope by definition. Four facets is
+    ~200 ms at six figures and single-digit milliseconds at the couple of thousand leads
+    a real client has; the six-figure case is the one this bound is sized for, because it
+    is the one `list_leads` already names as the threshold where a lead table stops being
+    small.
 
     Values are DECLARED-FIRST, in schema order, zero-filled — a value with no rows
     answers 0 rather than going missing, for the reason the status badges do: "none of
@@ -666,12 +720,57 @@ async def lead_facets(
         # changed leaves objects and arrays behind in `data`, and `->>` renders those as
         # their JSON source — a facet value nobody can read and nobody stored.
         clauses.append("jsonb_typeof(l.data -> :facet_key) = 'string'")
+        # THE ROW BOUND, and it belongs HERE rather than only in the response.
+        # `MAX_FACET_VALUES` says it bounds the undeclared values "which is otherwise
+        # unbounded" — and it did bound the rendered list, after the whole GROUP BY had
+        # already been transported and turned into a Python dict. A facet is an enum
+        # field only by DECLARATION: the extractor writes whatever the model produced, so
+        # a field whose declaration changed (or whose model went off-script) can hold as
+        # many distinct strings as the tenant has leads, and this loop allocated one dict
+        # entry per one of them, eight times per page render.
+        #
+        # DECLARED-FIRST IS WHAT MAKES THE LIMIT SAFE. A bare `LIMIT` would drop a
+        # declared value that ranks below the cap and the zero-fill below would then
+        # report it as 0 — a filter that silently claims a value nobody has. Sorting the
+        # declared ones ahead of the tail guarantees every declared value present in the
+        # data survives the cut, and the cap is exactly what the response can render.
+        params["facet_declared"] = list(column.enum_values)
+        room = max(MAX_FACET_VALUES - len(column.enum_values), 0)
+        params["facet_cap"] = len(column.enum_values) + room
+        # THE AGGREGATE IS FENCED OFF FROM THE ORDERING, and the fence is load-bearing
+        # (D-216). `AS MATERIALIZED` is what stops PostgreSQL from folding the `ORDER BY`
+        # above into the plan below it.
+        #
+        # Written as one flat statement — `GROUP BY 1 ORDER BY <declared> DESC, n DESC
+        # LIMIT :cap` — the planner has no `n_distinct` for `data ->> :key` (a jsonb key
+        # bound at runtime cannot carry statistics), estimates a couple of hundred groups,
+        # and decides a sorted GroupAggregate is as cheap as a hash. It is not: the sort
+        # it chooses runs over the FULL-WIDTH lead rows, and on a 50,001-lead tenant that
+        # is an `external merge  Disk: 13296kB` — 13 MB written and read back per facet,
+        # per page render, on a table the query never needed to sort at all. Measured
+        # 70.5-74.9 ms.
+        #
+        # With the grouping in a materialized CTE the sort underneath it carries the
+        # extracted TEXT (width 32, not 285), fits in `work_mem` as a quicksort, and the
+        # spill is gone: 47.4-50.6 ms, temp blocks 0. Same rows, same order, same LIMIT —
+        # this changes the plan and not the answer. It is a regression D-209 introduced
+        # while fixing a real unboundedness, which is why the fix keeps its LIMIT.
+        #
+        # NOT an optimiser hint in disguise: `MATERIALIZED` is the documented way to say
+        # "evaluate this once, on its own terms" (PostgreSQL 16, SQL-SELECT §WITH), and it
+        # is already the spelling `claim_outbox_batch` and the campaign dispatcher use for
+        # the same reason — one meaning per keyword in this repo.
         rows = (
             await session.execute(
                 text(
-                    "SELECT l.data ->> :facet_key AS value, count(*) AS n "
-                    f"FROM leads l WHERE {' AND '.join(clauses)} "
-                    "GROUP BY 1 ORDER BY n DESC, 1 ASC"
+                    "WITH counted AS MATERIALIZED ("
+                    "  SELECT l.data ->> :facet_key AS value, count(*) AS n "
+                    f"  FROM leads l WHERE {' AND '.join(clauses)} "
+                    "  GROUP BY 1"
+                    ") "
+                    "SELECT value, n FROM counted "
+                    "ORDER BY (value = ANY(:facet_declared)) DESC, n DESC, value ASC "
+                    "LIMIT :facet_cap"
                 ),
                 params,
             )
@@ -681,7 +780,6 @@ async def lead_facets(
         values = [
             FacetValue(value=v, count=observed.pop(v, 0), declared=True) for v in column.enum_values
         ]
-        room = max(MAX_FACET_VALUES - len(values), 0)
         values.extend(
             FacetValue(value=v, count=n, declared=False)
             for v, n in sorted(observed.items(), key=lambda kv: (-kv[1], kv[0]))[:room]
@@ -1928,20 +2026,50 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     since_7d = datetime.now(UTC) - timedelta(days=7)
     today = datetime.now(UTC).date()
 
+    # THE WINDOW IS ON THE STATEMENT NOW, not on three of its four columns (D-215).
+    #
+    # `avg_duration` was the one aggregate here with no time bound — `avg(duration_s)
+    # FILTER (WHERE status = 'completed')` over the account's WHOLE history, on an
+    # endpoint the dashboard polls (D-24), against a table nothing ever deletes from. No
+    # index can help an aggregate that must visit every row, so the tile's cost grew with
+    # the client's lifetime: 27.2 ms / 1,017 buffers at 45,000 calls, and linear from
+    # there forever.
+    #
+    # The fix is a window, and a window REDEFINES a number the client reads, so it is
+    # said out loud in three places rather than slipped in: the response field is
+    # `avg_duration_s_7d`, the tile's hint says "last 7 days", and this comment says why
+    # seven.
+    #
+    # WHY SEVEN AND NOT THIRTY. Every other bounded number on this screen is seven days —
+    # `calls_7d`, `leads_new_7d`, `after_hours_captured_7d`, the `daily_7d` chart — and
+    # `DashboardOut` already spells the window into each of those NAMES. A 30-day average
+    # sitting between a 7-day call count and a 7-day chart would be a fourth window on a
+    # screen that already carries three (today, 7 days, this month), and close enough to
+    # "this month" to be read as it. The thirty-day reading of this exact statistic
+    # already exists one screen over and is already bounded: `performance()` takes `days`
+    # (default 30) and returns `avg_duration_s` beside the window that produced it. Two
+    # windows on two screens, each labelled, is one answer per question; a second
+    # unlabelled average would be two answers to one.
+    #
+    # Once every term is inside seven days the WHOLE statement takes the bound and
+    # `ix_calls_tenant_started` (D-206) serves it: 27.2 ms / 1,017 buffers → 0.84 ms /
+    # 61 buffers on the same tenant. `calls_today` is unchanged by the move (today is a
+    # subset of the last seven days) and `calls_7d` stops needing a FILTER, because the
+    # statement is now the filter.
     counts = (
         await session.execute(
             text(
                 "SELECT "
                 "  count(*) FILTER (WHERE started_at::date = :today) AS calls_today, "
-                "  count(*) FILTER (WHERE started_at >= :since) AS calls_7d, "
+                "  count(*) AS calls_7d, "
                 "  avg(duration_s) FILTER (WHERE status = 'completed') AS avg_duration, "
                 # IST by name, not by a fixed offset: EXTRACT on a timestamptz renders
                 # it in the session's TimeZone, so `+ interval '5:30'` is only IST on a
                 # database that happens to be set to UTC (same fix as performance.py).
-                "  count(*) FILTER (WHERE started_at >= :since AND ("
-                f"     {IST_HOUR_SQL} < 9 OR {IST_HOUR_SQL} >= 21"
-                "  )) AS after_hours "
-                "FROM calls"
+                "  count(*) FILTER ("
+                f"     WHERE {IST_HOUR_SQL} < 9 OR {IST_HOUR_SQL} >= 21"
+                "  ) AS after_hours "
+                "FROM calls WHERE started_at >= :since"
             ),
             {"today": today, "since": since_7d},
         )
@@ -2017,7 +2145,7 @@ async def dashboard(session: AsyncSession) -> DashboardOut:
     return DashboardOut(
         calls_today=int(counts[0] or 0) if counts else 0,
         calls_7d=int(counts[1] or 0) if counts else 0,
-        avg_duration_s=int(counts[2]) if counts and counts[2] is not None else None,
+        avg_duration_s_7d=int(counts[2]) if counts and counts[2] is not None else None,
         after_hours_captured_7d=after_hours,
         after_hours_basis=after_hours_basis,
         sentiment_split={row[0]: int(row[1]) for row in sentiment},
@@ -2197,6 +2325,8 @@ __all__ = [
     "CALLBACK_OUTCOMES",
     "DAILY_CALL_CLASSES",
     "DASHBOARD_DAYS",
+    "FACET_QUERY_COST_MS",
+    "FACET_RAIL_BUDGET_MS",
     "LEAD_STATUSES",
     "MAX_CALLBACK_DEPTH",
     "MAX_EXPORT_ROWS",

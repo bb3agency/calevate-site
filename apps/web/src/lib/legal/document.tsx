@@ -166,8 +166,15 @@ function Block({ block }: { block: LegalBlock }) {
           }
         >
           {/* The tone in words. Colour is not a signal a screen reader can use, and it is
-              not a reliable one on a cheap screen in daylight. */}
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+              not a reliable one on a cheap screen in daylight.
+
+              `text-ink-muted`, not `text-ink-faint`: this label is on a TINTED ground
+              (`bg-amber-50/60` / `bg-brand-soft/60`), where the faint ink measures below
+              4.5:1 even after the palette was raised — axe in a real browser was still
+              reporting it here when every other document had gone clean. And a label
+              whose whole job is to carry the meaning that colour cannot is the last text
+              on the page that should be the dimmest. */}
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
             {warning ? "Important" : "Note"}
           </p>
           <p className="mt-1 text-[15px] font-semibold text-ink">
@@ -254,7 +261,8 @@ export function PendingReviewBanner() {
   if (!PENDING_LEGAL_REVIEW) return null;
   return (
     <aside className="rounded-card border-2 border-dashed border-amber-500 bg-amber-50/70 p-4 dark:bg-amber-400/10">
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-faint">
+      {/* `text-ink-muted` on a tinted ground — see the tone label above. */}
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-ink-muted">
         Draft — not yet in force
       </p>
       <p className="mt-1 text-[15px] font-semibold text-ink">

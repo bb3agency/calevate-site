@@ -59,6 +59,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import datetime, time
 from typing import Any
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
@@ -154,25 +155,55 @@ async def count_after_hours_calls(session: AsyncSession, *, since: datetime) -> 
     Evaluated in Python rather than SQL deliberately. The midnight-spanning rule above
     needs the PREVIOUS day's window, which in SQL is a self-join against a JSONB object
     keyed by weekday name — a query nobody can read and only one place would use, and
-    the arithmetic would then exist twice with two chances to disagree. The row set is
-    one tenant's calls over the dashboard's 7-day window (D-24 polls it), joined to the
-    agents that took them; agents are few and the join is on an indexed FK.
+    the arithmetic would then exist twice with two chances to disagree.
 
-    Runs inside the caller's tenant-scoped session, so RLS decides which calls are
-    visible — this function never widens that (hard rule 1). It counts only `True`:
-    an agent with no hours recorded contributes zero, not everything.
+    **TWO QUERIES, NOT A JOIN, and that is the whole change here.** This used to join
+    `agents` to `calls` and select `a.business_hours` beside every call row, so the
+    tenant's JSONB opening hours came back once PER CALL — the same few hundred bytes
+    repeated across the window, on an endpoint the dashboard polls (D-24). The hours are
+    a property of the AGENT, and there are a handful of agents; reading them once and
+    the calls separately transports the same information with the blob sent once.
+
+    What that does NOT do is make the row set constant, and it is worth being exact about
+    what bounds it: the second query still returns one row per call in the window. That is
+    bounded by PLATFORM CAPACITY rather than by the tenant's history — `PLATFORM_LINES_TOTAL`
+    is 10 concurrent lines, so the whole platform cannot produce more than roughly 34k
+    calls in seven days — and each row is now a uuid and a timestamp. It is a real ceiling
+    with a number attached, which is what the previous shape did not have.
+
+    Runs inside the caller's tenant-scoped session, so RLS decides which agents and which
+    calls are visible — this function never widens that (hard rule 1). The `agent_id =
+    ANY(...)` predicate is therefore a narrowing on top of RLS, never a substitute: it is
+    what keeps calls taken by an agent with no recorded hours out of the transport, since
+    those contribute zero by definition.
+
+    It counts only `True`: an agent with no hours recorded contributes zero, not
+    everything.
     """
+    hours: dict[UUID, Any] = {
+        row[0]: row[1]
+        for row in (
+            await session.execute(
+                text("SELECT id, business_hours FROM agents WHERE business_hours IS NOT NULL")
+            )
+        ).all()
+    }
+    if not hours:
+        # No agent has hours, so every call is UNKNOWN rather than after-hours, and the
+        # calls query would be `= ANY('{}')` — a round trip that can only return nothing.
+        return 0
     rows = (
         await session.execute(
             text(
-                "SELECT c.started_at, a.business_hours FROM calls c "
-                "JOIN agents a ON a.id = c.agent_id "
-                "WHERE c.started_at >= :since AND a.business_hours IS NOT NULL"
+                "SELECT agent_id, started_at FROM calls "
+                "WHERE started_at >= :since AND agent_id = ANY(:agents)"
             ),
-            {"since": since},
+            {"since": since, "agents": list(hours)},
         )
     ).all()
-    return sum(1 for started_at, hours in rows if is_after_hours(hours, started_at) is True)
+    return sum(
+        1 for agent_id, started_at in rows if is_after_hours(hours[agent_id], started_at) is True
+    )
 
 
 __all__ = ["BUSINESS_HOURS_TZ", "DAYS", "count_after_hours_calls", "is_after_hours"]

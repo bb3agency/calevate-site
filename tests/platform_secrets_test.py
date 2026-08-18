@@ -69,7 +69,7 @@ KEY = "meta_page_access_tokens"
 #: CI, where there is no `.env` at all. A test whose subject is "the environment wins"
 #: must own the environment it is asserting about; borrowing an ambient one asserts
 #: whatever that machine happens to have.
-SHADOWED_KEY = "cohere_api_key"
+SHADOWED_KEY = "cartesia_api_key"
 SECRET = "co-live-9f3a71b2c8d4e6f5"
 
 
@@ -466,9 +466,14 @@ async def test_the_environment_still_wins_over_a_stored_credential() -> None:
     """
     admin = await _admin_id()
     # DECLARED HERE, not borrowed from `.env`. An empty value counts as declared on
-    # purpose (`env_declares`): `COHERE_API_KEY=` is a deployment stating it has no
-    # Cohere key, and pydantic hands `Settings` the empty string rather than falling
+    # purpose (`env_declares`): `CARTESIA_API_KEY=` is a deployment stating it has no
+    # Cartesia key, and pydantic hands `Settings` the empty string rather than falling
     # through to the store — so this is the real shadowing shape, not a stand-in.
+    #
+    # It was `cohere_api_key` until D-231 deleted that field: a `Settings` key nothing
+    # read, offered to operators by the ops console, whose only remaining consumer in the
+    # repository was this constant. A test borrowing a dead key as its fixture is how a
+    # dead key survives an audit — the fixture looks like a use.
     with mock.patch.dict(os.environ, {SHADOWED_KEY.upper(): ""}):
         async with untenanted_session() as session:
             await set_secret(session, key=KEY, value=SECRET, actor_id=admin)

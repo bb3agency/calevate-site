@@ -365,3 +365,68 @@ export function safeRefusedControl(): React.JSX.Element {
   if (board.isError) return <p>We could not check this. Reload the page to try again.</p>;
   return <div>{board.data && <button type="button">Call back</button>}</div>;
 }
+
+/**
+ * RULE 6 — a mutation that is FIRED here and whose failure has nowhere to go.
+ *
+ * Rules 1–5 are all about a query envelope, deliberately: a mutation's `undefined` data
+ * means "the user has not asked yet", which is true, and `safeMutationNotYetRun` above is
+ * the correct rendering of it. The mutation's defect is on the other side of the click.
+ * `mutate()` is fire-and-forget — it never throws, never rejects, and renders nothing of
+ * its own — so a component that calls it and never reads `save.error` shows a control
+ * that goes quiet on a 403, a 409 and a timeout alike. Nothing on screen changes; the
+ * user presses it again.
+ *
+ * Expensive here in particular: the API answers every refusal with an RFC-9457
+ * `problem+json` carrying a `title`, a `detail` and a `remediation` — sentences chosen so
+ * the person on the other end knows what to do next — and an unread `error` throws all of
+ * that away at the last hop.
+ */
+export function bannedSilentMutation(): React.JSX.Element {
+  const save = useSaveBoard();
+  return (
+    <button type="button" onClick={() => save.mutate()}>
+      Save
+    </button>
+  );
+}
+
+/**
+ * The same mutation, refused out loud. `ProblemNotice` is the app's renderer for it and
+ * prints the title, the remediation, the field errors and the trace id.
+ */
+export function safeRefusedMutation(): React.JSX.Element {
+  const save = useSaveBoard();
+  return (
+    <div>
+      {save.error ? <p role="alert">{String(save.error)}</p> : null}
+      <button type="button" onClick={() => save.mutate()}>
+        Save
+      </button>
+    </div>
+  );
+}
+
+/**
+ * A mutation DECLARED here but never fired here — the envelope goes to a child. Nothing
+ * to report: the trigger and the refusal travelled together to wherever they went, and
+ * demanding a second refusal in the parent would be asking for a duplicate. Same
+ * tolerance, for the same reason, as `refusesSomewhere`'s "handed on" arm.
+ */
+export function safeMutationHandedOn(): React.JSX.Element {
+  const save = useSaveBoard();
+  return <SaveButton save={save} />;
+}
+
+function SaveButton({
+  save,
+}: {
+  save: UseMutationResult<Board, Error, void>;
+}): React.JSX.Element {
+  if (save.isError) return <p role="alert">That did not save.</p>;
+  return (
+    <button type="button" onClick={() => save.mutate()}>
+      Save
+    </button>
+  );
+}

@@ -29,7 +29,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin.holds import read_tenant_holds
+from apps.api.admin.holds import NO_HOLDS, read_tenant_holds
 from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
     RECORDING_NOTICE_TEMPLATES,
@@ -37,7 +37,7 @@ from apps.api.compliance.disclosure import (
     bundled_disclosure_line,
     recording_notice_for,
 )
-from apps.api.compliance.service import spend_capped
+from apps.api.compliance.service import SELF_SERVE_TIERS, spend_capped
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -581,11 +581,32 @@ async def tenant_overview(
     table for a dashboard. Revisit with a materialized `tenant_health` table if the
     client list ever gets long enough to notice — not before.
 
+    **THE N+1 HAS A NUMBER NOW, AND ITS CONSTANT IS SMALLER THAN IT WAS** (D-218). 312
+    accounts took 1,027 ms warm — 3.3 ms each — and the per-account cost broke down as
+    connection checkout + `set_config` 0.90 ms, the four counts 0.55 ms, `holds` 0.95 ms,
+    `capped` 0.45 ms. `holds` being the largest term was the finding: each blocker opens
+    by reading the account's plan tier, and **for a `managed` account those two reads are
+    the whole call** — both return `None` for any tier outside `SELF_SERVE_TIERS` before
+    touching a compliance table. Two round trips per account to re-read a column this loop
+    is already holding. It is skipped below for the tiers that cannot be held; measured
+    994.3 ms → 701.7 ms over 312 managed accounts.
+
+    What that does NOT do is change the SHAPE, and the shape is what the deferral above
+    is about. Closing it needs one of two things this function may not do: widening
+    `calls`/`leads`/`kyc_records` for `app.admin` (hard rule 1, and `admin/holds.py`
+    rejects it at length — a policy is table-scoped, so widening to count rows also hands
+    over the rows), or paging the response, which is an admin-console contract change
+    rather than a query change. The materialized `tenant_health` table remains the named
+    escape, and the number above is what it should be judged against.
+
     `holds` rides that SAME per-tenant session (`admin.holds.read_tenant_holds`), so
     the directory says which clients are waiting on a human without a second pass and
     without either compliance table being widened for `app.admin`. This is where
     `compliance/first_campaign_routes.py` said the flag belonged; the work QUEUE at
-    `/v1/admin/compliance/holds` is the same predicate, filtered and ordered for triage.
+    `/v1/admin/compliance/holds` is the same predicate, filtered and ordered for triage —
+    and it has ALWAYS pre-filtered its candidate set by tier for the reason this function
+    now does. The two surfaces disagreeing about which accounts can even be held was the
+    older defect underneath the slow one.
 
     `capped` rides it for the same reason and with the same discipline: it is
     `compliance.spend_capped` — the predicate that REFUSES the dial — not a second
@@ -599,7 +620,11 @@ async def tenant_overview(
     directory = (
         await session.execute(
             text(
-                "SELECT id, name, slug, status, vertical_template FROM organizations "
+                # `plan_tier` is selected for the hold pre-filter below. It is already on
+                # the row this statement reads, so it costs nothing, and reading it here
+                # is what lets the loop decide without a round trip.
+                "SELECT id, name, slug, status, vertical_template, plan_tier "
+                "FROM organizations "
                 "WHERE deleted_at IS NULL "
                 "  AND (CAST(:tid AS uuid) IS NULL OR id = CAST(:tid AS uuid)) "
                 "ORDER BY created_at DESC"
@@ -625,7 +650,28 @@ async def tenant_overview(
                     )
                 )
             ).first()
-            holds = await read_tenant_holds(scoped, tenant_id=tenant_id)
+            # THE PRE-FILTER `held_tenants` HAS ALWAYS APPLIED, and this surface did not
+            # (D-218). `kyc_blocker` and `first_campaign_hold_blocker` both open with
+            # `plan_tier_of(...) not in SELF_SERVE_TIERS -> None`, so for a managed account
+            # `read_tenant_holds` issues two `SELECT plan_tier FROM organizations` round
+            # trips — one per blocker, for a tier THIS LOOP IS ALREADY HOLDING — to arrive
+            # at "nothing holds this client", once per account, on the widest-read screen
+            # in the console. Measured: 0.95 ms of a 3.3 ms account, the largest of the
+            # four terms. A self-serve account is still asked and still pays, which is
+            # correct: there the reads decide something.
+            #
+            # `SELF_SERVE_TIERS` is IMPORTED, never re-spelled, and it is a filter on the
+            # CANDIDATE SET rather than a second copy of the rule — exactly the
+            # distinction `admin/holds.py::_DIRECTORY` argues for its own use of the same
+            # constant. The blocker still decides for every account this lets through,
+            # and an account it excludes is one both blockers would have answered `None`
+            # for on their own first line. If the tier line ever moves, it moves in
+            # `compliance/service.py` and both surfaces follow it.
+            holds = (
+                await read_tenant_holds(scoped, tenant_id=tenant_id)
+                if org[5] in SELF_SERVE_TIERS
+                else NO_HOLDS
+            )
             # THE GATE'S OWN PREDICATE, not a copy of it. This column used to be a fifth
             # scalar subquery in the statement above — `(SELECT capped FROM spend_state
             # LIMIT 1)` — which is the same flag but a DIFFERENT QUESTION: `capped` is

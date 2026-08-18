@@ -23,6 +23,14 @@ dependencies = [
     # two new pure-Python packages (`pyasn1`, `pyasn1-modules`), no install hooks — so the
     # decision is about duplication, not about supply-chain surface.
     "pyjwt[crypto]>=2.10",
+    # Declared DIRECTLY, though `pyjwt[crypto]` above already pulls it in, because
+    # `tls_expiry.py` imports `cryptography.x509` by name — and this file's own comment
+    # two lines up is the argument: a package that resolves only because a sibling
+    # declared it is an undeclared dependency that nothing goes red about. `>=42` is the
+    # floor for `Certificate.not_valid_after_utc`; the naive `not_valid_after` it
+    # replaced is deprecated and would compare an aware expiry against a local clock.
+    # No lockfile change: this version is already installed transitively.
+    "cryptography>=42",
     "boto3>=1.40",
     "opentelemetry-api>=1.30",
     "opentelemetry-sdk>=1.30",

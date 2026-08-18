@@ -351,14 +351,24 @@ async def test_the_recompile_logs_ids_and_counts_only(caplog: pytest.LogCaptureF
         assert "emergency line" not in rendered
 
 
-# --- the block format has two implementations, and they must agree --------------------
+# --- the block format has exactly ONE implementation ---------------------------------
 
 
-def test_both_t0_compilers_write_the_same_header() -> None:
-    """`admin/intake.py` and `agents/t0.py` both splice a block into the same prompt.
-    Two spellings of the header would mean two blocks, each invisible to the other's
-    replace step, and an agent quoting two opening times."""
-    assert t0.T0_HEADER == intake.T0_HEADER
+def test_the_block_format_has_a_single_owner() -> None:
+    """`agents/t0.py` owns the [T0 FACTS] header and the splice; `admin/intake.py` calls
+    it.
+
+    This test used to be the opposite: two byte-identical copies, pinned to the same
+    output by a parametrized comparison, deferred with "a one-line change in a module
+    this wave does not own". The cycle that was said to force the copy
+    (`admin.intake → kb.service → agents.t0 → admin.intake`) never existed — intake has
+    always imported `agents.t0`, and `t0` imports nothing from `admin`. Two
+    implementations agreeing today is not one implementation; it is the state the drift
+    starts from, so the assertion is now that the second one is gone.
+    """
+    assert not hasattr(intake, "splice_t0_block")
+    assert not hasattr(intake, "T0_HEADER")
+    assert not hasattr(intake, "_INSERT_BEFORE")
 
 
 @pytest.mark.parametrize(
@@ -371,16 +381,13 @@ def test_both_t0_compilers_write_the_same_header() -> None:
         "Free text with no sections at all.\n",
     ],
 )
-def test_the_two_splice_implementations_agree(body: str) -> None:
-    """The duplication is deliberate and temporary: `admin` imports both `agents` and
-    `kb`, so `agents/t0.py` importing `admin.intake` would close a cycle. The end state
-    is intake calling the compiler that owns the format, which is a one-line change in a
-    module this wave does not own — until then, this is what stops the copies drifting.
-    """
+def test_the_surviving_splice_still_replaces_rather_than_appends(body: str) -> None:
+    """The behaviour the two copies were pinned to, kept against the one that remains:
+    a prompt never ends up with two [T0 FACTS] blocks, whatever it started as."""
     block = f"{t0.T0_HEADER}\nHours: mon 09:30-18:00"
-    assert t0.splice_t0_block(body, block, identity="X.") == intake.splice_t0_block(
-        body, block, identity="X."
-    )
+    spliced = t0.splice_t0_block(body, block, identity="X.")
+    assert spliced.count(t0.T0_HEADER) == 1
+    assert "Hours: mon 09:30-18:00" in spliced
 
 
 def test_the_knowledge_half_can_never_end_the_block() -> None:

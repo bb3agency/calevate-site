@@ -26,9 +26,12 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   machine — decorator-registered handlers, ORM attributes and response-model fields are
   all "unreferenced" and all alive. This file asks four narrow, framework-aware
   questions instead, each with a live registry to compare against.
-* Not "written but never read". Distinguishing a write from a read would need a SQL
-  parser (most of this repo's column access is raw `text()` SQL, per BACKEND-PATTERNS),
-  so a column with a writer and no reader is NOT caught here. (This used to cite
+* Not "written but never read" — **`scripts/check_half_wired.py` is where that lives now**
+  (D-235), along with the settings/exports/stubs/swallows/markers sweep. It stays a
+  separate file because it judges POSITION and BODY rather than registry membership, so
+  it needs baselines and this one does not. Distinguishing a write from a read needs a
+  SQL parser (most of this repo's column access is raw `text()` SQL, per
+  BACKEND-PATTERNS), so a column with a writer and no reader is NOT caught here. (This used to cite
   `agents.business_hours` as the live example; it has readers now — `business_hours.py`,
   the dashboard's `after_hours_basis` and the T0 compiler — so the example was fixed while
   the BLIND SPOT it illustrates remains exactly as described.)
@@ -39,10 +42,14 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   statically decidable here and a check that guessed would train people to add
   exemptions. Those values are constrained where they can be: CHECK constraints in the
   migration, and the engine conformance suite.
-* No ARQ cron check. `cron()` takes the coroutine BY REFERENCE, so "a cron registered
-  with no function" cannot be expressed; the real failure — a job enqueued by a name no
-  worker answers to — is `tests/job_registration_test.py`. What this file adds there is
-  in `tests/wiring_guard_test.py`: that `WorkerSettings` still IS those two lists.
+* No ARQ check of any kind, and that is a DIVISION OF LABOUR now rather than a gap.
+  `scripts/check_job_wiring.py` (D-199) owns the background fleet: it asks the three-way
+  question — defined, registered, enqueued — off the same kind of live registry this file
+  uses for routes, and it is in `make guardrails` and CI beside this one. Keeping both
+  scans here would mean one file importing `WorkerSettings` to answer a question about
+  routers. (`cron()` takes the coroutine BY REFERENCE, so "a cron registered with no
+  function" is still not expressible anywhere.) What this file's own test suite adds is in
+  `tests/wiring_guard_test.py`: that `WorkerSettings` still IS those two lists.
 
 AND A FIFTH SECTION THAT RUNS FIRST (D-176): three of the four questions above compare a
 declaration against a registry, and a comparison whose LEFT side is empty answers yes for
@@ -460,20 +467,80 @@ def stale_baseline() -> list[str]:
     Two ways it rots: an entry for a column that no longer exists (a hole waiting for
     the next column to land on that name), and an entry for a column somebody has since
     wired (a permanent excuse for a fixed problem). Both fail.
+
+    **THE SECOND ONE NEEDS BETTER EVIDENCE THAN THE FIRST HALF OF THIS FILE DOES, and it
+    used to use the same evidence.** `unwired_columns` matches a BARE COLUMN NAME anywhere
+    outside the model files, and says so in its own docstring: it is "blind by construction
+    on columns whose name is a common word (`status`, `tier`, `query`)". That blindness is
+    the safe direction there — the check MISSES rather than accuses, so an unwired column
+    can hide behind an unrelated variable and nobody is wrongly blamed.
+
+    Inverted through this function it stopped being safe. `KbRetrievalLog.query` is a DATED
+    hard-rule-6 deferral — the column would hold raw caller utterances in a table with no
+    `text_redacted` counterpart — and a sibling merge added an unrelated `.query` elsewhere
+    in the tree. Nothing reads or writes the column; the only mentions of `KbRetrievalLog`
+    anywhere are its model, two documents and three tests. The gate nonetheless demanded the
+    exemption be deleted, i.e. it asked for a live redaction deferral to be dropped on the
+    evidence of a name collision — an ACCUSATION built on a signal documented as unreliable
+    for exactly this name.
+
+    So the stale half asks for the mention to be attributable: the file must also name the
+    MODEL. That cannot prove the column is used, and does not try to — it removes the
+    collision class while keeping every real wiring (code that touches a column is
+    overwhelmingly in a file that names its model or imports it). A residual false NEGATIVE
+    here just leaves a stale exemption in place one release longer, which is the direction
+    this file already chose everywhere else.
     """
     model_files = _model_files(SCAN_ROOTS)
     columns = _declared_columns(model_files)
     still_unwired = set(unwired_columns(baseline={}))
+    attributable = _names_mentioned_beside_their_model(
+        model_files, {key.split(".", 1)[0] for key in UNWIRED_BASELINE}
+    )
     failures: list[str] = []
     for key in sorted(UNWIRED_BASELINE):
+        model, column = key.split(".", 1)
         if key not in columns:
             failures.append(f"UNWIRED_BASELINE entry {key} names no column — remove it")
         elif not any(offender.startswith(f"{key} ") for offender in still_unwired):
+            if column not in attributable.get(model, frozenset()):
+                # Name collision, not wiring. See this function's docstring.
+                continue
             failures.append(
                 f"UNWIRED_BASELINE entry {key} is wired now — delete the entry. The "
                 "baseline only shrinks."
             )
     return failures
+
+
+def _names_mentioned_beside_their_model(
+    model_files: frozenset[Path] | set[Path],
+    models: Iterable[str],
+) -> dict[str, frozenset[str]]:
+    """Per model class, the names referenced by non-model files that also NAME that class.
+
+    The attribution is deliberately weak — same file, not same expression. A stronger rule
+    (`Model.column`, or a `column=` inside a `Model(...)` call) would miss the ordinary
+    shapes real code uses: a SELECT built from a mapped attribute imported under an alias,
+    a dict comprehension over `__table__.columns`, a raw-SQL string naming the table. Weak
+    and honest beats strong and wrong here, because the consequence of a miss is a stale
+    exemption and the consequence of a false hit is deleting a live deferral.
+    """
+    wanted = tuple(models)
+    per_model: dict[str, set[str]] = {}
+    for root in SCAN_ROOTS:
+        for path in _python_files(root):
+            if path in model_files:
+                continue
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            names = _referenced_names(path)
+            for model in wanted:
+                if model in source:
+                    per_model.setdefault(model, set()).update(names)
+    return {model: frozenset(names) for model, names in per_model.items()}
 
 
 # --- gate ---------------------------------------------------------------------

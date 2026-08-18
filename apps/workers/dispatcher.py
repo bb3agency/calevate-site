@@ -32,7 +32,7 @@ from apps.api.reliability.service import (
     record_outbox_metrics,
     sweep_idempotency,
 )
-from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER
+from apps.workers.pipeline import EXTRACTION_OWED_SQL, PIPELINE_STALL_AFTER, callable_tenants
 
 log = get_logger(__name__)
 
@@ -160,36 +160,6 @@ async def sweep_expired(ctx: dict[str, Any]) -> str:
     return f"idempotency_swept={removed}"
 
 
-async def _callable_tenants() -> list[UUID]:
-    """Every tenant that can have call rows at all.
-
-    `engine_agent_routes` is the SAME non-tenant-scoped bridge `ingest_engine_event`
-    uses, and it exists precisely so a cross-tenant resolution needs no RLS exemption
-    (hard rule 1, `db/registry.py`). A call row is only ever created for an agent the
-    engine knows, the publish path upserts the route in the transaction that mints the
-    ref, and routes are deactivated rather than deleted — so this set covers every
-    tenant a stalled call can belong to, without walking organizations that have never
-    taken one.
-
-    Deliberately unfiltered on `active`: an agent unpublished after a call still leaves
-    that call's extraction owed.
-    """
-    async with untenanted_session() as session:
-        rows = (
-            (
-                await session.execute(
-                    # ORDER BY for `retention._due_tenants`' reason: without it the order
-                    # is planner-dependent, so which tenants a partially failing sweep
-                    # reached changed from tick to tick.
-                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY tenant_id")
-                )
-            )
-            .scalars()
-            .all()
-        )
-    return [UUID(str(row)) for row in rows]
-
-
 async def _count_stalled(session: AsyncSession) -> int:
     """Completed calls this tenant is still owed an extraction for.
 
@@ -251,7 +221,7 @@ async def report_stalled_pipeline(ctx: dict[str, Any]) -> str:
     total = 0
     tenants_affected = 0
     unreached = 0
-    tenants = await _callable_tenants()
+    tenants = await callable_tenants()
     for tenant_id in tenants:
         try:
             async with tenant_session(tenant_id) as session:
@@ -304,7 +274,7 @@ SELECT count(*) FROM deletion_requests
 WHERE completed_at IS NULL AND requested_at < :cutoff
 """
 
-#: Every organization, and NOT `_callable_tenants()`.
+#: Every organization, and NOT `callable_tenants()`.
 #:
 #: Reusing the stall probe's tenant list was the obvious move and it is wrong twice over.
 #: That list is `SELECT DISTINCT tenant_id FROM engine_agent_routes` — tenants with a
@@ -321,7 +291,7 @@ _ERASURE_DIRECTORY = "SELECT id FROM organizations ORDER BY id"
 
 
 async def _all_tenants() -> list[UUID]:
-    """Tenant ids for the erasure probe. `ORDER BY` for `_callable_tenants`' reason.
+    """Tenant ids for the erasure probe. `ORDER BY` for `callable_tenants`' reason.
 
     `admin_session`, and NOT `untenanted_session` — which is what this was first written
     with, and it returned zero tenants on a real database every time. `organizations`

@@ -27,7 +27,13 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
-from apps.api.core.alerting import alert, record_outbox_dlq_depth, record_outbox_lag
+from apps.api.core.alerting import (
+    alert,
+    record_inbox_handling_ms,
+    record_inbox_lag,
+    record_outbox_dlq_depth,
+    record_outbox_lag,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
@@ -264,28 +270,29 @@ async def sweep_idempotency(session: AsyncSession) -> int:
 # --- Outbox -------------------------------------------------------------------
 
 
-#: The one worker fleet this deployment runs, written into `outbox_messages.queue`.
+#: The one worker fleet this deployment runs. It is no longer written by anything here.
 #:
-#: THE PARAMETER THAT USED TO CHOOSE THIS IS GONE, and that is step 1 of a two-step
-#: deprecation (hard rule 8), not a simplification (P6.8). Six call sites passed
-#: `queue="notifications"` or `queue="default"`; the column is NOT NULL and
-#: `claim_outbox_batch` selects it — and then `dispatch_outbox` published WITHOUT it and
-#: `WorkerSettings` sets no `queue_name`, so every job landed on arq's single default
-#: queue regardless. **It read as routing and routed nothing**, which is the shape that
-#: makes an operator believe notifications are isolated from CRM deliveries when they are
-#: sharing one worker's ten slots — a belief that costs most on the night it matters.
+#: **THE COLUMN IS GOING AWAY, AND THIS IS THE RELEASE THAT STOPS WRITING IT** (D-217,
+#: closing D-162's open fork). `outbox_messages.queue` read as routing and routed
+#: nothing: `dispatch_outbox` publishes without it, `WorkerSettings` sets no
+#: `queue_name`, and arq routes by `enqueue_job(_queue_name=...)`, so every message ever
+#: enqueued landed on arq's single default queue whatever the column said. D-162 removed
+#: the caller's CHOICE and left the value; this removes the value. Migration
+#: `b7e4c1a90d38` gives the column a server default so both `INSERT`s can stop naming it
+#: and an old container in the deploy swap keeps working; step 2 is `DROP COLUMN` in the
+#: next release, with no code change beside it (hard rule 8).
 #:
-#: It was also a SECOND ENCODING of a fact already on the row: every call site chose the
-#: value as a pure function of `job`. So there was nothing to preserve.
+#: HONOURING IT WAS THE OTHER FORK AND IS STILL REFUSED, for the reason it always was:
+#: one arq worker consumes exactly one queue, so a second value here means a SECOND
+#: DEPLOYABLE (container, deploy step, CI job) for a platform with no clients yet —
+#: ROADMAP §6 requires a decision for that and CLAUDE.md's "monolith module before new
+#: service" argues against it. Passing `_queue_name` with no worker consuming that queue
+#: would silently stop every notification.
 #:
-#: HONOURING IT WAS THE OTHER FORK AND IS DELIBERATELY NOT TAKEN TODAY. arq routes by
-#: `enqueue_job(_queue_name=...)` consumed by a worker whose `WorkerSettings.queue_name`
-#: matches, and one worker consumes exactly one queue — so honouring this column means a
-#: SECOND DEPLOYABLE (container, deploy step, CI job) for a platform with no clients yet,
-#: which ROADMAP §6 requires a decision for and CLAUDE.md's "monolith module before new
-#: service" argues against. Worse, passing `_queue_name` today with no worker consuming
-#: that queue would silently stop every notification. D-162 records the fork and names
-#: what closes it: the column is dropped, or a second fleet arrives with a filter on it.
+#: WHY THE CONSTANT SURVIVES AT ALL. It is the value the database now defaults to, and
+#: `tests/outbox_queue_deprecation_test.py` asserts the two agree — a default in a
+#: migration and a constant in a service that quietly diverge is how a column comes back
+#: to life. It goes in the same change as the column.
 OUTBOX_FLEET = "default"
 
 
@@ -296,15 +303,19 @@ async def enqueue_outbox(
     payload: dict[str, Any],
 ) -> UUID:
     """Write the side effect in the CALLER'S transaction. Do not commit here — the
-    whole point is that this row and the domain write share a fate."""
+    whole point is that this row and the domain write share a fate.
+
+    `queue` is not named: see `OUTBOX_FLEET`. The database defaults it until the column
+    is dropped.
+    """
     message_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO outbox_messages (id, queue, job, payload, status, attempt_count, "
-            "created_at, updated_at) VALUES (:id, :queue, :job, CAST(:payload AS jsonb), "
+            "INSERT INTO outbox_messages (id, job, payload, status, attempt_count, "
+            "created_at, updated_at) VALUES (:id, :job, CAST(:payload AS jsonb), "
             "'pending', 0, now(), now())"
         ),
-        {"id": message_id, "queue": OUTBOX_FLEET, "job": job, "payload": json.dumps(payload)},
+        {"id": message_id, "job": job, "payload": json.dumps(payload)},
     )
     return message_id
 
@@ -349,8 +360,8 @@ async def enqueue_outbox_once(
     row = (
         await session.execute(
             text(
-                "INSERT INTO outbox_messages (id, queue, job, payload, dedupe_key, status, "
-                "attempt_count, created_at, updated_at) VALUES (:id, :queue, :job, "
+                "INSERT INTO outbox_messages (id, job, payload, dedupe_key, status, "
+                "attempt_count, created_at, updated_at) VALUES (:id, :job, "
                 "CAST(:payload AS jsonb), :dedupe_key, 'pending', 0, now(), now()) "
                 # The conflict target is the PARTIAL index, so it must be spelled as the
                 # same predicate: naming the column alone does not match a partial index
@@ -362,7 +373,6 @@ async def enqueue_outbox_once(
             ),
             {
                 "id": message_id,
-                "queue": OUTBOX_FLEET,
                 "job": job,
                 "payload": json.dumps(payload),
                 "dedupe_key": dedupe_key,
@@ -375,13 +385,12 @@ async def enqueue_outbox_once(
 @dataclass(frozen=True, slots=True)
 class OutboxMessageRow:
     id: UUID
-    #: Always `OUTBOX_FLEET`, and READ BY NOTHING — `dispatch_outbox` never branches on
-    #: it. Carried here rather than dropped from the claim so the column's one consumer
-    #: is where a filter would go on the day D-162 closes by growing a second fleet; if
-    #: it closes the other way, this field and the column go in the same change. A reader
-    #: meeting `row.queue` and assuming it decides where the job runs is the exact
-    #: misreading the column's comment in `models.py` exists to prevent.
-    queue: str
+    # `queue` USED TO BE HERE. It carried `outbox_messages.queue` — always the same
+    # constant, and `dispatch_outbox` never branched on it — on the argument that the
+    # claim is where a filter would go if D-162 ever closed by growing a second fleet.
+    # D-162 closed the other way (D-217), so the field went with the write: a dataclass
+    # attribute whose only job is to hold a column nobody reads is the same defect as the
+    # column, one layer up. The claim below no longer selects it either.
     job: str
     payload: dict[str, Any]
     attempt_count: int
@@ -448,14 +457,13 @@ async def claim_outbox_batch(
                     "UPDATE outbox_messages o SET attempt_count = o.attempt_count + 1, "
                     "locked_until = now() + :lease, updated_at = now() FROM picked "
                     "WHERE o.id = picked.id "
-                    "RETURNING o.id, o.queue, o.job, o.payload, o.attempt_count"
+                    "RETURNING o.id, o.job, o.payload, o.attempt_count"
                 ),
                 {"limit": limit, "lease": OUTBOX_CLAIM_LEASE},
             )
         ).all()
     return [
-        OutboxMessageRow(id=r[0], queue=r[1], job=r[2], payload=r[3] or {}, attempt_count=r[4])
-        for r in rows
+        OutboxMessageRow(id=r[0], job=r[1], payload=r[2] or {}, attempt_count=r[3]) for r in rows
     ]
 
 
@@ -496,11 +504,41 @@ async def _dead_letter_exhausted_claims(conn: AsyncConnection) -> None:
 
 
 async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_id: str) -> None:
-    # `locked_until = NULL` on every terminal transition, so a non-null lease means
-    # "claimed right now, or abandoned" and never "resolved a while ago".
+    """Terminal transition, and the payload is FORGOTTEN in the same statement.
+
+    **A PUBLISHED ROW USED TO KEEP ITS PAYLOAD FOR NINETY DAYS.** Nothing deleted it until
+    `retention.prune_reliability_tables` reached it at `RELIABILITY_PRUNE_AFTER`, and that
+    module's own comment says what is in there: "`outbox_messages.payload` carries a lead's
+    name, phone number and call summary … an unbounded copy of tenant personal data sitting
+    OUTSIDE every retention policy a tenant can set, and outside the DPDP erasure path".
+    Pruning bounded the growth; it did not shorten the exposure.
+
+    The sharpest case is `deliver_auth_email` (D-170). `authn/service._enqueue_auth_email`
+    puts a LIVE one-time credential — a password-reset token, an invite link, an OTP — in
+    that jsonb column, and argued the exposure was bounded on the sentence "the row is
+    deleted on successful dispatch". It was not: the row was UPDATEd to `published` and
+    kept, secret and all, for a quarter of a year. A security argument resting on a
+    premise the code does not implement is worse than no argument, because it stops the
+    next reader looking.
+
+    So the forgetting happens HERE rather than in a new sweep: the moment the job is on the
+    queue, the row's remaining job is to answer "was this delivery made", and `job`,
+    `job_id`, `published_at` and `attempt_count` answer that completely. The CONTENT of a
+    delivery is `webhook_deliveries`' business, which has a tenant retention arm; this
+    table has none and cannot have one (no `tenant_id`, by design).
+
+    NOT a `payload IS NULL` (the column is NOT NULL and every reader would need a new
+    branch) and not a second UPDATE (a row updated twice can be published-but-unscrubbed
+    if the process dies between them, which is the exposure again with extra steps). One
+    statement, one fate.
+
+    `locked_until = NULL` on every terminal transition, so a non-null lease means "claimed
+    right now, or abandoned" and never "resolved a while ago".
+    """
     await session.execute(
         text(
             "UPDATE outbox_messages SET status = 'published', job_id = :job_id, "
+            "payload = '{}'::jsonb, "
             "published_at = now(), locked_until = NULL, updated_at = now() "
             "WHERE id = :id AND status = 'pending'"
         ),
@@ -783,6 +821,20 @@ async def record_outbox_metrics(session: AsyncSession) -> None:
     # The metric reads the SAME aggregate the ops console does — see
     # `read_dead_letter_queue` on why this is not a local `count(*)` any more.
     record_outbox_dlq_depth((await read_dead_letter_queue(session)).depth)
+    # THE OTHER HALF OF THE RELIABILITY TRIAD, on the same tick and for the same reason.
+    # An inbox row parked at `enqueued` is a webhook whose arq job never reported back;
+    # the reconciliation poller (D-31) then repairs the call silently, so nothing else in
+    # this system would ever say the ingest job had stopped finishing. `enqueued_at` is
+    # the only record of when that wait started and had no reader at all before this.
+    stuck = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(enqueued_at))), 0) "
+                "FROM webhook_inbox_events WHERE status = 'enqueued'"
+            )
+        )
+    ).first()
+    record_inbox_lag(float(stuck[0]) if stuck else 0.0)
 
 
 async def replay_dead_letters(
@@ -958,13 +1010,31 @@ async def mark_inbox_enqueued(session: AsyncSession, *, row_id: UUID) -> None:
 
 
 async def mark_inbox_processed(session: AsyncSession, *, row_id: UUID) -> None:
-    await session.execute(
-        text(
-            "UPDATE webhook_inbox_events SET status = 'processed', processed_at = now(), "
-            "updated_at = now() WHERE id = :id"
-        ),
-        {"id": row_id},
-    )
+    """Close the inbox row, and record how long the deferred half actually took.
+
+    `processed_at` was written here and read by nothing — a timestamp on the one row
+    that knows when a webhook arrived and when its work finished, in a system whose
+    only latency number was the 500ms ACK the caller sees (hard rule 3). A fast ack over
+    a slow pipeline is exactly the shape that looks healthy from outside, so the two are
+    now measured separately and by name (BACKEND-PATTERNS §8's named recorders).
+
+    RETURNING rather than a second SELECT: the value is computed by the statement that
+    writes it, so there is no window in which another writer changes the answer and no
+    extra round trip on the post-call path.
+    """
+    row = (
+        await session.execute(
+            text(
+                "UPDATE webhook_inbox_events SET status = 'processed', processed_at = now(), "
+                "updated_at = now() WHERE id = :id "
+                "RETURNING provider, "
+                "  EXTRACT(EPOCH FROM (processed_at - created_at)) * 1000 AS handling_ms"
+            ),
+            {"id": row_id},
+        )
+    ).first()
+    if row is not None:
+        record_inbox_handling_ms(float(row[1]), provider=str(row[0]))
 
 
 async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) -> None:

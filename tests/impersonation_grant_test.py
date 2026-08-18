@@ -30,6 +30,7 @@ from typing import Any
 import jwt
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.admin.routes import view_as_confirmation
 from apps.api.core import impersonation as grant_module
 from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import (
@@ -88,7 +89,16 @@ def _headers(token: str, slug: str, grant: str | None) -> dict[str, str]:
 async def _mint_over_http(http: AsyncClient, token: str, slug: str) -> str:
     """Mint through the ROUTE, not the helper — this is the console's path."""
     response = await http.post(
-        GRANT_PATH, headers={"Authorization": f"Bearer {token}"}, json={"slug": slug}
+        GRANT_PATH,
+        # The step-up echo D-210 added. The FRESHNESS half is waived for `dev:` tokens
+        # (`core/stepup.py`: `APP_ENV=local` with no `PLATFORM_KEK`, the same two
+        # conditions that let a `dev:` token authenticate at all), but the echo is not —
+        # so every suite that enters a tenant now goes through the door the console does.
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Confirm-Action": view_as_confirmation(slug),
+        },
+        json={"slug": slug},
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -191,7 +201,9 @@ async def test_an_expired_grant_is_refused() -> None:
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(grant_module, "datetime", _FrozenClock(stale))
-        expired, _ = mint_grant(tenant_id=uuid.UUID(str(org["id"])), admin_id=admin_id)
+        expired, _ = mint_grant(
+            tenant_id=uuid.UUID(str(org["id"])), admin_id=admin_id, auth_time=stale
+        )
 
     async with _client() as http:
         response = await http.get("/v1/agents", headers=_headers(token, str(org["slug"]), expired))
@@ -526,7 +538,9 @@ def test_a_configured_secret_below_the_hmac_key_size_is_refused_like_an_absent_o
 
     monkeypatch.setattr(grant_module, "get_settings", lambda: _Short())
     with pytest.raises(ProblemError) as raised:
-        grant_module.mint_grant(tenant_id=uuid.uuid4(), admin_id=uuid.uuid4())
+        grant_module.mint_grant(
+            tenant_id=uuid.uuid4(), admin_id=uuid.uuid4(), auth_time=datetime.now(UTC)
+        )
     assert raised.value.code == "impersonation_not_configured"
     assert "32" in (raised.value.remediation or ""), "the refusal must name the requirement"
 
@@ -536,6 +550,8 @@ def test_a_configured_secret_below_the_hmac_key_size_is_refused_like_an_absent_o
         impersonation_grant_secret = "x" * 32
 
     monkeypatch.setattr(grant_module, "get_settings", lambda: _LongEnough())
-    wire, grant = grant_module.mint_grant(tenant_id=uuid.uuid4(), admin_id=uuid.uuid4())
+    wire, grant = grant_module.mint_grant(
+        tenant_id=uuid.uuid4(), admin_id=uuid.uuid4(), auth_time=datetime.now(UTC)
+    )
     assert wire and grant.grant_id
     assert settings is not None  # the real settings object was never mutated

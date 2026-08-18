@@ -1411,7 +1411,31 @@ def init_observability(service: str) -> str:
                 # Never send PII, and scrub what the SDK gathers anyway.
                 send_default_pii=False,
                 max_request_body_size="never",
-                before_send=scrub_event,
+                # CAST, and the cast is the honest expression of a real difference.
+                # `sentry_sdk.init` types these as `Callable[[Event, Hint], Event | None]`
+                # where `Event` is the SDK's TypedDict. Ours are typed on plain dicts on
+                # purpose: they are unit-tested directly, and the whole module must import
+                # and be checkable on a host where sentry-sdk is NOT installed (the import
+                # above is inside this branch for exactly that reason). A `dict[str, Any]`
+                # is not a supertype of a TypedDict to mypy, so the widening cannot be
+                # expressed in the signature without dragging an optional dependency into
+                # the module's type surface.
+                #
+                # THIS LINE WAS INVISIBLE TO CI UNTIL NOW. CI ran `uv sync --all-packages`
+                # while the Dockerfile and DEPLOYMENT §8 install `--group errors`, so mypy
+                # only ever saw the branch with sentry-sdk ABSENT — where the import is
+                # unresolved, `ignore_missing_imports` makes every symbol `Any`, and any
+                # signature at all type-checks. sentry-sdk ships `py.typed`; the moment it
+                # is installed the real types arrive and this errors. The mypy job now
+                # installs the same group production does, which is what makes the cast a
+                # decision rather than a thing nobody could see.
+                # `type: ignore`, NOT a `cast`. The expression must stay literally
+                # `before_send=scrub_event`, because `check_sentry_hooks` reads this line
+                # and refuses anything else — "the hook is the enforcement point for hard
+                # rule 6 on the error path; a different function there is a different
+                # guarantee, and this check cannot judge it". A cast satisfied mypy and
+                # blinded that guard, which is a worse trade than the one below.
+                before_send=scrub_event,  # type: ignore[arg-type]
                 before_breadcrumb=scrub_breadcrumb,
                 # NO `traces_sample_rate`. It used to be 0.1/1.0, which turned on
                 # Sentry's own performance tracing — a SECOND tracing pipeline beside

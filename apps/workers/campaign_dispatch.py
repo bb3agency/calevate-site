@@ -96,6 +96,7 @@ from apps.api.agents.service import (
     dispatch_call,
 )
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.campaigns.complaint_spike import check_complaint_spike
 from apps.api.campaigns.scheduling import complete_or_rearm, due_schedules, fire_schedule
 from apps.api.campaigns.service import (
     campaign_dialable_now,
@@ -108,7 +109,12 @@ from apps.api.campaigns.service import (
 # on what time it is.
 from apps.api.compliance import service as compliance_service
 from apps.api.compliance.service import PERSON_LEVEL_REFUSALS, check_dispatch
-from apps.api.core.alerting import alert, metrics_log, record_compliance_block
+from apps.api.core.alerting import (
+    alert,
+    record_campaign_dials,
+    record_compliance_block,
+    record_dispatch_tick,
+)
 from apps.api.core.errors import InvalidStatusTransitionError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
@@ -356,7 +362,7 @@ async def dispatch_campaign_tick(ctx: dict[str, Any]) -> str:
         outcome = await _run_tick()
 
     elapsed = time.perf_counter() - started
-    metrics_log.info("metric", extra={"metric": "dispatch_tick_seconds", "value": elapsed})
+    record_dispatch_tick(elapsed)
     if elapsed > TICK_INTERVAL_S:
         alert(
             "WORKER_STALL",
@@ -469,9 +475,7 @@ async def _run_tick() -> str:
         global_budget -= results["dialled"]
 
     if dialled or blocked:
-        metrics_log.info(
-            "metric", extra={"metric": "campaign_dials", "value": dialled, "blocked": blocked}
-        )
+        record_campaign_dials(dialled=dialled, blocked=blocked)
     return f"dialled={dialled} blocked={blocked} exhausted={exhausted} started={started}"
 
 
@@ -579,6 +583,20 @@ async def _dispatch_for_campaign(
                     "rules": ",".join(b.rule for b in standing),
                 },
             )
+            return {"dialled": 0, "blocked": 0, "exhausted": 0}
+
+        # FLOWS §5's OTHER mid-campaign safety, and the one the comment inside the claim
+        # below has referred to since D-149 without anything implementing it: too many of
+        # this campaign's conversations ending in "never call me again" pauses it and
+        # pages a human (`campaigns/complaint_spike.py` argues the three thresholds).
+        #
+        # Here rather than inside the claim, beside the standing gate, for the identical
+        # reason: it is a fact about the CAMPAIGN, so it blocks every contact alike and
+        # costs no attempts if it is asked first. It runs in the claiming transaction, so
+        # the pause it writes and the refusal to dial commit together — a pause that
+        # committed after one more contact had been claimed would be the safety arriving
+        # one ring late.
+        if await check_complaint_spike(session, tenant_id=tenant_id, campaign_id=campaign_id):
             return {"dialled": 0, "blocked": 0, "exhausted": 0}
 
         # CAS claim: pending → dialing, oldest first, due-for-retry respected.

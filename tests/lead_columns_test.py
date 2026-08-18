@@ -31,12 +31,18 @@ from typing import Any
 
 import pytest
 from apps.api.crm import columns as registry
+from apps.api.crm.service import (
+    FACET_QUERY_COST_MS,
+    FACET_RAIL_BUDGET_MS,
+    MAX_FACET_FIELDS,
+    MAX_FACET_VALUES,
+)
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.api.main import app
 from calevate_shared.extraction import ExtractionField
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 #: A value that executes on open in Excel. The same shape `redteam_extraction_poisoning`
 #: uses, planted in EVERY column this suite can reach.
@@ -373,6 +379,179 @@ async def test_a_value_the_schema_no_longer_declares_is_still_offered_and_flagge
     assert values["legacy_band"]["declared"] is False
     assert values["legacy_band"]["count"] == 1
     assert values["over_50l"]["declared"] is True
+
+
+async def test_the_undeclared_tail_is_bounded_in_the_query_not_only_in_the_response() -> None:
+    """`MAX_FACET_VALUES` says it bounds values "which is otherwise unbounded" — and until
+    D-209 it bounded only what was RENDERED, after the whole `GROUP BY` had been
+    transported and turned into a Python dict.
+
+    A facet is an enum field by DECLARATION; the extractor writes whatever the model
+    produced. So a field whose declaration changed, or whose model went off-script, holds
+    as many distinct strings as the tenant has leads — one dict entry each, up to eight
+    times per page render. This drives 60 undeclared values and asserts the statement the
+    database was asked to answer carries a `LIMIT`.
+    """
+    t = await _tenant()
+    for n in range(60):
+        await _lead(t, name=f"L{n}", phone=f"+9198000{n:05d}", data={"budget_band": f"drift_{n}"})
+
+    engine = get_engine().sync_engine
+    facet_statements: list[str] = []
+
+    def _capture(
+        _conn: Any, _cursor: Any, statement: str, *_args: Any, **_kwargs: Any
+    ) -> None:  # pragma: no cover - trivial
+        if "data ->>" in statement and "count(*)" in statement:
+            facet_statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        async with _client() as http:
+            response = await http.get(f"/v1/leads/facets?agent_id={t.agent_id}", headers=t.headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    assert response.status_code == 200, response.text
+    assert facet_statements, "no facet aggregate was captured — the probe missed the query"
+    for statement in facet_statements:
+        assert "LIMIT" in statement.upper(), (
+            "the facet aggregate has no LIMIT: every distinct value a client's data "
+            "contains is transported and allocated, and MAX_FACET_VALUES only trims the "
+            "list afterwards"
+        )
+
+
+async def test_a_rare_declared_value_survives_a_crowded_undeclared_tail() -> None:
+    """The invariant the LIMIT is not allowed to break, and the reason it is ordered
+    declared-first rather than by count alone.
+
+    A bare `LIMIT` sorted by count would drop a declared value that ranks below the cap,
+    and the zero-fill would then report it as 0 — a filter claiming a value nobody has,
+    which is worse than the unbounded query it replaced. Here the declared value is the
+    RAREST thing in the table and 60 undeclared values outrank it.
+    """
+    t = await _tenant()
+    await _lead(t, name="rare", phone="+919899999999", data={"budget_band": "over_50l"})
+    for n in range(60):
+        await _lead(t, name=f"L{n}", phone=f"+9198100{n:05d}", data={"budget_band": f"drift_{n}"})
+        await _lead(t, name=f"M{n}", phone=f"+9198200{n:05d}", data={"budget_band": f"drift_{n}"})
+
+    async with _client() as http:
+        response = await http.get(f"/v1/leads/facets?agent_id={t.agent_id}", headers=t.headers)
+    values = {v["value"]: v for v in response.json()["facets"][0]["values"]}
+    assert values["over_50l"]["count"] == 1, (
+        "the one declared value with rows was cut by the LIMIT and zero-filled back in — "
+        "the facet now says a value that exists has no rows"
+    )
+    assert values["over_50l"]["declared"] is True
+    assert len(values) <= MAX_FACET_VALUES, "the rendered list outgrew its own cap"
+
+
+def test_the_rail_may_not_offer_more_facets_than_its_budget_buys() -> None:
+    """The ceiling is DERIVED, and a ceiling nothing enforces is a promise (D-216).
+
+    `MAX_FACET_FIELDS` was 8, on research about how many filter groups a person can scan.
+    That is a good argument about scannability and it was the only argument the number
+    had: eight facets is eight sequential round trips over the tenant's whole lead table,
+    ~400 ms at six figures, against a docstring promising the rail was "nowhere near" its
+    200 ms budget.
+
+    Asserted as ARITHMETIC rather than as `== 4`, because the point is that the three
+    numbers stay consistent: widening the budget or making a facet cheaper is allowed to
+    raise the cap, and re-typing the cap as a literal is not.
+    """
+    assert MAX_FACET_FIELDS * FACET_QUERY_COST_MS <= FACET_RAIL_BUDGET_MS, (
+        f"{MAX_FACET_FIELDS} facets at {FACET_QUERY_COST_MS} ms each is over the "
+        f"{FACET_RAIL_BUDGET_MS} ms rail budget — the ceiling stopped being derived"
+    )
+    assert MAX_FACET_FIELDS >= 1, "a rail that can offer no facets is not a rail"
+
+
+async def test_a_client_with_more_enum_fields_than_the_cap_is_told_how_many_are_missing() -> None:
+    """The bound is only defensible because the refusal is actionable, so pin the refusal.
+
+    A client whose capture list is enum-heavy gets the first `MAX_FACET_FIELDS` fields IN
+    SCHEMA ORDER and a count of what was left out; the rail renders that as "ask us to
+    reorder your capture list if you need one of them", which is an action an operator
+    can take today. Silently showing a subset would make the cap a defect instead of a
+    trade.
+    """
+    extra = MAX_FACET_FIELDS + 3
+    schema = [
+        {
+            "key": f"enum_{n}",
+            "label": f"Enum {n}",
+            "type": "enum",
+            "enum_values": ["a", "b"],
+            "description": "x",
+        }
+        for n in range(extra)
+    ]
+    t = await _tenant(schema=schema)
+
+    async with _client() as http:
+        response = await http.get(f"/v1/leads/facets?agent_id={t.agent_id}", headers=t.headers)
+
+    body = response.json()
+    assert len(body["facets"]) == MAX_FACET_FIELDS, "the rail offered more than its budget buys"
+    assert body["omitted_field_count"] == extra - MAX_FACET_FIELDS, (
+        "the client is not told how many facetable fields were left out, so the cap is a "
+        "silent truncation rather than a refusal they can act on"
+    )
+    # Schema order, so "reorder your capture list" is a real instruction and not advice
+    # about an ordering the server picks.
+    assert [f["key"] for f in body["facets"]] == [f"enum_{n}" for n in range(MAX_FACET_FIELDS)]
+
+
+async def test_the_facet_aggregate_is_fenced_off_from_its_own_ordering() -> None:
+    """The plan, not the answer — and only the statement's SHAPE can pin a plan (D-216).
+
+    Written flat as `GROUP BY 1 ORDER BY <declared> DESC, n DESC LIMIT :cap`, PostgreSQL
+    has no `n_distinct` for `data ->> :key` (a jsonb key bound at runtime carries no
+    statistics), estimates a couple of hundred groups, and picks a sorted GroupAggregate
+    whose sort runs over FULL-WIDTH lead rows. On a 50,001-lead tenant that measured
+    `external merge  Disk: 13296kB` — 13 MB written and read back per facet per page
+    render, on a query that never needed a sort at all, for 70.5-74.9 ms.
+
+    `AS MATERIALIZED` is what stops the ORDER BY reaching the aggregate: the sort beneath
+    it then carries the extracted text instead of the row, fits in `work_mem`, and the
+    spill is gone — 47.4-50.6 ms, temp blocks 0. Same rows, same order, same LIMIT.
+
+    The regression arrived WITH D-209's LIMIT, which fixed a real unboundedness, so this
+    asserts both halves: the fence and the bound.
+    """
+    t = await _tenant()
+    await _lead(t, data={"budget_band": "over_50l"})
+
+    engine = get_engine().sync_engine
+    facet_statements: list[str] = []
+
+    def _capture(
+        _conn: Any, _cursor: Any, statement: str, *_args: Any, **_kwargs: Any
+    ) -> None:  # pragma: no cover - trivial
+        if "data ->>" in statement and "count(*)" in statement:
+            facet_statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        async with _client() as http:
+            response = await http.get(f"/v1/leads/facets?agent_id={t.agent_id}", headers=t.headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    assert response.status_code == 200, response.text
+    assert facet_statements, "no facet aggregate was captured — the probe missed the query"
+    for statement in facet_statements:
+        upper = statement.upper()
+        assert "AS MATERIALIZED" in upper, (
+            "the facet aggregate is no longer fenced from its ORDER BY: the planner can "
+            "fold the ordering into the grouping and sort whole lead rows to disk"
+        )
+        group_at = upper.index("GROUP BY")
+        order_at = upper.index("ORDER BY")
+        assert group_at < order_at, "the ordering moved inside the grouping"
+        assert "LIMIT" in upper, "the bound D-209 added is gone"
 
 
 async def test_a_non_string_value_is_not_offered_as_a_facet() -> None:

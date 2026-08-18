@@ -216,6 +216,8 @@ export interface paths {
         /**
          * Mint the short-lived grant a READ-ONLY view-as session needs (D-22)
          * @description Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation — an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.
+         *
+         *     STARTING a view-as session needs step-up: a second factor proved in the last five minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not — send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.
          */
         post: operations["mint_impersonation_grant_v1_admin_impersonation_grants_post"];
         delete?: never;
@@ -937,6 +939,14 @@ export interface paths {
          *
          *     The tenant session is not merely a scope: `invitations` is RLS'd, so this is also
          *     what makes `create_invitation`'s reads answer about THIS account only.
+         *
+         *     THE LINK IS MAILED HERE AND NOT HANDED BACK (D-198). This route is the twin of
+         *     `tenancy/routes.py::invite_member`, which D-190 moved onto the mailer; this one kept
+         *     returning the raw token and sending nothing, so the wizard displayed a live owner
+         *     credential and the invitee heard from nobody. The enqueue is in the SAME transaction as
+         *     the invitation row for the reason D-190 gives: an invitation committed without its mail
+         *     is a person who is never told, and a mail sent for a row that rolled back is a link that
+         *     does not work.
          */
         post: operations["invite_member_v1_admin_tenants__tenant_id__invitations_post"];
         delete?: never;
@@ -5240,8 +5250,8 @@ export interface components {
              * @default 0
              */
             after_hours_captured_7d: number;
-            /** Avg Duration S */
-            avg_duration_s?: number | null;
+            /** Avg Duration S 7D */
+            avg_duration_s_7d?: number | null;
             /** Calls 7D */
             calls_7d: number;
             /** Calls Today */
@@ -6194,6 +6204,8 @@ export interface components {
         };
         /** ImpersonationGrantIn */
         ImpersonationGrantIn: {
+            /** Renew */
+            renew?: string | null;
             /** Slug */
             slug: string;
         };
@@ -6521,6 +6533,8 @@ export interface components {
         };
         /** InviteOut */
         InviteOut: {
+            /** Delivery */
+            delivery: string;
             /** Expires In Hours */
             expires_in_hours: number;
             /**
@@ -6528,8 +6542,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Token */
-            token: string;
         };
         /** InvoiceLineItemOut */
         InvoiceLineItemOut: {
@@ -10201,7 +10213,9 @@ export interface operations {
     mint_impersonation_grant_v1_admin_impersonation_grants_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

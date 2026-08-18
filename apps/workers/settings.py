@@ -19,6 +19,23 @@ shape every job that matters uses is the one `billing.issue_one_time_charges` sp
 returning would file the tick as a success with a number in it that nobody reads. A job
 that does not make that pair of gestures fails in silence, whatever this file says.
 
+**AND THAT SENTENCE HAD TWO HOLES IN IT, because it assumed the job's code runs.** Read
+off the installed `arq.worker.Worker.run_job`, there are two terminal states where it does
+not, and on both of them a per-job `alert()` is structurally unreachable:
+
+* an enqueue for a name no worker registers — `logger.warning('job %s, function %r not
+  found')` and `job_failed(...)`, before the function is ever looked up successfully;
+* `job_try > max_tries` — `logger.warning('%6.2fs ! %s max retries %d exceeded')` and
+  `finish_failed_job(...)`, checked BEFORE `on_job_start`, so the ladder's last rung is a
+  pickup the job never sees. Every job that raises `Retry` up to its budget ends here, and
+  so does any cron cancelled at `job_timeout` three times running — which is
+  `apply_retention` gone until tomorrow with nothing but a log line.
+
+`ARQ_TERMINAL_MESSAGES` and `install_arq_terminal_alerter` below close both by routing
+arq's own two warnings into the one `alert()`. That is a call site, not a mechanism: it
+stores nothing and touches neither Postgres nor Redis, which is what keeps it working on
+the night the thing it is reporting is the queue.
+
 Building a real DLQ was weighed and is not what P6.5 asked for: it would mean a second
 durable store for failures beside the outbox we already have, and "one way per problem"
 says the answer is to make the nine jobs alert rather than to add a tenth mechanism. The
@@ -32,10 +49,14 @@ worker that refuses to start because Sarvam is unconfigured takes down recording
 copies and metering too, which is a far worse failure than degraded extraction.
 """
 
+import logging
+from contextlib import suppress
 from typing import Any
 
 from arq import cron
 
+from apps.api.core.alert_admission import close_admission
+from apps.api.core.alerting import alert
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.observability import (
     init_observability,
@@ -43,7 +64,8 @@ from apps.api.core.observability import (
     traced_job,
     tracing_enabled,
 )
-from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
+from apps.api.core.queue import WORKER_MAX_TRIES, close_queue, redis_settings
+from apps.api.core.redis import close_redis
 from apps.api.core.settings import (
     runtime_config_missing_keys,
     settings_scope,
@@ -63,7 +85,12 @@ from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
-from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
+from apps.workers.pipeline import (
+    ingest_engine_event,
+    reconcile_executions,
+    reconcile_outstanding_calls,
+    run_post_call_pipeline,
+)
 from apps.workers.qa_sampling import draw_qa_samples
 from apps.workers.retention import (
     apply_retention,
@@ -71,6 +98,7 @@ from apps.workers.retention import (
     execute_tenant_erasure,
     prune_reliability_tables,
 )
+from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -106,13 +134,14 @@ FUNCTIONS: list[Any] = [
         # Both WhatsApp jobs. An unregistered job is not a dormant feature — the outbox
         # publishes it, arq does not recognise the name, and the row walks its retry
         # ladder into the DLQ while every screen reports the message was queued.
-        # `tests/job_registration_test.py` is the guard; this pair is why it exists.
+        # `scripts/check_job_wiring.py` is the gate now (D-199) and it derives the
+        # three-way agreement rather than reading a list; this pair is why it exists.
         notify_hot_lead_whatsapp,
         escalate_campaign_contact,
         # Hard rule 5's fast half: voice-runtime acks the engine's opt-out tool call and
         # queues this. Unregistered, the caller's request would be acked to the vendor,
         # dropped by arq, and only recovered by the post-call transcript pass minutes
-        # later — the exact silent-degradation shape `job_registration_test.py` guards.
+        # later — the exact silent-degradation shape `check_job_wiring` guards.
         record_in_call_optout,
         # D-170. Every one-time secret `apps/api/authn` mints is delivered by this job, so
         # an unregistered one means a reset link that is promised, queued, DLQ'd and never
@@ -150,6 +179,29 @@ CRON_JOBS = [
     # that gives up on its first transient database error is silent for exactly as long
     # as the incident it exists to report. Half an hour of that is not free.
     cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see
+    # what `list_executions` returns, and that listing is filtered on when an execution
+    # was CREATED — so a call that runs longer than the 30-minute window has fallen out of
+    # it before its terminal transition ever happens, and one lost at-most-once webhook
+    # left it unrecoverable. This asks the engine directly about every call row still
+    # non-terminal past the stall window.
+    #
+    # HALF-HOURLY, AND OFFSET. It is O(tenants) — `calls` is FORCE-RLS'd, so the question
+    # can only be asked one tenant session at a time — which is why it is not a second
+    # phase of the 10-minute tick: the common case (a short call whose webhook was lost)
+    # is already covered there within ten minutes, and this population has been unfinished
+    # for longer than the stall window by definition. :15/:45 keeps it clear of the poller
+    # (:00/:10/...) and of `report_stalled_pipeline` (:05/:35), so the three fleet-wide
+    # fan-outs never run in the same minute.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own, so a sweep
+    # that met one transient database error would be finished for the half hour.
+    cron(
+        traced_job(reconcile_outstanding_calls),
+        minute={15, 45},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # The DPDP §12 equivalent of the line above, and the reason it exists is that there
     # WAS no equivalent: an erasure request whose job was lost to a deploy sat open
     # forever with nothing watching (P6.5). Hourly rather than half-hourly because
@@ -206,6 +258,16 @@ CRON_JOBS = [
         minute={20},
         max_tries=WORKER_MAX_TRIES,
     ),
+    # OPERATIONS §4's cert-expiry alarm. DAILY and not hourly: the quantity it measures
+    # moves once a day, and certbot's own renewal timer runs twice a day — a check that
+    # ran more often would only re-discover the same number and spend the alert path's
+    # dedupe window on it. 04:05, after the nightly retention jobs have finished with the
+    # database and well before anybody would act on the result.
+    #
+    # `max_tries` EXPLICIT for the reason its neighbours give: `cron()` defaults it to 1.
+    # This job is idempotent to the point of being read-only — one TLS handshake — so a
+    # retried attempt costs nothing and a lost one costs a day of not knowing.
+    cron(traced_job(check_tls_expiry), hour={4}, minute={5}, max_tries=WORKER_MAX_TRIES),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     #
@@ -300,9 +362,85 @@ CRON_JOBS = [
 ]
 
 
+#: The two ways arq itself ends a job WITHOUT the job's own code running, mapped to the
+#: alert code an operator would search for. Keyed by the LOGGING FORMAT STRING rather than
+#: by the rendered message, because the format string is a literal in arq's source: it
+#: cannot be spoofed by a job id and it does not shift when the arguments do.
+#:
+#: WHY THIS EXISTS AT ALL. The docstring at the top of this file establishes that the
+#: alert on exhaustion is a property of each JOB, not of the queue — and that is right for
+#: every path where the job's code is running. These two are the paths where it is NOT:
+#:
+#:   * `function ... not found` — an enqueue for a name no worker registers. arq accepts
+#:     the enqueue, then drops the job with a warning. The job's own code never executes,
+#:     so no per-job `alert()` can possibly fire. `scripts/check_job_wiring.py` is the
+#:     static gate that stops this shipping; this is the runtime backstop for the case it
+#:     structurally cannot see — a producer deployed against a worker that has not been
+#:     restarted yet.
+#:   * `max N retries exceeded` — the ladder ran out, and arq refuses the pickup BEFORE
+#:     calling the function (`Worker.run_job` checks `job_try > max_tries` first, and does
+#:     not run `on_job_start`/`on_job_end` on that path). Every job that raises `Retry`
+#:     until its last attempt therefore has a terminal state its own code cannot alert
+#:     from, and a cron cancelled at `job_timeout` — which arq requeues as a retry — walks
+#:     straight into it. That is `apply_retention` gone until tomorrow in silence, which
+#:     is the exact failure P6.2 fixed from the other direction.
+#:
+#: NOT a second DLQ, and not a second alert path: it is one more CALL SITE of the one
+#: `alert()` (BACKEND-PATTERNS §8). It stores nothing, reads nothing and touches neither
+#: Postgres nor Redis, which is the property that keeps it working on the night the thing
+#: it is reporting is the queue.
+ARQ_TERMINAL_MESSAGES: dict[str, str] = {
+    "job %s, function %r not found": "job_function_not_registered",
+    "%6.2fs ! %s max retries %d exceeded": "job_retries_exhausted",
+}
+
+#: How much of arq's rendered message rides the alert. Bounded because the message
+#: interpolates a job id, and a job id is `"<job>:<natural key>"` — ids only by
+#: construction (`core/queue.job_id_for`), but an alert body is forwarded further than a
+#: log line is and a bound costs nothing (hard rule 6).
+_ARQ_DETAIL_CHARS = 200
+
+
+class _ArqTerminalFailureAlerter(logging.Handler):
+    """Turn arq's own terminal-failure warnings into alerts.
+
+    A `logging.Handler` rather than a fork of arq or a poll of Redis job keys, because
+    arq offers no hook on either path and the warning is the only signal it emits. The
+    handler matches on `record.msg` — the unformatted template — so it reads arq's
+    intent rather than grepping a rendered string; `tests/worker_terminal_alert_test.py`
+    pins both templates against the installed `arq.worker` source, so an upgrade that
+    rewords them fails the build instead of silently unhooking this.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        code = ARQ_TERMINAL_MESSAGES.get(str(record.msg))
+        if code is None:
+            return
+        # `alert()` never raises (its own contract), so nothing here can turn a logging
+        # call inside arq's exception handling into a second failure.
+        alert("WORKER_TERMINAL", code, detail=record.getMessage()[:_ARQ_DETAIL_CHARS])
+
+
+def install_arq_terminal_alerter(logger_name: str = "arq.worker") -> bool:
+    """Attach the handler once. Returns whether it was newly attached.
+
+    Idempotent because `startup` runs per worker process and a test may call it too; two
+    handlers would double every alert, which is how a real signal starts getting muted by
+    the operator it is for.
+    """
+    target = logging.getLogger(logger_name)
+    if any(isinstance(handler, _ArqTerminalFailureAlerter) for handler in target.handlers):
+        return False
+    target.addHandler(_ArqTerminalFailureAlerter(level=logging.WARNING))
+    return True
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     validate_bootstrap_env()
     configure_logging()
+    # AFTER `configure_logging`, so the handler is added to the logger tree that is
+    # actually in use rather than to one a later reconfiguration replaces.
+    install_arq_terminal_alerter()
     # The worker has no `create_app`, so bootstrap step 3 happens here instead — and it
     # must, because the worker is the CONSUMER side of the trace. If only the API
     # initialised tracing, every enqueued traceparent would arrive at a process with no
@@ -362,6 +500,23 @@ async def on_job_end(ctx: dict[str, Any]) -> None:
 
 async def shutdown(ctx: dict[str, Any]) -> None:
     log.info("worker_stop")
+    # THE POOL TEARDOWN THE `job_completion_wait` COMMENT BELOW ALREADY BUDGETS FOR.
+    # It said fifteen seconds of headroom "covers the `on_shutdown` hook, the tracing
+    # flush and the pool teardown that all run AFTER the drain" while this hook tore
+    # down nothing: arq closes its OWN worker pool, but the three clients a JOB opens
+    # are ours — `core/queue._pool` (a job enqueueing another job), `core/redis._client`
+    # (load-shed, dedupe, rate limits) and `core/alert_admission._client` (the shared
+    # suppression window). All three outlived every drain.
+    #
+    # Independently and best-effort, in the API's order, for the API's reason: a socket
+    # that is already gone is the commonest way each is reached, and none of them may
+    # cost the tracing flush that follows.
+    with suppress(Exception):
+        await close_redis()
+    with suppress(Exception):
+        await close_queue()
+    with suppress(Exception):
+        close_admission()
     # Drain the batch processor: a worker stopping mid-pipeline is exactly the trace
     # someone will go looking for.
     shutdown_tracing()

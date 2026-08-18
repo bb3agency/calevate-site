@@ -23,6 +23,7 @@ from apps.api.engine.bolna import (
     BolnaEngine,
     _agent_greeting,
     _agent_kb_refs,
+    _agent_models,
     _agent_object,
     _agent_system_prompt,
 )
@@ -260,3 +261,65 @@ async def test_bolna_read_back_of_an_unknown_agent_raises() -> None:
 
     with pytest.raises(ProblemError):
         await _engine(handler).get_agent("agent_nope")
+
+
+# --- Reconciliation against bolna-ai/bolna@cd2e192 (D-260) --------------------
+#
+# Unlike the hypothesis-shaped payloads above, these two pin shapes READ AT SOURCE in the
+# OSS framework the hosted platform is built on. Evidence: docs/vendor/bolna/oss-harvest.md.
+
+
+def test_the_agent_body_carries_the_toolchain_their_runtime_dereferences() -> None:
+    """`Task.toolchain` has no default in `bolna/models.py`, and the runtime reads
+    `task["toolchain"]["pipelines"]` with a bare subscript (`task_manager.py`, and
+    `helpers/utils.py::get_required_input_types`).
+
+    We were not sending it, so the agent we create is one their engine cannot start —
+    and the pipeline list is also what declares this task consumes AUDIO, which is not
+    something an engine can guess from the rest of the body.
+    """
+    body = BolnaEngine(api_key="k", fx_rate=Decimal("83.50"))._agent_body(_cfg())
+    task = body["agent_config"]["tasks"][0]
+
+    assert task["toolchain"] == {
+        "execution": "parallel",
+        "pipelines": [["transcriber", "llm", "synthesizer"]],
+    }
+
+
+def test_models_are_readable_when_tasks_come_back_at_the_root() -> None:
+    """Their server stores `agent_config.model_dump()` and `GET /agent/{id}` returns THAT,
+    so `tasks` arrives at the top level with no `agent_config` wrapper
+    (`local_setup/quickstart_server.py`).
+
+    `_agent_models` looked only inside the wrapper, so a perfectly readable agent reported
+    `models_readable=False` — which the judge is required to treat as "we could not find
+    the synthesizer", never as "no voice configured". Its two siblings `_agent_name` and
+    `_agent_greeting` already fell back to the root; this one did not.
+    """
+    root_shaped: dict[str, Any] = {
+        "agent_name": "Sunrise Clinic receptionist",
+        "agent_welcome_message": "Idi AI assistant.",
+        "tasks": [
+            {
+                "tools_config": {
+                    "transcriber": {"provider": "sarvam", "model": "saaras:v3"},
+                    "llm_agent": {"model": "sarvam-m"},
+                    "synthesizer": {
+                        "provider": "sarvam",
+                        "provider_config": {"voice": "anushka"},
+                    },
+                }
+            }
+        ],
+    }
+
+    models, readable = _agent_models(_agent_object(root_shaped))
+
+    assert readable is True
+    assert models is not None
+    assert models.stt_provider == "sarvam"
+    assert models.stt_model == "saaras:v3"
+    assert models.llm_model == "sarvam-m"
+    assert models.tts_provider == "sarvam"
+    assert models.tts_voice == "anushka"

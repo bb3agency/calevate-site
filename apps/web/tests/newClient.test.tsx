@@ -26,9 +26,12 @@ import { problem, renderAdminPage, stubApi } from "./harness";
  *    retrying.
  * 2. **The account is named by what came BACK.** The server may normalise or de-duplicate
  *    a slug; a panel built from the typed one tells the operator the wrong URL.
- * 3. **A token minted for one address must never sit under a refusal for another.** It is
- *    a single-use owner credential shown once, and "copy the token" is exactly what an
- *    operator does next.
+ * 3. **The token is not on screen at all, and the confirmation for one address must never
+ *    sit under a refusal for another.** D-198 moved the link into the invitee's mailbox and
+ *    replaced `token` with `delivery`, for the reason D-190 gives on the client realm's
+ *    twin: a token an operator can read is a token the operator can redeem. What is
+ *    rendered is the ADDRESS it went to, and that must still be cleared at submit — "sent
+ *    to owner@a" standing under a refusal for owner@b is a claim about mail nobody sent.
  * 4. **A refused control stops offering itself, with the server's reason.** Both writes
  *    are `admin:tenants`, which both admin roles hold, so a 403 here is a genuine
  *    surprise — and a surprise is the worst thing to answer with an identical retry.
@@ -144,6 +147,9 @@ describe("creating the account", () => {
 });
 
 describe("the owner invite", () => {
+  /** The row id the response carries so the panel can revoke what it just created. */
+  const INVITE_ID = "0192f0aa-7777-7000-8000-0000000000d1";
+
   /** Create the account, then walk past step 3 — the invite is the LAST step now. */
   async function reachTheInvite(routes: Record<string, unknown>) {
     const render = renderAdminPage(<NewClientPage />, {
@@ -162,9 +168,9 @@ describe("the owner invite", () => {
     return render;
   }
 
-  it("shows the token once, with what holding it means", async () => {
+  it("confirms the address it was sent to, and never renders a credential", async () => {
     const { container } = await reachTheInvite({
-      [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 },
+      [INVITATIONS]: { id: INVITE_ID, delivery: "queued", expires_in_hours: 72 },
     });
 
     fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
@@ -172,18 +178,21 @@ describe("the owner invite", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
 
-    await screen.findByText("inv_live_3f9a2c");
-    expect(container.textContent).toContain("Copy this now — it is not shown again");
+    await screen.findByText("Invitation sent");
+    expect(container.textContent).toContain("owner@sunrise.example");
     expect(container.textContent).toContain("becomes an owner of");
+    // D-198: the secret exists in the invitee's mailbox and nowhere else. A screen that
+    // renders it is a screen an operator can copy it off.
+    expect(container.textContent).not.toContain("inv_live_");
   });
 
-  it("clears the previous token before a second attempt, so no refusal sits over a live credential", async () => {
-    await reachTheInvite({ [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 } });
+  it("clears the previous confirmation before a second attempt, so no refusal sits over another address's mail", async () => {
+    await reachTheInvite({ [INVITATIONS]: { id: INVITE_ID, delivery: "queued", expires_in_hours: 72 } });
 
     const emailBox = screen.getByPlaceholderText("owner@business.com");
     fireEvent.change(emailBox, { target: { value: "owner@sunrise.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
-    await screen.findByText("inv_live_3f9a2c");
+    await screen.findByText("Invitation sent");
 
     // The second address is refused. Re-stubbing the network mid-test is the only way to
     // give one path two answers, and the point of the test is the SEQUENCE: the first
@@ -198,12 +207,12 @@ describe("the owner invite", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
 
     await screen.findByText("That address is not deliverable.");
-    expect(screen.queryByText("inv_live_3f9a2c")).toBeNull();
+    expect(screen.queryByText("Invitation sent")).toBeNull();
   });
 
   it("mints nothing for an address nobody typed", async () => {
     const { calls } = await reachTheInvite({
-      [INVITATIONS]: { token: "inv_live_3f9a2c", expires_in_hours: 72 },
+      [INVITATIONS]: { id: INVITE_ID, delivery: "queued", expires_in_hours: 72 },
     });
 
     // The billing email was left blank in step 1, so the invite opens empty — and an empty
@@ -226,7 +235,7 @@ describe("the owner invite", () => {
 describe("cancelling an invite the wizard already issued", () => {
   const MINTED = {
     id: "0192f0aa-7777-7000-8000-0000000000e1",
-    token: "inv_live_3f9a2c",
+    delivery: "queued",
     expires_in_hours: 72,
   };
   const REVOKE = `${INVITATIONS}/${MINTED.id}`;
@@ -258,7 +267,7 @@ describe("cancelling an invite the wizard already issued", () => {
     const emailBox = screen.getByPlaceholderText("owner@business.com");
     fireEvent.change(emailBox, { target: { value: "owner@sunrise.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
-    await screen.findByText(MINTED.token);
+    await screen.findByText("Invitation sent");
     // No cancel yet: a successful mint is not a reason to offer to undo it.
     expect(screen.queryByRole("button", { name: /Cancel the unused invite/ })).toBeNull();
 
@@ -291,7 +300,7 @@ describe("cancelling an invite the wizard already issued", () => {
       target: { value: "owner@sunrise.example" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
-    await screen.findByText(MINTED.token);
+    await screen.findByText("Invitation sent");
 
     stubApi({
       [INVITATIONS]: problem(409, {

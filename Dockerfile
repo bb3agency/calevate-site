@@ -94,9 +94,23 @@ COPY packages/shared/pyproject.toml packages/shared/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --all-packages --group errors --no-install-workspace
 
-# Phase 2: the workspace. `calevate-shared` is the only real distribution here (hatchling
-# build backend); apps/* are `package = false` virtual members that run from source, which
-# is why PYTHONPATH below is /app rather than a site-packages install.
+# Phase 2: the workspace. `calevate-shared` is the only DISTRIBUTION here (hatchling build
+# backend); apps/* are `package = false` virtual members, which is why PYTHONPATH below is
+# /app rather than a site-packages install.
+#
+# BOTH OF THEM RUN FROM SOURCE, and this comment used to imply otherwise. `uv sync`
+# installs a workspace distribution EDITABLE, so site-packages gets no package — it gets
+# `_editable_impl_calevate_shared.pth`, whose whole content is one absolute path:
+#
+#     /app/packages/shared/src
+#
+# baked from THIS stage's WORKDIR at build time. `COPY --from=builder /app /app` below
+# lands the tree back at that same path, which is the only reason `import calevate_shared`
+# resolves at runtime — not a site-packages copy. Move either WORKDIR, or copy the tree
+# anywhere but `/app`, and the build still succeeds, the venv still lists
+# `calevate-shared 0.1.0`, and all four entrypoints die on their first import. That is
+# D-188's shape one layer along, so it is guarded rather than remembered:
+# `scripts/check_image_paths.py`, negative controls in tests/image_paths_guard_test.py.
 COPY packages/shared packages/shared
 COPY apps/api apps/api
 COPY apps/voice-runtime apps/voice-runtime

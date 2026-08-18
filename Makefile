@@ -127,7 +127,13 @@ web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on t
 	pnpm -C apps/web test
 
 db-reset:
-	uv run alembic downgrade base
+	# DROP SCHEMA, not `alembic downgrade base` (D-207, scripts/db_reset.py). A downgrade
+	# undoes revisions in order, so the DATA a developer's database holds can refuse it —
+	# `b3d9f6a2c815` re-imposes NOT NULL on `admin_users.clerk_user_id`, which the first
+	# -party operator `scripts/bootstrap_admin.py` creates violates. It then stops
+	# MID-CHAIN, leaving `alembic_version` disagreeing with the schema, which is the state
+	# the shared development database was found in and could not migrate out of.
+	uv run python -m scripts.db_reset
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
 
@@ -202,6 +208,11 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# The six bootstrap keys may only ever be read from the environment (D-95 §4). A
 	# change that lets APP_ENV resolve from the console store is a security-posture
 	# inversion that reads like a harmless refactor, so it fails CI by name.
+	# The production image installs `calevate-shared` EDITABLE, which records the
+	# builder's WORKDIR as an absolute path in a `.pth`. A runtime stage that lands the
+	# tree anywhere else still builds, still lists the package, and cannot import it —
+	# D-188's shape one layer along. Negative controls in tests/image_paths_guard_test.py.
+	uv run python -m scripts.check_image_paths
 	uv run python -m scripts.check_bootstrap_keys
 	# Every console-managed setting says WHEN a change takes effect, and is bounded.
 	# `applies: live` on a key really read once at boot is a lie that costs an outage,
@@ -271,6 +282,22 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
 	# tmp tree and a doctored route table, live in tests/wiring_guard_test.py.
 	uv run python -m scripts.check_wiring
+	# The same doctrine on BACKGROUND work, which `check_wiring` declines by name ("No
+	# ARQ cron check"). Three questions, all derived: a job function nothing registers, a
+	# registration nothing enqueues, and — the silent one — an enqueue by a name no
+	# worker answers to, which arq accepts and then drops with a warning nothing reads.
+	# Needs no database; it parses the tree and imports `WorkerSettings`. Negative
+	# controls in tests/job_registration_test.py.
+	uv run python -m scripts.check_job_wiring
+	# The half-wired shapes `check_wiring` declines, said in its own docstring: a column
+	# something WRITES and nothing reads (the write/read distinction it says it cannot
+	# make), a `Settings` knob nothing consumes, a public function nothing names, a stub
+	# body standing in for logic, a broad handler whose body does nothing at all, and a
+	# TODO/FIXME deferring work without naming what closes it. Needs no database and no
+	# app boot; exit 2 = REFUSED when a scan cannot see its own subject, on `check_wiring`
+	# and `check_metadata_columns`' terms. Negative controls in
+	# tests/half_wired_guard_test.py, one per section plus the states that must NOT fail.
+	uv run python -m scripts.check_half_wired
 	# Hard rule 5 over the whole tree (D-29's `check:compliance-invariants`). Here and
 	# not in pytest for two reasons: its schema half reads pg_catalog exactly as
 	# `check_rls_coverage` does, and its subject is the SHAPE of every dial path rather
@@ -278,6 +305,15 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# campaign_dispatch_audit) own the behaviour and keep it. Negative controls in
 	# tests/compliance_guard_test.py.
 	uv run python -m scripts.check_compliance_invariants
+	# The alarm vocabulary, both directions (OPERATIONS §4, runbooks/alarm-index.md). A
+	# documented alarm with no call site is worse than no alarm — an operator reads the
+	# runbook and stops looking — and a raised alarm with no row is a page at 3am with
+	# nothing to look it up in. Three of the first kind and 44 of the second were live
+	# when this landed. Derived from the tree (every alert(), every ProblemError carrying
+	# a failure_stage, every ack meter, every host-side shell alarm), so no list is kept
+	# by hand; it REFUSES when it matches nothing. Negative controls in
+	# tests/alarm_wiring_guard_test.py.
+	uv run python -m scripts.check_alarm_wiring
 	# D-29's `check:docs-drift`. Here rather than in pytest for the reason the two above
 	# are: no database, no app boot, and its subject is the SHAPE of the repo — the doc
 	# set against the Makefile, the package scripts, the decision log and the code's own

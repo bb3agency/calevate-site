@@ -90,9 +90,34 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
   const [resendReadyAt, setResendReadyAt] = useState<number | null>(null);
   const cooldown = useCountdown(resendReadyAt);
   const codeField = useRef<HTMLInputElement>(null);
+  const emailField = useRef<HTMLInputElement>(null);
+  /**
+   * Has a step change happened yet? First paint is not one.
+   *
+   * The focus move below has to fire when the step CHANGES and not when the page loads.
+   * Stealing focus on arrival would scroll a small screen past the heading and interrupt a
+   * screen reader mid-page, and it is not what a person opening a sign-in page asked for.
+   */
+  const stepChanged = useRef(false);
 
+  /**
+   * A step change unmounts the control that had focus, so this puts it somewhere.
+   *
+   * BOTH DIRECTIONS, and the second one was missing. Going forward, the Sign in button
+   * disappears and focus lands on the code field. Going BACK — "Use a different email
+   * address" — the whole code form unmounts including the button that was just pressed,
+   * and without this focus falls to `<body>`: a keyboard or screen-reader user is dropped
+   * at the top of a page that changed under them, which is the precise failure the forward
+   * half of this effect exists to prevent. `tests/a11y.ts` names focus order as a barrier
+   * axe cannot see, which is why it is pinned by a test rather than a sweep.
+   */
   useEffect(() => {
+    if (!stepChanged.current) {
+      stepChanged.current = true;
+      return;
+    }
     if (step === "code") codeField.current?.focus();
+    else emailField.current?.focus();
   }, [step]);
 
   const signIn = useMutation({
@@ -126,6 +151,14 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
     onSuccess: () => {
       setCode("");
       setResendReadyAt(Date.now() + RESEND_COOLDOWN_MS);
+      // The previous refusal is about a code that no longer exists — a new code retires
+      // it server-side (`OTP_BUDGET`), and the field it was typed into has just been
+      // cleared. Left on screen it is a red sentence attached to nothing, and on a step
+      // whose only other feedback is a countdown it reads as the RESEND having failed:
+      // the person presses again, into a cooldown that refuses them. `AuthProblemNotice`
+      // below renders `submitCode.error ?? resend.error`, so this is the only place that
+      // sentence can be retired.
+      submitCode.reset();
     },
   });
 
@@ -237,6 +270,8 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
           label="Email address"
           type="email"
           autoComplete="username"
+          // Focus returns here when the code step is abandoned — see the effect above.
+          inputRef={emailField}
           value={email}
           onChange={(event) => setEmail(event.target.value)}
         />

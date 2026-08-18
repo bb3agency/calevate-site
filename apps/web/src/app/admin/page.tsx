@@ -121,7 +121,7 @@ export default function AdminClientsPage() {
         {create.allowed ? (
           <Link
             href="/admin/new"
-            className="inline-flex items-center gap-2 rounded-lg bg-brand-strong px-3 py-2 text-sm font-semibold text-white hover:bg-brand"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand-strong px-3 py-2 text-sm font-semibold text-white hover:bg-brand-deep"
           >
             <Plus className="h-4 w-4" />
             New client

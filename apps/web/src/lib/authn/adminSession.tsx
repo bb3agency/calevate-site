@@ -104,7 +104,19 @@ export function useAdminSession(): RealmSessionState {
  * children` on purpose — the second form renders the console for every status somebody
  * adds later and forgets to handle.
  */
-export function AdminSessionGate({ children }: { children: ReactNode }) {
+export function AdminSessionGate({
+  children,
+  /**
+   * Passed through to `SessionGate`. TRUE from the console shell, where this gate is the
+   * entire document and must supply its `main` landmark and its heading; FALSE (the
+   * default) from `/auth/admin`, which renders it inside `AuthPageFrame`'s `<main>` and
+   * under that page's own `<h1>`.
+   */
+  landmark = false,
+}: {
+  children: ReactNode;
+  landmark?: boolean;
+}) {
   const { status, retry } = useAdminSession();
   if (status === "ready") return <>{children}</>;
   return (
@@ -113,6 +125,7 @@ export function AdminSessionGate({ children }: { children: ReactNode }) {
       realmLabel={ADMIN_REALM_LABEL}
       signInPath={ADMIN_SIGN_IN_PATH}
       onRetry={retry}
+      landmark={landmark}
     />
   );
 }

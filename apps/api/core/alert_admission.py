@@ -370,7 +370,14 @@ def reset_admission(*, service: str) -> None:
 
 
 def close_admission() -> None:
-    """Drop the connection. Called from the same shutdown path as `close_redis`."""
+    """Drop the connection, beside `close_redis` and `close_queue`.
+
+    That sentence was here before anything called it: the API lifespan closed Redis
+    alone and the worker's `on_shutdown` flushed spans alone, so this client outlived
+    every drain in both processes. `tests/service_teardown_test.py` asserts the calls
+    rather than the imports, because a teardown that imports a closer and never reaches
+    it reads exactly like one that does.
+    """
     global _client, _script
     with _lock:
         if _client is not None:

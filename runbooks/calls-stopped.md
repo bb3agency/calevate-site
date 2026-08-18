@@ -493,6 +493,55 @@ prepaid top-up, consent provenance on the campaign, and publishing the agent. Ev
 else is either ops, the registrar or a TSP — and in the registrar's case, saying so early
 is better than a "we're looking into it" that turns into a week.
 
+## 9. `engine_error_spike` — the twelfth cause, which is not ours
+
+The eleven causes above are all OUR refusals: a switch, a cap, a registration, a hold. The
+twelfth is the voice platform failing, and it looks different — nothing is refused, the
+gate is green, and calls simply do not connect.
+
+**What the alarm measured.** Ten or more engine requests failed inside five minutes,
+counting both 5xx answers and requests that got no answer at all. The threshold is derived
+from the retry ladder (`3 x WORKER_MAX_TRIES + 1`): below it, one unlucky call retrying
+three times could set it off. `apps/api/engine/health.py` carries the argument.
+
+### 9.1 Confirm and scope it
+
+```sql
+SELECT engine, bucket_start, server_errors, unreachable
+FROM platform_engine_health
+WHERE bucket_start >= now() - interval '2 hours'
+ORDER BY bucket_start DESC;
+```
+
+Read the two columns apart — they are different incidents wearing one alarm:
+
+- **`unreachable` high, `server_errors` ~0** — nothing is answering. DNS, egress, TLS, or
+  the vendor being entirely down. Check egress from the host before blaming the vendor.
+- **`server_errors` high** — the vendor's application is answering and failing. Their
+  status page is the next stop; there is nothing to fix here.
+- **Both, in a narrow band of minutes, then nothing** — a blip. The alarm fired because
+  the retry ladders across several operations overlapped. No action beyond noting it.
+
+### 9.2 What is and is not lost
+
+- **Calls already placed are not lost.** The reconciliation poller is the guarantee of
+  record (D-31): it re-reads executions every ten minutes and repairs what the webhooks
+  missed. Expect `reconciliation_repairs{kind=missing_call}` to rise afterwards — that is
+  the design working, not a second incident.
+- **Dials attempted during the outage burned a contact attempt each.** They come back
+  through the retry ladder; a campaign may exhaust contacts early if the outage is long.
+- **Publishes failed.** An agent whose publish failed is NOT live. Re-publish and confirm
+  from the agent's own screen after the engine recovers.
+- **Nothing is dead-lettered by this.** Do not run an outbox replay; that is a different
+  alarm (`outbox_dead_letter`) with a different remedy.
+
+### 9.3 If it is sustained
+
+Halt outbound with the big red switch rather than letting campaigns grind their contacts'
+retry budgets against a dead vendor — every attempt spent now is one not available when the
+platform comes back. Inbound is unaffected by the switch and by definition already broken
+if the engine is down.
+
 ## What NOT to do
 
 - **Never UPDATE `spend_state.capped`, `platform_state` or a campaign's `status` by

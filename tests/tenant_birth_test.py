@@ -48,6 +48,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.commercial_terms_test import _make_admin, _tenant
 from tests.conftest import FakeS3
+from tests.member_invitations_test import mailed_invitation_token
 
 TENANTS = "/v1/admin/tenants"
 INVITATIONS = "/v1/admin/tenants/{tenant_id}/invitations"
@@ -267,7 +268,7 @@ async def test_an_address_already_on_another_clients_team_can_still_be_invited()
     first, second = await _tenant(), await _tenant()
 
     minted = await _invite(token, first, shared_email)
-    accepted = await _accept(minted.json()["token"])
+    accepted = await _accept(await mailed_invitation_token(shared_email))
     elsewhere = await _invite(token, second, shared_email)
 
     assert minted.status_code == 201 and accepted.status_code == 200, accepted.text
@@ -294,8 +295,8 @@ async def test_a_key_cut_before_the_account_closed_cannot_be_redeemed_after() ->
     operator = await _make_admin("operator")
     tenant_id = await _tenant()
     email = f"owner-{uuid.uuid4().hex[:8]}@clinic.example"
-    minted = await _invite(operator, tenant_id, email)
-    invite_token = minted.json()["token"]
+    assert (await _invite(operator, tenant_id, email)).status_code == 201
+    invite_token = await mailed_invitation_token(email)
     await _set_status(operator, tenant_id, "churned", "client sold the business")
 
     response = await _accept(invite_token)
@@ -330,7 +331,8 @@ async def test_a_refused_redemption_creates_no_membership() -> None:
     operator = await _make_admin("operator")
     tenant_id = await _tenant()
     email = f"owner-{uuid.uuid4().hex[:8]}@clinic.example"
-    invite_token = (await _invite(operator, tenant_id, email)).json()["token"]
+    await _invite(operator, tenant_id, email)
+    invite_token = await mailed_invitation_token(email)
     await _set_status(operator, tenant_id, "churned", "offboarded")
 
     await _accept(invite_token)
