@@ -339,6 +339,75 @@ async def test_a_refused_redemption_creates_no_membership() -> None:
     assert members == 0
 
 
+async def test_the_owner_of_a_closed_account_is_told_it_closed_not_that_they_are_a_stranger() -> (
+    None
+):
+    """The wall the people who were ALREADY inside hit (D-189).
+
+    The two tests above close the door on a key cut for a dead account. Nobody had
+    walked the other half: the owner who has been signing in for months, whose account
+    an operator closes on Friday, and who opens the dashboard on Monday. `core/auth.py`
+    resolves memberships with `o.status <> 'churned'`, so the resolution came back empty
+    and they were told "You are not a member of this account" — on their own account, in
+    a product whose offboarding flow (FLOWS §9) hands them an export of the very data
+    that screen shows. It is false, and it names nothing they can do.
+
+    `account_closed` is the name `assert_account_open` and the dial gate already give
+    this state; the remediation is the one thing left that a person in this position can
+    actually act on.
+    """
+    operator = await _make_admin("operator")
+    tenant_id = await _tenant()
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
+            ),
+            {"i": user_id, "e": f"owner-{user_id.hex[:8]}@clinic.example"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:i, :t, :u, 'owner', now(), now())"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "u": user_id},
+        )
+    token = f"dev:client:{user_id}"
+
+    async with _client() as http:
+        before = await http.get("/v1/leads", headers=_auth(token))
+    assert before.status_code == 200, before.text
+
+    await _set_status(operator, tenant_id, "churned", "contract ended")
+
+    async with _client() as http:
+        after = await http.get("/v1/leads", headers=_auth(token))
+    assert after.status_code == 403, after.text
+    body = after.json()
+    assert body["type"].endswith("/account_closed"), body
+    assert "closed" in body["detail"]
+    assert body["remediation"], "a person who has just lost their data needs a next step"
+
+
+async def test_a_genuine_stranger_is_still_told_they_are_not_a_member() -> None:
+    """The other branch, which the fix must not swallow.
+
+    A caller with no membership anywhere must keep getting the neutral refusal — telling
+    them "this account is closed" would be inventing a fact about an account they have
+    nothing to do with, and would answer a question they are not entitled to ask.
+    """
+    token = await _founder(f"stranger-{uuid.uuid4().hex[:8]}@example.com")
+
+    async with _client() as http:
+        response = await http.get("/v1/leads", headers=_auth(token))
+
+    assert response.status_code == 403, response.text
+    assert response.json()["type"].endswith("/forbidden")
+
+
 # ============================================================================
 # 3. The lifecycle switch and the directory must describe one client
 # ============================================================================

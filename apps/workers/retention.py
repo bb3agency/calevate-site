@@ -1643,6 +1643,53 @@ UPDATE organizations SET deleted_at = now(), updated_at = now()
 WHERE id = :tid AND deleted_at IS NULL AND status = 'churned'
 """
 
+# THE ERASED ACCOUNT MUST STOP COLLECTING (D-189).
+#
+# Every arm above erases what the tenant HAD. None of them stopped it acquiring more.
+# `engine_agent_routes` is the one bridge from the voice platform's id space into ours
+# (`workers/pipeline._resolve_agent`), the vendor's agent objects are still configured
+# and the client's DID is still pointed at them, so the FIRST inbound call after the
+# certificate was issued re-created a `calls` row, its transcript, its extraction, its
+# lead and an archived engine payload — full caller records, under a `tenant_id` whose
+# certificate says the account is erased and whose own people are locked out of every
+# screen that could show them (`core/auth.py` refuses a churned org). Storage with no
+# purpose and no reader is DPDP §8(7) on its own; a certificate that is false within
+# minutes of being signed is worse. Measured against the live schema before the fix:
+# the route resolved and the row inserted.
+#
+# Withdrawing the routing is the half that is OURS and it is a single statement in the
+# erasure's own transaction, so it commits with `deleted_at` and the certificate or not
+# at all. What it does NOT do is stop the vendor answering the phone — only removing the
+# agent at the voice platform and releasing the number with the telephony provider does
+# that, and both are outside this repository. The certificate says so rather than
+# implying otherwise, and the operator's signal is automatic: the next call to that
+# number arrives with a ref nothing maps, and `_ingest_stages` already raises
+# `engine_agent_unmapped` for exactly that.
+#
+# REJECTED: calling `VoiceEngine.delete_agent` from here. It exists and is idempotent by
+# contract, but it is a third-party round trip inside the one transaction that must not
+# half-commit, and its failure mode would be an erasure that rolls back because a vendor
+# was slow. The vendor-side deletion stays `unconfirmed_pending_vendor_api`, which is
+# what the certificate has always claimed and all it has ever been able to.
+#
+# `active` is filtered in the WHERE so the count reports routes this erasure actually
+# withdrew rather than every row the tenant ever had; a variant retired earlier
+# (`agents/experiments.py`) is already inactive and was already collecting nothing.
+#
+# WHAT IT DOES NOT BREAK, checked rather than assumed. The retention sweep and the
+# outbox dispatcher enumerate tenants with `SELECT DISTINCT tenant_id FROM
+# engine_agent_routes` and are deliberately UNFILTERED on `active` (see `_tenants` above:
+# offboarding is where the countdown STARTS), so an erased tenant's remaining rows keep
+# ageing out on their own policy exactly as FLOWS §9 promises. What DOES stop is the
+# agent and KB drift sweeps, which read `WHERE active` — and that is the right answer,
+# not a gap: those sweeps exist to keep an agent we still operate faithful to what we
+# published, and this account's agents are being abandoned to the vendor, which is the
+# fact the certificate now states in words instead of leaving to a reader.
+_WITHDRAW_ROUTES_SQL = """
+UPDATE engine_agent_routes SET active = false, updated_at = now()
+WHERE tenant_id = :tid AND active
+"""
+
 
 async def _erase_tenant_calls(
     session: AsyncSession, *, tenant_id: UUID, request_id: UUID
@@ -1833,6 +1880,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # each page issues object deletions; `_erase_tenant_leads` pages because each page
         # lists a prefix per lead. This touches neither.
         counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
+        # BEFORE the mark, in the same transaction: see `_WITHDRAW_ROUTES_SQL`. An
+        # erased account must stop acquiring caller records, and this is the half of
+        # that which is ours to perform.
+        withdrawn = await session.execute(text(_WITHDRAW_ROUTES_SQL), {"tid": tenant_id})
+        counts["engine_routes_withdrawn"] = int(rowcount_of(withdrawn) or 0)
 
         marked = await session.execute(text(_MARK_ERASED_SQL), {"tid": tenant_id})
         if int(rowcount_of(marked) or 0) != 1:
@@ -1861,6 +1913,12 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             },
             "actions": {
                 "organizations": "marked deleted; no membership resolves and no dial is permitted",
+                "engine_agent_routes": (
+                    f"{counts['engine_routes_withdrawn']} voice-platform routing entr(ies) "
+                    "withdrawn, so no further call reaching this account's agents is "
+                    "recorded here; removing the agents at the voice platform and "
+                    "releasing the telephone numbers are manual steps with those vendors"
+                ),
                 "calls": "phone numbers, recording pointer and summary cleared",
                 "recordings": (
                     f"{counts['recordings_destroyed']} audio file(s) destroyed in object "

@@ -322,7 +322,45 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
         sql += " ORDER BY m.created_at LIMIT 2"
         memberships = (await session.execute(text(sql), params)).all()
 
+        if not memberships:
+            # ZERO ROWS IS TWO DIFFERENT FACTS, and only one of them is "you are not a
+            # member" (D-189). The predicate above hides a CLOSED account as well as a
+            # foreign one, so the owner of a business we offboarded — who is still on
+            # `memberships`, still holds the credential, and whose leads export FLOWS §9
+            # puts in the offboarding flow — was told, on their own account, that they
+            # were not a member of it. That sentence is false, it names nothing they can
+            # act on, and `admin.service.assert_account_open` already cites this exact
+            # symptom as the reason an invitation into a closed account is refused; the
+            # people who were ALREADY inside hit the same wall and nobody had named it.
+            #
+            # The second read stays inside `user_session`, so it can only ever see this
+            # caller's own memberships and discloses nothing about anyone else's account
+            # — it is the same row they could see yesterday, not a probe.
+            #
+            # `account_closed` is `compliance.service.account_stopped_blocker`'s and
+            # `assert_account_open`'s own name for this state, deliberately: one
+            # condition explained three ways is how an operator ends up believing they
+            # are three problems.
+            closed_sql = (
+                "SELECT 1 FROM memberships m JOIN organizations o ON o.id = m.tenant_id "
+                "WHERE m.user_id = :uid AND (o.deleted_at IS NOT NULL OR o.status = 'churned')"
+            )
+            if org_slug:
+                closed_sql += " AND o.slug = :slug"
+            closed_sql += " LIMIT 1"
+            closed = (await session.execute(text(closed_sql), params)).first()
+
     if not memberships:
+        if closed is not None:
+            raise ProblemError(
+                kind="permission",
+                code="account_closed",
+                title="Account closed",
+                detail="This account has been closed and can no longer be signed in to.",
+                remediation=(
+                    "Contact Calevate support if you still need an export of its calls and leads."
+                ),
+            )
         raise ProblemError.forbidden("You are not a member of this account.")
     if len(memberships) > 1 and not org_slug:
         raise ProblemError(
