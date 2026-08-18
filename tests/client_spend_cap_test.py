@@ -224,7 +224,7 @@ async def test_a_cap_below_this_months_spend_stops_the_next_dial_not_the_next_me
     # A PRICED plan, because the cap is compared against what the CLIENT owes (P1.3) and
     # a tenant with no `plans` row has no quoted rate — so nothing accrues for them and
     # a rupee ceiling has nothing to bite on, which is a deliberate refusal to invent a
-    # price rather than an oversight (`billing/rates.py::client_billed_inr`). No included
+    # price rather than an oversight (`billing/service.py::priced_overage`). No included
     # allowance, so all 120 metered minutes are charged: ₹960 against a ₹100 cap.
     await _admin_plan(tenant_id, cap_min=None, cap_spend=None, included_min=0)
     await _bill(tenant_id, agent_id, seconds=7200, spend="500.00", ended=THIS_MONTH)
