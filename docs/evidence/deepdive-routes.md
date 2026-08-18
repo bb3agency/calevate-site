@@ -30,6 +30,7 @@ Decisions: **D-300** (error-ladder floor), **D-301** (IDOR sweep completeness),
 | 8 | **Seven empty 202s documented a body they never send.** `authn`'s OTP/reset/step-up acks return a bare `Response(status_code=202)`; without `response_class=Response`, FastAPI advertises `application/json` with a `{}` schema. | class (seven instances) | **PROVEN**: same sweep; the schema now carries no content. |
 | 9 | **`SubmitIn.uri` was an unbounded stored string** — the only string on the KB submission model with no ceiling, so the durable size of a `kb_sources` row was set by the 2 MiB body cap. | instance | **REASONED**; now `max_length=2048`. |
 | 10 | **`apps/voice-runtime`'s two acks had no response model.** Its input is a vendor payload that can carry a caller's number, and `apps/api`'s redaction guardrail does not walk this service's schema at all. | class (two instances) | **REASONED**; now `WebhookAckOut` / `ToolAckOut`, `extra="forbid"`, with `response_model_exclude_none=True` so the wire bytes are unchanged. |
+| 11 | **`ContactIn.custom` was unbounded in all three dimensions** — count, key length and value length — while being STORED as `campaign_contacts.custom` jsonb and rendered into the agent's prompt as engine `user_data`. One POST of 5,000 contacts could durably store, and later speak from, megabytes of caller-authored text. | instance (write-side twin of finding 3) | **PROVEN** at the model in `tests/campaigns_test.py`, with a realistic clinic contact as the control; reverting the annotation turns it red. |
 
 ## 2. What came back clean
 
@@ -107,6 +108,33 @@ Every fix ships with a test that fails without it. Each row was run.
 | Declare a `BOUNDED_LISTS` entry for a route that does not exist | "delete the entry" | **failed** as designed |
 | Shorten a `BOUNDED_LISTS` reason to "it is small" | reason floor refuses it | **failed** as designed |
 | Bound `GET /v1/agents` while `get_agent` still calls the handler | the IDOR sweep 500s on the detail route | **observed for real** — this is how finding 6 was found |
+
+## 3a. What was actually run
+
+- **Targeted regression batch, 29 files** covering every route this pass touched plus
+  every authz/realm/impersonation/redaction suite that reads the route table:
+  **409 passed, 1 failed in 3m21s**. The single failure is
+  `guardrail_audit_test::TestRlsCoverage::test_live_schema_is_clean`, naming
+  `platform_engine_health` — the sibling's table described under "still open", not
+  anything in this branch.
+- **Every guardrail individually**: all green except that same `check_rls_coverage`.
+- `ruff check`, `ruff format --check`, `mypy apps packages`, and
+  `pnpm -C apps/web typecheck` after each OpenAPI regeneration.
+- **The whole suite**: `pytest tests/ packages` — **5,229 passed, 5 failed, 8 skipped,
+  2 xfailed in 25m22s**, on a box shared with five other sessions. Every one of the five
+  was re-run standalone and none of them is this branch:
+
+  | Failure | Standalone | What it is |
+  | --- | --- | --- |
+  | `alert_delivery::test_a_storm_of_distinct_codes_is_capped_by_the_rate_limit` | **passes** | `alert()`'s global hourly bucket is process-wide state; a 25-minute run beside five other sessions spends it. Nothing here touches alerting. |
+  | `campaigns::test_the_tick_dials_up_to_the_campaign_slider_and_no_further` | **passes** | the dispatch tick under a shared Postgres and a shared Redis lease. The list-bounds change is to `list_campaigns`, which this test does not call. |
+  | `engine_readiness_credentials::test_bolna_still_answers_exactly_as_it_did` | **passes** | engine-adapter readback, untouched by this branch. |
+  | `guardrail_audit::TestRlsCoverage::test_live_schema_is_clean` | fails | `platform_engine_health` — the sibling's table, described below. |
+  | `pilot_cli::test_preflight_names_the_gates_each_missing_item_blocks` | fails | it builds `Settings(**base)` with no `bolna_api_key` and expects gate 1 to be BLOCKED — but `.env` is read by pydantic-settings and the repository `.env` this pass was told to copy carries a real `BOLNA_API_KEY`, so the gate is satisfied and the key is absent from `blocked_gates()`. `.env` is gitignored and CI writes an empty one, so this is green in CI and red on any machine with a populated `.env`. Reported rather than edited: it is the `harness_ambient_env_test` class, in the pilot fence. |
+
+  Three environment-shaped failures out of 5,234 is the shared-box baseline, not a
+  regression signal — and the way to tell is that each was re-run alone, which is what
+  the middle column records.
 
 ## 4. Still open (nothing here is codeable in this repo)
 
