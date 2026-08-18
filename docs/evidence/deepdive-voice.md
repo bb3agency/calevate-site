@@ -143,6 +143,28 @@ and is NOT in `db.registry.APPEND_ONLY_TABLES`, so the delete is a correction, n
 rewrite of evidence — verified against the constant, and `make guardrails`' ledger check
 passes.
 
+### F-4 — D-182 left two voice-runtime tests asserting the number it changed (PROVEN)
+
+`db/session.get_engine` sets `max_overflow=MAX_NESTED_CONNECTIONS - 1` (= 1) and argues
+at length why zero self-deadlocks a pool holding only depth-2 tasks. Two tests in
+`tests/voice_runtime_ack_budget_test.py` still asserted the superseded `0`:
+`test_a_warm_receiver_opens_no_new_database_connections_under_load` and
+`test_the_pool_is_sized_with_no_single_use_overflow_and_a_bounded_wait`.
+
+**PROVEN, and PROVEN to be upstream rather than mine**: both fail on
+`origin/claude/app-building-session-r1v5j9` as merged — `git show` on that ref has the
+test asserting `_max_overflow == 0` beside a `session.py` whose own docstring says "WHY
+THE OVERFLOW IS 1 AND NOT 0 (D-182)". Nothing in this dive touches `db/session.py`. Lint,
+mypy and `make guardrails` were all green over it; only pytest saw it.
+
+**Fix**: the property is restated where the number can move rather than pinned to a
+literal. The churn test now asserts connections opened are bounded by the pool's OWN valve
+(twelve deliveries through a two-connection pool may open at most one; a restored
+`max_overflow=10` produces twelve), and the configuration test asserts
+`_max_overflow == MAX_NESTED_CONNECTIONS - 1` — the same constant
+`scripts/check_session_nesting.py` bounds nesting by, so the pair D-182 created can no
+longer drift apart. The test is renamed to match what it now says.
+
 ---
 
 ## Cleared — looked at, found sound
