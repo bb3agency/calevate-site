@@ -27,6 +27,19 @@
 # a compromised action there is a compromised production host (hard rule 9). The cost of
 # avoiding it is two lines of `bash`; the cost of pinning-and-trusting is permanent.
 #
+# ============================ HOW A ROLLBACK IS REACHED =============================
+# Actions -> Deploy -> "Run workflow", and put the previous good sha in `commit_sha`.
+# That runs `scripts/vps-deploy.sh --checkout <sha>`, which fetches, moves the deploy
+# checkout to exactly that commit (detached), reuses the image already tagged for it if it
+# is still on the host, SKIPS the migration when the database is ahead of that artefact
+# (hard rule 8 is what makes the older release able to serve the newer schema), and swaps.
+# `.deploy-state/history` on the box is where the previous sha comes from.
+#
+# The checkout stays detached on purpose, so the next `workflow_run` deploy REFUSES rather
+# than pulling back onto the tip and silently undoing the rollback. Roll forward with
+# another dispatch, or `git -C $VPS_CLIENT_PATH checkout main` to resume automatic deploys.
+# `tests/deploy_checkout_flag_test.py` drives both halves against a real git tree.
+#
 # ========================== WHY ONE JOB AND NOT THREE ===============================
 # DEPLOYMENT §3 sketched three independent jobs so a docs-only change would not rebuild
 # Docker. That property is kept — but it is enforced in `scripts/vps-deploy.sh`, which
@@ -48,6 +61,11 @@ on:
     types: [completed]
   workflow_dispatch:
     inputs:
+      commit_sha:
+        description: "ROLLBACK: deploy this exact commit instead of the head of main (40 or 7+ hex chars). Empty = normal deploy."
+        required: false
+        type: string
+        default: ""
       components:
         description: "Components to deploy (space separated: api voice-runtime workers web nginx). Empty = whatever changed."
         required: false
@@ -117,19 +135,45 @@ jobs:
           exit "$missing"
 
       - name: Deploy
-        # `--expected-sha` is the anti-race gate: CI validated ONE commit, and between
-        # that run finishing and this job starting, main can have moved. The script
-        # aborts rather than shipping a commit nothing tested.
+        # TWO MODES, AND THEY ARE MUTUALLY EXCLUSIVE BY CONSTRUCTION.
+        #
+        # FORWARD (`--expected-sha`) is the anti-race gate: CI validated ONE commit, and
+        # between that run finishing and this job starting, main can have moved. The
+        # script fast-forwards the checkout and then aborts rather than shipping a commit
+        # nothing tested.
+        #
+        # ROLLBACK (`--checkout`) is the whole reason `workflow_dispatch` takes a sha. It
+        # is the only rollback anybody can reach without an SSH session, and it is what
+        # makes the kill switch a last resort instead of the first move. `--expected-sha`
+        # is deliberately NOT passed with it: the flag that CHOOSES the commit and the
+        # flag that VERIFIES it would then be one value checking itself, which reads like
+        # a gate and is not one.
+        #
+        # NOTE WHAT THIS STEP DOES NOT DO: no `git fetch`, no `git checkout`, no `docker`,
+        # no `alembic`. Moving the deploy checkout is `--checkout`'s job inside the script,
+        # for the same reason migrations are: a workflow that reimplements a step of
+        # `vps-deploy.sh` is a second copy that drifts, and the copy that drifts is the one
+        # nobody runs by hand. `scripts/check_deploy_workflow.py` fails CI if this step
+        # grows one.
         #
         # `${{ github.event.workflow_run.head_sha }}` is empty on workflow_dispatch, where
         # `github.sha` is the dispatched ref — hence the fallback.
         env:
           CI_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          ROLLBACK_SHA: ${{ inputs.commit_sha }}
           COMPONENTS: ${{ inputs.components }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
           set -euo pipefail
-          args=(--expected-sha "$CI_SHA")
+          if [[ -n "${ROLLBACK_SHA:-}" ]]; then
+            echo "::warning::Rollback requested: deploying $ROLLBACK_SHA instead of the head of main."
+            echo "::warning::The checkout is left DETACHED, so the next automatic deploy REFUSES"
+            echo "::warning::rather than pulling back onto the tip. To resume automatic deploys:"
+            echo "::warning::  git -C \"$VPS_CLIENT_PATH\" checkout main"
+            args=(--checkout "$ROLLBACK_SHA")
+          else
+            args=(--expected-sha "$CI_SHA")
+          fi
           if [[ "${DRY_RUN:-false}" == "true" ]]; then args+=(--dry-run); fi
           # Unquoted on purpose: this input is a space-separated component list and the
           # script rejects any word that is not a known component name.
@@ -144,3 +188,5 @@ jobs:
           echo "::error::continue, so the previous release is still serving unless the"
           echo "::error::failure was in the swap step itself."
           echo "::error::Procedure: runbooks/deploy-failed.md (ordered by which step failed)."
+          echo "::error::To roll back without SSH: re-run this workflow from the Actions tab"
+          echo "::error::with commit_sha set to the previous good sha (see the header of this file)."

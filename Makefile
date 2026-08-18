@@ -3,7 +3,7 @@
 # was missing from this list, which meant a stray file or directory named `guardrails`
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
-.PHONY: help dev up down check lint lint-check types test db-reset eval eval-ci \
+.PHONY: help dev up down check lint lint-check types test db-reset seed-dev eval eval-ci \
         qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept
@@ -328,6 +328,14 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# set against the Makefile, the package scripts, the decision log and the code's own
 	# vocabulary. Negative controls in tests/docs_drift_guard_test.py.
 	uv run python -m scripts.check_docs_drift
+	# The deploy WORKFLOW against the deploy SCRIPT (D-290). A CD workflow and a deploy
+	# script are two descriptions of one procedure and the workflow is the copy nobody runs
+	# by hand, so every flag it passes must be one the script parses, no step of the script
+	# may be reimplemented in it, and every secret/var it reads must be in DEPLOYMENT.md.
+	# Also `bash -n` on each `run:` block: CI shellchecks `git ls-files '*.sh'` and a
+	# workflow's inline bash is in no such file. Exit 2 = refused. Negative controls in
+	# tests/deploy_workflow_guard_test.py.
+	uv run python -m scripts.check_deploy_workflow
 
 # --- Backup/restore drill (OPERATIONS §6, runbooks/backup-restore-drill.md) ---
 # Its own .PHONY line, same reasoning as the pilot block below.

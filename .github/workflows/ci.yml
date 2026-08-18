@@ -251,6 +251,15 @@ jobs:
         # still cites rule strings the code emits. No database needed.
         run: uv run python -m scripts.check_docs_drift
 
+      - name: "Guardrail: the deploy workflow cannot drift from the deploy script"
+        # D-290. `.github/workflows/deploy.yml` is a trigger in front of
+        # `scripts/vps-deploy.sh`, and the properties this deployment rests on —
+        # migrations strictly before the swap, the health-gated swap, one image per commit
+        # — all live in the script. A flag renamed in the script, a `git checkout` copied
+        # into the workflow, or a new Secret nobody documented would each surface for the
+        # first time on the production host. Syntax-decidable; no daemon, no network.
+        run: uv run python -m scripts.check_deploy_workflow
+
       - name: "Guardrail: model residency (D-127 asia-south1 only)"
         if: ${{ !cancelled() }}
         # No model traffic may reach a global Google endpoint, and the region may not be
