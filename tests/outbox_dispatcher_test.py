@@ -17,8 +17,12 @@ exactly what the loop exists for:
   learn to ignore, which is the same failure as not having one.
 
 Cross-suite courtesy: the outbox is platform-wide by design (one loop for every
-tenant), so this module's rows are backdated to be claimed first, marked with a run id,
-and deleted on the way out.
+tenant), so this module's rows are backdated to be claimed first and deleted on the way
+out — BY ID, collected as they are created. They used to be found again by
+`payload->>'marker'`, which stopped being possible the day publishing began scrubbing the
+payload (`reliability.service.mark_outbox_published`): a published row has no marker any
+more, so a marker-keyed cleanup would silently leave every SUCCESSFUL row behind in a
+database this suite shares.
 """
 
 from __future__ import annotations
@@ -41,14 +45,18 @@ from sqlalchemy.exc import OperationalError
 
 RUN = uuid.uuid4().hex[:12]
 
+#: Every outbox row this module writes. The id survives the publish scrub; the marker in
+#: the payload does not.
+_WRITTEN: list[UUID] = []
+
 
 @pytest.fixture(scope="module", autouse=True)
 async def _clean_up_after_ourselves() -> AsyncIterator[None]:
     yield
     async with untenanted_session() as session:
         await session.execute(
-            text("DELETE FROM outbox_messages WHERE payload->>'marker' LIKE :m"),
-            {"m": f"%{RUN}"},
+            text("DELETE FROM outbox_messages WHERE id = ANY(CAST(:ids AS uuid[]))"),
+            {"ids": [str(message_id) for message_id in _WRITTEN]},
         )
         await session.execute(
             text("DELETE FROM idempotency_records WHERE idempotency_key LIKE :m"),
@@ -69,6 +77,7 @@ async def _outbox_row(job: str, marker: str) -> UUID:
             ),
             {"id": message_id, "job": job, "payload": json.dumps({"marker": marker})},
         )
+    _WRITTEN.append(message_id)
     return message_id
 
 

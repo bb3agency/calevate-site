@@ -19,6 +19,23 @@ shape every job that matters uses is the one `billing.issue_one_time_charges` sp
 returning would file the tick as a success with a number in it that nobody reads. A job
 that does not make that pair of gestures fails in silence, whatever this file says.
 
+**AND THAT SENTENCE HAD TWO HOLES IN IT, because it assumed the job's code runs.** Read
+off the installed `arq.worker.Worker.run_job`, there are two terminal states where it does
+not, and on both of them a per-job `alert()` is structurally unreachable:
+
+* an enqueue for a name no worker registers — `logger.warning('job %s, function %r not
+  found')` and `job_failed(...)`, before the function is ever looked up successfully;
+* `job_try > max_tries` — `logger.warning('%6.2fs ! %s max retries %d exceeded')` and
+  `finish_failed_job(...)`, checked BEFORE `on_job_start`, so the ladder's last rung is a
+  pickup the job never sees. Every job that raises `Retry` up to its budget ends here, and
+  so does any cron cancelled at `job_timeout` three times running — which is
+  `apply_retention` gone until tomorrow with nothing but a log line.
+
+`ARQ_TERMINAL_MESSAGES` and `install_arq_terminal_alerter` below close both by routing
+arq's own two warnings into the one `alert()`. That is a call site, not a mechanism: it
+stores nothing and touches neither Postgres nor Redis, which is what keeps it working on
+the night the thing it is reporting is the queue.
+
 Building a real DLQ was weighed and is not what P6.5 asked for: it would mean a second
 durable store for failures beside the outbox we already have, and "one way per problem"
 says the answer is to make the nine jobs alert rather than to add a tenth mechanism. The
@@ -32,10 +49,12 @@ worker that refuses to start because Sarvam is unconfigured takes down recording
 copies and metering too, which is a far worse failure than degraded extraction.
 """
 
+import logging
 from typing import Any
 
 from arq import cron
 
+from apps.api.core.alerting import alert
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.observability import (
     init_observability,
@@ -106,13 +125,14 @@ FUNCTIONS: list[Any] = [
         # Both WhatsApp jobs. An unregistered job is not a dormant feature — the outbox
         # publishes it, arq does not recognise the name, and the row walks its retry
         # ladder into the DLQ while every screen reports the message was queued.
-        # `tests/job_registration_test.py` is the guard; this pair is why it exists.
+        # `scripts/check_job_wiring.py` is the gate now (D-199) and it derives the
+        # three-way agreement rather than reading a list; this pair is why it exists.
         notify_hot_lead_whatsapp,
         escalate_campaign_contact,
         # Hard rule 5's fast half: voice-runtime acks the engine's opt-out tool call and
         # queues this. Unregistered, the caller's request would be acked to the vendor,
         # dropped by arq, and only recovered by the post-call transcript pass minutes
-        # later — the exact silent-degradation shape `job_registration_test.py` guards.
+        # later — the exact silent-degradation shape `check_job_wiring` guards.
         record_in_call_optout,
         # D-170. Every one-time secret `apps/api/authn` mints is delivered by this job, so
         # an unregistered one means a reset link that is promised, queued, DLQ'd and never
@@ -300,9 +320,85 @@ CRON_JOBS = [
 ]
 
 
+#: The two ways arq itself ends a job WITHOUT the job's own code running, mapped to the
+#: alert code an operator would search for. Keyed by the LOGGING FORMAT STRING rather than
+#: by the rendered message, because the format string is a literal in arq's source: it
+#: cannot be spoofed by a job id and it does not shift when the arguments do.
+#:
+#: WHY THIS EXISTS AT ALL. The docstring at the top of this file establishes that the
+#: alert on exhaustion is a property of each JOB, not of the queue — and that is right for
+#: every path where the job's code is running. These two are the paths where it is NOT:
+#:
+#:   * `function ... not found` — an enqueue for a name no worker registers. arq accepts
+#:     the enqueue, then drops the job with a warning. The job's own code never executes,
+#:     so no per-job `alert()` can possibly fire. `scripts/check_job_wiring.py` is the
+#:     static gate that stops this shipping; this is the runtime backstop for the case it
+#:     structurally cannot see — a producer deployed against a worker that has not been
+#:     restarted yet.
+#:   * `max N retries exceeded` — the ladder ran out, and arq refuses the pickup BEFORE
+#:     calling the function (`Worker.run_job` checks `job_try > max_tries` first, and does
+#:     not run `on_job_start`/`on_job_end` on that path). Every job that raises `Retry`
+#:     until its last attempt therefore has a terminal state its own code cannot alert
+#:     from, and a cron cancelled at `job_timeout` — which arq requeues as a retry — walks
+#:     straight into it. That is `apply_retention` gone until tomorrow in silence, which
+#:     is the exact failure P6.2 fixed from the other direction.
+#:
+#: NOT a second DLQ, and not a second alert path: it is one more CALL SITE of the one
+#: `alert()` (BACKEND-PATTERNS §8). It stores nothing, reads nothing and touches neither
+#: Postgres nor Redis, which is the property that keeps it working on the night the thing
+#: it is reporting is the queue.
+ARQ_TERMINAL_MESSAGES: dict[str, str] = {
+    "job %s, function %r not found": "job_function_not_registered",
+    "%6.2fs ! %s max retries %d exceeded": "job_retries_exhausted",
+}
+
+#: How much of arq's rendered message rides the alert. Bounded because the message
+#: interpolates a job id, and a job id is `"<job>:<natural key>"` — ids only by
+#: construction (`core/queue.job_id_for`), but an alert body is forwarded further than a
+#: log line is and a bound costs nothing (hard rule 6).
+_ARQ_DETAIL_CHARS = 200
+
+
+class _ArqTerminalFailureAlerter(logging.Handler):
+    """Turn arq's own terminal-failure warnings into alerts.
+
+    A `logging.Handler` rather than a fork of arq or a poll of Redis job keys, because
+    arq offers no hook on either path and the warning is the only signal it emits. The
+    handler matches on `record.msg` — the unformatted template — so it reads arq's
+    intent rather than grepping a rendered string; `tests/worker_terminal_alert_test.py`
+    pins both templates against the installed `arq.worker` source, so an upgrade that
+    rewords them fails the build instead of silently unhooking this.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        code = ARQ_TERMINAL_MESSAGES.get(str(record.msg))
+        if code is None:
+            return
+        # `alert()` never raises (its own contract), so nothing here can turn a logging
+        # call inside arq's exception handling into a second failure.
+        alert("WORKER_TERMINAL", code, detail=record.getMessage()[:_ARQ_DETAIL_CHARS])
+
+
+def install_arq_terminal_alerter(logger_name: str = "arq.worker") -> bool:
+    """Attach the handler once. Returns whether it was newly attached.
+
+    Idempotent because `startup` runs per worker process and a test may call it too; two
+    handlers would double every alert, which is how a real signal starts getting muted by
+    the operator it is for.
+    """
+    target = logging.getLogger(logger_name)
+    if any(isinstance(handler, _ArqTerminalFailureAlerter) for handler in target.handlers):
+        return False
+    target.addHandler(_ArqTerminalFailureAlerter(level=logging.WARNING))
+    return True
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     validate_bootstrap_env()
     configure_logging()
+    # AFTER `configure_logging`, so the handler is added to the logger tree that is
+    # actually in use rather than to one a later reconfiguration replaces.
+    install_arq_terminal_alerter()
     # The worker has no `create_app`, so bootstrap step 3 happens here instead — and it
     # must, because the worker is the CONSUMER side of the trace. If only the API
     # initialised tracing, every enqueued traceparent would arrive at a process with no

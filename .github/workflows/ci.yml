@@ -222,6 +222,15 @@ jobs:
         # lists cannot drift apart again.
         run: uv run python -m scripts.check_wiring
 
+      - name: "Guardrail: nothing half-wired in the background fleet (D-199)"
+        if: ${{ !cancelled() }}
+        # The three-way agreement between DEFINED, REGISTERED and ENQUEUED jobs.
+        # `check_wiring` says in its own docstring that it does no ARQ check; this is
+        # that check, and its third question is the one that cannot be caught at
+        # runtime — arq accepts an enqueue for any string and drops the job with a
+        # `function not found` warning nothing in this repo reads.
+        run: uv run python -m scripts.check_job_wiring
+
       - name: "Guardrail: docs drift (D-29 check:docs-drift)"
         if: ${{ !cancelled() }}
         # Commands the docs name resolve, `D-xx` references resolve, and SEC-COMP §3

@@ -496,11 +496,41 @@ async def _dead_letter_exhausted_claims(conn: AsyncConnection) -> None:
 
 
 async def mark_outbox_published(session: AsyncSession, *, message_id: UUID, job_id: str) -> None:
-    # `locked_until = NULL` on every terminal transition, so a non-null lease means
-    # "claimed right now, or abandoned" and never "resolved a while ago".
+    """Terminal transition, and the payload is FORGOTTEN in the same statement.
+
+    **A PUBLISHED ROW USED TO KEEP ITS PAYLOAD FOR NINETY DAYS.** Nothing deleted it until
+    `retention.prune_reliability_tables` reached it at `RELIABILITY_PRUNE_AFTER`, and that
+    module's own comment says what is in there: "`outbox_messages.payload` carries a lead's
+    name, phone number and call summary … an unbounded copy of tenant personal data sitting
+    OUTSIDE every retention policy a tenant can set, and outside the DPDP erasure path".
+    Pruning bounded the growth; it did not shorten the exposure.
+
+    The sharpest case is `deliver_auth_email` (D-170). `authn/service._enqueue_auth_email`
+    puts a LIVE one-time credential — a password-reset token, an invite link, an OTP — in
+    that jsonb column, and argued the exposure was bounded on the sentence "the row is
+    deleted on successful dispatch". It was not: the row was UPDATEd to `published` and
+    kept, secret and all, for a quarter of a year. A security argument resting on a
+    premise the code does not implement is worse than no argument, because it stops the
+    next reader looking.
+
+    So the forgetting happens HERE rather than in a new sweep: the moment the job is on the
+    queue, the row's remaining job is to answer "was this delivery made", and `job`,
+    `job_id`, `published_at` and `attempt_count` answer that completely. The CONTENT of a
+    delivery is `webhook_deliveries`' business, which has a tenant retention arm; this
+    table has none and cannot have one (no `tenant_id`, by design).
+
+    NOT a `payload IS NULL` (the column is NOT NULL and every reader would need a new
+    branch) and not a second UPDATE (a row updated twice can be published-but-unscrubbed
+    if the process dies between them, which is the exposure again with extra steps). One
+    statement, one fate.
+
+    `locked_until = NULL` on every terminal transition, so a non-null lease means "claimed
+    right now, or abandoned" and never "resolved a while ago".
+    """
     await session.execute(
         text(
             "UPDATE outbox_messages SET status = 'published', job_id = :job_id, "
+            "payload = '{}'::jsonb, "
             "published_at = now(), locked_until = NULL, updated_at = now() "
             "WHERE id = :id AND status = 'pending'"
         ),

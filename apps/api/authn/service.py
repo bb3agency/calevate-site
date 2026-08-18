@@ -737,9 +737,18 @@ async def _enqueue_auth_email(
     `outbox_messages.payload` is a jsonb column in the same database — so for the ten
     seconds before the dispatcher picks it up, the plaintext token exists in a row. The
     alternative is storing a reversible copy somewhere else, which is the same exposure with
-    more moving parts. What bounds it: the row is deleted on successful dispatch, the token
-    is single-use and short-lived, and `hide_parameters=True` on the engine keeps it out of
-    any DBAPI error string. It is NOT logged, and `redact_mapping` covers the audit path.
+    more moving parts. What bounds it: the token is single-use and short-lived,
+    `hide_parameters=True` on the engine keeps it out of any DBAPI error string, it is NOT
+    logged, `redact_mapping` covers the audit path — and the payload is CLEARED by the
+    statement that marks the row published (`reliability.service.mark_outbox_published`).
+
+    **THAT LAST CLAUSE USED TO READ "the row is deleted on successful dispatch", AND IT WAS
+    FALSE.** Publishing UPDATEs the row; nothing deleted it until
+    `retention.prune_reliability_tables` reached it ninety days later. So the bound this
+    paragraph rested on did not exist, and a live reset token sat in a jsonb column for a
+    quarter of a year. The scrub is now part of the same statement as the status flip, which
+    is what makes the sentence true rather than intended — `tests/outbox_payload_scrub_test.py`
+    is the assertion, because a comment cannot fail a build.
     """
     await enqueue_outbox(
         session,

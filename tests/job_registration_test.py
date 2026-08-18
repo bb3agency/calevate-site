@@ -1,179 +1,273 @@
-"""Every job name the system can enqueue must be a job some worker knows.
+"""The background fleet's wiring guard, proved against the states it exists to catch.
 
-An unregistered job is not a dormant feature. The outbox publishes it, arq does not
-recognise the name, and the row walks its retry ladder into the DLQ — while the outbox
-row, the delivery record and every screen above them report that the message was queued.
-The failure is silent in exactly the place a silent failure is most expensive: a
-compliance follow-up, a hot-lead alert, an erasure.
+`scripts/check_job_wiring.py` is the gate; this file is the evidence that the gate can
+go red — the shape `tests/wiring_guard_test.py` uses for `check_wiring`, and for the
+same reason: a check nobody has watched fail is a check nobody knows is connected.
 
-That is not hypothetical. `notify_hot_lead_whatsapp` shipped with the WhatsApp seam and
-was never added to `FUNCTIONS`; `escalate_campaign_contact` was written against the same
-module and would have shipped the same way. Both were caught by reading, which is the
-part that does not scale — hence this file.
+WHAT THIS FILE USED TO BE, AND WHY IT IS NOT THAT ANY MORE. It carried its own AST scan
+over `*_JOB*` constants and asked ONE of the three questions (enqueued-but-unregistered).
+Two ways of asking one question is the defect CLAUDE.md names even when both work, and
+the second one is where the drift starts — this file's own docstring recorded three
+shapes its scan had silently stopped seeing. The scan now lives in the script, the
+script is in `make guardrails` and in CI, and this file mutates the script's inputs.
 
-**Why the constants rather than the call sites.** A job name reaches the queue as a
-string, through `enqueue`, `enqueue_outbox`, `job_id_for` and the outbox row's `job`
-column, and chasing every one of those with an AST walk would be a parser with its own
-bugs. The repo already funnels them through module-level `*_JOB*` constants precisely so
-the name has one home per job, so those constants ARE the enqueueable set — and the last
-assertion here is what keeps that true: a literal that never became a constant is the
-one shape this file cannot see, so new job names must land as constants.
+THE THREE SHAPES, each reconstructed from a state that actually shipped here:
 
-**AND THAT SENTENCE WAS FALSE IN TWO WAYS UNTIL P6.9** — the guard could not see three
-more shapes, which is worse than a guard that admits a gap:
-
-* the constant scan read `ast.Assign` only, so `TENANT_ERASURE_JOB: Final = "..."` — an
-  `AnnAssign`, and the annotated spelling this repo prefers — was never checked;
-* the literal scan inspected `node.args[0]` for every enqueuer, and `enqueue_outbox`'s
-  first positional is the SESSION. It was therefore ENTIRELY INERT for every outbox call
-  site, which is most of them, and inert in the direction that matters: the outbox is the
-  path where an unrecognised job name is published and reported as queued.
-
-Run against the tree at the time: one missed constant, two invisible keyword literals.
-All three named jobs that WERE registered, so there was no live outage — the defect was
-a guard reporting coverage it did not have, which is the class this whole file exists
-for. Both are closed and both are sabotage-verified.
+* `notify_hot_lead_whatsapp` — written against the WhatsApp seam and never added to
+  `FUNCTIONS`. The outbox published it, arq did not recognise the name, and every screen
+  reported the message as queued.
+* a job function defined and registered nowhere — it cannot run, and it reads as a
+  feature in review.
+* a registration nothing enqueues — the registry is where a reader learns what the
+  system does, so a name nothing reaches is a lie told to the next person.
 """
 
 from __future__ import annotations
 
-import ast
-import re
-from pathlib import Path
+import pytest
+from scripts import check_job_wiring
+from scripts.check_job_wiring import EnqueueSite, JobDefinition
 
-from apps.workers.settings import CRON_JOBS, FUNCTIONS
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
-SEARCH_ROOTS = ("apps", "packages")
-
-# `*_JOB = "..."` / `JOB_NAME = "..."` / `*_JOB_NAME = "..."` — the naming this repo
-# already uses for the string that identifies a job to arq.
-_JOB_CONST = re.compile(r"^(?:[A-Z0-9_]*_)?JOB(?:_NAME)?$")
+# --- the standing assertions (the same call `make guardrails` makes) ----------
 
 
-def _registered_names() -> set[str]:
-    """What a worker booted from `settings.py` would actually answer to.
-
-    `traced_job` wraps each function, so the name is read off the wrapper the way arq
-    reads it — via `__name__`/`__qualname__` — rather than off the undecorated function,
-    which is what the registry would have looked like if the decorator were transparent.
-    A wrapper that renamed its target would be a real defect and this reads it as one.
-    """
-    names = {getattr(fn, "__name__", "") for fn in FUNCTIONS}
-    names |= {getattr(getattr(job, "coroutine", None), "__name__", "") for job in CRON_JOBS}
-    return {name for name in names if name}
+def test_the_live_tree_is_wired_three_ways() -> None:
+    assert check_job_wiring.main() == 0
 
 
-def _job_name_constants() -> dict[str, str]:
-    """Every `*_JOB*` string constant in the tree, as {file:line: value}."""
-    found: dict[str, str] = {}
-    for root in SEARCH_ROOTS:
-        for path in (REPO_ROOT / root).rglob("*.py"):
-            if "__pycache__" in path.parts or path.name.endswith("_test.py"):
-                continue
-            tree = ast.parse(path.read_text(), filename=str(path))
-            for node in tree.body:  # module level only: a job name is a module fact
-                # BOTH assignment forms (P6.9). This read `ast.Assign` only, so
-                # `TENANT_ERASURE_JOB: Final = "execute_tenant_erasure"` — an `AnnAssign`,
-                # and the annotated form this repo prefers for constants — was not checked
-                # at all. Measured against the tree at the time: one constant missed. The
-                # job it names IS registered, so there was no live outage; what there was
-                # is a guard whose docstring claims to see every job-name constant and
-                # could not see the spelling half of them use.
-                if isinstance(node, ast.Assign):
-                    targets: list[ast.expr] = list(node.targets)
-                    value = node.value
-                elif isinstance(node, ast.AnnAssign):
-                    targets = [node.target]
-                    value = node.value  # `X: Final` with no value is not a job name
-                else:
-                    continue
-                if not isinstance(value, ast.Constant) or not isinstance(value.value, str):
-                    continue
-                for target in targets:
-                    if isinstance(target, ast.Name) and _JOB_CONST.match(target.id):
-                        rel = path.relative_to(REPO_ROOT)
-                        found[f"{rel}:{node.lineno}"] = value.value
-    return found
+def test_the_scan_is_not_blind() -> None:
+    """The floors, checked on the real tree. Everything below mutates inputs; this is
+    the one assertion that the inputs are real."""
+    assert check_job_wiring.blindness() == []
 
 
-def test_every_job_name_constant_is_registered_with_a_worker() -> None:
-    """The assertion the WhatsApp jobs would have failed."""
-    registered = _registered_names()
-    constants = _job_name_constants()
-    assert constants, "found no job-name constants at all — the scan is broken, not the code"
-
-    orphans = {where: name for where, name in constants.items() if name not in registered}
-    assert not orphans, (
-        "these job names can be enqueued and no worker answers to them — the outbox will "
-        f"publish them straight into the DLQ: {orphans}. Add the function to "
-        "`apps/workers/settings.FUNCTIONS`."
-    )
+def test_the_registry_the_guard_reads_is_the_one_the_worker_boots() -> None:
+    """Rebind `WorkerSettings.functions` and every assertion in this file becomes a
+    statement about a list nobody executes."""
+    assert check_job_wiring.registry_is_the_one_the_worker_boots() == []
 
 
 def test_the_registry_has_no_duplicate_names() -> None:
     """Two functions answering to one name means one of them never runs, and which one
     depends on registration order — a coin flip nobody would think to look at."""
+    from apps.workers.settings import FUNCTIONS
+
     names = [getattr(fn, "__name__", "") for fn in FUNCTIONS]
     assert len(names) == len(set(names)), f"duplicate job names in FUNCTIONS: {names}"
 
 
 def test_tracing_did_not_rename_a_job() -> None:
-    """`traced_job` wraps every entry. If it ever stopped preserving `__name__`, every
-    job in the system would silently register under the wrapper's own name and nothing
-    else in this file would notice — the orphan check would still pass, against a
-    registry of identical names."""
-    names = _registered_names()
-    assert "wrapper" not in names and "inner" not in names, (
-        f"traced_job is not preserving __name__; the registry reads as {sorted(names)}"
-    )
+    """`traced_job` wraps every entry. If it stopped preserving `__name__`, every job
+    would register under the wrapper's own name and the three comparisons above would
+    still agree — against a registry of identical names."""
+    names = check_job_wiring.registered_functions() | check_job_wiring.registered_crons()
+    assert "wrapper" not in names and "inner" not in names, f"traced_job renames: {sorted(names)}"
     assert "run_post_call_pipeline" in names, "the registry lost a job it has always had"
 
 
-def test_a_job_name_is_declared_as_a_constant_rather_than_a_literal() -> None:
-    """The assumption this whole file rests on, asserted rather than trusted.
+# --- shape 1: defined and never registered ------------------------------------
 
-    The scan above reads CONSTANTS. A job enqueued with a bare string literal —
-    `enqueue("some_job", ...)` — is invisible to it, so the guard would pass while the
-    exact bug it exists to catch shipped. Every enqueue call site must therefore name a
-    constant, not a literal.
+
+def test_a_job_function_nobody_registered_is_caught() -> None:
+    definitions = check_job_wiring.defined_jobs()
+    registered = check_job_wiring.registered_functions() | check_job_wiring.registered_crons()
+    assert check_job_wiring.defined_but_not_registered(definitions, registered) == []
+
+    orphan = JobDefinition("reap_abandoned_widgets", "apps/workers/widgets.py:12")
+    offenders = check_job_wiring.defined_but_not_registered([*definitions, orphan], registered)
+    assert len(offenders) == 1 and "reap_abandoned_widgets" in offenders[0], offenders
+    assert "can never run" in offenders[0]
+
+
+def test_the_definition_scan_subtracts_the_lifecycle_hooks_and_only_those() -> None:
+    """The scan's own blind spot, asserted rather than trusted.
+
+    arq's four worker hooks share the job signature, so they must be subtracted — and
+    the subtraction is read off `WorkerSettings` rather than hardcoded, because a
+    hardcoded name survives a rename and goes on excluding a set it is no longer in.
+    A hook that stopped being subtracted would make this guard cry wolf four times; a
+    JOB that started being subtracted would make it blind, which is worse.
     """
-    offenders: list[str] = []
-    enqueuers = {"enqueue", "enqueue_outbox", "job_id_for"}
-    for root in SEARCH_ROOTS:
-        for path in (REPO_ROOT / root).rglob("*.py"):
-            if "__pycache__" in path.parts or path.name.endswith("_test.py"):
-                continue
-            tree = ast.parse(path.read_text(), filename=str(path))
-            for node in ast.walk(tree):
-                if not isinstance(node, ast.Call):
-                    continue
-                func = node.func
-                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
-                if name not in enqueuers:
-                    continue
-                # WHERE THE JOB NAME ACTUALLY SITS, per callee (P6.9). This inspected
-                # `node.args[0]` for every enqueuer — and `enqueue_outbox`'s first
-                # positional is the SESSION, so the check was entirely inert for every
-                # outbox call site, which is the majority of them. Measured against the
-                # tree at the time: two invisible keyword literals.
-                #
-                # The keyword form is checked for all three, because `enqueue(job=...)`
-                # and `enqueue_outbox(job=...)` are both legal and both hide the name from
-                # a positional-only reader.
-                candidates: list[ast.expr] = []
-                if name == "enqueue_outbox":
-                    # `enqueue_outbox(session, job, payload, ...)` — index 1.
-                    if len(node.args) > 1:
-                        candidates.append(node.args[1])
-                elif node.args:
-                    candidates.append(node.args[0])
-                candidates += [kw.value for kw in node.keywords if kw.arg == "job"]
-                for candidate in candidates:
-                    if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
-                        rel = path.relative_to(REPO_ROOT)
-                        offenders.append(f"{rel}:{node.lineno} → {candidate.value!r}")
-    assert not offenders, (
-        "a job name was passed as a literal, which makes it invisible to the registration "
-        f"guard above: {offenders}. Declare it as a module-level *_JOB constant."
+    hooks = check_job_wiring.lifecycle_hook_names()
+    assert hooks == {"startup", "shutdown", "on_job_start", "on_job_end"}, hooks
+    defined = {definition.name for definition in check_job_wiring.defined_jobs()}
+    assert not defined & hooks, "a lifecycle hook is being counted as a job"
+    assert "run_post_call_pipeline" in defined and "apply_retention" in defined
+
+
+# --- shape 2: registered and never enqueued -----------------------------------
+
+
+def test_a_registration_nothing_enqueues_is_caught() -> None:
+    functions = check_job_wiring.registered_functions()
+    crons = check_job_wiring.registered_crons()
+    sites = check_job_wiring.enqueue_sites()
+    assert check_job_wiring.registered_but_never_enqueued(functions, crons, sites) == []
+
+    # Every call site for ONE job removed, which is what deleting the last producer of a
+    # side effect actually looks like in a diff.
+    orphaned = [site for site in sites if site.job != "notify_hot_lead"]
+    offenders = check_job_wiring.registered_but_never_enqueued(functions, crons, orphaned)
+    assert len(offenders) == 1 and offenders[0].startswith("notify_hot_lead "), offenders
+
+
+def test_a_cron_is_not_reported_as_unenqueued() -> None:
+    """Crons are exempt BY CONSTRUCTION, not by exemption: `cron()` takes the coroutine
+    by reference and the schedule IS the trigger. A guard that demanded an enqueuer for
+    `apply_retention` would be reporting twelve false positives on a clean tree, which
+    is how a guardrail gets an allowlist and then stops meaning anything."""
+    crons = check_job_wiring.registered_crons()
+    assert "apply_retention" in crons and "dispatch_campaign_tick" in crons
+    offenders = check_job_wiring.registered_but_never_enqueued(
+        check_job_wiring.registered_functions(), crons, []
     )
+    assert not any(name in offender for name in crons for offender in offenders), offenders
+
+
+# --- shape 3: enqueued by a name no worker answers to -------------------------
+
+
+def test_an_enqueue_for_an_unregistered_name_is_caught() -> None:
+    """`notify_hot_lead_whatsapp` as it actually shipped: the call site existed, the
+    registration did not."""
+    sites = check_job_wiring.enqueue_sites()
+    registered = check_job_wiring.registered_functions() | check_job_wiring.registered_crons()
+    assert check_job_wiring.enqueued_but_not_registered(sites, registered) == []
+
+    offenders = check_job_wiring.enqueued_but_not_registered(
+        sites, registered - {"notify_hot_lead_whatsapp"}
+    )
+    assert len(offenders) == 1 and "notify_hot_lead_whatsapp" in offenders[0], offenders
+    assert "no worker registers" in offenders[0]
+
+
+def test_the_enqueue_scan_reads_the_outbox_call_sites() -> None:
+    """The half the predecessor guard was entirely inert for.
+
+    `enqueue_outbox`'s first positional is the SESSION, so a scan that read `args[0]`
+    for every callee saw nothing at every outbox call site — which is most of them, and
+    the ones where an unrecognised name is published and reported as delivered.
+    """
+    resolved = {site.job for site in check_job_wiring.enqueue_sites()}
+    for job in (
+        "deliver_auth_email",  # keyword `job=`, outbox
+        "execute_deletion_request",  # keyword `job=`, outbox
+        "notify_hot_lead_whatsapp",  # keyword `job=`, outbox-once
+        "run_post_call_pipeline",  # positional, direct enqueue
+        "record_in_call_optout",  # positional, from voice-runtime
+    ):
+        assert job in resolved, f"the enqueue scan cannot see {job}'s call site"
+
+
+def test_both_constant_spellings_resolve(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """`X = "..."` and `X: Final = "..."` both name a job here, and reading only the
+    first is how one constant went unchecked for as long as it did."""
+    (tmp_path / "producer.py").write_text(
+        "from typing import Final\n"
+        'PLAIN_JOB = "plain_job"\n'
+        'ANNOTATED_JOB: Final = "annotated_job"\n'
+        "def go(session):\n"
+        "    enqueue(PLAIN_JOB, {})\n"
+        "    enqueue_outbox(session, job=ANNOTATED_JOB, payload={})\n"
+    )
+    resolved = {site.job for site in check_job_wiring.enqueue_sites(roots=(tmp_path,))}
+    assert resolved == {"plain_job", "annotated_job"}, resolved
+
+
+def test_a_literal_job_name_is_resolved_rather_than_missed(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The predecessor's stated blind spot, closed rather than forbidden.
+
+    It banned bare literals at call sites because its scan started from CONSTANTS and a
+    literal was invisible to it. This scan starts from CALL SITES, so a literal is read
+    like anything else — which is strictly stronger, and it removes a rule that only
+    existed to prop up the old mechanism.
+    """
+    (tmp_path / "producer.py").write_text('def go():\n    enqueue("some_forgotten_job", {})\n')
+    sites = check_job_wiring.enqueue_sites(roots=(tmp_path,))
+    assert [site.job for site in sites] == ["some_forgotten_job"]
+    offenders = check_job_wiring.enqueued_but_not_registered(sites, {"run_post_call_pipeline"})
+    assert len(offenders) == 1 and "some_forgotten_job" in offenders[0], offenders
+
+
+# --- the hole in shape 3: a name the scan cannot read -------------------------
+
+
+def test_an_unresolvable_job_name_fails_unless_acknowledged(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """An unresolved name is a name that cannot be compared against the registry, so
+    passing it would let the silent failure walk straight through the gate."""
+    (tmp_path / "producer.py").write_text(
+        "def go(row):\n    enqueue(row.whatever_job, {})\n",
+    )
+    sites = check_job_wiring.enqueue_sites(roots=(tmp_path,))
+    assert [site.job for site in sites] == [None]
+    offenders = check_job_wiring.unresolvable_enqueue_sites(sites)
+    assert len(offenders) == 1 and "cannot be checked against the registry" in offenders[0]
+
+
+def test_the_one_dynamic_site_is_the_outbox_drain_and_it_is_still_there() -> None:
+    """The exemption, and the anti-rubber-stamp half: it must still match a real site.
+
+    An entry that no longer matches anything is a hole with a comment on it
+    (`check_wiring.stale_baseline`, `check_redaction_exposure.check_registry_freshness`).
+    """
+    sites = check_job_wiring.enqueue_sites()
+    assert check_job_wiring.unresolvable_enqueue_sites(sites) == []
+    assert check_job_wiring.stale_exemptions(sites) == []
+    assert set(check_job_wiring.DYNAMIC_ENQUEUE_SITES) == {
+        "apps/workers/dispatcher.py::message.job"
+    }
+    offenders = check_job_wiring.stale_exemptions(
+        [site for site in sites if site.key != "apps/workers/dispatcher.py::message.job"]
+    )
+    assert len(offenders) == 1 and "only shrinks" in offenders[0], offenders
+
+
+# --- the scan refusing rather than passing ------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("definitions", "registered", "sites", "expected"),
+    [
+        ([], None, None, "definition scan"),
+        (None, set(), None, "worker registry"),
+        (None, None, [], "enqueue scan found 0"),
+        (
+            None,
+            None,
+            [EnqueueSite(None, "a.py::x", "a.py:1 → enqueue(x)")] * 40,
+            "resolved 0 distinct",
+        ),
+    ],
+)
+def test_a_scan_that_matches_nothing_refuses(
+    definitions: list[JobDefinition] | None,
+    registered: set[str] | None,
+    sites: list[EnqueueSite] | None,
+    expected: str,
+) -> None:
+    """`check_wiring`'s doctrine, applied here: three of these sets are only ever
+    compared against each other, so an empty scan agrees perfectly with an empty
+    registry and prints OK. That is the one output a guardrail must never produce for a
+    reason unrelated to the tree."""
+    failures = check_job_wiring.blindness(
+        check_job_wiring.defined_jobs() if definitions is None else definitions,
+        (check_job_wiring.registered_functions() | check_job_wiring.registered_crons())
+        if registered is None
+        else registered,
+        check_job_wiring.enqueue_sites() if sites is None else sites,
+    )
+    assert any(expected in failure for failure in failures), failures
+
+
+def test_the_seam_signatures_are_read_and_not_remembered() -> None:
+    """`ENQUEUE_SEAMS` says where each callee keeps its job name. If `enqueue_outbox`
+    grew a positional `job`, the AST reader would be looking at the session argument and
+    reporting a clean tree — so the map is checked against the real signatures."""
+    assert check_job_wiring._assert_the_seams_still_look_like_this() == []
+    original = dict(check_job_wiring.ENQUEUE_SEAMS)
+    try:
+        check_job_wiring.ENQUEUE_SEAMS["enqueue_outbox"] = 1
+        assert check_job_wiring._assert_the_seams_still_look_like_this() != []
+    finally:
+        check_job_wiring.ENQUEUE_SEAMS.clear()
+        check_job_wiring.ENQUEUE_SEAMS.update(original)
