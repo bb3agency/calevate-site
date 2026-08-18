@@ -25,11 +25,24 @@ itself is one `curl` away.
 ## The category error this directory exists to prevent
 
 `bolna-ai/bolna` on GitHub is the **open-source self-hosted framework**. Its `API.md`
-documents `/agent` and `/all`. The **hosted platform our adapter targets** is
-`https://api.bolna.ai` with `/v2/agent`, `/call`, `/executions/{id}`, `/executions`,
-`/knowledgebase` — a different surface. The hosted platform is built on that codebase,
-which makes the OSS repo strong evidence about semantics and data shapes and **no
-evidence at all** about the hosted route contract.
+documents `GET|POST|PUT|DELETE /agent[/{agent_id}]` and `GET /all` (class: VERIFIED-OSS).
+The **hosted platform our adapter targets** is `https://api.bolna.ai` with `/v2/agent`,
+`/call`, `/call/{id}/stop`, `/executions/{id}`, `/v2/agent/{id}/executions`,
+`/knowledgebase` — a different surface (class: VERIFIED-OAS). The hosted platform is built
+on that codebase, which makes the OSS repo strong evidence about semantics and data shapes
+and **no evidence at all** about the hosted route contract.
+
+**The two lists are not in conflict and must never be read as if they were.** They
+describe two different programs. The cleanest proof is `GET /all`: it is the self-hosted
+server's agent listing, and the hosted spec has no `/all` path at all — the hosted
+equivalents are `/agent/all` (v1) and `/v2/agent/all` (v2, the one we call). An adapter
+that "reconciled" the two by calling `/all` against `api.bolna.ai` would 404.
+
+Note also what this section used to claim: it listed **`/executions`** among the hosted
+routes. There is no `/executions` collection on the hosted platform — only
+`/executions/{execution_id}` and `/executions/{execution_id}/log`, both single-item. That
+sentence was itself an instance of the error this section warns about, and D-353 is the
+defect it produced.
 
 The sharpest illustration is in `oss-harvest.md` under *Agent lifecycle*: their OSS server
 **intends** to answer 404 for a missing agent and, because of a swallowed `HTTPException`,
