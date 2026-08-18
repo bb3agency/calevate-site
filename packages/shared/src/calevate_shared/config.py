@@ -12,7 +12,50 @@ from functools import lru_cache
 from typing import Literal, get_args
 
 from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
+from pydantic_settings.sources import DotEnvSettingsSource
+
+#: Environment variables the deployment's `.env` legitimately carries FOR SOMEONE ELSE.
+#:
+#: botocore resolves these three itself — nothing in this repository passes credentials to
+#: boto3 — so they are deliberately not `Settings` fields and never will be
+#: (`scripts/check_env_parity.SDK_ENV_KEYS` carries the per-key argument). But
+#: DEPLOYMENT §6 tier 1 requires them IN `.env`, and `scripts/vps-deploy.sh::preflight`
+#: refuses to deploy a host whose `.env` lacks them.
+#:
+#: That combination was unbuildable (D-188). `model_config` sets `env_file=".env"` with
+#: `extra="forbid"`, and pydantic-settings applies `forbid` to keys read from the DOTENV
+#: FILE — not to unrelated `os.environ` entries. So the exact `.env` the deploy demands is
+#: one `Settings()` REFUSES to construct: three `extra_forbidden` errors, every time, for
+#: any process whose working directory is the deploy root. The containers escaped it only
+#: by accident — `.dockerignore` keeps `.env` out of the image and compose delivers the
+#: same values as process environment instead — but `scripts/bootstrap_admin.py` runs from
+#: the repo root on the VPS by design, so THE FIRST ADMINISTRATOR COULD NOT BE CREATED.
+#:
+#: The fix is an explicit allow-list rather than `extra="ignore"` or
+#: `dotenv_filtering="only_existing"`. Both of those would also swallow a MISSPELLED key —
+#: `DATABSE_URL=` would become silence instead of a refusal — and `extra="forbid"` is
+#: carrying that typo check for a file operators hand-edit over SSH. This names the three
+#: keys that are somebody else's and keeps the refusal for everything else.
+SDK_OWNED_ENV_KEYS: frozenset[str] = frozenset(
+    {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"}
+)
+
+
+class _AppDotEnvSource(DotEnvSettingsSource):
+    """`.env` minus the keys that belong to another library.
+
+    Subclassed rather than filtered at the `settings_customise_sources` call site so the
+    exclusion travels with the source: any future source reordering keeps it.
+    """
+
+    def __call__(self) -> dict[str, object]:
+        values = super().__call__()
+        # Case-insensitively, because pydantic-settings lower-cases dotenv keys before
+        # matching them to fields (which is how `AWS_REGION` arrived as `aws_region` in
+        # the error this exists to stop).
+        return {k: v for k, v in values.items() if k.upper() not in SDK_OWNED_ENV_KEYS}
+
 
 Environment = Literal["local", "staging", "prod"]
 # ThinnestAI was retired by D-31 before any adapter existed — do not re-add it.
@@ -96,6 +139,33 @@ def parse_source_ip_allowlist(configured: str) -> frozenset[str]:
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="forbid")
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Default precedence, with the dotenv source narrowed to keys that are OURS.
+
+        Order is pydantic-settings' own (init > env > dotenv > secrets) and is restated
+        rather than changed: the only edit is swapping the dotenv source for the one that
+        drops `SDK_OWNED_ENV_KEYS`. See that constant for why the shipped `.env` was
+        otherwise unloadable.
+        """
+        return (
+            init_settings,
+            env_settings,
+            _AppDotEnvSource(
+                settings_cls,
+                env_file=cls.model_config.get("env_file"),
+                env_file_encoding=cls.model_config.get("env_file_encoding"),
+            ),
+            file_secret_settings,
+        )
 
     # NO DEFAULT, ON PURPOSE. The environment is STATED, never inferred.
     #
