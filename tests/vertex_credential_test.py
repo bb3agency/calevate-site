@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -96,6 +97,9 @@ class FakeGoogle:
         #: None ⇒ omit `expireTime` entirely, which the proto says never happens and which
         #: the code must therefore refuse rather than paper over.
         self.expire_override: str | object | None = object()
+        #: Raise inside the handler rather than answering — the only way to reach the
+        #: `except` arm around the mint POST. A status code cannot get there.
+        self.raise_transport = False
 
     async def handler(self, request: httpx.Request) -> httpx.Response:
         if request.url.host == "oauth2.googleapis.com":
@@ -103,6 +107,8 @@ class FakeGoogle:
                 return httpx.Response(self.token_status, json={"error": "invalid_grant"})
             return httpx.Response(200, json={"access_token": "ya29.assertion", "expires_in": 3599})
         assert request.url.host == "iamcredentials.googleapis.com", request.url
+        if self.raise_transport:
+            raise httpx.ConnectError("mint unreachable", request=request)
         body = json.loads(request.content.decode())
         self.mint_requests.append(
             {"url": str(request.url), "body": body, "auth": request.headers.get("authorization")}
@@ -456,6 +462,60 @@ async def test_no_credential_reaches_a_log_record(
     # And the fingerprint IS there, because correlating two rotations without the value is
     # the whole reason it exists.
     assert any("fingerprint" in record.__dict__ for record in caplog.records)
+
+
+@pytest.mark.parametrize(
+    ("break_it", "why"),
+    [
+        (lambda g: setattr(g, "mint_status", 403), "the mint is refused"),
+        (lambda g: setattr(g, "mint_status", 500), "the mint fails upstream"),
+        (lambda g: setattr(g, "expire_override", None), "the response carries no expiry"),
+        (lambda g: setattr(g, "granted_seconds", 600), "the granted lifetime is too short"),
+        (lambda g: setattr(g, "raise_transport", True), "the mint cannot be reached at all"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_no_credential_reaches_a_log_record_on_the_failure_paths(
+    break_it: Callable[[FakeGoogle], None],
+    why: str,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+    engine: FakeEngine,
+    pages: Pages,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The same invariant, on the paths a reviewer is likeliest to break LATER.
+
+    Its sibling above drives the SUCCESSFUL path, which is the right thing to pin and is
+    not where this defect gets introduced. A credential reaches a log when somebody is
+    DIAGNOSING A FAILURE — they add the thing they are staring at to the `extra` of the
+    error line, ship it, and the token is in the log aggregator for its whole lifetime.
+
+    Found by sabotage: putting a live assertion token into
+    `log.error("vertex_bearer_transport_error", ...)` left all 17 tests green, because the
+    success path never reaches that line. Every arm below drives a DIFFERENT error line,
+    and each asserts the same three secrets are absent from the message and from every
+    structured field.
+
+    The refusal itself is asserted too — a rotation that failed quietly while keeping the
+    secrets out of the log would satisfy the invariant and still be a defect.
+    """
+    google = FakeGoogle()
+    break_it(google)
+    _wire(monkeypatch, google)
+
+    with caplog.at_level(logging.DEBUG):
+        outcome = await refresh_in_call_llm_credential({})
+    assert not outcome.startswith("rotated"), f"{why}: it should not report a rotation"
+
+    private_key = json.loads(configured)["private_key"]
+    for record in caplog.records:
+        blob = " ".join(
+            [record.getMessage(), *(str(v) for v in record.__dict__.values() if v is not None)]
+        )
+        assert BEARER not in blob, f"{why}: the bearer reached a log record"
+        assert private_key not in blob, f"{why}: the private key reached a log record"
+        assert "ya29.assertion" not in blob, f"{why}: the assertion token reached a log record"
 
 
 def test_the_fingerprint_is_not_the_credential() -> None:
