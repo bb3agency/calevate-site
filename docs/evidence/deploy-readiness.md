@@ -190,8 +190,23 @@ holds: the dry run is a real preflight, not a plan printout. The disk report, th
 Cloudflare-IP staleness check (`refreshed 2026-06-29, 50d ago, limit 180d`), the dev-compose
 project-name collision check and the `VOICE_RUNTIME_WORKERS <= nproc` refusal all fired
 correctly. **One first-run assumption was added by this pass**: an nginx version check (see
-§7). No rollback path was executed — `deploy_revision_check`'s skip-on-rollback logic is
-reviewed and **UNVERIFIED**.
+§7).
+
+The three scripts the deploy runs **inside the new image** were each executed there, which
+is the step that would have failed first against the unfixed Dockerfile
+(`ModuleNotFoundError: No module named 'sqlalchemy'`):
+
+```
+python -m scripts.check_deploy_env       → DEPLOY ENV: OK (APP_ENV=prod)
+python -m scripts.seed                   → reserved_slugs +43 (idempotent)
+python -m scripts.deploy_revision_check c7a1e93d40b8   → exit 0   (revision is in this chain)
+python -m scripts.deploy_revision_check deadbeef1234   → exit 3   (skip migrations: rollback)
+```
+
+So the **rollback DECISION function is verified in both directions** — only a clean `3`
+skips, and §4a's argument depends on exactly that. A full rollback DEPLOY (checkout the
+previous commit, re-run `--all`, watch migrations be skipped and the containers swap back)
+has still never been executed and remains **UNVERIFIED**.
 
 ### 7. nginx / TLS / DNS — **BROKEN → FIXED** (config), **UNVERIFIED** (edge)
 
@@ -297,8 +312,8 @@ venv a step.
 - **`/healthz/live` under a dependency outage** — one instance explained and fixed via
   finding 2; whether another path exists was not proven. Re-test on the host by stopping
   redis and polling it.
-- **The rollback path has never run** — `deploy_revision_check`'s skip-on-rollback is
-  reviewed and unexercised.
+- **A full rollback deploy has never run.** Its decision function is verified in both
+  directions (§6), but the swap-back itself is unexercised.
 - **Three OPERATIONS §4 alarms have no call site** (D-183); cert-expiry is the day-two one.
 - **`terraform validate` has never run** (`infra/README.md` §5).
 
