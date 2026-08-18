@@ -987,17 +987,24 @@ def probe_h1_history_handling(
     three change the cost model in different directions.
 
     The instrument is per-turn INPUT TOKENS, not cost, and the reason is worth stating
-    because the obvious approach is broken: under D-36 the default LLM is Sarvam 105B at
-    ₹0.00 per token, so the LLM leg of `cost_breakdown` is zero on every call however
-    the history is handled. A cost-based probe here would produce a tidy column of zeros
-    and conclude nothing while looking like a measurement.
+    because the obvious approach is broken: the LLM leg of `cost_breakdown` is zero on
+    every call however the history is handled. It was zero under D-36 because Sarvam 105B
+    is free per token; **under D-400 it is zero for a stronger reason** — the leg is BYOK,
+    so the engine pays nothing and reports nothing, and the Vertex spend lands on a GCP
+    invoice the engine has never seen. A cost-based probe here would produce a tidy column
+    of zeros and conclude nothing while looking like a measurement, and that stays true
+    after the leg is paid for.
 
     What the shape tells us:
       * strictly rising input tokens ⇒ full resend, no truncation. The blended average
-        needs a long-call correction and any PRICED in-call LLM is understated. (Not
-        Gemini: D-127 puts Gemini on Vertex `asia-south1` for the POST-call assistant
-        only, and a Gemini in-call leg would cost a new India-co-located deployable —
-        PLAN Part 17, pilot-gated rather than planned.)
+        needs a long-call correction and any PRICED in-call LLM is understated. **That
+        correction is no longer hypothetical (D-400)**: the founder moved the in-call LLM
+        leg to a paid Vertex AI account, and `billing/rates.py::llm_cost_inr_per_minute`
+        computes the curve this probe would MEASURE — ₹0.23/min at one minute, ₹0.51 at
+        ten, on the assumption that the resend is total. So this probe now scores an
+        assumption the cost model rests on rather than a curiosity. (The in-call leg is
+        not live: `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, and a Gemini in-call
+        leg may still cost a new India-co-located deployable — D-402 route (B).)
       * a plateau or a drop ⇒ truncation or summarisation. Which of the two is NOT
         distinguishable from token counts, and distinguishing them would mean reading
         the prompt the engine sent — caller utterances, hard rule 6. Say "one of the
@@ -1102,9 +1109,12 @@ def probe_h1_history_handling(
                 "h1_provider_context_caching",
                 "Cached-token counts were reported and are zero on every turn: the "
                 "engine does not enable provider context caching on our BYOK key. "
-                "CONSEQUENCE: the full history is re-billed every turn on any priced "
-                "LLM, so a paid in-call LLM would cost more than the blended figure "
-                "suggests.",
+                "CONSEQUENCE: the full history is re-billed every turn, and since "
+                "D-400 the in-call LLM leg IS priced, so this is a live cost finding "
+                "rather than a hypothetical: `llm_cost_inr_per_minute` assumes exactly "
+                "this (no caching, total resend) and is therefore the CEILING that a "
+                "pass here would lower. Gemini bills cached input reads at about a "
+                "tenth of the input rate, so the lever is real.",
                 turns_with_cached_tokens=0,
             )
         )

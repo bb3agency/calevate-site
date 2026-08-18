@@ -600,11 +600,22 @@ def default_cost_model() -> tuple[CostLine, ...]:
         CostLine(leg="Platform fee (BYOK)", estimate="unpublished; target <= ~INR 1.5/min"),
         CostLine(leg="Sarvam Saaras V3 STT", estimate="INR 0.50/min"),
         CostLine(leg="Sarvam Bulbul V3 TTS", estimate="INR 0.90-1.40/min (beta pricing)"),
-        # Gemini is NOT the alternative here: D-127 puts it on Vertex `asia-south1` for
-        # the post-call assistant only, and an in-call Gemini leg would need a new
-        # India-co-located OpenAI-shaped proxy (PLAN Part 17, pilot-gated). The band is
-        # what a paid in-call LLM would cost if Sarvam's free tier moved.
-        CostLine(leg="LLM", estimate="INR 0.00 (Sarvam 105B per D-36); paid LLM 0.15-0.20"),
+        # GEMINI IS NOW THE DECISION AND NOT THE ALTERNATIVE (D-400): the founder moved
+        # the in-call LLM leg to a paid Vertex AI account, `asia-south1`. What this line
+        # RECORDS is still Sarvam, because that is still what a pilot agent would run —
+        # `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, the blocker being that a
+        # regional Vertex endpoint takes a one-hour OAuth2 bearer and Bolna stores static
+        # strings (D-402). The paid band is no longer a hypothetical and is no longer
+        # 0.15-0.20: at 2.5 Flash's published $0.30/$2.50 it is 0.23/min on a one-minute
+        # call rising to 0.51 at ten, because TRD 6.1 resends the whole history every turn
+        # (`billing/rates.py::llm_cost_inr_per_minute`).
+        CostLine(
+            leg="LLM",
+            estimate=(
+                "INR 0.00 today (Sarvam 105B per D-36); D-400 target Gemini 2.5 Flash "
+                "on Vertex asia-south1 = 0.23 (1 min) - 0.51 (10 min)"
+            ),
+        ),
         CostLine(leg="Telephony", estimate="INR 0.35-0.50/min"),
         CostLine(
             leg="Built-in KB",

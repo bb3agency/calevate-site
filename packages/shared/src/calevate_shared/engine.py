@@ -1694,6 +1694,7 @@ __all__ = [
     "ExecutionSnapshot",
     "KBSourceRef",
     "ListingIncompleteReason",
+    "LlmProvider",
     "ModelConfig",
     "NumberSeries",
     "NumberSpec",

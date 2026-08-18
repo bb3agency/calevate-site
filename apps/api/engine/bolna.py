@@ -218,10 +218,13 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
     reader will want to add. Bolna ships a first-party Gemini provider needing one static
     key named `GOOGLE`, and it is `genai.Client(api_key=…)` against
     `generativelanguage.googleapis.com` — the AI Studio Developer API
-    (`bolna/llms/gemini_llm.py`). D-127 disqualified that host twice over: no region
-    anywhere in the URL, and free-tier terms under which Google states human reviewers
-    may read submitted prompts and responses. It is the EASY way to put Gemini on the
-    in-call leg and it moves Indian callers' words out of India.
+    (`bolna/llms/gemini_llm.py`). D-127 disqualified that host on two grounds, and **only
+    ONE of them survives the founder paying, which is the version to remember**: Google
+    states it does not train on PAID Developer API data, so the human-reviewer objection
+    is a free-tier objection; what does not go away is that **the Developer API has no
+    region pinning at all** — no region in the host, no field in which to ask for one. It
+    is the EASY way to put Gemini on the in-call leg and it moves Indian callers' words
+    out of India (D-401).
     """
     if models.llm_provider is None:
         return {"family": "openai"}
@@ -956,11 +959,23 @@ class BolnaEngine:
                                 # IndicSuperTokenizer report. REPORTED, NOT READ against
                                 # Sarvam's own tokenizer, and it does not need to be: the
                                 # decision is "leave headroom", and the direction is not in
-                                # doubt.) The LLM leg is Sarvam 105B, FREE PER TOKEN
-                                # (D-35/D-36, TRD §10), so the headroom costs nothing on the
-                                # money path — the only cost of a higher cap is a longer
-                                # worst-case utterance, which `max_call_duration_s` already
-                                # bounds from the other side.
+                                # doubt.)
+                                #
+                                # THE HEADROOM USED TO BE FREE AND IS NOT ANY MORE (D-400).
+                                # This paragraph ended "the LLM leg is Sarvam 105B, FREE PER
+                                # TOKEN, so the headroom costs nothing on the money path" —
+                                # true under D-36 and false the moment the leg moved to paid
+                                # Vertex, where output tokens are the EXPENSIVE leg at 8.3x
+                                # input. **The number does not move**, and that is the point
+                                # worth recording: a cap is a safety valve against a runaway
+                                # generation, not a budget, and a ceiling that bites
+                                # mid-sentence still truncates a reply rather than shortening
+                                # one. What changed is that the argument now has to be made
+                                # on its merits instead of leaning on a zero. The real
+                                # spending bound is unchanged too: `max_call_duration_s` from
+                                # one side and, per `billing/rates.py::llm_cost_inr_per_minute`,
+                                # a cost curve dominated by the RESENT history rather than by
+                                # any single reply.
                                 #
                                 # WHY 0.1 — THE VENDOR'S DEFAULT IS RIGHT, AND IS SENT
                                 # ANYWAY. This agent reads a client's script and carries
