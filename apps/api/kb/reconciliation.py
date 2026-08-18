@@ -163,9 +163,34 @@ def classify_kb_drift(
 
 
 async def handles_if_no_publish_in_flight(
-    session: AsyncSession, *, agent_id: UUID
+    session: AsyncSession, *, agent_id: UUID, engine_agent_ref: str
 ) -> frozenset[str] | None:
-    """This agent's recorded handles, or None if a publish holds the floor right now.
+    """What we believe is attached to ONE vendor agent object, or None if a publish holds
+    the floor right now.
+
+    **THE UNIT IS THE ROUTE, NOT THE AGENT, AND THAT IS THE WHOLE OF D-380.** One agent
+    can own several rows in `engine_agent_routes`: its own vendor object, plus one per arm
+    of a running script test (`agents/service.publish_variant` writes a route for each, so
+    an inbound webhook naming an arm resolves to a tenant). The sweep claims ROUTES and
+    asked this function for the AGENT's handles, so every arm was scored by comparing the
+    arm's own — necessarily empty — `list_kb` answer against the parent agent's recorded
+    documents. That is `recorded - attached` non-empty on every tick: verdict `missing`,
+    counted as a PROVEN divergence, and an `engine_kb_drift_detected` alert every hour
+    (`KB_SWEEP_MINUTES`) for as long as the client's A/B test runs. Measured, not reasoned
+    about: the reproduction is `tests/variant_drift_coverage_test.py`.
+
+    An arm has no knowledge of ours by construction — `kb/service.publish_source` attaches
+    to `agents.engine_agent_ref` and to nothing else — so the honest recorded set for an
+    arm's route is EMPTY, and that is what this returns. It is not a mute: an empty
+    recorded set against a non-empty listing is `unaccounted`, the dangerous direction,
+    which is exactly the right verdict for an arm the vendor is serving knowledge on that
+    we never attached.
+
+    The alternative — filtering arm routes out of `claim_kb_drift_batch` — was rejected
+    twice over. `claim_kb_drift_batch` runs untenanted and `agents` is FORCE-RLS'd on
+    `tenant_id`, so the join it would need returns zero rows there; and skipping a claimed
+    row leaves its `kb_drift_checked_at` untouched, which puts it permanently at the front
+    of a stalest-first queue and starves the sweep of everything behind it.
 
     THE WINDOW THIS EXISTS FOR IS GUARANTEED, NOT MERELY POSSIBLE. `publish_source`
     detaches every copy of a source BEFORE attaching its replacement (D-41's ordering, and
@@ -211,6 +236,19 @@ async def handles_if_no_publish_in_flight(
     ).scalar()
     if not acquired:
         return None
+    # WHICH vendor object is this route for? Read under the same lock and in the same
+    # tenant session as the handles below, so the answer belongs to the same instant.
+    # A ref that is not the agent's own is an experiment arm's (the only other writer of
+    # this table is `publish_variant`), and nothing of ours has ever attached a document
+    # to one — so the honest recorded set is empty rather than the parent's.
+    own_ref = (
+        await session.execute(
+            text("SELECT engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"),
+            {"aid": agent_id},
+        )
+    ).scalar()
+    if own_ref != engine_agent_ref:
+        return frozenset()
     return frozenset(await recorded_handles_of_agent(session, agent_id))
 
 

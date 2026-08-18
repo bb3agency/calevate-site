@@ -157,7 +157,16 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
     console that nothing can ever clear.
     """
     try:
-        drift = await engine_drift_for(tenant_id=candidate.tenant_id, agent_id=candidate.agent_id)
+        drift = await engine_drift_for(
+            tenant_id=candidate.tenant_id,
+            agent_id=candidate.agent_id,
+            # THE ROUTE'S OWN VENDOR OBJECT (D-380). Without it this read back the AGENT
+            # once per route and stamped that verdict on an experiment ARM's row — a
+            # verdict about a different object, and the arms are the traffic actually
+            # under test. `record_drift` below writes against `candidate.engine_agent_ref`
+            # either way, so the two halves have to name the same object.
+            engine_agent_ref=candidate.engine_agent_ref,
+        )
     except ProblemError as exc:
         # `exc.code` is ours — the adapter normalizes — so this carries no vendor text.
         log.info(

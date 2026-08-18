@@ -100,7 +100,12 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from calevate_shared.engine import DisclosurePosture, compose_opening_line
+from calevate_shared.engine import (
+    AgentConfig,
+    DisclosurePosture,
+    VoiceEngine,
+    compose_opening_line,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -714,8 +719,48 @@ async def pending_state_for(*, tenant_id: UUID, agent_id: UUID) -> PendingState:
         return await _state(session, tenant_id, agent_id)
 
 
-async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
+#: One RUNNING arm of this agent's script test, found by the engine ref its route names.
+#: Same joins and the same four columns as `service._VARIANT_CONFIG_SQL`, narrowed to one
+#: arm — the arms' configuration has exactly one definition and this is a lookup into it,
+#: not a second copy of it.
+_ARM_BY_ENGINE_REF_SQL = (
+    "SELECT v.id, v.label, v.disclosure_line, pv.body "
+    "FROM prompt_experiment_variants v "
+    "JOIN prompt_experiments e ON e.id = v.experiment_id "
+    "JOIN prompt_versions pv ON pv.id = v.prompt_version_id "
+    "WHERE e.agent_id = :aid AND e.status = 'running' AND v.engine_agent_ref = :ref"
+)
+
+
+async def engine_drift_for(
+    *, tenant_id: UUID, agent_id: UUID, engine_agent_ref: str | None = None
+) -> EngineDrift:
     """Ask the ENGINE, right now, what it is running — and compare it with our row.
+
+    WHICH VENDOR OBJECT (D-380). An agent owns one row in `engine_agent_routes` for
+    itself and one more for each arm of a RUNNING script test
+    (`service.publish_variant`). The scheduled sweep claims ROUTES and passed only the
+    agent id, so it read the agent's own object back once per route and stamped that
+    verdict onto the ARM's row — a verdict about a different vendor object. The arms are
+    the traffic actually under test: each has its own script and its own AI-disclosure
+    sentence, each answers real callers, and neither was ever read back after the publish
+    that created it. Somebody editing an arm in the vendor's console — or a vendor
+    prompt-length ceiling truncating `TRUTHFUL_ANSWER_DIRECTIVE` off the end of it — was
+    invisible to every instrument this repository has, indefinitely. Hard rule 5 requires
+    that directive verified "on every publish and every drift sweep"; for arms only the
+    first half was true.
+
+    So `engine_agent_ref` names the object to compare, and when it belongs to a running
+    arm the comparison is against THAT ARM's config, built by `service._variant_config` —
+    the same builder the publish uses, for the reason that function already gives. Omitted
+    (the on-demand endpoint, which is about the agent) or naming the agent's own ref, the
+    behaviour is exactly what it was.
+
+    A ref matching neither is compared against the agent, unchanged: the only writers of
+    `engine_agent_routes` are `publish_agent` and `publish_variant`, and
+    `experiments.conclude` deactivates an arm's route when it retires, so an ACTIVE route
+    is one or the other. Inventing a verdict for a state nothing can produce would be a
+    branch no test can reach.
 
     THE CASE `live_verify_state` STRUCTURALLY CANNOT COVER. That column records what a
     read-back found AT THE LAST PUBLISH. Two divergences appear afterwards and neither
@@ -743,40 +788,85 @@ async def engine_drift_for(*, tenant_id: UUID, agent_id: UUID) -> EngineDrift:
     rendering of our intent, and the two would drift on the field nobody looks at — which
     is the defect `_variant_config` is built on `_to_config` to avoid.
     """
-    from apps.api.agents.service import _load_agent, _to_config
+    from apps.api.agents.service import _load_agent, _to_config, _variant_config
 
     engine = get_engine()
+    # Both branches resolve INSIDE the session and the vendor round trip happens outside
+    # it — returning `await _drift_of(...)` from in here would pin a pooled connection for
+    # the length of a third party's response, which is the cost this function has always
+    # declined to pay.
     async with tenant_session(tenant_id) as session:
         row = await _load_agent(session, tenant_id, agent_id)
         ref = row["engine_agent_ref"]
-        # `not_published` COVERS THE EXTERNALLY-DEPLOYED ENGINE TOO, and it does so
-        # truthfully rather than by luck (D-281): `publish_agent` refuses on such an
-        # engine, so no agent can hold an `engine_agent_ref` on it, so this branch is the
-        # one every agent takes. It needs no new state and no migration — "this agent is
-        # not on the voice platform" is exactly what is true — and the sentence below is
-        # already the right one to show. What it must NOT do is fall through to
-        # `verify_publish`, which would ask an engine that has no prompt to read back;
-        # that guard is in `verify_publish` itself, so a future caller cannot lose it.
-        if not isinstance(ref, str) or not ref:
-            return EngineDrift(
-                agent_id=str(agent_id),
-                engine=engine.name,
-                engine_agent_ref=None,
-                checked=False,
-                state="not_published",
-                prompt_applied=None,
-                disclosure_applied=None,
-                prompt_disclosure_applied=None,
-                truthful_answer_applied=None,
-                voice_applied=None,
-                detail="This agent is not on the voice platform, so there is nothing to compare.",
+        arm = None
+        if engine_agent_ref is not None and engine_agent_ref != ref:
+            arm = (
+                await session.execute(
+                    text(_ARM_BY_ENGINE_REF_SQL), {"aid": agent_id, "ref": engine_agent_ref}
+                )
+            ).first()
+        if arm is not None and engine_agent_ref is not None:
+            # The arm IS a published vendor object in its own right, so `not_published`
+            # cannot apply to it and the agent's own ref is irrelevant to this comparison.
+            target, config = (
+                engine_agent_ref,
+                _variant_config(
+                    tenant_id, row, UUID(str(arm[0])), str(arm[1]), str(arm[3]), str(arm[2])
+                ),
             )
-        config = _to_config(tenant_id, row)
+        else:
+            # `not_published` COVERS THE EXTERNALLY-DEPLOYED ENGINE TOO, and it does so
+            # truthfully rather than by luck (D-281): `publish_agent` refuses on such an
+            # engine, so no agent can hold an `engine_agent_ref` on it, so this branch is
+            # the one every agent takes. It needs no new state and no migration — "this
+            # agent is not on the voice platform" is exactly what is true — and the
+            # sentence below is already the right one to show. What it must NOT do is fall
+            # through to `verify_publish`, which would ask an engine that has no prompt to
+            # read back; that guard is in `verify_publish` itself, so a future caller
+            # cannot lose it.
+            if not isinstance(ref, str) or not ref:
+                return EngineDrift(
+                    agent_id=str(agent_id),
+                    engine=engine.name,
+                    engine_agent_ref=None,
+                    checked=False,
+                    state="not_published",
+                    prompt_applied=None,
+                    disclosure_applied=None,
+                    prompt_disclosure_applied=None,
+                    truthful_answer_applied=None,
+                    voice_applied=None,
+                    detail=(
+                        "This agent is not on the voice platform, so there is nothing to compare."
+                    ),
+                )
+            target, config = ref, _to_config(tenant_id, row)
 
+    return await _drift_of(engine, agent_id, target, config)
+
+
+async def _drift_of(
+    engine: VoiceEngine, agent_id: UUID, ref: str, config: AgentConfig
+) -> EngineDrift:
+    """Read ONE vendor object back and render the comparison.
+
+    Split out of `engine_drift_for` when the arm case arrived (D-380) rather than copied
+    into it: the two differ only in which config is compared against which ref, and a
+    second rendering would be a second place for the `not_applied` sentence and the
+    hard-rule-6 log line to be got wrong.
+    """
     verdict = await verify_publish(engine, ref, config)
     log.info(
         "agent_engine_drift_checked",
-        extra={"agent_id": str(agent_id), "engine": engine.name, "verify_state": verdict.state},
+        extra={
+            "agent_id": str(agent_id),
+            "engine": engine.name,
+            # A vendor-issued opaque id, which is what `_reclaim_orphan` already logs for
+            # the same reason: it names WHICH object was scored without naming a tenant's
+            # script (hard rule 6).
+            "engine_agent_ref": ref,
+            "verify_state": verdict.state,
+        },
     )
     return EngineDrift(
         agent_id=str(agent_id),

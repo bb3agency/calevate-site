@@ -33,6 +33,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.ownership import assert_visible
+from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
 from apps.api.kb.models import KB_STATUSES
@@ -490,9 +491,17 @@ async def _lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> Non
     the one that cannot prevent, only detect.)
 
     What it costs, stated plainly: publishes for one agent queue, each for the length of
-    its engine round trips (`engine.REQUEST_TIMEOUT_S` is 10s per call, a handful of
-    calls). This is an admin-console path, not the audio path, and it is per agent — no
-    other agent, tenant or surface waits.
+    its engine round trips. That sentence used to price a round trip at the adapter's
+    request timeout alone — 10s — and the adapter's own THROTTLE ladder makes the worst
+    case per call roughly five times that: `THROTTLE_MAX_ATTEMPTS = 3` attempts of
+    `REQUEST_TIMEOUT_S = 10s`, with a jittered wait between them capped at
+    `THROTTLE_MAX_SLEEP_S = 8s`. A publish is a listing plus one detach per superseded
+    version plus one attach, so an agent whose vendor is rate-limiting can hold this lock
+    for a couple of minutes rather than a handful of seconds. THE CHOICE IS UNCHANGED AND
+    THE NUMBER IS NOW THE REAL ONE: this is an admin-console path, not the audio path, it
+    is per agent — no other agent, tenant or surface waits — and the KB drift sweep takes
+    the same key with `pg_try_advisory_xact_lock`, so a long publish costs it one skipped
+    tick and never a wait.
     """
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
@@ -931,13 +940,55 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         ),
         {"aid": agent_id, "name": name, "sid": source_id},
     )
-    await session.execute(
+    activated = await session.execute(
         text(
             "UPDATE kb_sources SET is_active = true, status = 'approved', "
             "published_at = now(), updated_at = now() WHERE id = :sid"
         ),
         {"sid": source_id},
     )
+    if rowcount_of(activated) == 0:
+        # THE SOURCE VANISHED UNDER US, and this used to be silent (D-380). The row is
+        # read at the top of this function without a row lock, and the retention sweep's
+        # knowledge arm (`workers/retention._KB_EXPIRE_SQL`, D-179) DELETEs superseded and
+        # rejected versions on the tenant's own clock — from its own transaction, taking
+        # no part in `_lock_agent_publishes`. FLOWS §7's rollback is a publish of an
+        # ARCHIVED row, which is exactly the population that arm expires (and the row
+        # qualifies: `_KB_EXPIRABLE` skips versions that still hold an `engine_kb_ref`,
+        # and an archived one does not). So a rollback racing the nightly sweep is not a
+        # contrived interleaving: the DELETE commits, this UPDATE matches nothing, and the
+        # function used to carry on and RETURN THE VERSION NUMBER — a reported success for
+        # a publish that changed no row of ours while the engine had already been handed
+        # the document.
+        #
+        # Everything downstream inherited that lie: `_remember_engine_kb_ref` wrote to
+        # `kb_documents` rows the FK CASCADE had taken with the source, `active_knowledge`
+        # recompiled T0 without the source, and the engine was left holding a copy nothing
+        # of ours could name, bill against or ever detach.
+        #
+        # SO IT IS COMPENSATED, NOT ONLY REFUSED. The attach is undone and the versions
+        # withdrawn for it are put back — the same restoration a failed attach performs,
+        # for the same reason: the client keeps a working knowledge base and loses only
+        # the update. The raise then rolls our side back.
+        log.error("kb_publish_source_vanished", extra={"source_id": str(source_id)})
+        try:
+            await engine.detach_kb(engine_ref, attached_ref)
+        except Exception:
+            # The engine is holding a copy of a source that no longer exists here. Named
+            # at ERROR because only an operator can remove it now — the drift sweep
+            # (D-158) reports the agent `unaccounted` until they do.
+            log.error("kb_left_attached", extra={"source_id": str(source_id)})
+        await _reattach_after_failed_publish(
+            engine, engine_ref, str(name), [wid for wid, _ in withdraw], previous_chunks
+        )
+        raise ProblemError.conflict(
+            "kb_source_vanished",
+            "That knowledge version was removed while it was being published.",
+            remediation=(
+                "Nothing changed — the previously approved version is still live. "
+                "Submit the wording again if it is still needed."
+            ),
+        )
 
     # T0 recompilation (FLOWS §7, TRD §6). LAST, and after the activation flip, because
     # `active_knowledge` reads exactly what the flip just decided — computing it earlier

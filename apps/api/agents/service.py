@@ -73,7 +73,8 @@ by us at all, so a dispatch-side check would leave the receptionist motion ungua
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
@@ -657,6 +658,12 @@ async def publish_variant(
 ) -> str:
     """Create or update the engine agent that speaks ONE arm.
 
+    **CALL `publish_variants` UNLESS YOU REALLY MEAN ONE ARM** (D-382). Every production
+    caller publishes a SET of arms in one transaction, and this function can only reclaim
+    the object IT created — a sibling failing afterwards rolls this arm's `engine_agent_ref`
+    and its routing row away and leaves its vendor object behind, named by nothing. The
+    plural owns that compensation; reaching past it reintroduces the leak.
+
     Why an engine agent per arm rather than a per-call prompt override: the portability
     contract carries the script on the AGENT (`AgentConfig.system_prompt`) and
     `start_outbound_call` takes a ref and a `CallContext` of variables — there is no
@@ -728,6 +735,76 @@ async def publish_variant(
     return ref
 
 
+@dataclass(frozen=True, slots=True)
+class ArmToPublish:
+    """One arm of a script test, as `publish_variants` needs it.
+
+    A record rather than five positional arguments because the two call sites assemble it
+    from different places — `_VARIANT_CONFIG_SQL` on the republish path,
+    `experiments.start`'s own INSERTs on the first publish — and a mis-ordered
+    `(label, body, disclosure)` triple would publish an arm whose AI-disclosure sentence
+    is its script. mypy cannot see that in three `str` positionals; it can here.
+    """
+
+    variant_id: UUID
+    label: str
+    body: str
+    disclosure_line: str
+    #: The vendor object this arm already owns, or None to create one. Also decides
+    #: whether a sibling's failure has anything of OURS to clean up at the vendor.
+    existing_ref: str | None
+
+
+async def publish_variants(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, arms: Sequence[ArmToPublish]
+) -> int:
+    """Publish every arm — and RECLAIM the ones THIS CALL created if a later one fails.
+
+    **THE LEAK THIS CLOSES** (D-382). Both callers publish their arms inside ONE transaction, and
+    `publish_variant` mints a vendor agent object per arm. When the second arm failed
+    (`engine_publish_not_applied`, a vendor 5xx, a timeout), `publish_variant` reclaimed
+    ITS OWN half-created object and re-raised — and the FIRST arm's object, already
+    created and read back green, was left at the vendor while the transaction rolled its
+    `prompt_experiment_variants.engine_agent_ref` and its `engine_agent_routes` row away.
+    Nothing of ours then named it: not the variant row, not the routing table, and
+    therefore NOT the drift sweep either, which claims routes. It was a billed vendor
+    object no instrument in this repository could see, and the operator's next attempt
+    created another one beside it.
+
+    So the compensation is the one `_reclaim_orphan` already performs, for the reason it
+    already gives: synchronously, before the caller's raise, because the ref lives only
+    in this frame and an outbox row carrying it would roll back with everything else.
+
+    ONLY REFS THIS CALL CREATED. An arm that already had one is being UPDATED — the
+    object predates this transaction and is answering callers — so deleting it would take
+    a live arm off the phone to tidy up after an unrelated failure.
+
+    Returns the number of arms published (0 when nothing is running), which is what the
+    caller logs.
+    """
+    engine = get_engine()
+    created: list[str] = []
+    try:
+        for arm in arms:
+            ref = await publish_variant(
+                session,
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                variant_id=arm.variant_id,
+                label=arm.label,
+                body=arm.body,
+                disclosure_line=arm.disclosure_line,
+                existing_ref=arm.existing_ref,
+            )
+            if arm.existing_ref is None:
+                created.append(ref)
+    except Exception:
+        for ref in created:
+            await _reclaim_orphan(engine, agent_id, ref, "sibling_variant_publish_failed")
+        raise
+    return len(arms)
+
+
 async def republish_running_variants(
     session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 ) -> int:
@@ -743,18 +820,21 @@ async def republish_running_variants(
     the caller logs.
     """
     rows = (await session.execute(text(_VARIANT_CONFIG_SQL), {"aid": agent_id})).all()
-    for row in rows:
-        await publish_variant(
-            session,
-            tenant_id=tenant_id,
-            agent_id=agent_id,
-            variant_id=UUID(str(row[0])),
-            label=str(row[1]),
-            disclosure_line=str(row[2]),
-            body=str(row[3]),
-            existing_ref=row[4],
-        )
-    return len(rows)
+    return await publish_variants(
+        session,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        arms=[
+            ArmToPublish(
+                variant_id=UUID(str(row[0])),
+                label=str(row[1]),
+                disclosure_line=str(row[2]),
+                body=str(row[3]),
+                existing_ref=row[4],
+            )
+            for row in rows
+        ],
+    )
 
 
 async def dispatch_call(
@@ -1036,12 +1116,14 @@ async def set_number_dlt_status(session: AsyncSession, *, number_id: UUID, dlt_s
 __all__ = [
     "DIAL_NOT_PLACED_CODES",
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
+    "ArmToPublish",
     "DialUnconfirmedError",
     "dispatch_call",
     "effective_call_cap",
     "provision_number",
     "publish_agent",
     "publish_variant",
+    "publish_variants",
     "republish_running_variants",
     "set_number_dlt_status",
     "unconfirmed_engine_call_id",
