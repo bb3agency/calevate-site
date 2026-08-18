@@ -491,9 +491,17 @@ async def _lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> Non
     the one that cannot prevent, only detect.)
 
     What it costs, stated plainly: publishes for one agent queue, each for the length of
-    its engine round trips (`engine.REQUEST_TIMEOUT_S` is 10s per call, a handful of
-    calls). This is an admin-console path, not the audio path, and it is per agent — no
-    other agent, tenant or surface waits.
+    its engine round trips. That sentence used to price a round trip at the adapter's
+    request timeout alone — 10s — and the adapter's own THROTTLE ladder makes the worst
+    case per call roughly five times that: `THROTTLE_MAX_ATTEMPTS = 3` attempts of
+    `REQUEST_TIMEOUT_S = 10s`, with a jittered wait between them capped at
+    `THROTTLE_MAX_SLEEP_S = 8s`. A publish is a listing plus one detach per superseded
+    version plus one attach, so an agent whose vendor is rate-limiting can hold this lock
+    for a couple of minutes rather than a handful of seconds. THE CHOICE IS UNCHANGED AND
+    THE NUMBER IS NOW THE REAL ONE: this is an admin-console path, not the audio path, it
+    is per agent — no other agent, tenant or surface waits — and the KB drift sweep takes
+    the same key with `pg_try_advisory_xact_lock`, so a long publish costs it one skipped
+    tick and never a wait.
     """
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
