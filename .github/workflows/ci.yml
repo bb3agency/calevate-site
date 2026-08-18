@@ -361,7 +361,13 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - run: uv sync --all-packages
+      # `--group errors` because that is what SHIPS: the Dockerfile and DEPLOYMENT §8
+      # both install it on api and workers. Without it mypy never saw `sentry_sdk`'s
+      # real types — the import is unresolved, `ignore_missing_imports` turns every
+      # symbol into `Any`, and the one file that wires error reporting type-checked in
+      # a shape production does not run. A gate that cannot see its subject is the
+      # defect class this repository keeps finding; here it was the dependency set.
+      - run: uv sync --all-packages --group errors
       - name: mypy (strict)
         run: uv run mypy apps packages
 

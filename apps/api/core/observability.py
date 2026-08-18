@@ -63,7 +63,7 @@ import re
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from calevate_shared.config import email_transport_reason
@@ -1411,8 +1411,26 @@ def init_observability(service: str) -> str:
                 # Never send PII, and scrub what the SDK gathers anyway.
                 send_default_pii=False,
                 max_request_body_size="never",
-                before_send=scrub_event,
-                before_breadcrumb=scrub_breadcrumb,
+                # CAST, and the cast is the honest expression of a real difference.
+                # `sentry_sdk.init` types these as `Callable[[Event, Hint], Event | None]`
+                # where `Event` is the SDK's TypedDict. Ours are typed on plain dicts on
+                # purpose: they are unit-tested directly, and the whole module must import
+                # and be checkable on a host where sentry-sdk is NOT installed (the import
+                # above is inside this branch for exactly that reason). A `dict[str, Any]`
+                # is not a supertype of a TypedDict to mypy, so the widening cannot be
+                # expressed in the signature without dragging an optional dependency into
+                # the module's type surface.
+                #
+                # THIS LINE WAS INVISIBLE TO CI UNTIL NOW. CI ran `uv sync --all-packages`
+                # while the Dockerfile and DEPLOYMENT §8 install `--group errors`, so mypy
+                # only ever saw the branch with sentry-sdk ABSENT — where the import is
+                # unresolved, `ignore_missing_imports` makes every symbol `Any`, and any
+                # signature at all type-checks. sentry-sdk ships `py.typed`; the moment it
+                # is installed the real types arrive and this errors. The mypy job now
+                # installs the same group production does, which is what makes the cast a
+                # decision rather than a thing nobody could see.
+                before_send=cast("Any", scrub_event),
+                before_breadcrumb=cast("Any", scrub_breadcrumb),
                 # NO `traces_sample_rate`. It used to be 0.1/1.0, which turned on
                 # Sentry's own performance tracing — a SECOND tracing pipeline beside
                 # the OTel one, carrying SQL descriptions and full outbound URLs, and
