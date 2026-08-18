@@ -1061,7 +1061,29 @@ def hot_lead_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
 
 async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
     """Store raw + redacted turns. Idempotent on (call_id, idx) so a re-run rewrites
-    rather than duplicates."""
+    rather than duplicates.
+
+    **A RE-RUN REPLACES THE TRANSCRIPT; IT DOES NOT MERGE TWO READINGS OF IT** (D-187).
+    The upsert used to refresh `text` and `text_redacted` and leave `speaker`, `lang`,
+    `start_ms` and `end_ms` at whatever the FIRST run wrote, and to leave any turn past
+    the end of the new transcript in place. Both halves produce a row nobody spoke: the
+    second run's words under the first run's speaker, and a tail belonging to a reading
+    that has been superseded.
+
+    It is reachable through our own parser rather than only through a fickle vendor.
+    Bolna sends one prefix-tagged blob and `bolna.parse_transcript` indexes turns by
+    POSITION, dropping a leading line it cannot attribute — so two fetches that disagree
+    about the opening line are off by one for the whole call, and every turn inherits the
+    other reading's speaker. `speaker` is not cosmetic: the extractor is speaker-aware
+    (that is why `SAMPLE_TURNS` has the CALLER ask to book), and a mis-attributed turn is
+    how a call becomes a hot lead nobody asked for.
+
+    The delete is bounded to THIS call's tail and runs in the same transaction as the
+    upserts, so a re-drive that is interrupted cannot leave the transcript shorter than
+    either reading. An EMPTY new transcript still returns early and deletes nothing: one
+    read coming back with no turns is not evidence that the turns we hold are wrong, and
+    `_expected_artifacts` already treats an absent transcript as "nothing implied".
+    """
     if not snapshot.transcript:
         return ""
     lines: list[str] = []
@@ -1075,7 +1097,9 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                     "text_redacted, lang, start_ms, end_ms, created_at, updated_at) VALUES "
                     "(:id, :tid, :cid, :idx, :speaker, :text, :redacted, :lang, :start, :end, "
                     "now(), now()) ON CONFLICT (call_id, idx) DO UPDATE SET "
-                    "text = EXCLUDED.text, text_redacted = EXCLUDED.text_redacted, "
+                    "speaker = EXCLUDED.speaker, text = EXCLUDED.text, "
+                    "text_redacted = EXCLUDED.text_redacted, lang = EXCLUDED.lang, "
+                    "start_ms = EXCLUDED.start_ms, end_ms = EXCLUDED.end_ms, "
                     "updated_at = now()"
                 ),
                 {
@@ -1091,6 +1115,27 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                     "end": turn.end_ms,
                 },
             )
+        # Whatever an EARLIER reading left that this one does not claim. `transcript_turns`
+        # is tenant-scoped and is not an append-only ledger
+        # (`db.registry.APPEND_ONLY_TABLES`), so this is a correction rather than a
+        # rewrite of evidence — and the alternative is a call whose last turns come from a
+        # transcript we no longer believe.
+        #
+        # Matched against the indices actually written rather than `idx >= len(turns)`:
+        # contiguity is a property of today's parsers, not of `TranscriptTurn` (`idx` is
+        # only constrained `ge=0`), and a length comparison would silently delete real
+        # turns from the first adapter that numbers them any other way.
+        await session.execute(
+            text(
+                "DELETE FROM transcript_turns WHERE tenant_id = :tid AND call_id = :cid "
+                "AND NOT (idx = ANY(:kept))"
+            ),
+            {
+                "tid": tenant_id,
+                "cid": call_id,
+                "kept": [turn.idx for turn in snapshot.transcript],
+            },
+        )
     return "\n".join(lines)
 
 
