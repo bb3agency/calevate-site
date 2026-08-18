@@ -339,7 +339,16 @@ of its file and reports success is the half-applied state hard rule 4 exists to 
 `tests/tts_tier_correction_script_test.py` exercises it. The console button was weighed and
 rejected in the module docstring: the input is a file an operator downloads from a vendor,
 so a button needs an upload, a parser and a review screen for a correction needed zero times
-so far. **The correction it invokes was also WRONG IN BOTH DIRECTIONS until this audit** —
+so far.
+
+**WHERE THE `chars` REQUIREMENT IS NAMED, since this entry asked for a runbook and there is
+not one.** It is in the script's module docstring and in `--help` on `--chars` ("characters
+synthesized, from the vendor export"), which is where an operator holding the problem
+actually looks. No `runbooks/` page was added: a tier correction pages nobody — it is
+reached by reading a Sarvam usage export, not by an alarm — so it has no row in the derived
+`alarm-index.md` and a standalone page for a procedure with no trigger and no occurrences
+would be the same "progress that looks like progress" the console button was rejected for.
+The day one is needed, `runbooks/topup-payments.md` is its neighbour. **The correction it invokes was also WRONG IN BOTH DIRECTIONS until this audit** —
 it never repriced the client's bill (D-372) and it moved a prepaid wallet by our supplier
 cost (D-373).
 
