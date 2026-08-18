@@ -100,6 +100,7 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     KBSourceRef,
     ListingIncompleteReason,
+    LlmCredentialPlacement,
     LlmProvider,
     ModelConfig,
     NumberSpec,
@@ -1475,6 +1476,132 @@ class BolnaEngine:
             code="engine_capability_unverified",
             title="Number provisioning is not automated yet",
             detail="Numbers are provisioned with the telephony provider directly (M1).",
+        )
+
+    # --- the rotating LLM credential (D-404) ---------------------------------
+
+    async def _llm_credential_ids(self, name: str) -> set[str]:
+        """The `provider_id`s the store currently holds under `name`.
+
+        `GET /providers` returns a `ProviderList` — an array, which `vendor_request`
+        wraps as `{"data": [...]}` — of `{provider_id, provider_name, provider_value}`
+        where **`provider_value` is MASKED** (the spec's own example is `xxxxxxxaz`).
+        That masking is why identity is read off `provider_id` and never off the value:
+        the store will not tell us which bearer it is holding, only how many.
+        """
+        listing = await self._request("GET", "/providers")
+        rows = listing.get("data")
+        if not isinstance(rows, list):
+            return set()
+        return {
+            str(row["provider_id"])
+            for row in rows
+            if isinstance(row, dict)
+            and row.get("provider_name") == name
+            and row.get("provider_id") is not None
+        }
+
+    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Write the in-call LLM bearer into Bolna's credential store (D-404).
+
+        VERIFIED-OAS (`bolna-ai/skills@28b24aa`, `references/openapi.yml`, md5
+        5597f7da080d47564696bc05c12e9112 — re-downloaded and re-hashed 18 Aug 2026, so
+        the pin is a re-read rather than a citation): `POST /providers` takes
+        `{provider_name, provider_value}`, `GET /providers` lists them with the value
+        MASKED, and `DELETE /providers/{provider_key_name}` removes one.
+
+        **WHY THIS IS A THREE-CALL DANCE AND NOT ONE POST**, which is the whole design
+        question here. The POST response's `status` enum has exactly one member,
+        `"added"` — there is no `"updated"` — so the spec DOCUMENTS an add and says
+        nothing about what a second add under the same name does. Three behaviours are
+        possible and they are not equally survivable:
+
+        * **Replace in place.** The happy case, and what a credential store usually does.
+        * **Append.** The store ends up holding the fresh bearer AND every expired one,
+          and WHICH of them a call authenticates with is the vendor's choice. The leg
+          keeps working for a while and then fails on a token nobody knew was installed —
+          a failure indistinguishable, from the outside, from "the refresher stopped",
+          which is precisely the sentence `vertex_llm_credential_refresh_failed` exists
+          to make unambiguous.
+        * **Refuse the duplicate.** Loud, and handled by the ladder as `engine_rejected`.
+
+        So we COUNT BEFORE AND AFTER and clean up what we find, using only documented
+        routes. The reward is that the answer to "which semantics does the live platform
+        have" arrives as DATA from the first rotation instead of as a reviewer's guess —
+        the same move `_snapshot` makes for gate 16. `LlmCredentialPlacement` is how it
+        reaches the log.
+
+        WHY POST-THEN-DELETE AND NEVER DELETE-THEN-POST. The obvious spec-clean rotation
+        is "remove the old entry, add the new one". It is wrong on the only axis that
+        matters: between the two calls the engine holds NO credential, so a POST that
+        fails after a successful DELETE takes the LLM leg down IMMEDIATELY rather than at
+        the old token's expiry. Post-first is strictly safer — the worst case is a
+        duplicate we then remove, and the second-worst is a duplicate we log.
+
+        THE SECRET IS NEVER LOGGED, and nothing here puts it in an exception: the ladder
+        in `vendor_http` logs status and route only, and this method's own log lines carry
+        a name, two counts and a verdict. `extra=` never sees the value (hard rule 6 is
+        about PII; a credential is the one thing whose leak is worse).
+        """
+        # An engine whose LLM leg it DICTATES has no credential of ours to hold, and a
+        # silent no-op there would be a refresher reporting green forever about somebody
+        # else's model. `has("llm")` is `is_ours("llm")` — see the Protocol's note on why
+        # this is that gate rather than a capability flag of its own.
+        require_capability("llm", engine=self)
+        # Read per call rather than copied at construction, because this is the one
+        # setting whose value is a MARKED ASSUMPTION (`Settings.bolna_llm_credential_name`)
+        # and the operator correcting it is looking at a broken leg while they do. The
+        # adapter is cached per process, so a constructor copy would make an `applies:
+        # live` classification a lie. This method runs on a multi-hour cron, so the read
+        # costs nothing that matters.
+        name = get_settings().bolna_llm_credential_name
+        before = await self._llm_credential_ids(name)
+        await self._request(
+            "POST", "/providers", json={"provider_name": name, "provider_value": secret}
+        )
+        after = await self._llm_credential_ids(name)
+
+        superseded = before & after
+        if not superseded:
+            # Replace-in-place (or a first install): the ids under our name did not
+            # survive the write, so the store swapped the entry.
+            log.info(
+                "engine_llm_credential_installed",
+                extra={"engine": self.name, "credential": name, "held": len(after)},
+            )
+            return LlmCredentialPlacement(replaced_in_place=True)
+
+        # APPEND SEMANTICS. Every id that was there before AND is still there is a
+        # superseded copy, because the entry we just wrote cannot be one of them. Removal
+        # is by NAME — the vendor's delete is `/providers/{provider_key_name}`, which
+        # addresses the name and not the id — so we cannot remove them individually, and
+        # deleting by name would take our fresh one with them.
+        #
+        # NOT SILENTLY TOLERATED. This is an alarm rather than a cleanup, and the reason
+        # is the docstring's second bullet: a store holding several bearers under one name
+        # authenticates calls with one of them at its own discretion, so the leg's health
+        # stops being a function of anything we do. It is reported as a REFUSAL of the
+        # rotation, which is exactly right — the rotation did not achieve its purpose.
+        log.warning(
+            "engine_llm_credential_appended",
+            extra={
+                "engine": self.name,
+                "credential": name,
+                "superseded": len(superseded),
+                "held": len(after),
+            },
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_credential_not_replaced",
+            title="The voice platform kept the superseded LLM credential",
+            detail=(
+                "The credential store appended the new value beside the old one instead "
+                "of replacing it, so which credential a call uses is no longer ours to "
+                "decide."
+            ),
+            remediation=("Remove the stale entry in the vendor console, then re-run the refresh."),
+            failure_stage="CORE_LOGIC",
         )
 
     # --- knowledge base ------------------------------------------------------

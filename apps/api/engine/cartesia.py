@@ -135,6 +135,7 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     KBSourceRef,
     ListingIncompleteReason,
+    LlmCredentialPlacement,
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
@@ -804,6 +805,27 @@ class CartesiaEngine:
             code="engine_capability_unverified",
             title="Number provisioning is not available",
             detail="Numbers are provisioned with the telephony provider directly.",
+        )
+
+    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Refuses, because this engine's LLM is not ours to credential (D-404).
+
+        `CARTESIA_CAPABILITIES.llm == "engine"` — Line runs the model, we do not choose it
+        and we hand it no key. There is therefore nothing here to rotate, and the refusal
+        is the WHOLE value of the method on this adapter: a deployment that switched
+        `ENGINE` to this vendor while leaving D-404's refresher cronned must find out on
+        the first tick, by name, rather than have the refresher report success for hours
+        against a store that does not exist.
+
+        `require_capability("llm", …)` is the same guard the caller would have used, so a
+        screen and this method cannot disagree.
+        """
+        require_capability("llm", engine=self)
+        raise ProblemError(  # unreachable while `llm == "engine"`
+            kind="dependency",
+            code="engine_capability_unverified",
+            title="This voice platform holds no LLM credential of ours",
+            detail="The voice platform in use chooses its own language model.",
         )
 
     # --- knowledge base ------------------------------------------------------

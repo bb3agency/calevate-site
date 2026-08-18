@@ -634,21 +634,41 @@ def vertex_openai_base_url(project: str) -> str:
 #:   and "Gemini is supported in a way that keeps caller audio in India" are different
 #:   sentences.
 #:
-#: WHAT IS NOT SETTLED, and it is one thing: **a regional Vertex endpoint authenticates
-#: with a Google OAuth2 access token that expires in about an hour, and Bolna stores
-#: static strings.** Their credential store is `POST /providers` with
-#: `{provider_name, provider_value}` — one string, added once (published OpenAPI, same
-#: pin) — and `LlmAgent` has no credential field at all. An API key is not an
-#: alternative: Vertex API keys work only in express mode, whose endpoints are the GLOBAL
+#: WHAT WAS NOT SETTLED, AND NOW IS — **ROTATION, NOT PROXYING** (D-404). The blocker
+#: read: "a regional Vertex endpoint authenticates with a Google OAuth2 access token that
+#: expires in about an hour, and Bolna stores static strings." Both halves were true and
+#: the conclusion drawn from them was not. A store that holds a string can hold a string
+#: we REPLACE on a schedule, and this repository already owns every part of doing that:
+#: the RS256 service-account handshake (`apps/workers/google_oauth.py`), the secrets
+#: manager reference for the key (`gcp_service_account_json`, never in the DB or a
+#: committed file), and a cron registry with a retry ladder. Two facts turned "static
+#: strings" from a wall into a schedule:
+#:
+#: * **The token can last 12 hours, not one.** `generateAccessToken` accepts
+#:   `lifetime: "43200s"` for a service account named in the org policy
+#:   `constraints/iam.allowServiceAccountCredentialLifetimeExtension` (Google IAM docs,
+#:   read 18 Aug 2026). Default is 3600s, and the response ALWAYS carries `expireTime`
+#:   (`google/iam/credentials/v1/common.proto`), so what we were GRANTED is read back
+#:   rather than assumed — see `apps/workers/vertex_credential.py`.
+#: * **`provider: "custom"` sends a plain bearer.** VERIFIED-OSS at `bolna-ai/bolna`
+#:   master, `bolna/llms/openai_llm.py`: `AsyncOpenAI(base_url=…, api_key=llm_key, …)`,
+#:   and `AsyncOpenAI` sends `Authorization: Bearer <api_key>` — which is exactly what
+#:   Vertex's OpenAI-compatible surface accepts. The engine never needs to know the string
+#:   is an OAuth2 token rather than an API key.
+#:
+#: An API key remains no alternative, and that is the reason the rotation is worth its
+#: cost: Vertex API keys work only in express mode, whose endpoints are the GLOBAL
 #: `aiplatform.googleapis.com` with no `projects` or `locations` segment, and the
 #: `@google/genai` client short-circuits to the global endpoint the moment an API key is
 #: present, ignoring the configured location entirely (google-gemini/gemini-cli#27984,
 #: READ 18 Aug 2026 — a reporter watching requests go to the global host while the UI
-#: displayed their region). A static Vertex bearer would therefore be either a token that
-#: stops working sixty minutes after a publish, or a residency inversion.
+#: displayed their region). Google's own guidance is blunter still: "Don't use the global
+#: endpoint if you have ML processing requirements, because you can't control or know
+#: which region your ML processing requests are sent to." **A key is not the convenient
+#: version of this leg; it is a different leg, in a different country.**
 #:
-#: WHAT CLOSES IT — three routes, evaluated in full in D-402 and summarised here because
-#: the next reader of this constant will be looking for exactly this:
+#: THE THREE REJECTED ROUTES, kept in full because the next reader will otherwise
+#: re-propose the easy ones (each is a decision row of its own: D-405..D-407):
 #:
 #: * **(A) A Google AI Studio key** (`provider: "google"` — a long-lived static string that
 #:   fits Bolna's credential store exactly, and the only route that is a five-minute
@@ -658,37 +678,41 @@ def vertex_openai_base_url(project: str) -> str:
 #:   at all, the host carries no region, and there is no field in which to ask for one.
 #:   Taking it would be abandoning D-127's posture on the leg that carries the caller's
 #:   actual voice: a DPDP position change and a founder's call, not a shortcut. No code path
-#:   can reach it.
+#:   can reach it, and `_llm_routing` refuses `provider: "google"` by test.
 #: * **(B) A token-broker proxy WE run in-region** — holds the service-account key, mints
 #:   and refreshes the bearer, forwards to `asia-south1`, registered with Bolna as a custom
-#:   model URL. Architecturally right, and three real costs: it sits IN the turn-latency
-#:   path (so it belongs beside `apps/voice-runtime`, not in `apps/api`); it is a NEW
-#:   DEPLOYABLE needing its own ROADMAP §6 entry, which this constant does not pre-authorise;
+#:   model URL. **REJECTED IN FAVOUR OF ROTATION**, and the three costs that decided it are
+#:   the ones that made rotation worth finding: it sits IN the turn-latency path (so it
+#:   belongs beside `apps/voice-runtime`, not in `apps/api`) and adds a hop to every model
+#:   token on a live phone call; it is a NEW DEPLOYABLE needing its own ROADMAP §6 entry;
 #:   and **`POST /user/model/custom` carries NO credential field, so an unauthenticated
 #:   OpenAI-compatible endpoint on the public internet would be an OPEN RELAY FOR OUR VERTEX
-#:   SPEND** — an unguessable path is not authentication. A source-IP allowlist is the
-#:   pattern this repo already owns for this same vendor's unsigned webhooks
-#:   (`calevate_shared.config.bolna_source_ips`); whether it is ADEQUATE when the worst case
-#:   is somebody else's inference on our invoice rather than a forged event the poller
-#:   contradicts is itself a finding, and D-402 records it as one.
-#: * **(C) Ask Bolna.** One email, and it can make (B) unnecessary. `api.bolna.ai`,
-#:   `docs.bolna.ai` and `www.bolna.ai` are refused by this environment's egress proxy, so
-#:   it cannot be asked from here; D-402 carries the exact wording and OPERATIONS §2 gate
-#:   16b carries the test.
-#:
-#: RECOMMENDED ORDER: (C), then (B) if (C) comes back negative, and never (A) without an
-#: explicit founder decision to change the residency posture.
+#:   SPEND** — an unguessable path is not authentication. Rotation costs zero added
+#:   latency, no new deployable and no new attack surface, because the bearer travels
+#:   engine-to-Google on a connection we are not in.
+#: * **(C) Ask Bolna.** Still worth one email, and it is now an OPTIMISATION rather than a
+#:   blocker: if they will accept a credential-refresh hook the rotation gets simpler, and
+#:   if they will not, nothing here changes. `api.bolna.ai`, `docs.bolna.ai` and
+#:   `www.bolna.ai` are refused by this environment's egress proxy, so it cannot be asked
+#:   from here; OPERATIONS §2 gate 16b carries the test.
 #:
 #: WHAT THIS CONSTANT ACTUALLY GATES, because it is not a note: `apps/api/agents/service
-#: .py::in_call_llm` reads it, and it is the ONE decision point for the whole leg. While
-#: it is False every agent renders the LLM block byte-identically to what it rendered
-#: before D-400, on whatever `agents.llm_model` holds. Flip it — with a `gcp_project_id`
-#: configured, which is a second necessary condition and not a formality — and the
-#: endpoint AND the model identifier move together, because sending a Sarvam identifier
-#: to Vertex is a 404 at dial time on a live phone line. Both arms are covered by
-#: `tests/in_call_llm_provider_test.py`, so this is a switch somebody has run rather than
-#: a decision waiting for the code that would act on it.
-VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = False
+#: .py::in_call_llm` reads it, and it is the ONE decision point for the whole leg. It is
+#: now True, and it is still not sufficient on its own — `in_call_llm` requires a
+#: `gcp_project_id` AND a resolvable service account, because publishing a Vertex endpoint
+#: into a deployment that can mint no bearer for it is a 401 at dial time on a live phone
+#: line. The endpoint and the model identifier move TOGETHER for the same class of reason:
+#: sending a Sarvam identifier to Vertex is a 404 on that same call. Every arm is covered
+#: by `tests/in_call_llm_provider_test.py`.
+#:
+#: ⚠ WHAT IS STILL UNVERIFIED AGAINST THE LIVE PLATFORM, and it is one thing rather than
+#: the four it used to be: **which `provider_name` the hosted platform reads `llm_key`
+#: from for a `provider: "custom"` leg.** VERIFIED-OSS proves the framework passes
+#: `llm_key` straight to `AsyncOpenAI`; nothing published says which credential-store
+#: entry the HOSTED platform injects it from. `Settings.bolna_llm_credential_name` carries
+#: our default so an operator who learns the answer sets it from the ops console without a
+#: deploy, and OPERATIONS §2 gate 16c is the one call that settles it.
+VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = True
 
 
 #: WHERE an LLM leg runs, in OUR vocabulary — never the engine's (hard rule 2).
@@ -1396,6 +1420,45 @@ class WebhookVerdict(BaseModel):
     reason: str | None = None
 
 
+class LlmCredentialPlacement(BaseModel):
+    """What the engine ACTUALLY did with a rotated LLM credential (D-404).
+
+    `set_llm_credential` cannot be fire-and-forget, and the reason is a vendor semantic
+    nobody has read back: a credential store may REPLACE the entry under a name or it may
+    APPEND a second one. Under append semantics a rotation that reported success would
+    leave the engine holding both the new bearer and every expired one before it, and
+    which of them a call authenticates with is the vendor's choice — so a leg could keep
+    working for hours after a rotation and then fail on a token nobody knew was still
+    installed. That failure is indistinguishable from "the refresher stopped running",
+    which is the one thing the alarm is supposed to tell an operator apart.
+
+    So the adapter reports what it observed, in OUR terms, and the caller logs it. No
+    vendor id, name or payload crosses this boundary (hard rule 2) — two counts and a
+    verdict, which is the whole of what an operator can act on.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: True when the engine ended up holding exactly ONE credential under our name
+    #: without anything having to be deleted — replace-in-place semantics.
+    replaced_in_place: bool
+    #: How many SUPERSEDED copies this call removed. Non-zero proves append semantics,
+    #: which is a fact about the vendor worth having in the log the first time it happens.
+    superseded_removed: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _verdict_and_count_agree(self) -> LlmCredentialPlacement:
+        """A replace-in-place install cannot also have had superseded copies to remove —
+        the two are the two arms of one observation, and an adapter reporting both has
+        not looked, it has guessed."""
+        if self.replaced_in_place and self.superseded_removed:
+            raise ValueError(
+                "replaced_in_place with superseded_removed>0 is contradictory: "
+                "the store either replaced the entry or it appended beside it"
+            )
+        return self
+
+
 @runtime_checkable
 class VoiceEngine(Protocol):
     name: str
@@ -1607,6 +1670,40 @@ class VoiceEngine(Protocol):
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber: ...
 
+    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Install the secret the configured LLM endpoint authenticates with, replacing
+        whatever this engine was holding for that purpose (D-404).
+
+        **THIS IS THE METHOD A ROTATING CREDENTIAL NEEDS, and no other method on this
+        Protocol could be it.** `create_agent`/`update_agent` carry an agent's CONFIG;
+        a bearer that expires is not configuration, it is a moving fact about the
+        deployment, and pushing it through the agent path would mean re-publishing every
+        agent in the fleet every few hours — a compliance-gated write (hard rule 5, the
+        prompt is re-verified on every publish) driven by a clock.
+
+        **ONLY MEANINGFUL WHERE `capabilities.is_ours("llm")` IS TRUE**, and that is the
+        same gate rather than a new capability flag on purpose: an engine that DICTATES
+        its LLM leg has no credential of ours to hold, so "can we install one" and "is the
+        LLM ours" are one question. Where the leg is dictated this must REFUSE BY NAME —
+        never no-op, because a silent success here is a refresher that reports green
+        forever while the leg it exists to keep alive is somebody else's.
+
+        WHAT `secret` IS deliberately unstated: a static API key for one engine, a
+        12-hour Google OAuth2 bearer for another. The Protocol's job is that the value
+        arrives and supersedes; how long it lives is the CALLER's problem, and
+        `apps/workers/vertex_credential.py` is the caller that owns it for D-404's leg.
+
+        NOT IDEMPOTENT IN THE `delete_agent` SENSE, and the difference matters: calling
+        it twice with the same secret must leave the engine holding that secret once, but
+        each call is a real write — this is the operation whose whole purpose is to
+        replace something that still works with something that will work longer.
+
+        Raises rather than returning a failure, because every caller's response to "the
+        credential did not land" is the same page (`vertex_llm_credential_refresh_failed`)
+        and a returned `False` is a thing a caller can forget to read.
+        """
+        ...
+
     async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
         """Push an approved source and return the engine's handle for it.
 
@@ -1723,6 +1820,7 @@ __all__ = [
     "ExecutionSnapshot",
     "KBSourceRef",
     "ListingIncompleteReason",
+    "LlmCredentialPlacement",
     "LlmProvider",
     "ModelConfig",
     "NumberSeries",
