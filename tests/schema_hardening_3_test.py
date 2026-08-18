@@ -6,8 +6,18 @@ would use — is the reason it is worth keeping as a file rather than folding in
 `retention_test.py`.
 
 **The retention sweep's leads hole is closed at the ingest end**, and the tests below are
-the compliance sentence — no personal data enters the platform that the retention sweep
-cannot later expire — expressed as things that either happen or do not.
+the compliance sentence — no personal data reaching this platform through a CALL or a
+LEAD enters it without the retention sweep being able to expire it later — expressed as
+things that either happen or do not.
+
+**THE FIRST CLAUSE OF THAT SENTENCE IS NEW, AND ITS ABSENCE WAS A FALSE CLAIM (D-363).**
+This file proved the sentence for the categories that existed when it was written; D-179
+later added `kb`, and a knowledge source is the one expirable artefact a tenant can hold
+without ever publishing an agent — so `retention._due_tenants`, which is derived from
+`engine_agent_routes`, cannot reach it. Nothing here covered that, and the unqualified
+sentence read as though something did. `apps/workers/retention._due_tenants` carries the
+reproduction and the two ways of closing it; this file's scope is unchanged and is now
+stated rather than implied.
 
 The second subject this file used to carry, a tripwire recording why the credit-ledger
 unique index could not yet be built, is gone with migration f9c2b41a8e57; see the note
