@@ -73,6 +73,7 @@ by us at all, so a dispatch-side check would leave the receptionist motion ungua
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID
@@ -97,9 +98,78 @@ from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
+
+#: The `calls.engine_call_id` of a dial WE have decided to place and the vendor has not
+#: yet named. `engine_call_id` is `NOT NULL UNIQUE` and it is the key every reconciliation
+#: path joins on, so the pre-dial intent row needs a value in it before the only party
+#: that can supply the real one has answered — this prefix is that value's namespace.
+#:
+#: A NAMESPACED LOCAL ID RATHER THAN A NULLABLE COLUMN, and the choice is deliberate.
+#: Making `engine_call_id` nullable would put "no id yet" and "we lost the id" into the
+#: same NULL, and every reader that joins on the column (the poller's `_upsert_call`, the
+#: drift sweep, `link_callback`) would need a NULL branch it has no way to resolve. A
+#: value that is unmistakably OURS keeps the column NOT NULL, keeps the unique index
+#: doing its job, and makes "the vendor never told us what it called this" a state you
+#: can SELECT for — which is what `_reap_stuck_dialing` does with it.
+#:
+#: Collision with a vendor id is what the prefix rules out: an engine id is an opaque
+#: vendor token (Bolna's is a uuid4 execution id, Cartesia's a `call_…` handle) and
+#: neither can be minted by us, so nothing outside this module writes this shape.
+UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
+
+#: Engine failures that mean **no line was seized** — the dial can be retried, and the
+#: contact keeps its place on the ladder.
+#:
+#: Everything NOT in this set is treated as "the phone may be ringing right now", which
+#: is the conservative reading and is chosen on the cost asymmetry: a wrongly-retried
+#: dial is a second unsolicited call to a real person (the behaviour the whole compliance
+#: gate exists to bound), while a wrongly-abandoned dial is one contact a human has to
+#: look at. `engine_rejected` is the uncomfortable member of the "unconfirmed" side — the
+#: adapters collapse every 4xx AND 5xx into it, so it mixes "the vendor refused this
+#: request" with "a proxy answered 502 after the vendor had committed", and we cannot
+#: tell them apart from here without an adapter that separates them.
+#:
+#: What would let us do better is a vendor-side idempotency key on `POST /call`: with
+#: one, a retry is safe whatever the failure was. Bolna's support for it is unverified
+#: (D-31/D-32's rule: an unverified vendor behaviour is never a silent premise), so it is
+#: not assumed here.
+DIAL_NOT_PLACED_CODES = frozenset(
+    {
+        # 429 with the ladder exhausted. The adapter's own note says a throttle "says
+        # nothing about the request", and it is raised instead of sending it on.
+        "engine_rate_limited",
+        # All three are raised BEFORE any HTTP request leaves this process.
+        "engine_not_configured",
+        "engine_capability_unverified",
+        "engine_capability_absent",
+        "engine_caller_id_not_configured",
+    }
+)
+
+
+class DialUnconfirmedError(Exception):
+    """The vendor may have started this call and we cannot prove it either way.
+
+    The third outcome beside "dialled" and "refused". It carries the `calls.id` of the
+    intent row — which is COMMITTED before the engine is asked, so the possible charge is
+    on record — and the engine's error code for the operator log. Callers must treat it
+    as "this person may have been rung": never as a reason to dial them again.
+    """
+
+    def __init__(self, *, call_id: UUID, code: str) -> None:
+        super().__init__(f"dial outcome unknown (call_id={call_id}, code={code})")
+        self.call_id = call_id
+        self.code = code
+
+
+def unconfirmed_engine_call_id(call_id: UUID) -> str:
+    """The placeholder `engine_call_id` a pre-dial intent row carries."""
+    return f"{UNCONFIRMED_ENGINE_CALL_PREFIX}{call_id}"
 
 
 def effective_call_cap(max_call_duration_s: int | None) -> int:
@@ -344,6 +414,20 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     `set_call_cap`, `apply_to_live` or `set_agent_voice` republish, all of which reach
     this function and all of which read-then-write the same row.
     """
+    # THE ACCOUNT MUST STILL BE OPEN (D-194). Publishing is what puts an agent on the
+    # phone, and this asked nothing about the organisation it belongs to — so an operator
+    # with a hand-typed uuid could put a CHURNED or ERASED client's agent back into
+    # service: answering calls, collecting caller numbers, against a tenant on a retention
+    # clock and, after an erasure, under a certificate saying that data is gone. Every
+    # other key-minting surface already asked (`admin.service` at both ends of an
+    # invitation); this one is the loudest of them and was the one that did not.
+    #
+    # FIRST, before the lock and before the vendor: a refusal here costs one indexed read
+    # and leaves the engine untouched, whereas refusing after `create_agent` would leave an
+    # agent at the vendor with nothing pointing at it. `suspended` is deliberately allowed
+    # through — see the predicate, which argues why a billing stop is not an access stop.
+    await assert_account_open(session, tenant_id=tenant_id)
+
     agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
     engine = get_engine()
     config = _to_config(tenant_id, agent)
@@ -632,12 +716,52 @@ async def dispatch_call(
     phone_e164: str,
     lead_name: str | None = None,
     context_note: str | None = None,
+    on_reserved: Callable[[AsyncSession, UUID], Awaitable[None]] | None = None,
 ) -> str:
     """Place ONE outbound call. The caller has already passed the compliance gate.
 
-    A `queued` call row is written BEFORE the engine call returns, so a dispatch that
-    succeeds at the vendor but fails on our side still shows up rather than becoming an
-    invisible charge.
+    THE INTENT ROW IS WRITTEN AND COMMITTED BEFORE THE ENGINE IS ASKED TO DIAL, and this
+    used to be a promise the shape of the function could not keep: the INSERT bound
+    `engine_call_id` to the vendor's return value, so it could not possibly precede the
+    call that produced it. A response lost on the way back — a read timeout at 10s, a
+    reset connection, a proxy 502 after the vendor committed — left a ringing phone, a
+    vendor charge and no row of ours: no metering, no wallet debit, and (on the campaign
+    path) a contact the dispatcher returned to `pending` and rang a SECOND time, because
+    `resolve_campaign_contact` joins a call to its contact through
+    `campaign_contacts.last_call_id`, which was never set.
+
+    So the row exists first, keyed on an id WE mint (`unconfirmed_engine_call_id`), and
+    the vendor's handle is stamped onto it afterwards. What that buys, in the order the
+    failures actually happen:
+
+    * **A lost response** leaves a `queued` row whose `engine_call_id` is still ours.
+      That is the durable record of a charge we may have incurred, and it is what
+      `DialUnconfirmedError` points the caller at.
+    * **Two dispatchers racing one contact** cannot collide on the intent row (each mints
+      its own `calls.id`), and the double-dial they would otherwise cause is stopped
+      where it has always been stopped — the committed `pending → dialing` CAS claim.
+    * **The poller arriving later** finds the row by `engine_call_id` once the stamp
+      lands, exactly as before; `_upsert_call`'s `ON CONFLICT (engine_call_id)` is what
+      makes that one row rather than two.
+
+    **Its own transaction, not the caller's.** A row written into the caller's
+    transaction dies with it, which is the failure being closed here (`core/deps.py`
+    rolls a request back on any exception; the campaign dispatcher runs each dial in its
+    own transaction). This is `billing/payment_routes._create_order_once`'s shape — claim
+    committed before the network call — applied to a dial. The second connection is held
+    only for the INSERT and is released before the engine round trip, so a dial occupies
+    at most two pooled connections and never one across a vendor call.
+
+    **`lead_id` is stamped through the CALLER's session afterwards, deliberately.** The
+    lead may not be committed yet: `ingest/service.py` inserts the lead and dials in one
+    transaction, so an FK to it from another connection would block on that transaction —
+    which is waiting on this function. A call row whose lead link is a moment late is a
+    small, recoverable imprecision; a self-deadlock on the lead-callback path is not.
+
+    **`on_reserved` runs in the intent transaction**, with the row already inserted, for
+    callers that must record their own pointer to the call BEFORE it can ring — the
+    campaign dispatcher's `campaign_contacts.last_call_id`, whose FK requires the row and
+    whose whole value is that it is written on the safe side of the dial.
 
     A/B SCRIPT TESTING (ROADMAP M3) IS WIRED HERE, and here is the only place it could
     be. This function is the platform's single outbound entry point — the property
@@ -649,6 +773,10 @@ async def dispatch_call(
 
     The arm decides which engine agent is dialled, and the assignment is written in the
     SAME transaction as the call row it describes.
+
+    Raises `DialUnconfirmedError` when the engine call failed in a way that cannot rule out a
+    ringing phone; the original `ProblemError` when the vendor refused before dialling
+    (`DIAL_NOT_PLACED_CODES`), so those callers keep their retry ladder.
     """
     agent = await _load_agent(session, tenant_id, agent_id)
     ref = agent["engine_agent_ref"]
@@ -670,41 +798,116 @@ async def dispatch_call(
     # outage caused by an experiment. It is not recorded as assigned — see below.
     dial_ref = arm.arm.engine_agent_ref if arm and arm.arm.engine_agent_ref else ref
 
-    engine = get_engine()
-    handle = await engine.start_outbound_call(
-        dial_ref,
-        phone_e164,
-        CallContext(
-            lead_id=str(lead_id) if lead_id else None,
-            lead_name=lead_name,
-            context_note=context_note,
-        ),
-    )
     call_id = uuid7()
-    inserted = (
-        await session.execute(
+    intent_engine_call_id = unconfirmed_engine_call_id(call_id)
+    async with tenant_session(tenant_id) as intent:
+        await intent.execute(
             text(
                 "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
-                "status, lead_id, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
-                "'outbound', :to_e, 'queued', :lid, now(), now()) "
-                "ON CONFLICT (engine_call_id) DO NOTHING RETURNING id"
+                "status, created_at, updated_at) VALUES (:id, :tid, :aid, :ecid, "
+                "'outbound', :to_e, 'queued', now(), now())"
             ),
             {
                 "id": call_id,
                 "tid": tenant_id,
                 "aid": agent_id,
-                "ecid": handle,
+                "ecid": intent_engine_call_id,
                 "to_e": phone_e164,
-                "lid": lead_id,
             },
         )
-    ).first()
-    # No row back = this engine call id was already ours, so the call already carries
-    # whatever arm it was first assigned. Re-recording would be the one way an
-    # assignment could ever move, which is exactly what must not happen.
-    if inserted is not None and arm is not None and arm.arm.engine_agent_ref:
-        await assignment.record(session, tenant_id=tenant_id, call_id=call_id, assignment=arm)
+        # The arm rides the row it describes, in the row's own transaction. There is no
+        # `ON CONFLICT` to lose any more: the id is ours and fresh, so this INSERT cannot
+        # race the poller. The invariant that mattered — an assignment never MOVES — is
+        # `assignment.record`'s own `ON CONFLICT (call_id) DO NOTHING`.
+        if arm is not None and arm.arm.engine_agent_ref:
+            await assignment.record(intent, tenant_id=tenant_id, call_id=call_id, assignment=arm)
+        if on_reserved is not None:
+            await on_reserved(intent, call_id)
+
+    engine = get_engine()
+    try:
+        handle = await engine.start_outbound_call(
+            dial_ref,
+            phone_e164,
+            CallContext(
+                lead_id=str(lead_id) if lead_id else None,
+                lead_name=lead_name,
+                context_note=context_note,
+            ),
+        )
+    except Exception as exc:
+        # `Exception`, NOT `BaseException`. A `CancelledError` through this await is a
+        # worker being shut down or a job overrunning `job_timeout`; arq retries the job
+        # for it, so it must keep propagating as itself. The intent row and whatever
+        # `on_reserved` wrote are already committed, which is precisely what makes that
+        # cancellation survivable — the contact stays `dialing` pointing at an
+        # unconfirmed call, and `_reap_stuck_dialing` settles it without a second ring.
+        code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
+        if isinstance(exc, ProblemError) and exc.code in DIAL_NOT_PLACED_CODES:
+            await _close_unplaced_dial(tenant_id, call_id=call_id, code=code)
+            raise
+        # No number, no vendor text: ids and our own code (hard rule 6).
+        log.error(
+            "dial_outcome_unknown",
+            extra={"call_id": str(call_id), "agent_id": str(agent_id), "code": code},
+        )
+        raise DialUnconfirmedError(call_id=call_id, code=code) from exc
+
+    await _confirm_dial(tenant_id, call_id=call_id, handle=handle)
+    if lead_id is not None:
+        # Through the CALLER's session — see the docstring: the lead can be uncommitted
+        # in that very transaction, and the FK would otherwise wait on it.
+        await session.execute(
+            text("UPDATE calls SET lead_id = :lid, updated_at = now() WHERE id = :id"),
+            {"lid": lead_id, "id": call_id},
+        )
     return handle
+
+
+async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
+    """Stamp the vendor's handle onto the intent row, in its own transaction.
+
+    Guarded by `NOT EXISTS` rather than left to the unique index: the poller can already
+    have created a row for this execution (it does that for calls it discovers), and a
+    duplicate-key error here would abort a transaction whose only job is bookkeeping for
+    a call that is by now really ringing. When the guard bites, OUR row keeps its local
+    id — visible, `queued`, and settled by the same reaper as any other unconfirmed dial
+    — and the vendor's row is the one the pipeline uses. `IntegrityError` is still
+    caught, because the guard and the insert can interleave.
+    """
+    try:
+        async with tenant_session(tenant_id) as confirm:
+            result = await confirm.execute(
+                text(
+                    "UPDATE calls SET engine_call_id = :h, updated_at = now() "
+                    "WHERE id = :id AND engine_call_id = :local "
+                    "AND NOT EXISTS (SELECT 1 FROM calls o WHERE o.engine_call_id = :h)"
+                ),
+                {"h": handle, "id": call_id, "local": unconfirmed_engine_call_id(call_id)},
+            )
+            stamped = rowcount_of(result)
+    except IntegrityError:
+        stamped = 0
+    if stamped == 0:
+        log.warning("dial_handle_not_stamped", extra={"call_id": str(call_id)})
+
+
+async def _close_unplaced_dial(tenant_id: UUID, *, call_id: UUID, code: str) -> None:
+    """The vendor refused before seizing a line: finish the intent row as `failed`.
+
+    Left `queued`, it would sit in the `in_flight` bucket forever and read as a call that
+    might yet connect. `failed` is the honest terminal state, and it is only ever written
+    for `DIAL_NOT_PLACED_CODES` — the failures that PROVE nothing rang.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET status = 'failed', updated_at = now() "
+                "WHERE id = :id AND status = 'queued'"
+            ),
+            {"id": call_id},
+        )
+    log.info("dial_not_placed", extra={"call_id": str(call_id), "code": code})
 
 
 async def provision_number(
@@ -769,6 +972,9 @@ async def set_number_dlt_status(session: AsyncSession, *, number_id: UUID, dlt_s
 
 
 __all__ = [
+    "DIAL_NOT_PLACED_CODES",
+    "UNCONFIRMED_ENGINE_CALL_PREFIX",
+    "DialUnconfirmedError",
     "dispatch_call",
     "effective_call_cap",
     "provision_number",
@@ -776,4 +982,5 @@ __all__ = [
     "publish_variant",
     "republish_running_variants",
     "set_number_dlt_status",
+    "unconfirmed_engine_call_id",
 ]

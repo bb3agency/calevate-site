@@ -238,8 +238,15 @@ class LeadSavedView(PKMixin, TimestampMixin, Base):
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
     )
+    #: NO `index=True`, and its absence is the schema (D-192). Migration `a7e2c40d9b53`
+    #: built `ix_lead_saved_views_tenant_user (tenant_id, user_id)` and no bare `user_id`
+    #: btree, because every read of this table filters BOTH columns — the docstring above
+    #: says so — and the composite serves that with one index. The model said `index=True`
+    #: anyway, so `Base.metadata` declared an `ix_lead_saved_views_user_id` the database has
+    #: never had and the next `--autogenerate` proposed creating it. Proven by
+    #: `compare_metadata` against a database migrated from base to head: one `add_index`.
     user_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
     filters: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)

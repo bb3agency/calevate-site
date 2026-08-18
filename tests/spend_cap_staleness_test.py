@@ -217,7 +217,7 @@ async def test_a_closed_month_query_is_answered_from_the_ledger_not_the_live_row
     # ₹60 was the OLD right answer and is now the wrong one (P1.3): it is 120 seconds at
     # ₹0.50 of SUPPLIER cost, which is what the engine charged us, on the client's own
     # panel. This tenant has no `plans` row, so nothing quotes a price for their minutes
-    # and `client_billed_inr` refuses to invent one — the panel, the cap and the invoice
+    # and `priced_overage` refuses to invent one — the panel, the cap and the invoice
     # all say ₹0 together, and `warn_no_plan_in_effect` is what makes the missing plan
     # visible instead.
     assert summary["spend_used_inr"] == Decimal("0.00"), (

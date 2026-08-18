@@ -69,6 +69,7 @@ from apps.api.compliance.service import (
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.ownership import assert_visible
 from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.ingest.service import normalize_phone
@@ -522,6 +523,20 @@ async def create_campaign(
     also make the requirement depend on which version of the frontend the browser
     happens to be running; making it mandatory at the gate makes it depend on nothing.
     """
+    # EVERY id the caller supplied, resolved under the caller's own RLS before anything
+    # is stored. All three are foreign keys, and PostgreSQL checks those with row
+    # security bypassed, so without this a client can file a campaign against a
+    # neighbour's agent, dial from their DLT-registered header or cite their registered
+    # voice template (`db/ownership.py` carries the mechanism and the harm). Every
+    # consumer downstream does fail closed — the launch gate's joins run under this same
+    # session, so a foreign number reads back as `number_missing` — but the reference is
+    # STORED, one un-scoped join away from disclosure, and the campaign it produces is a
+    # row the client owns and can never launch or explain: `_campaign_facts` INNER JOINs
+    # `agents`, so its own launch-check answers "Campaign not found".
+    await assert_visible(session, "agent", agent_id)
+    await assert_visible(session, "phone_number", number_id)
+    await assert_visible(session, "dlt_template", dlt_template_id)
+
     # Validated HERE, at the only write path, so the column can never hold a window
     # the dispatcher would have to second-guess. None = "platform window applies".
     window = _validated_window(calling_hours) if calling_hours is not None else None
@@ -650,9 +665,17 @@ async def declare_consent_provenance(
     schedule, its template — launches. Recreating a five-thousand-row list to record a
     date would be a data-loss workaround dressed up as a compliance control.
 
-    DRAFT ONLY, and that is the whole integrity of the mechanism. If provenance could
-    be edited on a `running` campaign, the sequence "dial first, pick a lawful-sounding
-    source afterwards" would be available, and the declaration would document nothing.
+    BEFORE THE CAMPAIGN STARTS, and that is the whole integrity of the mechanism. If
+    provenance could be edited on a `running` campaign, the sequence "dial first, pick a
+    lawful-sounding source afterwards" would be available, and the declaration would
+    document nothing.
+
+    `scheduled` is inside the window and `draft` is not the only word for it — a client
+    who set a Monday start on Friday has dialled nobody, and the gate that reads this
+    column runs when the schedule FIRES (`campaigns/scheduling.py` decision 3). The
+    statement has always accepted both; the docstring, the route summary and the refusal
+    said "draft", which sent a client with a scheduled campaign to cancel a start they
+    did not need to cancel (D-189).
     """
     source, collected_at = _validated_provenance(consent_source, consent_collected_at)
     if source is None or collected_at is None:  # pragma: no cover - guarded above
@@ -681,7 +704,12 @@ async def declare_consent_provenance(
             raise ProblemError.not_found("Campaign")
         raise ProblemError.business_rule(
             "campaign_not_draft",
-            "Consent provenance can only be recorded while the campaign is a draft.",
+            "Consent provenance can only be recorded before the campaign starts dialling.",
+            remediation=(
+                "A draft or a scheduled campaign can still record it; one that has "
+                "started cannot, because a source chosen after the calls went out "
+                "documents nothing."
+            ),
         )
 
 

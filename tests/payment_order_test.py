@@ -111,7 +111,6 @@ async def _prepaid_tenant() -> tuple[UUID, Principal]:
     return tenant_id, Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,
@@ -672,7 +671,6 @@ async def test_a_second_click_from_another_owner_of_the_same_tenant_replays_too(
     other_owner = Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u2",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,

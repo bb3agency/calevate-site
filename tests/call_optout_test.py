@@ -448,6 +448,107 @@ async def test_a_number_suppressed_by_the_caller_cannot_be_deleted_by_the_client
     assert not is_removable(scope="tenant", source=CALL_OPTOUT_SOURCE)
 
 
+async def test_an_optout_over_a_hand_typed_entry_is_still_the_callers_to_keep() -> None:
+    """The same rule on the path that actually breaks it (D-189).
+
+    The assertion above compares two constants; this walks the sequence a client
+    reaches on an ordinary Tuesday. Somebody in the office pastes a number into the
+    do-not-call page — source `manual`, deletable, as it must be, because a mistyped
+    digit has to be fixable. That same person then rings the clinic and says "stop
+    calling me".
+
+    Before the fix `add_to_dnc`'s `ON CONFLICT DO NOTHING` left the row saying
+    `manual`, so `is_removable` was True, the screen offered the delete button and
+    `remove_entry` honoured it: the caller's opt-out was deleted by the account it was
+    made against and the number went back in the dial pool. The row is now UPGRADED to
+    `call_optout` and the refusal that has always existed finally applies to it.
+    """
+    from apps.api.compliance import dnc as dnc_module
+    from apps.api.compliance.optout import OptOutSignal
+    from apps.api.core.errors import ProblemError
+
+    tenant_id, _agent_id, _campaign = await _ready_campaign(phones=("9876500061",))
+    phone = f"+9198765{uuid.uuid4().int % 100000:05d}"
+
+    async with tenant_session(tenant_id) as session:
+        typed = await dnc_module.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[phone], source="manual"
+        )
+    assert typed.added == 1
+
+    async with tenant_session(tenant_id) as session:
+        record = await record_call_optout(
+            session,
+            tenant_id=tenant_id,
+            raw_phone=phone,
+            call_id=None,
+            detected_by=DETECTED_POST_CALL,
+            signal=OptOutSignal(
+                rule="stop_calling", language="en", turn_idx=1, matched="stop calling"
+            ),
+        )
+    # Already on the list, so nothing is NEWLY suppressed — the bug hid exactly here.
+    assert record.suppressed and not record.newly_suppressed
+    assert record.evidence_written, "the caller's own words are the evidence of the request"
+
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT id, source, added_at FROM dnc_list WHERE phone_e164 = :p"),
+                {"p": phone},
+            )
+        ).first()
+    assert row is not None
+    entry_id, source, added_at = row
+    assert source == CALL_OPTOUT_SOURCE, "the caller's request must outrank the typed one"
+    assert not dnc_module.is_removable(scope="tenant", source=source)
+
+    with pytest.raises(ProblemError) as refused:
+        async with tenant_session(tenant_id) as session:
+            await dnc_module.remove_entry(session, entry_id=entry_id)
+    assert refused.value.code == "dnc_consumer_optout"
+
+    async with tenant_session(tenant_id) as session:
+        after = (
+            await session.execute(
+                text("SELECT source, added_at FROM dnc_list WHERE id = :i"), {"i": entry_id}
+            )
+        ).first()
+    assert after is not None and after[0] == CALL_OPTOUT_SOURCE
+    # The suppression has been continuous since the number was first typed in; moving
+    # `added_at` forward would misdate a fact a client may have to show a TSP.
+    assert after[1] == added_at
+
+
+async def test_a_typed_entry_can_never_weaken_a_callers_optout() -> None:
+    """The upgrade is MONOTONE, which is the half a one-directional test would miss.
+
+    A staff member pasting a list that happens to contain a number the caller already
+    opted out of must not turn that row back into a deletable `manual` one — which is
+    what an unconditional `DO UPDATE` would have done.
+    """
+    from apps.api.compliance import dnc as dnc_module
+    from apps.api.compliance.service import add_to_dnc
+
+    tenant_id, _agent_id, _campaign = await _ready_campaign(phones=("9876500062",))
+    phone = f"+9198765{uuid.uuid4().int % 100000:05d}"
+
+    async with tenant_session(tenant_id) as session:
+        await add_to_dnc(session, tenant_id=tenant_id, phone_e164=phone, source=CALL_OPTOUT_SOURCE)
+        await add_to_dnc(session, tenant_id=tenant_id, phone_e164=phone, source="manual")
+        # And the bulk console path, which reads-then-inserts and must also not weaken it.
+        await dnc_module.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[phone], source="manual"
+        )
+        rows = (
+            await session.execute(
+                text("SELECT source FROM dnc_list WHERE phone_e164 = :p"), {"p": phone}
+            )
+        ).all()
+
+    assert [row[0] for row in rows] == [CALL_OPTOUT_SOURCE]
+
+
 # --- 3. the in-call tool endpoint --------------------------------------------
 
 ENGINE_EGRESS_IP = "198.51.100.7"

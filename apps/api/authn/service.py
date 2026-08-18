@@ -117,10 +117,24 @@ MFA_REQUIRED_REALMS: Final[frozenset[str]] = frozenset({"admin"})
 #: the DLQ while the screen says the email was sent (`tests/job_registration_test.py`).
 AUTH_EMAIL_JOB: Final = "deliver_auth_email"
 
+#: The realm an invitation email's link belongs to. A constant rather than a literal at the
+#: call site, because `auth_email._body` picks the console host off it — an admin-realm
+#: invitation would mail a link to `admin.calevate.tech`, where the page does not exist.
+#: Invitations are always CLIENT-realm (`authn/invitations.INVITE_REALM` says why).
+INVITE_EMAIL_REALM: Final = "client"
+
 #: The OTP purpose that IS the second factor. Named once so `sign_in`, the resend and the
 #: verify step cannot drift onto different purposes — which would be a challenge nobody can
 #: answer, since the purpose is inside the code's hash domain.
 LOGIN_CHALLENGE: Final = "login_challenge"
+
+#: The OTP purpose that re-proves a second factor for a session that already has one
+#: (C-09, D-178). Distinct from `LOGIN_CHALLENGE` for the reason `authn/models.OTP_PURPOSES`
+#: gives: the purpose is inside the code's HMAC domain and `issue_challenge` retires only
+#: its own purpose's live challenge, so a step-up request cannot silently retire the code an
+#: operator is mid-way through typing to finish signing in — and a login code cannot answer
+#: a step-up prompt.
+STEP_UP: Final = "step_up"
 
 #: What `sign_in` concluded. A closed vocabulary because the frontend switches on it.
 #: `otp_required` rather than `mfa_required`, because naming it after the MECHANISM is what
@@ -419,6 +433,86 @@ async def refresh(*, verified: VerifiedSession, now: datetime | None = None) -> 
         return await rotate_session(session, verified=verified, now=now)
 
 
+# ──────────────────────── step-up re-authentication ──────────────────────────
+
+
+async def request_step_up(*, verified: VerifiedSession, now: datetime | None = None) -> None:
+    """Mail a fresh step-up code to the mailbox on file for this session's own subject.
+
+    Same shape as `resend_second_factor` and for the same reasons: no address parameter, so
+    there is nothing to probe and no way to make us mail a stranger; the caller already
+    holds a session, so this endpoint grants no capability they lack. What differs is the
+    PURPOSE, which keeps this challenge and a pending sign-in challenge from being each
+    other (`STEP_UP`).
+    """
+    realm, subject_id = verified.realm, verified.subject_id
+    subject = await load_subject(realm, subject_id)
+    if subject is None:
+        raise _invalid_credentials()
+    at = now or datetime.now(UTC)
+    async with credential_session() as session:
+        challenge = await otp.issue_challenge(
+            session, purpose=STEP_UP, realm=realm, subject_id=subject_id, now=at
+        )
+        await _enqueue_auth_email(
+            session,
+            kind=f"otp_{STEP_UP}",
+            realm=realm,
+            to=subject.email,
+            secret=challenge.code,
+        )
+    await _audit(action="auth.step_up_requested", realm=realm, subject_id=subject_id, ip=None)
+
+
+async def complete_step_up(
+    *, verified: VerifiedSession, code: str, ip: str | None, now: datetime | None = None
+) -> IssuedSession:
+    """Answer a step-up challenge, restamping `mfa_verified_at` to now. Rotates the session.
+
+    ROTATION, NOT AN `UPDATE`, for the reason `complete_second_factor` rotates: this IS a
+    privilege change — the session goes from "cannot lift the halt" to "can" — and OWASP's
+    session-fixation defence asks for a new identifier at exactly that moment.
+    `rotate_session` carries `absolute_expires_at` forward, so re-proving a factor cannot be
+    used to extend a session past the bound it was born with. That is the property that
+    stops step-up from being a session-renewal loop.
+    """
+    realm, subject_id = verified.realm, verified.subject_id
+    await check(OTP_BUDGET, realm=realm, subject_id=subject_id)
+    at = now or datetime.now(UTC)
+    async with credential_session() as session:
+        ok = await otp.verify_challenge(
+            session, purpose=STEP_UP, realm=realm, subject_id=subject_id, code=code, now=at
+        )
+    if not ok:
+        await _audit(action="auth.step_up_failed", realm=realm, subject_id=subject_id, ip=ip)
+        await _spend_failure(OTP_BUDGET, realm=realm, subject_id=subject_id)
+        raise ProblemError(
+            kind="auth",
+            code="invalid_second_factor",
+            title="That code did not work",
+            detail="The code was not accepted.",
+            remediation="Check the most recent email, or ask for a new code.",
+        )
+    await clear(OTP_BUDGET, realm=realm, subject_id=subject_id)
+
+    # Re-read the operator, exactly as `complete_second_factor` does: somebody removed from
+    # the allowlist between asking for the code and typing it must not walk out of this
+    # holding a session whose second factor is one second old.
+    if await load_subject(realm, subject_id) is None:
+        raise _invalid_credentials()
+
+    async with credential_session() as session:
+        rotated = await rotate_session(session, verified=verified, mfa_verified_at=at, now=at)
+    await _audit(
+        action="auth.step_up_completed",
+        realm=realm,
+        subject_id=subject_id,
+        ip=ip,
+        object_id=str(rotated.session_id),
+    )
+    return rotated
+
+
 # ───────────────────────────── password reset ────────────────────────────────
 
 
@@ -607,6 +701,28 @@ async def confirm_otp(
 # ──────────────────────────── shared helpers ─────────────────────────────────
 
 
+async def enqueue_invitation_email(session: AsyncSession, *, to: str, token: str) -> None:
+    """Mail a team invitation link, in the transaction that minted the token (D-190).
+
+    PUBLIC where `_enqueue_auth_email` is private, because this one is called from OUTSIDE
+    this package — `tenancy/routes.invite_member` owns the invitation, `authn` owns the
+    mailer, and the alternative was a second enqueue site spelling the payload by hand.
+
+    WHY THIS FUNCTION EXISTS AT ALL. `InvitationCreatedOut.token` used to hand the raw
+    token back to the INVITER, and the field's own docstring said the owner would send the
+    link on because the client realm had no mailer. It has had one since D-170. What the
+    gap cost is D-185: an owner of any tenant could invite an address they do not control,
+    read the token out of their own 201, and redeem it — taking the global `users` row for
+    that address. D-185 stopped the escalation and could not stop the SQUAT, because the
+    squat is possible for exactly as long as anyone but the invitee can see the token.
+
+    So the token now goes only where it was always supposed to go: the invited mailbox.
+    """
+    await _enqueue_auth_email(
+        session, kind="invite_password", realm=INVITE_EMAIL_REALM, to=to, secret=token
+    )
+
+
 async def _enqueue_auth_email(
     session: AsyncSession, *, kind: str, realm: str, to: str, secret: str
 ) -> None:
@@ -697,9 +813,11 @@ __all__ = [
     "AUTH_EMAIL_JOB",
     "LOGIN_CHALLENGE",
     "MFA_REQUIRED_REALMS",
+    "STEP_UP",
     "LoginOutcome",
     "LoginStatus",
     "complete_second_factor",
+    "complete_step_up",
     "confirm_otp",
     "confirm_password_reset",
     "find_subject_for_session",
@@ -707,6 +825,7 @@ __all__ = [
     "refresh",
     "request_otp",
     "request_password_reset",
+    "request_step_up",
     "resend_second_factor",
     "sign_in",
     "sign_out",

@@ -13,8 +13,11 @@ should not have:
    what the first left, not its own copy;
 3. a campaign the client paused between the scan and the budget read is not dialled:
    the scan is a stale observation by construction, and the client wins that race;
-4. a contact whose retry ladder is spent on an engine refusal is FAILED and counted,
-   not re-rung forever.
+4. a dial that does not connect ENDS the contact, and the two ways it can fail are not
+   the same rule: a vendor refusal that proves no line was seized walks the retry
+   ladder and ends it on the last rung, while one that cannot rule out a ringing phone
+   ends the contact immediately, whatever rung it was on. Both are counted, and neither
+   is re-rung forever.
 
 The tick is driven through `_run_tick`/`_dispatch_for_campaign` rather than
 `dispatch_campaign_tick` so no test in this file takes the platform-wide tick lease —
@@ -34,7 +37,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import service as campaigns
+from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
@@ -347,30 +352,46 @@ async def test_a_campaign_paused_between_the_scan_and_the_budget_read_is_not_dia
 
 
 class _RefusingEngine(FakeEngine):
-    """The engine accepting the agent but refusing the dial — a vendor 5xx, a rate
-    limit, a number the carrier will not route."""
+    """The engine raising out of the vendor call ITSELF — a 5xx, a reset, a proxy that
+    gave up after the request had already gone.
+
+    Not a rate limit, which this used to name and which now belongs to
+    `_ThrottledEngine` below. D-181 turns on exactly that distinction: a failure raised
+    from inside the call cannot rule out a ringing phone, so `dispatch_call` answers
+    `DialUnconfirmedError`; one refused before the request left the process can, so the
+    original `ProblemError` propagates and the retry ladder still means something.
+    """
 
     async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
         raise RuntimeError("engine refused the dial")
 
 
-async def test_a_contact_whose_last_attempt_the_engine_refused_is_failed_and_counted(
+async def test_a_dial_the_vendor_may_have_started_ends_the_contact_rather_than_retrying(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The retry ladder has an END, and the end is reported.
+    """The ladder is NOT walked when the phone may already be ringing.
 
-    A dial the engine refuses walks the contact down the ladder; on the last rung the
-    contact goes `failed` and the tick counts an exhaustion — which is what turns "we
-    never reached this lead" into an escalation the client can act on
-    (`enqueue_campaign_escalation`, FLOWS §4.5) instead of a contact that is quietly
-    retried forever.
+    D-181's third outcome on the campaign path. The engine raised from inside the vendor
+    call, so nothing here can say whether a line was seized — and a retry would be a
+    second unsolicited call to somebody who may already have been rung, which is the
+    thing the compliance gate exists to prevent. The contact is therefore settled
+    TERMINALLY, whatever rung it was on, and the tick counts it: from the client's side
+    this lead was not reached and nobody will try again, so the escalation
+    (`enqueue_campaign_escalation`, FLOWS §4.5) is all that stands between them and
+    silence.
+
+    The sibling below is the other half — a refusal that PROVES no line was seized,
+    which does walk the ladder — and the two are told apart by the `calls` row rather
+    than by the count: the unconfirmed intent row asserted here keeps the id we minted,
+    while the refused one is closed as `failed`.
     """
     tenant_id, agent_id = await _tenant()
     number_id, template_id = await _dlt_rows(tenant_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Last rung", phones=("9876640001",)
     )
-    # Two attempts already spent; the claim below burns the third and last.
+    # Two attempts already spent; the claim below burns the third. Both outcomes end
+    # the contact here, which is why the assertions below reach for the call row.
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE campaign_contacts SET attempts = 2 WHERE campaign_id = :c"),
@@ -387,7 +408,98 @@ async def test_a_contact_whose_last_attempt_the_engine_refused_is_failed_and_cou
     assert await _contacts(tenant_id, campaign_id) == [("failed", 3)], (
         "the ladder is spent, so the contact stops rather than being re-claimed"
     )
-    assert await _calls_placed(tenant_id) == 0, "a refused dial writes no call row"
+    # ONE call row, and it is the INTENT row (D-181): the engine raised out of
+    # `start_outbound_call` with no code that proves it seized no line, so the platform
+    # records a call it may have been charged for rather than nothing at all. The
+    # `engine_call_id` is one we minted, which is how that state is told apart from a
+    # dial the vendor named.
+    assert await _calls_placed(tenant_id) == 1
+    async with tenant_session(tenant_id) as session:
+        engine_call_id = (
+            await session.execute(
+                text("SELECT engine_call_id FROM calls WHERE direction = 'outbound'")
+            )
+        ).scalar()
+    assert str(engine_call_id).startswith(UNCONFIRMED_ENGINE_CALL_PREFIX), engine_call_id
+    async with tenant_session(tenant_id) as session:
+        escalations = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages "
+                    "WHERE payload->>'campaign_id' = :c AND job LIKE '%escalat%'"
+                ),
+                {"c": str(campaign_id)},
+            )
+        ).scalar()
+    assert int(escalations or 0) == 1, "the exhausted contact is escalated exactly once"
+
+
+class _ThrottledEngine(FakeEngine):
+    """The engine refusing the dial with a code that PROVES no line was seized.
+
+    `engine_rate_limited` is the adapter's own 429-with-the-ladder-exhausted, and the
+    adapter raises it instead of sending the request. That is the difference this class
+    exists to express: `_RefusingEngine` above raises out of the vendor call and cannot
+    rule out a ringing phone, so `dispatch_call` answers `DialUnconfirmedError`; this one
+    is refused BEFORE the request leaves the process, so the original `ProblemError`
+    propagates and the contact keeps its retry ladder.
+    """
+
+    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_rate_limited",
+            title="Voice engine is throttling us",
+            detail="The voice platform refused the request without placing a call.",
+        )
+
+
+async def test_a_refusal_that_proves_no_line_was_seized_spends_the_ladder_and_counts_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The OTHER end of the ladder, and the one D-181 left untested.
+
+    `DIAL_NOT_PLACED_CODES` is the whole reason the ladder still exists after D-181: a
+    vendor refusal that happened before any request went out is the only kind that can
+    honestly be retried, so it is the only kind routed to `_record_failure` rather than
+    to the terminal unconfirmed path. When that refusal lands on the LAST rung the
+    contact is finished with, and the tick must count it — `exhausted` is what turns
+    "this lead was never reached" into an escalation somebody acts on.
+
+    The call row is where the two outcomes are told apart, and it is asserted here for
+    that reason: `failed`, because the vendor proved nothing rang, rather than the
+    `queued` intent row the unconfirmed path deliberately leaves for the reaper.
+    """
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id)
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="Throttled", phones=("9876660001",)
+    )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE campaign_contacts SET attempts = 2 WHERE campaign_id = :c"),
+            {"c": campaign_id},
+        )
+
+    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: _ThrottledEngine())
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 0, "blocked": 0, "exhausted": 1}, result
+    assert await _contacts(tenant_id, campaign_id) == [("failed", 3)], (
+        "the last rung of the ladder is the end of it"
+    )
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(text("SELECT status FROM calls WHERE direction = 'outbound'"))
+        ).all()
+    assert [str(r[0]) for r in rows] == ["failed"], (
+        "a vendor that refused before dialling leaves a CLOSED row, not one the reaper "
+        "has to settle — an intent row left `queued` here reads as a call that might yet "
+        "connect and holds an outbound line for an hour"
+    )
     async with tenant_session(tenant_id) as session:
         escalations = (
             await session.execute(

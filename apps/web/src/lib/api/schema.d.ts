@@ -55,23 +55,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/hooks/v1/clerk": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Clerk user/organization mirror — Svix-signed (D-37: our DB is the record) */
-        post: operations["clerk_webhook_hooks_v1_clerk_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/hooks/v1/ingest/meta/{webhook_id}": {
         parameters: {
             query?: never;
@@ -172,7 +155,7 @@ export interface paths {
          *     The claim and the credit share ONE transaction, which is what makes a failure
          *     recoverable: a crash after the claim rolls the claim back too, so the provider's
          *     retry is processed rather than answered "duplicate" forever (the failure mode
-         *     `reliability/service.py` documents against the Clerk mirror).
+         *     `reliability/service.py` documents against the retired Clerk mirror).
          */
         post: operations["razorpay_webhook_hooks_v1_razorpay_post"];
         delete?: never;
@@ -1397,6 +1380,551 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/admin/bootstrap/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set the first administrator's password from a bootstrap setup link
+         * @description The redemption half of `scripts/bootstrap_admin.py` (D-171).
+         *
+         *     UNAUTHENTICATED, necessarily — it is how a deployment acquires its first
+         *     operator, and there is nobody to authenticate as until it succeeds. What stands
+         *     in its place is the token: 256 bits, mailed to an address a deploying operator
+         *     named, single-use, one hour, and refused outright once the named account has a
+         *     password. A leaked link from a finished deploy opens nothing.
+         *
+         *     ADMIN REALM ONLY, and enforced structurally — this route is not declared on the
+         *     client realm's router at all, rather than being declared and then refusing.
+         *     A client-realm `/bootstrap/confirm` would be a 404, which is the correct answer
+         *     for a route that should not exist there.
+         */
+        post: operations["bootstrap_confirm_v1_auth_admin_bootstrap_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in to the admin realm with an email address and password
+         * @description Always answers identically for an unknown address and a wrong password —
+         *     same status, same body, and the same wall-clock cost (`service.sign_in`).
+         */
+        post: operations["login_v1_auth_admin_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/login/otp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a sign-in by entering the emailed one-time code
+         * @description Takes a session that has proved a password but not the second factor.
+         *
+         *     THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole
+         *     mechanism, so there is no sibling route for an authenticator app and no route for a
+         *     recovery code. Rotates the session on success, which is OWASP's session-fixation
+         *     defence applied at the privilege change.
+         */
+        post: operations["login_otp_v1_auth_admin_login_otp_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/login/otp/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a fresh one-time code for a sign-in that is waiting on one
+         * @description A new code RETIRES the previous one, so resending cannot be used to accumulate
+         *     parallel codes and multiply the five-guess budget.
+         */
+        post: operations["login_otp_resend_v1_auth_admin_login_otp_resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End this session
+         * @description Deliberately depends on `Live` and not `Authed`: a half-authenticated session
+         *     must be able to sign itself out, or an operator who abandons an MFA prompt is stuck
+         *     with a live partial session and no way to drop it.
+         */
+        post: operations["logout_v1_auth_admin_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/logout/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End every session this person holds in this realm */
+        post: operations["logout_all_v1_auth_admin_logout_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/otp/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a one-time code to this session's own address
+         * @description Scoped to the CALLER'S OWN subject — there is no parameter naming whose mailbox
+         *     to mail, which is what stops this being a way to send mail to arbitrary addresses.
+         */
+        post: operations["otp_request_v1_auth_admin_otp_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/otp/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Spend one guess against the live one-time code */
+        post: operations["otp_verify_v1_auth_admin_otp_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/password/reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a new password from a reset link, ending every existing session */
+        post: operations["reset_confirm_v1_auth_admin_password_reset_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/password/reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a password reset link (answers identically for unknown addresses)
+         * @description 202 with an EMPTY body, always. There is no version of this response that
+         *     differs for a known and an unknown address — that is the point of it.
+         */
+        post: operations["reset_request_v1_auth_admin_password_reset_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who this session belongs to — the console's bootstrap call
+         * @description Re-reads the subject rather than trusting the session row, so a deactivation
+         *     takes effect on the next request (BACKEND-PATTERNS §7).
+         */
+        get: operations["read_session_v1_auth_admin_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/session/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange a live session for a fresh token, keeping its lifetime */
+        post: operations["refresh_session_v1_auth_admin_session_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/step-up": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a code to re-prove this operator's second factor before a dangerous action
+         * @description The first half of C-09 (D-178).
+         *
+         *     ADMIN REALM ONLY, declared rather than refused — same structural choice as
+         *     `/bootstrap/confirm`. The client realm requires no second factor
+         *     (`service.MFA_REQUIRED_REALMS`), so a client-realm step-up would be a route
+         *     with nothing to re-prove and nobody to call it.
+         *
+         *     Depends on `authed`, not `live`: step-up RE-proves a factor, so a session that
+         *     has never proved one is at the ordinary sign-in gate, not this one.
+         */
+        post: operations["step_up_request_v1_auth_admin_step_up_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/admin/step-up/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Answer the step-up code, restamping this session's second factor
+         * @description Rotates the session — see `service.complete_step_up` on why re-proving a
+         *     factor is a privilege change and why it cannot extend the absolute bound.
+         */
+        post: operations["step_up_verify_v1_auth_admin_step_up_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/invitations/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Redeem an invitation: create the account, set a password, join the workspace
+         * @description THE invitation-redemption endpoint. There is no other (D-177).
+         *
+         *     It needs no prior account, because there is no vendor to have made one: it takes the
+         *     password in the same call, and takes the address from the invitation rather than
+         *     comparing two. The Clerk-era `POST /v1/invitations/accept` is deleted, and
+         *     `/invite?token=` answers `410 Gone` naming the page that replaced it.
+         */
+        post: operations["accept_invitation_with_password_v1_auth_client_invitations_accept_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign in to the client realm with an email address and password
+         * @description Always answers identically for an unknown address and a wrong password —
+         *     same status, same body, and the same wall-clock cost (`service.sign_in`).
+         */
+        post: operations["login_v1_auth_client_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/login/otp": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Complete a sign-in by entering the emailed one-time code
+         * @description Takes a session that has proved a password but not the second factor.
+         *
+         *     THIS IS THE ONLY SECOND-FACTOR ENDPOINT (D-170): the emailed code is the whole
+         *     mechanism, so there is no sibling route for an authenticator app and no route for a
+         *     recovery code. Rotates the session on success, which is OWASP's session-fixation
+         *     defence applied at the privilege change.
+         */
+        post: operations["login_otp_v1_auth_client_login_otp_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/login/otp/resend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a fresh one-time code for a sign-in that is waiting on one
+         * @description A new code RETIRES the previous one, so resending cannot be used to accumulate
+         *     parallel codes and multiply the five-guess budget.
+         */
+        post: operations["login_otp_resend_v1_auth_client_login_otp_resend_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End this session
+         * @description Deliberately depends on `Live` and not `Authed`: a half-authenticated session
+         *     must be able to sign itself out, or an operator who abandons an MFA prompt is stuck
+         *     with a live partial session and no way to drop it.
+         */
+        post: operations["logout_v1_auth_client_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/logout/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** End every session this person holds in this realm */
+        post: operations["logout_all_v1_auth_client_logout_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/otp/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Email a one-time code to this session's own address
+         * @description Scoped to the CALLER'S OWN subject — there is no parameter naming whose mailbox
+         *     to mail, which is what stops this being a way to send mail to arbitrary addresses.
+         */
+        post: operations["otp_request_v1_auth_client_otp_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/otp/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Spend one guess against the live one-time code */
+        post: operations["otp_verify_v1_auth_client_otp_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/password/reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Set a new password from a reset link, ending every existing session */
+        post: operations["reset_confirm_v1_auth_client_password_reset_confirm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/password/reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask for a password reset link (answers identically for unknown addresses)
+         * @description 202 with an EMPTY body, always. There is no version of this response that
+         *     differs for a known and an unknown address — that is the point of it.
+         */
+        post: operations["reset_request_v1_auth_client_password_reset_request_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who this session belongs to — the console's bootstrap call
+         * @description Re-reads the subject rather than trusting the session row, so a deactivation
+         *     takes effect on the next request (BACKEND-PATTERNS §7).
+         */
+        get: operations["read_session_v1_auth_client_session_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/session/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Exchange a live session for a fresh token, keeping its lifetime */
+        post: operations["refresh_session_v1_auth_client_session_refresh_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/signup": {
         parameters: {
             query?: never;
@@ -1408,7 +1936,7 @@ export interface paths {
         put?: never;
         /**
          * Create a self-serve tenant for the signed-in user (D-34, FLOWS §2)
-         * @description The caller is a Clerk-verified user with no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
+         * @description The caller holds a first-party session and no organization yet. Creates the organization, its receptionist agent, its extraction schema and its retention policies, and makes the caller its owner. The wallet starts empty, so the compliance gate refuses outbound calls until it is topped up.
          */
         post: operations["signup_v1_auth_signup_post"];
         delete?: never;
@@ -1636,7 +2164,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Short-lived presigned link to OUR copy of the recording */
+        /** Short-lived presigned link to OUR copy of the recording — owner-only, audited */
         get: operations["get_recording_v1_calls__call_id__recording_get"];
         put?: never;
         post?: never;
@@ -1742,7 +2270,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Where this list's consent came from (SEC-COMP §3) — draft campaigns only
+         * Where this list's consent came from (SEC-COMP §3) — before the campaign starts
          * @description The answer path for a draft created before the provenance columns existed.
          *
          *     Audited: a client's assertion about where five thousand phone numbers came from is
@@ -1933,6 +2461,26 @@ export interface paths {
          *     are why: both are answers the caller cannot derive from the request it sent.
          */
         delete: operations["unschedule_v1_campaigns__campaign_id__schedule_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/caller-notice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A draft of the privacy notice you owe your own callers
+         * @description Indian data-protection law requires you to tell your callers, item by item, what you collect from them and how long you keep it. For a Calevate account that list is the fields your agents capture, your retention settings and your announcement settings — which live here. This generates a DRAFT from them, with blanks marked where only you can answer. It is not legal advice and must be reviewed by your own advocate before you publish it.
+         */
+        get: operations["read_caller_notice_v1_compliance_caller_notice_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2235,8 +2783,13 @@ export interface paths {
          *     cannot inspect — the whole class of defect D-71 and D-75 fixed elsewhere. Echoing
          *     the entry back was the other option and is the one to avoid hardest: the row we
          *     just deleted holds a phone number, and the response to "please forget this" is not
-         *     the place to repeat it. The `source` this reads is for the AUDIT row, which is
+         *     the place to repeat it. What `remove_entry` returns is for the AUDIT row, which is
          *     where "who un-suppressed what, and what kind of entry it was" belongs.
+         *
+         *     `subject_ref` rides along with `source` (D-185): the entry id alone stops answering
+         *     "which number was released" the moment the row is gone, and the one-way handle
+         *     answers it for an auditor holding the number without writing a number into the
+         *     ledger (hard rule 6). See `dnc.Removal` for why this is not a tombstoned row.
          *
          *     Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
          *     which is the answer this repo already gives for a delete with nothing to report.
@@ -2399,45 +2952,6 @@ export interface paths {
         put?: never;
         /** Invite a colleague to this account (owner only) */
         post: operations["invite_member_v1_invitations_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/invitations/accept": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Accept an emailed invitation and create the membership (FLOWS §1 step 8)
-         * @description The one authenticated route that does NOT require a membership — creating one is
-         *     the point (see `current_identity`).
-         *
-         *     The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
-         *     produce one membership rather than two.
-         *
-         *     THE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link
-         *     is a pure bearer token: a forwarded email, a link pasted into a group chat, or a
-         *     shared mailbox hands the account to whoever opens it first — and the audit trail
-         *     then records a membership for someone nobody invited. Binding is what current
-         *     practice asks of an invite link (single use, short-lived, and only redeemable by the
-         *     address that received it — the same rule Auth0/authentik-style invite flows enforce
-         *     by making the signup email read-only), and it costs an honest invitee nothing: they
-         *     are signing in with the address the link was sent to.
-         *
-         *     The comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant
-         *     time protects a SECRET from being learned a byte at a time; the secret on this path
-         *     is the token, and it is matched by an indexed lookup on its SHA-256. An address the
-         *     caller already owns and already typed into Clerk is not a secret, and dressing the
-         *     comparison up as one would suggest to the next reader that it is.
-         */
-        post: operations["accept_invitation_v1_invitations_accept_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2772,10 +3286,25 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** CSV export — full phone numbers, owner-only and audit-logged */
-        get: operations["export_leads_v1_leads_export_csv_get"];
+        /** CSV export, unsearched — full phone numbers, owner-only and audit-logged */
+        get: operations["export_leads_filtered_v1_leads_export_csv_get"];
         put?: never;
-        post?: never;
+        /**
+         * CSV export — full phone numbers, owner-only and audit-logged
+         * @description The SAME filters `GET /v1/leads` takes, with the same meanings, so "export what I
+         *     am looking at" is expressible. It accepted `agent_id` alone once, so a client who
+         *     filtered the table to `hot` and pressed Export downloaded every contact in the account
+         *     with full numbers — the widest possible read of the narrowest possible request.
+         *     Widening the filters does NOT widen the gate: this stays `calls:read_raw` and stays
+         *     audited, and a narrower request is not a cheaper permission.
+         *
+         *     The COLUMN CHOOSER and the FACETS mean exactly what they mean on the list — see
+         *     `_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.
+         *     That mirroring is a correctness requirement here rather than a nicety: the screen and
+         *     the file must not disagree about which rows and which columns, because the file is the
+         *     one carrying unmasked numbers out of the building.
+         */
+        post: operations["export_leads_v1_leads_export_csv_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2789,19 +3318,36 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Faceted filters, built from this agent's extraction schema
-         * @description The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
-         *
-         *     A separate route rather than another field on the list response, for one reason: the
-         *     counts change when the FILTERS change and not when the PAGE changes, so folding them
-         *     into the list would recompute up to eight aggregates every time somebody scrolls.
-         *     Same query parameters, minus the paging ones, so "the rail describes this table" is
-         *     checkable by comparing two query strings.
-         */
+        /** Faceted filters, built from this agent's extraction schema */
         get: operations["get_lead_facets_v1_leads_facets_get"];
         put?: never;
-        post?: never;
+        /**
+         * Faceted filters, searched — POST because the search term is a phone number
+         * @description The rail for a searched table.
+         *
+         *     It takes `LeadLensIn` and not `LeadSearchIn`: the rail has no page, and accepting
+         *     `limit`/`offset` here would be two fields a caller could set and nothing could honour.
+         *     The client sends the same lens it sent the table, minus the page — so the rail and the
+         *     rows cannot describe different populations, which is the defect this route closes.
+         */
+        post: operations["search_lead_facets_v1_leads_facets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/leads/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** The Leads table, searched — POST because the search term is a phone number */
+        post: operations["search_leads_v1_leads_search_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3127,7 +3673,9 @@ export interface paths {
          * Lift a platform-wide suppression (step-up confirmed, audited)
          * @description 204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
          *     holds a phone number, and the response to "stop suppressing this" is not the place
-         *     to repeat it. The `source` this reads is for the audit row.
+         *     to repeat it. What `remove_global_entry` returns is for the audit row — `source`, and
+         *     (D-185) the `subject_ref` that keeps "which number did we stop refusing" answerable
+         *     after the row is gone. See `dnc.Removal`.
          *
          *     The confirmation names THIS row — see `release_globally_confirmation`.
          */
@@ -3396,23 +3944,6 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** AcceptInviteIn */
-        AcceptInviteIn: {
-            /** Token */
-            token: string;
-        };
-        /** AcceptInviteOut */
-        AcceptInviteOut: {
-            /** Role */
-            role: string;
-            /** Slug */
-            slug: string;
-            /**
-             * Tenant Id
-             * Format: uuid
-             */
-            tenant_id: string;
-        };
         /** AddContactsIn */
         AddContactsIn: {
             /** Contacts */
@@ -3749,6 +4280,13 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /** BootstrapConfirmIn */
+        BootstrapConfirmIn: {
+            /** Password */
+            password: string;
+            /** Token */
+            token: string;
+        };
         /**
          * BootstrapKeyOut
          * @description A §4 bootstrap key: real, required, and changeable ONLY on the VPS.
@@ -4008,6 +4546,31 @@ export interface components {
             status: "queued" | "blocked";
         };
         /**
+         * CallerNoticeOut
+         * @description The draft, structured and rendered.
+         *
+         *     Both halves ship on purpose: a screen renders the structure into its own layout, and
+         *     `notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on
+         *     the client side would put the wording — the part counsel reviews — outside the thing
+         *     that was reviewed.
+         */
+        CallerNoticeOut: {
+            /** Ai Disclosure Off */
+            ai_disclosure_off: string[];
+            /** Collected */
+            collected: components["schemas"]["CollectedItemOut"][];
+            /** Disclaimer */
+            disclaimer: string;
+            /** Notice Markdown */
+            notice_markdown: string;
+            /** Open Questions */
+            open_questions: string[];
+            /** Recording Notice Off */
+            recording_notice_off: string[];
+            /** Retention */
+            retention: components["schemas"]["RetentionLineOut"][];
+        };
+        /**
          * CallingHoursIn
          * @description A per-campaign calling window (IST). The service enforces the substantive
          *     rule — narrowing-only, inside the platform's 09:00-21:00 window — so this model
@@ -4232,6 +4795,13 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** CollectedItemOut */
+        CollectedItemOut: {
+            /** What */
+            what: string;
+            /** Why */
+            why: string;
         };
         /**
          * CommercialTermsIn
@@ -5232,6 +5802,8 @@ export interface components {
             call_extractions_erased: number;
             /** Calls */
             calls: string[];
+            /** Knowledge Base Documents Matched */
+            knowledge_base_documents_matched: number | null;
             /** Leads */
             leads: string[];
             /** Recording Hold Until */
@@ -5849,6 +6421,8 @@ export interface components {
          *     token that is displayed is a token that can be pasted into the wrong window.
          */
         InvitationCreatedOut: {
+            /** Delivery */
+            delivery: string;
             /** Email Masked */
             email_masked: string;
             /**
@@ -5868,8 +6442,6 @@ export interface components {
             invited_at: string;
             /** Role */
             role: string;
-            /** Token */
-            token: string;
         };
         /** InvitationIn */
         InvitationIn: {
@@ -5911,6 +6483,27 @@ export interface components {
             invited_at: string;
             /** Role */
             role: string;
+        };
+        /** InviteAcceptWithPasswordIn */
+        InviteAcceptWithPasswordIn: {
+            /** Name */
+            name?: string | null;
+            /** Password */
+            password: string;
+            /** Token */
+            token: string;
+        };
+        /** InviteAcceptWithPasswordOut */
+        InviteAcceptWithPasswordOut: {
+            /** Role */
+            role: string;
+            /** Slug */
+            slug: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /** InviteIn */
         InviteIn: {
@@ -6240,10 +6833,12 @@ export interface components {
          *     ambiguity is the defect this field exists to remove; a client that forgets to say
          *     gets a 422 rather than an action over a set it did not choose.
          *
-         *     The FILTER scope's predicates are not here: they ride as the same query parameters
-         *     `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
-         *     is one spelling of "which rows" across the screen, the file and this. Putting them in
-         *     the body would be a second one.
+         *     The FILTER scope's predicates ride as the same query parameters `GET /v1/leads` and
+         *     `GET /v1/leads/export.csv` take, with the same meanings, so there is one spelling of
+         *     "which rows" across the screen, the file and this — EXCEPT `search`, which is here in
+         *     the body because it matches a phone number and a query string is written to access
+         *     logs, history and referrers (`LeadLensIn` carries the full argument). The lens's
+         *     other members are not personal data and stay where they were.
          */
         LeadBulkIn: {
             /**
@@ -6262,6 +6857,8 @@ export interface components {
              * @enum {string}
              */
             scope: "ids" | "filter";
+            /** Search */
+            search?: string | null;
             /** Status */
             status?: ("new" | "contacted" | "interested" | "hot" | "won" | "lost") | null;
         };
@@ -6358,6 +6955,39 @@ export interface components {
             omitted_field_count: number;
         };
         /**
+         * LeadLensIn
+         * @description The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
+         *
+         *     It exists because of the one field in it that is personal data. `search` is matched
+         *     against `leads.phone_e164` with a suffix LIKE (`crm.service._lead_scope`), so on a
+         *     GET it is a customer's phone number written into nginx's `combined` access log
+         *     (`$request` is the whole request line), into Cloudflare's edge log, into browser
+         *     history and into the `Referer` of the next navigation. This repository already made
+         *     that judgement twice — `POST /v1/dnc/check` is a POST because "the identifier IS the
+         *     personal data", and SEC-COMP §4 requires a number in the body and never in a URL —
+         *     and the leads screen is the busiest surface in the product to have been left out of
+         *     it (hard rule 6).
+         *
+         *     The field NAMES match the query parameters the GET routes take, including the two
+         *     encoded ones (`columns` as a comma-separated string, `f` as `key:value` entries), so
+         *     one parser serves both shapes and the client's lens object does not change form when
+         *     it moves into a body.
+         */
+        LeadLensIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Columns */
+            columns?: string | null;
+            /** F */
+            f?: string[];
+            /** Search */
+            search?: string | null;
+            /** Status */
+            status?: string | null;
+        };
+        /**
          * LeadListOut
          * @description The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
          *     the frontend never hard-codes a client's fields.
@@ -6426,6 +7056,34 @@ export interface components {
              * Format: date-time
              */
             updated_at: string;
+        };
+        /**
+         * LeadSearchIn
+         * @description The lens plus the page. Export takes no page: it is the whole filtered set.
+         */
+        LeadSearchIn: {
+            /** Agent Id */
+            agent_id?: string | null;
+            /** Assigned To */
+            assigned_to?: string | null;
+            /** Columns */
+            columns?: string | null;
+            /** F */
+            f?: string[];
+            /**
+             * Limit
+             * @default 50
+             */
+            limit: number;
+            /**
+             * Offset
+             * @default 0
+             */
+            offset: number;
+            /** Search */
+            search?: string | null;
+            /** Status */
+            status?: string | null;
         };
         /**
          * LeadSourceCreatedOut
@@ -6652,6 +7310,24 @@ export interface components {
              */
             tenant_id: string;
         };
+        /** LoginIn */
+        LoginIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Password */
+            password: string;
+        };
+        /** LoginOut */
+        LoginOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "authenticated" | "otp_required";
+        };
         /** LookupConsentIn */
         LookupConsentIn: {
             /** Phone */
@@ -6721,9 +7397,9 @@ export interface components {
          *     audited — which an assignee picker is not, and should not have to be. Nothing on
          *     this surface needs it either: the control writes an id and prints a name.
          *
-         *     `name` is nullable because `users.name` is: the Clerk mirror composes it from
-         *     first/last name and stores NULL when the account has neither
-         *     (`tenancy/clerk_webhooks.py`). The screen says "Unnamed member" rather than falling
+         *     `name` is nullable because `users.name` is: an invitation carries an address and,
+         *     optionally, a name, so a colleague who typed neither has NULL
+         *     (`authn/invitations.py`). The screen says "Unnamed member" rather than falling
          *     back to an address — a fallback that leaks is not a fallback.
          */
         MemberOut: {
@@ -6946,6 +7622,26 @@ export interface components {
             status: string;
             /** Vertical Template */
             vertical_template?: string | null;
+        };
+        /** OtpConfirmIn */
+        OtpConfirmIn: {
+            /** Code */
+            code: string;
+            /**
+             * Purpose
+             * @default email_verify
+             * @constant
+             */
+            purpose: "email_verify";
+        };
+        /** OtpRequestIn */
+        OtpRequestIn: {
+            /**
+             * Purpose
+             * @default email_verify
+             * @constant
+             */
+            purpose: "email_verify";
         };
         /**
          * PaymentOut
@@ -7622,6 +8318,21 @@ export interface components {
             /** Replayed */
             replayed: number;
         };
+        /** ResetConfirmIn */
+        ResetConfirmIn: {
+            /** Password */
+            password: string;
+            /** Token */
+            token: string;
+        };
+        /** ResetRequestIn */
+        ResetRequestIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+        };
         /**
          * RestatementIn
          * @description A payment that credited LESS than the bank moved, described by the TRUE TOTAL.
@@ -7666,6 +8377,18 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /** RetentionLineOut */
+        RetentionLineOut: {
+            /** Days */
+            days: number;
+            /** What */
+            what: string;
+        };
+        /** RevokedOut */
+        RevokedOut: {
+            /** Revoked */
+            revoked: number;
         };
         /** RewrapOut */
         RewrapOut: {
@@ -7898,6 +8621,11 @@ export interface components {
              */
             start_at: string;
         };
+        /** SecondFactorIn */
+        SecondFactorIn: {
+            /** Code */
+            code: string;
+        };
         /**
          * SecretOut
          * @description One credential, as much as anyone may ever see of it.
@@ -7991,6 +8719,35 @@ export interface components {
             notes?: string | null;
             /** Price Inr */
             price_inr?: string | null;
+        };
+        /**
+         * SessionOut
+         * @description Who this session is, as ids and state.
+         *
+         *     **NO EMAIL ADDRESS, deliberately.** An earlier draft returned one, and
+         *     `scripts/check_redaction_exposure.py` reported it — correctly. The substance is
+         *     defensible (it is the caller's OWN address, on a route only their own session reaches),
+         *     but the guardrail's contract for an allowlist entry is "role-checked AND writes
+         *     audit_log", and writing an audit row on every bootstrap poll would be absurd volume for
+         *     a fact the caller already knows because they typed it to sign in.
+         *
+         *     So the field is gone rather than exempted. Nothing consumed it — `apps/web` is a
+         *     separate slice and unbuilt — and a field nobody reads is the same defect as a column
+         *     nobody reads, in wire form. A console that later wants to render "signed in as …" gets
+         *     a profile endpoint whose disclosure is considered on its own terms.
+         */
+        SessionOut: {
+            /** Email Verified */
+            email_verified: boolean;
+            /** Mfa Complete */
+            mfa_complete: boolean;
+            /** Realm */
+            realm: string;
+            /**
+             * Subject Id
+             * Format: uuid
+             */
+            subject_id: string;
         };
         /**
          * SetCallCapIn
@@ -9243,37 +10000,6 @@ export interface operations {
                 content: {
                     "application/json": {
                         [key: string]: unknown;
-                    };
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
-    clerk_webhook_hooks_v1_clerk_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        [key: string]: string;
                     };
                 };
             };
@@ -11521,6 +12247,810 @@ export interface operations {
             };
         };
     };
+    bootstrap_confirm_v1_auth_admin_bootstrap_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BootstrapConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    login_v1_auth_admin_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    login_otp_v1_auth_admin_login_otp_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondFactorIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    login_otp_resend_v1_auth_admin_login_otp_resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    logout_v1_auth_admin_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    logout_all_v1_auth_admin_logout_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    otp_request_v1_auth_admin_otp_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    otp_verify_v1_auth_admin_otp_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reset_confirm_v1_auth_admin_password_reset_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reset_request_v1_auth_admin_password_reset_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_session_v1_auth_admin_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    refresh_session_v1_auth_admin_session_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    step_up_request_v1_auth_admin_step_up_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    step_up_verify_v1_auth_admin_step_up_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondFactorIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    accept_invitation_with_password_v1_auth_client_invitations_accept_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteAcceptWithPasswordIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteAcceptWithPasswordOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    login_v1_auth_client_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LoginOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    login_otp_v1_auth_client_login_otp_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SecondFactorIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    login_otp_resend_v1_auth_client_login_otp_resend_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    logout_v1_auth_client_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    logout_all_v1_auth_client_logout_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevokedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    otp_request_v1_auth_client_otp_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    otp_verify_v1_auth_client_otp_verify_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OtpConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reset_confirm_v1_auth_client_password_reset_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reset_request_v1_auth_client_password_reset_request_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResetRequestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_session_v1_auth_client_session_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    refresh_session_v1_auth_client_session_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     signup_v1_auth_signup_post: {
         parameters: {
             query?: never;
@@ -12433,6 +13963,35 @@ export interface operations {
             };
         };
     };
+    read_caller_notice_v1_compliance_caller_notice_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerNoticeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_requests_v1_compliance_deletion_requests_get: {
         parameters: {
             query?: {
@@ -13208,39 +14767,6 @@ export interface operations {
             };
         };
     };
-    accept_invitation_v1_invitations_accept_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["AcceptInviteIn"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["AcceptInviteOut"];
-                };
-            };
-            /** @description RFC-9457 problem+json */
-            default: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": unknown;
-                };
-            };
-        };
-    };
     revoke_invitation_v1_invitations__invitation_id__delete: {
         parameters: {
             query?: never;
@@ -13656,6 +15182,10 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved to POST /v1/leads/search
+                 */
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
@@ -13694,6 +15224,10 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved into the request body
+                 */
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
@@ -13730,11 +15264,15 @@ export interface operations {
             };
         };
     };
-    export_leads_v1_leads_export_csv_get: {
+    export_leads_filtered_v1_leads_export_csv_get: {
         parameters: {
             query?: {
                 agent_id?: string | null;
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved to POST /v1/leads/export.csv
+                 */
                 search?: string | null;
                 assigned_to?: string | null;
                 /** @description Comma-separated column keys, in display order. Omit for every column. */
@@ -13766,10 +15304,45 @@ export interface operations {
             };
         };
     };
+    export_leads_v1_leads_export_csv_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadLensIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_lead_facets_v1_leads_facets_get: {
         parameters: {
             query?: {
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved to POST /v1/leads/facets
+                 */
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
@@ -13789,6 +15362,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LeadFacetsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    search_lead_facets_v1_leads_facets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadLensIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFacetsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    search_leads_v1_leads_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadSearchIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadListOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

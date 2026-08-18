@@ -232,9 +232,18 @@ Three rules, all of them consequences of things stated elsewhere in this documen
   `running`; `calling_hours` and the per-dial gate then hold every contact until 09:00,
   exactly as they do for a campaign launched by hand at 22:00. The schedule endpoint
   returns `first_dial_not_before` so the client is told which hour that is.
-- **Recurrence is NOT built.** The column carries a `kind` discriminator and the
-  dispatcher refuses any value but `one_time`, so a recurring schedule cannot be fired
-  once and look finished.
+- **Recurrence IS built** (`POST /v1/campaigns/{id}/recurrence`, `campaigns/scheduling.py`
+  decision 1), and this line used to say the opposite — which is the reading a client's
+  screen and this document disagreed on. The shape is WEEKDAY + TIME (`{"days": [1-7],
+  "at": "HH:MM IST"}`), deliberately not RRULE and not day-of-month, because "the 31st of
+  every month" has no answer four months a year and a recurrence a client cannot predict
+  dials when they did not expect it. Three bounds go with it, each argued at the code: a
+  MISSED occurrence is skipped and never caught up (a worker down from Monday to
+  Wednesday must not fire three campaigns into one minute); a recurrence whose time of
+  day is outside the platform calling window is refused at creation rather than quietly
+  reinterpreted; and the `kind` discriminator still REFUSES any value it has no reader
+  for, so a schedule shape a future build writes cannot be fired once and look finished.
+  The gate runs at every occurrence, through the same `launch_campaign`.
 
 **Concurrency reservation (our dispatcher — the platform has no native reserved-inbound
 feature):** the platform account's line pool is shared across ALL tenants, so one client's
@@ -262,8 +271,11 @@ resolve_campaign_contact → outbound_sync(call.completed via the outbox, D-23).
 Retry budget: **3 attempts** — one number, `WORKER_MAX_TRIES` in
 `apps/api/core/queue.py`, read by the ARQ worker and by the delivery worker's
 exhaustion check. Outbound webhook deliveries wait **30s then 120s**
-(`RETRY_BACKOFF_S` in `apps/workers/outbound_webhooks.py`); a failed recording copy
-waits 30s flat. **Not everything is retried**: transport failures, 5xx, 408, 425 and
+(`RETRY_BACKOFF_S` in `apps/workers/outbound_webhooks.py`), and the ingest job — the one
+that copies the recording — waits on the **same 30s/120s ladder** (`RETRY_BACKOFF_S` in
+`apps/workers/pipeline.py`, one entry shorter than the budget because the last attempt has
+nothing after it). So the outside edge of "not yet definitely lost" is 150s of backoff plus
+three attempts, not 60s. **Not everything is retried**: transport failures, 5xx, 408, 425 and
 429 get the ladder, while any other 4xx is a verdict on the request — it stops on the
 first attempt and is recorded `rejected {code}`, because retrying a 400 three times
 only delays the verdict and triples load on an unhappy host. DLQ + Sentry alert on

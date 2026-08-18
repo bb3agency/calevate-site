@@ -61,7 +61,7 @@ from apps.api.compliance.first_campaign import (
     read_first_campaign_review,
 )
 from apps.api.compliance.kyc import KYC_MISSING_REASON, kyc_not_verified_reason, read_kyc
-from apps.api.compliance.models import CONSENT_STATUSES
+from apps.api.compliance.models import CONSENT_STATUSES, DNC_REMOVABLE_SOURCES
 from apps.api.core.alerting import record_compliance_block
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import get_platform_status
@@ -467,14 +467,50 @@ async def add_to_dnc(
     session: AsyncSession, *, tenant_id: UUID, phone_e164: str, source: str
 ) -> None:
     """Tenant-scope only. A global entry is not a tenant-reachable write (see the
-    dnc_list migration) — the RLS WITH CHECK enforces that, not this function."""
+    dnc_list migration) — the RLS WITH CHECK enforces that, not this function.
+
+    **A SUPPRESSION'S SOURCE ONLY EVER GETS STRONGER (D-189).** This used to be
+    `ON CONFLICT DO NOTHING`, which is right for the row and wrong for the `source`
+    column, and the gap was reachable by an ordinary sequence: a client pastes a number
+    into their do-not-call page (`manual`), that same person later calls and says "stop
+    calling me", and `record_call_optout` finds the row already there and changes
+    nothing. The entry keeps `source = 'manual'`, `dnc.is_removable` therefore returns
+    True, the screen offers a delete button, and `remove_entry` honours it — so the
+    caller's opt-out is deleted by the account it was made against and the number goes
+    back in the dial pool. That is hard rule 5's "can never be removed" failing on the
+    most ordinary path there is, and TCCCPR's ninety-day bar on re-soliciting an
+    opted-out subscriber with it (see `compliance/optout.py` for the sourcing).
+
+    So the conflict UPGRADES: an existing row whose source is client-deletable is
+    rewritten to the incoming non-deletable one, and nothing else is ever rewritten.
+    The predicate is stated in both directions on purpose — the update fires only when
+    the OLD source is removable AND the NEW one is not — so the write is monotone: a
+    `manual` add can never weaken a `call_optout` row, and two opt-outs on one number
+    are still a no-op.
+
+    `added_at` is deliberately left alone. It is when this number stopped being
+    dialable, the suppression has been continuous since, and moving it forward would
+    misdate a fact the client may have to show a TSP.
+
+    REJECTED: doing the upgrade in `record_call_optout` as a follow-up UPDATE. It is the
+    same write, split in two, with a window between them in which the row says something
+    neither caller believes — and `add_to_dnc` is the one statement every dial-gate
+    reader is documented against.
+    """
     await session.execute(
         text(
             "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
             "created_at) VALUES (gen_random_uuid(), :tid, :phone, 'tenant', :source, now(), "
-            "now()) ON CONFLICT (tenant_id, phone_e164) DO NOTHING"
+            "now()) ON CONFLICT (tenant_id, phone_e164) DO UPDATE "
+            "SET source = EXCLUDED.source "
+            "WHERE dnc_list.source = ANY(:removable) AND EXCLUDED.source <> ALL(:removable)"
         ),
-        {"tid": tenant_id, "phone": phone_e164, "source": source},
+        {
+            "tid": tenant_id,
+            "phone": phone_e164,
+            "source": source,
+            "removable": list(DNC_REMOVABLE_SOURCES),
+        },
     )
 
 

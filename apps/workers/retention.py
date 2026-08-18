@@ -33,15 +33,22 @@ erasure made the recording permanently undeletable. Both halves are closed: the 
 destroys the bytes at `max(ttl, floor)`, and the erasure destroys the ones past the floor
 and SCHEDULES the rest in `recording_erasure_holds` (`_erase_recordings`).
 
-ARCHIVED RAW ENGINE PAYLOADS (D-126) are the third store outside Postgres, and the only
-one an erasure reaches while no retention arm does. The archive carries the caller's
-number and the transcript, so `_erase_engine_payloads` deletes it by `{tenant}/{call}`
-prefix on both erasure paths. It does NOT expire on a tenant policy: no
-`retention_policies.data_category` covers it (the enum is
-`recording|transcript|lead|consent_log`), and adding one is a DPA commitment plus a
-documented-enum change, not a worker's call. Until that decision the bucket's 90-day
-`engine-payloads/` lifecycle rule is its only clock — and that rule has never been
-applied to anything (infra/README §5).
+ARCHIVED RAW ENGINE PAYLOADS (D-126) are the third store outside Postgres. The archive
+carries the caller's number and the transcript, so `_erase_engine_payloads` deletes it by
+`{tenant}/{call}` prefix on both erasure paths. Until D-179 that erasure arm was the ONLY
+thing that ever removed one: no `retention_policies.data_category` covered the archive, so
+the copy belonging to everyone who never filed a §12 request was kept for ever behind a
+bucket lifecycle rule nothing has ever applied (infra/README §5). It now expires on the
+tenant's own `engine_payload` policy, through the same `_erase_engine_payloads` the
+erasure uses — one definition of "destroy a call's archived payloads", two callers.
+
+SUPERSEDED KNOWLEDGE-BASE VERSIONS are the fourth store, and the one that is not about
+callers at all: a client's uploaded FAQs and price lists name their staff, their doctors
+and their contact numbers. Publishing a new version ARCHIVES the old one
+(`kb/service.publish_source`), and nothing had ever deleted a `kb_documents` row — so
+every version ever published survived, including the ones no screen shows. The `kb`
+category (D-179) expires those, and only those: the LIVE version is what the agent
+answers from and a retention clock that deleted it would be an outage we caused.
 
 Engine-side copies are the open edge, honestly marked: Bolna's deletion API is
 undocumented (pilot gate), so `engine_deletion` is recorded as `unconfirmed` in the
@@ -147,6 +154,17 @@ FLOOR_COUNT_KEY = "recordings_within_trai_floor"
 DESTROYED_COUNT_KEY = "recordings_destroyed"
 HOLD_UNTIL_KEY = "recording_hold_until"
 
+# How many knowledge-base documents mention the subject's number (D-179). Spelled the
+# same in `apps.api.compliance.deletion.KB_MATCH_KEY` and duplicated rather than imported,
+# for the reason the three keys above are: a worker has no business importing the API's
+# compliance package to name a JSON key. `tests/kb_retention_test.py` pins the spellings.
+#
+# ABSENT IS NOT ZERO here as well, and it matters more than on the counts above: every
+# proof written before this search existed carries no key, and a rendered `0` would tell a
+# data principal "we looked and found nothing" about an erasure that never looked. The
+# certificate says the three states in three different sentences.
+KB_MATCH_KEY = "knowledge_base_documents_matched"
+
 # Rows touched by ONE statement. Small enough that the sweep never holds a lock long
 # enough to matter to a live call writing to the same tables.
 SWEEP_BATCH_ROWS = 1_000
@@ -237,6 +255,14 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     "extractions": 0,
     # Delivered webhook bodies (D-23): one object deleted and its `payload_ref` cleared.
     "delivery_bodies": 0,
+    # Archived raw vendor documents (D-126) destroyed on the tenant's own
+    # `engine_payload` policy (D-179). Counted in OBJECTS, not calls, because one call
+    # can hold several — the engine fires a document per status transition.
+    "engine_payloads": 0,
+    # Superseded knowledge-base versions deleted on the tenant's `kb` policy (D-179).
+    # Counted in SOURCES (versions), not chunks: "three old versions of your price list
+    # were forgotten" is the sentence a client understands.
+    "kb_versions": 0,
     # Recording objects destroyed for an erasure that could not lawfully destroy them
     # when it ran (migration 9c1d3e7a05f4). Counted apart from `recordings` on purpose:
     # one is a retention period ending, the other is a DPDP obligation finally being
@@ -337,6 +363,39 @@ async def _due_tenants() -> list[UUID]:
     return [UUID(str(row)) for row in rows]
 
 
+# WHICH KNOWLEDGE-BASE VERSION MAY BE FORGOTTEN — written once, read by the probe and by
+# the sweep statement, because a probe that answers a different question from the
+# statement it gates is a tick that reports work and then does none (or the reverse).
+#
+# Three conditions, and each one is refusing a different way of getting this wrong:
+#
+#   `is_active = false`   — never the LIVE version. That is the content the agent
+#                           answers from; expiring it is an outage we caused, and the
+#                           period a client keeps their own working knowledge for is the
+#                           length of the engagement, not a TTL. The tenant-erasure path
+#                           is what ends it.
+#   `status IN (...)`     — only ARCHIVED (superseded by a later publish) and REJECTED
+#                           (an operator refused it). A draft still moving through the
+#                           approval gate — `uploaded`, `parsed`, `pending_approval` — is
+#                           work in progress, and deleting somebody's unsubmitted upload
+#                           on an age rule would be a surprise rather than a retention
+#                           policy.
+#   no `engine_kb_ref`    — the engine must have given the copy back first. A superseded
+#                           version has its handle CLEARED on detach
+#                           (`kb/service._detach_superseded`), so a handle still recorded
+#                           means a detach that never completed — the exact residue
+#                           `_reattach_after_failed_publish` documents. Deleting our rows
+#                           then would destroy the only record that can address the
+#                           engine's copy, which is the D-126 failure shape on a
+#                           different table. Those rows are the reconciliation sweep's
+#                           (D-158) to resolve, and this arm leaves them alone.
+_KB_EXPIRABLE = (
+    "s.is_active = false AND s.status IN ('archived', 'rejected') "
+    "AND NOT EXISTS (SELECT 1 FROM kb_documents d "
+    "WHERE d.source_id = s.id AND d.meta ->> 'engine_kb_ref' IS NOT NULL)"
+)
+
+
 # The probe. ONE statement that reads the tenant's policies AND answers "is there
 # anything expired under this policy?" for each of them, so a tenant with nothing to do
 # costs a single round trip instead of four blind UPDATEs that match zero rows.
@@ -375,6 +434,14 @@ SELECT r.data_category, r.ttl_days, r.action,
       WHERE d.payload_ref IS NOT NULL AND d.direction = 'out'
         AND d.endpoint_id IN (SELECT id FROM outbound_webhooks)
         AND d.created_at < now() - make_interval(days => r.ttl_days))
+    WHEN 'engine_payload' THEN EXISTS (
+      SELECT 1 FROM calls c
+      WHERE c.engine_payload_ref IS NOT NULL
+        AND {_CLOCK} < now() - make_interval(days => r.ttl_days))
+    WHEN 'kb' THEN EXISTS (
+      SELECT 1 FROM kb_sources s
+      WHERE {_KB_EXPIRABLE}
+        AND s.updated_at < now() - make_interval(days => r.ttl_days))
     ELSE false
   END AS has_work
 FROM retention_policies r
@@ -485,7 +552,11 @@ async def sweep_tenant(tenant_id: UUID) -> dict[str, int]:
             if not has_work:
                 continue
             counts = await _apply_one(
-                session, category=str(category), ttl_days=int(ttl_days), action=str(action)
+                session,
+                tenant_id=tenant_id,
+                category=str(category),
+                ttl_days=int(ttl_days),
+                action=str(action),
             )
             for key, value in counts.items():
                 totals[key] += value
@@ -647,6 +718,41 @@ UPDATE webhook_deliveries SET payload_ref = NULL
 WHERE id = ANY(:ids) AND endpoint_id IN (SELECT id FROM outbound_webhooks)
 """
 
+# ARCHIVED RAW ENGINE PAYLOADS (D-126) on the tenant's own clock (D-179). One page of
+# calls at a time, oldest first; the destruction itself is `_erase_engine_payloads`,
+# unchanged and shared with both erasure paths — this arm supplies the call ids and
+# nothing else.
+#
+# Sharing that function rather than writing a fourth `_sweep_objects_in_batches` call is
+# the point: the archive is the one store where the key column names ONE object and the
+# prefix can hold several (a document per status transition), so a key-driven sweep would
+# leave siblings behind that no later pass could name. There is one definition of "destroy
+# a call's archived payloads" and this is a second caller of it.
+_PAYLOAD_PAGE_SQL = f"""
+SELECT c.id FROM calls c
+WHERE c.engine_payload_ref IS NOT NULL AND {_CLOCK} < :cutoff
+ORDER BY {_CLOCK} LIMIT :batch
+"""
+
+# SUPERSEDED KNOWLEDGE-BASE VERSIONS (D-179). A DELETE, not an anonymize: a chunk of a
+# client's price list has no shape worth keeping once its text is gone — the same
+# argument `_SUMMARY_SQL` makes for clearing a summary rather than marking it — and a row
+# whose `content` was blanked would still be a version the rollback screen offers.
+#
+# `kb_documents` goes with it by FK CASCADE, which is where the personal data actually
+# lives; the source row is deleted too because its `name` is client-authored prose ("Dr
+# Rao's Monday clinic") and a tombstone that keeps the title of the thing it forgot is
+# not a forgetting.
+#
+# `updated_at` is the clock, and on an archived row it IS the supersession instant:
+# `publish_source` stamps it in the UPDATE that flips `is_active` to false.
+_KB_EXPIRE_SQL = f"""
+DELETE FROM kb_sources WHERE id IN (
+  SELECT s.id FROM kb_sources s
+  WHERE {_KB_EXPIRABLE} AND s.updated_at < :cutoff
+  ORDER BY s.updated_at LIMIT :batch)
+"""
+
 
 async def _sweep_objects_in_batches(
     session: AsyncSession,
@@ -710,8 +816,74 @@ async def _sweep_recording_holds(session: AsyncSession) -> tuple[int, bool]:
     )
 
 
+async def _sweep_engine_payloads(
+    session: AsyncSession, *, tenant_id: UUID, cutoff: datetime
+) -> tuple[int, bool]:
+    """Destroy the archived vendor documents of every call past this tenant's TTL.
+
+    Returns (objects, deferred). Pages calls oldest-first and hands each page to
+    `_erase_engine_payloads`, which lists the `{tenant}/{call}` prefix, deletes what it
+    finds and clears the references in the same transaction — so a page stops matching
+    this statement and the loop terminates.
+
+    A store that will not answer STOPS this arm rather than failing the tick, exactly as
+    `_sweep_objects_in_batches` does and for the same reason: every other category still
+    expires, no reference is cleared over a surviving object, and the next tick starts
+    from the same oldest calls. The erasure path makes the opposite choice — there a
+    refusal RAISES, because a certificate must not claim a destruction that did not
+    happen — and the asymmetry is deliberate: a sweep that is one night late owes nobody
+    a document.
+
+    TWO COUNTERS, because they count different things and conflating them would make the
+    budget meaningless: `objects` is what this arm reports (one call can hold several
+    archived documents), and `calls` is what the per-tenant row budget bounds. A single
+    counter would let a tenant whose references all name absent objects walk their whole
+    call table in one tick while reporting zero, which is the opposite of what the budget
+    is for.
+    """
+    objects = 0
+    calls = 0
+    while calls < TENANT_ROW_BUDGET:
+        batch = min(SWEEP_BATCH_ROWS, TENANT_ROW_BUDGET - calls)
+        page = (
+            (await session.execute(text(_PAYLOAD_PAGE_SQL), {"cutoff": cutoff, "batch": batch}))
+            .scalars()
+            .all()
+        )
+        if not page:
+            return objects, False
+        call_ids = [UUID(str(row)) for row in page]
+        try:
+            objects += await _erase_engine_payloads(session, tenant_id=tenant_id, call_ids=call_ids)
+        except storage.StorageUnavailableError as exc:
+            log.warning(
+                "engine_payload_expiry_deferred",
+                extra={"reason": str(exc), "pending": len(call_ids)},
+            )
+            return objects, True
+        # AFTER the objects are gone, and this is what makes the loop terminate rather
+        # than being tidiness. `_erase_engine_payloads` returns early — clearing nothing —
+        # when the prefix holds no objects, and that state is REACHABLE: `archive_payload`
+        # commits the reference BEFORE the PUT, so a worker that died in between left a
+        # reference naming an object that never existed. Those rows would match this
+        # page's SELECT for ever. The statement is idempotent with the one inside the
+        # erasure helper, and it can only ever clear a reference whose object has already
+        # been deleted or was never written.
+        await session.execute(
+            text(
+                "UPDATE calls SET engine_payload_ref = NULL, updated_at = now() "
+                "WHERE id = ANY(:ids) AND engine_payload_ref IS NOT NULL"
+            ),
+            {"ids": call_ids},
+        )
+        calls += len(call_ids)
+        if len(call_ids) < batch:
+            return objects, False
+    return objects, True
+
+
 async def _apply_one(
-    session: AsyncSession, *, category: str, ttl_days: int, action: str
+    session: AsyncSession, *, tenant_id: UUID, category: str, ttl_days: int, action: str
 ) -> dict[str, int]:
     counts = dict(_EMPTY_TOTALS)
     if category == "consent_log":
@@ -736,6 +908,29 @@ async def _apply_one(
         return counts
 
     cutoff = datetime.now(UTC) - timedelta(days=ttl_days)
+
+    if category == "engine_payload":
+        # `action` is not read, and the reason is worth stating rather than leaving as a
+        # silent omission: the archive is an opaque vendor document in an object store.
+        # There is no anonymized form of it — we do not parse it, and a partially
+        # rewritten copy of the engine's own record would be worth less than either
+        # keeping it or destroying it. A policy row saying `anonymize` therefore destroys,
+        # and SEC-COMP §4 says so in the words a client reads.
+        counts["engine_payloads"], deferred = await _sweep_engine_payloads(
+            session, tenant_id=tenant_id, cutoff=cutoff
+        )
+        counts["deferred"] += int(deferred)
+        return counts
+
+    if category == "kb":
+        # `action` is not read here either, for `_SUMMARY_SQL`'s reason: a knowledge chunk
+        # is free prose, so there is no shape to keep once the words are gone, and a
+        # blanked row would still be a version the rollback screen offers.
+        counts["kb_versions"], deferred = await _sweep_in_batches(
+            session, _KB_EXPIRE_SQL, {"cutoff": cutoff}
+        )
+        counts["deferred"] += int(deferred)
+        return counts
 
     if category == "transcript":
         if action == "delete":
@@ -1088,6 +1283,59 @@ async def _erase_campaign_contacts(session: AsyncSession, *, phone: str | None =
     return int(rowcount_of(result) or 0)
 
 
+# THE KNOWLEDGE-BASE SEARCH — what an erasure can honestly do about a client's own
+# uploaded content, and what it must not do (D-179, LEGAL-SURFACE F-3).
+#
+# The register used to tell a data principal the knowledge base was "not searched". That
+# was true and it was the wrong true thing: a client's FAQ can contain a caller's callback
+# number — the AUP now forbids putting personal data there, which is a term, not a
+# mechanism — and "we did not look" is not an answer a Fiduciary can give when looking is
+# one query.
+#
+# So the erasure LOOKS and REPORTS, and does not delete. Three reasons it stops there:
+#
+#   * The content is the CLIENT'S OWN, written by them for their agent to quote. Deleting
+#     a paragraph out of a live price list because a phone number appears in it would
+#     silently change what the agent says on the next call, and we cannot tell a callback
+#     number from the shop's own landline.
+#   * The engine holds a copy of the live version. Editing ours without theirs would make
+#     the two disagree, which is the divergence the reconciliation sweep (D-158) exists to
+#     catch — the erasure would be manufacturing the incident.
+#   * A count is what makes the manual step ACTIONABLE. "Two of your knowledge documents
+#     mention this number" is a task; "the knowledge base was not searched" is a shrug.
+#
+# `strpos` rather than `LIKE '%'||…||'%'`: the number is a substring, not a pattern, so
+# there is nothing for a wildcard to add — and a literal `%` inside a `text()` statement
+# is a paramstyle hazard this file has no other example of and does not need a first one.
+#
+# THE MATCH IS ON DIGITS, not on the E.164 string. A client pastes "call 98765 43210" or
+# "+91-98765-43210" — never the form the CRM holds — so a `LIKE '%+919876543210%'` would
+# report zero on exactly the documents this exists to find. Both sides are stripped to
+# digits and the subscriber number (the last ten) is what is compared: enough to be
+# specific in the Indian mobile space, and forgiving of every separator. It over-matches
+# rather than under-matches by design — a false positive costs a human one look at a
+# document, a false negative costs a person their erasure.
+_KB_SUBJECT_MATCH_SQL = """
+SELECT count(*) FROM kb_documents
+WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
+"""
+
+
+async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:
+    """How many knowledge documents mention this number. Reads; never writes.
+
+    RLS scopes it to the tenant (hard rule 1). The count is all that leaves this function
+    — no document id, no title, no content — because it travels into a proof that is
+    filed and forwarded, and "which document" is a question the client answers on their
+    own screen with their own access.
+    """
+    digits = "".join(character for character in phone if character.isdigit())[-10:]
+    if not digits:
+        return 0
+    matched = (await session.execute(text(_KB_SUBJECT_MATCH_SQL), {"digits": digits})).scalar()
+    return int(matched or 0)
+
+
 async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """DPDP erasure for one phone number, with a proof certificate (SEC-COMP §4).
 
@@ -1225,6 +1473,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # that would have been dialled AFTER the certificate was issued.
         contacts_erased = await _erase_campaign_contacts(session, phone=phone)
 
+        # LOOKED AT, never changed — see `_search_knowledge_base` for why the erasure
+        # stops at a count. Run last, so a store this request could not reach has already
+        # raised and the number is never reported on an erasure that then rolled back.
+        kb_matches = await _search_knowledge_base(session, phone=phone)
+
         proof = {
             "subject_hash": _hash(phone),
             "executed_at": datetime.now(UTC).isoformat(),
@@ -1249,6 +1502,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 # give the data principal a date instead of "treat the audio as still
                 # existing indefinitely". Null when nothing was deferred.
                 HOLD_UNTIL_KEY: held_until.isoformat() if held_until is not None else None,
+                # In `scope` rather than only in `actions`, unlike the three counts
+                # below it: the certificate's knowledge-base ENTRY reports this number
+                # to the data principal, and an entry that carries a count needs the
+                # count in the part of the proof the renderer reads by name.
+                KB_MATCH_KEY: kb_matches,
             },
             "actions": {
                 "calls": "phone numbers, recording pointer and summary cleared",
@@ -1284,6 +1542,10 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     f"{contacts_erased} uploaded campaign contact row(s): phone "
                     "anonymized, name, pasted columns and dedupe hash cleared, and the "
                     "row set to dnc_blocked so no campaign can dial it"
+                ),
+                "kb_sources": (
+                    f"searched: {kb_matches} uploaded knowledge document(s) mention this "
+                    "number. Client-authored content — read, not changed by this request"
                 ),
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
@@ -1324,7 +1586,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         f"erased calls={len(calls)} leads={len(leads)} turns={turns_erased} "
         f"bodies={bodies_erased} payloads={payloads_erased} "
         f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor} "
-        f"campaign_contacts={contacts_erased}"
+        f"campaign_contacts={contacts_erased} kb_matches={kb_matches}"
     )
 
 
@@ -1379,6 +1641,53 @@ ORDER BY created_at, id LIMIT :batch
 _MARK_ERASED_SQL = """
 UPDATE organizations SET deleted_at = now(), updated_at = now()
 WHERE id = :tid AND deleted_at IS NULL AND status = 'churned'
+"""
+
+# THE ERASED ACCOUNT MUST STOP COLLECTING (D-189).
+#
+# Every arm above erases what the tenant HAD. None of them stopped it acquiring more.
+# `engine_agent_routes` is the one bridge from the voice platform's id space into ours
+# (`workers/pipeline._resolve_agent`), the vendor's agent objects are still configured
+# and the client's DID is still pointed at them, so the FIRST inbound call after the
+# certificate was issued re-created a `calls` row, its transcript, its extraction, its
+# lead and an archived engine payload — full caller records, under a `tenant_id` whose
+# certificate says the account is erased and whose own people are locked out of every
+# screen that could show them (`core/auth.py` refuses a churned org). Storage with no
+# purpose and no reader is DPDP §8(7) on its own; a certificate that is false within
+# minutes of being signed is worse. Measured against the live schema before the fix:
+# the route resolved and the row inserted.
+#
+# Withdrawing the routing is the half that is OURS and it is a single statement in the
+# erasure's own transaction, so it commits with `deleted_at` and the certificate or not
+# at all. What it does NOT do is stop the vendor answering the phone — only removing the
+# agent at the voice platform and releasing the number with the telephony provider does
+# that, and both are outside this repository. The certificate says so rather than
+# implying otherwise, and the operator's signal is automatic: the next call to that
+# number arrives with a ref nothing maps, and `_ingest_stages` already raises
+# `engine_agent_unmapped` for exactly that.
+#
+# REJECTED: calling `VoiceEngine.delete_agent` from here. It exists and is idempotent by
+# contract, but it is a third-party round trip inside the one transaction that must not
+# half-commit, and its failure mode would be an erasure that rolls back because a vendor
+# was slow. The vendor-side deletion stays `unconfirmed_pending_vendor_api`, which is
+# what the certificate has always claimed and all it has ever been able to.
+#
+# `active` is filtered in the WHERE so the count reports routes this erasure actually
+# withdrew rather than every row the tenant ever had; a variant retired earlier
+# (`agents/experiments.py`) is already inactive and was already collecting nothing.
+#
+# WHAT IT DOES NOT BREAK, checked rather than assumed. The retention sweep and the
+# outbox dispatcher enumerate tenants with `SELECT DISTINCT tenant_id FROM
+# engine_agent_routes` and are deliberately UNFILTERED on `active` (see `_tenants` above:
+# offboarding is where the countdown STARTS), so an erased tenant's remaining rows keep
+# ageing out on their own policy exactly as FLOWS §9 promises. What DOES stop is the
+# agent and KB drift sweeps, which read `WHERE active` — and that is the right answer,
+# not a gap: those sweeps exist to keep an agent we still operate faithful to what we
+# published, and this account's agents are being abandoned to the vendor, which is the
+# fact the certificate now states in words instead of leaving to a reader.
+_WITHDRAW_ROUTES_SQL = """
+UPDATE engine_agent_routes SET active = false, updated_at = now()
+WHERE tenant_id = :tid AND active
 """
 
 
@@ -1571,6 +1880,11 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         # each page issues object deletions; `_erase_tenant_leads` pages because each page
         # lists a prefix per lead. This touches neither.
         counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
+        # BEFORE the mark, in the same transaction: see `_WITHDRAW_ROUTES_SQL`. An
+        # erased account must stop acquiring caller records, and this is the half of
+        # that which is ours to perform.
+        withdrawn = await session.execute(text(_WITHDRAW_ROUTES_SQL), {"tid": tenant_id})
+        counts["engine_routes_withdrawn"] = int(rowcount_of(withdrawn) or 0)
 
         marked = await session.execute(text(_MARK_ERASED_SQL), {"tid": tenant_id})
         if int(rowcount_of(marked) or 0) != 1:
@@ -1599,6 +1913,12 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             },
             "actions": {
                 "organizations": "marked deleted; no membership resolves and no dial is permitted",
+                "engine_agent_routes": (
+                    f"{counts['engine_routes_withdrawn']} voice-platform routing entr(ies) "
+                    "withdrawn, so no further call reaching this account's agents is "
+                    "recorded here; removing the agents at the voice platform and "
+                    "releasing the telephone numbers are manual steps with those vendors"
+                ),
                 "calls": "phone numbers, recording pointer and summary cleared",
                 "recordings": (
                     f"{counts['recordings_destroyed']} audio file(s) destroyed in object "
@@ -1625,7 +1945,15 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                 "consent_ledger": "retained — append-only proof that consent existed",
                 "audit_log": "retained — append-only, and the record of this erasure",
                 "dnc_list": "retained — removing a suppression would make people callable again",
-                "kb_sources": "not searched and not changed",
+                # NOT searched, unlike the per-subject path, and the difference is the
+                # subject rather than an inconsistency: a §12 erasure has a phone number
+                # to look for, and a tenant erasure has no subject to search this content
+                # FOR. What reaches it here is the tenant's own `kb` retention policy,
+                # which expires superseded versions on its own clock (D-179).
+                "kb_sources": (
+                    "not searched and not changed; superseded versions expire under this "
+                    "account's kb retention policy"
+                ),
                 "memberships": "retained — client account data, and access ends with this erasure",
             },
             "engine_deletion": "unconfirmed_pending_vendor_api",
@@ -1752,6 +2080,7 @@ __all__ = [
     "DESTROYED_COUNT_KEY",
     "FLOOR_COUNT_KEY",
     "HOLD_UNTIL_KEY",
+    "KB_MATCH_KEY",
     "RECORDING_FLOOR_DAYS",
     "REDACTED_MARK",
     "RELIABILITY_PRUNE_AFTER",

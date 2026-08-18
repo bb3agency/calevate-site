@@ -13,7 +13,7 @@ import type { LegalDocument } from "./types";
  * - `ClerkProvider` is mounted only inside `src/app/admin/layout.tsx`, the client-realm
  *   layout and the `(auth)` sign-in pages. Clerk's cookies are key-suffixed per
  *   application so the two realms can coexist on one registrable domain — the mechanism
- *   is documented in `src/lib/auth/clerkRuntime.tsx`.
+ *   is documented in `src/lib/authn/cookies` on the API side (`apps/api/authn/cookies.py`).
  *
  * So the honest notice is: nothing on the public site, strictly-necessary session cookies
  * once you sign in, no consent banner because there is nothing to consent to. Writing a

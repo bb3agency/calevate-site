@@ -221,10 +221,10 @@ async def _verify_kyc(tenant_id: uuid.UUID) -> None:
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
-            {"id": admin_id, "cid": f"admin_{uuid.uuid4().hex[:12]}"},
+            {"id": admin_id},
         )
     async with tenant_session(tenant_id) as session:
         await record_kyc(

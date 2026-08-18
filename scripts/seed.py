@@ -84,6 +84,18 @@ DEFAULT_RETENTION_POLICIES: tuple[dict[str, Any], ...] = (
     # consent_log is an append-only ledger (hard rule 4) — retained, never purged
     # on a timer; kept here so the category is explicit rather than forgotten.
     {"data_category": "consent_log", "ttl_days": 2555, "action": "anonymize"},
+    # The archived RAW vendor document per call (D-126), which carries the caller's
+    # number and the transcript. 90 days is not a new number: it is the period
+    # `infra/object-lifecycle/policy.json` already assigns the `engine-payloads/`
+    # prefix — what D-179 changes is that a mechanism which actually runs enforces it,
+    # rather than a bucket rule nothing has ever applied (infra/README §5).
+    {"data_category": "engine_payload", "ttl_days": 90, "action": "delete"},
+    # SUPERSEDED knowledge-base versions (D-179). The live version is never expired by
+    # this — see `apps/workers/retention._KB_EXPIRE_SQL` — so the clock runs only on
+    # content no screen shows. 365 days matches the transcript default rather than
+    # inventing a third number: it is content of the same class, and rolling back a bad
+    # publish (FLOWS §7) is a thing clients do in days.
+    {"data_category": "kb", "ttl_days": 365, "action": "delete"},
 )
 
 # Extraction-schema starting points per vertical. Shape validated by Pydantic on

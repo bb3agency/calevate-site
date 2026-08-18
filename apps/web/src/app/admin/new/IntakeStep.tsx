@@ -264,7 +264,10 @@ export function IntakeStep({
           mobile in a system prompt is a number the agent can read out to whoever asks). */}
       {stored?.compiled_t0_context && (
         <Card title="Compiled facts currently in the prompt">
-          <pre className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-xs text-ink-muted">
+          {/* No `overflow-x-auto`: `whitespace-pre-wrap break-words` means this can never
+              overflow sideways, so the utility only ever declared a scroll container that
+              does not scroll — and an unreachable one at that (see `ScrollRegion`). */}
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs text-ink-muted">
             {stored.compiled_t0_context}
           </pre>
         </Card>

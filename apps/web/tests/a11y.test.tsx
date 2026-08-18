@@ -3,10 +3,17 @@ import { describe, expect, it } from "vitest";
 
 import type { Margin } from "@/lib/api/admin";
 import type { CallDetail } from "@/lib/api/client";
-import AdminSignInPage from "@/app/(auth)/admin/sign-in/[[...sign-in]]/page";
 import AdminLayout from "@/app/admin/layout";
-import ClientSignInPage from "@/app/(auth)/sign-in/[[...sign-in]]/page";
-import ClientSignUpPage from "@/app/(auth)/sign-up/[[...sign-up]]/page";
+import AcceptInvitationPage from "@/app/(auth)/auth/accept-invitation/page";
+import ClientAccountPage from "@/app/(auth)/auth/account/page";
+import AdminBootstrapPage from "@/app/(auth)/auth/admin/bootstrap/page";
+import AdminForgotPasswordPage from "@/app/(auth)/auth/admin/forgot-password/page";
+import AdminSessionPage from "@/app/(auth)/auth/admin/page";
+import AdminResetPasswordPage from "@/app/(auth)/auth/admin/reset-password/page";
+import AdminFirstPartySignInPage from "@/app/(auth)/auth/admin/sign-in/page";
+import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
+import ClientResetPasswordPage from "@/app/(auth)/auth/reset-password/page";
+import ClientFirstPartySignInPage from "@/app/(auth)/auth/sign-in/page";
 import ClientHealthPage from "@/app/admin/health/page";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
@@ -62,7 +69,7 @@ import {
   staleExemptions,
 } from "./a11y";
 import { renderAdminRoute } from "./adminRoute";
-import { renderClientPage, type Routes } from "./harness";
+import { problem, renderClientPage, type Routes } from "./harness";
 
 /**
  * The accessibility gate, over every screen the router serves.
@@ -136,6 +143,47 @@ interface Screen {
   realm: "client" | "admin";
   element: () => React.ReactElement;
   routes: Routes;
+}
+
+/**
+ * A live session row, as `GET /v1/auth/{realm}/session` answers it (D-174).
+ *
+ * Ids and state, with no email address — `SessionOut` in `apps/api/authn/routes.py`
+ * deliberately carries none, and a fixture that invented one would be a fixture the
+ * screens could accidentally learn to read.
+ */
+const ADMIN_SESSION_ROW = {
+  realm: "admin",
+  subject_id: "0192f0aa-0000-7000-8000-0000000000a1",
+  mfa_complete: true,
+  email_verified: true,
+};
+
+const CLIENT_SESSION_ROW = {
+  realm: "client",
+  subject_id: "0192f0aa-0000-7000-8000-0000000000c1",
+  mfa_complete: true,
+  email_verified: true,
+};
+
+/** The one refusal that means "there is no session here" — never `invalid_credentials`. */
+const UNAUTHORIZED_SESSION = problem(401, {
+  type: "urn:calevate:auth/unauthorized",
+  title: "Unauthorized",
+  detail: "Your session is not valid.",
+  kind: "auth",
+});
+
+/**
+ * Put a link token in the URL the way an emailed link does, then render.
+ *
+ * `useLinkToken` reads `location.search` in an effect and strips the parameter with
+ * `history.replaceState`; jsdom implements both, so this is the real path rather than a
+ * mock of it. The value is nonsense on purpose — nothing here submits it.
+ */
+function withLinkToken(path: string, element: React.ReactElement): React.ReactElement {
+  window.history.replaceState(null, "", `${path}?token=a11y-sweep-token`);
+  return element;
 }
 
 /** The invoice screens ask for the CURRENT IST month, so the fixture key must follow it. */
@@ -739,7 +787,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/agents": [AGENT],
       "/v1/members": MEMBERS,
-      "/v1/leads?limit=100": {
+      "POST /v1/leads/search": {
         items: [LEAD],
         // The server's resolved column list (`crm.columns`), one fixed column and one
         // extraction column, so the sweep sees the table the chooser actually renders.
@@ -1223,18 +1271,6 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />,
     routes: {},
   },
-  {
-    file: "(auth)/sign-in/[[...sign-in]]/page.tsx",
-    realm: "client",
-    element: () => <ClientSignInPage />,
-    routes: {},
-  },
-  {
-    file: "(auth)/sign-up/[[...sign-up]]/page.tsx",
-    realm: "client",
-    element: () => <ClientSignUpPage />,
-    routes: {},
-  },
 ];
 
 const ADMIN_SCREENS: Screen[] = [
@@ -1564,15 +1600,95 @@ const ADMIN_SCREENS: Screen[] = [
       },
     },
   },
+];
+
+/**
+ * The first-party authentication surface (D-174) — ten screens, both realms.
+ *
+ * A third list rather than entries in the two above, because these screens belong to
+ * NEITHER realm's shell. They bring their own `<Providers>`, they render outside
+ * `ClientRealmProvider` (an auth page holds no org slug — it does not yet know who is
+ * asking), and the admin ones are not inside `app/admin/layout.tsx`. `realm: "admin"`
+ * below is therefore a statement about the HARNESS — `renderAdminRoute` is the one that
+ * adds no realm provider — and not about which realm the screen serves; the client-realm
+ * pages here are marked the same way for the same reason.
+ *
+ * `KNOWN_A11Y_EXEMPTIONS` is pinned empty and none of these is in `UNSWEPT_SCREENS`:
+ * these get swept, not excused.
+ */
+const AUTHN_SCREENS: Screen[] = [
   {
-    file: "(auth)/admin/sign-in/[[...sign-in]]/page.tsx",
+    file: "(auth)/auth/sign-in/page.tsx",
     realm: "admin",
-    element: () => <AdminSignInPage />,
+    element: () => <ClientFirstPartySignInPage />,
+    // The guest audience's restore. A signed-OUT answer is the state this page is for:
+    // a session found here would bounce the visitor to the account page and the sweep
+    // would scan a redirect instead of a form.
+    routes: { "GET /v1/auth/client/session": UNAUTHORIZED_SESSION },
+  },
+  {
+    file: "(auth)/auth/admin/sign-in/page.tsx",
+    realm: "admin",
+    element: () => <AdminFirstPartySignInPage />,
+    routes: { "GET /v1/auth/admin/session": UNAUTHORIZED_SESSION },
+  },
+  {
+    file: "(auth)/auth/forgot-password/page.tsx",
+    realm: "admin",
+    element: () => <ClientForgotPasswordPage />,
     routes: {},
+  },
+  {
+    file: "(auth)/auth/admin/forgot-password/page.tsx",
+    realm: "admin",
+    element: () => <AdminForgotPasswordPage />,
+    routes: {},
+  },
+  {
+    // Scanned WITH a token in the URL, so what axe sees is the password form rather than
+    // the "this link is missing its code" branch. `useLinkToken` reads `location` in an
+    // effect, so setting it before the render is what the browser hands the page.
+    file: "(auth)/auth/reset-password/page.tsx",
+    realm: "admin",
+    element: () => withLinkToken("/auth/reset-password", <ClientResetPasswordPage />),
+    routes: {},
+  },
+  {
+    file: "(auth)/auth/admin/reset-password/page.tsx",
+    realm: "admin",
+    element: () => withLinkToken("/auth/admin/reset-password", <AdminResetPasswordPage />),
+    routes: {},
+  },
+  {
+    file: "(auth)/auth/admin/bootstrap/page.tsx",
+    realm: "admin",
+    element: () => withLinkToken("/auth/admin/bootstrap", <AdminBootstrapPage />),
+    routes: {},
+  },
+  {
+    file: "(auth)/auth/accept-invitation/page.tsx",
+    realm: "admin",
+    element: () => withLinkToken("/auth/accept-invitation", <AcceptInvitationPage />),
+    routes: {},
+  },
+  {
+    // The two session-management screens are scanned SIGNED IN — the gate is fail-closed,
+    // so a refused session renders `SessionGate` and the sweep would never reach the
+    // panels, the modal or the sign-out controls that are the reason these pages exist.
+    file: "(auth)/auth/admin/page.tsx",
+    realm: "admin",
+    element: () => <AdminSessionPage />,
+    routes: { "GET /v1/auth/admin/session": ADMIN_SESSION_ROW },
+  },
+  {
+    file: "(auth)/auth/account/page.tsx",
+    realm: "admin",
+    element: () => <ClientAccountPage />,
+    routes: { "GET /v1/auth/client/session": CLIENT_SESSION_ROW },
   },
 ];
 
-export const SCREENS: Screen[] = [...CLIENT_SCREENS, ...ADMIN_SCREENS];
+export const SCREENS: Screen[] = [...CLIENT_SCREENS, ...ADMIN_SCREENS, ...AUTHN_SCREENS];
 
 describe("every screen is scanned by axe", () => {
   it.each(SCREENS.map((s) => [s.file, s] as const))("%s", async (_file, screen) => {

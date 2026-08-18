@@ -40,6 +40,12 @@ fix would be to delete the check. `preflight_contract_failures` makes that impos
 introduce quietly: the key set is one expression in one file, and this asks whether every
 name in it is a `Settings` field or a registered exception.
 
+AND BEFORE ANY OF THEM, `blind_spots()` (D-176). The first two directions cannot go
+quiet — they compare two lists, and losing one fails loudly. The third is a SEARCH, and a
+search over a directory that has been renamed returns nothing without raising: `7 direct
+environment reads accounted for` becomes `0`, printed beside the word OK, on the direction
+that exists to catch a worker calling `os.getenv` behind everybody's back.
+
 Run: uv run python -m scripts.check_env_parity
 """
 
@@ -51,7 +57,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-from calevate_shared.config import Settings
+from calevate_shared.config import SDK_OWNED_ENV_KEYS, Settings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SEARCH_DIRS = ("apps", "packages", "scripts")
@@ -140,6 +146,18 @@ SDK_ENV_KEYS: dict[str, str] = {
     ),
 }
 
+# THIS DICT IS PROSE; `SDK_OWNED_ENV_KEYS` IS THE MECHANISM (D-188). `Settings` must drop
+# exactly these keys from the `.env` it reads or refuse to construct at all, so the set is
+# now enforced in `calevate_shared.config` and this registry is the explanation of it.
+# Asserted at import rather than described, because a key documented here and missing
+# there is a repo-root process that crashes on boot, and a key there and missing here is
+# an undocumented exception to `extra="forbid"` — both silent.
+assert set(SDK_ENV_KEYS) == set(SDK_OWNED_ENV_KEYS), (
+    "SDK_ENV_KEYS and calevate_shared.config.SDK_OWNED_ENV_KEYS disagree: "
+    f"{sorted(set(SDK_ENV_KEYS) ^ set(SDK_OWNED_ENV_KEYS))}. They are one set — the "
+    "reason lives here, the enforcement lives there."
+)
+
 _KEY_RE = re.compile(r"^([A-Z][A-Z0-9_]*)=")
 _ENV_READERS = ("getenv", "environ")
 
@@ -196,6 +214,41 @@ def direct_env_reads(root: Path | None = None) -> dict[str, list[str]]:
             for lineno, key in _env_reads(tree):
                 found.setdefault(key, []).append(f"{path.relative_to(root)}:{lineno}")
     return found
+
+
+def blind_spots(root: Path | None = None, reads: dict[str, list[str]] | None = None) -> list[str]:
+    """Has the tree moved out from under this check? (D-176)
+
+    The first two directions compare two lists this file cannot lose sight of — a missing
+    `.env.example` raises and an empty one fails loudly, because every Settings field then
+    lands in "declared nowhere". The THIRD direction is the one that can go silently blind:
+    it is a SEARCH, and `(root / directory).rglob("*.py")` over a directory that has been
+    renamed yields nothing and raises nothing. The result is `7 direct environment reads
+    accounted for` becoming `0 direct environment reads accounted for` — a sentence nobody
+    reads as a failure, on the direction that exists to catch a worker reading
+    `os.getenv` behind everybody's back.
+    """
+    base = root or REPO_ROOT
+    failures = [
+        f"{directory}/ does not exist under {base} — the direct-environment-read scan "
+        "walks it with rglob, which reports nothing rather than failing, so a module "
+        "reading os.getenv there is now invisible to this check"
+        for directory in SEARCH_DIRS
+        if not (base / directory).is_dir()
+    ]
+    if not (base / ".env.example").is_file():
+        failures.append(
+            f"{base / '.env.example'} does not exist — one whole side of the parity "
+            "comparison is missing and there is nothing to compare Settings against"
+        )
+    if reads is not None and not reads:
+        failures.append(
+            "the scan found no `os.getenv` / `os.environ` read anywhere in "
+            f"{list(SEARCH_DIRS)} — this repo has several (the drill script and the "
+            "object-store credentials among them), so the AST matcher has stopped "
+            "recognising the shape rather than the tree having stopped using it"
+        )
+    return failures
 
 
 def bootstrap_contract_failures(declared: set[str]) -> list[str]:
@@ -342,11 +395,21 @@ def evaluate(
 
 
 def main() -> int:
+    blind = blind_spots()
+    if blind:
+        # Before anything else and on its own: every comparison below reads one of these
+        # artefacts, so a report built without them is a report about nothing (D-176).
+        print("ENV PARITY: FAIL — this check cannot see its own subject")
+        for failure in blind:
+            print(f"  - {failure}")
+        return 1
+
     declared, duplicates = example_keys(REPO_ROOT / ".env.example")
     settings_fields = set(Settings.model_fields)
     reads = direct_env_reads()
 
-    failures = evaluate(declared, settings_fields, reads, duplicates)
+    failures = blind_spots(reads=reads)
+    failures += evaluate(declared, settings_fields, reads, duplicates)
     failures.extend(bootstrap_contract_failures(declared))
     failures.extend(preflight_contract_failures(settings_fields))
     if failures:

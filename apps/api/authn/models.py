@@ -154,11 +154,11 @@ class AuthSession(PKMixin, TimestampMixin, Base):
     superseded_at: Mapped[datetime | None]
     revoked_at: Mapped[datetime | None]
     revoked_reason: Mapped[str | None] = mapped_column(Text)
-    #: When this SESSION completed a second factor — the first-party replacement for
-    #: Clerk's `fva[1]` claim (`core/auth.py::_second_factor_age_minutes`). NULL means it
-    #: never did, which on the admin realm is a refusal. It is a property of the session
-    #: rather than of the subject on purpose: enrolling MFA must not retroactively bless
-    #: sessions that were established without it.
+    #: When this SESSION completed a second factor. NULL means it never did, which on the
+    #: admin realm is a refusal — `core/auth.py::_require_second_factor` is the one gate,
+    #: and `authn/routes.py` raises the identical code on the sign-in surface. It is a
+    #: property of the SESSION rather than of the subject on purpose: enrolling MFA must
+    #: not retroactively bless sessions that were established without it.
     mfa_verified_at: Mapped[datetime | None]
 
 
@@ -198,6 +198,13 @@ OTP_PURPOSES = (
     "login_challenge",
     # Emailed to confirm a newly-claimed address.
     "email_verify",
+    # STEP-UP RE-AUTHENTICATION (C-09, D-178). Emailed when an operator who is already
+    # signed in reaches a dangerous mutation whose second factor has gone stale. Its own
+    # purpose rather than a reused `login_challenge`, because the purpose is inside the
+    # code's HMAC domain and `issue_challenge` retires the live challenge FOR THAT PURPOSE:
+    # sharing one would make a code minted to finish signing in interchangeable with a code
+    # minted to prove it is still you, which is the equivalence step-up exists to deny.
+    "step_up",
 )
 
 

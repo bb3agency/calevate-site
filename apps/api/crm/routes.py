@@ -12,7 +12,7 @@ raw transcript, recording link, and "call this lead".
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -49,8 +49,10 @@ from apps.api.crm.schemas import (
     LeadFacetOut,
     LeadFacetsOut,
     LeadFacetValueOut,
+    LeadLensIn,
     LeadListOut,
     LeadOut,
+    LeadSearchIn,
     LeadTimelineOut,
     LeadUpdateIn,
     PerformanceOut,
@@ -61,10 +63,12 @@ from apps.api.crm.schemas import (
     SavedViewUpdateIn,
     UsagePanelOut,
 )
+from apps.api.db.session import tenant_session
 from apps.api.reliability.service import (
     body_hash,
     claim_idempotency,
     complete_idempotency,
+    fail_idempotency,
     scope_key,
 )
 from apps.workers.extraction import run_assist
@@ -185,14 +189,22 @@ async def get_raw_transcript(
 @router.get(
     "/calls/{call_id}/recording",
     response_model=RecordingLinkOut,
-    openapi_extra=permission_meta("calls:read"),
-    summary="Short-lived presigned link to OUR copy of the recording",
+    # `calls:read_raw`, NOT `calls:read` — the same move `/v1/leads/export.csv` made and
+    # for a stronger reason. THE AUDIO IS THE SOURCE OF THE TEXT the whole redaction
+    # apparatus protects: a caller who reads out an Aadhaar number, a card number or an
+    # OTP is masked in `text_redacted` and audible in the recording. `calls:read` is held
+    # by `staff` (core/rbac.py), so this route handed the unredacted artefact to exactly
+    # the role SEC-COMP §5 and DATA-MODEL §2 both say never sees one — while the raw
+    # transcript beside it was already `calls:read_raw` + audit. The route had the audit
+    # half of hard rule 5 and not the role half; this is the other half.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="Short-lived presigned link to OUR copy of the recording — owner-only, audited",
 )
 async def get_recording(
     call_id: UUID,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("calls:read")),
+    principal: Principal = Depends(requires("calls:read_raw")),
 ) -> RecordingLinkOut:
     ref = await service.recording_ref_for(session, call_id)
     await write_audit(
@@ -286,14 +298,22 @@ async def assist_call(
             ),
             remediation="Send an `Idempotency-Key` header — one fresh value per attempt.",
         )
-    claim = await claim_idempotency(
-        session,
-        scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
-        route="/v1/calls/{call_id}/assist",
-        method="POST",
-        key=idem_key,
-        request_hash=body_hash({"call_id": str(call_id)}),
-    )
+    # THE CLAIM COMMITS BEFORE THE MODEL RUNS, in its own transaction — the shape
+    # `billing/payment_routes._create_order_once` argues for and the shape this route
+    # did not have. Written into the REQUEST's transaction it was rolled back by
+    # `core/deps.db` on any later exception, so a raise anywhere after `run_assist`
+    # (a statement timeout, a severed connection, a refused audit write) erased the
+    # claim, the usage rows and the audit row while Google had already been paid — and
+    # the retry with the same key, which is what the key is FOR, paid a second time.
+    async with tenant_session(tenant_id) as claim_session:
+        claim = await claim_idempotency(
+            claim_session,
+            scope=scope_key(tenant_id=tenant_id, user_id=principal.user_id),
+            route="/v1/calls/{call_id}/assist",
+            method="POST",
+            key=idem_key,
+            request_hash=body_hash({"call_id": str(call_id)}),
+        )
     if claim.state == "replay" and claim.response_payload:
         # The stored answer, not a second run. This is the double-click, and it is
         # answered BEFORE the model is called, which is the only place answering it saves
@@ -315,59 +335,79 @@ async def assist_call(
     #    accepts nothing else, because its idempotency is a switch that turns metering off
     #    (D-140).
     ref = new_assist_ref()
-    result = await run_assist(
-        source.spec,
-        # `text_redacted`, assembled by `crm/assist.py`, which never names the raw column.
-        # `run_assist` re-runs `redact()` over this and REFUSES text that still matches —
-        # that guard had no caller until this line, and this line must not defeat it.
-        source.transcript,
-        # The gate's verdict, passed IN rather than re-read. It is False on every path
-        # that reaches here — `require_ai_assist` RAISES at the ceiling rather than
-        # returning "no", which is G-5's block — and it is written as the READ rather
-        # than as a literal `False` so that this caller stays correct if the gate ever
-        # learns to answer instead of raise. A literal would be a promise about another
-        # module's control flow, made in this one.
-        quota_exhausted=quota.at_ceiling,
-    )
+    try:
+        result = await run_assist(
+            source.spec,
+            # `text_redacted`, assembled by `crm/assist.py`, which never names the raw
+            # column. `run_assist` re-runs `redact()` over this and REFUSES text that
+            # still matches — that guard had no caller until this line, and this line
+            # must not defeat it.
+            source.transcript,
+            # The gate's verdict, passed IN rather than re-read. It is False on every path
+            # that reaches here — `require_ai_assist` RAISES at the ceiling rather than
+            # returning "no", which is G-5's block — and it is written as the READ rather
+            # than as a literal `False` so that this caller stays correct if the gate ever
+            # learns to answer instead of raise. A literal would be a promise about another
+            # module's control flow, made in this one.
+            quota_exhausted=quota.at_ceiling,
+        )
+    except Exception:
+        # NOTHING WAS PAID FOR (the provider call is what raised), so the key is released
+        # rather than left `processing`: a failed attempt that kept it would refuse the
+        # client's own retry as "already in flight" for the whole lease. Its own
+        # transaction, for the same reason the claim had one — the request's is about to
+        # roll back. `_create_order_once`'s failure arm, exactly.
+        async with tenant_session(tenant_id) as fail_session:
+            await fail_idempotency(fail_session, record_id=claim.record_id)
+        raise
 
-    # 4. THE METER, unconditional on a run that returned: the provider has been paid
-    #    whether or not the answer was any good. `meter_assist` never raises, and it is
-    #    where `usage is None` is decided (a free Sarvam leg, or an unmeterable Gemini one).
-    metered = await assist.meter_assist(session, tenant_id=tenant_id, ref=ref, result=result)
-
-    await write_audit(
-        session,
-        action="call.ai_assist",
-        actor=principal,
-        tenant_id=tenant_id,
-        object_type="call",
-        object_id=str(call_id),
-        ip=client_request_ip(request),
-        # `usage_events` records the tenant, the cost and the key; it does not record WHO
-        # asked or WHICH call was read (`call_id IS NULL` is in the index predicate). A
-        # transcript being handed to a sub-processor is a processing act under DPDP and
-        # the actor and the subject are exactly what a grievance asks for, so they are
-        # recorded here. Ids, a provider name and a boolean — no prose, no output.
-        summary={
-            "provider": result.capability.provider,
-            "fallback_reason": result.capability.fallback_reason,
-            "metered": metered.metered,
-            "ref": ref,
-        },
-    )
-
-    out = CallAssistOut(
-        # The same `redact()` pass `calls.summary` goes out through. The model was given
-        # redacted text and so cannot have copied a digit it never saw; this is the belt
-        # to that braces, and it is what lets the redaction guardrail's entry for this
-        # field say what `CallDetailOut.summary`'s says.
-        summary=service.redacted_summary(result.output.summary) or "",
-        disclosure=result.capability.disclosure,
-        metered=metered.metered,
-    )
-    await complete_idempotency(
-        session, record_id=claim.record_id, response_status=200, response_payload=out.model_dump()
-    )
+    # 4. THE METER, THE AUDIT AND THE CLAIM'S COMPLETION, in ONE transaction of their
+    #    own — the record of a payment that has already happened. It is deliberately not
+    #    the request's transaction: that one rolls back on any later exception, and this
+    #    is the exact set of rows whose disappearance made a paid call look un-made.
+    #    `meter_assist` never raises; if the audit write or the completion does, the money
+    #    is unrecorded and the claim stays `processing`, which refuses the retry for the
+    #    lease rather than paying twice — and the raise is what tells an operator.
+    async with tenant_session(tenant_id) as record_session:
+        metered = await assist.meter_assist(
+            record_session, tenant_id=tenant_id, ref=ref, result=result
+        )
+        out = CallAssistOut(
+            # The same `redact()` pass `calls.summary` goes out through. The model was
+            # given redacted text and so cannot have copied a digit it never saw; this is
+            # the belt to that braces, and it is what lets the redaction guardrail's entry
+            # for this field say what `CallDetailOut.summary`'s says.
+            summary=service.redacted_summary(result.output.summary) or "",
+            disclosure=result.capability.disclosure,
+            metered=metered.metered,
+        )
+        await write_audit(
+            record_session,
+            action="call.ai_assist",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="call",
+            object_id=str(call_id),
+            ip=client_request_ip(request),
+            # `usage_events` records the tenant, the cost and the key; it does not record
+            # WHO asked or WHICH call was read (`call_id IS NULL` is in the index
+            # predicate). A transcript being handed to a sub-processor is a processing act
+            # under DPDP and the actor and the subject are exactly what a grievance asks
+            # for, so they are recorded here. Ids, a provider name and a boolean — no
+            # prose, no output.
+            summary={
+                "provider": result.capability.provider,
+                "fallback_reason": result.capability.fallback_reason,
+                "metered": metered.metered,
+                "ref": ref,
+            },
+        )
+        await complete_idempotency(
+            record_session,
+            record_id=claim.record_id,
+            response_status=200,
+            response_payload=out.model_dump(),
+        )
     return out
 
 
@@ -458,13 +498,78 @@ def _column_out(column: lead_column_registry.LeadColumn) -> LeadColumnOut:
     return LeadColumnOut(key=column.key, label=column.label, kind=column.kind, type=column.type)
 
 
+#: What a GET is told when it carries a search term.
+#:
+#: REFUSED, NEVER IGNORED. FastAPI drops an undeclared query parameter silently, and a
+#: silently-dropped `search` WIDENS the result set — the exact failure `_FIELD_FILTER_Q`
+#: above refuses an unknown facet for, and on `export.csv` it is the difference between
+#: eleven hot leads and the client's whole contact list leaving with full phone numbers.
+_SEARCH_MOVED_TO_POST = ProblemError(
+    kind="validation",
+    code="search_must_be_posted",
+    title="Search terms are sent in a request body, not a URL",
+    detail=(
+        "The search box matches phone numbers, and a URL is written to access logs, "
+        "browser history and referrers."
+    ),
+    remediation="Send the same lens to POST /v1/leads/search (or POST /v1/leads/export.csv).",
+)
+
+
+def _refuse_search_in_query(search: str | None) -> None:
+    if search is not None:
+        raise _SEARCH_MOVED_TO_POST
+
+
+async def _leads_page(session: AsyncSession, lens: LeadSearchIn) -> LeadListOut:
+    """One implementation of "the Leads table", for both shapes of the request.
+
+    `agent_id` filters the ROWS as well as choosing the columns. It used to do only the
+    latter, which meant this route and the export disagreed about what the same parameter
+    meant, and a two-agent tenant read one agent's leads under the other's capture list.
+    See `service._lead_scope` for the reasoning.
+    """
+    fields = await service.lead_columns(session, lens.agent_id)
+    available = lead_column_registry.available(fields)
+    resolved = lead_column_registry.resolve(available, _parse_columns(lens.columns))
+    field_filters = _parse_field_filters(
+        lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
+    page = await service.list_leads_page(
+        session,
+        limit=lens.limit,
+        offset=lens.offset,
+        status=lens.status,
+        search=lens.search,
+        agent_id=lens.agent_id,
+        assigned_to=lens.assigned_to,
+        field_filters=field_filters,
+    )
+    return LeadListOut(
+        items=page.items,
+        # Columns travel with the rows so the frontend never hard-codes a client's
+        # fields (TRD §7 (c)) — and they are the RESOLVED list, identical to the header
+        # the export writes for the same lens.
+        columns=[_column_out(c) for c in resolved.columns],
+        available_columns=[_column_out(c) for c in available],
+        dropped_column_keys=list(resolved.dropped),
+        total=page.total,
+        limit=lens.limit,
+        offset=lens.offset,
+        status_counts_matching_search=page.status_counts,
+    )
+
+
 @router.get("/leads", response_model=LeadListOut, openapi_extra=permission_meta("leads:read"))
 async def get_leads(
     session: Session,
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     status: str | None = None,
-    search: str | None = Query(None, max_length=60),
+    # DECLARED SO IT CAN BE REFUSED. The parameter is gone as a feature and kept as a
+    # 400: a client still sending it is asking for a narrowed table and would otherwise
+    # be handed a wider one.
+    search: str | None = Query(None, deprecated=True, description="Moved to POST /v1/leads/search"),
     agent_id: UUID | None = None,
     # "My leads", as a real predicate on a real column. A UUID rather than a `me`
     # literal, for two reasons: the same parameter then answers "show me Priya's leads"
@@ -477,76 +582,61 @@ async def get_leads(
     f: list[str] = _FIELD_FILTER_Q,
     _: Principal = Depends(requires("leads:read")),
 ) -> LeadListOut:
-    # `agent_id` filters the ROWS as well as choosing the columns. It used to do only
-    # the latter, which meant this route and the export disagreed about what the same
-    # query parameter meant, and a two-agent tenant read one agent's leads under the
-    # other's capture list. See `service._lead_scope` for the reasoning.
-    fields = await service.lead_columns(session, agent_id)
-    available = lead_column_registry.available(fields)
-    resolved = lead_column_registry.resolve(available, _parse_columns(columns))
-    field_filters = _parse_field_filters(
-        f, frozenset(c.key for c in lead_column_registry.facetable(available))
-    )
-    page = await service.list_leads_page(
+    _refuse_search_in_query(search)
+    return await _leads_page(
         session,
-        limit=limit,
-        offset=offset,
-        status=status,
-        search=search,
-        agent_id=agent_id,
-        assigned_to=assigned_to,
-        field_filters=field_filters,
-    )
-    return LeadListOut(
-        items=page.items,
-        # Columns travel with the rows so the frontend never hard-codes a client's
-        # fields (TRD §7 (c)) — and they are the RESOLVED list, identical to the header
-        # the export writes for the same query string.
-        columns=[_column_out(c) for c in resolved.columns],
-        available_columns=[_column_out(c) for c in available],
-        dropped_column_keys=list(resolved.dropped),
-        total=page.total,
-        limit=limit,
-        offset=offset,
-        status_counts_matching_search=page.status_counts,
+        LeadSearchIn(
+            limit=limit,
+            offset=offset,
+            status=status,
+            agent_id=agent_id,
+            assigned_to=assigned_to,
+            columns=columns,
+            f=f,
+        ),
     )
 
 
-@router.get(
-    "/leads/facets",
-    response_model=LeadFacetsOut,
+@router.post(
+    "/leads/search",
+    response_model=LeadListOut,
+    # `leads:read` on a POST, and it is the same exemption `POST /v1/dnc/check` holds:
+    # this route WRITES NOTHING, it is a POST because the request carries a phone number.
+    # `tests/authz_audit_test.READS_SHAPED_AS_POSTS` records it with that reason, which is
+    # what keeps D-22's read-only "view as client" session able to run a search.
     openapi_extra=permission_meta("leads:read"),
-    summary="Faceted filters, built from this agent's extraction schema",
+    summary="The Leads table, searched — POST because the search term is a phone number",
 )
-async def get_lead_facets(
+async def search_leads(
+    payload: LeadSearchIn,
     session: Session,
-    status: str | None = None,
-    search: str | None = Query(None, max_length=60),
-    agent_id: UUID | None = None,
-    assigned_to: UUID | None = None,
-    f: list[str] = _FIELD_FILTER_Q,
     _: Principal = Depends(requires("leads:read")),
-) -> LeadFacetsOut:
-    """The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
+) -> LeadListOut:
+    return await _leads_page(session, payload)
+
+
+async def _lead_facets(session: AsyncSession, lens: LeadLensIn) -> LeadFacetsOut:
+    """The filter rail and its counts, over the SAME scope the Leads table is answering.
 
     A separate route rather than another field on the list response, for one reason: the
     counts change when the FILTERS change and not when the PAGE changes, so folding them
-    into the list would recompute up to eight aggregates every time somebody scrolls.
-    Same query parameters, minus the paging ones, so "the rail describes this table" is
-    checkable by comparing two query strings.
+    into the list would recompute up to eight aggregates every time somebody scrolls. It
+    takes the SAME `LeadLensIn` the table takes, minus the paging fields, so "the rail
+    describes this table" is checkable by comparing two lens objects rather than two
+    query strings.
     """
-    fields = await service.lead_columns(session, agent_id)
+    fields = await service.lead_columns(session, lens.agent_id)
     available = lead_column_registry.available(fields)
     field_filters = _parse_field_filters(
-        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+        lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
     )
     result = await service.lead_facets(
         session,
         fields=fields,
-        agent_id=agent_id,
-        status=status,
-        search=search,
-        assigned_to=assigned_to,
+        agent_id=lens.agent_id,
+        status=lens.status,
+        search=lens.search,
+        assigned_to=lens.assigned_to,
         field_filters=field_filters,
     )
     return LeadFacetsOut(
@@ -563,6 +653,59 @@ async def get_lead_facets(
         ],
         omitted_field_count=result.omitted_field_count,
     )
+
+
+@router.get(
+    "/leads/facets",
+    response_model=LeadFacetsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Faceted filters, built from this agent's extraction schema",
+)
+async def get_lead_facets(
+    session: Session,
+    status: str | None = None,
+    # DECLARED SO IT CAN BE REFUSED, exactly as on `GET /v1/leads`. When the table's
+    # search moved into a body the rail was left behind, and the client's only safe move
+    # was to send the rail NO search term at all — which quietly made the counts describe
+    # a wider set than the rows beside them. Refusing here rather than ignoring is what
+    # lets the client send the term to the POST instead of dropping it.
+    search: str | None = Query(None, deprecated=True, description="Moved to POST /v1/leads/facets"),
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    f: list[str] = _FIELD_FILTER_Q,
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadFacetsOut:
+    _refuse_search_in_query(search)
+    return await _lead_facets(
+        session,
+        LeadLensIn(status=status, agent_id=agent_id, assigned_to=assigned_to, f=f),
+    )
+
+
+@router.post(
+    "/leads/facets",
+    response_model=LeadFacetsOut,
+    # `leads:read` on a POST, for the same reason `POST /v1/leads/search` and
+    # `POST /v1/dnc/check` hold it: this route WRITES NOTHING and is a POST only because
+    # the request carries a phone number. Recorded in
+    # `tests/authz_audit_test.READS_SHAPED_AS_POSTS` with that reason, which is what keeps
+    # D-22's read-only "view as client" session able to open the rail.
+    openapi_extra=permission_meta("leads:read"),
+    summary="Faceted filters, searched — POST because the search term is a phone number",
+)
+async def search_lead_facets(
+    payload: LeadLensIn,
+    session: Session,
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadFacetsOut:
+    """The rail for a searched table.
+
+    It takes `LeadLensIn` and not `LeadSearchIn`: the rail has no page, and accepting
+    `limit`/`offset` here would be two fields a caller could set and nothing could honour.
+    The client sends the same lens it sent the table, minus the page — so the rail and the
+    rows cannot describe different populations, which is the defect this route closes.
+    """
+    return await _lead_facets(session, payload)
 
 
 # --- saved views ---------------------------------------------------------------
@@ -649,7 +792,55 @@ async def delete_saved_view(
     return Response(status_code=204)
 
 
-@router.get(
+async def _export_and_summary(
+    session: AsyncSession, lens: LeadLensIn
+) -> tuple[service.LeadExport, dict[str, Any]]:
+    """The CSV, and WHAT WAS TAKEN as the audit row's summary.
+
+    The summary is built here so the two request shapes can never describe the same
+    export differently — "exported four hot leads" and "exported the entire account"
+    were one audit row while `agent_id` was the only filter, and they are the two ends of
+    an incident. Every member is an id, a key or a count; `search` is a BOOLEAN and never
+    its text, because the search box accepts a phone suffix (hard rule 6).
+    """
+    available = lead_column_registry.available(await service.lead_columns(session, lens.agent_id))
+    chosen = _parse_columns(lens.columns)
+    field_filters = _parse_field_filters(
+        lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
+    )
+    export = await service.export_leads_csv(
+        session,
+        agent_id=lens.agent_id,
+        status=lens.status,
+        search=lens.search,
+        assigned_to=lens.assigned_to,
+        field_filters=field_filters,
+        columns=chosen,
+    )
+    summary: dict[str, Any] = {
+        "status": lens.status,
+        "agent_id": str(lens.agent_id) if lens.agent_id else None,
+        "searched": bool(lens.search),
+        # An id, not a name — and recorded for the same reason `status` is: "exported my
+        # own eight leads" and "exported the account" must not be the same audit row.
+        "assigned_to": str(lens.assigned_to) if lens.assigned_to else None,
+        # Counted by the query, not by counting newlines in the file: `QUOTE_ALL` keeps a
+        # newline inside its cell, so a lead whose name or note contains one made this
+        # number larger than the number of contacts that actually left.
+        "rows": export.row_count,
+        # WHICH COLUMNS left the building. "Exported the phone column for four hot leads"
+        # and "exported everything we hold about them" are different events, and this is
+        # the audit row an incident reads to answer "did the numbers go out?". Keys,
+        # never values: a column KEY is schema vocabulary the admin authored.
+        "columns": sorted(chosen) if chosen else "all",
+        # FACET keys only, and never their values — a facet value is a client's own
+        # captured data ("budget: 40L") and belongs in no log line.
+        "field_filters": sorted(field_filters) or None,
+    }
+    return export, summary
+
+
+@router.post(
     "/leads/export.csv",
     # `calls:read_raw`, NOT `leads:read`. This is the one route where a client's contact
     # list leaves us with FULL phone numbers, and the redaction guardrail exempts it on
@@ -658,53 +849,43 @@ async def delete_saved_view(
     # describing a control that did not exist. `calls:read_raw` is the permission that
     # already means "you may see the unmasked artefact, and your having seen it is
     # recorded": owner in the client realm, superadmin in ours, never staff.
+    #
+    # **The POST shape exists for `search` and only for `search`.** That field is matched
+    # against `phone_e164`, and a customer's number in a query string is written to
+    # nginx's access log, the edge's log, browser history and the next request's
+    # `Referer` (`_SEARCH_MOVED_TO_POST`). The GET below keeps every filter that is NOT
+    # personal data and REFUSES `search`, so there is one place a phone number can be
+    # sent and it is a body. It writes nothing;
+    # `tests/authz_audit_test.READS_SHAPED_AS_POSTS` records that with the reason, which
+    # is what keeps a read from being gated on a mutating permission (D-22).
     openapi_extra=permission_meta("calls:read_raw"),
     summary="CSV export — full phone numbers, owner-only and audit-logged",
     response_class=Response,
 )
 async def export_leads(
+    payload: LeadLensIn,
     session: Session,
     request: Request,
-    agent_id: UUID | None = None,
-    # The SAME three filters `GET /v1/leads` takes, with the same meanings, so "export
-    # what I am looking at" is expressible. It accepted `agent_id` alone, so a client
-    # who filtered the table to `hot` and pressed Export downloaded every contact in the
-    # account with full numbers — the widest possible read of the narrowest possible
-    # request. Widening the filters does NOT widen the gate: this stays `calls:read_raw`
-    # and stays audited, and a narrower request is not a cheaper permission.
-    status: str | None = None,
-    search: str | None = Query(None, max_length=60),
-    # The fourth, added in the same change that added it to the list rather than a
-    # release later — that gap is exactly how the status/search divergence above
-    # happened, and it is the one route where the gap ships full phone numbers.
-    assigned_to: UUID | None = None,
-    # The COLUMN CHOOSER and the FACETS, taken here with exactly the meanings
-    # `GET /v1/leads` gives them — see `_COLUMNS_Q` above for why an unknown column is
-    # dropped and an unknown facet is refused. This is the mirroring SURFACES §2 asks
-    # for, and on this route it is a correctness requirement rather than a nicety: the
-    # screen and the file must not disagree about which rows and which columns, because
-    # the file is the one carrying unmasked numbers out of the building.
-    columns: str | None = _COLUMNS_Q,
-    f: list[str] = _FIELD_FILTER_Q,
     principal: Principal = Depends(requires("calls:read_raw")),
 ) -> Response:
-    available = lead_column_registry.available(await service.lead_columns(session, agent_id))
-    chosen = _parse_columns(columns)
-    field_filters = _parse_field_filters(
-        f, frozenset(c.key for c in lead_column_registry.facetable(available))
-    )
-    export = await service.export_leads_csv(
-        session,
-        agent_id=agent_id,
-        status=status,
-        search=search,
-        assigned_to=assigned_to,
-        field_filters=field_filters,
-        columns=chosen,
-    )
+    """The SAME filters `GET /v1/leads` takes, with the same meanings, so "export what I
+    am looking at" is expressible. It accepted `agent_id` alone once, so a client who
+    filtered the table to `hot` and pressed Export downloaded every contact in the account
+    with full numbers — the widest possible read of the narrowest possible request.
+    Widening the filters does NOT widen the gate: this stays `calls:read_raw` and stays
+    audited, and a narrower request is not a cheaper permission.
+
+    The COLUMN CHOOSER and the FACETS mean exactly what they mean on the list — see
+    `_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.
+    That mirroring is a correctness requirement here rather than a nicety: the screen and
+    the file must not disagree about which rows and which columns, because the file is the
+    one carrying unmasked numbers out of the building.
+    """
+    export, summary = await _export_and_summary(session, payload)
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
-    # is the client's own data — so it is audited rather than masked).
+    # is the client's own data — so it is audited rather than masked). In the handler,
+    # by the guardrail's requirement — see the GET twin below.
     await write_audit(
         session,
         action="leads.export",
@@ -712,34 +893,58 @@ async def export_leads(
         tenant_id=principal.tenant_id,
         object_type="lead_export",
         ip=client_request_ip(request),
-        # WHAT was taken, now that it can vary. "Exported four hot leads" and "exported
-        # the entire account" were the same audit row while `agent_id` was the only
-        # filter; they are the two ends of an incident and the record should tell them
-        # apart. `search` is recorded as a BOOLEAN and never as text — hard rule 6, and
-        # the search box accepts a phone suffix.
-        summary={
-            "status": status,
-            "agent_id": str(agent_id) if agent_id else None,
-            "searched": bool(search),
-            # An id, not a name (hard rule 6 logs ids) — and recorded for the same
-            # reason `status` is: "exported my own eight leads" and "exported the
-            # account" must not be the same audit row.
-            "assigned_to": str(assigned_to) if assigned_to else None,
-            # Counted by the query, not by counting newlines in the file: `QUOTE_ALL`
-            # keeps a newline inside its cell, so a lead whose name or note contains one
-            # made this number larger than the number of contacts that actually left.
-            "rows": export.row_count,
-            # WHICH COLUMNS left the building, now that it varies. "Exported the phone
-            # column for four hot leads" and "exported everything we hold about them"
-            # are different events and the record should tell them apart — and this is
-            # the audit row an incident reads to answer "did the numbers go out?".
-            # Keys, never values (hard rule 6): a column KEY is schema vocabulary the
-            # admin authored, not a caller's data.
-            "columns": sorted(chosen) if chosen else "all",
-            # FACET keys only, and never their values — a facet value is a client's own
-            # captured data ("budget: 40L") and belongs in no log line.
-            "field_filters": sorted(field_filters) or None,
-        },
+        summary=summary,
+    )
+    return Response(
+        content=export.csv,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="leads.csv"'},
+    )
+
+
+@router.get(
+    "/leads/export.csv",
+    # The SAME route, the SAME gate, and the filters that are not personal data. See the
+    # POST above for why `search` is not among them.
+    openapi_extra=permission_meta("calls:read_raw"),
+    summary="CSV export, unsearched — full phone numbers, owner-only and audit-logged",
+    response_class=Response,
+)
+async def export_leads_filtered(
+    session: Session,
+    request: Request,
+    principal: Annotated[Principal, Depends(requires("calls:read_raw"))],
+    agent_id: UUID | None = None,
+    status: str | None = None,
+    # Declared so it can be REFUSED. FastAPI drops an undeclared query parameter
+    # silently, and a silently-dropped `search` widens the export from eleven leads to
+    # the client's whole contact list.
+    search: str | None = Query(
+        None, deprecated=True, description="Moved to POST /v1/leads/export.csv"
+    ),
+    assigned_to: UUID | None = None,
+    columns: str | None = _COLUMNS_Q,
+    f: list[str] = _FIELD_FILTER_Q,
+) -> Response:
+    _refuse_search_in_query(search)
+    lens = LeadLensIn(
+        status=status, agent_id=agent_id, assigned_to=assigned_to, columns=columns, f=f
+    )
+    export, summary = await _export_and_summary(session, lens)
+    # WRITTEN HERE rather than inside `_export_and_summary`, and the duplication is
+    # deliberate: `scripts/check_redaction_exposure` requires every route allowed to
+    # return raw PII to name `write_audit` in its OWN body, so that a handler cannot
+    # acquire the exemption by calling a helper that used to audit and no longer does.
+    # What is shared is the expensive part and the summary's vocabulary; what is repeated
+    # is the eight lines that make the exemption true.
+    await write_audit(
+        session,
+        action="leads.export",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="lead_export",
+        ip=client_request_ip(request),
+        summary=summary,
     )
     return Response(
         content=export.csv,
@@ -772,7 +977,10 @@ async def bulk_leads(
     # here, so an unknown one is refused). `columns` is deliberately absent: a bulk
     # action changes rows, and which COLUMNS you were looking at cannot narrow it.
     status: str | None = None,
-    search: str | None = Query(None, max_length=60),
+    # Refused here too: the term rides in the body (`LeadBulkIn.search`) for the reason
+    # `_SEARCH_MOVED_TO_POST` states — a POST whose PII travels in the query string is
+    # logged exactly as a GET's is.
+    search: str | None = Query(None, deprecated=True, description="Moved into the request body"),
     agent_id: UUID | None = None,
     assigned_to: UUID | None = None,
     f: list[str] = _FIELD_FILTER_Q,
@@ -802,6 +1010,7 @@ async def bulk_leads(
     (`lead_bulk_set_moved`).
     """
     assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
+    _refuse_search_in_query(search)
 
     # An unknown facet key is refused here exactly as it is on the list and the export.
     # The stakes are higher, not lower: a filter that silently did nothing would WIDEN
@@ -815,7 +1024,7 @@ async def bulk_leads(
         session,
         ids=list(payload.ids) if payload.scope == "ids" else None,
         status=status,
-        search=search,
+        search=payload.search,
         agent_id=agent_id,
         assigned_to=assigned_to,
         field_filters=field_filters,
@@ -989,14 +1198,20 @@ async def call_lead(
     idem_key = request.headers.get("Idempotency-Key")
     claim = None
     if idem_key:
-        claim = await claim_idempotency(
-            session,
-            scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
-            route="/v1/leads/{lead_id}/call",
-            method="POST",
-            key=idem_key,
-            request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump()}),
-        )
+        # IN ITS OWN COMMITTED TRANSACTION, before anything can ring — see the assist
+        # route above for the argument, which is the same one with a phone call in place
+        # of a model call: a claim written into the request's transaction is erased by
+        # the rollback that follows any later failure, and the retry the key exists to
+        # answer rings the customer a second time.
+        async with tenant_session(principal.tenant_id) as claim_session:
+            claim = await claim_idempotency(
+                claim_session,
+                scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
+                route="/v1/leads/{lead_id}/call",
+                method="POST",
+                key=idem_key,
+                request_hash=body_hash({"lead_id": str(lead_id), **payload.model_dump()}),
+            )
         if claim.state == "replay" and claim.response_payload:
             return CallLeadOut.model_validate(claim.response_payload)
 
@@ -1013,43 +1228,68 @@ async def call_lead(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )
         if claim is not None:
+            async with tenant_session(principal.tenant_id) as done_session:
+                await complete_idempotency(
+                    done_session,
+                    record_id=claim.record_id,
+                    response_status=200,
+                    response_payload=result.model_dump(),
+                )
+        return result
+
+    from apps.api.agents.service import DialUnconfirmedError, dispatch_call
+
+    try:
+        handle = await dispatch_call(
+            session,
+            tenant_id=principal.tenant_id,
+            agent_id=payload.agent_id,
+            lead_id=lead_id,
+            phone_e164=phone,
+            lead_name=name,
+            context_note=payload.context_note,
+        )
+    except DialUnconfirmedError as unconfirmed:
+        # THE CLAIM IS DELIBERATELY LEFT `processing`. Marking it failed would let the
+        # very next press of the button re-dial somebody whose phone may be ringing right
+        # now — the one outcome this route's idempotency exists to prevent — and the row
+        # `dispatch_call` committed is already on the lead's call log, so the client can
+        # see what we are telling them about.
+        raise ProblemError(
+            kind="dependency",
+            code="dial_unconfirmed",
+            title="We could not confirm whether the call was placed",
+            detail=(
+                "The voice platform did not answer us, and it may have started the call anyway."
+            ),
+            remediation=(
+                "Check this lead's call log in a minute before trying again — calling "
+                "again could ring them twice."
+            ),
+        ) from unconfirmed
+
+    # THE AUDIT AND THE CLAIM'S COMPLETION IN THEIR OWN TRANSACTION, for the reason the
+    # claim had one: the phone has rung, and the record of it must not be undone by a
+    # failure later in this request.
+    result = CallLeadOut(status="queued", call_handle=handle)
+    async with tenant_session(principal.tenant_id) as record_session:
+        await write_audit(
+            record_session,
+            action="lead.call_dispatched",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="lead",
+            object_id=str(lead_id),
+            ip=client_request_ip(request),
+            summary={"agent_id": str(payload.agent_id), "has_note": bool(payload.context_note)},
+        )
+        if claim is not None:
             await complete_idempotency(
-                session,
+                record_session,
                 record_id=claim.record_id,
                 response_status=200,
                 response_payload=result.model_dump(),
             )
-        return result
-
-    from apps.api.agents.service import dispatch_call
-
-    handle = await dispatch_call(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=payload.agent_id,
-        lead_id=lead_id,
-        phone_e164=phone,
-        lead_name=name,
-        context_note=payload.context_note,
-    )
-    await write_audit(
-        session,
-        action="lead.call_dispatched",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="lead",
-        object_id=str(lead_id),
-        ip=client_request_ip(request),
-        summary={"agent_id": str(payload.agent_id), "has_note": bool(payload.context_note)},
-    )
-    result = CallLeadOut(status="queued", call_handle=handle)
-    if claim is not None:
-        await complete_idempotency(
-            session,
-            record_id=claim.record_id,
-            response_status=200,
-            response_payload=result.model_dump(),
-        )
     return result
 
 
@@ -1185,14 +1425,18 @@ async def call_back(
     assert principal.tenant_id is not None
     plan = await service.plan_callback(session, call_id)
 
-    claim = await claim_idempotency(
-        session,
-        scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
-        route="/v1/calls/{call_id}/callback",
-        method="POST",
-        key=str(call_id),
-        request_hash=body_hash({"call_id": str(call_id)}),
-    )
+    # Committed before anything dials, in its own transaction — `call_lead`'s argument,
+    # and this route has the sharper version of it: the key is derived from the call, so
+    # a claim lost to a rollback is re-taken by the very next press.
+    async with tenant_session(principal.tenant_id) as claim_session:
+        claim = await claim_idempotency(
+            claim_session,
+            scope=scope_key(tenant_id=principal.tenant_id, user_id=principal.user_id),
+            route="/v1/calls/{call_id}/callback",
+            method="POST",
+            key=str(call_id),
+            request_hash=body_hash({"call_id": str(call_id)}),
+        )
     if claim.state == "replay" and claim.response_payload:
         return CallbackOut.model_validate(claim.response_payload)
 
@@ -1206,43 +1450,62 @@ async def call_back(
         result = CallbackOut(
             status="blocked", blocked_reason=decision.reason, blocked_rule=decision.rule
         )
-        await complete_idempotency(
+        async with tenant_session(principal.tenant_id) as done_session:
+            await complete_idempotency(
+                done_session,
+                record_id=claim.record_id,
+                response_status=200,
+                response_payload=result.model_dump(),
+            )
+        return result
+
+    from apps.api.agents.service import DialUnconfirmedError, dispatch_call
+
+    try:
+        handle = await dispatch_call(
             session,
+            tenant_id=principal.tenant_id,
+            agent_id=plan.agent_id,
+            lead_id=plan.lead_id,
+            phone_e164=plan.phone_e164,
+            lead_name=plan.lead_name,
+            context_note=plan.context_note,
+        )
+    except DialUnconfirmedError as unconfirmed:
+        # The claim stays `processing` on purpose — `call_lead` carries the argument.
+        raise ProblemError(
+            kind="dependency",
+            code="dial_unconfirmed",
+            title="We could not confirm whether the callback was placed",
+            detail=(
+                "The voice platform did not answer us, and it may have started the call anyway."
+            ),
+            remediation=(
+                "Check this call's follow-ups in a minute before trying again — calling "
+                "again could ring them twice."
+            ),
+        ) from unconfirmed
+    # The chain link stays on the REQUEST's session: it is a pointer between two of our
+    # own rows and its loss costs a follow-up count, not a record of a call.
+    await service.link_callback(session, handle=handle, parent_call_id=call_id)
+    result = CallbackOut(status="queued", call_handle=handle, follow_up_number=plan.depth + 1)
+    async with tenant_session(principal.tenant_id) as record_session:
+        await write_audit(
+            record_session,
+            action="call.callback_dispatched",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="call",
+            object_id=str(call_id),
+            ip=client_request_ip(request),
+            summary={"follow_up_number": plan.depth + 1},
+        )
+        await complete_idempotency(
+            record_session,
             record_id=claim.record_id,
             response_status=200,
             response_payload=result.model_dump(),
         )
-        return result
-
-    from apps.api.agents.service import dispatch_call
-
-    handle = await dispatch_call(
-        session,
-        tenant_id=principal.tenant_id,
-        agent_id=plan.agent_id,
-        lead_id=plan.lead_id,
-        phone_e164=plan.phone_e164,
-        lead_name=plan.lead_name,
-        context_note=plan.context_note,
-    )
-    await service.link_callback(session, handle=handle, parent_call_id=call_id)
-    await write_audit(
-        session,
-        action="call.callback_dispatched",
-        actor=principal,
-        tenant_id=principal.tenant_id,
-        object_type="call",
-        object_id=str(call_id),
-        ip=client_request_ip(request),
-        summary={"follow_up_number": plan.depth + 1},
-    )
-    result = CallbackOut(status="queued", call_handle=handle, follow_up_number=plan.depth + 1)
-    await complete_idempotency(
-        session,
-        record_id=claim.record_id,
-        response_status=200,
-        response_payload=result.model_dump(),
-    )
     return result
 
 

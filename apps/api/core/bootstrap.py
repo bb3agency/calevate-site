@@ -130,7 +130,7 @@ def _ops_detail_gate() -> HealthDetailGate:
     question they ask.
 
     IMPORTED INSIDE THE FUNCTION, which is the one thing here that is not stylistic.
-    `core.auth` pulls the Clerk verifier and its HTTP client in behind it, and
+    `core.auth` pulls the whole authentication and audit graph in behind it, and
     `core.health` sits on voice-runtime's pinned import surface
     (`tests/voice_runtime_import_surface_test.py`, which lists `httpx` as forbidden).
     Building the gate only for the non-minimal app therefore keeps that surface

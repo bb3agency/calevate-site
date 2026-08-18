@@ -209,6 +209,23 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                 return httpx.Response(404, json={"error": "unknown rag_id"})
             return httpx.Response(200, json={"status": "deleted"})
         if path.startswith("/executions/") and path.endswith("/stop"):
+            # STATEFUL, for the reason the `GET /executions/{id}` branch below is (D-187).
+            # This answered 200 for every id, so the `end_call` clause — "a call the
+            # engine does not hold is reported" — could only ever be failed by the stub,
+            # exactly the shape the KB stub's own docstring refuses ("a stub that answered
+            # every DELETE with 200 would let an adapter that never detaches anything sail
+            # through").
+            #
+            # MARKED ASSUMPTION, not a captured contract (D-31/D-32): nothing published
+            # says what `POST /executions/{id}/stop` returns for an execution the platform
+            # is not running, and 404 is the REST default their `GET /executions/{id}` is
+            # documented to give. What this fixture proves is OUR mapping — that the
+            # adapter surfaces a refusal rather than swallowing it. Whether the vendor
+            # refuses at all is pilot gate 2's question, alongside the repeat-`delete_agent`
+            # assumption it already carries.
+            execution_id = path.rsplit("/", 2)[-2]
+            if execution_id not in executions:
+                return httpx.Response(404, json={"error": "unknown execution"})
             return httpx.Response(200, json={"status": "stopped"})
         if path == "/executions":
             # Distinct ids: a listing whose rows all share one id would let an adapter
@@ -299,6 +316,13 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             calls_placed.update(str(row["agent_call_id"]) for row in rows)
             return httpx.Response(200, json={"calls": rows})
         if path.startswith("/agents/calls/") and path.endswith("/end"):
+            # STATEFUL for the Bolna stub's `/stop` reason, and a marked assumption for
+            # the same reason (D-187): nothing sourced says what Line answers for a call
+            # it is not running, and the `end_call` clause is unfailable while the stub
+            # says 200 to every id.
+            call_id = path.rsplit("/", 2)[-2]
+            if call_id not in calls_placed:
+                return httpx.Response(404, json={"error": "unknown call"})
             return httpx.Response(200, json={"status": "ended"})
         if path.startswith("/agents/calls/") and method == "GET":
             # Echo the id asked about, and STATEFUL — see the Bolna stub's `/executions/`

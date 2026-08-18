@@ -90,7 +90,7 @@ from apps.api.core.settings import (
     validate_bootstrap_env,
 )
 from apps.api.ops.secret_service import manageable_secret_keys
-from calevate_shared.config import Settings
+from calevate_shared.config import SDK_OWNED_ENV_KEYS, Settings
 from dotenv import dotenv_values
 from pydantic import ValidationError
 
@@ -101,9 +101,13 @@ EXAMPLE_FILE = REPO_ROOT / ".env.example"
 #: resolves these exact names for itself (`check_env_parity.SDK_ENV_KEYS` carries the full
 #: argument) — but they are configuration this deployment reads, so a placeholder in one
 #: is the same defect as a placeholder in any other key here.
-OBJECT_STORE_CREDENTIALS: frozenset[str] = frozenset(
-    {"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION"}
-)
+#:
+#: ALIASED, not restated (D-188). The same set is now load-bearing in `Settings` itself,
+#: which must DROP these three from the `.env` it reads or refuse to construct at all, so
+#: the set stopped being a fact about this gate and became a fact about the config layer.
+#: Two spellings of it would let a fourth SDK key be added here and not there, which
+#: reads as "the gate accepts it" and means "every repo-root process now crashes".
+OBJECT_STORE_CREDENTIALS: frozenset[str] = SDK_OWNED_ENV_KEYS
 
 
 def config_keys() -> frozenset[str]:

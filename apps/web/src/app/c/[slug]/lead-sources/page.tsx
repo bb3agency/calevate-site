@@ -1,5 +1,6 @@
 "use client";
 
+import { deliveryRowKeys } from "@/lib/leadSourceRows";
 import { useState, type ReactNode } from "react";
 import {
   CheckCircle2,
@@ -21,13 +22,14 @@ import {
   Card,
   EmptyState,
   NOTICE_TONES,
+  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
+  ScrollRegion,
   Skeleton,
   formatCount,
   formatIST,
-  PRIMARY_BUTTON_SM,
-  SECONDARY_BUTTON_SM,
 } from "@/components/ui";
 import { API_BASE } from "@/lib/api/client";
 import { useAgents } from "@/lib/api/agents";
@@ -163,6 +165,7 @@ const SOURCE_LABELS: Record<string, string> = {
 const CREATABLE_SOURCES = ["website_form", "meta_lead_ads", "zoho", "sheets", "custom"] as const;
 
 const sourceLabel = (source: string) => lookup(SOURCE_LABELS, source) ?? source;
+
 
 export default function LeadSourcesPage() {
   const session = useClientSession();
@@ -427,7 +430,7 @@ export default function LeadSourcesPage() {
             <Skeleton rows={3} />
           </div>
         ) : !deliveries ? null : deliveries.length ? (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Ingest activity">
             <table className="w-full min-w-[820px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
@@ -439,13 +442,8 @@ export default function LeadSourcesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
-                {deliveries.map((item) => (
-                  // `event_key` is the row's own identity — one inbox row per
-                  // (source, sender's id) by unique constraint — so the list finally has
-                  // a stable key. It used to be source + first delivery + the ARRAY
-                  // INDEX, because nothing in the payload identified a row; the index is
-                  // what React re-keys on when the 30-second refetch reorders the table.
-                  <tr key={`${item.lead_source_id}-${item.event_key}`}>
+                {deliveryRowKeys(deliveries).map(([item, rowKey]) => (
+                  <tr key={rowKey}>
                     <td className="px-3 py-2.5 text-ink">{item.source}</td>
                     {/* The sender's own id for this delivery. For a Meta source it is the
                         `leadgen_id` — the string Meta's Ads Manager and Meta support both
@@ -496,7 +494,7 @@ export default function LeadSourcesPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         ) : (
           <EmptyState
             title="No deliveries yet"

@@ -90,6 +90,12 @@ NGINX_AUTO_RELOAD=${NGINX_AUTO_RELOAD:-0}
 NGINX_CONF_DIR=${NGINX_CONF_DIR:-/etc/nginx/conf.d}
 NGINX_SNIPPET_DIR=${NGINX_SNIPPET_DIR:-/etc/nginx/snippets}
 
+# The oldest nginx that can LOAD `infra/nginx/`. Not a preference and not a hardening
+# floor: the templates use the standalone `http2 on;` directive, which appeared in nginx
+# 1.25.1, and an older binary refuses the whole configuration rather than that one line.
+# Read by `preflight_plan`; the argument is at the check.
+NGINX_MIN_VERSION=${NGINX_MIN_VERSION:-1.25.1}
+
 # Cloudflare publishes its edge ranges and changes them. `calevate-origin.conf` carries
 # the date it was last refreshed; past this age the deploy stops, because a stale list
 # does not degrade gracefully — it either blocks live traffic or trusts an address
@@ -320,7 +326,7 @@ preflight_plan() {
       "apps/web/.env.local is missing. Next inlines NEXT_PUBLIC_* at BUILD time from the
      PACKAGE directory — the root .env is not read and is forbidden from carrying them
      (apps/web/.env.example). Without it the bundle ships with an empty API base and empty
-     Clerk publishable keys, and the deploy still reports success. Place it by hand from
+     browser configuration, and the deploy still reports success. Place it by hand from
      the secrets manager, then re-run."
     # The ONLY copy of this check. `deploy_web` used to repeat it, which is two ways of
     # asking one question and is a defect here even though both worked: the copy at step
@@ -345,6 +351,43 @@ preflight_plan() {
       "the nginx step needs these exported in this shell and they are unset: ${missing[*]}.
      They are deliberately not in .env (this script never sources it) and not Settings
      fields. See DEPLOYMENT §9 step 4."
+
+    # THE VERSION, and it is a REFUSAL because the config does not degrade (D-188).
+    # `infra/nginx/calevate.conf.template` uses the standalone `http2 on;` directive in all
+    # four TLS server blocks. That directive APPEARED IN nginx 1.25.1, replacing the
+    # `listen ... http2` parameter deprecated in the same release
+    # (https://nginx.org/en/docs/http/ngx_http_v2_module.html#http2 — read Aug 2026). An
+    # older nginx does not warn and does not ignore it: `nginx -t` answers
+    # `unknown directive "http2"` and the ENTIRE edge fails to load — measured on
+    # nginx/1.24.0, and the same file is `test is successful` on 1.27.
+    #
+    # This matters because DEPLOYMENT §2 said "nginx >= 1.24" and §1 says Ubuntu 22.04:
+    # 22.04 ships 1.18 and 24.04 ships 1.24, so BOTH documented baselines were versions
+    # this config cannot load. §2 now says 1.25.1 and this is the check that means it.
+    #
+    # Checked whenever nginx is installed, not only under NGINX_AUTO_RELOAD: an operator
+    # following the printed install commands by hand hits the identical wall, and the
+    # useful moment to learn it is before the deploy rather than at `sudo nginx -t`.
+    if command -v nginx >/dev/null; then
+      # `nginx -v` writes to stderr, always, on every version.
+      local nginx_version
+      nginx_version=$(nginx -v 2>&1 | sed -n 's|^nginx version: nginx/\([0-9.]*\).*|\1|p')
+      # `sort -V` rather than arithmetic on three fields: it is the tool for this and it
+      # gets 1.10 vs 1.9 right, which hand-rolled comparisons famously do not.
+      if [[ -z "$nginx_version" ]]; then
+        warn "could not parse 'nginx -v' output; skipping the >= $NGINX_MIN_VERSION check.
+     Confirm by hand that this nginx knows the 'http2' directive (1.25.1+)."
+      elif [[ "$(printf '%s\n%s\n' "$NGINX_MIN_VERSION" "$nginx_version" | sort -V | head -1)" \
+              != "$NGINX_MIN_VERSION" ]]; then
+        die "nginx is $nginx_version and this config needs >= $NGINX_MIN_VERSION.
+     infra/nginx/calevate.conf.template uses the standalone 'http2 on;' directive, which
+     appeared in nginx 1.25.1. On $nginx_version 'nginx -t' fails with
+     'unknown directive \"http2\"' and NO server block loads — the whole edge, not one
+     vhost. Ubuntu 22.04 ships 1.18 and 24.04 ships 1.24, so a stock VPS needs the
+     nginx.org mainline/stable repository. Do not 'fix' this by reverting the template to
+     'listen 443 ssl http2' — that spelling is deprecated and warns on every reload."
+      fi
+    fi
 
     # Only when the script is going to touch /etc/nginx. Unset, it renders and prints the
     # install commands, and none of this is needed.

@@ -2,30 +2,37 @@
 
 `core/auth.py` is the REQUEST-TIME layer: given a credential, who is this caller, which
 realm, which tenant. This package is the layer underneath it: how a credential comes
-into existence, how it is proved, and how it is destroyed. Today the credential is a
-Clerk JWT and `core/auth.py` verifies it against Clerk's JWKS; D-165 replaces that leg
-with a password + an opaque server-side session that we mint ourselves, because Clerk
-stores identity data outside India and the hosting move to an Indian VPS exists to make
-the residency claim true rather than aspirational.
+into existence, how it is proved, and how it is destroyed.
 
-THIS PACKAGE IS DELIBERATELY NOT MOUNTED ON ANY ROUTER, and that is the one thing to
-know before reading further. It is the proof-of-concept vertical slice the design
-document is measured against — schema, hashing, session issue/verify/rotate/revoke, and
-a negative control per security property — not a second front door. Mounting a
-credential-accepting route while Clerk is still the live authenticator would give this
-deployment two ways to obtain a session, which is the defect class CLAUDE.md's "one way
-per problem" names, and it would do so on the surface where a mistake is a cross-tenant
-breach rather than a bug. The cutover sequence that mounts it is AUTH-MIGRATION §5.
+**THIS IS THE ONLY AUTHENTICATION THIS PRODUCT HAS** (D-170 mounted it, D-177 deleted the
+vendor beside it). An earlier version of this docstring said the opposite — "deliberately
+not mounted on any router", written when it was the proof-of-concept slice — and that
+sentence outlived its truth by two slices. The credential is a password proved with
+Argon2id under a KEK-derived pepper, exchanged for an opaque server-side session in a
+`__Host-` cookie; `core/auth.py` verifies that cookie through `sessions.verify_session`
+and nothing else. `Settings.first_party_auth_enabled` is a kill switch rather than a
+cutover gate — there is no second implementation for it to cut over from. Clerk held
+identity data outside India, and the hosting move to an Indian VPS existed to make the
+residency claim true rather than aspirational — that claim is now true of identity too.
 
-`scripts/check_wiring.py` does not report this package, and the reason is structural
-rather than lucky: it declares no `APIRouter`, so there is no route table it is missing
-from, and every column it declares is read by `hashing.py` / `sessions.py`.
+Layout mirrors BACKEND-PATTERNS §1:
 
-Layout mirrors BACKEND-PATTERNS §1 minus the two files a routed module would have:
-
-    models.py    SQLAlchemy — `auth_credentials`, `auth_sessions`
-    hashing.py   Argon2id + a KEK-derived pepper. No database, no session.
-    sessions.py  issue / verify / rotate / revoke. All queries, no HTTP.
+    models.py       SQLAlchemy — the four `auth_*` tables
+    hashing.py      Argon2id + a KEK-derived pepper. No database, no session.
+    codes.py        keyed hashing and code minting for one-time secrets
+    otp.py          the emailed six-digit second factor and email verification
+    tokens.py       single-use emailed links (reset, invite, admin bootstrap)
+    credentials.py  set and prove a password
+    sessions.py     issue / verify / rotate / revoke. All queries, no HTTP.
+    subjects.py     who a `(realm, subject_id)` is, and whether they may sign in
+    throttle.py     per-account and per-address failure budgets
+    cookies.py      how the session reaches the browser and comes back
+    stepup.py       the C-09 freshness gate
+    service.py      the flows themselves
+    invitations.py  first-party invitation redemption
+    bootstrap.py    the first administrator (D-171)
+    routes.py       two realm routers from one factory, plus the invite router
+                    `main.py` mounts all three
 """
 
 from __future__ import annotations

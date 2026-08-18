@@ -79,10 +79,10 @@ async def _admin_id() -> uuid.UUID:
         admin = uuid.uuid4()
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Hardening Test', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Hardening Test', 'superadmin', now(), now())"
             ),
-            {"i": admin, "c": f"admin_{uuid.uuid4().hex[:12]}"},
+            {"i": admin},
         )
         return admin
 
@@ -259,27 +259,35 @@ async def test_the_fx_rate_is_on_restart_because_the_engine_captured_it() -> Non
     reset_engine_cache()
 
 
-def test_the_clerk_jwks_keys_are_on_restart_because_the_client_is_built_once() -> None:
-    """The three Clerk keys decide a JWKS URL that is baked into a cached `PyJWKClient`.
+def test_authentication_has_no_console_managed_setting_left_to_classify() -> None:
+    """THE `applies` CLASSIFICATION THAT MATTERED MOST IS GONE WITH ITS SUBJECT (D-177).
 
-    `core/auth._jwk_clients` holds one client per realm for the life of the process, and
-    the URL is computed when it is constructed. Changing the publishable key or the
-    frontend API in the console therefore changes nothing until a restart — and all
-    three were reported `live`. On an AUTH path, "the operator believes the change took"
-    is a worse outcome than on most.
+    Three Clerk keys used to decide a JWKS URL baked into a cached `PyJWKClient` for the
+    life of the process, so changing one in the ops console changed nothing until a
+    restart — and all three were reported `live`. On an AUTH path, "the operator believes
+    the change took" is a worse outcome than on most, which is why that classification had
+    its own test.
+
+    The successor property is stronger and is what this asserts instead: there is no
+    authentication setting in the console AT ALL. First-party auth reads `PLATFORM_KEK`
+    (env-only, `ENV_ONLY_KEYS`) and nothing else, so there is no value an operator can
+    install, no cache for it to be stale against, and no `applies` verdict to get wrong.
     """
-    from apps.api.core import auth
-
-    assert "_jwk_clients" in vars(auth), "the cache moved — re-derive these classifications"
-    for key in (
+    managed = set(pc.managed_fields())
+    for gone in (
         "clerk_admin_publishable_key",
         "clerk_client_publishable_key",
         "clerk_frontend_api",
+        "clerk_admin_secret_key",
+        "clerk_client_secret_key",
+        "clerk_webhook_secret",
     ):
-        assert pc.applies_rule(key).applies == pc.ON_RESTART, key
-        assert "PyJWKClient" in (pc.applies_rule(key).caveat or "") or "same" in (
-            pc.applies_rule(key).caveat or ""
-        )
+        assert gone not in Settings.model_fields, f"{gone} is back — D-177 removed it"
+        assert gone not in managed
+    # The one key authentication does read is env-only, which is the whole reason it needs
+    # no `applies` rule: the console cannot set it, so it cannot be believed to have.
+    assert "platform_kek" in Settings.model_fields
+    assert "platform_kek" not in managed
 
 
 async def test_db_pool_size_is_env_only_and_the_store_refuses_it() -> None:
@@ -967,6 +975,46 @@ async def test_one_unparseable_row_is_refused_and_the_rest_of_the_refresh_lands(
         async with untenanted_session() as session:
             await session.execute(text("DELETE FROM platform_settings WHERE key = 'smtp_port'"))
             await session.commit()
+
+
+async def test_the_never_raises_promise_covers_the_whole_of_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`refresh`'s docstring promises it never raises and `_poll_forever`'s comment
+    depends on that promise — "this loop cannot die". Half the body used to sit OUTSIDE
+    the `try`: `_resolve`, the secret merge, `apply_platform_overrides` and the snapshot
+    construction (D-182).
+
+    Nothing there raises today, which is exactly what made it dangerous: the promise held
+    by the current contents of two other functions rather than by this one's structure.
+    The day one of them raised, the exception would leave `refresh`, leave `_poll_forever`
+    — which has no guard of its own — and end the refresher task. The process would then
+    serve its last snapshot for ever with NOTHING RED: both alerts for that condition are
+    inside the `except` that did not cover the raising code, and asyncio swallows a dead
+    task's exception into a result nobody retrieves. An operator would see a console
+    change applied on some processes and not on others.
+
+    So the failure is injected where it was unguarded, and the assertion is the promise:
+    no exception, a degraded snapshot, and an alert an operator can act on.
+    """
+    fired: list[str] = []
+
+    def _explodes(*args: object, **kwargs: object) -> dict[str, object]:
+        raise RuntimeError("a managed field grew a resolver that can fail")
+
+    monkeypatch.setattr(pc, "_resolve", _explodes)
+    monkeypatch.setattr(pc, "alert", lambda stage, code, **kw: fired.append(code))
+
+    snapshot = await pc.refresh(force=True)
+    monkeypatch.undo()
+
+    assert snapshot.degraded is True, "a failed rebuild must say the snapshot is stale"
+    assert fired, "the refresh failed silently — the poller's only alarm is inside `except`"
+    assert fired[-1] in {"platform_config_stale", "platform_config_never_loaded"}
+
+    # And the loop is still alive afterwards: a real refresh lands on the next call.
+    healthy = await pc.refresh(force=True)
+    assert healthy.degraded is False
 
 
 # --- 6. the restart that IS genuinely needed still drains -----------------------

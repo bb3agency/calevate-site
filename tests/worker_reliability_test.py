@@ -31,6 +31,7 @@ import inspect
 import re
 from pathlib import Path
 
+import pytest
 from apps.workers import notifications
 from apps.workers import settings as worker_settings
 from apps.workers.pipeline import _expected_artifacts
@@ -73,6 +74,43 @@ def test_the_worker_waits_for_its_jobs_before_it_cancels_them() -> None:
         "and cancels every in-flight job in the first millisecond of SIGTERM — while "
         "compose.prod.yml, DEPLOYMENT §4b and BACKEND-PATTERNS §10 all say in-flight work "
         "is allowed to finish"
+    )
+
+
+def _uvicorn_drain_seconds(service: str) -> int:
+    """`--timeout-graceful-shutdown` for one uvicorn service, in seconds.
+
+    The api and voice-runtime state their drain on the command line rather than in a
+    Python object, so this is parsed for the same reason `_compose_grace_seconds` is: the
+    compose file is the contract, and there is nothing else to read it off.
+    """
+    text = COMPOSE_PROD.read_text(encoding="utf-8")
+    block = text.split(f"\n  {service}:", 1)
+    assert len(block) == 2, f"compose.prod.yml has no `{service}` service"
+    match = re.search(r"--timeout-graceful-shutdown=(\d+)", block[1])
+    assert match is not None, f"`{service}` declares no --timeout-graceful-shutdown"
+    return int(match.group(1))
+
+
+@pytest.mark.parametrize("service", ["api", "voice-runtime"])
+def test_the_uvicorn_drain_fits_inside_the_grace_docker_gives_it(service: str) -> None:
+    """R-3: the api declared a 25-second drain and NO `stop_grace_period`, so Docker's
+    documented default of 10s applied and every api deploy ended in SIGKILL — in-flight
+    requests severed and the lifespan `finally` (Redis close, span flush) skipped, which
+    is precisely the defect D-101 fixed one layer up.
+
+    PARAMETERISED over both uvicorn services rather than asserted for the api alone, for
+    the reason the workers test above gives: what generalises is the RELATIONSHIP, and the
+    api's half of it was missing for as long as the relationship has existed. A service
+    that declares a drain and no grace fails here rather than in production, because the
+    parser refuses an absent `stop_grace_period` instead of substituting the default.
+    """
+    drain = _uvicorn_drain_seconds(service)
+    grace = _compose_grace_seconds(service)
+    assert drain < grace, (
+        f"`{service}` waits up to {drain}s for in-flight requests but Docker gives it "
+        f"{grace}s before SIGKILL — the drain is racing the kill, and the lifespan "
+        "shutdown hooks after it never run"
     )
 
 

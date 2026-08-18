@@ -499,6 +499,36 @@ async def test_outbound_call_returns_a_handle(engine: VoiceEngine) -> None:
     assert isinstance(handle, str) and handle
 
 
+async def test_ending_a_call_the_engine_does_not_hold_is_reported(
+    engine: VoiceEngine,
+) -> None:
+    """`end_call` had NO clause at all, and the adapters disagreed underneath it (D-187).
+
+    Both real adapters POST to the vendor — `/executions/{id}/stop` on Bolna,
+    `/agents/calls/{id}/end` on Cartesia — and surface the 404 as `engine_rejected`.
+    `FakeEngine` looked the id up, found nothing and returned None, so the whole pipeline
+    running offline (DEV-SETUP §3) reported a hang-up that never happened. Same shape as
+    the `get_execution` divergence P2.6 found and the `transfer` one D-93 found, on the
+    one method with no clause to catch it.
+
+    A CONTROL-PLANE HANG-UP HAS EXACTLY ONE OBSERVABLE FAILURE: saying it worked. The
+    caller is an operator or a cost guard stopping a live call, and a silent no-op puts
+    "call ended" on a screen while the caller is still connected and the minutes are
+    still being billed. Deliberately NOT `delete_agent`'s idempotent answer — that
+    method's caller is a compensation path whose postcondition an absent object already
+    satisfies; this one's is not.
+    """
+    reported: Exception | None = None
+    try:
+        await engine.end_call("call_this_engine_is_not_running")
+    except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+        reported = exc
+    assert reported is not None, (
+        "ending a call the engine does not hold passed quietly — the one failure this "
+        "method has is claiming to have stopped a call it did not stop"
+    )
+
+
 async def test_execution_snapshot_is_fully_normalized(engine: VoiceEngine) -> None:
     """The isolation boundary (hard rule 2): whatever the vendor sends, what comes out
     is OUR shape, OUR status vocabulary and OUR currency."""

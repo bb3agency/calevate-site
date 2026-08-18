@@ -68,6 +68,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
     from apps.api.compliance.dnc_routes import router as dnc_router
@@ -100,12 +101,10 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
-    from apps.api.tenancy.clerk_webhooks import router as clerk_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
 
     application.include_router(tenancy_router)
-    application.include_router(clerk_router)
     # D-170's first-party authentication. Mounted unconditionally and gated per request by
     # `Settings.first_party_auth_enabled` (default off) — a conditionally-mounted router
     # would be invisible to `check_wiring`, absent from the OpenAPI contract, and would
@@ -164,6 +163,12 @@ def _mount_routers(application: FastAPI) -> None:
     # in declaration order (see `voice_router` above).
     application.include_router(messaging_consent_router)
     application.include_router(deletion_router)
+    # The client's draft of the notice they owe their own CALLERS (D-179,
+    # LEGAL-SURFACE F-8). The duty is theirs — they are the Data Fiduciary — but the
+    # itemised list Rule 3 asks for is their extraction schema, which only we hold. A
+    # literal `/v1/compliance/caller-notice`, declared with the other compliance routers
+    # and ordered by the same rule they are.
+    application.include_router(caller_notice_router)
     # The admin-realm twin: the END of an engagement rather than one data principal's
     # §12 request, and the only writer `organizations.deleted_at` has (FLOWS §9, D-120).
     application.include_router(tenant_erasure_router)

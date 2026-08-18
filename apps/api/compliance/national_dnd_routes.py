@@ -54,7 +54,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
 from apps.api.core.rbac import permission_meta
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 
 global_router = APIRouter(prefix="/v1/ops/dnc/global", tags=["ops"])
@@ -215,9 +215,12 @@ async def suppress_globally(
     session: GlobalSession,
     request: Request,
     principal: Operator,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: str | None = Header(default=None),
 ) -> GlobalSuppressOut:
-    require_step_up(x_confirm_action, SUPPRESS_GLOBALLY_CONFIRMATION)
+    step_up.require(x_confirm_action, SUPPRESS_GLOBALLY_CONFIRMATION)
     result = await dnc.add_global_numbers(
         session, raw_numbers=payload.numbers, source=payload.source
     )
@@ -284,15 +287,20 @@ async def release_globally(
     session: GlobalSession,
     request: Request,
     principal: Operator,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: str | None = Header(default=None),
 ) -> None:
     """204 with no body, for `DELETE /v1/dnc/{entry_id}`'s reason: the row just deleted
     holds a phone number, and the response to "stop suppressing this" is not the place
-    to repeat it. The `source` this reads is for the audit row.
+    to repeat it. What `remove_global_entry` returns is for the audit row — `source`, and
+    (D-185) the `subject_ref` that keeps "which number did we stop refusing" answerable
+    after the row is gone. See `dnc.Removal`.
 
     The confirmation names THIS row — see `release_globally_confirmation`."""
-    require_step_up(x_confirm_action, release_globally_confirmation(entry_id))
-    source = await dnc.remove_global_entry(session, entry_id=entry_id)
+    step_up.require(x_confirm_action, release_globally_confirmation(entry_id))
+    removal = await dnc.remove_global_entry(session, entry_id=entry_id)
     await write_audit(
         session,
         action="ops.dnc_global_removed",
@@ -300,7 +308,7 @@ async def release_globally(
         object_type="dnc_list",
         object_id=str(entry_id),
         ip=client_request_ip(request),
-        summary={"source": source},
+        summary={"source": removal.source, "subject_ref": removal.subject_ref},
     )
 
 
@@ -327,6 +335,9 @@ async def record_preference_scrub(
     session: AdminSession,
     request: Request,
     principal: TenantOperator,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: str | None = Header(default=None),
 ) -> PreferenceScrubOut:
     """Tenant in the PATH, work inside `tenant_session` — the house pattern.
@@ -337,7 +348,7 @@ async def record_preference_scrub(
     audit entry for a scrub that failed to commit would be a compliance record of
     something that did not happen.
     """
-    require_step_up(x_confirm_action, preference_scrub_confirmation(campaign_id))
+    step_up.require(x_confirm_action, preference_scrub_confirmation(campaign_id))
 
     async with tenant_session(tenant_id) as scoped:
         recorded = await preference_scrub.record_scrub_run(

@@ -51,7 +51,7 @@ import pytest
 import webhook_routes
 from apps.api.core.redis import get_redis
 from apps.api.db import session as db_session
-from apps.api.db.session import get_engine, untenanted_session
+from apps.api.db.session import MAX_NESTED_CONNECTIONS, get_engine, untenanted_session
 from calevate_shared.config import Settings
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
@@ -384,10 +384,22 @@ async def test_a_warm_receiver_opens_no_new_database_connections_under_load() ->
     two-connection pool demonstrates in a second. The pool size is the variable; the
     engine construction under test is the shipped one, which is the half that matters.
 
-    With `max_overflow=0` a caller past the ceiling waits on the pool's `asyncio.Queue`
-    — it yields the loop and reuses a connection a moment later — instead of opening one
-    it will immediately throw away. "Waited" and "churned" look identical in a latency
-    graph and are opposite in cost, which is exactly why this is asserted as a count.
+    A caller past the ceiling waits on the pool's `asyncio.Queue` — it yields the loop
+    and reuses a connection a moment later — instead of opening one it will immediately
+    throw away. "Waited" and "churned" look identical in a latency graph and are opposite
+    in cost, which is exactly why this is asserted as a count.
+
+    **BOUNDED BY THE VALVE, NOT ZERO (D-182, and this test asserted zero after that
+    decision landed — a red build nothing else caught).** The overflow was 0 when this was
+    written and is now `MAX_NESTED_CONNECTIONS - 1`, because a pool at its ceiling holding
+    only depth-2 tasks self-deadlocks with no overflow at all (`db/session.get_engine`
+    argues it). One slot is a burst valve; it cannot sustain a treadmill, which is the
+    finding this file exists for and which needed 186 fresh backends to reproduce.
+
+    So the property is what it always was in substance and is now stated where the number
+    can move: connections opened must be bounded by the pool's OWN valve, not by the
+    offered load. Twelve deliveries through a two-connection pool may open at most one;
+    twelve is what a restored `max_overflow=10` produces.
     """
     opened: list[int] = []
 
@@ -404,16 +416,18 @@ async def test_a_warm_receiver_opens_no_new_database_connections_under_load() ->
             await _concurrent_deliveries(12)
         finally:
             event.remove(engine.sync_engine, "connect", _on_connect)
+        valve = engine.sync_engine.pool._max_overflow  # type: ignore[attr-defined]
 
-    assert opened == [], (
+    assert len(opened) <= valve, (
         f"a warm receiver opened {len(opened)} new Postgres connection(s) while serving "
-        "12 deliveries through a 2-connection pool — it should have QUEUED on the pool "
-        "instead. Each of those costs a SCRAM handshake on the event loop that owes "
-        "every other delivery a sub-500ms ack: check max_overflow is still 0 (D-55)"
+        f"12 deliveries through a 2-connection pool whose overflow valve is {valve} — "
+        "past it, it should have QUEUED on the pool instead. Each of those costs a SCRAM "
+        "handshake on the event loop that owes every other delivery a sub-500ms ack: "
+        "check max_overflow has not been widened (D-55, D-182)"
     )
 
 
-async def test_the_pool_is_sized_with_no_single_use_overflow_and_a_bounded_wait() -> None:
+async def test_the_pool_is_sized_with_a_bounded_overflow_and_a_bounded_wait() -> None:
     """The configuration the test above depends on, asserted directly.
 
     Without this, the churn test could be satisfied by making the pool enormous, which
@@ -421,7 +435,11 @@ async def test_the_pool_is_sized_with_no_single_use_overflow_and_a_bounded_wait(
     that overruns Postgres `max_connections` and takes down every deployable at once).
     Three properties, each load-bearing:
 
-    - `max_overflow == 0` — no single-use connections, the finding above;
+    - `max_overflow == MAX_NESTED_CONNECTIONS - 1` — the valve is exactly one slot wider
+      than nothing, and it is PAIRED with `scripts/check_session_nesting.py`, which fails
+      CI if any task can hold more than `max_overflow + 1` connections (D-182). This
+      asserted a bare `0` after that decision changed the line, which is a red build
+      nobody's guardrail could see: the number is derived here so the pair moves together;
     - the pool is SIZED from config, so an operator can re-size it per deployable
       (DEPLOYMENT §2a) without deploying the latency-critical service;
     - `pool_timeout` is bounded — SQLAlchemy's default is thirty seconds, which is a
@@ -433,10 +451,12 @@ async def test_the_pool_is_sized_with_no_single_use_overflow_and_a_bounded_wait(
     """
     pool = get_engine().sync_engine.pool
     assert isinstance(pool, QueuePool | AsyncAdaptedQueuePool), type(pool)
-    assert pool._max_overflow == 0, (
+    assert pool._max_overflow == MAX_NESTED_CONNECTIONS - 1, (
         "overflow connections are single-use: the pool closes them on return, so under "
-        "sustained load this is a re-authentication treadmill, not a burst valve "
-        "(sqlalchemy/sqlalchemy#11707)"
+        "sustained load a wide overflow is a re-authentication treadmill rather than a "
+        "burst valve (sqlalchemy/sqlalchemy#11707). It is exactly one slot — enough to "
+        "break the depth-2 self-deadlock D-182 found, too few to sustain a treadmill — "
+        "and it is the same number `check_session_nesting.py` bounds nesting by"
     )
     assert pool.size() == Settings().db_pool_size, (
         "the pool must take its ceiling from DB_POOL_SIZE — re-sizing per deployable is "

@@ -9,23 +9,21 @@ JWT it might read differently than we do.
 from __future__ import annotations
 
 from datetime import datetime
-from hashlib import sha256
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.admin import service as admin_service
+from apps.api.authn.service import enqueue_invitation_email
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, current_identity, requires, tenant_of
+from apps.api.core.auth import client_request_ip, requires, tenant_of
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
-from apps.api.db.session import invite_session, tenant_session, untenanted_session
 from apps.api.tenancy import members as members_service
 
 router = APIRouter(prefix="/v1", tags=["tenancy"])
@@ -104,9 +102,9 @@ class MemberOut(BaseModel):
     audited — which an assignee picker is not, and should not have to be. Nothing on
     this surface needs it either: the control writes an id and prints a name.
 
-    `name` is nullable because `users.name` is: the Clerk mirror composes it from
-    first/last name and stores NULL when the account has neither
-    (`tenancy/clerk_webhooks.py`). The screen says "Unnamed member" rather than falling
+    `name` is nullable because `users.name` is: an invitation carries an address and,
+    optionally, a name, so a colleague who typed neither has NULL
+    (`authn/invitations.py`). The screen says "Unnamed member" rather than falling
     back to an address — a fallback that leaks is not a fallback.
     """
 
@@ -238,7 +236,20 @@ class InvitationCreatedOut(InvitationOut):
     token that is displayed is a token that can be pasted into the wrong window.
     """
 
-    token: str
+    #: WAS `token: str`, and its removal is the point of D-190.
+    #:
+    #: This handed the raw invitation token back to the INVITER, because the client realm
+    #: had no mailer when it was written and the owner was expected to forward the link.
+    #: The realm has had a mailer since D-170, and the gap cost D-185: anyone able to issue
+    #: an invitation could invite an address they do not control, read the token out of
+    #: their own 201 and redeem it — taking the one global `users` row for that address.
+    #: D-185 stopped that becoming somebody else's account and could NOT stop the squat,
+    #: because the squat lives for exactly as long as anyone but the invitee sees the token.
+    #:
+    #: `delivery` replaces it: whether the link was queued, so the screen can say "we have
+    #: emailed them" or "email is not configured — the link is in the outbox" rather than
+    #: rendering a secret. Nothing in this response is a credential any more.
+    delivery: str
 
 
 @router.post(
@@ -283,13 +294,18 @@ async def invite_member(
             {"i": invitation_id},
         )
     ).one()
+    # ENQUEUED IN THE REQUEST'S OWN TRANSACTION, so the invitation row and its email share
+    # one fate: an invitation committed without its mail is a person who is never told, and
+    # a mail sent for a row that rolled back is a link that does not work. The outbox is
+    # what makes that atomic (BACKEND-PATTERNS §4).
+    await enqueue_invitation_email(session, to=str(row[0]), token=token)
     return InvitationCreatedOut(
         id=invitation_id,
         email_masked=members_service.mask_email(str(row[0])),
         role=payload.role,
         invited_at=row[1],
         expires_at=row[2],
-        token=token,
+        delivery="queued",
     )
 
 
@@ -435,131 +451,23 @@ async def remove_member(
     )
 
 
-class AcceptInviteIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    # The raw token from the emailed link. Only its hash is stored, so this value
-    # cannot be recovered from our database — it exists in the email and nowhere else.
-    token: str = Field(min_length=20, max_length=200)
-
-
-class AcceptInviteOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    tenant_id: UUID
-    slug: str
-    role: str
-
-
-@router.post(
-    "/invitations/accept",
-    response_model=AcceptInviteOut,
-    summary="Accept an emailed invitation and create the membership (FLOWS §1 step 8)",
-)
-async def accept_invitation(
-    payload: AcceptInviteIn,
-    request: Request,
-    identity: tuple[UUID, str] = Depends(current_identity),
-) -> AcceptInviteOut:
-    """The one authenticated route that does NOT require a membership — creating one is
-    the point (see `current_identity`).
-
-    The burn is a CAS on `used_at IS NULL`, so two clicks on the same emailed link
-    produce one membership rather than two.
-
-    THE INVITATION IS BOUND TO THE ADDRESS IT WAS SENT TO. Without that check the link
-    is a pure bearer token: a forwarded email, a link pasted into a group chat, or a
-    shared mailbox hands the account to whoever opens it first — and the audit trail
-    then records a membership for someone nobody invited. Binding is what current
-    practice asks of an invite link (single use, short-lived, and only redeemable by the
-    address that received it — the same rule Auth0/authentik-style invite flows enforce
-    by making the signup email read-only), and it costs an honest invitee nothing: they
-    are signing in with the address the link was sent to.
-
-    The comparison is a plain casefolded equality, NOT `hmac.compare_digest`. Constant
-    time protects a SECRET from being learned a byte at a time; the secret on this path
-    is the token, and it is matched by an indexed lookup on its SHA-256. An address the
-    caller already owns and already typed into Clerk is not a secret, and dressing the
-    comparison up as one would suggest to the next reader that it is.
-    """
-    user_id, _clerk_id = identity
-
-    # The token names its own tenant, so the lookup runs under `app.invite_hash` —
-    # a read-only widening scoped to the single row the caller can already name.
-    token_hash = sha256(payload.token.encode()).hexdigest()
-    # No JOIN to `organizations` here: the invite GUC widens `invitations` and nothing
-    # else, so joining would silently return zero rows. The slug is read below, once
-    # the tenant is known and a normal tenant session applies.
-    async with invite_session(token_hash) as lookup:
-        row = (
-            await lookup.execute(
-                text(
-                    "SELECT tenant_id, email FROM invitations WHERE token_hash = :hash "
-                    "AND used_at IS NULL AND expires_at > now()"
-                ),
-                {"hash": token_hash},
-            )
-        ).first()
-    if row is None:
-        # Deliberately indistinguishable from "already used" and "expired": an
-        # attacker guessing tokens learns nothing from the difference.
-        raise ProblemError(
-            kind="business_rule",
-            code="invitation_invalid",
-            title="Invitation is not usable",
-            detail="This invitation has already been used or has expired.",
-            remediation="Ask your account manager for a fresh invite.",
-        )
-    tenant_id = UUID(str(row[0]))
-    invited_email = str(row[1])
-
-    # `users` is global and unRLS'd (identity crosses tenants), so this needs no tenant
-    # context — and must run before one is opened, so a mismatch never touches the
-    # tenant's data at all.
-    async with untenanted_session() as lookup:
-        recipient = (
-            await lookup.execute(text("SELECT email FROM users WHERE id = :u"), {"u": user_id})
-        ).scalar_one()
-    if str(recipient).strip().casefold() != invited_email.strip().casefold():
-        # A DIFFERENT message from "used or expired", deliberately, and the difference is
-        # safe: reaching this line means the caller already holds a valid unused token,
-        # so they learn nothing about the token they did not already know — and the
-        # honest invitee whose Clerk account uses their other address needs to be told
-        # what actually went wrong rather than being sent to ask for a fresh link that
-        # will fail the same way.
-        raise ProblemError(
-            kind="permission",
-            code="invitation_wrong_recipient",
-            title="This invitation is for a different address",
-            detail="This invitation was sent to someone else's email address.",
-            remediation=(
-                "Sign in with the address the invitation was sent to, or ask an owner of "
-                "the account to invite the address you use."
-            ),
-        )
-
-    async with tenant_session(tenant_id) as scoped:
-        await admin_service.accept_invitation(scoped, raw_token=payload.token, user_id=user_id)
-        role = (
-            await scoped.execute(
-                text("SELECT role FROM memberships WHERE user_id = :u"), {"u": user_id}
-            )
-        ).scalar()
-        slug = (
-            await scoped.execute(
-                text("SELECT slug FROM organizations WHERE id = :t"), {"t": tenant_id}
-            )
-        ).scalar()
-        await write_audit(
-            scoped,
-            action="invitation.accepted",
-            actor_type="user",
-            tenant_id=tenant_id,
-            object_type="membership",
-            object_id=str(user_id),
-            ip=client_request_ip(request),
-        )
-    return AcceptInviteOut(tenant_id=tenant_id, slug=str(slug), role=str(role or "owner"))
-
+# THE CLERK-ERA INVITATION-ACCEPT ENDPOINT WAS HERE, AND IT IS GONE (D-177).
+#
+# `POST /v1/invitations/accept` took a token from an already-signed-in caller, compared
+# the invitation's address against the `users` row Clerk had mirrored, and created the
+# membership. It was correct for the world it was written in and it is a SECOND way to do
+# one thing in this one: `POST /v1/auth/client/invitations/accept` takes `{token,
+# password, name}`, creates the `users` row, sets the password, burns the invitation
+# through the same `admin_service.accept_invitation` this route called, and issues a
+# session — one call where there used to be a vendor sign-up followed by this.
+#
+# It is also strictly stronger, which is why the collapse loses nothing. The address comes
+# from the INVITATION rather than from whatever address the caller had signed in with, so
+# `invitation_wrong_recipient` — the refusal an honest invitee met when their vendor
+# account used their other address — cannot arise. There is no comparison left to get
+# wrong, and the recipient binding this route argued for is now structural.
+#
+# `admin_service.accept_invitation` and its CAS on `used_at` are untouched and still the
+# only burner; `tests/member_invitations_test.py` drives them through the surviving route.
 
 __all__ = ["MemberOut", "router"]

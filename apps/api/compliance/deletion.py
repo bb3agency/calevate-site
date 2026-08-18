@@ -89,30 +89,36 @@ certificate's limitations text"); the erasure BEHAVIOUR is untouched.
 
 ---
 
-**A second gap, disclosed rather than closed: the knowledge base.**
+**A second gap, disclosed and then closed on both halves it owned: the knowledge base.**
 
 Migration `842ba923796d` created `kb_sources`/`kb_documents` and said that provider-side
 ids live in `kb_documents.meta`, "which is also what lets a DPDP erasure prove it removed
 both copies" — prose that `kb/models.py`, `kb/service.py`, DATA-MODEL §7 and BUILD-LOG
-§18 all repeat. No erasure removes either copy, and none ever has: this module's worker
-does not name those tables, nothing in the repository deletes a `kb_documents` row
-(publishing a new version archives the old `kb_sources` row and leaves its chunks
-intact), and `retention_policies.data_category` admits only
-`recording|transcript|lead|consent_log`, so no TTL reaches them either. A client's
-uploaded knowledge is kept indefinitely, every version of it.
+§18 all repeat. For a long time no erasure removed either copy and no retention period
+reached them: this module's worker did not name those tables, nothing in the repository
+deleted a `kb_documents` row (publishing a new version archives the old `kb_sources` row
+and leaves its chunks intact), and `retention_policies.data_category` admitted only
+`recording|transcript|lead|consent_log`. A client's uploaded knowledge was kept
+indefinitely, every version of it, and the certificate's only honest move was to say so
+(`KB_OUTCOME = "not_searched"`).
 
-Whether it SHOULD have a retention period is not answered anywhere: SEC-COMP §4's
-retention row names recordings, transcripts and leads; its erasure row enumerates
-"calls/turns/extractions/leads/recordings"; DATA-MODEL §9 pins the category list at four.
-Choosing a TTL for a client's own uploaded content is a DPA commitment and a change to a
-documented enum — a decision-log entry (ROADMAP §6), not a module's to take. What IS this
-module's to take is what the certificate says, and a certificate that listed every other
-exception while staying silent about a whole store of personal data read as "we searched
-everywhere". So the register gains an entry (`KB_OUTCOME`) stating that the knowledge base
-is not searched, not changed and not expired, and that removing someone from it is manual
-work on both copies. That is a WIDENING of the notice, which SEC-COMP §4 permits; the
-erasure behaviour is untouched, and `tests/kb_retention_gap_test.py` pins the gap so it
-cannot be lost again.
+D-179 closes the two halves that were engineering rather than judgement, and the entry is
+now a NARROWER limitation than it was — which is the direction SEC-COMP §4 does not permit
+lightly, so both halves are mechanisms and not wording:
+
+* **A clock.** `retention_policies.data_category` gained `kb` (migration c4d1f7b83e26).
+  The nightly sweep deletes SUPERSEDED and REJECTED versions past the tenant's TTL, never
+  the live one, and never one the engine still holds a handle for.
+* **A search.** `execute_deletion_request` now looks for the subject's number in the
+  tenant's knowledge documents — digits-normalised, because a client pastes "98765 43210"
+  and never an E.164 string — and records the count in the proof.
+
+What is still NOT done, and the register says it in the words a data principal reads: the
+content is not CHANGED. Deleting a line out of a live price list would silently change
+what the agent says on the next call, we cannot tell a caller's callback number from the
+shop's own landline, and the voice platform holds its own copy of the live version. So the
+certificate hands the client a number and names the manual step, which is a task rather
+than the shrug "not searched" was. `tests/kb_retention_test.py` holds all of it.
 
 **Permission: `org:manage`.** Owner-only in the client realm, operator/superadmin in the
 admin realm, and — the part that matters — a member of `MUTATING_PERMISSIONS`, so D-22
@@ -202,10 +208,24 @@ HOLD_UNTIL_KEY: Final = "recording_hold_until"
 # wrong statement.
 FLOOR_OUTCOME: Final = "retained_under_legal_floor"
 
-# The knowledge-base entry's outcome, for the same reason: `tests/kb_retention_gap_test`
-# finds it by verdict, not by position. See the register entry itself for what it says
-# and the module docstring's second conflict note for why it exists.
-KB_OUTCOME: Final = "not_searched"
+# The knowledge-base entry's outcome, for the same reason: `tests/kb_retention_test`
+# finds it by verdict, not by position. It was `not_searched` until D-179 and is now
+# `searched_not_erased`, which is a NARROWER limitation and therefore had to be earned
+# rather than reworded: the erasure now runs a digits-normalised search of the tenant's
+# knowledge documents for the subject's number and reports the count, and what it still
+# does not do is CHANGE that content. See the register entry for what the client is told
+# and `retention._search_knowledge_base` for why deleting would be the wrong move.
+KB_OUTCOME: Final = "searched_not_erased"
+
+# How many knowledge documents mentioned the subject, as the worker records it in the
+# proof's `scope`. Duplicated from `apps.workers.retention.KB_MATCH_KEY` exactly as the
+# three keys above are, and pinned to it by `tests/kb_retention_test.py`.
+#
+# ABSENT IS NOT ZERO, and here the distinction is load-bearing in a way it is not
+# elsewhere: every proof written before D-179 carries no key at all, and rendering that
+# as `0` would tell a data principal "we searched your client's knowledge base and found
+# nothing" about an erasure that never searched it.
+KB_MATCH_KEY: Final = "knowledge_base_documents_matched"
 
 #: A backup taken before the erasure still holds the record until the window closes. Its
 #: own outcome word rather than `retained_as_record`: nothing is being KEPT here as a
@@ -289,15 +309,17 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "that entry is retained. Removing it would make the person callable again, which is "
     "the opposite of what suppression is for. A DNC entry records a number and a scope, "
     "and nothing else about the person.",
-    "The knowledge base is not searched by this request. An erasure finds a person by "
-    "their phone number across calls, transcripts, extracted fields and CRM leads; the "
-    "knowledge sources a client uploads for their agents — FAQs, price lists, staff and "
-    "contact details — are content they wrote rather than a record of a caller, so "
-    "nothing here reads or changes them. No retention period expires them either, so "
-    "every version ever published is kept indefinitely, including the superseded ones "
-    "no screen shows. If this person's details could have been put into that content, "
-    "finding and removing them is a manual step — on our copy and on the voice engine's "
-    "copy of the same source.",
+    "The knowledge base is SEARCHED by this request but never changed. The knowledge "
+    "sources a client uploads for their agents — FAQs, price lists, staff and contact "
+    "details — are content they wrote rather than a record of a caller, so this request "
+    "reads them for the number and reports how many documents mention it, and stops "
+    "there: removing a line from a live price list would change what the agent says on "
+    "the next call, and the voice platform holds its own copy of the same source. So if "
+    "the count below is not zero, removing this person from that content is a manual "
+    "step on both copies. Superseded versions are no longer kept for ever — every "
+    "version this client has replaced or had rejected is deleted once it passes their "
+    "knowledge-base retention period — but the version currently live is kept for as "
+    "long as it is live.",
     "Backups: this erasure runs against the live systems, and a backup taken BEFORE it "
     f"still contains the erased records until that backup ages out — up to "
     f"{BACKUP_WINDOW_DAYS} days. Backups are never searched or edited to remove one "
@@ -422,23 +444,24 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         keyword="knowledge base",
         outcome=KB_OUTCOME,
         why=(
-            "An erasure finds a person by their phone number across calls, transcripts, "
-            "extracted fields and CRM leads. A knowledge base is content the client "
-            "uploaded for their agents to quote — FAQs, price lists, staff and contact "
-            "details — rather than a record of a caller, so it is neither searched nor "
-            "changed by this request. Nothing expires it either: every published "
-            "version, including the superseded ones no screen shows, is kept "
-            "indefinitely. If this person's details were put into that content, they "
-            "have to be found and removed by hand, in Calevate and on the voice "
-            "engine's copy of the same source."
+            "A knowledge base is content the client uploaded for their agents to quote — "
+            "FAQs, price lists, staff and contact details — rather than a record of a "
+            "caller. This request SEARCHES it for the number and reports what it found; "
+            "it does not change it. Editing a live knowledge document would change what "
+            "the agent says on the next call, and the voice platform holds its own copy "
+            "of the same source, so a removal has to be made on both by a person who can "
+            "see what the sentence is for. Versions the client has replaced or had "
+            "rejected are no longer kept indefinitely: they are deleted once they pass "
+            "this account's knowledge-base retention period. The live version is kept "
+            "while it is live."
         ),
         authority=(
             "SECURITY-COMPLIANCE §4 enumerates the erasure scope as calls, transcript "
             "turns, extracted fields, leads and recordings — knowledge-base content is "
-            "not in it — and DATA-MODEL §9's retention categories (recording, "
-            "transcript, lead, consent_log) do not cover it, so no TTL reaches it. "
-            "Whether a client's uploaded knowledge should have a retention period at "
-            "all is undecided in both documents."
+            "not in it, and D-179 closed the two halves of that gap that were ours: "
+            "DATA-MODEL §9's retention categories now include `kb`, which expires "
+            "superseded versions, and this request searches the rest. What is left is a "
+            "judgement about the client's own words, which is theirs to make."
         ),
     ),
     ErasureLimitation(
@@ -708,6 +731,7 @@ __all__ = [
     "ERASURE_LIMITATIONS",
     "FLOOR_COUNT_KEY",
     "FLOOR_OUTCOME",
+    "KB_MATCH_KEY",
     "KB_OUTCOME",
     "MAX_LIST",
     "RECORDING_FLOOR_DAYS",

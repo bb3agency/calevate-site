@@ -77,14 +77,13 @@ async def _tenant(role: str = "owner", schema: list[dict[str, Any]] | None = Non
     """
     tenant_id, user_id, agent_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     slug = f"col-{tenant_id.hex[:10]}"
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -123,7 +122,7 @@ async def _tenant(role: str = "owner", schema: list[dict[str, Any]] | None = Non
                 "f": json.dumps(SCHEMA if schema is None else schema),
             },
         )
-    return Tenant(tenant_id, agent_id, slug, f"dev:client:{clerk_id}")
+    return Tenant(tenant_id, agent_id, slug, f"dev:client:{user_id}")
 
 
 async def _lead(
@@ -386,3 +385,44 @@ async def test_a_non_string_value_is_not_offered_as_a_facet() -> None:
     values = {v["value"]: v["count"] for v in response.json()["facets"][0]["values"]}
     assert all(count == 0 for count in values.values())
     assert not any(v.startswith("{") for v in values)
+
+
+async def test_the_searched_rail_and_the_searched_table_describe_one_population() -> None:
+    """The rail's own route, and the reason it is a POST.
+
+    `search` matches `leads.phone_e164`, so the GET refuses it (`search_must_be_posted`)
+    for the reason SEC-COMP §4 gives: a number in a URL is written to nginx's access log,
+    Cloudflare's edge log, browser history and the next request's `Referer`. That refusal
+    is only half a fix. Before this route existed the client's only lawful move was to
+    send the rail NO search term — so the panel counted a WIDER set than the rows beside
+    it, and a client filtering by a customer's number read counts belonging to everybody.
+
+    Both halves are driven here against the same three leads: the GET refuses, and the
+    POST rail returns exactly what the POST table returns for the identical lens.
+    """
+    t = await _tenant()
+    await _lead(t, name="Searched", data={"budget_band": "over_50l"}, phone="+919812345678")
+    await _lead(t, name="Other", data={"budget_band": "over_50l"}, phone="+919899990001")
+    await _lead(t, name="Third", data={"budget_band": "under_20l"}, phone="+919899990002")
+    lens = {"agent_id": str(t.agent_id), "search": "345678"}
+
+    async with _client() as http:
+        refused = await http.get(
+            f"/v1/leads/facets?agent_id={t.agent_id}&search=345678", headers=t.headers
+        )
+        rail = await http.post("/v1/leads/facets", json=lens, headers=t.headers)
+        table = await http.post("/v1/leads/search", json={**lens, "limit": 50}, headers=t.headers)
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["type"].endswith("/search_must_be_posted"), refused.text
+
+    assert rail.status_code == 200, rail.text
+    counts = {v["value"]: v["count"] for v in rail.json()["facets"][0]["values"]}
+    assert counts == {"over_50l": 1, "under_20l": 0, "20l_50l": 0}, (
+        "the rail counted rows the search excludes"
+    )
+    assert table.status_code == 200, table.text
+    assert [row["name"] for row in table.json()["items"]] == ["Searched"]
+    assert sum(counts.values()) == len(table.json()["items"]), (
+        "the panel and the table must not disagree about how many rows the lens matches"
+    )

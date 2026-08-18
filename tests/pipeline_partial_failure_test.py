@@ -53,6 +53,7 @@ from apps.workers import campaign_dispatch, pipeline, storage
 from apps.workers.storage import StorageUnavailableError
 from arq import Retry
 from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
+from calevate_shared.events import TranscriptTurn
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
@@ -764,6 +765,99 @@ async def test_a_zero_length_call_bills_what_the_ledger_can_express(
         "duration-priced legs are on rows with qty 0 and multiply out to nothing"
     )
     assert census["usage_rows"] == 5, "every leg is still recorded, even the ones qty hides"
+
+
+# --- 4b. a re-drive rewrites a turn WHOLE, or it rewrites a lie ----------------
+
+
+async def test_a_re_driven_transcript_replaces_a_turn_rather_than_half_of_it() -> None:
+    """`_persist_transcript`'s upsert was PARTIAL, and a partial upsert is a fabrication.
+
+    The statement is `ON CONFLICT (call_id, idx) DO UPDATE SET text, text_redacted` — so a
+    re-drive whose transcript differs at an index rewrote WHAT was said and kept WHO said
+    it, WHICH LANGUAGE it was in and WHEN. The row that comes out was never spoken by
+    anybody: the second run's words under the first run's speaker.
+
+    IT IS REACHABLE THROUGH THE PARSER, not only through a vendor changing its mind.
+    Bolna hands us one prefix-tagged text blob and `parse_transcript` indexes turns by
+    POSITION, dropping a leading line it cannot attribute (`bolna.parse_transcript`: "an
+    unprefixed line arriving BEFORE any turn exists" is counted lost). So a first fetch
+    that lost the opening line and a second that did not are off by one for the whole
+    call, and every turn keeps the previous run's speaker. `apps/api/engine/fake.py`
+    already records what that costs downstream in so many words — the extractor
+    attributing the agent's words to the caller is how a call became a hot lead that never
+    was — and `speaker` also drives the client's transcript view and the QA sample.
+
+    The same statement also left ORPHANS: a re-drive producing FEWER turns updated the
+    ones it had and left the tail of the longer run in place, so the call ends with turns
+    from two different readings of it.
+
+    Nothing here is about a vendor being fickle; it is about a row being written half-way.
+    Both halves are asserted on one call, which is the only way to see that the fix is a
+    REPLACEMENT of the transcript rather than a merge of two.
+    """
+    tenant_id, execution_id, call_id = await _staged("turnswap")
+
+    long_read = ExecutionSnapshot(
+        engine_call_id=execution_id,
+        engine_agent_ref=f"partial_turnswap_{RUN}",
+        direction="inbound",
+        status="completed",
+        raw_status="completed",
+        terminal=True,
+        billable_ready=True,
+        transcript=[
+            TranscriptTurn(call_id=execution_id, idx=0, speaker="caller", text="naaku appointment"),
+            TranscriptTurn(call_id=execution_id, idx=1, speaker="agent", text="evening 6 gantalu"),
+            TranscriptTurn(call_id=execution_id, idx=2, speaker="caller", text="sare"),
+        ],
+    )
+    # The SAME call read again with the opening line recovered: every turn shifts by one
+    # and the last one is gone from this reading.
+    short_read = ExecutionSnapshot(
+        **{
+            **long_read.model_dump(),
+            "transcript": [
+                TranscriptTurn(
+                    call_id=execution_id, idx=0, speaker="agent", text="namaskaram", lang="te-IN"
+                ),
+                TranscriptTurn(
+                    call_id=execution_id,
+                    idx=1,
+                    speaker="caller",
+                    text="naaku appointment",
+                    lang="te-IN",
+                ),
+            ],
+        }
+    )
+
+    await pipeline._persist_transcript(tenant_id, call_id, long_read)
+    await pipeline._persist_transcript(tenant_id, call_id, short_read)
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT idx, speaker, text, lang FROM transcript_turns "
+                    "WHERE call_id = :c ORDER BY idx"
+                ),
+                {"c": call_id},
+            )
+        ).all()
+
+    assert [(r[0], r[1], r[2]) for r in rows] == [
+        (0, "agent", "namaskaram"),
+        (1, "caller", "naaku appointment"),
+    ], (
+        "the second reading of this call did not replace the first: a turn kept the "
+        "earlier run's speaker under the later run's words, or the earlier run's tail "
+        "survived as a turn nobody in this call ever spoke"
+    )
+    assert [r[3] for r in rows] == ["te-IN", "te-IN"], (
+        "`lang` was not carried by the upsert either — the columns a re-drive refreshes "
+        "must be every column the turn has, not the two the first version happened to name"
+    )
 
 
 # --- 5. hard rule 6, across every line this path can write ---------------------

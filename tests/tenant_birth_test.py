@@ -52,7 +52,7 @@ from tests.conftest import FakeS3
 TENANTS = "/v1/admin/tenants"
 INVITATIONS = "/v1/admin/tenants/{tenant_id}/invitations"
 STATUS = "/v1/admin/tenants/{tenant_id}/status"
-ACCEPT = "/v1/invitations/accept"
+ACCEPT = "/v1/auth/client/invitations/accept"
 
 
 # --- harness ------------------------------------------------------------------
@@ -101,24 +101,38 @@ async def _set_status(token: str, tenant_id: UUID, status: str, reason: str | No
         return await http.post(STATUS.format(tenant_id=tenant_id), headers=_auth(token), json=body)
 
 
-async def _clerk_user(email: str) -> str:
-    """A mirrored client-realm identity — the state FLOWS §2 leaves a Clerk signup in,
-    and the only state from which an invitation can be redeemed."""
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
+async def _founder(email: str) -> str:
+    """A client-realm account with no membership — what `POST /v1/auth/signup` is for.
+
+    Created directly rather than through a flow, because there is no public account-intake
+    door today (AUTH-MIGRATION §11, C-11) and this test is about slug derivation.
+    """
+    user_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:i, :c, :e, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": clerk_id, "e": email},
+            {"i": user_id, "e": email},
         )
-    return f"dev:client:{clerk_id}"
+    return f"dev:client:{user_id}"
 
 
-async def _accept(token: str, invite_token: str) -> Any:
+async def _accept(invite_token: str) -> Any:
+    """Redemption as an invitee performs it (D-177): one call, and no prior account.
+
+    The Clerk-era shape took a token from an ALREADY SIGNED-IN caller, so every test here
+    had to mint a `users` row first and hand it a bearer credential. There is no such state
+    now — `POST /v1/auth/client/invitations/accept` creates the account, sets its password
+    and issues the session, and the address comes from the invitation. That deleted the
+    `_clerk_user` fixture rather than renaming it: the "mirrored identity with no
+    membership" it produced is not a state this product has.
+    """
     async with _client() as http:
-        return await http.post(ACCEPT, headers=_auth(token), json={"token": invite_token})
+        return await http.post(
+            ACCEPT, json={"token": invite_token, "password": "tenant-birth-invitee-password"}
+        )
 
 
 async def _soft_delete(tenant_id: UUID) -> None:
@@ -253,7 +267,7 @@ async def test_an_address_already_on_another_clients_team_can_still_be_invited()
     first, second = await _tenant(), await _tenant()
 
     minted = await _invite(token, first, shared_email)
-    accepted = await _accept(await _clerk_user(shared_email), minted.json()["token"])
+    accepted = await _accept(minted.json()["token"])
     elsewhere = await _invite(token, second, shared_email)
 
     assert minted.status_code == 201 and accepted.status_code == 200, accepted.text
@@ -284,7 +298,7 @@ async def test_a_key_cut_before_the_account_closed_cannot_be_redeemed_after() ->
     invite_token = minted.json()["token"]
     await _set_status(operator, tenant_id, "churned", "client sold the business")
 
-    response = await _accept(await _clerk_user(email), invite_token)
+    response = await _accept(invite_token)
 
     assert response.status_code == 409, response.text
     assert response.json()["type"].endswith("/account_closed")
@@ -301,7 +315,7 @@ async def test_the_refused_redemption_does_not_burn_the_link() -> None:
     invitation_id = (await _invite(operator, tenant_id, email)).json()["id"]
     await _soft_delete(tenant_id)
 
-    await _accept(await _clerk_user(email), "irrelevant-the-refusal-comes-first" + "x" * 20)
+    await _accept("irrelevant-the-refusal-comes-first" + "x" * 20)
     used_at = await _scalar(
         tenant_id, "SELECT used_at FROM invitations WHERE id = :i", i=invitation_id
     )
@@ -319,10 +333,79 @@ async def test_a_refused_redemption_creates_no_membership() -> None:
     invite_token = (await _invite(operator, tenant_id, email)).json()["token"]
     await _set_status(operator, tenant_id, "churned", "offboarded")
 
-    await _accept(await _clerk_user(email), invite_token)
+    await _accept(invite_token)
     members = await _scalar(tenant_id, "SELECT count(*) FROM memberships")
 
     assert members == 0
+
+
+async def test_the_owner_of_a_closed_account_is_told_it_closed_not_that_they_are_a_stranger() -> (
+    None
+):
+    """The wall the people who were ALREADY inside hit (D-189).
+
+    The two tests above close the door on a key cut for a dead account. Nobody had
+    walked the other half: the owner who has been signing in for months, whose account
+    an operator closes on Friday, and who opens the dashboard on Monday. `core/auth.py`
+    resolves memberships with `o.status <> 'churned'`, so the resolution came back empty
+    and they were told "You are not a member of this account" — on their own account, in
+    a product whose offboarding flow (FLOWS §9) hands them an export of the very data
+    that screen shows. It is false, and it names nothing they can do.
+
+    `account_closed` is the name `assert_account_open` and the dial gate already give
+    this state; the remediation is the one thing left that a person in this position can
+    actually act on.
+    """
+    operator = await _make_admin("operator")
+    tenant_id = await _tenant()
+    user_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:i, :e, now(), now())"
+            ),
+            {"i": user_id, "e": f"owner-{user_id.hex[:8]}@clinic.example"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:i, :t, :u, 'owner', now(), now())"
+            ),
+            {"i": uuid.uuid4(), "t": tenant_id, "u": user_id},
+        )
+    token = f"dev:client:{user_id}"
+
+    async with _client() as http:
+        before = await http.get("/v1/leads", headers=_auth(token))
+    assert before.status_code == 200, before.text
+
+    await _set_status(operator, tenant_id, "churned", "contract ended")
+
+    async with _client() as http:
+        after = await http.get("/v1/leads", headers=_auth(token))
+    assert after.status_code == 403, after.text
+    body = after.json()
+    assert body["type"].endswith("/account_closed"), body
+    assert "closed" in body["detail"]
+    assert body["remediation"], "a person who has just lost their data needs a next step"
+
+
+async def test_a_genuine_stranger_is_still_told_they_are_not_a_member() -> None:
+    """The other branch, which the fix must not swallow.
+
+    A caller with no membership anywhere must keep getting the neutral refusal — telling
+    them "this account is closed" would be inventing a fact about an account they have
+    nothing to do with, and would answer a question they are not entitled to ask.
+    """
+    token = await _founder(f"stranger-{uuid.uuid4().hex[:8]}@example.com")
+
+    async with _client() as http:
+        response = await http.get("/v1/leads", headers=_auth(token))
+
+    assert response.status_code == 403, response.text
+    assert response.json()["type"].endswith("/forbidden")
 
 
 # ============================================================================
@@ -470,12 +553,12 @@ async def test_self_serve_signup_asks_for_the_web_address_too(
     from apps.api.core.settings import get_settings
 
     monkeypatch.setattr(get_settings(), "self_serve_signup_enabled", True)
-    clerk_token = await _clerk_user(f"founder-{uuid.uuid4().hex[:8]}@example.com")
+    founder = await _founder(f"founder-{uuid.uuid4().hex[:8]}@example.com")
 
     async with _client(own_address=True) as http:
         response = await http.post(
             "/v1/auth/signup",
-            headers=_auth(clerk_token),
+            headers=_auth(founder),
             json={"business_name": HINDI_NAME, "vertical_template": "clinic"},
         )
 
