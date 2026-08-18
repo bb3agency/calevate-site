@@ -76,7 +76,19 @@ export function useClientSession(): RealmSessionState {
 }
 
 /** Fail-closed: `ready` is the only status that reaches `children`. */
-export function ClientSessionGate({ children }: { children: ReactNode }) {
+export function ClientSessionGate({
+  children,
+  /**
+   * Passed through to `SessionGate`. TRUE from the console shell, where this gate is the
+   * entire document and must supply its `main` landmark — including the `#main-content`
+   * the shell's always-rendered `SkipLink` points at — and its heading; FALSE (the
+   * default) from `/auth/account`, which renders it inside `AuthPageFrame`'s `<main>`.
+   */
+  landmark = false,
+}: {
+  children: ReactNode;
+  landmark?: boolean;
+}) {
   const { status, retry } = useClientSession();
   if (status === "ready") return <>{children}</>;
   return (
@@ -85,6 +97,7 @@ export function ClientSessionGate({ children }: { children: ReactNode }) {
       realmLabel={CLIENT_REALM_LABEL}
       signInPath={CLIENT_SIGN_IN_PATH}
       onRetry={retry}
+      landmark={landmark}
     />
   );
 }

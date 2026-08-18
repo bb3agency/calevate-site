@@ -79,7 +79,7 @@ export default function ClientInvoicePage() {
             // produces a sheet of paper that looks like an invoice and is not one.
             disabled={!data}
             onClick={() => window.print()}
-            className="inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Printer className="h-4 w-4" />
             Print

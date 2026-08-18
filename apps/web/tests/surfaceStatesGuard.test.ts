@@ -33,8 +33,9 @@ import { beforeAll, describe, expect, it } from "vitest";
  *
  * ═══ WHAT IS CHECKED ═════════════════════════════════════════════════════════════════
  *
- * Four rules. The first two are unconditional; the last two are gated, and the gate is
- * what makes them decidable at all — see the next section.
+ * Six rules. The first two are unconditional; rules 3-6 are gated, and the gate is what
+ * makes them decidable at all — see the next section. Rules 1-5 are all about a READ;
+ * rule 6 is the mutation's own defect and is documented where it is implemented.
  *
  *  1. **A boolean fallback on an envelope read, anywhere.** `?? false` / `?? true` /
  *     `Boolean(q.data?.flag)`. A boolean has no absent value, so the fallback does not
@@ -316,6 +317,15 @@ function isQueryEnvelope(checker: ts.TypeChecker, type: ts.Type): boolean {
   return (
     names.has("data") && names.has("isError") && names.has("isPending") && names.has("refetch") &&
     !names.has("mutate")
+  );
+}
+
+/** A MUTATION — a write. `mutate` without `refetch`, the mirror of the test above. */
+function isMutationEnvelope(checker: ts.TypeChecker, type: ts.Type): boolean {
+  const names = new Set(checker.getPropertiesOfType(type).map((property) => property.getName()));
+  return (
+    names.has("data") && names.has("isError") && names.has("isPending") && names.has("mutate") &&
+    !names.has("refetch")
   );
 }
 
@@ -690,6 +700,66 @@ function unansweredQueryRead(checker: ts.TypeChecker, node: ts.Node): string | n
   return found;
 }
 
+// ─── rule 6: a mutation fired here whose failure has nowhere to go ───────────────────
+
+/**
+ * The first mutation this function BOTH triggers and never asks about.
+ *
+ * Rules 1-5 are all about the query envelope, and the header above says why a mutation's
+ * `data` is not their subject. This is the mutation's own defect, and it is on the other
+ * side of the click: `mutate()` is fire-and-forget — it never throws, never rejects, and
+ * renders nothing of its own — so a component that calls it and never reads `save.error`
+ * shows a control that goes silent on a 403, a 409 and a timeout alike. Nothing on screen
+ * changes; the user presses it again, which for a dial, a top-up or a campaign launch is
+ * the worst available outcome.
+ *
+ * It matters more here than in most apps: `apps/api` answers every refusal with an
+ * RFC-9457 problem carrying a `title`, a `detail` and a `remediation` — sentences written
+ * so the person on the other end knows what to do next — and `ProblemNotice` exists to
+ * render all three. An unread `error` throws that work away at the last hop.
+ *
+ * **Two gates, both borrowed from the rules above rather than invented.**
+ *
+ * * TRIGGERED here (`X.mutate` / `X.mutateAsync` appears in the declaring function). A
+ *   mutation declared and handed to a child is not this component's failure to report;
+ *   `refusesSomewhere` already treats "handed on" as refused, and this calls that same
+ *   function so the two answers cannot drift apart.
+ * * NOT consulted (`FAILURE_MEMBERS`, unchanged). One `save.error` anywhere in the
+ *   component discharges it — this does not compute branch dominance, for the reason the
+ *   header gives at length.
+ *
+ * Measured over `src/` the day it landed: **zero hits.** That is the honest reason it
+ * ships with no EXEMPT entry, and the reason to ship it now rather than after the first
+ * one — there are ~90 mutation call sites for the class to stop being clean in.
+ */
+function unrefusedMutationTrigger(checker: ts.TypeChecker, node: ts.Node): string | null {
+  let found: string | null = null;
+
+  const visit = (child: ts.Node): void => {
+    if (found !== null) return;
+    if (
+      ts.isPropertyAccessExpression(child) &&
+      (child.name.text === "mutate" || child.name.text === "mutateAsync") &&
+      ts.isIdentifier(child.expression) &&
+      isMutationEnvelope(checker, checker.getTypeAtLocation(child.expression))
+    ) {
+      const declaration = checker.getSymbolAtLocation(child.expression)?.declarations?.[0];
+      if (
+        declaration &&
+        ts.isVariableDeclaration(declaration) &&
+        !refusesSomewhere(checker, declaration)
+      ) {
+        found = child.expression.text;
+        return;
+      }
+    }
+    ts.forEachChild(child, visit);
+  };
+
+  visit(node);
+  return found;
+}
+
 /**
  * A value invented to stand in for an answer we do not have — and what the screen then
  * claims with it, in §52's own three words.
@@ -921,6 +991,30 @@ function findViolations(program: ts.Program, sourceFile: ts.SourceFile): Violati
       }
     }
 
+    // ── rule 6: a mutation fired here whose failure has nowhere to go ────────────────
+    //
+    // Reported once per DECLARATION rather than per call, so a mutation fired from three
+    // buttons is one finding with one fix — and the declaration is the node because that
+    // is where the reader adds the refusal.
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      if (isMutationEnvelope(checker, checker.getTypeAtLocation(node.name))) {
+        const scope = owningFunction(node);
+        if (scope && unrefusedMutationTrigger(checker, scope) === node.name.text) {
+          record(
+            node,
+            "a silent refusal",
+            `fires \`${node.name.text}.mutate()\` and never consults ` +
+              `\`${node.name.text}.error\`, so a 403, a 409 or a timeout changes nothing ` +
+              `on screen and the user presses the control again. The API answers every ` +
+              `refusal with an RFC-9457 problem carrying a title, a detail and a ` +
+              `remediation; render it — \`{${node.name.text}.error && <ProblemNotice ` +
+              `error={${node.name.text}.error} />}\` — or hand the whole envelope to the ` +
+              `component that does.`,
+          );
+        }
+      }
+    }
+
     // ── rule 4: a branch deciding whether a control is offered ───────────────────────
     const condition = controlDecidingCondition(node);
     if (condition) {
@@ -992,10 +1086,11 @@ describe("the §52 guard: a fallback on a query envelope", () => {
       `${fixtureLine("bannedVanishingControl") + 2} an absent control`,
       `${fixtureLine("bannedFirstRowFallthrough") + 3} an absent control`,
       `${fixtureLine("bannedPausedEmptyState") + 2} an empty state`,
+      `${fixtureLine("bannedSilentMutation") + 1} a silent refusal`,
     ]);
   }, SCAN_TIMEOUT_MS);
 
-  it("stays silent on the eleven safe look-alikes", () => {
+  it("stays silent on the thirteen safe look-alikes", () => {
     const fixture = program.getSourceFile(resolve(WEB_ROOT, FIXTURE))!;
     const flagged = new Set(findViolations(program, fixture).map((violation) => violation.line));
 
@@ -1015,6 +1110,8 @@ describe("the §52 guard: a fallback on a query envelope", () => {
       "safeProseWithoutControl",
       "safeFailClosedPermissionCheck",
       "safeRefusedControl",
+      "safeRefusedMutation",
+      "safeMutationHandedOn",
     ]) {
       const start = fixtureLine(safe);
       const lines = [...flagged].filter((line) => line >= start && line <= start + 8);

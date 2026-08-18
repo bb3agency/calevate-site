@@ -267,7 +267,7 @@ export default function Home() {
               </Link>
               <Link
                 href="/signup"
-                className="inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-strong"
+                className="inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-strong"
               >
                 {SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
                 <ArrowRight aria-hidden className="h-3.5 w-3.5" />
@@ -301,7 +301,7 @@ export default function Home() {
               <div data-hero-item className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
                   href="/signup"
-                  className="inline-flex items-center gap-2 rounded-md bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
+                  className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
                 >
                   {SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
                   <ArrowRight aria-hidden className="h-4 w-4" />
@@ -645,7 +645,7 @@ export default function Home() {
                 {devSlug && (
                   <Link
                     href={`/c/${devSlug}`}
-                    className="mt-3 inline-flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-strong"
+                    className="mt-3 inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-strong"
                   >
                     Open {devSlug}
                     <ArrowRight aria-hidden className="h-4 w-4" />
@@ -720,7 +720,7 @@ export default function Home() {
                 <div className="mt-8 flex flex-wrap items-center gap-3">
                   <Link
                     href="/signup"
-                    className="inline-flex items-center gap-2 rounded-md bg-brand px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
+                    className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-strong"
                   >
                     {SIGNUP_OPEN ? "Create a workspace" : "Start a conversation"}
                     <ArrowRight aria-hidden className="h-4 w-4" />

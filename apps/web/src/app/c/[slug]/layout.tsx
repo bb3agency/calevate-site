@@ -415,11 +415,21 @@ export default function ClientRealmLayout({
         <ClientRealmProvider
           slug={slug}
           fallback={
-            <div className="flex h-full w-full items-center justify-center">
+            // A `<main>` here too, carrying the same id: `SkipLink` above is rendered in
+            // EVERY state of this shell, so its target has to exist in every state or the
+            // control is dead exactly when the page is slowest. The gate branches get
+            // theirs from `SessionGate`'s `landmark` prop; this is the Suspense arm, which
+            // no gate reaches. Measured by axe in a real browser — `skip-link`, "the
+            // skip-link target should exist and be focusable".
+            <main
+              id={MAIN_CONTENT_ID}
+              tabIndex={-1}
+              className="flex h-full w-full items-center justify-center"
+            >
               <div className="w-96">
                 <Skeleton rows={8} />
               </div>
-            </div>
+            </main>
           }
         >
           <Sidebar slug={slug} isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />

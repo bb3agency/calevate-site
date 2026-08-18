@@ -615,7 +615,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <AdminSessionProvider>
-      <AdminSessionGate>
+      {/* `landmark`: the gate replaces the entire shell, so it owns the document's
+          `main` and its heading while it is on screen. See `SessionGate`. */}
+      <AdminSessionGate landmark>
         <Providers>
           <AdminIdleWarning />
           <AdminMfaGate>

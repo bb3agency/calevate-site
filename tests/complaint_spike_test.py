@@ -30,7 +30,9 @@ from apps.api.campaigns import service as campaigns
 from apps.api.compliance.optout import DETECTED_IN_CALL, OptOutSignal, record_call_optout
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from apps.workers import campaign_dispatch
 from sqlalchemy import text
+from tests.national_dnd_test import record_test_scrub
 
 
 class _Alerts:
@@ -51,8 +53,12 @@ def alerts(monkeypatch: pytest.MonkeyPatch) -> _Alerts:
     return captured
 
 
-async def _running_campaign() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+async def _running_campaign(*, contacts: int = 0) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """(tenant, agent, campaign) with the campaign `running`.
+
+    `contacts` are added while the campaign is still a DRAFT, because `add_contacts`
+    refuses a launched one — the list is fixed at launch by design. Only the test that
+    drives the dispatcher needs them; the detector reads `calls`, not `campaign_contacts`.
 
     Moved to `running` through `set_campaign_status`, the same CAS the pause/resume
     buttons use, rather than through `launch_campaign`: the launch gate needs a number, a
@@ -82,9 +88,96 @@ async def _running_campaign() -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
             consent_source="existing_customer",
             consent_collected_at=datetime.now(UTC) - timedelta(days=7),
         )
+        if contacts:
+            await campaigns.add_contacts(
+                session,
+                tenant_id=tenant_id,
+                campaign_id=campaign_id,
+                contacts=[{"phone": f"98765{n:05d}", "name": f"Lead {n}"} for n in range(contacts)],
+            )
         await campaigns.set_campaign_status(
             session, campaign_id=campaign_id, to_status="running", from_statuses=("draft",)
         )
+    return tenant_id, agent_id, campaign_id
+
+
+async def _launched_campaign(*, contacts: int) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
+    """A campaign that passes the DISPATCHER's standing gate, not just the detector's.
+
+    `_running_campaign` above is deliberately minimal — the detector reads `calls` and
+    nothing else, so a campaign with no number and no DLT template is all it needs. The
+    DISPATCHER is a different question: `dispatch_blockers` runs first and returns
+    `{0, 0, 0}` for a campaign missing its paperwork, which is the SAME return value the
+    complaint-spike path produces. The first draft of the test below passed against
+    `_running_campaign` and proved nothing, because it never reached the line it was
+    written for.
+
+    So this one carries the whole launch: a registered 140-series number, an approved
+    promotional voice template, the client's PE/TM registration, the national-DND scrub,
+    and a published outbound agent — then goes through `launch_campaign`, the real gate.
+    """
+    created = await admin_service.create_organization(
+        name="Spike Dispatch",
+        slug=f"spiked-{uuid.uuid4().hex[:8]}",
+        vertical_template="real_estate",
+        billing_email=None,
+        language="te-IN",
+        created_by=None,
+    )
+    tenant_id, agent_id = created["id"], created["agent_id"]
+    number_id, template_id = uuid7(), uuid7()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE agents SET status = 'live', direction = 'outbound', "
+                "engine_agent_ref = :ref WHERE id = :a"
+            ),
+            {"ref": f"fakeagent_spike_{uuid.uuid4().hex[:8]}", "a": agent_id},
+        )
+        await campaigns.record_dlt_registration(
+            session,
+            tenant_id=tenant_id,
+            pe_id=f"1102{uuid.uuid4().int % 10**9:09d}",
+            entity_name="Spike Dispatch Pvt Ltd",
+            status="active",
+            tm_link_status="active",
+            registered_at=datetime.now(UTC) - timedelta(days=30),
+        )
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, "
+                "created_at, updated_at) VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
+            ),
+            {"id": number_id, "tid": tenant_id, "e": f"+9180{uuid.uuid4().int % 10**8:08d}"},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO dlt_templates (id, tenant_id, kind, classification, body, status, "
+                "created_at, updated_at) VALUES (:id, :tid, 'voice', 'promotional', :body, "
+                "'approved', now(), now())"
+            ),
+            {"id": template_id, "tid": tenant_id, "body": "Hello from {#var#}, an AI assistant."},
+        )
+        campaign_id = await campaigns.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Spike dispatch",
+            classification="promotional",
+            number_id=number_id,
+            dlt_template_id=template_id,
+            concurrency=3,
+            consent_source="existing_customer",
+            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
+        )
+        await campaigns.add_contacts(
+            session,
+            tenant_id=tenant_id,
+            campaign_id=campaign_id,
+            contacts=[{"phone": f"98765{n:05d}", "name": f"Lead {n}"} for n in range(contacts)],
+        )
+        await record_test_scrub(session, campaign_id)
+        await campaigns.launch_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
     return tenant_id, agent_id, campaign_id
 
 
@@ -267,3 +360,57 @@ async def test_a_campaign_already_stopped_still_pages(alerts: _Alerts) -> None:
     assert verdict is not None
     assert verdict.paused is False
     assert "campaign_complaint_spike" in alerts.codes()
+
+
+# --------------------------------------------------- the safety is wired into the tick
+#
+# Everything above tests the DETECTOR. This tests that the dispatcher obeys it, which is
+# a different claim and the one the client is actually buying.
+
+
+async def test_a_spike_stops_the_tick_before_a_single_contact_is_claimed() -> None:
+    """The wiring, and the ORDER of it.
+
+    `check_complaint_spike` is asked in `_dispatch_for_campaign` beside the standing
+    compliance gate — before the claim, not inside the per-contact loop — and the module
+    argues that placement: a spike is a fact about the CAMPAIGN, so it blocks every
+    contact alike and costs no attempts if it is asked first.
+
+    Both halves are asserted here because only one of them is visible in the return
+    value. That the tick dialled nothing is the obvious half. That the contacts are still
+    `pending` with `attempts = 0` is the half that proves the check ran BEFORE the CAS
+    claim — asked one line later, the batch would already have been claimed and each
+    contact would carry a spent attempt for a call that never happened, walking real
+    people down a retry ladder because somebody else complained.
+    """
+    tenant_id, agent_id, campaign_id = await _launched_campaign(contacts=3)
+    calls = await _connected_calls(tenant_id, agent_id, campaign_id, count=10)
+    await _opt_out(tenant_id, calls[: complaint_spike.MIN_OPTOUTS])
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 0, "blocked": 0, "exhausted": 0}, result
+    assert await _status(tenant_id, campaign_id) == "paused"
+    async with tenant_session(tenant_id) as session:
+        contacts = (
+            await session.execute(
+                text(
+                    "SELECT status, attempts FROM campaign_contacts WHERE campaign_id = :c "
+                    "ORDER BY created_at, id"
+                ),
+                {"c": campaign_id},
+            )
+        ).all()
+        dialled = (
+            await session.execute(
+                text("SELECT count(*) FROM calls WHERE campaign_id = :c AND status = 'queued'"),
+                {"c": campaign_id},
+            )
+        ).scalar()
+    assert [(str(s), int(a)) for s, a in contacts] == [("pending", 0)] * 3, (
+        "the spike was asked after the claim — three people are now one attempt down the "
+        "retry ladder for a call nobody placed"
+    )
+    assert int(dialled or 0) == 0, "a campaign paused for a complaint spike still dialled"

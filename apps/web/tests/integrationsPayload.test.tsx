@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
@@ -121,6 +121,52 @@ describe("the retained delivery body", () => {
 
     expect(await screen.findByText(BODY)).toBeTruthy();
     expect(calls.filter((c) => c.path === payloadPath)).toHaveLength(1);
+  });
+
+  /**
+   * Hard rule 5, on the SECOND press — the same claim `callDetail.test.tsx` makes about
+   * the raw transcript, because this is the same kind of route and it was left behind
+   * when that one was fixed.
+   *
+   * `GET /v1/integrations/deliveries/{id}/payload` writes an `audit_log` row in the same
+   * transaction as the read (integrations/routes.py), because the body is unredacted
+   * customer data. The trail therefore has to count OPENINGS: served from a cache, a
+   * second look leaves no second row and the log understates what was seen.
+   */
+  it("asks again on a second open, so every look is audited", async () => {
+    const { calls } = await renderClientPage(page, {
+      ...routes(),
+      "/v1/integrations/deliveries/d1/payload": PAYLOAD,
+    });
+    const payloadPath = "/v1/integrations/deliveries/d1/payload";
+
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    expect(calls.filter((c) => c.path === payloadPath)).toHaveLength(1);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Hide" }));
+    await waitFor(() => expect(screen.queryByText(BODY)).toBeNull());
+
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    expect(calls.filter((c) => c.path === payloadPath)).toHaveLength(2);
+  });
+
+  it("does not replay the last body while the new read is still in flight", async () => {
+    // The other half of asking again. A panel that reopens on the PREVIOUS payload prints
+    // a customer's details on the strength of a request that has not answered — and on a
+    // switch between rows it would print the wrong customer's, under the new row's
+    // heading.
+    const { container } = await renderClientPage(page, {
+      ...routes(),
+      "/v1/integrations/deliveries/d1/payload": PAYLOAD,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: "Hide" }));
+
+    await waitFor(() => expect(container.textContent).not.toContain(BODY));
   });
 
   it("is not offered at all to a reader without calls:read_raw", async () => {
