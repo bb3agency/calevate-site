@@ -48,15 +48,15 @@ from apps.api.billing.caps import (
     lock_tenant_spend_state,
     over_cap_sql,
 )
-from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.plans import NOW_SQL, ist_billing_month, plan_in_effect_sql
 from apps.api.billing.rates import (
     MONEY_Q,
     PREPAID_TIERS,
     ROUNDING,
     billable_tier,
-    client_billed_inr,
+    prepaid_billed_inr,
 )
-from apps.api.billing.service import charge_for_call, plan_tier_of
+from apps.api.billing.service import charge_for_call, overage_increment_inr, plan_tier_of
 from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
@@ -1480,9 +1480,20 @@ def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     return (leg_inr / qty).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-def _ist_month(moment: datetime) -> str:
-    """The IST billing month a UTC instant belongs to (billing `_IST_MONTH`)."""
-    return (moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")
+# THERE IS NO `_ist_month` HERE ANY MORE, and its removal is a money fix rather than a
+# tidy-up. It read `(moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")`, which
+# is the right arithmetic ONLY for a moment expressed in UTC — `strftime` renders the
+# instant's own naive fields, so a value already carrying +05:30 got shifted a second
+# time. Nothing guarantees UTC: both adapters parse `ended_at` with
+# `datetime.fromisoformat` and PRESERVE whatever offset the vendor sent (`engine/bolna.py
+# ::_parse_dt` — its `replace(tzinfo=UTC)` covers NAIVE values only), and the vendor here
+# is an Indian voice platform. A call at 23:00 IST on the last of the month was therefore
+# counted into the NEXT month's `spend_state` while its own `usage_events` row — read back
+# through `billing.service._IST_MONTH`, which goes via `timestamptz` and is correct — sat
+# in the right one. `billing.plans.ist_billing_month` is the one spelling, converts
+# properly for any aware instant, and refuses a naive one instead of billing a month it
+# guessed. (`tests/billing_month_ordering_test.py` and `tests/one_billing_month_spelling_
+# test.py` are the two halves that keep it that way.)
 
 
 # --- the spend cap ------------------------------------------------------------
@@ -1518,26 +1529,49 @@ def _ist_month(moment: datetime) -> str:
 # themselves both bind, and the stricter wins. The CTE body is imported, not restated,
 # for the same reason.
 
-# The accumulated totals — reset on a new IST billing month, added to within one.
-_ACC_MINUTES = (
-    "CASE WHEN spend_state.month = EXCLUDED.month "
-    "THEN spend_state.minutes_used + EXCLUDED.minutes_used "
-    "ELSE EXCLUDED.minutes_used END"
-)
-_ACC_SPEND = (
-    "CASE WHEN spend_state.month = EXCLUDED.month "
-    "THEN spend_state.spend_used + EXCLUDED.spend_used "
-    "ELSE EXCLUDED.spend_used END"
-)
+
+# HOW ONE CALL MOVES ONE COUNTER, in the only three directions a call's month can sit
+# relative to the month the row is already counting. Written ONCE and applied to each
+# column, where it used to be three near-identical string literals differing only in a
+# column name — the shape a fourth column silently gets wrong.
+#
+# **THE `ELSE` BRANCH IS THE FIX.** It used to be `EXCLUDED.<column>`, i.e. "any month
+# that is not this one REPLACES the totals", which is right when the new month is LATER
+# and destructive when it is EARLIER. A call that settles late — the reconciliation
+# poller's 30-minute window straddling midnight IST on the 1st, an ARQ retry ladder
+# crossing it, a vendor that takes minutes to price a call (`engine.py`) — arrives
+# carrying LAST month's stamp, and the old rule handed it the whole row: this month's
+# minutes, this month's supplier spend, this month's billed rupees and the `capped` flag
+# were all replaced by that one call's, and `month` went backwards with them. A tenant one
+# call short of their ceiling got a fresh month's headroom out of a call they had already
+# made, and `compliance.spend_capped` then read the rolled-back month as no cap at all.
+#
+# So a closed month's call leaves the counters alone. Its money is NOT lost — `usage_events`
+# is the ledger and it has the row (that is what every invoice and every panel reads);
+# what it may not do is move a ceiling for a month it does not belong to. `spend_state`
+# holds ONE month by construction (PK `tenant_id`, no history), so there is no other
+# honest answer available to it.
+#
+# The comparison is a plain text one because `YYYY-MM` sorts chronologically as a string:
+# both operands are the same fixed shape, so the ordering reduces to a digit comparison
+# and no collation reorders digits. It is the same assumption `caps.read_spend_counters`
+# already makes when it compares the stamp for equality.
+def _accumulate(column: str) -> str:
+    return (
+        f"CASE WHEN spend_state.month = EXCLUDED.month "
+        f"THEN spend_state.{column} + EXCLUDED.{column} "
+        f"WHEN spend_state.month < EXCLUDED.month THEN EXCLUDED.{column} "
+        f"ELSE spend_state.{column} END"
+    )
+
+
+_ACC_MINUTES = _accumulate("minutes_used")
+# OUR supplier cost, which stays the margin panel's.
+_ACC_SPEND = _accumulate("spend_used")
 # The CLIENT's currency, accumulated beside ours (P1.3). `spend_used` is what the engine
-# charged us and stays the margin panel's; this is what the client owes and is what the
-# cap below is compared against. Same reset-on-rollover rule as the two above — a
-# client's allowance does not carry into the next month any more than their minutes do.
-_ACC_BILLED = (
-    "CASE WHEN spend_state.month = EXCLUDED.month "
-    "THEN spend_state.billed_inr + EXCLUDED.billed_inr "
-    "ELSE EXCLUDED.billed_inr END"
-)
+# charged us; this is what the client owes and is what the cap below is compared against.
+# A client's allowance does not carry into the next month any more than their minutes do.
+_ACC_BILLED = _accumulate("billed_inr")
 
 
 _SPEND_STATE_UPSERT = f"""
@@ -1561,19 +1595,37 @@ ON CONFLICT (tenant_id) DO UPDATE SET
     -- flag left at its old value is a tenant capped in July who can never dial in
     -- August — the counters would read one minute used and the gate would still refuse.
     capped = {over_cap_sql(_ACC_MINUTES, _ACC_BILLED)},
-    month = EXCLUDED.month,
+    -- Never backwards: `GREATEST` is the month half of the same rule `_accumulate`
+    -- applies to the totals, so a late call from a closed month cannot re-stamp the row
+    -- with a month that has already ended. It is also what makes the RETURNING below a
+    -- usable answer to "did this call count".
+    month = GREATEST(spend_state.month, EXCLUDED.month),
     updated_at = now()
-RETURNING minutes_used, billed_inr, (SELECT cap_min FROM caps), (SELECT cap_spend FROM caps)
+RETURNING minutes_used, billed_inr, (SELECT cap_min FROM caps), (SELECT cap_spend FROM caps),
+          month
 """
 # RETURNING carries the alarm (see `announce_cap_headroom`), and it carries the totals
 # AFTER this call rather than the crossing itself because the crossing needs both sides:
-# the totals BEFORE are `returned - this call's delta`, which holds on all three paths —
-# the insert (before = 0), the accumulate (before = the running total) and the month
-# rollover, where `_ACC_*` returns the EXCLUDED value and the subtraction gives 0, which
-# is exactly right for a month that just started. Postgres returns the NEW row from an
-# `ON CONFLICT DO UPDATE`, and a CTE is visible in `RETURNING`, so the ceilings come back
-# from the same `caps` the flag was computed against — reading `plans` a second time could
-# land on a different row and announce against a ceiling the flag was not judged by.
+# the totals BEFORE are `returned - this call's delta`, which holds on all four paths —
+# the insert (before = 0), the accumulate (before = the running total), the month
+# rollover, where `_ACC_*` returns the EXCLUDED value and the subtraction gives 0 (exactly
+# right for a month that just started), and the closed-month call, where the delta the
+# caller subtracts is ZERO because nothing was applied.
+#
+# **`month` IS ON THE RETURNING FOR THAT LAST PATH, and it is the ONLY honest way to ask.**
+# `EXCLUDED` is not referencable from a RETURNING clause — Postgres 16 answers "invalid
+# reference to FROM-clause entry for table \"excluded\"", measured against this database
+# rather than recalled — so the statement cannot hand back the branch it took directly.
+# What it CAN hand back is the row's month afterwards, and because `GREATEST` never moves
+# it backwards, `returned_month == :month` is precisely "this call's month is the one
+# being counted, so its totals went in". Re-deriving that in Python from a second read of
+# `spend_state` would be a second copy of the rule, which is how the caller and the
+# statement start to disagree about one write.
+#
+# Postgres returns the NEW row from an `ON CONFLICT DO UPDATE`, and a CTE is visible in
+# `RETURNING`, so the ceilings come back from the same `caps` the flag was computed
+# against — reading `plans` a second time could land on a different row and announce
+# against a ceiling the flag was not judged by.
 # (postgresql.org/docs/16/sql-insert.html — "the ... RETURNING ... row values are those of
 # the inserted or updated row".)
 
@@ -1767,21 +1819,29 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 {"tid": tenant_id},
             )
         ).first()
-        # WHICH RUNG THIS CALL'S MARGINAL MINUTES ARE PRICED ON. The rate card has two,
-        # and the call already resolved its own `tts_tier` above — so the marginal minute
-        # is priced on the rung the call ran on, which is the same honesty rule
-        # `billable_tier` applies: an unproven call resolved to `value` and is charged the
-        # cheaper rate here too. `usage_summary` allocates the month's INCLUDED allowance
-        # to the dearer rung first, which is a month-level decision this per-call counter
-        # deliberately does not try to reproduce — see `client_billed_inr`.
-        marginal_rate: Decimal | None = None
-        if plan_rates is not None:
-            premium_rate = plan_rates[1]
-            value_rate = plan_rates[2]
-            chosen = (
-                value_rate if (tts_tier == "value" and value_rate is not None) else premium_rate
-            )
-            marginal_rate = Decimal(str(chosen)) if chosen is not None else None
+        # THE PLAN'S TERMS AS THIS CALL SEES THEM. Both rungs, not one: this counter no
+        # longer picks a marginal rate per call. It used to — the call's own `tts_tier`
+        # chose between `overage_rate` and `overage_rate_value` and the allowance was
+        # spent in ARRIVAL order — which is a SECOND way of pricing a month beside the one
+        # the invoice uses, and the two diverge as soon as a plan quotes both rates.
+        # `billing.service.priced_overage` is now the only rule and
+        # `_billed_for_this_call` charges the difference this call makes to it.
+        included_min = Decimal(str(plan_rates[0])) if plan_rates is not None else Decimal("0")
+        overage_rate = (
+            Decimal(str(plan_rates[1]))
+            if plan_rates is not None and plan_rates[1] is not None
+            # A plan that quotes no overage rate accrues nothing, and a list price is
+            # deliberately NOT substituted for one (`priced_overage`): the same rate has
+            # to price the panel, the cap AND the invoice.
+            else Decimal("0")
+        )
+        # NULL is not zero: "this plan quotes no separate value rate" (bill every overage
+        # minute at `overage_rate`) and "the value rung is free" are different plans.
+        overage_rate_value = (
+            Decimal(str(plan_rates[2]))
+            if plan_rates is not None and plan_rates[2] is not None
+            else None
+        )
 
         # Prepaid credits move with the metering, keyed by call_id so a pipeline
         # re-run cannot double-charge (D-39). Managed tenants are invoiced against a
@@ -1794,11 +1854,9 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
-                amount_inr=client_billed_inr(
-                    plan_tier=tier,
+                amount_inr=prepaid_billed_inr(
                     minutes=minutes,
                     self_serve_rate=get_settings().self_serve_inr_per_min,
-                    marginal_rate=marginal_rate,
                 ),
             )
 
@@ -1822,15 +1880,18 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # in `tests/money_walk_test.py`. Taken AFTER `charge_for_call`'s `credit:` lock,
         # which is the only order anything takes the two in.
         await lock_tenant_spend_state(session, tenant_id)
-        month = _ist_month(snapshot.ended_at or datetime.now(UTC))
+        month = ist_billing_month(snapshot.ended_at or datetime.now(UTC))
         billed = await _billed_for_this_call(
             session,
             tenant_id=tenant_id,
             plan_tier=tier,
             month=month,
             minutes=minutes,
-            included_min=Decimal(str(plan_rates[0])) if plan_rates is not None else Decimal("0"),
-            marginal_rate=marginal_rate,
+            seconds=duration_s,
+            tts_tier=tts_tier,
+            included_min=included_min,
+            rate=overage_rate,
+            rate_value=overage_rate_value,
         )
         counters = (
             await session.execute(
@@ -1859,12 +1920,35 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             billed_after = Decimal(str(counters[1]))
             cap_min = Decimal(str(counters[2])) if counters[2] is not None else None
             cap_spend = Decimal(str(counters[3])) if counters[3] is not None else None
+            # DID THIS CALL COUNT? The row's month after the write answers it (see the
+            # RETURNING note): anything other than this call's month means the counter is
+            # already on a LATER month and `_accumulate` left it alone, so the delta the
+            # crossing arithmetic subtracts is zero and no alarm can fire about a call
+            # that moved nothing.
+            counted = str(counters[4]) == month
+            applied_minutes = minutes if counted else Decimal("0")
+            applied_billed = billed if counted else Decimal("0")
+            if not counted:
+                # An operator reading a cap that did not move needs to know a call was
+                # deliberately not counted into it. Ids and months only — no rupees, no
+                # phone, no lead (hard rules 6 and the log discipline `warn_no_plan_in_
+                # effect` states). Not an `alert()`: around a month boundary this is the
+                # expected outcome, and an alarm that fires every rollover is a muted one.
+                log.info(
+                    "spend_counter_skipped_closed_month",
+                    extra={
+                        "tenant_id": str(tenant_id),
+                        "call_id": str(call_id),
+                        "call_month": month,
+                        "counter_month": str(counters[4]),
+                    },
+                )
             announce_cap_headroom(
                 tenant_id=tenant_id,
                 month=month,
                 before=cap_fullness(
-                    minutes_used=minutes_after - minutes,
-                    billed_inr=billed_after - billed,
+                    minutes_used=minutes_after - applied_minutes,
+                    billed_inr=billed_after - applied_billed,
                     cap_min=cap_min,
                     cap_spend=cap_spend,
                 ),
@@ -1885,16 +1969,20 @@ async def _billed_for_this_call(
     plan_tier: str | None,
     month: str,
     minutes: Decimal,
+    seconds: Decimal,
+    tts_tier: str,
     included_min: Decimal,
-    marginal_rate: Decimal | None,
+    rate: Decimal,
+    rate_value: Decimal | None,
 ) -> Decimal:
     """This call's contribution to `spend_state.billed_inr` — the CLIENT's currency.
 
-    **MUST be called with `lock_tenant_spend_state` held**, and every line below is why:
-    the managed branch reads the month's running minutes and then writes a figure derived
-    from them, which is the read-then-write over money CLAUDE.md's concurrency rule names.
-    The lock is already taken by the only caller for the upsert's own sake, so this costs
-    nothing and adds no second lock to reason about.
+    **MUST be called with `lock_tenant_spend_state` held**, and AFTER this call's
+    `usage_events` rows are written in the same transaction. The managed branch reads the
+    month's ledger and then writes a figure derived from it, which is the read-then-write
+    over money CLAUDE.md's concurrency rule names; the lock is already taken by the only
+    caller for the upsert's own sake, so this costs nothing and adds no second lock to
+    reason about.
 
     PREPAID (`self_serve`, `trial`): every minute is charged, so there is no month to
     consult and the answer is the same one `charge_for_call` was just given. Deliberately
@@ -1903,44 +1991,40 @@ async def _billed_for_this_call(
     would want the debit and the accrual to diverge without either quietly following the
     other.
 
-    MANAGED: only the minutes BEYOND the plan's included allowance are charged, and which
-    minutes those are is a fact about the month rather than about this call. The counter
-    already holds the month's running total, so the increment is exact and independent of
-    the order calls happen to meter in:
+    MANAGED: the difference this call makes to the MONTH's overage bill, priced by
+    `billing.service.priced_overage` — the same function that prices the client's panel
+    and prints the invoice's lines.
 
-        billed(this call) = over(minutes_before + minutes) - over(minutes_before)
-        where over(m)     = max(0, m - included_min)
+    **THIS BRANCH USED TO CARRY ITS OWN PRICING RULE and that was the defect.** It read
+    the month's running minutes off `spend_state` and charged
+    `over(before + m) - over(before)` at a rate chosen from THIS call's rung, i.e. it
+    spent the included allowance in arrival order — where the invoice spends it on the
+    DEARER rung first. The two agree for a plan quoting one rate (so they agreed for
+    every plan in the database, `plans.overage_rate_value` being an open founder
+    decision) and diverge as soon as a second is quoted: measured at ₹880.00 against
+    ₹520.00 on a two-rung month whose cheap minutes arrived first, which is a client
+    reading two totals for one month on one screen and a spend cap biting against the
+    larger. `tests/two_rung_counter_agrees_test.py` is that reproduction.
 
-    A CLOSED-MONTH ROW COUNTS AS ZERO MINUTES SO FAR, matching the upsert immediately
-    below, which resets rather than accumulates when `spend_state.month` differs. Reading
-    a stale row's minutes as "already used" would spend the new month's allowance on the
-    old month's calls — a client's first call in August charged at the overage rate.
+    Reading the LEDGER rather than the counter also removes the closed-month caveat this
+    docstring used to carry: `overage_increment_inr` scopes its read to `month`, so a
+    call belonging to a closed month prices against that month's own rows rather than
+    against whatever the single `spend_state` row happens to be stamped with.
     """
     if plan_tier in PREPAID_TIERS:
-        return client_billed_inr(
-            plan_tier=plan_tier,
+        return prepaid_billed_inr(
             minutes=minutes,
             self_serve_rate=get_settings().self_serve_inr_per_min,
-            marginal_rate=marginal_rate,
         )
-    row = (
-        await session.execute(
-            text("SELECT minutes_used, month FROM spend_state WHERE tenant_id = :tid"),
-            {"tid": tenant_id},
-        )
-    ).first()
-    used_before = Decimal(str(row[0])) if row is not None and str(row[1]) == month else Decimal("0")
-    over_before = max(Decimal("0"), used_before - included_min)
-    over_after = max(Decimal("0"), used_before + minutes - included_min)
-    return client_billed_inr(
-        plan_tier=plan_tier,
-        minutes=over_after - over_before,
-        # Unread on this branch — `client_billed_inr` reaches for the list price only
-        # for a PREPAID tier, and a managed tenant with no quoted rate accrues nothing
-        # rather than being priced at a number nobody agreed. Passed as the real value
-        # anyway so the call site does not carry a lie about what it means.
-        self_serve_rate=get_settings().self_serve_inr_per_min,
-        marginal_rate=marginal_rate,
+    return await overage_increment_inr(
+        session,
+        tenant_id=tenant_id,
+        month=month,
+        tier=tts_tier,
+        seconds=seconds,
+        included_min=included_min,
+        rate=rate,
+        rate_value=rate_value,
     )
 
 

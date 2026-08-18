@@ -17,9 +17,16 @@ route, and the client usage panel. A client who capped at ₹5,000 was stopped a
 OUR cost, and the figure explaining it to them was our supplier pricing on their screen.
 `tests/money_walk_test.py` owns the panel half; this file owns the two WRITES.
 
-WHY BOTH LIVE IN ONE FILE: they are one arithmetic (`client_billed_inr`) reached from two
-call sites in the same transaction, and their whole content is that the two agree. Split
-across two files, a change to the rate would be able to move one and not the other.
+WHY BOTH LIVE IN ONE FILE: they are one arithmetic reached from two call sites in the
+same transaction, and their whole content is that the two agree. Split across two files,
+a change to the rate would be able to move one and not the other.
+
+`client_billed_inr` used to be that one arithmetic for BOTH motions. It is
+`prepaid_billed_inr` now and answers for the prepaid one only: a managed month is priced
+by `billing.service.priced_overage` — the same function the panel and the invoice use —
+because the two rules diverged as soon as a plan quoted `overage_rate_value`
+(`tests/two_rung_counter_agrees_test.py`). The managed assertions below therefore test
+the month pricing rather than a per-call rate, which is what actually decides the bill.
 """
 
 from __future__ import annotations
@@ -28,7 +35,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from apps.api.billing.rates import PREPAID_TIERS, client_billed_inr
+from apps.api.billing.rates import PREPAID_TIERS, prepaid_billed_inr
+from apps.api.billing.service import priced_overage
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import _meter
@@ -38,6 +46,9 @@ from tests.spend_caps_test import _call_row, _plan, _snapshot, _spend_state, _te
 #: One minute exactly, so every expected figure below is the rate itself and a reader can
 #: check the arithmetic without a calculator.
 _SIXTY_SECONDS = 60
+
+#: Zero minutes, at the paise scale every figure in this module carries.
+_ZERO = Decimal("0.00")
 
 #: What the ENGINE charges us for that minute. Deliberately nothing like the client's
 #: rate: if the two were close, every assertion here would pass under the old code.
@@ -85,21 +96,20 @@ async def _meter_one_minute(tenant_id: UUID, agent_id: UUID) -> None:
 
 def test_a_prepaid_minute_is_priced_at_the_list_rate_and_not_at_our_cost() -> None:
     """The one-line statement of P1.1."""
-    assert client_billed_inr(
-        plan_tier="self_serve",
-        minutes=Decimal("10"),
-        self_serve_rate=Decimal("6.00"),
-        marginal_rate=Decimal("99.00"),
-    ) == Decimal("60.0000"), "a prepaid tier ignores a plan rate; the list price is their price"
+    assert prepaid_billed_inr(minutes=Decimal("10"), self_serve_rate=Decimal("6.00")) == Decimal(
+        "60.0000"
+    ), "the list price is a prepaid client's price"
 
 
-def test_a_managed_minute_is_priced_at_the_plans_marginal_rate() -> None:
-    assert client_billed_inr(
-        plan_tier="managed",
-        minutes=Decimal("10"),
-        self_serve_rate=Decimal("6.00"),
-        marginal_rate=Decimal("8.00"),
-    ) == Decimal("80.0000")
+def test_a_managed_month_is_priced_at_the_plans_overage_rate() -> None:
+    """The managed half, asserted where the decision now lives: `priced_overage` prices
+    the whole month, and the meter charges each call the difference it makes to it."""
+    assert priced_overage(
+        minutes_by_rung={"premium": Decimal("10.00"), "value": _ZERO, "": _ZERO},
+        included_min=Decimal("0"),
+        rate=Decimal("8.00"),
+        rate_value=None,
+    ).total_inr == Decimal("80.00")
 
 
 def test_an_unpriced_managed_tenant_accrues_nothing_rather_than_a_made_up_price() -> None:
@@ -112,13 +122,16 @@ def test_an_unpriced_managed_tenant_accrues_nothing_rather_than_a_made_up_price(
     panel, the cap AND the invoice, and `b1d5c8e73f04` already settled that this
     repository does not invent a price a plan does not quote. A counter accruing ₹6/min
     beside an invoice charging ₹0 would be two documents about one month.
+
+    `usage_summary` reads a NULL `overage_rate` as `Decimal("0")` and `_meter` does the
+    same, so the refusal is spelled as a zero rate here — the value both readers hand in.
     """
-    assert client_billed_inr(
-        plan_tier="managed",
-        minutes=Decimal("10"),
-        self_serve_rate=Decimal("6.00"),
-        marginal_rate=None,
-    ) == Decimal("0.0000")
+    assert priced_overage(
+        minutes_by_rung={"premium": Decimal("10.00"), "value": _ZERO, "": _ZERO},
+        included_min=Decimal("0"),
+        rate=Decimal("0"),
+        rate_value=None,
+    ).total_inr == Decimal("0.00")
 
 
 def test_the_prepaid_tier_list_is_what_the_meter_branches_on() -> None:
