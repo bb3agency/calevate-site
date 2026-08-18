@@ -1808,7 +1808,12 @@ async def record_tier_correction(
     ).scalar()
 
     meta = {
-        "kind": "tts_tier_correction",
+        # THE CONSTANT, not the literal, and this is the whole reason it is named. The
+        # READER (`_CORRECTED_TIER_SQL`) recognises a correction row by this exact string
+        # in order to re-attribute the call's minutes; a writer that spelled it separately
+        # would let a rename move the reader and leave the writer behind, and the symptom
+        # would be silent — corrections that write fine and reprice nothing.
+        "kind": TIER_CORRECTION_META_KIND,
         "correction_ref": ref,
         "billed_tier": billed_tier,
         "actual_tier": actual_tier,
