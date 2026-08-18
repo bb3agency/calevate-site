@@ -112,7 +112,20 @@ def _no_ambient_credentials() -> Iterator[None]:
     `mock.patch.dict(os.environ, ...)` — which is now the ONLY way to have one, and
     makes the dependency visible in the test that has it.
     """
-    saved = {name: os.environ.pop(name, None) for name in AMBIENT_CREDENTIALS}
+    # THE VENDOR KEYS ARE STRIPPED TOO, and they arrived through a door the original
+    # sweep did not cover: `.env`, not an exported shell variable. A developer who put a
+    # real `BOLNA_API_KEY` in this repo's `.env` was running a DIFFERENT suite from CI —
+    # `engine_readiness_credentials_test.test_bolna_still_answers_exactly_as_it_did` and
+    # `pilot_cli_test.test_preflight_names_the_gates_each_missing_item_blocks` both assert
+    # a key is ABSENT, and both failed on that machine and nowhere else. Same class as the
+    # `COHERE_API_KEY` case this fixture was written for; same fix, one layer wider.
+    #
+    # DERIVED from the adapters (`engine.all_credential_env_keys`), not retyped: a fourth
+    # engine's key is stripped by the code that already exists.
+    from apps.api.engine import all_credential_env_keys
+
+    stripped = (*AMBIENT_CREDENTIALS, *all_credential_env_keys())
+    saved = {name: os.environ.pop(name, None) for name in stripped}
     saved_home = os.environ.get("HOME")
     empty_home = tempfile.mkdtemp(prefix="calevate-no-aws-")
     os.environ["HOME"] = empty_home
