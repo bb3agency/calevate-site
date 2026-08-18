@@ -1506,6 +1506,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         # The greeting field — Bolna's own noun for it. Read since P3.3, because the
         # disclosure verdict has to be scored against the field that SPEAKS.
         "agent_welcome_message",
+        # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
+        # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
+        # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly
+        # what makes this a vendor-only noun rather than a shared one: the concept is
+        # ours, the spelling is theirs, and `direction` appearing outside the adapter is
+        # normal while `call_type` appearing there would be a vendor shape that escaped.
+        "call_type",
         "conversation_duration",
         "cost_breakdown",
         "cost_currency",
@@ -1514,6 +1521,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         # `knowledgebases` left with `list_kb`'s account-wide listing (D-354): the vendor's
         # knowledge base carries no agent, so that listing could never answer the question
         # this port asks, and the capability is now declared absent.
+        #
+        # `has_more` IS LISTED ONCE FOR BOTH VENDORS, and it is the only entry that has to
+        # be. Bolna's `AgentExecutionV2List.has_more` (VERIFIED-OAS, D-353) and Cartesia's
+        # pagination flag are the same word, so a second entry down in the Cartesia block
+        # was a duplicate a frozenset silently absorbed — ruff's B033 caught it. It stays
+        # HERE rather than there because this is the first block: the set is a ban list,
+        # not a per-vendor inventory, and a word only has to be banned once.
         "has_more",
         "llm_config",
         "rag_id",
@@ -1531,7 +1545,7 @@ _VENDOR_ONLY_KEYS = frozenset(
         "agent_call_id",
         "duration_seconds",
         "from_number_id",
-        "has_more",
+        # (`has_more` is Cartesia's too — listed once, up in the Bolna block.)
         # Their pagination cursor parameter, read at source in their generated client.
         # Nothing of ours is called this. (`summaries`, the envelope `GET /agents` answers
         # with, is NOT here — see `_SHARED_PAYLOAD_KEYS`.)

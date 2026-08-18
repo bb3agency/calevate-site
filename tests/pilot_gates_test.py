@@ -669,8 +669,17 @@ async def test_gate_6_fails_when_the_dashboard_holds_more_executions_than_we_lis
 
 async def test_gate_6_fails_when_the_adapter_cannot_vouch_for_the_listing() -> None:
     """The adapter's own alarm, scored. A listing it will not vouch for means executions
-    may lie beyond the part we read — and those have no webhook (at-most-once, D-31), no
-    repair and no trace anywhere."""
+    may lie beyond the part we read — and a webhook that was never delivered because the
+    receiver was down (D-352: the hosted platform retries on non-2xx, but only to a
+    receiver that answers) leaves no repair and no trace anywhere.
+
+    The asserted finding text changed with D-353 and the assertion moved with it. It used
+    to look for "PAGINATION IS REAL OR CANNOT BE RULED OUT", which was the honest headline
+    while we believed Bolna published no pagination contract. They publish one, the gate's
+    prose now tells the operator to read `incomplete_reason` and says what each value
+    means, and an assertion left on the old sentence would have gone on passing against
+    prose that no longer existed — it did not, which is how this was caught.
+    """
     engine = TruncatedListingEngine()
     _seeded(engine, "exec-a")
     result = await run_gate_6(
@@ -682,7 +691,12 @@ async def test_gate_6_fails_when_the_adapter_cannot_vouch_for_the_listing() -> N
     )
 
     assert _check(result, "listing_covers_the_whole_window").status == "fail"
-    assert any("PAGINATION IS REAL OR CANNOT BE RULED OUT" in f for f in result.findings)
+    assert any("THE LISTING DID NOT COVER ITS WINDOW" in f for f in result.findings), (
+        result.findings
+    )
+    # The operator is pointed at the field that says WHICH of the three concrete causes
+    # this was. A finding that only says "incomplete" sends them reading the adapter.
+    assert any("incomplete_reason" in f for f in result.findings), result.findings
 
 
 async def test_gate_6_fails_when_the_poller_cannot_see_a_lost_execution() -> None:

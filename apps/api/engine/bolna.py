@@ -31,13 +31,17 @@ Three properties of this vendor shape the whole design and are load-bearing:
    REPO: `references/call-statuses.md` — "`completed` is the terminal status ... after
    recordings, transcripts, and extractions have finished post-processing".
 3. **Costs arrive with a five-key per-leg breakdown** (`llm`, `network`, `platform`,
-   `synthesizer`, `transcriber`) **and the OAS states the unit outright: cents.** Both
-   `AgentExecution.total_cost` ("Total cost incurred by this execution in cents") and
-   `CostBreakdown` ("in cents" on all five members) say so, which retires the marked
-   assumption this paragraph used to carry — see `_ASSUMED_MINOR_UNITS_PER_MAJOR`. The
-   adapter converts to INR at capture and stamps the fx rate, so a ledger row can always
-   be re-derived (hard rule 7). WHICH currency's cents is still not stated anywhere
-   (OPERATIONS §2 gate 7).
+   `synthesizer`, `transcriber`) — VERIFIED-OAS, `CostBreakdown`. **The UNIT is where the
+   vendor contradicts itself and the money path lives, so it is still a marked assumption
+   (hard rule 7).** The OAS says "in cents" on `total_cost` and on all five members;
+   `references/execution-payload.md`, the same repo at the same commit, says `total_cost`
+   is "Bolna cost in account currency" — major units. The vendor's own precedence rule
+   ("treat the YAML as canonical", `references/bolna-core.md`) breaks the tie toward
+   cents, which is what `_ASSUMED_MINOR_UNITS_PER_MAJOR` already encoded, so nothing
+   changes — but a precedence rule is not an observation, and read that constant before
+   touching anything here. The adapter converts to INR at capture and stamps the fx rate,
+   so a ledger row can always be re-derived. WHICH currency is stated nowhere at all
+   (OPERATIONS §2 gate 7, which now scores unit and currency both).
 
 Where the evidence for each claim came from, and how much it is worth, is recorded once
 in `docs/vendor/bolna/` rather than re-argued here. FOUR classes are used throughout this
@@ -330,9 +334,9 @@ _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 #: How many of the vendor's cost UNITS make one unit of `_ASSUMED_CURRENCY`. 100 = the
 #: numbers are minor units (cents); 1 = they are major units (dollars).
 #:
-#: **NO LONGER AN ASSUMPTION: THE VENDOR'S OWN OAS SAYS "cents" (D-350, supersedes the
-#: D-261 note that used to sit here).** VERIFIED-OAS, `bolna-ai/skills@28b24aa
-#: references/openapi.yml`:
+#: **STILL A MARKED ASSUMPTION (hard rule 7), BUT THE EVIDENCE NOW POINTS AT IT RATHER
+#: THAN AWAY (D-350, supersedes the D-261 note that used to sit here).** VERIFIED-OAS,
+#: `bolna-ai/skills@28b24aa references/openapi.yml`:
 #:
 #:   AgentExecution.total_cost   — "Total cost incurred by this execution **in cents**"
 #:   AgentExecution.cost_breakdown — "Breakdown of the costs **in cents**"
@@ -340,19 +344,34 @@ _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 #:   with examples 4.2 / 1.2 / 2.0 / 6.8 / 0.7 (fractional cents, so the values are not
 #:   integers and `_to_inr`'s `Decimal(str(...))` matters).
 #:
-#: The previous note argued the evidence pointed the other way, off the OSS framework's
-#: `calculate_total_cost_of_llm_from_transcript` returning `round(dollars, 5)` and off
-#: published per-minute dollar pricing. Both readings were about a program that is not the
-#: hosted biller. The hosted contract states its own unit, and it agrees with the constant
-#: that was already here — the value never changes, but it stops being a guess, which is
-#: the part gate 7 was scoring.
+#: That retires the OSS-framework reading the old note argued from
+#: (`calculate_total_cost_of_llm_from_transcript` returning `round(dollars, 5)`, plus
+#: published per-minute dollar pricing) — both were about a program that is not the hosted
+#: biller. It does NOT retire the assumption itself, and saying it did would repeat the
+#: exact mistake this file exists to prevent:
 #:
-#: STILL UNVERIFIED, and NOT closed by the above: **cents of WHICH currency.** The OAS says
-#: "cents" everywhere and names no currency, and no execution payload we hold carries one.
-#: `_ASSUMED_CURRENCY` remains the house guess and `CostBreakdown.currency_stated` carries
-#: the difference into every row. OPERATIONS §2 gate 7 is now that one question alone.
+#: **THE VENDOR CONTRADICTS ITSELF ON THIS FIELD, first-party against first-party.** The
+#: same repo's `references/execution-payload.md` documents `total_cost` as "Bolna cost in
+#: **account currency**" — a MAJOR-unit reading — while the OAS says "in cents". Both are
+#: `bolna-ai/skills@28b24aa`. WHY THE CONSTANT STAYS 100 ANYWAY, and it is a rule the
+#: vendor publishes rather than a preference of ours: `references/bolna-core.md` says
+#: outright *"Treat the YAML as the canonical schema if a SKILL.md and the spec
+#: disagree."* So the tiebreak is the vendor's own, it points at "cents", and it agrees
+#: with the value that was already here. A reading that reconciles both — "minor units OF
+#: the account currency" — is coherent and is probably the truth, but it is OUR synthesis
+#: of two documents that disagree, not something either one says, so it is written here as
+#: a hypothesis and not as a fact.
+#:
+#: STILL UNVERIFIED, and gate 7 now scores BOTH halves rather than one:
+#:   (a) the UNIT — because a first-party document says major units and the only thing
+#:       overriding it is a precedence rule, not an observation;
+#:   (b) the CURRENCY — the OAS names none, and if the "account currency" reading is the
+#:       true one then it is the ACCOUNT's, which for an Indian account may be INR and not
+#:       `_ASSUMED_CURRENCY` at all. `CostBreakdown.currency_stated` carries the
+#:       difference into every row so a later correction is re-derivable.
 #: WHAT A WRONG VALUE COSTS: every `usage_event` under-values the call by 100x, so no
-#: spend cap ever arms and every margin panel reads near zero.
+#: spend cap ever arms and every margin panel reads near zero — and the 83x currency error
+#: sits on top of that, in the same direction.
 _ASSUMED_MINOR_UNITS_PER_MAJOR = Decimal(100)
 
 
@@ -1437,12 +1456,14 @@ class BolnaEngine:
         )
 
     def _cost(self, payload: dict[str, Any]) -> CostBreakdown | None:
-        """Vendor cents -> INR, and an honest account of which currency's cents.
+        """Vendor cost figure -> INR, and an honest account of what is assumed on the way.
 
-        The UNIT is a fact: the vendor's OAS says "in cents" on `total_cost` and on all
-        five `cost_breakdown` members (D-350, see `_ASSUMED_MINOR_UNITS_PER_MAJOR`). The
-        CURRENCY is not — the spec names none, and getting it wrong is worth 83x. This
-        used to write
+        NEITHER HALF IS A FACT, and `_ASSUMED_MINOR_UNITS_PER_MAJOR` carries the detail.
+        The UNIT is the vendor's own OAS ("in cents") overriding the vendor's own prose
+        ("account currency") by the vendor's own precedence rule — strong, but a document
+        reconciliation rather than an observation, and worth 100x. The CURRENCY is named
+        in no first-party source at all, and getting it wrong is worth 83x. This used to
+        write
         `source_currency="USD"` as a literal, which made the assumption unfalsifiable
         from inside: pilot gate 7's currency criterion read our own guess back and
         agreed with it (OPERATIONS §2). Three behaviours now, in order:

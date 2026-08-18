@@ -16,17 +16,33 @@ nothing else, and the Bolna adapter parses no model field out of the execution p
 A leg cost alone cannot identify a rung either — the two rates differ 2:1 but the
 character count that would divide them out is exactly what is missing.
 
-**AND THE VENDOR DOES PUBLISH BOTH (D-358).** This paragraph used to end "because none is
-documented (TRD §5: Bolna publishes no OpenAPI spec)", which was wrong twice over: they
-publish a spec, and it declares `ExecutionUsageBreakdown.synthesizer_model` and
-`.synthesizer_characters` — the model that spoke and the characters it spoke — beside
-`transcriber_model`, `transcriber_duration`, `llm_tokens` and a per-model token map
-(VERIFIED-OAS; `references/execution-payload.md` shows a populated example). So the hole
-below is OURS, not the vendor's: `ExecutionSnapshot` has no field to carry them and the
-adapter reads none. Turning the tier from an assumption about intent into a MEASUREMENT is
-a change to the normalized model, the adapter and this module together — D-358 — and it is
-gated on one captured payload confirming the block is actually populated on a live account
-(OPERATIONS §2 gate 7), because a spec is what the vendor says the server does.
+**AND THE VENDOR DOES PUBLISH BOTH — WITH ONE CAVEAT THAT DECIDES HOW FAR TO TRUST IT
+(D-358).** This paragraph used to end "because none is documented (TRD §5: Bolna publishes
+no OpenAPI spec)", which was wrong twice over: they publish a spec, and it defines a
+`usage_breakdown` block carrying `synthesizer_model` and `synthesizer_characters` — the
+model that spoke and the characters it spoke — beside `transcriber_model`,
+`transcriber_duration`, `llm_tokens` and a per-model token map.
+
+THE CAVEAT, and it is why this is not filed as VERIFIED-OAS: in the pinned spec
+`ExecutionUsageBreakdown` is an **orphan schema**. It is declared in `components.schemas`
+and referenced by NOTHING — `AgentExecution` does not carry it, and no path response
+does. What attaches it to the execution payload is the vendor's PROSE
+(`references/execution-payload.md`, which lists `usage_breakdown` among the top-level
+fields and shows a populated example). So:
+
+* the FIELD NAMES and their types are VERIFIED-OAS;
+* the claim that an execution actually CARRIES the block is VERIFIED-VENDOR-REPO — prose,
+  which the vendor's own precedence rule ranks below the spec, and here the spec is not
+  contradicting it but is silent.
+
+An orphan schema is exactly the shape of a field the server dropped and the spec never
+cleaned up, so this one needs the live capture more than most, not less.
+
+Either way the hole below is OURS before it is the vendor's: `ExecutionSnapshot` has no
+field to carry these and the adapter reads none. Turning the tier from an assumption about
+intent into a MEASUREMENT is a change to the normalized model, the adapter and this module
+together — D-358 — gated on one captured payload showing the block populated on a live
+account (OPERATIONS §2 gate 7), because a spec is what the vendor says the server does.
 
 So the tier on a usage row is **the voice the agent was CONFIGURED with when the call was
 metered**. That is an assumption about intent, not a measurement of what spoke, and every
