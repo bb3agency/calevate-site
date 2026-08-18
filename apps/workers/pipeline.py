@@ -29,6 +29,7 @@ SLO: lead visible in the client dashboard under 2 minutes after hangup — measu
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, NoReturn
@@ -48,7 +49,7 @@ from apps.api.billing.caps import (
     lock_tenant_spend_state,
     over_cap_sql,
 )
-from apps.api.billing.plans import NOW_SQL, ist_billing_month, plan_in_effect_sql
+from apps.api.billing.plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
 from apps.api.billing.rates import (
     MONEY_Q,
     PREPAID_TIERS,
@@ -56,7 +57,7 @@ from apps.api.billing.rates import (
     billable_tier,
     prepaid_billed_inr,
 )
-from apps.api.billing.service import charge_for_call, overage_increment_inr, plan_tier_of
+from apps.api.billing.service import charge_for_call, month_increment, plan_tier_of
 from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
@@ -1525,6 +1526,81 @@ def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     return (leg_inr / qty).quantize(MONEY_Q, rounding=ROUNDING)
 
 
+def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: UUID) -> Decimal:
+    """This call's duration as a quantity we are willing to put on a ledger.
+
+    **A NEGATIVE DURATION IS NOT A DURATION, AND IT USED TO REACH THE MONEY PATH.**
+    `ExecutionSnapshot.duration_s` is `int | None` with no floor, and both adapters
+    build it as `int(duration) if isinstance(duration, int | float) else None`
+    (`engine/bolna.py`, `engine/cartesia.py`) — so a vendor's `-1` "unknown" sentinel,
+    or a duration derived from two clocks that disagree, arrives here as a real number
+    and is multiplied through everything.
+
+    Measured on this tree before the guard existed, on a tenant with ₹120.96 already
+    accrued for the month (`tests/negative_duration_test.py` is the reproduction):
+
+        _meter(..., duration_s=-1)
+          -> psycopg.errors.CheckViolation: new row for relation "spend_state"
+             violates check constraint "ck_spend_state_billed_inr_nonnegative"
+
+    Two things in that are worth stating because neither is obvious.
+
+    * **The increment really is negative.** `month_increment` prices the month
+      with the call and without it; taking seconds AWAY makes `after < before`, so the
+      call's contribution is below zero and the month's counter is asked to go
+      backwards. Every other path into that function is monotone — adding minutes can
+      only raise a month's overage, whichever rung they land on — so the constraint
+      had never been reachable and the abort had never been seen.
+    * **The accumulated total staying positive does NOT save it.** PostgreSQL evaluates
+      a CHECK against the row an `INSERT ... ON CONFLICT DO UPDATE` PROPOSES, before the
+      conflict is arbitrated, so `billed_inr = -0.16` fails even though the update it
+      would have become is `120.96 - 0.16`. Measured against this pg16 rather than
+      recalled:
+
+          INSERT INTO t VALUES (1, -5) ON CONFLICT (k) DO UPDATE SET v = t.v + EXCLUDED.v;
+          ERROR:  new row for relation "t" violates check constraint "t_v_check"
+          DETAIL:  Failing row contains (1, -5).
+
+    The abort takes the WHOLE metering transaction with it, so the call ends up with no
+    usage rows, no wallet debit and no counters — and every ARQ retry hits the same
+    constraint, so it never recovers on its own. A vendor field we do not control must
+    not be able to do that.
+
+    **It is clamped to zero rather than refused, and the call still meters.** Zero is
+    the already-designed answer for "this call has a real leg cost and no countable
+    seconds" — `_unit_price` keeps the leg whole at `qty <= 0` and the client is billed
+    for no minutes, which is the client-favourable direction and the same one
+    `billable_tier` takes for an unprovable rung. Refusing to meter at all was the
+    alternative and it is worse in exactly the way P1.2 describes: a completed call with
+    no usage artefact is one the reconciliation poller calls `settled` and never
+    revisits.
+
+    The `alert()` is what stops that being silent. A negative duration is the adapter
+    and the vendor disagreeing about a payload — the same class as
+    `call_billable_without_cost` above, so it is announced the same way, with ids only
+    (hard rule 6).
+    """
+    seconds = Decimal(snapshot.duration_s or 0)
+    if seconds >= 0:
+        return seconds
+    alert(
+        "WORKER_TERMINAL",
+        "call_duration_negative",
+        detail=(
+            "the engine reported a negative call duration: metered the call at zero "
+            "seconds so its leg costs still land, billed the client for no minutes, and "
+            "left the month's counters alone. Check the adapter's duration key against a "
+            "live payload (pilot gate 7)."
+        ),
+        call_id=str(call_id),
+        tenant_id=str(tenant_id),
+        # The value itself, because it is the one fact an operator needs to tell a
+        # sentinel (`-1`) apart from a clock-skew subtraction, and it is not PII.
+        duration_s=str(snapshot.duration_s),
+    )
+    return Decimal(0)
+
+
 # THERE IS NO `_ist_month` HERE ANY MORE, and its removal is a money fix rather than a
 # tidy-up. It read `(moment + timedelta(hours=5, minutes=30)).strftime("%Y-%m")`, which
 # is the right arithmetic ONLY for a moment expressed in UTC — `strftime` renders the
@@ -1782,7 +1858,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         if already:
             return 0
 
-        duration_s = Decimal(snapshot.duration_s or 0)
+        duration_s = _billable_seconds(snapshot, tenant_id=tenant_id, call_id=call_id)
         meta = _json(
             {
                 "engine": snapshot.engine,
@@ -1847,21 +1923,46 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # `self_serve_inr_per_min` (₹6.00) — the platform booking zero gross margin on the
         # entire self-serve motion, from one variable doing two jobs.
         #
+        # WHICH IST BILLING MONTH THIS CALL BELONGS TO. Resolved here rather than beside
+        # the counter write, because the RATES below are a fact about this month and not
+        # about today (see the next paragraph). One spelling, `billing.plans
+        # .ist_billing_month`, on the instant the ledger rows are stamped with.
+        month = ist_billing_month(snapshot.ended_at or datetime.now(UTC))
         # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
-        # re-read under the lock: `plan_in_effect_sql` is what `caps.CAPS_CTE` already
-        # resolves in the upsert, and a second reading could land on a different row if an
+        # re-read under the lock: a second reading could land on a different row if an
         # operator changed the plan between the two statements — the wallet debit and the
         # counter would then disagree about the price of one call.
+        #
+        # **AT THE MONTH'S OWN PRICING INSTANT, NOT AT `now()`, AND THAT IS A MONEY FIX.**
+        # `month_pricing_instant` is what `usage_summary` and `billing/charges.py` already
+        # resolve a month's terms at — now while the month is open, the month's LAST
+        # instant once it is closed — so a statement re-rendered after a price change
+        # still quotes the terms that were in force (`billing/plans.py` is the whole
+        # argument). This read said `NOW_SQL`, so a call that SETTLES LATE was priced by
+        # today's plan while its own month's panel and invoice priced it by that month's:
+        # the reconciliation poller's window straddling midnight IST on the 1st, an ARQ
+        # retry ladder crossing it, or a vendor that takes minutes to price a call
+        # (`engine.py` says so in as many words) all land there. Measured on this tree,
+        # one ten-minute call ending on the last day of a month whose ₹2/min terms were
+        # superseded by ₹20/min on the 1st (`tests/late_call_prices_at_its_own_month_
+        # test.py` is the reproduction):
+        #
+        #     spend_state.billed_inr   ₹200.00   <- the counter, at today's rate
+        #     usage_summary / invoice   ₹20.00   <- that month's own rate
+        #
+        # The CEILING is deliberately still resolved at `now()` inside the upsert's
+        # `caps` CTE (`billing/caps.CAPS_CTE`), and the split is not an inconsistency: a
+        # RATE is a term of the month being priced, and a CAP is a question about whether
+        # this tenant may dial right now.
         plan_rates = (
             await session.execute(
                 text(
                     plan_in_effect_sql(
                         "COALESCE(included_min, 0) AS included_min, "
-                        "overage_rate, overage_rate_value",
-                        at=NOW_SQL,
+                        "overage_rate, overage_rate_value"
                     )
                 ),
-                {"tid": tenant_id},
+                {"tid": tenant_id, "at": month_pricing_instant(month)},
             )
         ).first()
         # THE PLAN'S TERMS AS THIS CALL SEES THEM. Both rungs, not one: this counter no
@@ -1925,8 +2026,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # in `tests/money_walk_test.py`. Taken AFTER `charge_for_call`'s `credit:` lock,
         # which is the only order anything takes the two in.
         await lock_tenant_spend_state(session, tenant_id)
-        month = ist_billing_month(snapshot.ended_at or datetime.now(UTC))
-        billed = await _billed_for_this_call(
+        increment = await _counter_increment(
             session,
             tenant_id=tenant_id,
             plan_tier=tier,
@@ -1938,13 +2038,14 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             rate=overage_rate,
             rate_value=overage_rate_value,
         )
+        billed = increment.billed_inr
         counters = (
             await session.execute(
                 text(_SPEND_STATE_UPSERT),
                 {
                     "tid": tenant_id,
                     "month": month,
-                    "minutes": minutes,
+                    "minutes": increment.minutes,
                     "spend": cost.total_inr,
                     "billed": billed,
                 },
@@ -1971,7 +2072,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             # crossing arithmetic subtracts is zero and no alarm can fire about a call
             # that moved nothing.
             counted = str(counters[4]) == month
-            applied_minutes = minutes if counted else Decimal("0")
+            applied_minutes = increment.minutes if counted else Decimal("0")
             applied_billed = billed if counted else Decimal("0")
             if not counted:
                 # An operator reading a cap that did not move needs to know a call was
@@ -2007,7 +2108,24 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     return len(rows)
 
 
-async def _billed_for_this_call(
+@dataclass(frozen=True, slots=True)
+class _CounterIncrement:
+    """What one call moves each `spend_state` counter by. Both come from ONE read.
+
+    `spend_used` is deliberately not here: it is `cost.total_inr`, the engine's charge
+    to US, and it needs no month arithmetic at all.
+    """
+
+    #: What this call adds to `spend_state.minutes_used`. THE LEDGER'S OWN INCREMENT for
+    #: every tier, not the call's `duration_s / 60` — see `month_increment` for the
+    #: measurement, and note that this is what makes the counter the ceiling is judged
+    #: against exactly equal to the "minutes used" the client is shown.
+    minutes: Decimal
+    #: What this call adds to `spend_state.billed_inr` — the CLIENT's currency.
+    billed_inr: Decimal
+
+
+async def _counter_increment(
     session: AsyncSession,
     *,
     tenant_id: UUID,
@@ -2019,24 +2137,35 @@ async def _billed_for_this_call(
     included_min: Decimal,
     rate: Decimal,
     rate_value: Decimal | None,
-) -> Decimal:
-    """This call's contribution to `spend_state.billed_inr` — the CLIENT's currency.
+) -> _CounterIncrement:
+    """This call's contribution to the two `spend_state` counters the cap is judged on.
 
     **MUST be called with `lock_tenant_spend_state` held**, and AFTER this call's
-    `usage_events` rows are written in the same transaction. The managed branch reads the
-    month's ledger and then writes a figure derived from it, which is the read-then-write
+    `usage_events` rows are written in the same transaction. It reads the month's ledger
+    and the caller then writes a figure derived from it, which is the read-then-write
     over money CLAUDE.md's concurrency rule names; the lock is already taken by the only
     caller for the upsert's own sake, so this costs nothing and adds no second lock to
     reason about.
 
-    PREPAID (`self_serve`, `trial`): every minute is charged, so there is no month to
-    consult and the answer is the same one `charge_for_call` was just given. Deliberately
-    computed twice from one function rather than threaded through as a variable — the two
-    are the same NUMBER but not the same FACT, and a future tier with a wallet discount
-    would want the debit and the accrual to diverge without either quietly following the
-    other.
+    **THE MINUTE FIGURE IS THE LEDGER'S, ON EVERY TIER**, which is why `month_increment`
+    is now called for a prepaid tenant too — the rupee half of its answer is unused
+    there, and the read it comes from is the one the minute half needs. What that buys
+    is stated in full on `month_increment`: the counter `over_cap_sql` compares against
+    stops being a per-call quotient rounded at the column's scale and becomes exactly the
+    figure `usage_summary` publishes. The cost is one grouped aggregate over the month's
+    `usage_events` on the prepaid path that was not there before, under a lock this
+    caller already holds.
 
-    MANAGED: the difference this call makes to the MONTH's overage bill, priced by
+    PREPAID (`self_serve`, `trial`) RUPEES: every minute is charged with no allowance in
+    front of it, so the accrual is the same figure `charge_for_call` was just given, from
+    the same function. Deliberately computed twice rather than threaded through as a
+    variable — the two are the same NUMBER but not the same FACT, and a future tier with
+    a wallet discount would want the debit and the accrual to diverge without either
+    quietly following the other. It is emphatically NOT the ledger's increment: a call is
+    charged for its own length, and pricing it off the month's running remainder would
+    charge two identical calls differently on a statement a client reads per entry.
+
+    MANAGED RUPEES: the difference this call makes to the MONTH's overage bill, priced by
     `billing.service.priced_overage` — the same function that prices the client's panel
     and prints the invoice's lines.
 
@@ -2052,16 +2181,11 @@ async def _billed_for_this_call(
     larger. `tests/two_rung_counter_agrees_test.py` is that reproduction.
 
     Reading the LEDGER rather than the counter also removes the closed-month caveat this
-    docstring used to carry: `overage_increment_inr` scopes its read to `month`, so a
+    docstring used to carry: `month_increment` scopes its read to `month`, so a
     call belonging to a closed month prices against that month's own rows rather than
     against whatever the single `spend_state` row happens to be stamped with.
     """
-    if plan_tier in PREPAID_TIERS:
-        return prepaid_billed_inr(
-            minutes=minutes,
-            self_serve_rate=get_settings().self_serve_inr_per_min,
-        )
-    return await overage_increment_inr(
+    increment = await month_increment(
         session,
         tenant_id=tenant_id,
         month=month,
@@ -2071,6 +2195,21 @@ async def _billed_for_this_call(
         rate=rate,
         rate_value=rate_value,
     )
+    if plan_tier in PREPAID_TIERS:
+        return _CounterIncrement(
+            minutes=increment.minutes,
+            # THIS CALL'S OWN MINUTES, not the ledger's increment, and the difference is
+            # deliberate: `spend_state.billed_inr` for a prepaid tenant must equal the
+            # sum of the `usage` debits actually taken off their wallet, because the
+            # wallet IS their bill (D-39). `charge_for_call` was handed exactly this
+            # figure a few lines above, from this same function, so the counter and the
+            # ledger of record cannot drift by a paisa.
+            billed_inr=prepaid_billed_inr(
+                minutes=minutes,
+                self_serve_rate=get_settings().self_serve_inr_per_min,
+            ),
+        )
+    return _CounterIncrement(minutes=increment.minutes, billed_inr=increment.overage_inr)
 
 
 async def _maybe_notify_hot_lead(

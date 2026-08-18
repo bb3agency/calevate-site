@@ -63,6 +63,32 @@ from .service import overage_rungs, to_paise, usage_summary
 # the same shape). It moves when the Council moves it, in a diff with a citation.
 GST_RATE_PCT = Decimal("18")
 
+# THE TAX ON THIS DOCUMENT IS STATED IN PAISE, AND CGST s.170 SAYS IT IS ROUNDED TO THE
+# NEAREST RUPEE. That is an OPEN finding (D-256), recorded here beside the rate rather
+# than acted on, for the same reason the Rule 46(b) serial below is.
+#
+# **REPORTED, NOT READ** (`billing/payments.py`'s three-rung evidence ladder;
+# cbic-gst.gov.in is not reachable from this network). Several independent secondaries
+# quote s.170 identically — *"the amount of tax, interest, penalty, fine or any other sum
+# payable, and the amount of refund or any other sum due ... shall be rounded off to the
+# nearest rupee"*, fifty paise or more rounding up — and they agree it is applied per
+# INVOICE and per HEAD (CGST, SGST/UTGST, IGST each), not on a consolidated total.
+#
+# What that would change here, on the worked example in `docs/evidence/deepdive-money2.md`:
+#
+#     stated today   gst_inr 3614.52   CGST 1807.26 + SGST 1807.26
+#     under s.170    gst_inr 3614.00   CGST 1807.00 + SGST 1807.00, and a ROUND OFF line
+#                                      of -0.52 so `subtotal + tax + round_off = total`
+#                                      still adds up in a client's hand
+#
+# **WHY IT IS NOT IMPLEMENTED.** It moves money on every invoice the platform would ever
+# issue, and no secondary settles first-party whether s.170 binds the DOCUMENT or the
+# RETURN, nor whether the taxable value rounds along with the tax. Guessing a compliance
+# rule is not recoverable (CLAUDE.md), and nothing is out of compliance today:
+# `supplier.is_registered` is false in every deployment and this document says `proforma`.
+# **WHAT CLOSES IT:** the GST registration (ROADMAP M0) plus a first-party read or an
+# accountant's confirmation of the per-invoice, per-head reading.
+
 # THE INVOICE NUMBER IS NOT YET RULE 46(b) COMPLIANT, and this note is the honest half of
 # a slice that fixed the rest.
 #
@@ -387,9 +413,20 @@ async def build_invoice(
         item["sac"] = supplier.sac
 
     subtotal = to_paise(sum((item["amount_inr"] for item in line_items), start=Decimal("0")))
-    gst = to_paise(subtotal * GST_RATE_PCT / Decimal("100"))
-    total = to_paise(subtotal + gst)
+    # THE TAX IS COMPUTED ONCE, IN `gst.split_tax`, AND THE DOCUMENT'S TOTAL IS THE SUM
+    # OF THE HEADS IT PRINTS. This line used to be a SECOND
+    # `to_paise(subtotal * GST_RATE_PCT / 100)` — character for character the expression
+    # `split_tax` opens with — and the components' promise to "sum to `gst_inr` exactly"
+    # was then two identical spellings agreeing rather than one number being published
+    # twice. They agree today; the defect is that nothing makes them, and the next
+    # rounding decision (a rate that is not a whole percent, s.170's round-to-the-rupee
+    # question) would have to be made in both places or the document stops adding up.
+    # Rule 46(l)-(m) requires the heads to be stated separately, so the heads are the
+    # authority and the total is their sum — which is also the arithmetic a recipient
+    # does when they credit CGST and SGST to two different ledgers.
     components = split_tax(subtotal_inr=subtotal, rate_pct=GST_RATE_PCT, place=place)
+    gst = sum((component.amount_inr for component in components), start=Decimal("0.00"))
+    total = to_paise(subtotal + gst)
 
     return {
         "invoice_number": f"CAL-{period.replace('-', '')}-{_tenant_serial_suffix(tenant_id)}",

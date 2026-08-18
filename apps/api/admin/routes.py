@@ -2161,6 +2161,12 @@ async def record_commercial_terms(
                 # Which ceilings this write loosened, by name. The one fact a later
                 # review of a cap raise is actually looking for.
                 "loosened": list(loosened),
+                # And whether the write TIGHTENED one far enough to stop this client's
+                # outbound calling on the spot. `record_terms` re-arms the gate in the
+                # same transaction as the insert (a ceiling accepted whose gate is not
+                # armed is a ceiling that does nothing until the next call meters), so
+                # this row is the record of an operator having done that.
+                "capped_now": result.capped_now,
             },
         )
     return RecordTermsOut(
