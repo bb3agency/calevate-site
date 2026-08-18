@@ -30,6 +30,7 @@ import re
 import shutil
 from pathlib import Path
 
+from pytest import MonkeyPatch
 from scripts import check_docs_drift as guard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -493,3 +494,95 @@ def test_the_guardrail_runs_in_both_gates() -> None:
     workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "scripts.check_docs_drift" in makefile
     assert "scripts.check_docs_drift" in workflow
+
+
+# ============================================================================
+# section 6 — a doc that denies a key readiness actually reports
+# ============================================================================
+#
+# The class this section exists for recurred FOUR times before anybody read all four in
+# one sitting: `runbooks/deploy-failed.md`, DEPLOYMENT §9, `scripts/vps-deploy.sh`'s
+# preflight comment and PRODUCTION-READINESS P5.15 each said `PLATFORM_KEK` is "in
+# neither `BOOTSTRAP_REQUIRED` nor `runtime_config_missing_keys`", copied from the first,
+# and one of them concluded from it that the KEK is "Unguarded in code" (D-393).
+
+
+def test_the_denial_that_actually_shipped_is_caught(tmp_path: Path) -> None:
+    """The real sentence, verbatim, at the path it lived at — a sentence an operator
+    reads as "the probe will not tell you", about a key the probe names."""
+    doc = tmp_path / "runbooks" / "deploy-failed.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text(
+        "| `PLATFORM_KEK is not set in .env` | It unwraps every console-managed "
+        "credential. It is in neither `BOOTSTRAP_REQUIRED` nor "
+        "`runtime_config_missing_keys`, so without this refusal the deploy goes green. |\n",
+        encoding="utf-8",
+    )
+    offenders = guard.readiness_claim_drift([doc])
+    assert len(offenders) == 1, offenders
+    assert "PLATFORM_KEK" in offenders[0]
+
+
+def test_a_sentence_that_says_readiness_does_report_it_is_not_an_offender(
+    tmp_path: Path,
+) -> None:
+    """THE NEGATIVE CONTROL THAT MATTERS, because the correction contains the negation.
+
+    Every sentence that fixes one of these claims still says "it is NOT in
+    `BOOTSTRAP_REQUIRED`" in the same breath — so a check keyed on the presence of a
+    negation anywhere near the name would flag the repaired text and teach the next
+    person to delete the check.
+    """
+    doc = tmp_path / "runbooks" / "deploy-failed.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text(
+        "It is not in `BOOTSTRAP_REQUIRED`, so the container boots clean and answers "
+        "`/healthz` — `runtime_config_missing_keys` DOES name it, but only after the "
+        "swap.\n",
+        encoding="utf-8",
+    )
+    assert guard.readiness_claim_drift([doc]) == []
+
+
+def test_a_key_readiness_genuinely_does_not_report_is_not_an_offender(tmp_path: Path) -> None:
+    """`GCP_SERVICE_ACCOUNT_JSON` is deliberately absent from the readiness set — a
+    deployment without it is a coherent deployment with no assistant, and
+    `runtime_config_missing_keys` argues that at length. A doc saying so is CORRECT, and
+    a check that could not tell the two apart would be an instruction to delete a true
+    sentence."""
+    doc = tmp_path / "docs" / "DEPLOYMENT.md"
+    doc.parent.mkdir(parents=True)
+    doc.write_text(
+        "GCP_SERVICE_ACCOUNT_JSON is deliberately not in `runtime_config_missing_keys`.\n",
+        encoding="utf-8",
+    )
+    assert guard.readiness_claim_drift([doc]) == []
+
+
+def test_the_decision_log_is_exempt_because_its_job_is_to_quote_the_defect() -> None:
+    """D-393's own row contains the PLATFORM_KEK denial verbatim. A decision that did not
+    say what was wrong is not a decision, so the log is read as a record and every other
+    document as current instruction."""
+    offenders = guard.readiness_claim_drift([REPO_ROOT / "docs" / "ROADMAP.md"])
+    assert offenders == [], (
+        "the decision log is being read as instruction; its rows quote the sentences they "
+        f"fixed, by design: {offenders}"
+    )
+
+
+def test_the_section_refuses_rather_than_passing_against_an_empty_readiness_set(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    """`blind_spots()`' doctrine, applied here: if `runtime_config_missing_keys` stopped
+    naming anything, every doc claim would compare against an empty set and this section
+    would report OK on all of them."""
+    monkeypatch.setattr(guard, "_readiness_keys_when_nothing_is_set", frozenset)
+    offenders = guard.readiness_claim_drift([])
+    assert len(offenders) == 1 and "empty set" in offenders[0], offenders
+
+
+def test_the_live_readiness_set_is_not_empty() -> None:
+    """The other half of the same worry, asked of the real function rather than a stub:
+    a bare non-local deployment is missing a great many things and must say so."""
+    reported = guard._readiness_keys_when_nothing_is_set()
+    assert "PLATFORM_KEK" in reported and "AUDIT_CHAIN_SECRET" in reported, sorted(reported)

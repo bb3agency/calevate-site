@@ -1416,6 +1416,117 @@ def blind_spots() -> list[str]:
     return failures
 
 
+# --- 6. what readiness reports, against what the docs say it reports ------------------
+#
+# WHY THIS SECTION EXISTS. Four documents — `runbooks/deploy-failed.md`, DEPLOYMENT §9,
+# `scripts/vps-deploy.sh`'s preflight comment and PRODUCTION-READINESS P5.15 — each said
+# `PLATFORM_KEK` is "in neither `BOOTSTRAP_REQUIRED` nor `runtime_config_missing_keys`",
+# and it has been in the second of those for as long as the sentence has existed (D-393).
+# One of the four went further and concluded from it that the KEK is "Unguarded in code".
+#
+# That is not a typo, it is the D-103/D-105 class: a fact about the code, spelled by hand,
+# in four places, all copied from the first. What makes it operational is WHERE it is
+# read — an operator at 3am, told the probe already answering their question will not.
+#
+# Section 5's device does not reach it: `capability_drift` compares prose against
+# module-level BOOLEAN CONSTANTS, and this is a membership question about a list a
+# function builds at runtime. So the membership is asked directly, of a `Settings` with
+# nothing set outside `local`, which is the state every one of those sentences is about.
+#: A line that DENIES membership: it names the function and negates it. Matched on the
+#: line rather than on a hand-parsed sentence — the four real offenders spelled it four
+#: ways ("in neither X nor Y", "it is not in Y", "and not in Y", a table cell whose
+#: subject is three columns to the left), and a grammar that fitted them all would fit
+#: nothing else. The negation words are what separate a denial from an ordinary mention;
+#: the OK line's count is what shows the section is still reading something.
+_READINESS_FUNCTION = "runtime_config_missing_keys"
+_READINESS_DENIAL = re.compile(r"\b(not|neither|nor|without|lacks|absent)\b", re.IGNORECASE)
+#: How far back a negation may sit and still be ABOUT this function. Forty characters is
+#: "in neither `BOOTSTRAP_REQUIRED` nor " with room to spare, and short enough that a
+#: negation about a different clause earlier in the sentence is not read as one about
+#: this one — the corrected sentences all begin "it is not in `BOOTSTRAP_REQUIRED`, so …"
+#: and would otherwise be flagged for the words that make them correct.
+_DENIAL_REACH = 40
+#: An explicit affirmation anywhere on the line wins over a negation near the name. Every
+#: sentence that CORRECTS one of these claims says so out loud, and saying so is exactly
+#: what should switch this section off for that line.
+_READINESS_AFFIRMATION = re.compile(r"\b(does|reports?|names?|lists?|listed|included)\b")
+#: Any environment-variable-shaped token on such a line. Bounded to 4+ characters so
+#: `RPO`, `IST` and `SLO` are not read as keys, and matched anywhere on the line because
+#: the subject of the sentence is not reliably beside the verb.
+_ENV_KEY = re.compile(r"\b([A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+)\b")
+
+
+def _readiness_keys_when_nothing_is_set() -> frozenset[str]:
+    """What `/healthz/ready` names on a non-local deployment with nothing configured.
+
+    Built from the real function rather than a list, because a list here would be the
+    fifth hand-written copy of the thing this section exists to catch.
+    """
+    import os
+
+    from apps.api.core.settings import runtime_config_missing_keys
+    from calevate_shared.config import Settings
+
+    settings = Settings.model_validate(
+        {
+            "app_env": "prod",
+            "database_url": "postgresql+psycopg://u:p@localhost:5432/x",
+            "redis_url": "redis://localhost:6379/0",
+            "object_store_endpoint": "https://example.invalid",
+            "object_store_bucket": "b",
+        }
+    )
+    # The two object-store names are read off `os.environ`, not off `Settings`, so they
+    # are reported here whatever the caller's shell holds. Neutralised so this answer is
+    # about the code and not about the machine running the check.
+    saved = {k: os.environ.pop(k, None) for k in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")}
+    try:
+        return frozenset(runtime_config_missing_keys(settings))
+    finally:
+        for name, value in saved.items():
+            if value is not None:
+                os.environ[name] = value
+
+
+def readiness_claim_drift(paths: Iterable[Path] | None = None) -> list[str]:
+    """Prose saying a key is NOT a readiness key, where readiness names it."""
+    reported = _readiness_keys_when_nothing_is_set()
+    if not reported:
+        # `blind_spots()`' doctrine: an empty answer means the probe stopped answering,
+        # and a section that compares against nothing reports OK on every sentence.
+        return [
+            "`runtime_config_missing_keys` named no key at all on a bare non-local "
+            "Settings — section 6 is comparing every doc claim against an empty set"
+        ]
+    offenders: list[str] = []
+    roots = DOC_ROOTS if paths is None else None
+    documents = list(doc_files(roots)) if paths is None else list(paths)
+    # The deploy script is prose too, in a comment, and it carried the same sentence.
+    documents.append(REPO_ROOT / "scripts" / "vps-deploy.sh")
+    for path in documents:
+        # THE DECISION LOG IS EXEMPT, AND IT IS THE ONE EXEMPTION. A `D-xxx` row's job is
+        # to quote the sentence it fixed — D-393's own row contains the PLATFORM_KEK
+        # denial verbatim, because a decision that did not say what was wrong is not a
+        # decision. Every other document in the set is read as CURRENT INSTRUCTION, which
+        # is what makes a stale sentence there an operational defect rather than a record.
+        if not path.exists() or path == ROADMAP:
+            continue
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            at = line.find(_READINESS_FUNCTION)
+            if at < 0 or _READINESS_AFFIRMATION.search(line):
+                continue
+            if not _READINESS_DENIAL.search(line[max(0, at - _DENIAL_REACH) : at]):
+                continue
+            for key in _ENV_KEY.findall(line):
+                if key in reported:
+                    offenders.append(
+                        f"{_rel(path)}:{lineno} denies that {key} is in "
+                        f"`{_READINESS_FUNCTION}`, and readiness reports it — an operator "
+                        "is being told the probe already answering their question will not"
+                    )
+    return offenders
+
+
 # --- gate -----------------------------------------------------------------------
 
 
@@ -1430,6 +1541,7 @@ def main() -> int:
         ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),
         ("a deferral that no longer holds", stale_deferrals()),
         ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
+        ("a doc denies a key readiness actually reports", readiness_claim_drift()),
     )
     failed = False
     for title, offenders in sections:
