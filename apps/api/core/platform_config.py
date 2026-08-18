@@ -393,6 +393,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
     "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
     "backup_heartbeat_url": AppliesRule(LIVE),
+    "in_call_llm_heartbeat_url": AppliesRule(LIVE),
     "google_sheets_service_account_json": AppliesRule(LIVE),
     "meta_page_access_tokens": AppliesRule(LIVE),
     "razorpay_webhook_secret": AppliesRule(LIVE),

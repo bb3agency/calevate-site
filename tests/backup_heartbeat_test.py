@@ -356,10 +356,15 @@ def test_a_monitor_answering_anything_but_200_is_not_a_heartbeat(
     """A 404 for a deleted check and a 5xx are both "nobody is watching". Reading them
     as success is the silent-pass failure in its final form — and the retries are real,
     because the vendor documents that pings are lost to plain packet loss."""
+    from apps.api.core import heartbeat
     from scripts import host_heartbeat
 
     monitor.status = 503
-    monkeypatch.setattr(host_heartbeat, "PING_BACKOFF_S", 0.0)
+    # PATCHED WHERE IT IS READ, not where it is re-exported: D-408 moved the retry loop
+    # into `core.heartbeat`, and patching `host_heartbeat.PING_BACKOFF_S` would now bind
+    # a name the loop never looks at — the test would still pass and would silently take
+    # four real seconds, which is how a speed-dependent suite starts (D-29).
+    monkeypatch.setattr(heartbeat, "PING_BACKOFF_S", 0.0)
     monkeypatch.setattr(get_settings(), "backup_heartbeat_url", monitor.url)  # type: ignore[attr-defined]
     assert host_heartbeat.main() == host_heartbeat.EX_UNAVAILABLE
     assert len(monitor.received) == host_heartbeat.PING_ATTEMPTS
@@ -380,24 +385,36 @@ def test_there_is_no_failure_signal_anywhere_in_the_heartbeat_path() -> None:
     the temptation ("ping /fail so we know it broke") is a one-line edit that reads as
     an improvement and silently converts the dead man into a status page.
     """
-    module = REPO_ROOT / "scripts" / "host_heartbeat.py"
-    tree = ast.parse(module.read_text())
-    docstrings = {
-        ast.get_docstring(node, clean=False)
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
-    }
-    literals = [
-        node.value
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Constant)
-        and isinstance(node.value, str)
-        and node.value not in docstrings
-    ]
-    # The prose ABOVE may name `/fail` — it argues at length about why we do not use it.
-    # What must not exist is a string the code can put on the wire.
-    for literal in literals:
-        assert "/fail" not in literal, f"a failure signal literal appeared: {literal!r}"
+    # BOTH FILES, and the second one is the point: D-408 moved the request itself into
+    # `core/heartbeat.py` and left the argument here. A guard that kept scanning only
+    # this file would have gone on passing while the code it was written to watch moved
+    # out from under it — and it now also covers the worker's dead man, which pings the
+    # same vendor from the same primitives (`vertex_credential._feed_dead_man`).
+    modules = (
+        REPO_ROOT / "scripts" / "host_heartbeat.py",
+        REPO_ROOT / "apps" / "api" / "core" / "heartbeat.py",
+        REPO_ROOT / "apps" / "workers" / "vertex_credential.py",
+    )
+    for module in modules:
+        tree = ast.parse(module.read_text())
+        docstrings = {
+            ast.get_docstring(node, clean=False)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef)
+        }
+        literals = [
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value not in docstrings
+        ]
+        # The prose ABOVE may name `/fail` — it argues at length about why we do not use
+        # it. What must not exist is a string the code can put on the wire.
+        for literal in literals:
+            assert "/fail" not in literal, (
+                f"a failure signal literal appeared in {module.name}: {literal!r}"
+            )
         assert "/start" not in literal, f"a start signal literal appeared: {literal!r}"
 
     for script in (

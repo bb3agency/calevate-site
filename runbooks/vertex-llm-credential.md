@@ -146,3 +146,83 @@ appearing in a log) and `replaced_in_place=True`.
   `provider: "google"`, which is the AI Studio Developer API and has no region pinning at
   all. Both are recorded as rejected with their reasons (D-405, D-407); neither is a
   shortcut available during an incident.
+
+## 8. The external dead man (D-408) — when the page you got was SILENCE
+
+Everything above is reached because `vertex_llm_credential_refresh_failed` fired. This
+section is the opposite case: **you were paged by the external monitor because no
+heartbeat arrived**, and this repo raised nothing at all.
+
+That is a different fault with a different first move. Sections 1–5 all assume the job
+RAN. A dead-man page means it probably did not.
+
+### 8.1 What it means
+
+A completed rotation — and only a completed rotation — pings a hosted dead-man check.
+A skip does not, a failed mint does not, and a dead worker cannot. So silence means one
+of:
+
+1. **The worker is not running.** Container stopped, crash-looping, never restarted after
+   a deploy, or out of memory. This is the case the alarm exists for and the likeliest.
+2. **The worker cannot reach Redis**, so arq never fires the cron.
+3. **The job ran and did not complete**, in which case `vertex_llm_credential_refresh_failed`
+   should ALSO have paged. If you got both, work sections 1–5 and ignore this one.
+4. **The ping itself could not get out** while rotation was healthy — egress broken, the
+   check deleted vendor-side, or the URL rotated without our config following. The worker
+   logs `in_call_llm_heartbeat_undelivered` with a `check=` digest in that case, and the
+   digest is how you tell "wrong URL" from "no URL".
+
+### 8.2 First moves, in order
+
+```
+# 1. Is the worker alive at all?
+systemctl status calevate-worker        # or: docker ps / your orchestrator
+
+# 2. What did it last say? (the log line names the outcome, never the credential)
+journalctl -u calevate-worker --since '-14h' | grep -E \
+  'vertex_credential_rotated|in_call_llm_heartbeat_(sent|undelivered|unarmed)'
+
+# 3. How much time is actually left? Rotate NOW rather than diagnosing first —
+#    it is idempotent, and it buys twelve hours to think in.
+uv run python -m scripts.rotate_llm_credential
+```
+
+**Rotate first, diagnose second.** A bearer is replaced while it still has 8 hours left
+and the monitor pages after 6 hours of silence, so at page time there is normally ≥6
+hours of working service — but that is a floor from the LAST successful tick, not from
+now, and a manual rotation resets it to twelve.
+
+`in_call_llm_heartbeat_unarmed` in the log means `IN_CALL_LLM_HEARTBEAT_URL` is unset:
+this deployment never armed the dead man, and the page came from something else.
+
+### 8.3 Arming it (vendor side)
+
+One hosted check, on the same account as the backup heartbeat — the free tier covers 20
+and this is the second. `scripts/host_heartbeat.py` argues the vendor choice and the
+rejected alternatives; none of it is re-litigated here.
+
+| Setting | Value | Why |
+|---|---|---|
+| Period | **4 hours** | `REFRESH_INTERVAL_HOURS` — one ping per successful tick |
+| Grace | **2 hours** | Pages after 6h of silence, leaving ≥6h of bearer life to act in |
+| Schedule | 01:20/05:20/09:20/13:20/17:20 /21:20 UTC | `apps/workers/settings.py`; period+grace is what matters, not alignment |
+
+Put the ping URL in `IN_CALL_LLM_HEARTBEAT_URL` through the secrets manager. **It is a
+credential** — anyone holding it can silence this alarm by pinging it on our behalf — so
+it is never committed and never logged; `check_ref` prints a digest instead, which is
+what §8.2's `check=` is.
+
+**Do not configure the vendor's failure or start signals.** One signal, one meaning:
+absence. A `/fail` ping would be a second delivery path for a fact that already pages,
+and it is worthless for the failure this exists to catch — a dead worker cannot send
+anything at all.
+
+### 8.4 What must never be "fixed"
+
+**Only a completed rotation may ping.** If a future change makes skips or failures ping
+too — moving `_feed_dead_man()` up beside the `return` is the one-line edit that does it,
+and it looks tidier — this alarm is gone, not extended: the monitor watches for silence,
+and a job that pings whatever happens is never silent. The parametrized dead-man test in
+`tests/vertex_credential_test.py` fails on exactly that edit. Deleting the test to make
+the change pass would leave the highest-consequence silent failure in this system
+uncovered again.

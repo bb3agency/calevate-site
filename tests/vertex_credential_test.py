@@ -31,6 +31,7 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.core import heartbeat
 from apps.api.core.settings import get_settings
 from apps.api.engine.fake import (
     DEFAULT_FAKE_CAPABILITIES,
@@ -55,6 +56,13 @@ EMAIL = "calevate-vertex@calevate-voice.iam.gserviceaccount.com"
 #: The value a passing rotation must put in the engine. Distinctive so a test that finds
 #: it somewhere it should not be (a log line) can say so.
 BEARER = "ya29.rotated-in-call-bearer-DO-NOT-LOG"
+
+#: The external dead man's ping URL (D-408). The token is distinctive for the same reason
+#: `BEARER` is: this URL is a CREDENTIAL — anyone holding it can silence the alarm — so a
+#: test can assert it never reaches a log line by looking for this exact string.
+HEARTBEAT_HOST = "hc-ping.com"
+HEARTBEAT_TOKEN = "dead-man-token-DO-NOT-LOG"
+HEARTBEAT_URL = f"https://{HEARTBEAT_HOST}/{HEARTBEAT_TOKEN}"
 
 #: Bound at IMPORT, before any test replaces `httpx.AsyncClient`. `_wire` patches that
 #: name so the job's own `async with httpx.AsyncClient(...)` reaches the fake transport —
@@ -100,8 +108,17 @@ class FakeGoogle:
         #: Raise inside the handler rather than answering — the only way to reach the
         #: `except` arm around the mint POST. A status code cannot get there.
         self.raise_transport = False
+        #: THE DEAD MAN (D-408), which is a third host and not a Google one. It lives on
+        #: this fake rather than on its own because `_wire` can only patch
+        #: `httpx.AsyncClient` once, so every client the job opens — the mint's and the
+        #: heartbeat's — arrives at this one handler.
+        self.heartbeat_pings: list[str] = []
+        self.heartbeat_status = 200
 
     async def handler(self, request: httpx.Request) -> httpx.Response:
+        if request.url.host == HEARTBEAT_HOST:
+            self.heartbeat_pings.append(str(request.url))
+            return httpx.Response(self.heartbeat_status, text="OK")
         if request.url.host == "oauth2.googleapis.com":
             if self.token_status != 200:
                 return httpx.Response(self.token_status, json={"error": "invalid_grant"})
@@ -183,8 +200,17 @@ def configured(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 def _wire(monkeypatch: pytest.MonkeyPatch, google: FakeGoogle) -> None:
-    """Point the job's own client factory at the fake, leaving everything else real."""
+    """Point the job's own client factory at the fake, leaving everything else real.
+
+    ARMED BY DEFAULT (D-408), because that is the production shape: a deployment running
+    this leg has the dead man configured, and a test suite whose default is "unarmed"
+    would exercise the branch nobody ships. The unarmed case gets its own test.
+    """
     monkeypatch.setattr(httpx, "AsyncClient", lambda **_kw: google.client())
+    monkeypatch.setattr(get_settings(), "in_call_llm_heartbeat_url", HEARTBEAT_URL)
+    # Retries are real and deliberate (packet loss); the two-second waits between them
+    # are not something this suite should pay six times over (D-29).
+    monkeypatch.setattr(heartbeat, "PING_BACKOFF_S", 0.0)
 
 
 # --- the happy path, and what it actually sent ----------------------------------------
@@ -574,3 +600,195 @@ async def test_mint_returns_the_expiry_google_gave_not_the_one_we_asked_for(
     assert minted is not None
     assert minted.remaining < timedelta(seconds=TOKEN_LIFETIME_S)
     assert minted.remaining <= timedelta(seconds=3600)
+
+
+# --- the external dead man (D-408) ----------------------------------------------------
+#
+# WHAT THIS SECTION PROTECTS. Every arm above ends in either a fresh credential or a page
+# — and the page is raised BY this job, so the one failure it structurally cannot report
+# is the job not running at all: a stopped worker, a container that never came back, a
+# Redis it cannot reach. Nothing rotates, nothing pages, and the in-call LLM leg goes dark
+# within twelve hours on live calls for every client at once. Only an observer outside
+# this process turns that silence into a page.
+#
+# THE MECHANISM IS THE ASYMMETRY, so the load-bearing test here is not the one that proves
+# a ping is sent — it is `test_no_arm_but_a_completed_rotation_feeds_the_dead_man`, which
+# proves the other arms send NOTHING. A job that pings whatever happens is never silent,
+# and a monitor watching for silence would then never fire again.
+
+
+@pytest.mark.asyncio
+async def test_a_completed_rotation_feeds_the_dead_man(
+    monkeypatch: pytest.MonkeyPatch, configured: str, engine: FakeEngine, pages: Pages
+) -> None:
+    google = FakeGoogle()
+    _wire(monkeypatch, google)
+
+    outcome = await refresh_in_call_llm_credential({})
+
+    assert outcome.startswith("rotated")
+    assert engine._llm_credential == BEARER
+    assert google.heartbeat_pings == [HEARTBEAT_URL]
+    assert pages.codes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("arrange", "expected"),
+    [
+        pytest.param(
+            lambda g, mp: mp.setattr(get_settings(), "gcp_project_id", None),
+            "skipped_no_project",
+            id="skip-no-project",
+        ),
+        pytest.param(
+            lambda g, mp: mp.setattr(
+                vertex_credential,
+                "get_engine",
+                lambda _s: FakeEngine(capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES),
+            ),
+            "skipped_llm_not_ours",
+            id="skip-llm-not-ours",
+        ),
+        pytest.param(
+            lambda g, mp: mp.setattr(
+                vertex_credential, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", False
+            ),
+            "skipped_not_deliverable",
+            id="skip-not-deliverable",
+        ),
+        pytest.param(
+            lambda g, mp: setattr(g, "mint_status", 403),
+            "mint_failed",
+            id="fail-mint-refused",
+        ),
+        pytest.param(
+            lambda g, mp: setattr(g, "raise_transport", True),
+            "mint_failed",
+            id="fail-mint-unreachable",
+        ),
+        pytest.param(
+            lambda g, mp: setattr(g, "granted_seconds", 3600),
+            "lifetime_too_short",
+            id="fail-lifetime-too-short",
+        ),
+        pytest.param(
+            lambda g, mp: setattr(g, "expire_override", None),
+            "mint_failed",
+            id="fail-expiry-unreadable",
+        ),
+    ],
+)
+async def test_no_arm_but_a_completed_rotation_feeds_the_dead_man(
+    arrange: Callable[[FakeGoogle, pytest.MonkeyPatch], None],
+    expected: str,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+    engine: FakeEngine,
+    pages: Pages,
+) -> None:
+    """**THE ASYMMETRY, arm by arm.** Success emits; nothing else may.
+
+    Every case here is a tick that ran and did NOT end with a fresh credential installed
+    — three "this deployment is not on that leg" skips and four ways the mint fails. If
+    any of them fed the monitor, the monitor would report a healthy rotation loop through
+    a total, permanent LLM outage: the failures already page, but a page can be lost to a
+    broken relay, and the dead man is precisely the alarm that survives that. Pinging here
+    would not extend this alarm, it would delete it.
+
+    Parametrized rather than written seven times because the temptation this guards is a
+    ONE-LINE edit — moving the ping up beside the `return`, where it would cover every
+    arm and look tidier — and a test that only checks the happy path would stay green.
+    """
+    google = FakeGoogle()
+    _wire(monkeypatch, google)
+    arrange(google, monkeypatch)
+
+    assert await refresh_in_call_llm_credential({}) == expected
+    assert google.heartbeat_pings == []
+
+
+@pytest.mark.asyncio
+async def test_the_ping_url_is_a_credential_and_never_reaches_a_log_record(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+    engine: FakeEngine,
+    pages: Pages,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Anyone holding this URL can silence the alarm by pinging it on our behalf, which
+    makes it a bearer secret in a repo where those never reach a log (hard rule 6's
+    neighbour). `check_ref` prints a digest instead, which still answers the only
+    operational question — "is this the check I configured?" — without carrying it."""
+    google = FakeGoogle()
+    _wire(monkeypatch, google)
+
+    with caplog.at_level(logging.DEBUG):
+        assert (await refresh_in_call_llm_credential({})).startswith("rotated")
+
+    assert caplog.records, "nothing was logged, so this test proved nothing"
+    # OUR records. `httpx` logs `HTTP Request: GET <full url>` at INFO, which for this
+    # URL is the credential in prose — and that is precisely why `configure_logging`
+    # pins the `httpx` logger to WARNING, argued there and asserted by
+    # `sheets_adapter_test.py`'s suppression test. `caplog.at_level(DEBUG)` deliberately
+    # defeats that global protection to see OUR lines, so excluding httpx here is
+    # respecting a control that is tested elsewhere, not waiving one. (This call site is
+    # the fourth member of that class and is named in `configure_logging`'s comment.)
+    for record in (r for r in caplog.records if r.name != "httpx"):
+        blob = " ".join(
+            [record.getMessage(), *(str(v) for v in record.__dict__.values() if v is not None)]
+        )
+        assert HEARTBEAT_TOKEN not in blob, f"the ping URL reached {record.name}"
+        assert BEARER not in blob
+
+    # And the digest IS there, because "is this the check I configured?" has to stay
+    # answerable from a log line without the URL being in one.
+    assert any("check" in record.__dict__ for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_an_undelivered_heartbeat_neither_pages_nor_undoes_the_rotation(
+    monkeypatch: pytest.MonkeyPatch, configured: str, engine: FakeEngine, pages: Pages
+) -> None:
+    """The monitor answering 503 means the heartbeat did not land — and the correct
+    consequence is that the dead man fires, which IS the page. Raising a second alarm here
+    would put two delivery paths on one fact (the thing `host_heartbeat` rejected `/fail`
+    for) and would keep `vertex_credential` from having exactly one alert code.
+
+    It must also not touch the outcome: the credential is already installed by this point,
+    and a lost ping is not a failed rotation."""
+    google = FakeGoogle()
+    google.heartbeat_status = 503
+    _wire(monkeypatch, google)
+
+    outcome = await refresh_in_call_llm_credential({})
+
+    assert outcome.startswith("rotated")
+    assert engine._llm_credential == BEARER
+    assert pages.codes == []
+    # Retried, because the vendor documents that pings are lost to plain packet loss.
+    assert len(google.heartbeat_pings) == heartbeat.PING_ATTEMPTS
+
+
+@pytest.mark.asyncio
+async def test_an_unarmed_dead_man_says_so_rather_than_passing_silently(
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str,
+    engine: FakeEngine,
+    pages: Pages,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Unset is correct locally, in CI, and on any deployment not running this leg — so it
+    is not a failure. It is also not nothing: a heartbeat that reaches nobody while looking
+    configured is the exact defect this closes, so the tick says which state it is in."""
+    google = FakeGoogle()
+    _wire(monkeypatch, google)
+    monkeypatch.setattr(get_settings(), "in_call_llm_heartbeat_url", "   ")
+
+    with caplog.at_level(logging.DEBUG):
+        assert (await refresh_in_call_llm_credential({})).startswith("rotated")
+
+    # A blank string is "unconfigured", not a request to nowhere.
+    assert google.heartbeat_pings == []
+    assert any("in_call_llm_heartbeat_unarmed" in r.getMessage() for r in caplog.records)
+    assert pages.codes == []

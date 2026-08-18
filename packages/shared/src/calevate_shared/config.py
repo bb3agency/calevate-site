@@ -589,6 +589,36 @@ class Settings(BaseSettings):
     # reaches nobody is the exact defect this closes.
     backup_heartbeat_url: str | None = None
 
+    # THE SECOND DEAD MAN (D-408), watching the in-call LLM bearer's rotation loop.
+    #
+    # WHY A SECOND ONE RATHER THAN A BRANCH OF THE FIRST. `vertex_credential.py` already
+    # pages on every way rotation can FAIL — but that alarm is raised BY the job, so the
+    # one failure it cannot report is the job not running at all: a stopped ARQ worker, a
+    # container that never came back, a Redis the worker cannot reach. Nothing rotates,
+    # nothing pages, and the in-call LLM leg goes dark within twelve hours on live calls
+    # for every client at once. That is the highest-consequence silent failure in this
+    # system, and only an observer OUTSIDE the worker can turn its silence into a page.
+    #
+    # PERIOD 4h (`REFRESH_INTERVAL_HOURS`), GRACE 2h, configured vendor-side — the
+    # arithmetic is on `TOKEN_LIFETIME_S`: a bearer is replaced while it still has 8
+    # hours left, so a page after 6 hours of silence still leaves at least 6 hours of
+    # working service to fix it in. `runbooks/vertex-llm-credential.md` §8.3 has the
+    # vendor-side setup.
+    #
+    # ONLY A COMPLETED ROTATION PINGS IT. Not a skip, not a failure — see
+    # `vertex_credential.refresh_in_call_llm_credential`. A caller that pings on any
+    # other path has removed this alarm rather than extended it, because what is being
+    # watched for is silence.
+    #
+    # IT IS A CREDENTIAL, for `backup_heartbeat_url`'s reason: holding it is enough to
+    # silence the alarm. The `heartbeat` fragment in `platform_config` seals it out of
+    # the plaintext table by name.
+    #
+    # UNSET is correct locally, in CI, and on any deployment not running the Vertex leg;
+    # it means no dead man is armed, and the worker says so once per tick rather than
+    # passing silently.
+    in_call_llm_heartbeat_url: str | None = None
+
     # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
     # stay off until the human checklist in workers/whatsapp.py is done: WABA + business
     # verification, an APPROVED template, and a recorded per-tenant opt-in (which needs

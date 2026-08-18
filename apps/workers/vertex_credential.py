@@ -89,6 +89,7 @@ import httpx
 from calevate_shared.engine import VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE
 
 from apps.api.core.alerting import alert
+from apps.api.core.heartbeat import check_ref, ping_async
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.engine import get_engine
@@ -393,7 +394,54 @@ async def refresh_in_call_llm_credential(ctx: dict[str, Any]) -> str:
             "superseded_removed": placement.superseded_removed,
         },
     )
+    await _feed_dead_man()
     return f"rotated expires_in_h={int(remaining.total_seconds() // 3600)}"
+
+
+async def _feed_dead_man() -> None:
+    """Tell the external monitor this rotation loop is alive (D-408).
+
+    THE ONE FAILURE THE ALARM ABOVE CANNOT REPORT is this job not running: a stopped
+    worker, a container that never came back, a Redis it cannot reach. `_page` is raised
+    BY the job, so a dead job raises nothing, and the in-call LLM leg then goes dark
+    within twelve hours — on live calls, for every client at once, with no signal
+    anywhere. Only an observer outside this process can turn that silence into a page,
+    which is `scripts/host_heartbeat.py`'s argument applied a second time; the vendor
+    choice and the rejected alternatives are argued there and not repeated here.
+
+    CALLED FROM EXACTLY ONE PLACE — after a bearer was minted, checked and installed —
+    and that is the whole mechanism. The three skip arms do not reach here (a deployment
+    not on this leg has no credential whose freshness anyone could assert, and should not
+    arm the check), and no failure arm reaches here either. **Adding a call on any other
+    path would remove this alarm rather than extend it**, because what the monitor is
+    watching for is silence, and a job that pings whatever happens is never silent.
+
+    IT NEVER RAISES AND NEVER PAGES. It runs after the credential is already safely in
+    place, so nothing here can undo a good rotation; and an undelivered heartbeat needs
+    no alarm of its own, because the consequence of not sending it is that the dead man
+    fires — which is the correct outcome and already a page. The log line below is what
+    an operator reads to understand a dead-man page that arrived while rotation was in
+    fact healthy. This is also why `vertex_credential` still has exactly ONE alert code.
+    """
+    url = (get_settings().in_call_llm_heartbeat_url or "").strip()
+    if not url:
+        # Stated, not silent, and not a failure: unset is correct locally, in CI, and on
+        # any deployment not running this leg. A no-op that looks armed is the defect.
+        log.info("in_call_llm_heartbeat_unarmed")
+        return
+    # A CLIENT OF ITS OWN, deliberately. The mint's client is scoped tightly around the
+    # two Google calls and is closed before the engine install; reopening that scope to
+    # carry a heartbeat would widen the window a credential-bearing client is alive to
+    # save one handshake, six times a day.
+    async with httpx.AsyncClient(follow_redirects=False) as http:
+        delivered, reason = await ping_async(http, url, agent="llm-credential-heartbeat")
+    if delivered:
+        log.info("in_call_llm_heartbeat_sent", extra={"check": check_ref(url), "reason": reason})
+        return
+    log.error(
+        "in_call_llm_heartbeat_undelivered",
+        extra={"check": check_ref(url), "reason": reason},
+    )
 
 
 def _page(detail: str, *, project: str) -> None:
