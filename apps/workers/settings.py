@@ -570,9 +570,17 @@ class WorkerSettings:
     #
     # WHY NOT `job_timeout` (300). A job that has run for five minutes is not going to
     # finish in the grace window either, and sizing the drain to the slowest possible job
-    # would mean every deploy waits for SIGKILL. The nine `FUNCTIONS` jobs are idempotent
-    # and re-queue; what this window is actually FOR is the six `max_tries=1` crons,
-    # which do not — a cancelled `apply_retention` requeues, fails its pickup with
-    # `job_try=2 > 1`, and is gone until tomorrow, which is a legal obligation skipped in
-    # silence because a deploy happened at 03:40 UTC.
+    # would mean every deploy waits for SIGKILL. The `FUNCTIONS` jobs are idempotent and
+    # re-queue; what this window is actually FOR is the crons, which do not — a cancelled
+    # `apply_retention` requeues, fails its pickup with `job_try > max_tries`, and is gone
+    # until tomorrow, which is a legal obligation skipped in silence because a deploy
+    # happened at 03:40 UTC.
+    #
+    # NO COUNT HERE, DELIBERATELY. This said "the nine `FUNCTIONS` jobs" and "the six
+    # `max_tries=1` crons"; there are ten of the first and two of the second, and
+    # `apply_retention` — the example the sentence was BUILT on — has carried a ladder
+    # since P6.2. A count in prose is the defect class hard rule 4 names, and the two
+    # populations are enumerated where they are declared. Which crons legitimately run
+    # with one attempt, and why the next tick is a sufficient retry for each, is asserted
+    # rather than counted: `tests/job_registration_test.NO_LADDER_NEEDED` (D-361).
     job_completion_wait = 45

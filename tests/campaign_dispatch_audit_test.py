@@ -57,6 +57,7 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
+from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
@@ -1435,15 +1436,10 @@ async def test_the_reaper_does_not_return_an_unconfirmed_dial_to_the_ladder(
         "the committed claim is what keeps the contact out of the next tick's reach"
     )
 
-    # Thirty minutes on. The reaper runs at the top of every tick.
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text(
-                "UPDATE campaign_contacts SET last_attempt_at = now() - interval '31 minutes' "
-                "WHERE campaign_id = :c"
-            ),
-            {"c": campaign_id},
-        )
+    # Past `STUCK_DIALING_AFTER`. The reaper runs at the top of every tick, and the
+    # horizon is derived from `CALL_CAP_MAX_S` rather than fixed at 30 minutes (D-360),
+    # so this ages by the constant instead of restating a number it no longer matches.
+    await _age_dialing(tenant_id, campaign_id, campaign_dispatch.STUCK_DIALING_AFTER + MINUTE)
     swept = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
 
     assert swept["dialled"] == 0, f"the reaper handed the contact back to the dialler: {swept}"
@@ -1452,3 +1448,82 @@ async def test_the_reaper_does_not_return_an_unconfirmed_dial_to_the_ladder(
     )
     ids = await _engine_call_ids(tenant_id)
     assert len(ids) == 1 and ids[0].startswith(UNCONFIRMED_ENGINE_CALL_PREFIX), ids
+
+
+# ------------------------------- the reaper's horizon versus a call still in progress
+
+
+MINUTE = timedelta(minutes=1)
+
+
+async def _age_dialing(tenant_id: uuid.UUID, campaign_id: uuid.UUID, elapsed: timedelta) -> None:
+    """Push a claimed contact's `last_attempt_at` back by `elapsed`.
+
+    That column is stamped by the CLAIM, before the dial, so it is the call's own clock —
+    which is exactly why the reaper's horizon has to outlive the call.
+    """
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE campaign_contacts SET last_attempt_at = now() - "
+                "make_interval(secs => :secs) WHERE campaign_id = :c"
+            ),
+            {"c": campaign_id, "secs": elapsed.total_seconds()},
+        )
+
+
+def test_the_reaper_outlives_the_longest_call_an_agent_may_be_configured_for() -> None:
+    """The arithmetic behind D-360, asserted rather than left in a comment.
+
+    `STUCK_DIALING_AFTER` used to be a 30-minute SQL literal described as "far longer
+    than any call we bill for". `CALL_CAP_MAX_S` lets a client configure an hour.
+    """
+    assert timedelta(seconds=CALL_CAP_MAX_S) < campaign_dispatch.STUCK_DIALING_AFTER, (
+        "a contact is reaped while its own call is still legally in progress, and the "
+        "reap puts that person back on the dialling ladder"
+    )
+
+
+async def test_a_contact_whose_call_is_still_in_progress_is_not_returned_to_the_ladder() -> None:
+    """THE DEFECT D-360 CLOSES: the reaper redialling somebody who is still on the phone.
+
+    A contact is claimed at T and stamped `last_attempt_at = T` BEFORE the dial. On an
+    agent with a long `max_call_duration_s` — the platform permits `CALL_CAP_MAX_S`, an
+    hour — the conversation is still running at T+31m. With the horizon at 30 minutes the
+    tick at T+31m swept that contact back to `pending` with a rung 30 minutes out, and
+    the tick after that DIALLED THE SAME PERSON AGAIN while the first call was live or
+    barely finished.
+
+    The second casualty is the accounting: `resolve_campaign_contact` matches on
+    `last_call_id` AND `status = 'dialing'`, so once the reaper moved the row the
+    conversation that actually happened could never be recorded as `connected` — the
+    campaign's `reached` count under-reported it and the contact could still be exhausted
+    into `failed` having been reached.
+
+    Driven end to end: dial, age past the OLD horizon, tick, and assert nothing moved.
+    """
+    tenant_id, _, campaign_id, _, _ = await _launched(phones=("9876850001",), slider=1)
+    assert (await _tick_one_campaign(tenant_id, campaign_id, slots=1))["dialled"] == 1
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1)]
+    placed = await _calls_placed(tenant_id)
+
+    # T+31 minutes: past the old literal, well inside a call the platform permits.
+    await _age_dialing(tenant_id, campaign_id, timedelta(minutes=31))
+    swept = await _tick_one_campaign(tenant_id, campaign_id, slots=1)
+
+    assert swept["dialled"] == 0, (
+        f"the reaper handed a contact whose call is still in progress back to the "
+        f"dialler, and the dialler rang them a second time: {swept}"
+    )
+    assert await _contacts(tenant_id, campaign_id) == [("dialing", 1)], (
+        "the contact left `dialing`, so the finished call can no longer be matched to it "
+        "by `resolve_campaign_contact` — the conversation is lost to the campaign's books"
+    )
+    assert await _calls_placed(tenant_id) == placed, "a second call was placed to one person"
+
+    # And the backstop still works once the call cannot possibly still be running.
+    await _age_dialing(tenant_id, campaign_id, campaign_dispatch.STUCK_DIALING_AFTER + MINUTE)
+    await _tick_one_campaign(tenant_id, campaign_id, slots=0)
+    assert [status for status, _ in await _contacts(tenant_id, campaign_id)] == ["pending"], (
+        "a genuinely stranded contact must still come back to the ladder eventually"
+    )

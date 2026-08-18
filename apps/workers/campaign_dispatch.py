@@ -90,6 +90,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.models import CALL_CAP_MAX_S
 from apps.api.agents.service import (
     UNCONFIRMED_ENGINE_CALL_PREFIX,
     DialUnconfirmedError,
@@ -146,6 +147,36 @@ DEFAULT_CONCURRENCY_CEILING = 10
 # now read by `dispatch_scan()` too, and a constant that reaches two readers through an
 # f-string into SQL is a constant with two chances to drift.
 ACTIVE_CALL_HORIZON = timedelta(hours=1)
+
+# How long a contact may sit in `dialing` before the reaper decides its call will never
+# produce a terminal event. DERIVED, and it used to be a 30-minute SQL literal whose
+# docstring read "far longer than any call we bill for" (D-360).
+#
+# It is not. `agents.models.CALL_CAP_MAX_S` lets a client configure an agent to stay on a
+# call for a full hour, and `ACTIVE_CALL_HORIZON` immediately above — in this same module
+# — already says an hour is the point at which a call row stops being evidence of a live
+# line. The reaper's premise was contradicted twelve lines from where it was written.
+#
+# WHAT IT COST, and it is a second unsolicited call rather than a bookkeeping slip: a
+# contact claimed at T is stamped `last_attempt_at = now()` by the CLAIM, BEFORE the dial
+# (see `_dispatch_for_campaign`), so the reaper's clock IS the call's own clock. A
+# conversation still in progress at T+31m was returned to `pending` with
+# `next_attempt_at = T+61m`, and a later tick dialled the same person again — minutes
+# after they had finished speaking to the agent, or while they still were.
+#
+# The second casualty is silent. The contact was no longer `dialing`, so when the first
+# call did end `resolve_campaign_contact` matched nothing: it keys on `last_call_id` AND
+# `status = 'dialing'`. The conversation that actually happened was never recorded as
+# `connected`, the campaign's reached count under-reported it, and the contact could
+# still be exhausted into `failed` having been reached.
+#
+# So the horizon is derived from the longest call the platform PERMITS rather than from
+# the longest call we expect, plus a margin for the lag between hangup and the post-call
+# pipeline settling the contact (`pipeline.PIPELINE_STALL_AFTER` is the same ten minutes,
+# arrived at independently for the same kind of reason). Reaping later costs nothing:
+# this is the backstop for a lost terminal event, and `_dispatch_for_campaign` settles
+# the common case the moment the call ends.
+STUCK_DIALING_AFTER = timedelta(seconds=CALL_CAP_MAX_S) + timedelta(minutes=10)
 
 # How often this tick runs. `settings.py` BUILDS its cron registration from these, so
 # the schedule and everything below that reasons about the schedule cannot disagree.
@@ -546,7 +577,8 @@ async def _dispatch_for_campaign(
 
     With the claim committed first, that same failure leaves the contact in `dialing`,
     pointing at the call row `dispatch_call` committed before it dialled. Nothing
-    re-claims it; `_reap_stuck_dialing` settles it after 30 minutes — back on the ladder
+    re-claims it; `_reap_stuck_dialing` settles it after `STUCK_DIALING_AFTER` — back on
+    the ladder
     if the vendor named the call, terminally if it never did, because a dial we cannot
     prove did not ring must not be retried. One dial, one attempt, no second ring. The
     split also stops a DB transaction being held open across an engine HTTP round trip.
@@ -998,8 +1030,9 @@ async def _exhaust_contact(
 
 async def _reap_stuck_dialing(session: Any, campaign_id: UUID, *, tenant_id: UUID) -> int:
     """A dial whose call never produced a terminal event would pin a contact in
-    `dialing` forever and the campaign would never complete. After 30 minutes — far
-    longer than any call we bill for — it goes back on the ladder.
+    `dialing` forever and the campaign would never complete. After `STUCK_DIALING_AFTER`
+    — which OUTLIVES the longest call an agent may be configured for, see the constant —
+    it goes back on the ladder.
 
     EXCEPT when the call it is pinned to is one the vendor never named. That is the
     signature of a dial whose response we lost (`dispatch_call` commits the intent row
@@ -1020,10 +1053,14 @@ async def _reap_stuck_dialing(session: Any, campaign_id: UUID, *, tenant_id: UUI
                     "SELECT cc.id FROM campaign_contacts cc "
                     "JOIN calls c ON c.id = cc.last_call_id "
                     "WHERE cc.campaign_id = :cid AND cc.status = 'dialing' "
-                    "AND cc.last_attempt_at < now() - interval '30 minutes' "
+                    "AND cc.last_attempt_at < now() - make_interval(secs => :stuck) "
                     "AND c.engine_call_id LIKE :unconfirmed"
                 ),
-                {"cid": campaign_id, "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%"},
+                {
+                    "cid": campaign_id,
+                    "stuck": STUCK_DIALING_AFTER.total_seconds(),
+                    "unconfirmed": f"{UNCONFIRMED_ENGINE_CALL_PREFIX}%",
+                },
             )
         )
         .scalars()
@@ -1043,9 +1080,9 @@ async def _reap_stuck_dialing(session: Any, campaign_id: UUID, *, tenant_id: UUI
             "UPDATE campaign_contacts SET status = 'pending', "
             "next_attempt_at = now() + interval '30 minutes', updated_at = now() "
             "WHERE campaign_id = :cid AND status = 'dialing' "
-            "AND last_attempt_at < now() - interval '30 minutes'"
+            "AND last_attempt_at < now() - make_interval(secs => :stuck)"
         ),
-        {"cid": campaign_id},
+        {"cid": campaign_id, "stuck": STUCK_DIALING_AFTER.total_seconds()},
     )
     return rowcount_of(result) + len(stranded)
 
@@ -1108,6 +1145,7 @@ async def _record_failure(
 __all__ = [
     "DEFAULT_CONCURRENCY_CEILING",
     "PLATFORM_LINES_TOTAL",
+    "STUCK_DIALING_AFTER",
     "TICK_INTERVAL_S",
     "TICK_LEASE_TTL_S",
     "TICK_SECONDS",
