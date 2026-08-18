@@ -127,7 +127,13 @@ web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on t
 	pnpm -C apps/web test
 
 db-reset:
-	uv run alembic downgrade base
+	# DROP SCHEMA, not `alembic downgrade base` (D-207, scripts/db_reset.py). A downgrade
+	# undoes revisions in order, so the DATA a developer's database holds can refuse it —
+	# `b3d9f6a2c815` re-imposes NOT NULL on `admin_users.clerk_user_id`, which the first
+	# -party operator `scripts/bootstrap_admin.py` creates violates. It then stops
+	# MID-CHAIN, leaving `alembic_version` disagreeing with the schema, which is the state
+	# the shared development database was found in and could not migrate out of.
+	uv run python -m scripts.db_reset
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
 

@@ -31,12 +31,13 @@ from typing import Any
 
 import pytest
 from apps.api.crm import columns as registry
+from apps.api.crm.service import MAX_FACET_VALUES
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.api.main import app
 from calevate_shared.extraction import ExtractionField
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 #: A value that executes on open in Excel. The same shape `redteam_extraction_poisoning`
 #: uses, planted in EVERY column this suite can reach.
@@ -373,6 +374,73 @@ async def test_a_value_the_schema_no_longer_declares_is_still_offered_and_flagge
     assert values["legacy_band"]["declared"] is False
     assert values["legacy_band"]["count"] == 1
     assert values["over_50l"]["declared"] is True
+
+
+async def test_the_undeclared_tail_is_bounded_in_the_query_not_only_in_the_response() -> None:
+    """`MAX_FACET_VALUES` says it bounds values "which is otherwise unbounded" — and until
+    D-208 it bounded only what was RENDERED, after the whole `GROUP BY` had been
+    transported and turned into a Python dict.
+
+    A facet is an enum field by DECLARATION; the extractor writes whatever the model
+    produced. So a field whose declaration changed, or whose model went off-script, holds
+    as many distinct strings as the tenant has leads — one dict entry each, up to eight
+    times per page render. This drives 60 undeclared values and asserts the statement the
+    database was asked to answer carries a `LIMIT`.
+    """
+    t = await _tenant()
+    for n in range(60):
+        await _lead(t, name=f"L{n}", phone=f"+9198000{n:05d}", data={"budget_band": f"drift_{n}"})
+
+    engine = get_engine().sync_engine
+    facet_statements: list[str] = []
+
+    def _capture(
+        _conn: Any, _cursor: Any, statement: str, *_args: Any, **_kwargs: Any
+    ) -> None:  # pragma: no cover - trivial
+        if "data ->>" in statement and "count(*)" in statement:
+            facet_statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", _capture)
+    try:
+        async with _client() as http:
+            response = await http.get(f"/v1/leads/facets?agent_id={t.agent_id}", headers=t.headers)
+    finally:
+        event.remove(engine, "before_cursor_execute", _capture)
+
+    assert response.status_code == 200, response.text
+    assert facet_statements, "no facet aggregate was captured — the probe missed the query"
+    for statement in facet_statements:
+        assert "LIMIT" in statement.upper(), (
+            "the facet aggregate has no LIMIT: every distinct value a client's data "
+            "contains is transported and allocated, and MAX_FACET_VALUES only trims the "
+            "list afterwards"
+        )
+
+
+async def test_a_rare_declared_value_survives_a_crowded_undeclared_tail() -> None:
+    """The invariant the LIMIT is not allowed to break, and the reason it is ordered
+    declared-first rather than by count alone.
+
+    A bare `LIMIT` sorted by count would drop a declared value that ranks below the cap,
+    and the zero-fill would then report it as 0 — a filter claiming a value nobody has,
+    which is worse than the unbounded query it replaced. Here the declared value is the
+    RAREST thing in the table and 60 undeclared values outrank it.
+    """
+    t = await _tenant()
+    await _lead(t, name="rare", phone="+919899999999", data={"budget_band": "over_50l"})
+    for n in range(60):
+        await _lead(t, name=f"L{n}", phone=f"+9198100{n:05d}", data={"budget_band": f"drift_{n}"})
+        await _lead(t, name=f"M{n}", phone=f"+9198200{n:05d}", data={"budget_band": f"drift_{n}"})
+
+    async with _client() as http:
+        response = await http.get(f"/v1/leads/facets?agent_id={t.agent_id}", headers=t.headers)
+    values = {v["value"]: v for v in response.json()["facets"][0]["values"]}
+    assert values["over_50l"]["count"] == 1, (
+        "the one declared value with rows was cut by the LIMIT and zero-filled back in — "
+        "the facet now says a value that exists has no rows"
+    )
+    assert values["over_50l"]["declared"] is True
+    assert len(values) <= MAX_FACET_VALUES, "the rendered list outgrew its own cap"
 
 
 async def test_a_non_string_value_is_not_offered_as_a_facet() -> None:

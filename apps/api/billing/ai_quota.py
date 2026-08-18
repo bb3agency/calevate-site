@@ -118,6 +118,8 @@ from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import ist_month_end, parse_billing_month
 from apps.api.billing.service import (
     _IST_MONTH,
+    _IST_MONTH_WINDOW,
+    _month_bounds,
     current_billing_month,
     find_entry_by_ref,
     lock_tenant_credits,
@@ -480,7 +482,10 @@ _USAGE_SQL = (
     "SELECT COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0), COUNT(DISTINCT ref) "
     "FROM usage_events "
     "WHERE tenant_id = :tid AND unit_type = ANY(:units) AND ref IS NOT NULL "
-    f"AND {_IST_MONTH} = :month"
+    # The month is a half-open range on `occurred_at`, not a rendered string: the rendered
+    # form cannot be an index condition (`billing/service._IST_MONTH_WINDOW` carries the
+    # measurement), so this panel used to read the tenant's whole metering history.
+    f"AND {_IST_MONTH_WINDOW}"
 )
 
 
@@ -503,7 +508,11 @@ async def read_ai_quota(
     row = (
         await session.execute(
             text(_USAGE_SQL),
-            {"tid": tenant_id, "units": list(AI_ASSIST_UNIT_TYPES), "month": period},
+            {
+                "tid": tenant_id,
+                "units": list(AI_ASSIST_UNIT_TYPES),
+                **_month_bounds(period),
+            },
         )
     ).one()
     # `Decimal(str(...))` — never `Decimal(float)` — on the way out of NUMERIC, the same

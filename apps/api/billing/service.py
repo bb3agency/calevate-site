@@ -48,6 +48,7 @@ from apps.api.billing.caps import (
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import (
     ist_billing_month,
+    ist_month_window,
     month_pricing_instant,
     parse_billing_month,
     plan_in_effect_sql,
@@ -755,7 +756,39 @@ async def plan_tier_of(session: AsyncSession, tenant_id: UUID) -> str:
 # change the answer. The named zone rather than a literal `+05:30` for the same reason the
 # Python side uses a fixed offset with a comment: India has no DST today, and if that ever
 # changed the zone would follow it and a hardcoded offset would not.
+#
+# TWO SPELLINGS, AND THE SPLIT IS BY WHAT THE SQL DOES WITH THE MONTH, not by taste.
+# `_IST_MONTH` RENDERS a row's own month and is the only form that can: it is what
+# `ai_quota._INSERT_USAGE` returns out of `RETURNING`, so the counter the platform brake
+# reads is stamped by the database's clock rather than the API process's. Nothing filters
+# with it any more — see `_IST_MONTH_WINDOW` below for why it cannot.
 _IST_MONTH = "to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM')"
+
+# WHY FILTERING IS A RANGE AND NOT THAT STRING COMPARISON. Every sentence above stays
+# true and `plans.ist_month_window` is where it now lives: it builds the same IST month from the
+# same NAMED zone, in Python, and hands SQL two `timestamptz` bounds — so the session's
+# `TimeZone` still cannot reach the answer, which is the property the paragraph above
+# exists to protect.
+#
+# What the rendered form ALSO was is unindexable. `to_char` is STABLE rather than
+# IMMUTABLE (its output depends on `DateStyle`/`lc_time`), so PostgreSQL will use it
+# neither as an index condition nor as an index EXPRESSION, and every money rollup
+# filtered the tenant's whole metering history one row at a time. Measured on 225,000
+# `usage_events` for one tenant, PG16: 84.0 ms / 3,829 buffers rendered, 2.2 ms / 76
+# buffers as this range against `ix_usage_events_tenant_occurred` (migration
+# `c9e2a7b41d63`).
+#
+# HALF-OPEN, `>= :month_from AND < :month_to`, the same SQL:2011 application-time reading
+# `plan_in_effect_sql` uses: no instant lands in two months and none lands in neither.
+_IST_MONTH_WINDOW = "occurred_at >= :month_from AND occurred_at < :month_to"
+
+
+def _month_bounds(month: str) -> dict[str, datetime]:
+    """The two binds `_IST_MONTH_WINDOW` reads, so a caller cannot name the window and
+    then supply half of it."""
+    start, end = ist_month_window(month)
+    return {"month_from": start, "month_to": end}
+
 
 # "…and it is a CALL row", for the cost query that prices minutes. Spelled NEGATIVELY
 # rather than as a positive list of call unit types, and that is deliberate: a positive
@@ -922,11 +955,11 @@ async def rung_seconds(
                 "SELECT COALESCE(meta->>'tts_tier', ''), "
                 "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0), "
                 "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month "
+                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
                 f"AND {_NOT_AI_UNITS} "
                 "GROUP BY 1"
             ),
-            {"tid": tenant_id, "month": month},
+            {"tid": tenant_id, **_month_bounds(month)},
         )
     ).all()
 
@@ -1190,9 +1223,9 @@ async def usage_summary(
             # inflate a client's call count and does not need a predicate to say so.
             text(
                 "SELECT COUNT(DISTINCT call_id) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH} = :month"
+                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW}"
             ),
-            {"tid": tenant_id, "month": period},
+            {"tid": tenant_id, **_month_bounds(period)},
         )
     ).first()
     calls = int(row[0] or 0) if row else 0

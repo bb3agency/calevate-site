@@ -26,6 +26,17 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
     -- which MOTION this org belongs to, not a feature flag: it decides whether credits
     -- gate dispatch (compliance gate) and whether the self-serve screens render
   billing_email, created_by, deleted_at)
+  -- NOBODY HARD-DELETES THIS ROW, and since migration d1b8f30c94a7 the table says so.
+  -- `tenant_isolation` is FOR ALL and `WITH CHECK` is not consulted on DELETE, so `USING`
+  -- alone decided and it admitted the session's own org: a tenant could destroy the anchor
+  -- every tenant table's FK points at (PROVEN, D-206). `organizations_delete_admin_only` is
+  -- RESTRICTIVE FOR DELETE, `USING (app.admin = 'on')` — an admin-realm operation or none.
+  -- The lifecycle is unchanged: `deleted_at` is the soft delete and
+  -- `tenant_erasure_requests` is still the only thing that writes it.
+  -- An UNKEYED read of this table is a sequential scan of the whole platform's client list
+  -- (34,470 rows / 596 buffers / 9.7 ms, measured): the policy's `id IN (SELECT ...)` branch
+  -- cannot be an index condition. Keyed reads (`slug =`, `id =`) plan as index scans and are
+  -- what every request path uses; the one unkeyed reader is the admin directory.
 reserved_slugs(slug PK)              -- admin, api, login, settings, app, www, ...
 users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at)
   -- deactivated_at re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7):
@@ -112,6 +123,12 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   engine_payload_ref TEXT)             -- object-storage key of raw vendor payload (debug only;
                                        -- engine-payloads/{tenant}/{call}/…, so a DPDP erasure can
                                        -- enumerate it — D-126. Write the ref BEFORE the object.)
+-- INDEX ix_calls_tenant_started (tenant_id, started_at DESC NULLS LAST, id DESC)
+--   (migration c9e2a7b41d63). The calls list and the polled dashboard tiles order by exactly
+--   this key; without it page 1 was a top-N heapsort of every call the tenant has
+--   (38.953 ms / 1,770 buffers at 45,000 rows → 0.096 ms / 15). `NULLS LAST` is written out
+--   because DESC defaults to NULLS FIRST, and an index declared the obvious way serves a
+--   different ordering and brings the sort back.
 transcript_turns(id, tenant_id, call_id, idx INT, speaker ENUM[agent,caller], text TEXT,
   text_redacted TEXT, lang TEXT, start_ms INT, end_ms INT, UNIQUE(call_id,idx))
   -- default read = text_redacted; raw `text` gated by role + audit_log
@@ -132,6 +149,12 @@ leads(id, tenant_id, agent_id, phone_e164, name, source ENUM[inbound_call,webhoo
   status ENUM[new,contacted,interested,hot,won,lost], data JSONB,   -- keys per extraction schema
   schema_version INT, first_call_id, last_call_id, call_count INT, is_repeat_caller BOOL,
   assigned_to NULL → users, deleted_at, UNIQUE(tenant_id, phone_e164, agent_id))
+-- INDEX ix_leads_tenant_recent (tenant_id, updated_at DESC, id DESC) WHERE deleted_at IS NULL
+--   (migration c9e2a7b41d63). `list_leads_page` and the CSV export both take this ordering
+--   and nothing in the schema knew it: page 1 was a top-N heapsort of the tenant's whole
+--   lead table (28.454 ms / 1,668 buffers at 50,001 rows → 0.064 ms / 6, no sort node), and
+--   the export's larger LIMIT SPILLED — 8,224 kB external merge to disk → no sort at all.
+--   PARTIAL because `_lead_scope` opens with `deleted_at IS NULL` unconditionally.
 lead_events(id, tenant_id, lead_id, type ENUM[status_change,note,call,notification], payload JSONB, actor)
 ```
 
@@ -181,6 +204,10 @@ campaign_contacts(id, tenant_id, campaign_id, phone_e164, name, custom JSONB,
   -- next_attempt_at is what makes the per-CONTACT backoff ladder above real: the
   -- dispatcher claims "due pending contacts, oldest first" through
   -- INDEX ix_campaign_contacts_due (campaign_id, status, next_attempt_at).
+  -- INDEX ix_campaign_contacts_last_call_id (last_call_id) WHERE last_call_id IS NOT NULL
+  -- (migration c9e2a7b41d63). `_settle_contact` runs once per completed campaign call and
+  -- its docstring promised "one indexed lookup and stops"; it reached the row through the
+  -- tenant's whole contact list (4.700 ms / 650 buffers over 29,520 → 0.020 ms / 2).
 dnc_list(id, tenant_id NULL, phone_e164, scope ENUM[global,tenant], source, added_at,
   CHECK ((scope='global' AND tenant_id IS NULL) OR (scope='tenant' AND tenant_id IS NOT NULL)),
   UNIQUE(tenant_id, phone_e164),
@@ -261,6 +288,18 @@ kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
 usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_chars,
   llm_tok_in,llm_tok_out,platform_min,number_rental,other], qty NUMERIC, unit_cost_paid NUMERIC,
   occurred_at, meta JSONB)                          -- INSERT-only; no UPDATE/DELETE grants
+-- INDEX ix_usage_events_call_id (call_id) WHERE call_id IS NOT NULL (c9e2a7b41d63). The
+--   post-call metering guard, `_pipeline_settled`'s EXISTS and the unmetered-calls panel all
+--   probe by call; offered only `tenant_id` each was a scan of the tenant's ENTIRE metering
+--   history to find at most five rows (25.794 ms / 3,617 buffers at 225,000 → 0.024 ms / 4).
+--   PARTIAL because `number_rental` and the `ai_assist_*` units carry no call — and a partial
+--   index still serves the FK check, since `call_id = $1` under a strict operator proves the
+--   predicate.
+-- INDEX ix_usage_events_tenant_occurred (tenant_id, occurred_at) (c9e2a7b41d63). Every money
+--   rollup is "this tenant, this month" (33.788 ms / 3,822 buffers → 2.058 ms / 74). It is
+--   also what made the month predicate indexable AT ALL: `to_char(... ) = :month` is STABLE,
+--   so it can be neither an index condition nor an index expression, and
+--   `plans.ist_month_window` now hands SQL a half-open range instead (D-208).
 plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
   overage_rate_value NUMERIC NULL, hard_cap_min INT, hard_cap_spend NUMERIC,
   client_cap_min INT NULL, client_cap_spend NUMERIC NULL,
@@ -670,6 +709,21 @@ audit_log  -- (defined in §9) exempt because the admin realm reads cross-tenant
   drop: no node type changes, nothing falls back to a seq scan, and the extra buffers are
   stated. Two near-misses are excluded by construction — a prefix of a PARTIAL index
   covers a subset of rows and therefore covers nothing.
+- **An unindexed foreign-key CHILD column is judged on who SCANS it, not on whether the
+  parent cascades.** D-192 counted 33 such columns and added none, because no parent in this
+  schema is ever hard-deleted so the referential scan is unreachable — correct, and the wrong
+  test. The census is 34 by `pg_constraint` + `pg_index.indkey[0]` (one, `leads.assigned_to`,
+  is a false positive: a PARTIAL index serves it, which a catalog query cannot see). Five were
+  taken in `c9e2a7b41d63`, four of them bought entirely by application queries, each with its
+  before/after plan in the migration; the other 28 are declined THERE, by group, with reasons.
+  Bar for adding one: a named call site, a measured plan at realistic rows, and a statement of
+  the write cost. `docs/evidence/deepdive-dbscale.md` is the full record.
+- **A reset drops the schema; it does not walk the chain backwards.** `make db-reset` runs
+  `scripts/db_reset.py` (D-207). A downgrade can be REFUSED by the data a database holds —
+  `b3d9f6a2c815` re-imposes NOT NULL on `admin_users.clerk_user_id`, which the first-party
+  operator `scripts/bootstrap_admin.py` creates violates — and it fails MID-CHAIN, leaving
+  `alembic_version` disagreeing with the schema. That is not hypothetical: it is the state the
+  shared development database was found in.
 - Backups: PITR + nightly snapshot; restore drill quarterly (OPERATIONS.md §6). The
   mechanism lives in `infra/backup/` (D-50) and **has never been applied or run** — see
   SECURITY-COMPLIANCE §4 for what the 35-day backup window means for an erasure.
