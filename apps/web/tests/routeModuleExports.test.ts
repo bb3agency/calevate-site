@@ -17,6 +17,32 @@
  *
  * It is a floor, not a ceiling: `next build` still runs in CI and still owns the classes
  * this cannot see (bundle validity, server/client boundary violations, route collisions).
+ *
+ * ## CORRECTION, measured: on a client-component LAYOUT, `next build` checks nothing
+ *
+ * The first line above says the build "type-checks page and layout modules against a fixed
+ * export shape". That is true of every page and of a SERVER layout, and false of the two
+ * layouts this repository actually has. Comparing `src/app/**` with the validators Next
+ * emits into `.next/types/app/**` on this tree:
+ *
+ *     every page.tsx              -> validator emitted
+ *     src/app/layout.tsx          -> validator emitted
+ *     src/app/admin/layout.tsx    -> NONE
+ *     src/app/c/[slug]/layout.tsx -> NONE
+ *
+ * The two without one are the two carrying `"use client"`, and the experiment closes the
+ * loop: delete that directive from `admin/layout.tsx` and rebuild, and
+ * `.next/types/app/admin/layout.ts` appears. Next 15.5.21 emits no route-type validator for
+ * a client-component layout while emitting one for a client-component page.
+ *
+ * Driven both ways: an extra export added to `c/[slug]/attention/page.tsx` fails
+ * `next build` with *"sabotageRowKeys is not a valid Page export field"*; the same export
+ * added to `c/[slug]/layout.tsx` builds GREEN, and only this test objects.
+ *
+ * So for the two files every screen in the product renders inside — the client shell and
+ * the operator shell — this guard is not a faster copy of the build. It is the only check
+ * there is, and it must not be deleted on the belief that the build would catch it.
+ * (D-211.)
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
