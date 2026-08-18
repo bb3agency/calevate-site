@@ -690,34 +690,39 @@ async def refile_erasure_for_late_records(
     candidates = sorted({phone for phone in phones if phone})
     if not candidates:
         return None
+    # ONE ROUND TRIP, AND THE REF COMES BACK WITH THE ROW. This used to select only
+    # `d.id`, then issue a SECOND query to read `subject_ref` off that same row, then
+    # search `candidates` for a phone whose ref matched — a search that could not fail,
+    # because the row was selected by `d.subject_ref = ANY(:refs)` in the first place. It
+    # therefore needed a no-cover suppression on its own "no match" branch (spelled out
+    # here would re-trigger coverage's own exclude regex, from a COMMENT — which is a
+    # trap worth naming: the directive is matched anywhere on a line, prose included).
+    # A suppressed branch on a compliance surface is what the coverage ratchet counts as
+    # an uncovered unit (D-29). Returning the ref with the row deletes the second query,
+    # the search and the dead branch together: `by_ref` is keyed on exactly the values the
+    # WHERE clause filtered on, so the lookup is total by construction rather than by a
+    # comment claiming it is.
+    by_ref = {subject_ref(phone): phone for phone in candidates}
     covering = (
         await session.execute(
             text(
-                "SELECT d.id FROM deletion_requests d, calls c "
+                "SELECT d.id, d.subject_ref FROM deletion_requests d, calls c "
                 "WHERE c.id = :cid AND d.subject_ref = ANY(:refs) "
                 "AND d.completed_at IS NOT NULL "
                 "AND d.completed_at >= COALESCE(c.started_at, c.created_at) "
                 "ORDER BY d.completed_at DESC LIMIT 1"
             ),
-            {"cid": call_id, "refs": [subject_ref(phone) for phone in candidates]},
+            {"cid": call_id, "refs": list(by_ref)},
         )
     ).first()
     if covering is None:
         return None
-    # WHICH of the two numbers was erased is a fact we hold, so it is read back rather
-    # than guessed: re-filing for the business's own line would erase the wrong subject.
-    erased = {
-        str(row[0])
-        for row in (
-            await session.execute(
-                text("SELECT subject_ref FROM deletion_requests WHERE id = :rid"),
-                {"rid": covering[0]},
-            )
-        ).all()
-    }
-    subject = next((phone for phone in candidates if subject_ref(phone) in erased), None)
-    if subject is None:  # pragma: no cover - the covering row was selected by these refs
-        return None
+    # WHICH of the two numbers was erased is a fact we hold, so it is read rather than
+    # guessed: re-filing for the business's own line would erase the wrong subject. A
+    # KeyError here would mean the database returned a row the WHERE clause excludes,
+    # which is a broken invariant and must surface as one — not be caught and turned into
+    # a silent `return None` that leaves the late records unerased.
+    subject = by_ref[str(covering[1])]
     record = await request_erasure(session, tenant_id=tenant_id, phone_e164=subject)
     # Ids and hashes only (hard rule 6). `covered_by` is what makes this legible in an
     # incident: it names the certificate the late records made incomplete.

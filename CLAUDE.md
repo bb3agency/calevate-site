@@ -112,8 +112,33 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
     may be entirely fine. So before any push:
 
     ```
-    uv run pytest tests packages -q          # must be 0 failed, 0 errored, 0 collection errors
-    uv run python -m scripts.check_coverage_ratchet
+    make coverage-ratchet          # THE ONLY invocation. It is two commands:
+                                   #   uv run coverage run -m pytest -q -p scripts.check_coverage_ratchet
+                                   #   uv run python -m scripts.check_coverage_ratchet
+    ```
+
+    **RUN THE TARGET, NOT A PYTEST YOU TYPED YOURSELF**, and the reason is the trap that
+    has now caught this rule's own author. A plain `uv run pytest tests packages -q`
+    produces NO coverage data and does NOT load the `-p scripts.check_coverage_ratchet`
+    plugin that records which tests passed — so the checker falls back to whatever
+    `.coverage` artifact is lying around from an earlier run and scores THAT. It then
+    reports failures from a run you did not do, on code it never executed. The output
+    names both halves ("the suite that produced this measurement did not pass" AND "the
+    measurement is older than N guarded source files"); the second line is the tell that
+    you measured nothing. This rule used to print the plain-pytest pair here, which is
+    how the mistake got made twice.
+
+    **THE DATABASE MUST BE MIGRATED *AND SEEDED*, AND REDIS EMPTY.** `alembic upgrade head`
+    alone leaves `reserved_slugs` empty and four tests that assert a reserved slug is
+    refused then fail with nothing to refuse — they are not defects and their fix is
+    `uv run python -m scripts.seed`, which `.github/workflows/ci.yml` runs before pytest
+    for exactly this reason. What the two stores HOLD changes which branches execute, so
+    a stale one silently moves the number:
+
+    ```
+    make db-reset                        # drop, migrate, seed
+    redis-cli -p 6380 -n <db> flushdb    # or: make down && make up
+    make coverage-ratchet
     ```
 
     Read the refusal literally. **"REFUSED TO SCORE" is not a coverage problem** — it names
@@ -132,6 +157,19 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
       assert a key is ABSENT fail on your machine and nowhere else. `tests/conftest.
       _no_ambient_credentials` strips the ones we know about; a NEW vendor variable must be
       added there, derived rather than retyped.
+
+    **A FAIL is not a REFUSAL and has a different fix.** "REFUSED TO SCORE" means it could
+    not measure; "COVERAGE RATCHET: FAIL — <surface>: N uncovered unit(s), budget M" means
+    it measured fine and the number went UP. Note what counts as uncovered: a branch
+    carrying a no-cover suppression is one, so ADDING a suppression on a hard-rule surface
+    fails this gate exactly like leaving a branch untested. Before reaching for a
+    `RAISED_BUDGETS` waiver, ask whether the branch should exist at all — a defensive arm
+    that cannot be reached is usually a sign the data was fetched twice, and deleting the
+    redundant fetch removes the branch, the suppression and a round trip together
+    (`compliance/deletion.py::refile_erasure_for_late_records` is the worked example).
+    Beware also that coverage's exclude regex matches the directive ANYWHERE on a line —
+    including inside a comment that merely talks about it, which silently excludes that
+    line.
 
     **Editing `tests/fixtures/coverage_baseline.json` to quiet it is the one forbidden
     response** — it is an equality gate that only shrinks, so a hand-widened baseline makes
