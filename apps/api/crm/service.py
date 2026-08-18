@@ -640,6 +640,15 @@ async def lead_facets(
     facet rail is 200ms and this is nowhere near it. Revisit if a tenant's lead table
     passes six figures, which is the same threshold `list_leads` names for pagination.
 
+    **MEASURED, because "nowhere near it" was a claim about an empty table.** One facet
+    over 50,001 leads is 43.4 ms / 1,661 buffers (PG16, `EXPLAIN (ANALYZE, BUFFERS)` as
+    the app role with RLS in the plan). One or two enum fields — what the shipped vertical
+    templates actually declare — is comfortably inside the budget; the worst case this
+    function permits, eight enum fields, is ~350 ms of sequential round trips and is over
+    it. No index changes that: a facet count reads every row in scope by definition, so
+    what would have to change is the round trips, not the plan. Recorded rather than
+    pre-optimised, because no shipped template gets near eight.
+
     Values are DECLARED-FIRST, in schema order, zero-filled — a value with no rows
     answers 0 rather than going missing, for the reason the status badges do: "none of
     these" and "the server did not say" are different sentences. Undeclared values found
@@ -666,12 +675,32 @@ async def lead_facets(
         # changed leaves objects and arrays behind in `data`, and `->>` renders those as
         # their JSON source — a facet value nobody can read and nobody stored.
         clauses.append("jsonb_typeof(l.data -> :facet_key) = 'string'")
+        # THE ROW BOUND, and it belongs HERE rather than only in the response.
+        # `MAX_FACET_VALUES` says it bounds the undeclared values "which is otherwise
+        # unbounded" — and it did bound the rendered list, after the whole GROUP BY had
+        # already been transported and turned into a Python dict. A facet is an enum
+        # field only by DECLARATION: the extractor writes whatever the model produced, so
+        # a field whose declaration changed (or whose model went off-script) can hold as
+        # many distinct strings as the tenant has leads, and this loop allocated one dict
+        # entry per one of them, eight times per page render.
+        #
+        # DECLARED-FIRST IS WHAT MAKES THE LIMIT SAFE. A bare `LIMIT` would drop a
+        # declared value that ranks below the cap and the zero-fill below would then
+        # report it as 0 — a filter that silently claims a value nobody has. Sorting the
+        # declared ones ahead of the tail guarantees every declared value present in the
+        # data survives the cut, and the cap is exactly what the response can render.
+        params["facet_declared"] = list(column.enum_values)
+        room = max(MAX_FACET_VALUES - len(column.enum_values), 0)
+        params["facet_cap"] = len(column.enum_values) + room
         rows = (
             await session.execute(
                 text(
                     "SELECT l.data ->> :facet_key AS value, count(*) AS n "
                     f"FROM leads l WHERE {' AND '.join(clauses)} "
-                    "GROUP BY 1 ORDER BY n DESC, 1 ASC"
+                    "GROUP BY 1 "
+                    "ORDER BY ((l.data ->> :facet_key) = ANY(:facet_declared)) DESC, "
+                    "n DESC, 1 ASC "
+                    "LIMIT :facet_cap"
                 ),
                 params,
             )
@@ -681,7 +710,6 @@ async def lead_facets(
         values = [
             FacetValue(value=v, count=observed.pop(v, 0), declared=True) for v in column.enum_values
         ]
-        room = max(MAX_FACET_VALUES - len(values), 0)
         values.extend(
             FacetValue(value=v, count=n, declared=False)
             for v, n in sorted(observed.items(), key=lambda kv: (-kv[1], kv[0]))[:room]

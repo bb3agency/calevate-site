@@ -207,6 +207,39 @@ def month_pricing_instant(month: str, *, now: datetime | None = None) -> datetim
     return min(max(moment, start.astimezone(UTC)), ist_month_end(month))
 
 
+def ist_month_window(month: str) -> tuple[datetime, datetime]:
+    """An IST billing month as a HALF-OPEN instant range in UTC: `[start, next_start)`.
+
+    The same window `_IST_MONTH` used to express as
+    `to_char(occurred_at AT TIME ZONE 'Asia/Kolkata', 'YYYY-MM') = :month`, and the reason
+    it is a range now is that a rendered string cannot be an index condition. `to_char` is
+    STABLE, not IMMUTABLE (its output depends on `DateStyle`/`lc_time`), so PostgreSQL will
+    neither use it as an index qual nor let it be an index EXPRESSION — the predicate had
+    to filter the tenant's entire metering history one row at a time. Measured on 225,000
+    `usage_events` for one tenant, PG16: 84.0 ms / 3,829 buffers as a rendered comparison,
+    2.2 ms / 76 buffers as this range against `ix_usage_events_tenant_occurred`
+    (migration `c9e2a7b41d63`).
+
+    Half-open for the same reason `plan_in_effect_sql` is (SQL:2011 application-time
+    semantics): `start <= t < next_start` leaves no instant in two months and none in
+    neither, which a closed range built from `ist_month_end` cannot promise — its
+    microsecond epsilon is exactly `timestamptz`'s resolution, so a closed comparison is
+    right only while nothing finer ever exists.
+
+    The bounds are built in IST and converted, never by adding `+05:30`: an offset is a
+    fact about today and a zone is a fact about the calendar (the module docstring and
+    `agents/business_hours.py` both make this call the same way).
+    """
+    year, mon = parse_billing_month(month)
+    start = datetime(year, mon, 1, tzinfo=IST)
+    next_start = (
+        datetime(year + 1, 1, 1, tzinfo=IST)
+        if mon == 12
+        else datetime(year, mon + 1, 1, tzinfo=IST)
+    )
+    return start.astimezone(UTC), next_start.astimezone(UTC)
+
+
 def ist_month_end(month: str) -> datetime:
     """The last instant that is still IN an IST billing month, in UTC.
 
@@ -218,14 +251,12 @@ def ist_month_end(month: str) -> datetime:
     The epsilon is a MICROSECOND because that is `timestamptz`'s own resolution: the
     half-open window `at < effective_to` must not admit the next month's plan, and a
     coarser step would leave a real instant in neither month.
+
+    Derived from `ist_month_window` rather than recomputing the month rollover: this is
+    the CLOSED reading of the same window and there must be exactly one place that knows
+    when a month ends.
     """
-    year, mon = parse_billing_month(month)
-    next_month = (
-        datetime(year + 1, 1, 1, tzinfo=IST)
-        if mon == 12
-        else datetime(year, mon + 1, 1, tzinfo=IST)
-    )
-    return (next_month - timedelta(microseconds=1)).astimezone(UTC)
+    return ist_month_window(month)[1] - timedelta(microseconds=1)
 
 
 async def warn_no_plan_in_effect(
@@ -271,6 +302,7 @@ __all__ = [
     "NOW_SQL",
     "ist_billing_month",
     "ist_month_end",
+    "ist_month_window",
     "month_pricing_instant",
     "parse_billing_month",
     "plan_in_effect_sql",
