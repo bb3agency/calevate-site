@@ -143,6 +143,7 @@ argument so the caller's scope is explicit at the call site and can be logged.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Final
@@ -646,6 +647,92 @@ async def request_erasure(
     return _record(inserted, already_open=False)
 
 
+async def refile_erasure_for_late_records(
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID, phones: Iterable[str | None]
+) -> UUID | None:
+    """The subject's instruction outlives the certificate: re-file it for a call whose
+    records arrived AFTER the erasure ran (D-310).
+
+    THE DEFECT THIS CLOSES, measured rather than argued
+    (`tests/erasure_late_arrival_test.py`). `execute_deletion_request` erases what exists
+    when it runs. A call that was still IN FLIGHT when the request executed has almost
+    nothing yet — the `calls` row and nothing else — so the erasure clears its numbers,
+    writes the proof, and the client hands the data principal a certificate. The call
+    then ends and the ordinary post-call pipeline writes the transcript verbatim, the
+    extraction, the summary, the recording, the archived vendor document and a `leads`
+    row carrying the very number the certificate says was erased. No replay, no poller,
+    no adversary: the two are simply concurrent, and the erasure had no way to reach
+    forward. Everything the certificate asserts becomes false within the pipeline's
+    two-minute SLO, and nothing anywhere reports it.
+
+    THE BOUNDARY IS THE CALL'S OWN START, and it is the whole rule. A completed erasure
+    covers a call that had already STARTED when the erasure executed, whenever that
+    call's records land. It does NOT cover a call the same person places next month:
+    `request_erasure`'s own docstring says erasure is not a terminal state for a phone
+    number, and treating it as one would silently destroy records the person's later
+    call lawfully created. Expressed as `completed_at >= COALESCE(started_at,
+    created_at)` in one statement over two RLS-scoped tables, so no clock arithmetic
+    happens in Python and no second definition of "covered" can drift from this one.
+
+    WHY RE-FILE RATHER THAN ERASE IN PLACE. A second erasure of one subject is exactly
+    what `deletion_requests` is: filing one reuses the whole mechanism — the worker, the
+    object-store arms, the recording floor holds — instead of adding a second, thinner
+    copy of the erase statements that would then have to be kept in step (CLAUDE.md: one
+    way per problem). It also produces the artefact the data principal is owed: a second
+    proof, stating what the late records were and when they went. Amending the first
+    proof was rejected — it has already been handed on, and a certificate that changes
+    after the fact is not evidence.
+
+    Returns the request id when one was filed or was already open, else `None`. Does not
+    commit: the caller's transaction owns the row and the outbox job together, which is
+    the property `request_erasure` is built on.
+    """
+    candidates = sorted({phone for phone in phones if phone})
+    if not candidates:
+        return None
+    covering = (
+        await session.execute(
+            text(
+                "SELECT d.id FROM deletion_requests d, calls c "
+                "WHERE c.id = :cid AND d.subject_ref = ANY(:refs) "
+                "AND d.completed_at IS NOT NULL "
+                "AND d.completed_at >= COALESCE(c.started_at, c.created_at) "
+                "ORDER BY d.completed_at DESC LIMIT 1"
+            ),
+            {"cid": call_id, "refs": [subject_ref(phone) for phone in candidates]},
+        )
+    ).first()
+    if covering is None:
+        return None
+    # WHICH of the two numbers was erased is a fact we hold, so it is read back rather
+    # than guessed: re-filing for the business's own line would erase the wrong subject.
+    erased = {
+        str(row[0])
+        for row in (
+            await session.execute(
+                text("SELECT subject_ref FROM deletion_requests WHERE id = :rid"),
+                {"rid": covering[0]},
+            )
+        ).all()
+    }
+    subject = next((phone for phone in candidates if subject_ref(phone) in erased), None)
+    if subject is None:  # pragma: no cover - the covering row was selected by these refs
+        return None
+    record = await request_erasure(session, tenant_id=tenant_id, phone_e164=subject)
+    # Ids and hashes only (hard rule 6). `covered_by` is what makes this legible in an
+    # incident: it names the certificate the late records made incomplete.
+    log.warning(
+        "deletion_refiled_for_late_records",
+        extra={
+            "tenant_id": str(tenant_id),
+            "call_id": str(call_id),
+            "covered_by": str(covering[0]),
+            "request_id": str(record.id),
+        },
+    )
+    return record.id
+
+
 async def get_request(session: AsyncSession, *, request_id: UUID) -> DeletionRequestRecord:
     """The status of one request, including the proof certificate once it exists.
 
@@ -742,5 +829,6 @@ __all__ = [
     "ErasureLimitation",
     "get_request",
     "list_requests",
+    "refile_erasure_for_late_records",
     "request_erasure",
 ]

@@ -1363,11 +1363,21 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             return "already_completed"
         phone = str(row[0])
 
+        # `erased_subject_ref` is in the predicate because the two phone columns are
+        # CLEARED by the UPDATE below, so a call this subject's earlier erasure already
+        # covered would otherwise be unreachable to this one — and records DO arrive for
+        # it afterwards (a call still in flight when that erasure ran; D-310,
+        # `compliance/deletion.refile_erasure_for_late_records`). Finding it again is the
+        # difference between a standing instruction and one certificate.
+        subject_handle = _hash(phone)
         calls = (
             (
                 await session.execute(
-                    text("SELECT id FROM calls WHERE from_e164 = :phone OR to_e164 = :phone"),
-                    {"phone": phone},
+                    text(
+                        "SELECT id FROM calls WHERE from_e164 = :phone OR to_e164 = :phone "
+                        "OR erased_subject_ref = :ref"
+                    ),
+                    {"phone": phone, "ref": subject_handle},
                 )
             )
             .scalars()
@@ -1440,9 +1450,10 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             await session.execute(
                 text(
                     "UPDATE calls SET from_e164 = NULL, to_e164 = NULL, recording_url = NULL, "
-                    "summary = NULL, updated_at = now() WHERE id = ANY(:ids)"
+                    "summary = NULL, erased_subject_ref = :ref, updated_at = now() "
+                    "WHERE id = ANY(:ids)"
                 ),
-                {"ids": list(calls)},
+                {"ids": list(calls), "ref": subject_handle},
             )
             # The DERIVED copy. `call_extractions.data` is the caller's name, their
             # callback number and every schema field the model captured — erasing the
