@@ -264,10 +264,33 @@ parameters** (`l.data ->> :ff_k{i} = ANY(:ff_v{i})`), not interpolated — the c
 Argon2id verification, and the module cites the OWASP Password Storage Cheat Sheet for the
 parameter choice.
 
+**The public ingest webhook's 404-vs-401 split (PROVEN by reading the handler; NOT
+actioned, and here is why).** `POST /hooks/v1/ingest/{webhook_id}` answers **404** for an
+unknown or inactive id and **401** for a live id with a bad secret, so the two are
+distinguishable. `check_public_routes.UNAUTHENTICATED_ROUTES` claims the 404 means "a
+prober cannot enumerate live endpoints", and strictly the split is an oracle. It is not a
+reachable one: `webhook_id` is `uuid7()`, which fixes 48 bits to a millisecond timestamp
+and leaves ~74 bits random, so a prober cannot produce a candidate id to ask about — and
+anyone who already holds one does not learn a secret from the answer. Collapsing the 401
+into a 404 would cost a real client the ability to tell "wrong URL" from "wrong secret",
+which is an interface regression for no security gain (`ingest/routes.py` already
+distinguishes the two deliberately in its Meta twin's refusal, for the same reason). Left
+as it is, recorded rather than silently passed over.
+
 **Unbounded row creation (REASONED, spot-checked).** Saved views are capped per user
 (`MAX_SAVED_VIEWS_PER_USER`, enforced with a count before insert); `tests/rate_limit_
 census_test.py` asserts every live route resolves a limiter rule and every rule is reached
 by a live route.
+
+---
+
+**All four reference kinds really are RLS-scoped (PROVEN).** `assert_visible` is only a
+control if the tables it reads are policied — a guard over a global table would be a
+silent no-op. `agents`, `calls`, `dlt_templates` and `phone_numbers` are all in
+`db/registry.TENANT_TABLES` and none is in the RLS guardrail's exempt list
+(`RLS COVERAGE: OK (44 tenant-column tables, 48 policied ...)`), and the tests prove it
+end to end rather than by inspection: each of the three attacks answers 404 *because the
+neighbour's row was invisible to the statement*, which is only true if the policy is on.
 
 ---
 
