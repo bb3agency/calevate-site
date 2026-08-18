@@ -100,6 +100,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
+from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
 
@@ -413,6 +414,20 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     `set_call_cap`, `apply_to_live` or `set_agent_voice` republish, all of which reach
     this function and all of which read-then-write the same row.
     """
+    # THE ACCOUNT MUST STILL BE OPEN (D-194). Publishing is what puts an agent on the
+    # phone, and this asked nothing about the organisation it belongs to — so an operator
+    # with a hand-typed uuid could put a CHURNED or ERASED client's agent back into
+    # service: answering calls, collecting caller numbers, against a tenant on a retention
+    # clock and, after an erasure, under a certificate saying that data is gone. Every
+    # other key-minting surface already asked (`admin.service` at both ends of an
+    # invitation); this one is the loudest of them and was the one that did not.
+    #
+    # FIRST, before the lock and before the vendor: a refusal here costs one indexed read
+    # and leaves the engine untouched, whereas refusing after `create_agent` would leave an
+    # agent at the vendor with nothing pointing at it. `suspended` is deliberately allowed
+    # through — see the predicate, which argues why a billing stop is not an access stop.
+    await assert_account_open(session, tenant_id=tenant_id)
+
     agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
     engine = get_engine()
     config = _to_config(tenant_id, agent)

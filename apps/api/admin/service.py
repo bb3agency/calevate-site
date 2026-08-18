@@ -42,6 +42,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.tenancy.lifecycle import assert_account_open
 
 log = get_logger(__name__)
 
@@ -87,62 +88,6 @@ async def tenant_exists(session: AsyncSession, tenant_id: UUID) -> bool:
         )
     ).first()
     return found is not None
-
-
-async def assert_account_open(session: AsyncSession, *, tenant_id: UUID) -> None:
-    """May a key to this account be minted, or redeemed? Absent → 404, closed → 409.
-
-    THE ONE PREDICATE BEHIND BOTH ENDS OF AN INVITATION, for the reason `create_invitation`
-    gives about its own two refusals: an invitation has a mint site and a burn site, and a
-    rule enforced at only one of them is a rule with a hole in it.
-
-    What it refuses, and why each is a support incident rather than a theoretical state:
-
-    - **No row** (a mistyped tenant id, or another tenant's id under RLS). `invitations`
-      carries `fk_invitations_tenant_id_organizations`, so this used to surface as an
-      IntegrityError escaping the route: a 500, an `unhandled_exception` alert, and an
-      operator told nothing. D-65's third answer is a 404, and it is the same answer a
-      tenant the caller cannot see gets — the id is not confirmed either way.
-    - **`churned` or soft-deleted.** These were both a cheerful 201 and, worse, a 200 on
-      the accept: `core/auth.py` resolves memberships with `o.deleted_at IS NULL AND
-      o.status <> 'churned'`, so the invitee burned their single-use token, got a
-      membership row, and was then told "You are not a member of this account" on their
-      very first request — with no way back, because the token is single-use and the
-      account is closed. Handing out a key to an offboarded tenant is also the wrong
-      direction of travel for FLOWS §9: that account is on the retention clock, not
-      taking on staff.
-
-    **`suspended` is deliberately NOT refused.** Suspension is the reversible control
-    (`_LIFECYCLE_FROM` lets it go straight back to `active`), it stops OUTBOUND DIALLING
-    and nothing else, and the account being suspended over non-payment is exactly when
-    someone needs to add the person who will pay. Refusing here would make a billing
-    stop into an access stop, which is a different decision and not this function's to
-    make.
-
-    Reads under the caller's own session on purpose: every caller already runs inside
-    `tenant_session(tenant_id)`, `organizations`' policy matches on `id`, and so a
-    neighbour's id is invisible rather than merely filtered.
-    """
-    row = (
-        await session.execute(
-            text("SELECT status, deleted_at FROM organizations WHERE id = :tid"),
-            {"tid": tenant_id},
-        )
-    ).first()
-    if row is None:
-        raise ProblemError.not_found("Client")
-    status, deleted_at = row
-    if deleted_at is not None or status == "churned":
-        # `account_closed` is `compliance.service.account_stopped_blocker`'s own rule name
-        # for this same condition. Two surfaces refusing one state under two names is how
-        # an operator ends up believing they are two different problems.
-        raise ProblemError.conflict(
-            "account_closed",
-            "This account has been closed.",
-            remediation=(
-                "Closing an account is final — set up a new client account if they are coming back."
-            ),
-        )
 
 
 def slugify(name: str) -> str:
