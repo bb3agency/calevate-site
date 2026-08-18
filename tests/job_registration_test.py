@@ -25,6 +25,7 @@ THE THREE SHAPES, each reconstructed from a state that actually shipped here:
 from __future__ import annotations
 
 import pytest
+from apps.workers.settings import CRON_JOBS
 from scripts import check_job_wiring
 from scripts.check_job_wiring import EnqueueSite, JobDefinition
 
@@ -271,3 +272,93 @@ def test_the_seam_signatures_are_read_and_not_remembered() -> None:
     finally:
         check_job_wiring.ENQUEUE_SEAMS.clear()
         check_job_wiring.ENQUEUE_SEAMS.update(original)
+
+
+# ---------------------------------------------------------------- the retry ladder
+#
+# THE FOURTH WAY A JOB IS WIRED AND STILL DOES NOT WORK, and nothing checked it across
+# the fleet (D-366). `arq.cron()` defaults `max_tries` to 1, and `WorkerSettings.
+# max_tries` is only the default for a function that does NOT carry its own — so a cron
+# registered without it has NO ladder, whatever the class attribute says. Its `raise
+# Retry` is honoured exactly zero times, and its terminal `alert()` — the only
+# dead-letter mechanism this repo has (`settings.py`) — can never be reached, because
+# the job is finished the first time it fails.
+#
+# `check_job_wiring` cannot see this: it proves a name is DEFINED, REGISTERED and
+# REACHED, which is a question about the registry's three sides and not about the
+# arguments one registration was given. Eight `cron()` call sites argue `max_tries` at
+# length in prose, and four individual tests (`kb_drift_reconciliation_test`,
+# `qa_sampling_test`, `setup_fee_test`, `reconciliation_sweep_isolation_test`) pin it for
+# the four crons somebody remembered. The NEXT cron gets none of that: it is registered,
+# it looks green, and it has one attempt.
+#
+# So the rule is INVERTED here: every cron carries a real ladder unless it is named
+# below with the reason it does not need one. A count in prose is the defect class
+# `db/registry.APPEND_ONLY_TABLES` exists for; this is the same instrument.
+
+#: Crons that legitimately run with `max_tries=1`, and why. An entry has to say what
+#: makes the NEXT TICK a sufficient retry — that is the only argument that works, and it
+#: only works for a cadence measured in seconds.
+NO_LADDER_NEEDED: dict[str, str] = {
+    "cron:dispatch_outbox": (
+        "every ten seconds, and recovery is structurally the next tick: a claimed row's "
+        "lease is minutes, so an aborted tick's messages return to the claim with their "
+        "attempt counts intact. An arq ladder on top would re-run the same tick inside "
+        "the lease and find nothing to do (`dispatcher.dispatch_outbox`)"
+    ),
+    "cron:dispatch_campaign_tick": (
+        "every thirty seconds, single-flighted by `campaign_dispatch._tick_lease` rather "
+        "than by arq. A retried tick would be a SECOND tick racing the lease of the one "
+        "after it, and the work it dropped — claimed contacts — is already recovered by "
+        "`_reap_stuck_dialing` and by the claim CAS itself"
+    ),
+}
+
+
+def test_every_cron_has_a_retry_ladder_or_says_why_it_does_not() -> None:
+    """The assertion `apply_retention` would have failed before P6.2 (D-366).
+
+    `max_tries=1` on a nightly legal obligation meant one transient database error, or a
+    deploy landing at 03:40, and the night's retention sweep was gone until tomorrow with
+    nothing marked wrong.
+    """
+    ladderless = {
+        job.name: job.max_tries
+        for job in CRON_JOBS
+        if (job.max_tries or 1) <= 1 and job.name not in NO_LADDER_NEEDED
+    }
+    assert not ladderless, (
+        "these crons are registered with no retry ladder — `cron()` defaults max_tries "
+        f"to 1 and `WorkerSettings.max_tries` does not reach them: {ladderless}. Pass "
+        "`max_tries=WORKER_MAX_TRIES` at the `cron()` call site, or add an entry to "
+        "`NO_LADDER_NEEDED` saying what makes the next tick a sufficient retry."
+    )
+
+
+def test_the_ladder_exemptions_still_name_crons_that_exist() -> None:
+    """A stale exemption is worse than none: it silently covers whatever cron inherits
+    the name, and it makes the list above read as broader coverage than it has."""
+    registered = {job.name for job in CRON_JOBS}
+    stale = sorted(set(NO_LADDER_NEEDED) - registered)
+    assert not stale, f"NO_LADDER_NEEDED names crons that are no longer registered: {stale}"
+
+
+def test_the_exempt_crons_are_the_ones_that_actually_run_in_seconds() -> None:
+    """The exemption's whole argument is "the next tick is the retry", which is only true
+    at a cadence measured in seconds. Asserted rather than trusted, because an edit that
+    moved one of these onto an hourly schedule would keep the exemption and lose the
+    property it rests on.
+
+    `isinstance(..., set)` rather than a truth test: arq stores `second=0` for a cron
+    registered on `minute=`, and `0` is falsy for the wrong reason — a sub-minute cron
+    registered as `second={0}` would be a set, be truthy, and pass a truth test that a
+    `minute=`-only cron also passes by accident.
+    """
+    by_name = {job.name: job for job in CRON_JOBS}
+    for name in NO_LADDER_NEEDED:
+        job = by_name[name]
+        assert isinstance(job.second, set) and len(job.second) > 1, (
+            f"{name} is exempt from the retry ladder because its next tick comes in "
+            f"seconds, but it is registered on second={job.second!r} — that argument no "
+            "longer holds, so it needs a real `max_tries` instead"
+        )

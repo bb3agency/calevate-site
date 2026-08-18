@@ -1051,7 +1051,7 @@ ListingIncompleteReason = Literal[
     # the next page is named by a cursor (Cartesia) or by a page number (Bolna).
     "next_link_no_progress",
 ]
-# `next_link_loop` AND `empty_page_with_next` USED TO BE MEMBERS AND ARE GONE (D-360).
+# `next_link_loop` AND `empty_page_with_next` USED TO BE MEMBERS AND ARE GONE (D-365).
 #
 # Both were reachable only through a continuation URL the vendor handed us and we GET as
 # given: the first meant that URL repeated, the second meant a page carried no rows and
@@ -1417,6 +1417,23 @@ class VoiceEngine(Protocol):
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """Backs the reconciliation poller (D-31: guarantee of record, not a safety net).
+
+        **`since` IS ANCHORED ON WHEN THE EXECUTION STARTED, NOT ON WHEN IT FINISHED**,
+        and saying so is D-367. Every adapter in this tree already behaves that way —
+        Bolna sends `created_after`, Cartesia sends `start_time`, the in-memory engine
+        filters on `started_at` — because a creation anchor is the only one a vendor
+        listing reliably offers. The contract was SILENT on it, which is how a caller
+        comes to read the window as "executions that finished recently": under that
+        reading a listing of width W would cover every call that ended in the last W,
+        and under the real one it drops any call whose own duration exceeds W. D-242 is
+        what that cost when it was believed, and `pipeline.reconcile_outstanding_calls`
+        is the mechanism that exists because this anchor cannot be changed from our side.
+
+        An adapter whose vendor CAN filter on completion must still honour this reading
+        — widen its request rather than narrow it — because a caller that sized its
+        window against a creation anchor would otherwise get a narrower window from that
+        adapter than from every other one, which is the failure mode a port exists to
+        make impossible.
 
         MUST report completeness, not just rows. This returned a bare list, so an
         adapter that read page one of a paginated listing was indistinguishable from one
