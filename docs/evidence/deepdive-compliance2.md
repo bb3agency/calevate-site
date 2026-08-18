@@ -284,6 +284,29 @@ sentences and the phrase list cannot reliably tell them apart. Both readings are
 defensible; the choice is a commitment about how this product interprets a consumer, which
 is the founder's, and it is recorded here rather than decided.
 
+## The gate run behind this pass
+
+`ruff check`, `ruff format --check`, `mypy apps packages` (with the error-reporting group
+installed — without it the Sentry hook's `type: ignore` reads as unused, which is an
+environment artefact rather than a finding), and the six guardrails:
+`check_compliance_invariants`, `check_ledger_immutability`, `check_rls_coverage`,
+`check_docs_drift`, `check_metadata_columns`, `check_audit_ip` — all OK.
+
+The FULL suite: **5589 passed, 1 skipped, 2 xfailed, 3 failed** in 11m23s, and the three
+are accounted for rather than waved past:
+
+* `docs_drift_guard_test::test_catches_a_dangling_reference_in_a_doc` — a real break
+  caused by this pass and FIXED here. Its negative control asserted that a real citation
+  was not reported, as a SUBSTRING test, and the number it derives from the live log grew
+  into the same first three characters. Whole-token now.
+* `pilot_cli_test::test_preflight_names_the_gates_each_missing_item_blocks` — environment.
+  It asserts the preflight reports a MISSING `BOLNA_API_KEY`; this worktree's `.env` is a
+  copy of the real one and carries a key, which `Settings` reads. Fails identically
+  without any change from this pass.
+* `engine_readiness_credentials_test::test_bolna_still_answers_exactly_as_it_did` — passes
+  standalone and in its own file (9/9); a state leak from a neighbour under
+  `-p no:randomly`, not a regression here.
+
 ## Still open, and what closes each
 
 * **Whether the engine honours a deletion.** `engine_deletion` stays
