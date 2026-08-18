@@ -26,6 +26,8 @@ the whole chain:
 | `dbscale_fresh` | a pristine control, for the round-trip schema diff |
 | `dbscale_dirty` | a database carrying a first-party operator, for the `db-reset` proof |
 
+`dbscale_fresh` and `dbscale_dirty` were dropped once they had answered their question; `dbscale` and `dbscale_test` are left in place so the numbers above can be re-taken rather than re-derived. **No shared database was migrated, downgraded, reset or truncated by this pass** — the two migrations it ships have been applied nowhere but the four databases named here.
+
 **Seed.** 8 tenants, 86,013 leads, 72,000 calls, 360,000 usage_events, 432,000
 transcript_turns, 172,026 lead_events, 51,920 campaign_contacts, 178 campaigns, 36,000
 credit_ledger rows — spread over 2.5 years of `started_at`, then `VACUUM ANALYZE`d. The
