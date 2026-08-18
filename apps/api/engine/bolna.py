@@ -994,19 +994,40 @@ class BolnaEngine:
                             # (bolna-ai/bolna@cd2e192, `bolna/providers.py`), so both are
                             # sent, spelling the same thing, which is the only combination
                             # that cannot route somewhere we did not name.
-                            # **AND THE SARVAM QUESTION IS NOW ANSWERED, NOT OPEN**
-                            # (VERIFIED-VENDOR-REPO, `references/providers-matrix.md`):
-                            # Bolna's LLM providers are OpenAI, Azure OpenAI, OpenRouter,
-                            # Google Gemini, and "Custom (LiteLLM-compatible)" — there is no
-                            # `sarvam` LLM provider. D-36's Sarvam 105B leg is reachable
-                            # only as a CUSTOM model: register it with
-                            # `POST /user/model/custom` (an OpenAI-style `base_url` + key)
-                            # and then send `provider: "custom"`. That is a real change with
-                            # a real prerequisite — `ModelConfig` grows an `llm_provider`,
-                            # and somebody registers the model on the account — so it is
-                            # D-356, not a literal edited here. Until it is done this agent
-                            # runs on whatever OpenAI-compatible model `cfg.models.llm_model`
-                            # names, which is what it already did.
+                            # WHICH LLM PROVIDERS ARE REACHABLE — AND THE TWO SOURCES PROVE
+                            # DIFFERENT THINGS, WHICH AN EARLIER VERSION OF THIS COMMENT RAN
+                            # TOGETHER. `references/providers-matrix.md` (VERIFIED-VENDOR-REPO)
+                            # lists OpenAI, Azure OpenAI, OpenRouter, Google Gemini and
+                            # "Custom (LiteLLM-compatible)", and names no `sarvam`. That is
+                            # a statement about what the vendor DOCUMENTS AND SUPPORTS.
+                            #
+                            # It is NOT a statement about what the API accepts, and this
+                            # comment used to say Sarvam was reachable "only" as a custom
+                            # model — a wall inferred from a prose table. The SPEC says
+                            # otherwise, decisively: in this very schema `agent_flow_type`
+                            # carries `enum: [streaming, preprocessed]` while `provider` and
+                            # `family` carry NO enum, only `default: "openai"`, beside a
+                            # settable `base_url` whose example is OpenAI's `/v1`. The spec's
+                            # author uses `enum` when they mean a closed set — including on
+                            # OTHER `provider` fields (telephony is `enum: ["twilio",
+                            # "plivo"]`) — and deliberately did not here. An arbitrary
+                            # OpenAI-compatible endpoint is therefore the DESIGNED extension
+                            # point, not a workaround.
+                            #
+                            # So: `POST /user/model/custom` + `provider: "custom"` is the
+                            # SUPPORTED route and probably the operationally correct one, and
+                            # it remains D-356 (it needs `ModelConfig` to grow an
+                            # `llm_provider` and somebody to register the model). But it is
+                            # not the only route the contract permits, and nobody reading
+                            # this should treat it as a wall. Which of the two actually works
+                            # is a live question no document settles — gate 7's sibling in
+                            # OPERATIONS §2. Until then this agent runs on whatever
+                            # OpenAI-compatible model `cfg.models.llm_model` names.
+                            #
+                            # (D-36's Sarvam LLM leg is superseded anyway: the founder has
+                            # moved the LLM to Gemini on GCP Vertex, paid and usage-billed.
+                            # Gemini IS named in the matrix above, which is the friendliest
+                            # of the possible answers — see the Vertex decision in ROADMAP.)
                             "llm_agent": {
                                 "agent_type": "simple_llm_agent",
                                 "agent_flow_type": "streaming",
