@@ -79,18 +79,21 @@ describe("the invite link", () => {
     expect(url.searchParams.get(INVITE_TOKEN_PARAM)).toBe("a-token-with/slash");
   });
 
-  it("is what the team screen actually prints, origin and all", async () => {
+  it("is NOT printed on the team screen any more — the invitee's mailbox is the only place it goes", async () => {
+    // The inversion of the assertion this replaces, and the reason is D-190. The screen
+    // used to print the raw token and tell the owner to forward it, which is the last half
+    // of D-185: a token anyone but the invitee can see is a token anyone but the invitee
+    // can redeem, and an owner could squat a stranger's address with it. The response no
+    // longer carries a token at all, so there is nothing to print.
     const created = {
       id: "0192f0aa-6666-7000-8000-0000000000c1",
       email_masked: "p••••@clinic.example",
       role: "staff",
       invited_at: "2026-08-15T04:00:00Z",
       expires_at: "2026-08-18T04:00:00Z",
-      token: "tok_abcdefghijklmnopqrstuvwxyz012345",
+      delivery: "queued",
     };
-    // One route entry serves the GET and the POST, as `members.test.tsx` explains: the
-    // pending list reads the same object, finds no length, and renders its empty state.
-    await renderClientPage(<TeamPage />, {
+    const { container } = await renderClientPage(<TeamPage />, {
       "/v1/me": ME,
       "/v1/members": [{ id: ME.user_id, name: "Anita", role: "owner" }],
       "/v1/invitations": created,
@@ -102,11 +105,13 @@ describe("the invite link", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
 
-    const printed = await screen.findByTestId("invite-link");
-    // Byte-for-byte the shared builder's answer. Asserting only that the token appears
-    // (which `members.test.tsx` does, for its own reason) would pass for a link with the
-    // wrong PATH — which is precisely the shape of the defect that shipped.
-    expect(printed.textContent).toBe(inviteLink(created.token, window.location.origin));
-    expect(printed.textContent).toContain(`${INVITE_PATH}?${INVITE_TOKEN_PARAM}=`);
+    // The confirmation appears…
+    await screen.findByText(/Invitation sent to/);
+    // …and no element renders a link or a token. Asserting the absence of the testid AND
+    // of the token substring, because a screen that stopped using the testid while still
+    // interpolating the secret somewhere would pass a check for either one alone.
+    expect(screen.queryByTestId("invite-link")).toBeNull();
+    expect(container.textContent).not.toContain(INVITE_PATH);
+    expect(container.textContent).not.toContain("tok_");
   });
 });

@@ -54,6 +54,30 @@ async def _redeem(http: httpx.AsyncClient, raw_token: str) -> httpx.Response:
     )
 
 
+async def _mailed_token(address: str) -> str:
+    """The invitation token as the INVITEE receives it — out of the queued email.
+
+    D-190 removed `token` from the create response, so this is how a test gets one. It is
+    the same path a real invitee's link comes down, which makes every redemption test below
+    an end-to-end check of the delivery rather than of a field the API used to echo back.
+    """
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages "
+                    "WHERE job = 'deliver_auth_email' "
+                    "AND payload->>'kind' = 'invite_password' "
+                    "AND payload->>'to' = :to "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"to": address},
+            )
+        ).first()
+    assert row is not None, f"no invitation email was queued for {address!r}"
+    return str(row[0]["secret"])
+
+
 async def _audit_actions(tenant_id: uuid.UUID) -> list[str]:
     async with untenanted_session() as session:
         rows = (
@@ -83,7 +107,13 @@ async def test_an_owner_invites_a_colleague_and_the_list_never_shows_the_address
     assert created.status_code == 201, created.text
     body = created.json()
     assert body["role"] == "staff"
-    assert len(body["token"]) >= 20, "the raw token is returned exactly once"
+    # D-190 INVERTED THIS. It read `len(body["token"]) >= 20, "the raw token is returned
+    # exactly once"` — true of the code and the wrong thing to want. A token the INVITER
+    # can read is a token the inviter can redeem, which is the squat D-185 could stop
+    # becoming an account takeover and could not stop happening at all. The response now
+    # says only whether the mail was queued.
+    assert "token" not in body, "the raw token goes to the invitee's mailbox and nowhere else"
+    assert body["delivery"] == "queued"
     assert address not in created.text, "the address is masked even in the create response"
     assert body["email_masked"].startswith("p•") and body["email_masked"].endswith(
         "@clinic.example"
@@ -94,10 +124,37 @@ async def test_an_owner_invites_a_colleague_and_the_list_never_shows_the_address
     assert address not in listed.text
     assert "member.invited:staff" in await _audit_actions(tenant_id)
 
-    # And the token is not recoverable from our own database (hashed at rest).
+    # The token exists in exactly one readable place: the queued email for the INVITED
+    # address. This is the assertion that makes D-190 a fix rather than a deletion — a
+    # route that stopped returning the token and stopped sending it would pass every check
+    # above while leaving the invitee no way in at all.
+    async with untenanted_session() as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages "
+                    "WHERE job = 'deliver_auth_email' "
+                    "AND payload->>'kind' = 'invite_password' "
+                    "AND payload->>'to' = :to"
+                ),
+                {"to": address},
+            )
+        ).all()
+    assert len(queued) == 1, "exactly one invitation email, addressed to the invitee"
+    mailed_token = queued[0][0]["secret"]
+    assert len(mailed_token) >= 20
+
+    # And it is not recoverable from our own database (hashed at rest), so the mailbox is
+    # genuinely the only copy once the outbox row is dispatched and deleted.
     async with tenant_session(tenant_id) as session:
         stored = (await session.execute(text("SELECT token_hash FROM invitations"))).scalar()
-    assert stored != body["token"]
+    assert stored != mailed_token
+
+    # The mailed token is the one that WORKS — proving the two halves are the same secret
+    # rather than two unrelated strings that both happen to be long.
+    async with _client() as http:
+        redeemed = await _redeem(http, mailed_token)
+    assert redeemed.status_code in (200, 201), redeemed.text
 
 
 async def test_an_invitation_cannot_carry_a_role_its_sender_does_not_hold() -> None:
@@ -186,12 +243,14 @@ async def test_redemption_creates_the_invited_address_and_no_other() -> None:
     tenant_id, slug, token = await _make_tenant("owner")
     intended = f"intended-{uuid.uuid4().hex[:8]}@example.com"
     async with _client() as http:
-        created = await http.post(
+        invited = await http.post(
             "/v1/invitations",
             json={"email": intended, "role": "staff"},
             headers=_headers(slug, token),
         )
-        raw = created.json()["token"]
+    assert invited.status_code == 201, invited.text
+    raw = await _mailed_token(intended)
+    async with _client() as http:
         accepted = await _redeem(http, raw)
 
     assert accepted.status_code == 200, accepted.text
@@ -232,7 +291,7 @@ async def test_a_revoked_invitation_cannot_be_redeemed_afterwards() -> None:
         )
         body = created.json()
         revoked = await http.delete(f"/v1/invitations/{body['id']}", headers=_headers(slug, token))
-        replayed = await _redeem(http, body["token"])
+        replayed = await _redeem(http, await _mailed_token(address))
         remaining = await http.get("/v1/invitations", headers=_headers(slug, token))
 
     assert revoked.status_code == 200, revoked.text
@@ -253,12 +312,13 @@ async def test_an_invitation_cannot_be_redeemed_twice() -> None:
     address = f"twice-{uuid.uuid4().hex[:8]}@example.com"
 
     async with _client() as http:
-        created = await http.post(
+        invited = await http.post(
             "/v1/invitations",
             json={"email": address, "role": "staff"},
             headers=_headers(slug, token),
         )
-        raw = created.json()["token"]
+        assert invited.status_code == 201, invited.text
+        raw = await _mailed_token(address)
         first = await _redeem(http, raw)
         second = await _redeem(http, raw)
 

@@ -134,7 +134,14 @@ async def planted() -> AsyncIterator[Planted]:
 
 
 async def _invite(slug: str, token: str, email: str, role: str) -> str:
-    """Issue an invitation and return the raw token, the way its issuer receives it."""
+    """Issue an invitation and return the raw token, read out of the queued EMAIL.
+
+    Its docstring used to say "the way its issuer receives it", and D-190 removed the way
+    an issuer receives it — the response carries no token, because a token the inviter can
+    read is a token the inviter can redeem, which is the squat this file is about. The only
+    readable copy is now the mail addressed to the invitee, so that is where these tests
+    read it from: the same path a real invitee's link travels.
+    """
     async with _client() as http:
         created = await http.post(
             "/v1/invitations",
@@ -142,7 +149,22 @@ async def _invite(slug: str, token: str, email: str, role: str) -> str:
             headers=_headers(slug, token),
         )
     assert created.status_code == 201, created.text
-    return str(created.json()["token"])
+    assert "token" not in created.json(), "D-190: the response must not carry the secret"
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT payload FROM outbox_messages "
+                    "WHERE job = 'deliver_auth_email' "
+                    "AND payload->>'kind' = 'invite_password' "
+                    "AND payload->>'to' = :to "
+                    "ORDER BY created_at DESC LIMIT 1"
+                ),
+                {"to": email},
+            )
+        ).first()
+    assert row is not None, f"no invitation email was queued for {email!r}"
+    return str(row[0]["secret"])
 
 
 async def _redeem(raw_token: str, password: str) -> httpx.Response:
@@ -317,26 +339,52 @@ async def test_a_verified_account_still_joins_a_second_organisation(planted: Pla
     assert await _memberships(second_tenant, address) == 1
 
 
-# ═══════════════ what is NOT closed ═══════════════
+# ═══════════════ the residual, and its closure ═══════════════
 
 
 @pytest.mark.asyncio
-async def test_the_squat_itself_is_still_possible_and_that_is_recorded_here(
-    planted: Planted,
-) -> None:
-    """The residual, pinned so it cannot be quietly believed to be fixed.
+async def test_the_inviter_is_handed_nothing_they_could_redeem(planted: Planted) -> None:
+    """D-190 closes D-185's residual, and this is the assertion that says so.
 
-    D-185 turns an ACCOUNT TAKEOVER into a DENIAL OF SERVICE: the attacker still ends up
-    holding the address, and the real person cannot get an account on it until an operator
-    intervenes. What closes it is the invitation token being emailed instead of returned to
-    its issuer — `InvitationCreatedOut.token`, whose own docstring already says the field
-    should go when that job exists. If this test starts failing because the address is no
-    longer claimable, the residual is gone and the entry can be closed.
+    D-185 turned an ACCOUNT TAKEOVER into a DENIAL OF SERVICE and could go no further: the
+    attacker still ended up holding the address, because `InvitationCreatedOut.token`
+    handed them the secret. The test that stood here pinned that residual and said it would
+    close "when the invitation token is emailed instead of returned to its issuer". That is
+    D-190, so it is replaced by its inverse rather than deleted.
+
+    IT IS DELIBERATELY WRITTEN FROM THE ATTACKER'S SIDE, using only what the API gives
+    them. `_invite` above now reads the token out of the outbox, which is a database
+    privilege no caller has — a squat test built on that helper would prove nothing,
+    because it would grant itself the very access the fix removes. So this one calls the
+    route directly and inspects the RESPONSE, which is the whole of what an inviter sees.
     """
     _attacker_tenant, attacker_slug, attacker_session = await planted.tenant()
     address = planted.address("hostage")
 
-    raw = await _invite(attacker_slug, attacker_session, address, "staff")
-    assert (await _redeem(raw, ATTACKER_PASSWORD)).status_code == 200
+    async with _client() as http:
+        created = await http.post(
+            "/v1/invitations",
+            json={"email": address, "role": "staff"},
+            headers=_headers(attacker_slug, attacker_session),
+        )
 
-    assert await _user_id(address) is not None
+    assert created.status_code == 201, created.text
+    body = created.json()
+    # Nothing in the response is redeemable: no `token` field, and no credential-shaped
+    # value anywhere in it. The second check is what stops a future field quietly carrying
+    # the secret back under another name.
+    assert "token" not in body
+    assert body["delivery"] == "queued"
+    smuggled = [
+        key
+        for key, value in body.items()
+        if isinstance(value, str)
+        and len(value) >= 20
+        and key != "email_masked"
+        and "-" not in value
+    ]
+    assert smuggled == [], f"a credential-shaped value survives in the response: {smuggled}"
+
+    # And with nothing to redeem, the address is still free — the squat is not merely
+    # harder, it is unreachable from where an attacker stands.
+    assert await _user_id(address) is None

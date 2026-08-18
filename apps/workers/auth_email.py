@@ -71,10 +71,18 @@ def _body(kind: str, realm: str, secret: str) -> str:
             "ignore this email — your password has not changed."
         )
     if kind == "invite_password":
+        # `/auth/accept-invitation`, NOT `/invite`. Both reach the same page — `/invite`
+        # survives as a client-side redirect for links already sitting in inboxes — but
+        # D-177's rule is that newly minted links name the surviving page directly, and
+        # this template mints them. It pointed at the legacy path while nothing sent it;
+        # D-190 made it the only way an invitation reaches anybody, which is what turned a
+        # stale string into a live extra hop. Kept in step with
+        # `apps/web/src/lib/api/members.INVITE_PATH` by `tests/auth_email_test.py`.
         return (
             "You have been invited to a Calevate workspace.\n\n"
-            f"{base}/invite?token={secret}\n\n"
-            "This link works once and expires in 72 hours."
+            f"{base}/auth/accept-invitation?token={secret}\n\n"
+            "This link works once and expires in 72 hours. If you were not expecting it, "
+            "you can ignore this email — nothing happens until you open it."
         )
     # Both OTP kinds. One code, one sentence about what it is for.
     what = "sign in" if kind == "otp_login_challenge" else "confirm your email address"

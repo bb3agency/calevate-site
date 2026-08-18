@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.authn.service import enqueue_invitation_email
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires, tenant_of
 from apps.api.core.context import Principal
@@ -235,7 +236,20 @@ class InvitationCreatedOut(InvitationOut):
     token that is displayed is a token that can be pasted into the wrong window.
     """
 
-    token: str
+    #: WAS `token: str`, and its removal is the point of D-190.
+    #:
+    #: This handed the raw invitation token back to the INVITER, because the client realm
+    #: had no mailer when it was written and the owner was expected to forward the link.
+    #: The realm has had a mailer since D-170, and the gap cost D-185: anyone able to issue
+    #: an invitation could invite an address they do not control, read the token out of
+    #: their own 201 and redeem it — taking the one global `users` row for that address.
+    #: D-185 stopped that becoming somebody else's account and could NOT stop the squat,
+    #: because the squat lives for exactly as long as anyone but the invitee sees the token.
+    #:
+    #: `delivery` replaces it: whether the link was queued, so the screen can say "we have
+    #: emailed them" or "email is not configured — the link is in the outbox" rather than
+    #: rendering a secret. Nothing in this response is a credential any more.
+    delivery: str
 
 
 @router.post(
@@ -280,13 +294,18 @@ async def invite_member(
             {"i": invitation_id},
         )
     ).one()
+    # ENQUEUED IN THE REQUEST'S OWN TRANSACTION, so the invitation row and its email share
+    # one fate: an invitation committed without its mail is a person who is never told, and
+    # a mail sent for a row that rolled back is a link that does not work. The outbox is
+    # what makes that atomic (BACKEND-PATTERNS §4).
+    await enqueue_invitation_email(session, to=str(row[0]), token=token)
     return InvitationCreatedOut(
         id=invitation_id,
         email_masked=members_service.mask_email(str(row[0])),
         role=payload.role,
         invited_at=row[1],
         expires_at=row[2],
-        token=token,
+        delivery="queued",
     )
 
 

@@ -615,41 +615,28 @@ async def search_leads(
     return await _leads_page(session, payload)
 
 
-@router.get(
-    "/leads/facets",
-    response_model=LeadFacetsOut,
-    openapi_extra=permission_meta("leads:read"),
-    summary="Faceted filters, built from this agent's extraction schema",
-)
-async def get_lead_facets(
-    session: Session,
-    status: str | None = None,
-    search: str | None = Query(None, max_length=60),
-    agent_id: UUID | None = None,
-    assigned_to: UUID | None = None,
-    f: list[str] = _FIELD_FILTER_Q,
-    _: Principal = Depends(requires("leads:read")),
-) -> LeadFacetsOut:
-    """The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
+async def _lead_facets(session: AsyncSession, lens: LeadLensIn) -> LeadFacetsOut:
+    """The filter rail and its counts, over the SAME scope the Leads table is answering.
 
     A separate route rather than another field on the list response, for one reason: the
     counts change when the FILTERS change and not when the PAGE changes, so folding them
-    into the list would recompute up to eight aggregates every time somebody scrolls.
-    Same query parameters, minus the paging ones, so "the rail describes this table" is
-    checkable by comparing two query strings.
+    into the list would recompute up to eight aggregates every time somebody scrolls. It
+    takes the SAME `LeadLensIn` the table takes, minus the paging fields, so "the rail
+    describes this table" is checkable by comparing two lens objects rather than two
+    query strings.
     """
-    fields = await service.lead_columns(session, agent_id)
+    fields = await service.lead_columns(session, lens.agent_id)
     available = lead_column_registry.available(fields)
     field_filters = _parse_field_filters(
-        f, frozenset(c.key for c in lead_column_registry.facetable(available))
+        lens.f, frozenset(c.key for c in lead_column_registry.facetable(available))
     )
     result = await service.lead_facets(
         session,
         fields=fields,
-        agent_id=agent_id,
-        status=status,
-        search=search,
-        assigned_to=assigned_to,
+        agent_id=lens.agent_id,
+        status=lens.status,
+        search=lens.search,
+        assigned_to=lens.assigned_to,
         field_filters=field_filters,
     )
     return LeadFacetsOut(
@@ -666,6 +653,59 @@ async def get_lead_facets(
         ],
         omitted_field_count=result.omitted_field_count,
     )
+
+
+@router.get(
+    "/leads/facets",
+    response_model=LeadFacetsOut,
+    openapi_extra=permission_meta("leads:read"),
+    summary="Faceted filters, built from this agent's extraction schema",
+)
+async def get_lead_facets(
+    session: Session,
+    status: str | None = None,
+    # DECLARED SO IT CAN BE REFUSED, exactly as on `GET /v1/leads`. When the table's
+    # search moved into a body the rail was left behind, and the client's only safe move
+    # was to send the rail NO search term at all — which quietly made the counts describe
+    # a wider set than the rows beside them. Refusing here rather than ignoring is what
+    # lets the client send the term to the POST instead of dropping it.
+    search: str | None = Query(None, deprecated=True, description="Moved to POST /v1/leads/facets"),
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    f: list[str] = _FIELD_FILTER_Q,
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadFacetsOut:
+    _refuse_search_in_query(search)
+    return await _lead_facets(
+        session,
+        LeadLensIn(status=status, agent_id=agent_id, assigned_to=assigned_to, f=f),
+    )
+
+
+@router.post(
+    "/leads/facets",
+    response_model=LeadFacetsOut,
+    # `leads:read` on a POST, for the same reason `POST /v1/leads/search` and
+    # `POST /v1/dnc/check` hold it: this route WRITES NOTHING and is a POST only because
+    # the request carries a phone number. Recorded in
+    # `tests/authz_audit_test.READS_SHAPED_AS_POSTS` with that reason, which is what keeps
+    # D-22's read-only "view as client" session able to open the rail.
+    openapi_extra=permission_meta("leads:read"),
+    summary="Faceted filters, searched — POST because the search term is a phone number",
+)
+async def search_lead_facets(
+    payload: LeadLensIn,
+    session: Session,
+    _: Principal = Depends(requires("leads:read")),
+) -> LeadFacetsOut:
+    """The rail for a searched table.
+
+    It takes `LeadLensIn` and not `LeadSearchIn`: the rail has no page, and accepting
+    `limit`/`offset` here would be two fields a caller could set and nothing could honour.
+    The client sends the same lens it sent the table, minus the page — so the rail and the
+    rows cannot describe different populations, which is the defect this route closes.
+    """
+    return await _lead_facets(session, payload)
 
 
 # --- saved views ---------------------------------------------------------------

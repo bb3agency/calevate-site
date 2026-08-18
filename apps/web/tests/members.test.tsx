@@ -237,14 +237,14 @@ describe("failure is never an empty state", () => {
 });
 
 describe("what the invite flow shows", () => {
-  it("shows the one-time link and never an unmasked address", async () => {
+  it("confirms the send and never shows the token or an unmasked address", async () => {
     const created = {
       id: INVITE.id,
       email_masked: "p••••@clinic.example",
       role: "staff",
       invited_at: "2026-08-01T09:00:00Z",
       expires_at: "2026-08-04T09:00:00Z",
-      token: "tok_abcdefghijklmnopqrstuvwxyz012345",
+      delivery: "queued",
     };
     // The harness keys its routes by PATH, so the GET of the pending list and the POST
     // that creates one share this entry. This test is about the POST; the list panel
@@ -266,11 +266,14 @@ describe("what the invite flow shows", () => {
       const post = calls.find((c) => c.method === "POST");
       expect(post?.path).toBe("/v1/invitations");
     });
-    await waitFor(() => expect(container.textContent).toContain(created.token));
+    // D-190: the token is not in the response and is therefore not on the screen. This
+    // assertion used to be `toContain(created.token)` — the inversion is the fix.
+    await waitFor(() => expect(container.textContent).toContain("Invitation sent to"));
+    expect(container.textContent).not.toContain("tok_");
     // The address the owner typed is echoed only in its masked form.
     expect(container.textContent).not.toContain("priya@clinic.example");
     expect(container.textContent).toContain("p••••@clinic.example");
-    expect(container.textContent).toContain("We cannot show this link again");
+    expect(container.textContent).toContain("We cannot show or re-send the link");
   });
 
   it("lists a pending invitation masked, with a revoke control for an owner", async () => {

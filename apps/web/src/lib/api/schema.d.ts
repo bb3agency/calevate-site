@@ -3318,19 +3318,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Faceted filters, built from this agent's extraction schema
-         * @description The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.
-         *
-         *     A separate route rather than another field on the list response, for one reason: the
-         *     counts change when the FILTERS change and not when the PAGE changes, so folding them
-         *     into the list would recompute up to eight aggregates every time somebody scrolls.
-         *     Same query parameters, minus the paging ones, so "the rail describes this table" is
-         *     checkable by comparing two query strings.
-         */
+        /** Faceted filters, built from this agent's extraction schema */
         get: operations["get_lead_facets_v1_leads_facets_get"];
         put?: never;
-        post?: never;
+        /**
+         * Faceted filters, searched — POST because the search term is a phone number
+         * @description The rail for a searched table.
+         *
+         *     It takes `LeadLensIn` and not `LeadSearchIn`: the rail has no page, and accepting
+         *     `limit`/`offset` here would be two fields a caller could set and nothing could honour.
+         *     The client sends the same lens it sent the table, minus the page — so the rail and the
+         *     rows cannot describe different populations, which is the defect this route closes.
+         */
+        post: operations["search_lead_facets_v1_leads_facets_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6421,6 +6421,8 @@ export interface components {
          *     token that is displayed is a token that can be pasted into the wrong window.
          */
         InvitationCreatedOut: {
+            /** Delivery */
+            delivery: string;
             /** Email Masked */
             email_masked: string;
             /**
@@ -6440,8 +6442,6 @@ export interface components {
             invited_at: string;
             /** Role */
             role: string;
-            /** Token */
-            token: string;
         };
         /** InvitationIn */
         InvitationIn: {
@@ -15339,6 +15339,10 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
+                /**
+                 * @deprecated
+                 * @description Moved to POST /v1/leads/facets
+                 */
                 search?: string | null;
                 agent_id?: string | null;
                 assigned_to?: string | null;
@@ -15350,6 +15354,39 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeadFacetsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    search_lead_facets_v1_leads_facets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeadLensIn"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

@@ -344,6 +344,12 @@ READS_SHAPED_AS_POSTS: dict[str, str] = {
         "is matched against `phone_e164` and a query string is written to nginx access "
         "logs, the edge log, browser history and referrers (D-181)"
     ),
+    "/v1/leads/facets": (
+        "the filter rail for a searched table. It writes nothing and takes the SAME lens "
+        "as `/v1/leads/search`, for the same reason — the rail was left on the query "
+        "string when the table moved, so the only safe client sent it no search term and "
+        "the counts described a wider set than the rows beside them"
+    ),
     "/v1/leads/export.csv": (
         "the SAME export as the GET on this path, with the lens in the body for the same "
         "reason as `/v1/leads/search`. It reads; `calls:read_raw` and the audit row are "

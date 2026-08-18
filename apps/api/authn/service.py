@@ -117,6 +117,12 @@ MFA_REQUIRED_REALMS: Final[frozenset[str]] = frozenset({"admin"})
 #: the DLQ while the screen says the email was sent (`tests/job_registration_test.py`).
 AUTH_EMAIL_JOB: Final = "deliver_auth_email"
 
+#: The realm an invitation email's link belongs to. A constant rather than a literal at the
+#: call site, because `auth_email._body` picks the console host off it — an admin-realm
+#: invitation would mail a link to `admin.calevate.tech`, where the page does not exist.
+#: Invitations are always CLIENT-realm (`authn/invitations.INVITE_REALM` says why).
+INVITE_EMAIL_REALM: Final = "client"
+
 #: The OTP purpose that IS the second factor. Named once so `sign_in`, the resend and the
 #: verify step cannot drift onto different purposes — which would be a challenge nobody can
 #: answer, since the purpose is inside the code's hash domain.
@@ -693,6 +699,28 @@ async def confirm_otp(
 
 
 # ──────────────────────────── shared helpers ─────────────────────────────────
+
+
+async def enqueue_invitation_email(session: AsyncSession, *, to: str, token: str) -> None:
+    """Mail a team invitation link, in the transaction that minted the token (D-190).
+
+    PUBLIC where `_enqueue_auth_email` is private, because this one is called from OUTSIDE
+    this package — `tenancy/routes.invite_member` owns the invitation, `authn` owns the
+    mailer, and the alternative was a second enqueue site spelling the payload by hand.
+
+    WHY THIS FUNCTION EXISTS AT ALL. `InvitationCreatedOut.token` used to hand the raw
+    token back to the INVITER, and the field's own docstring said the owner would send the
+    link on because the client realm had no mailer. It has had one since D-170. What the
+    gap cost is D-185: an owner of any tenant could invite an address they do not control,
+    read the token out of their own 201, and redeem it — taking the global `users` row for
+    that address. D-185 stopped the escalation and could not stop the SQUAT, because the
+    squat is possible for exactly as long as anyone but the invitee can see the token.
+
+    So the token now goes only where it was always supposed to go: the invited mailbox.
+    """
+    await _enqueue_auth_email(
+        session, kind="invite_password", realm=INVITE_EMAIL_REALM, to=to, secret=token
+    )
 
 
 async def _enqueue_auth_email(

@@ -292,14 +292,11 @@ export function lensBody(
 /**
  * The same lens as a query string, for the ONE route that still reads it that way.
  *
- * `GET /v1/leads/facets` has no POST shape yet, so the facet rail is the last leg of this
- * screen whose request line can carry a search term. It is NOT sent one: `useLeadFacets`
- * below drops `search` before calling this, and says what that costs. This function
- * therefore never receives a `search` and refuses to serialize one if it ever does —
- * a guard rather than a comment, because the next caller will not read the comment.
- *
- * Also the cache-key builder for both hooks: a stable string over the same fields, so two
- * lenses that mean the same thing are one entry.
+ * Every lens route now takes a POST body, so nothing on this screen puts a search term in
+ * a request line. This function survives for the routes whose lens carries no personal
+ * data (the saved-view and bulk shapes), and it REFUSES to serialize a `search` if one
+ * ever reaches it — a guard rather than a comment, because the next caller will not read
+ * the comment.
  */
 export function lensQuery(lens: LeadLens, paging: { limit?: number; offset?: number } = {}): string {
   if (lens.search !== undefined && lens.search !== "") {
@@ -376,27 +373,27 @@ export function useLeadsUnderLens(
  * beside a fresh table is a number nobody sent.
  */
 export function useLeadFacets(session: Session, lens: LeadLens): UseQueryResult<LeadFacets> {
-  // Columns do not change the counts, so they are stripped from the key — otherwise
-  // opening the column chooser would refetch the whole rail.
+  // Columns do not change the counts, so they are stripped — otherwise opening the column
+  // chooser would refetch the whole rail.
   //
-  // AND SO IS `search`, which is not a tidy-up: `GET /v1/leads/facets` is the one lens
-  // route with no POST shape, so a term sent here would land in nginx's access log by the
-  // route the rest of this screen was just moved off (hard rule 6). Dropping it is the
-  // only answer this file can give.
-  //
-  // WHAT THAT COSTS, said plainly rather than hidden: under an active search the rail
-  // counts the WIDER set — the table shows 1 hot lead matching "9876" and the rail may
-  // say 12. The screen states the narrowing beside the table (`scopeLabel`), so the
-  // reader is not told the rail is the search's own answer; and a rail that over-counts
-  // offers a filter that returns rows, whereas one that under-counts would hide leads a
-  // client is looking for. CLOSED BY: a `POST /v1/leads/facets` taking the same
-  // `LeadLensIn` the search and export routes already take — apps/api's to add, and the
-  // last leg of this finding.
-  const stripped = { ...lens, columns: undefined, search: undefined };
-  const qs = lensQuery(stripped);
+  // `search` IS NOW SENT, and the difference matters. This hook used to drop it, because
+  // `GET /v1/leads/facets` was the one lens route with no POST shape and a term in the
+  // query string is a phone number in nginx's access log (hard rule 6). Dropping it made
+  // the rail count the WIDER set: the table showed 1 hot lead matching "9876" while the
+  // rail said 12 — two numbers on one screen describing different populations, which is
+  // the kind of thing a client reports as a bug in their data rather than in our UI.
+  // `POST /v1/leads/facets` takes the same `LeadLensIn` the table and export take, so the
+  // rail and the rows are now one lens and cannot disagree.
+  const stripped = { ...lens, columns: undefined };
+  const body = lensBody(stripped);
   return useQuery({
-    queryKey: ["lead-facets", session.orgSlug, qs],
-    queryFn: () => apiRequest<LeadFacets>(session, `/v1/leads/facets${qs}`),
+    // Keyed on the BODY, not a query string: `lensQuery` refuses to serialize a search
+    // term at all, and a key built without one would collide every search with every
+    // other — the same reasoning `lensKey` carries for the table.
+    queryKey: ["lead-facets", session.orgSlug, lensKey(stripped)],
+    // A POST that writes nothing, so still a `useQuery` — see `useLeadsUnderLens`.
+    queryFn: () =>
+      apiRequest<LeadFacets>(session, "/v1/leads/facets", { method: "POST", body }),
   });
 }
 

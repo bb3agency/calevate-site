@@ -5815,6 +5815,10 @@
         "additionalProperties": false,
         "description": "The one response that carries the raw token, exactly once.\n\nIt is never stored (only its SHA-256 is) and never logged, so this response is the\nonly place it will ever exist outside the invitee's browser. The client realm has no\nmailer of its own \u2014 `apps/workers/notifications.py` owns email delivery and\nregistering a job there is outside this slice \u2014 so the owner is handed the link and\nsends it. When that job exists this field should stop being returned, because a\ntoken that is displayed is a token that can be pasted into the wrong window.",
         "properties": {
+          "delivery": {
+            "title": "Delivery",
+            "type": "string"
+          },
           "email_masked": {
             "title": "Email Masked",
             "type": "string"
@@ -5837,10 +5841,6 @@
           "role": {
             "title": "Role",
             "type": "string"
-          },
-          "token": {
-            "title": "Token",
-            "type": "string"
           }
         },
         "required": [
@@ -5849,7 +5849,7 @@
           "role",
           "invited_at",
           "expires_at",
-          "token"
+          "delivery"
         ],
         "title": "InvitationCreatedOut",
         "type": "object"
@@ -21456,7 +21456,6 @@
     },
     "/v1/leads/facets": {
       "get": {
-        "description": "The filter rail and its counts, over the SAME scope `GET /v1/leads` is answering.\n\nA separate route rather than another field on the list response, for one reason: the\ncounts change when the FILTERS change and not when the PAGE changes, so folding them\ninto the list would recompute up to eight aggregates every time somebody scrolls.\nSame query parameters, minus the paging ones, so \"the rail describes this table\" is\ncheckable by comparing two query strings.",
         "operationId": "get_lead_facets_v1_leads_facets_get",
         "parameters": [
           {
@@ -21476,19 +21475,22 @@
             }
           },
           {
+            "deprecated": true,
+            "description": "Moved to POST /v1/leads/facets",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "anyOf": [
                 {
-                  "maxLength": 60,
                   "type": "string"
                 },
                 {
                   "type": "null"
                 }
               ],
+              "deprecated": true,
+              "description": "Moved to POST /v1/leads/facets",
               "title": "Search"
             }
           },
@@ -21560,6 +21562,43 @@
           }
         },
         "summary": "Faceted filters, built from this agent's extraction schema",
+        "tags": [
+          "crm"
+        ],
+        "x-calevate-permission": "leads:read"
+      },
+      "post": {
+        "description": "The rail for a searched table.\n\nIt takes `LeadLensIn` and not `LeadSearchIn`: the rail has no page, and accepting\n`limit`/`offset` here would be two fields a caller could set and nothing could honour.\nThe client sends the same lens it sent the table, minus the page \u2014 so the rail and the\nrows cannot describe different populations, which is the defect this route closes.",
+        "operationId": "search_lead_facets_v1_leads_facets_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeadLensIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LeadFacetsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Faceted filters, searched \u2014 POST because the search term is a phone number",
         "tags": [
           "crm"
         ],

@@ -441,7 +441,13 @@ describe("the counts come from the server or are not shown", () => {
   it("names the number of leads the CSV will actually hold", async () => {
     const { container } = await filterToHot();
 
-    await screen.findByText(/by stage/);
+    // WAIT FOR THE NUMBER, not for the section heading. `findByText(/by stage/)` resolves
+    // while the table is still loading — the tally row renders with every stage at 0 — so
+    // the assertion below raced the fetch and failed only on a slow box. It failed in CI
+    // and passed locally, which is the shape the sibling test above already warns about.
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("The CSV export contains these 2 leads");
+    });
     // **This assertion is the inverse of the one it replaces.** The export used to
     // ignore the status chip, so the sentence had to name the WHOLE account (22) and
     // warn that the file was wider than the table. `/v1/leads/export.csv` now takes the
