@@ -1540,7 +1540,11 @@ def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     doctrine `billing.service.to_paise` states in full ("passed EXPLICITLY, never
     inherited"). Reachable, not theoretical: a ₹0.0180 telephony leg over a 360-second
     call is exactly ₹0.00005/second, which half-even stored as ₹0.0000 — the whole leg
-    rounded out of the margin panel and out of a closed month's `spend_used`.
+    rounded out of the margin panel. (This sentence used to add "and out of a closed
+    month's `spend_used`". That reader retired at P1.3: the CLIENT's closed-month figure
+    is `calling_revenue_inr`, priced off MINUTES at their own rate, and never touches
+    `unit_cost_paid`. The affected surfaces are `margin_for_tenant` and `tier_usage` —
+    ours, not theirs.)
     """
     if leg_inr is None:
         return None

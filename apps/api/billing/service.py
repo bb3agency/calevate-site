@@ -1091,12 +1091,19 @@ async def _tier_totals(
     IT IS ABOUT CALLS, and `_NOT_AI_UNITS` is what keeps it that way. `usage_events` grew
     a second kind of row with D-127: a dashboard assist, which has no call, no TTS rung
     and — per G-3 — no bearing on what the CLIENT pays, because Calevate absorbs it. Left
-    unfiltered those rows would land in the `""` bucket and do three wrong things at
-    once: inflate `tier_usage.cost_unattributed_inr`, which an operator reads as "calls
-    we could not attribute a voice to"; put our absorbed AI cost into a closed month's
-    `spend_used_inr` on the CLIENT's panel (`_spend_used` sums this map); and add it to
+    unfiltered those rows would land in the `""` bucket and do two wrong things at once:
+    inflate `tier_usage.cost_unattributed_inr`, which an operator reads as "calls we
+    could not attribute a voice to"; and add our absorbed AI cost to
     `margin_for_tenant`'s cost side without the matching revenue. The AI ledger has its
     own reader (`billing/ai_quota.py::read_ai_quota`) and this one stays about minutes.
+
+    A THIRD consequence used to be listed here and is no longer reachable: our absorbed
+    cost landing in a closed month's `spend_used_inr` on the CLIENT's panel, "because
+    `_spend_used` sums this map". It did, until P1.3 — the closed branch is now
+    `calling_revenue_inr`, priced off MINUTES at the client's own rate, and never reads
+    the cost half of this map at all. The filter is still required for the two above; the
+    sentence is corrected rather than deleted because a reader who finds the old claim
+    elsewhere should be able to see it was retired and why.
     """
     seconds, cost = await rung_seconds(session, tenant_id=tenant_id, month=month)
     return rung_minutes(seconds), cost
