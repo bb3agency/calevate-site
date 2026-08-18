@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime
 
 import uuid_utils
-from sqlalchemy import DateTime, MetaData, func, text
+from sqlalchemy import DateTime, ForeignKey, MetaData, func, text
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column
 
@@ -48,18 +48,47 @@ class TimestampMixin:
 
 
 class TenantMixin:
-    """tenant_id on every tenant-scoped row. RLS policy ships in the same migration."""
+    """tenant_id on every tenant-scoped row. RLS policy ships in the same migration.
+
+    THE FOREIGN KEY IS THE POINT, and for two tables it was missing (D-192). This mixin's
+    comment has always said "FK by name (not Column object) so mixin works across modules;
+    ondelete RESTRICT: offboarding is an explicit workflow (FLOWS §9), never a cascade" —
+    and the `mapped_column()` call it sat inside named no `ForeignKey` at all. Forty-one of
+    the forty-three tenant tables never noticed, because they hand-write the column with the
+    FK spelled out; the two that trusted the mixin (`qa_reports`, `qa_call_samples`) got an
+    ORM column with no relationship to `organizations`.
+
+    That is not cosmetic. `alembic/env.py` generates against `Base.metadata`, so the next
+    `--autogenerate` proposed `DROP CONSTRAINT fk_qa_reports_tenant_id_organizations` and its
+    twin, in a diff a human is asked to skim — the exact defect class
+    `scripts/check_metadata_columns.py` was written for, one op-kind outside the `add_column`
+    /`remove_column` scope that file deliberately limits itself to. Dropping it would make
+    orphaned rows representable and delete the RESTRICT that makes offboarding a workflow
+    rather than a cascade. Proven by running `compare_metadata` against a database migrated
+    from base to head: two `remove_fk` ops, both on the two tables that use this mixin.
+
+    NO `index=True` HERE, deliberately. It used to be, and the DB has no
+    `ix_qa_reports_tenant_id` or `ix_qa_call_samples_tenant_id` — so the models declared two
+    indexes that do not exist and autogenerate proposed CREATEing them. Whether a bare
+    `tenant_id` btree earns its write cost beside a composite that leads with `tenant_id` is
+    a MEASURED, per-table decision in this repo (DATA-MODEL §10, `b9e5d2c74a18`,
+    `tests/prefix_index_audit_test.py`: four dropped, seven kept, each with the plan that
+    collapsed without it). A mixin cannot take that decision for a table it has never seen,
+    and `e7c3d10a9f52` already recorded what happens when a model out-declares the schema —
+    "leaving it would have had the next autogenerate helpfully recreate the index, a
+    deprecation that un-deprecates itself". Tables that measured the index in declare it on
+    their own column, as all forty-one already do.
+    """
 
     @declared_attr
     def tenant_id(cls) -> Mapped[uuid.UUID]:  # noqa: N805
         return mapped_column(
             PgUUID(as_uuid=True),
-            nullable=False,
-            index=True,
-            # FK by name (not Column object) so mixin works across modules.
+            # FK by name (not Column object) so the mixin works across modules.
             # ondelete RESTRICT: offboarding is an explicit workflow (FLOWS §9),
             # never a cascade.
-            server_default=None,
+            ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
         )
 
 
