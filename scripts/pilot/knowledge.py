@@ -137,6 +137,42 @@ class KbEngine(Protocol):
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]: ...
 
 
+#: The refusal code an adapter raises when the ENGINE does not hold this capability at all
+#: (`apps/api/engine.require_capability`). Matched by string rather than by importing
+#: `ProblemError`, deliberately: `KbEngine` above is a narrow Protocol so these probes can
+#: run against a KB-only stub, and importing from `apps/api` to catch one exception would
+#: undo that for no gain. Duck-typing on `.code` costs nothing and a stub can raise it too.
+_CAPABILITY_REFUSED = "engine_capability_unverified"
+
+
+def _is_capability_refusal(exc: BaseException) -> bool:
+    """Is this "the engine cannot do this", as opposed to "the attempt failed"?
+
+    THE DIFFERENCE IS WHAT THE OPERATOR DOES NEXT, WHICH IS WHY IT IS WORTH A FUNCTION.
+    A transient failure means run it again; a capability refusal means the question is
+    ANSWERED and re-running will produce the identical refusal forever. Gate 8 told a
+    human "Re-run after gate 2 passes" in both cases, which against the primary engine is
+    advice to loop indefinitely: `BOLNA_CAPABILITIES.knowledge_base` is False since D-354,
+    so `attach_kb` refuses by name before a single request goes out and no amount of
+    gate 2 will change it.
+    """
+    return getattr(exc, "code", None) == _CAPABILITY_REFUSED
+
+
+#: What to tell a human when the engine has declined rather than failed. Written once
+#: because all three KB probes hit the same wall in the same way.
+_CAPABILITY_REFUSED_DETAIL = (
+    "the engine DECLINES this capability rather than failing at it, so this gate is "
+    "ANSWERED and re-running changes nothing. On the primary engine that is D-354: "
+    "Bolna's `POST /knowledgebase` is multipart and takes a PDF or a URL, never the "
+    "prose `KBSourceRef` carries, and a Bolna knowledge base has no agent field at all — "
+    "so the built-in could not be driven through this port even if it answered. In-call "
+    "retrieval is OURS regardless (D-28's managed vector service behind the RAG tool "
+    "endpoint), which is where every KB tier above T0 already lives. Re-point this probe "
+    "at an engine whose descriptor reports `knowledge_base=True` to exercise it."
+)
+
+
 #: Reads back the KB handles the AGENT's own configuration references — NOT the account
 #: KB list. The distinction is the whole of D-41 question (b): `DELETE /knowledgebase/
 #: {rag_id}` removes the knowledge base, and whether the agent object still points at it
@@ -298,12 +334,16 @@ async def probe_kb_agent_linkage(
         primary_handle = await engine.attach_kb(primary.ref, primary.source)
         control_handle = await engine.attach_kb(control.ref, control.source)
     except Exception as exc:
+        detail = (
+            _CAPABILITY_REFUSED_DETAIL
+            if _is_capability_refusal(exc)
+            else f"{type(exc).__name__}. Re-run after gate 2 passes."
+        )
         return ProbeOutput(
             checks=(
                 inconclusive(
                     "kb_list_carries_agent_linkage",
-                    "attach_kb failed, so there was nothing to list: "
-                    f"{type(exc).__name__}. Re-run after gate 2 passes.",
+                    f"attach_kb did not produce anything to list: {detail}",
                 ),
             )
         )
@@ -487,12 +527,14 @@ async def probe_kb_delete_clears_agent_reference(
         handle = await engine.attach_kb(agent.ref, agent.source)
         await engine.detach_kb(agent.ref, handle)
     except Exception as exc:
+        cause = _CAPABILITY_REFUSED_DETAIL if _is_capability_refusal(exc) else type(exc).__name__
         return ProbeOutput(
             checks=(
                 inconclusive(
                     "kb_delete_clears_agent_reference",
                     "The attach/delete round trip itself failed "
-                    f"({type(exc).__name__}), so nothing can be said about what the "
+                    f"({cause}"
+                    "), so nothing can be said about what the "
                     "agent references afterwards.",
                 ),
             )
