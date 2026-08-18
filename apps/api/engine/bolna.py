@@ -14,9 +14,20 @@ Three properties of this vendor shape the whole design and are load-bearing:
 2. **cost / recording_url / extracted_data populate only at `completed`**, roughly
    2-3 min after disconnect. The post-call pipeline therefore triggers on `completed`,
    never on a disconnect event — `billable_ready` encodes exactly that.
-3. **Costs arrive in USD cents** with a per-leg breakdown. The adapter converts to INR
-   at capture and stamps the fx rate, so a ledger row can always be re-derived
-   (hard rule 7).
+3. **Costs arrive with a five-key per-leg breakdown** (`llm`, `network`, `platform`,
+   `synthesizer`, `transcriber` — REPORTED-DOCS, a search summary of their Get Execution
+   reference). The adapter converts to INR at capture and stamps the fx rate, so a
+   ledger row can always be re-derived (hard rule 7). **The UNIT is still an assumption
+   and the evidence now argues against it** — see `_ASSUMED_MINOR_UNITS_PER_MAJOR`, which
+   names it, and OPERATIONS §2 gate 7, which settles it with one call.
+
+Where the evidence for each claim came from, and how much it is worth, is recorded once
+in `docs/vendor/bolna/` rather than re-argued here. Three classes are used throughout
+this file and they are not interchangeable: **VERIFIED-OSS** (read in `bolna-ai/bolna`,
+the self-hosted framework the hosted platform is built on — authoritative for how the
+engine BEHAVES, not for the hosted REST contract), **REPORTED-DOCS** (a WebSearch summary
+of docs pages this environment's egress proxy refuses — suggestive, never proof), and
+**STILL UNVERIFIED** (needs a live account; each one is a named gate in OPERATIONS §2).
 
 Per-turn timings are NOT mapped here, and there is no call-latency column to map them
 into any more (migration f1a7c39d5be2 dropped it). Their docs now describe a
@@ -140,8 +151,28 @@ def throttle_delay_s(
     return capped * rand()
 
 
-# Their 15-value status enum → our 8. Anything unmapped becomes `failed`, which is the
-# safe direction: a call we cannot classify must not look successful.
+# Their status values → our 8. Anything unmapped becomes `failed`, which is the safe
+# direction: a call we cannot classify must not look successful.
+#
+# **THE KEYS ARE STILL A HAND-MAINTAINED LIST AND THE COUNT WAS A FICTION.** This said
+# "their 15-value status enum" as though someone had read one; nobody has, and the OSS
+# framework does not contain a call-status enum at all (its enums are `HangupReason`,
+# `LogComponent`, provider lists — `bolna/enums.py`, bolna-ai/bolna@cd2e192). The hosted
+# platform publishes the list on a docs page this environment's proxy refuses.
+# REPORTED-DOCS confirms only the happy path — `scheduled → queued → in-progress →
+# completed` — plus that `completed` is the FINAL state of every conversation, after which
+# recordings and extraction are done. That last clause is what `billable_ready` encodes.
+#
+# MARKED ASSUMPTION — `voicemail` as a STATUS (D-260). We map a `"voicemail"` status value
+# and `CallStatus` has a `voicemail` member, but nothing sourced says that string is ever
+# a status. What IS reported is a separate boolean field on Get Execution,
+# `answered_by_voice_mail`, and the OSS engine detects voicemail as a HANGUP REASON
+# (`HangupReason.VOICEMAIL_DETECTED`) under `ConversationConfig.voicemail` — both of which
+# are facts ABOUT a call whose status is plain `completed`. If that is how the hosted
+# platform reports it, then our `voicemail` status is unreachable and every voicemail
+# currently reads as a normal completed call. Left as-is rather than rewired on inference:
+# reading `answered_by_voice_mail` into the status would change what a client's screen says
+# about calls we have never seen. SETTLED BY: OPERATIONS §2 gate 17.
 _STATUS_MAP: dict[str, CallStatus] = {
     "scheduled": "queued",
     "queued": "queued",
@@ -179,6 +210,12 @@ _TERMINAL_RAW = frozenset(
 
 # Transcript arrives as prefix-tagged plain text, e.g.
 #   "assistant: namaskaram\nuser: appointment kavali"
+#
+# VERIFIED-OSS: `format_messages` in `bolna/helpers/utils.py` (bolna-ai/bolna@cd2e192) is
+# the function that builds this string, and it emits exactly `"assistant: "`, `"user: "`,
+# `"system: "`, `"assistant_tool_call: "` and `"tool_response: (<id>): "`, one per line.
+# `agent`/`bot`/`human` below are not in that emitter — they are tolerated spellings, kept
+# because tolerating one costs nothing and the hosted serializer is not this function.
 _TURN_RE = re.compile(r"^\s*(assistant|agent|user|human|bot)\s*:\s*(.*)$", re.IGNORECASE)
 _SPEAKER_MAP = {
     "assistant": "agent",
@@ -187,6 +224,25 @@ _SPEAKER_MAP = {
     "user": "caller",
     "human": "caller",
 }
+
+# Lines that ARE prefixed, by a role that is not a party to the conversation (D-260).
+# From the same `format_messages` read: `system:` appears under `use_system_prompt`, and
+# `assistant_tool_call:` / `tool_response:` under `include_tools`.
+#
+# WHY THIS SET HAS TO EXIST SEPARATELY. `_TURN_RE` does not match them — `assistant_tool_
+# call` is not `assistant` followed by a colon — so before this they fell into the
+# CONTINUATION branch below and were appended to the previous speaker's text. That is the
+# worst of the three possible outcomes: a serialized tool call (`str(tool_call)`, i.e. the
+# function name and its arguments) became part of what the transcript says the agent said,
+# and the system prompt became part of whoever spoke last. Extraction reads that text, the
+# console renders it, and nothing anywhere reported a problem.
+#
+# Counted as unparsed rather than dropped silently, for the reason the count exists at all:
+# a transcript whose tool lines we discard is a transcript we did not fully read, and gate
+# 7 scores that number.
+_NON_DIALOGUE_PREFIX_RE = re.compile(
+    r"^\s*(system|assistant_tool_call|tool_response)\b\s*[:(]", re.IGNORECASE
+)
 
 _PAISE = Decimal("0.0001")
 
@@ -199,17 +255,48 @@ _ASSUMED_CURRENCY = "USD"
 # converted at the wrong rate — see `_cost`.
 _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 
+#: How many of the vendor's cost UNITS make one unit of `_ASSUMED_CURRENCY`. 100 = the
+#: numbers are minor units (cents); 1 = they are major units (dollars).
+#:
+#: **A MARKED ASSUMPTION ON THE MONEY PATH (hard rule 7), AND THE EVIDENCE NOW POINTS THE
+#: OTHER WAY (D-261).** It was a bare `/ 100` inside `_to_inr` under a docstring that
+#: called the input "USD cents" — unnamed, so nothing could disagree with it and no gate
+#: could score it.
+#:
+#: ASSUMED: the hosted `total_cost` / `cost_breakdown` values are USD CENTS.
+#: EVIDENCE AGAINST (VERIFIED-OSS, bolna-ai/bolna@cd2e192): their own cost function,
+#: `calculate_total_cost_of_llm_from_transcript` in `bolna/helpers/analytics_helpers.py`,
+#: multiplies token counts by PER-TOKEN DOLLAR rates and returns `round(total_cost, 5)` —
+#: a major-unit figure carried to five decimals, which is a shape that only makes sense
+#: for dollars. EVIDENCE AGAINST (REPORTED-DOCS): every published Bolna price is quoted in
+#: dollars per minute ($0.02 platform fee, ~$0.06/min all-in), never in cents.
+#: WHY IT IS STILL 100: the hosted billing figure is not that OSS function — it adds
+#: telephony and the platform fee and is computed by a service we cannot read. Changing a
+#: money constant on inference would be a 100x error in the OTHER direction, and this is
+#: the file whose whole subject is not doing that.
+#: SETTLED BY: OPERATIONS §2 gate 7 — one completed call, `total_cost` from Get Execution
+#: beside the same call's charge on their dashboard. One observation, two orders of
+#: magnitude apart, impossible to misread.
+#: WHAT A WRONG VALUE COSTS: every `usage_event` under-values the call by 100x, so no
+#: spend cap ever arms and every margin panel reads near zero.
+_ASSUMED_MINOR_UNITS_PER_MAJOR = Decimal(100)
 
-def _to_inr(usd_cents: Any, fx_rate: Decimal) -> Decimal | None:
-    """USD cents → INR, quantized to the ledger's NUMERIC(12,4). Floats never touch
-    money: the vendor value is stringified before it becomes a Decimal."""
-    if usd_cents is None:
+
+def _to_inr(amount: Any, fx_rate: Decimal) -> Decimal | None:
+    """One vendor cost figure → INR, quantized to the ledger's NUMERIC(12,4).
+
+    The vendor's figure is divided by `_ASSUMED_MINOR_UNITS_PER_MAJOR` first — read that
+    constant before trusting the number this returns. Floats never touch money: the
+    vendor value is stringified before it becomes a Decimal.
+    """
+    if amount is None:
         return None
     try:
-        cents = Decimal(str(usd_cents))
+        units = Decimal(str(amount))
     except (ArithmeticError, ValueError):
         return None
-    return (cents / Decimal(100) * fx_rate).quantize(_PAISE, rounding=ROUND_HALF_UP)
+    major = units / _ASSUMED_MINOR_UNITS_PER_MAJOR
+    return (major * fx_rate).quantize(_PAISE, rounding=ROUND_HALF_UP)
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -410,8 +497,19 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     because Bolna publishes no OpenAPI spec. If their read path names these fields
     differently the honest outcome is `readable=False`, not a wrong answer.
     """
+    # `agent_config` when the read-back echoes our request envelope, ROOT otherwise —
+    # the same two-place lookup `_agent_name` and `_agent_greeting` already do, and it
+    # was missing here (D-260). VERIFIED-OSS: their server stores
+    # `agent_config.model_dump()` and `GET /agent/{id}` returns THAT, so `tasks` comes
+    # back at the top level with no `agent_config` wrapper
+    # (`local_setup/quickstart_server.py`, bolna-ai/bolna@cd2e192). Reading only the
+    # wrapper reported `models_readable=False` for a perfectly readable agent — and
+    # `False` here means "we could not find the synthesizer", which is exactly the
+    # verdict this function's docstring says must not be produced by looking in the
+    # wrong place.
     config = agent.get("agent_config")
-    tasks = config.get("tasks") if isinstance(config, dict) else None
+    source = config if isinstance(config, dict) else agent
+    tasks = source.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         return None, False
     first = tasks[0]
@@ -477,12 +575,15 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
     """Prefix-tagged text -> typed turns, AND how many lines were lost. `(turns, lost)`.
 
     A continuation line with no prefix is appended to the previous turn rather than
-    dropped — long agent answers wrap. Two lines genuinely cannot be placed, and both
-    used to vanish without trace:
+    dropped — long agent answers wrap. Three lines genuinely cannot be placed:
 
     * an unprefixed line arriving BEFORE any turn exists — there is no previous turn to
       append it to, and inventing a speaker for it would put words in someone's mouth;
-    * a recognised prefix with an empty body.
+    * a recognised prefix with an empty body;
+    * a line tagged with a role that is not a party to the call (`system:`,
+      `assistant_tool_call:`, `tool_response:`). These are NOT continuations, and
+      treating them as such spliced tool-call arguments and the system prompt into
+      whatever the previous speaker said — see `_NON_DIALOGUE_PREFIX_RE` (D-260).
 
     THE COUNT IS THE POINT. This returned a bare list, so a shape it does not recognise
     at all came back as `[]` — identical to a call where nobody spoke. Pilot gate 7's
@@ -504,6 +605,12 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
             continue
         match = _TURN_RE.match(line)
         if match is None:
+            if _NON_DIALOGUE_PREFIX_RE.match(line):
+                # A line the emitter tagged with a non-conversational role. It is not a
+                # wrapped continuation of the previous turn and must never be glued onto
+                # one — see `_NON_DIALOGUE_PREFIX_RE`.
+                lost += 1
+                continue
             if turns:
                 previous = turns[-1]
                 turns[-1] = previous.model_copy(
@@ -548,12 +655,23 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 # * `number_series=frozenset()`. Numbers come from the telephony vendor directly (D-05:
 #   Exotel, Vobiz for the 140-series) — `campaigns/provisioning.py` is that seam. This
 #   adapter's `provision_number` has always raised; now it says so before being called.
-# * `transfer=False`. Bolna may well support it; nobody has run the pilot gate, and an
-#   unverified vendor behaviour is not a capability (D-31/D-32). False is therefore the
-#   only answer we can stand behind, and the pilot gate is what changes it. `transfer`
-#   below now raises the ONE capability refusal rather than its own private
-#   `engine_capability_unverified` — a method whose refusal code disagreed with the
-#   descriptor is the drift this descriptor exists to remove.
+# * `transfer=False`. **The reason changed and the value did not (D-262).** This used to
+#   say "Bolna may well support it; nobody has run the pilot gate". Bolna DOES support it,
+#   read at source: `bolna/agent_manager/task_manager.py` (bolna-ai/bolna@cd2e192)
+#   implements a `transfer_call` function the LLM invokes mid-conversation, guarded by a
+#   `has_transfer` latch, with the destination supplied by CONFIG
+#   (`transfer_call_params` / the tool's `call_transfer_number`) rather than by the model.
+#   That is a different SHAPE from the one `VoiceEngine.transfer(call_id, to, warm)`
+#   describes: ours is an out-of-band instruction to an execution already in flight,
+#   theirs is an in-call tool the agent decides to fire at a number fixed when the agent
+#   was configured. Nothing sourced exposes the former over REST.
+#   So `False` remains correct — the capability our Protocol names is the one we cannot
+#   do — and it is now a STATEMENT rather than a shrug. It also means the engine built-in
+#   CLAUDE.md would have us prefer is reachable only by configuring a tool at publish
+#   time, which is a design question (a per-agent escalation number becomes engine config,
+#   not just our column) and not a flag flip. OPERATIONS §2 gate 18 asks the one thing
+#   that decides it: does the hosted agent object accept a transfer tool, and is there any
+#   REST route that transfers a live execution?
 BOLNA_CAPABILITIES = EngineCapabilities(
     stt="ours",
     tts="ours",
@@ -773,7 +891,57 @@ class BolnaEngine:
                 "tasks": [
                     {
                         "task_type": "conversation",
+                        # REQUIRED, and we were not sending it (D-260). `Task.toolchain`
+                        # has no default in their model (`bolna/models.py`), and the
+                        # runtime dereferences it with a bare subscript in two places —
+                        # `task["toolchain"]["pipelines"]` in
+                        # `bolna/agent_manager/task_manager.py` and
+                        # `get_required_input_types` in `bolna/helpers/utils.py`. So an
+                        # omitted `toolchain` is a validation error at create time or a
+                        # KeyError at dial time, not a defaulted field: the pipeline list
+                        # is ALSO what tells the engine this task consumes audio rather
+                        # than text, so there is nothing sensible for it to guess.
+                        #
+                        # These exact values are the ones their own builder emits for a
+                        # transcriber+llm+synthesizer voice task (`bolna/assistant.py`)
+                        # and the ones their API.md example carries.
+                        #
+                        # VERIFIED-OSS at bolna-ai/bolna@cd2e192 — the self-hosted
+                        # framework the hosted platform is built on, which is strong
+                        # evidence about the SHAPE and not proof of the hosted contract.
+                        # If the hosted `/v2/agent` injects a default of its own, sending
+                        # the documented value costs nothing; if it does not, this is the
+                        # difference between an agent that dials and one that KeyErrors.
+                        # docs/vendor/bolna/oss-harvest.md records the read.
+                        "toolchain": {
+                            "execution": "parallel",
+                            "pipelines": [["transcriber", "llm", "synthesizer"]],
+                        },
                         "tools_config": {
+                            # MARKED ASSUMPTION — `family` vs `provider` (D-260).
+                            # This flat block is their LEGACY `SimpleLlmAgent` shape and
+                            # it DOES validate (their `ToolsConfig.llm_agent` is a union
+                            # of `LlmAgent` and `SimpleLlmAgent`; ours lacks the
+                            # `agent_type`/`llm_config` pair the first requires, so it
+                            # binds to the second). What does NOT hold is the field we
+                            # use to choose the model's vendor:
+                            #
+                            # ASSUMED: `family` selects which LLM client runs our model.
+                            # CONTRADICTED BY: in bolna-ai/bolna@cd2e192 `family` is
+                            # declared on `Llm` and READ BY NOTHING, while the client is
+                            # chosen by `llm_config["provider"]` against
+                            # `SUPPORTED_LLM_PROVIDERS` (`bolna/providers.py`). Their
+                            # `Llm.provider` defaults to `"openai"`, so a config that
+                            # names no provider routes to OpenAI whatever `model` says.
+                            # `LLMProvider` has no `sarvam` member at all, so D-36's
+                            # Sarvam 105B leg has no obvious value here — which is why
+                            # this is NOT silently "fixed" by guessing one: a wrong
+                            # `provider` is a 400 or a mis-routed call, and our
+                            # `ModelConfig` has no `llm_provider` to carry the right one.
+                            # SETTLED BY: OPERATIONS §2 gate 16 — create an agent, read it
+                            # back, and see which of `family`/`provider` the hosted
+                            # platform stores and honours. The answer decides whether
+                            # `ModelConfig` grows an `llm_provider` field.
                             "llm_agent": {
                                 "agent_flow_type": "streaming",
                                 "family": "openai",
@@ -840,8 +1008,19 @@ class BolnaEngine:
         **MARKED ASSUMPTION — what is assumed and what falsifies it.**
         ASSUMED: deleting an `agent_id` this account does not hold (already deleted, or
         never existed) answers **404**, which `absent_is_success` converts into the
-        Protocol's idempotent success. Nothing published says so: the reference documents
-        200 and 400 and says nothing at all about a repeat.
+        Protocol's idempotent success. Their hosted reference documents 200 and 400 and
+        says nothing at all about a repeat.
+
+        WHAT THE OSS SERVER ACTUALLY DOES, read at source (D-260, VERIFIED-OSS,
+        bolna-ai/bolna@cd2e192 `local_setup/quickstart_server.py`): `delete_agent` checks
+        `redis_client.exists` and raises `HTTPException(404)` for an absent id — so 404 IS
+        the intent. But that raise sits INSIDE a `try` whose `except Exception` re-raises
+        as a 500, and `HTTPException` is an `Exception`, so the server it is written in
+        answers **500**, not 404. (`get_agent` has the identical defect.) This is the
+        cleanest illustration in the whole harvest of why VERIFIED-OSS is not proof of the
+        hosted contract: it tells us the intended semantics and simultaneously shows the
+        implementation missing them. It moves this assumption from "guessed" to
+        "OSS-backed intent"; it does not close it.
         FALSIFIED BY: a repeat delete answering **400** — in which case this method raises
         `engine_rejected` on a compensation whose work is already done, and the retry
         ladder DLQs a job that has nothing left to do.
@@ -959,10 +1138,14 @@ class BolnaEngine:
         await self._request("POST", f"/executions/{call_id}/stop")
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
-        # UNVERIFIED on Bolna (pilot item), which `BOLNA_CAPABILITIES.transfer=False`
-        # already declares. Failing loudly beats pretending a transfer happened — and it
-        # now fails with the SAME code a caller could have asked the descriptor for
-        # BEFORE calling, so a screen and this method cannot disagree.
+        # NOT "unverified" any more — see `BOLNA_CAPABILITIES.transfer` for what was read
+        # at source (D-262). Bolna transfers calls, but through an in-call tool the LLM
+        # fires at a config-supplied number; no sourced route instructs an execution
+        # already in flight, which is what THIS signature promises. So the refusal stands
+        # on a shape mismatch rather than on missing evidence.
+        # Failing loudly beats pretending a transfer happened — and it fails with the SAME
+        # code a caller could have asked the descriptor for BEFORE calling, so a screen and
+        # this method cannot disagree.
         require_capability("transfer", engine=self)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
@@ -1168,7 +1351,7 @@ class BolnaEngine:
             stt_inr=_to_inr(breakdown.get("transcriber"), rate),
             source_currency=currency,
             currency_stated=stated is not None,
-            source_amount=Decimal(str(total)) / Decimal(100),
+            source_amount=Decimal(str(total)) / _ASSUMED_MINOR_UNITS_PER_MAJOR,
             fx_rate=rate,
         )
 

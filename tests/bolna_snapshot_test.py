@@ -185,3 +185,50 @@ def test_an_execution_that_is_not_billable_has_no_billable_instant() -> None:
     assert snapshot.terminal is False, "the poller must keep going until `completed`"
     assert snapshot.billable_ready is False
     assert snapshot.billable_ready_at is None
+
+
+# --- Reconciliation against bolna-ai/bolna@cd2e192 (D-260) --------------------
+#
+# Everything below pins a divergence found by reading the OSS framework the hosted
+# platform is built on, rather than by reasoning about it. The evidence and its exact
+# weight are recorded in docs/vendor/bolna/oss-harvest.md; the source is
+# https://github.com/bolna-ai/bolna at commit cd2e192.
+
+
+def test_non_dialogue_lines_are_not_glued_onto_the_previous_turn() -> None:
+    """`format_messages` (bolna/helpers/utils.py) emits `assistant_tool_call:`,
+    `tool_response:` and `system:` lines into the same string as the dialogue.
+
+    None of them matches `_TURN_RE`, so each used to fall into the CONTINUATION branch
+    and be appended to whatever the previous speaker said — putting a serialized tool
+    call, arguments and all, inside the text the transcript attributes to the agent.
+    Extraction reads that text.
+    """
+    raw = "\n".join(
+        [
+            "system: you are a helpful receptionist",
+            "assistant: namaskaram, cheppandi",
+            "assistant_tool_call: {'name': 'book_slot', 'args': {'phone': '+919876543210'}}",
+            "user: appointment kavali",
+            "tool_response: (call_abc): {'ok': true}",
+        ]
+    )
+    turns, lost = parse_transcript(raw, "exec-abc123")
+
+    assert [t.text for t in turns] == ["namaskaram, cheppandi", "appointment kavali"]
+    # The agent said only what the agent said — no tool call spliced onto it.
+    assert "book_slot" not in turns[0].text
+    assert "+919876543210" not in turns[0].text
+    # Three non-dialogue lines, counted rather than silently discarded, so gate 7 sees them.
+    assert lost == 3
+
+
+def test_a_genuine_wrapped_continuation_still_joins_its_turn() -> None:
+    """The continuation branch is why unprefixed lines are appended at all; narrowing it
+    to exclude non-dialogue roles must not cost us the wrapping it exists for."""
+    raw = "assistant: namaskaram, mee appointment\nrepu udayam pattukondi"
+    turns, lost = parse_transcript(raw, "exec-abc123")
+
+    assert len(turns) == 1
+    assert turns[0].text == "namaskaram, mee appointment repu udayam pattukondi"
+    assert lost == 0
