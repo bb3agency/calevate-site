@@ -12,6 +12,8 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 
 import { adminRealmSession } from "@/lib/authn/realmSessions";
+import { needsReauthentication } from "@/lib/authn/problems";
+import { requireStepUp } from "@/lib/authn/stepUpPrompt";
 
 import type { CampaignSummary } from "./campaigns";
 import { apiRequest, type GrantSource, type Session } from "./client";
@@ -104,6 +106,19 @@ export const IMPERSONATION_GRANT_PATH = "/v1/admin/impersonation-grants";
  */
 const GRANT_REFRESH_MARGIN_MS = 60_000;
 
+/**
+ * The `X-Confirm-Action` string for entering ONE client's account (D-210).
+ *
+ * `apps/api/admin/routes.py::view_as_confirmation`, copied VERBATIM — the same
+ * arrangement `lib/api/opsConfig.ts` and `lib/api/erasure.ts` have with their routes.
+ * A `step_up_required` refusal therefore means this console and that function disagree
+ * about the string, which is a version skew and has to be visible rather than silently
+ * retried; `reauthentication_required` is the one this file acts on.
+ */
+export function viewAsConfirmation(slug: string): string {
+  return `view_as:${slug}`;
+}
+
 interface MintedGrant {
   grant: string;
   expiresAtMs: number;
@@ -122,6 +137,17 @@ interface CachedGrant {
    * it, and the rest queue on the replacement.
    */
   expiresAtMs: number;
+  /**
+   * The grant itself, once the mint settled — readable SYNCHRONOUSLY for the same reason
+   * `expiresAtMs` is, and needed for the same kind of reason.
+   *
+   * A re-mint sends the grant it is replacing as `renew`, which is what lets the API
+   * extend the view-as session instead of asking for a second factor every fourteen
+   * minutes (`core/impersonation.VIEW_AS_MAX_AGE`). Reading it off the promise would mean
+   * awaiting before installing the replacement entry, which is exactly the window the
+   * synchronous read above exists to close.
+   */
+  grant?: string;
 }
 
 /**
@@ -149,16 +175,53 @@ export function clearImpersonationGrants(): void {
  */
 type MintResponse = Schemas["ImpersonationGrantOut"];
 
-async function mint(slug: string): Promise<MintedGrant> {
+async function postMint(slug: string, renew: string | undefined): Promise<MintedGrant> {
   // `adminSession()`, never `viewAsSession()`: minting is an admin-realm act, and the
   // API refuses a mint made from inside another account's session (no chained
   // delegation). Passing the impersonating session here would be an infinite regress
   // as well as a refusal.
   const minted = await apiRequest<MintResponse>(adminSession(), IMPERSONATION_GRANT_PATH, {
     method: "POST",
-    body: { slug },
+    body: renew === undefined ? { slug } : { slug, renew },
+    // Sent on EVERY mint, including the renewals the API does not check it on. One code
+    // path is worth more than one saved header: it means a refusal from this endpoint is
+    // always the freshness half, never the echo, so the branch below keys on one code and
+    // an echo mismatch stays the loud version-skew signal it is meant to be.
+    confirmAction: viewAsConfirmation(slug),
   });
   return { grant: minted.grant, expiresAtMs: Date.parse(minted.expires_at) };
+}
+
+/**
+ * One grant, prompting for a second factor if the API asks for one (D-210).
+ *
+ * Entering a client's account is a step-up action, and extending a session already open
+ * is not: the API accepts the grant being replaced as `renew` and continues the session
+ * on the strength of the step-up that started it, for up to
+ * `core/impersonation.VIEW_AS_MAX_AGE`. So the prompt appears when an operator opens a
+ * client and roughly once an hour after that — not on every re-mint.
+ *
+ * THE RETRY IS SAFE, AND THAT IS A PROVEN CLAIM RATHER THAN AN ASSUMPTION.
+ * `lib/api/client.ts` records the rule its own deleted retry rung had to meet: a POST may
+ * only be repeated when the refusal provably executed nothing. This one qualifies —
+ * `mint_impersonation_grant` takes the gate before `mint_grant` and before `write_audit`,
+ * so a refused mint issues no grant and leaves no `admin.impersonation_started` row, and
+ * `tests/impersonation_stepup_test.py` asserts the absent row on every refusing branch.
+ * The retry drops `renew`: whatever was offered has just been ruled out as a continuation,
+ * and re-offering it would ask the API the question it has already answered.
+ */
+async function mint(slug: string, renew: string | undefined): Promise<MintedGrant> {
+  try {
+    return await postMint(slug, renew);
+  } catch (error) {
+    if (!needsReauthentication(error)) throw error;
+    const proved = await requireStepUp(`Opening ${slug} as an operator.`);
+    // Dismissed. The operator's action fails with the server's own refusal — it is still
+    // exactly true, and it carries the sentence and remediation this console would
+    // otherwise have to reinvent.
+    if (!proved) throw error;
+    return await postMint(slug, undefined);
+  }
 }
 
 function impersonationGrant(slug: string): GrantSource {
@@ -169,11 +232,15 @@ function impersonationGrant(slug: string): GrantSource {
     }
     // Installed BEFORE the first await, so concurrent callers see this entry rather
     // than the stale one they would each have replaced.
-    const entry: CachedGrant = { pending: mint(slug), expiresAtMs: Number.POSITIVE_INFINITY };
+    const entry: CachedGrant = {
+      pending: mint(slug, cached?.grant),
+      expiresAtMs: Number.POSITIVE_INFINITY,
+    };
     grantCache.set(slug, entry);
     try {
       const minted = await entry.pending;
       entry.expiresAtMs = minted.expiresAtMs;
+      entry.grant = minted.grant;
       return minted.grant;
     } catch (error) {
       // A rejected promise left in the cache would turn one failed mint into a

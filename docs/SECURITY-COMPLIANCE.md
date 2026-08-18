@@ -522,6 +522,22 @@ Identity & access
     answers it, rotating the session and carrying `absolute_expires_at` forward so
     re-proving cannot extend a session. This was "the named next step needing a browser
     reverification flow"; D-170 built the flow, so the reason for deferring it expired.
+  - **ENTERING A CLIENT'S ACCOUNT is a step-up action (D-210)**, and it is the one that
+    covers this section's most sensitive read. `POST /v1/admin/impersonation-grants` is
+    the only place a D-22 view-as grant exists, and no impersonated request is served
+    without one — so a second factor on that mint sits in front of every tenant-realm
+    read an operator can reach, the raw transcript and the recording included. STAYING in
+    a session does not re-challenge: the console presents the grant it holds and is
+    extended, bounded at `core/impersonation.VIEW_AS_MAX_AGE` = 1 h from the step-up that
+    started it (AWS STS caps a chained role session the same way, and for the same
+    reason). Both the entry and each extension still write `admin.impersonation_started`
+    naming the operator, so D-22's audit obligation is unchanged.
+  - **The client realm has NO step-up, by design (D-211).** `MFA_REQUIRED_REALMS` is
+    `{"admin"}` (D-170), so an owner reading their own raw transcript is `calls:read_raw`
+    + a `transcript.read_raw` audit row written in the same transaction, and that is the
+    whole control. Declaring the gate there would refuse the action outright rather than
+    tighten it. BACKEND-PATTERNS §7 used to list raw-transcript access without saying
+    which realm it meant; it now says both halves explicitly.
 - RBAC: admin{superadmin,operator}; client{owner,staff}. Staff cannot access billing,
   org settings, raw transcripts, **call recording audio**, or exports containing
   unredacted data.

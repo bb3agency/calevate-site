@@ -138,24 +138,61 @@ ALWAYS_ALLOWED_PREFIXES = health, schema/docs, engine webhooks, ops/admin surfac
 operator must never lock themselves out, provider callbacks must always land, and the
 platform must stay observable while degraded. Those three reasons are the whole list;
 **a route is never exempt for being important to a customer**, which is what shedding
-is for. It USED TO INCLUDE `/v1/auth` "so sign-in survives a shed", and that named a
-route this API does not have — Clerk owns sessions (§7), and the one route the prefix
-actually covered was `POST /v1/auth/signup`, a four-table write that kept manufacturing
-tenants in the modes that exist because we cannot serve the tenants we have. An
+is for. It USED TO INCLUDE `/v1/auth` "so sign-in survives a shed", and when it was written
+that named a route this API did not have: a vendor owned sessions, and the one route the
+prefix actually covered was `POST /v1/auth/signup`, a four-table write that kept
+manufacturing tenants in the modes that exist because we cannot serve the tenants we
+have. D-177 made `/v1/auth/**` real, and the exemption stayed removed rather than being
+restored wholesale — `core/loadshed.py` records why, and says a session route that needs
+it is exempted BY NAME on the day it exists. An
 exemption is per-prefix and inherited by whatever lands under it, so the reason is
 recorded per prefix and asserted against the live route table
 (`tests/loadshed_exemption_test.py`).
 
-## 7. Auth & audit specifics worth copying (ADAPTED — Clerk owns sessions)
+## 7. Auth & audit specifics worth copying (ADAPTED — authentication is OURS)
 
-Clerk replaces raghava's hand-rolled JWT/refresh machinery (their rotation-with-grace
-+ reuse-detection design is the reference if we ever self-host auth). Still ours to
-apply: guards re-check `is_active`/ban state against the DB on sensitive surfaces
-(instant deactivation despite cached sessions); **step-up confirmation** (fresh OTP /
-Clerk re-auth bound to the specific action) for high-risk admin actions — big red
-switch, cap raises, raw-transcript access; RBAC as a **policy registry validated at
-boot** (endpoint→permission map asserted at startup, not discovered at first use) —
-pairs with our route-discipline guardrail.
+This section was written when Clerk owned sessions and said so in its heading. D-177
+deleted the vendor: `apps/api/authn/` is the only thing that mints a credential, the
+credential is an `HttpOnly` `__Host-` cookie, and raghava's rotation-with-grace +
+reuse-detection design stopped being "the reference if we ever self-host auth" and became
+the design we ship (`authn/sessions.py`, RFC 9700 §4.14.2 reuse detection included).
+
+Still ours to apply: guards re-check `is_active`/ban state against the DB on sensitive
+surfaces (instant deactivation despite cached sessions); **step-up confirmation** (a
+second factor proved inside `REAUTH_MAX_AGE`, plus an `X-Confirm-Action` echo bound to
+the specific action) for high-risk **admin-realm** actions — big red switch, cap raises,
+tenant erasure, national-DND writes, and **entry into a client's account**; RBAC as a
+**policy registry validated at boot** (endpoint→permission map asserted at startup, not
+discovered at first use) — pairs with our route-discipline guardrail.
+
+**"RAW-TRANSCRIPT ACCESS" USED TO BE THE LAST ITEM ON THAT LIST, AND IT NAMED A ROUTE
+THAT CANNOT TAKE THIS GATE** (D-211). `GET /v1/calls/{id}/transcript/raw` and
+`/recording` are CLIENT-realm routes. The client realm has no second factor at all — D-170
+removed TOTP and enrolment, and `service.MFA_REQUIRED_REALMS` is `{"admin"}` — so
+`StepUp.present` is False for every client caller and declaring the gate there would not
+tighten the route, it would DELETE it: a tenant owner reading their own call would be
+refused with a remediation pointing at `/v1/auth/admin/step-up`, an endpoint their realm
+does not have. The sentence therefore split in two, and each half is now true of the
+realm it names:
+
+- **On the client realm, an owner reading their own raw transcript is role + audit, by
+  design.** `calls:read_raw` is held by `owner` and never by `staff`, and every read
+  writes `transcript.read_raw` into the hash-chained ledger in the same transaction
+  (hard rule 5). Under DPDP the tenant is the Data Fiduciary and these are recordings of
+  their own callers: this is the controller exercising their own controllership, not a
+  third party reaching across a boundary, and the control that matters is the one that
+  makes it attributable. **What would change this answer** is a client-realm second
+  factor existing at all — which is a product decision about Indian SMB owners and email
+  deliverability (D-170), not an engineering gap, and reversing it would be its own
+  decision-log entry rather than a consequence of this one.
+- **On the admin realm, it is step-up, and the gate is on the DOOR rather than the
+  read.** An operator reaches that client-realm route exactly one way: a D-22 view-as
+  session, which needs a grant, and grants exist only at
+  `POST /v1/admin/impersonation-grants`. That mint takes the full step-up (D-210), so
+  every tenant-realm read an operator can reach — the raw transcript among them — now
+  sits behind a second factor proved in the last five minutes. One gate on the door
+  rather than a freshness check bolted onto each read, which is also the only place it
+  CAN live: the reads are served by a realm with no admin session to check.
 
 **Audit hash chain** (ADOPTED for `audit_log`): each entry's hash =
 HMAC(`AUDIT_CHAIN_SECRET`, previous_hash + entry), written under
@@ -239,8 +276,8 @@ cleanup (their seed/cleanup pattern), golden-transcript fixtures for extraction.
   EXTERNAL boundaries (VoiceEngine, RAG provider), not between us and our own DB.
 - **Response envelope `{success, data}`** — RFC-9457 for errors + plain typed
   payloads for success is already decided; the envelope adds nothing typed clients need.
-- **Their ops-config DB overlay for OUR bootstrap config** — Clerk + secrets-manager
-  references (SEC-COMP §5) cover it; the overlay pattern IS the reference
+- **Their ops-config DB overlay for OUR bootstrap config** — first-party `authn` +
+  secrets-manager references (SEC-COMP §5) cover it; the overlay pattern IS the reference
   implementation for per-tenant engine/BYOK key storage (AES-256-GCM, versioned key,
   masked display, restart-to-apply).
 - **BullMQ specifics** (repeatable-job jobIds, pause/resume recovery) — ARQ

@@ -11,7 +11,9 @@ grant without which `core/auth.py` refuses every impersonated request, and write
 operator X for tenant Y at T" cannot be missing for a session that happened.
 `core/auth.py::_record_impersonated_read` records the READS, coalesced per minute, and
 carries the same `grant_id` so the two halves join. See `core/impersonation.py` for the
-grant's shape, its bindings and why it needs no revocation list.
+grant's shape, its bindings and why it needs no revocation list. STARTING one of those
+sessions takes step-up (D-210) — the mint is the single door in front of every tenant-realm
+read an operator can reach, including the raw transcript BACKEND-PATTERNS §7 names.
 """
 
 from __future__ import annotations
@@ -40,7 +42,12 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import IMPERSONATE_HEADER, IMPERSONATION_GRANT_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
-from apps.api.core.impersonation import GRANT_TTL, mint_grant
+from apps.api.core.impersonation import (
+    GRANT_TTL,
+    VIEW_AS_MAX_AGE,
+    mint_grant,
+    renewable_grant,
+)
 from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, role_has
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
@@ -802,6 +809,26 @@ async def list_unfinished_onboardings(
     ]
 
 
+def view_as_confirmation(slug: str) -> str:
+    """The step-up string for ENTERING one client's account (D-210).
+
+    A named function for the reason `spend_ceiling_confirmation` gives: it is part of an
+    operator procedure, so changing its shape has to be a deliberate edit that fails a
+    test rather than a reformat that leaves the console sending a header the API refuses.
+
+    Bound to the SLUG rather than the tenant id, which is the one place this differs from
+    its siblings, and the route's own reasoning is why: the mint is addressed by slug
+    precisely so the console never has to resolve an id it does not hold, and building the
+    confirmation from the id would reintroduce that lookup on the one caller the route was
+    shaped around. What the binding has to stop is a confirmation captured while entering
+    one client being replayed against another, and the slug is unique among live tenants
+    (`uq_organizations_slug`), so it does that. The IMMUTABLE id remains what the grant
+    itself is bound to — a five-minute echo and a fifteen-minute authorisation do not need
+    the same handle.
+    """
+    return f"view_as:{slug}"
+
+
 class ImpersonationGrantIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -809,6 +836,19 @@ class ImpersonationGrantIn(BaseModel):
     #: same one client URLs use (D-10), and the only one every console call site holds.
     #: See the route for why the grant is addressed by slug and bound to the id.
     slug: str = Field(min_length=1, max_length=100)
+
+    #: The grant this one CONTINUES, if the console already holds a live one for this
+    #: tenant (D-210). Present it and no second factor is asked for; omit it, or present
+    #: one that has run out of window, and the step-up gate applies.
+    #:
+    #: IN THE BODY RATHER THAN IN `X-Impersonation-Grant`, deliberately. That header means
+    #: "this request is being made INSIDE the named tenant" and `core/auth.py` reads it
+    #: with `X-Impersonate-Org` beside it; a mint is made from the operator's own admin
+    #: session and is not inside anything. Reusing the header would make the mint the one
+    #: request where it means something else. RFC 8693, whose claim shape this grant
+    #: already borrows, carries the token being exchanged in the request body for the same
+    #: reason — it is an input to the exchange, not a credential for it.
+    renew: str | None = Field(default=None, max_length=4096)
 
 
 class ImpersonationGrantOut(BaseModel):
@@ -834,14 +874,22 @@ class ImpersonationGrantOut(BaseModel):
         "the request is refused. The grant is bound to this operator and this tenant, "
         "expires in minutes, and never authorises a mutation — an impersonating session "
         "is read-only, and writes go through the admin surfaces with the tenant in the "
-        "path."
+        "path.\n\n"
+        "STARTING a view-as session needs step-up: a second factor proved in the last "
+        "five minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one "
+        "does not — send the grant currently held as `renew` and it is continued, for up "
+        "to an hour from the second factor that started it."
     ),
 )
 async def mint_impersonation_grant(
     payload: ImpersonationGrantIn,
     session: AdminSession,
     request: Request,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:impersonate", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> ImpersonationGrantOut:
     """Issue one grant, and record that authority was issued.
 
@@ -866,6 +914,34 @@ async def mint_impersonation_grant(
     (nested `act`); we do not, and this is where that is refused rather than merely
     unimplemented. `admin:impersonate` is deliberately not a mutating permission — D-22
     forbids gating reads on one — so `requires()` would not have caught it.
+
+    ═══ STEP-UP, AND WHY IT IS ON THE DOOR RATHER THAN ON EACH READ (D-210) ═══
+
+    BACKEND-PATTERNS §7 names raw-transcript access a step-up action. The route that
+    serves it is `GET /v1/calls/{id}/transcript/raw` on the CLIENT realm, and the only way
+    an operator reaches it is through here — `_load_admin_principal` refuses every
+    impersonated request without a grant, and grants exist only at this endpoint. So this
+    is where the second factor belongs: one gate on the door an operator walks through,
+    rather than a freshness check bolted onto each of the tenant-realm reads behind it,
+    which would put an admin-realm concern in a module that has no admin-realm session to
+    read it from (`authn/stepup.py::STEP_UP_REALM`).
+
+    **This does not gate a read on a mutating permission.** D-22's rule is about
+    PERMISSIONS — `admin:impersonate` stays out of `MUTATING_PERMISSIONS`, so a view-as
+    session still buys nothing but reads. Step-up is orthogonal to that: it asks who is at
+    the keyboard, not what they may do.
+
+    **Renewal rides, entry does not.** A console holding a live grant for this tenant
+    sends it back as `renew` and is not challenged again; `core/impersonation.py`'s
+    `VIEW_AS_MAX_AGE` bounds the whole chain at an hour from the ONE step-up that started
+    it. Demanding a fresh factor on every mint instead would mean an emailed code roughly
+    every fourteen minutes — see `VIEW_AS_MAX_AGE` for why that is the design that gets
+    switched off, and for the AWS STS precedent this follows instead.
+
+    **The refusal executes nothing.** Both refusals happen before `mint_grant` and before
+    `write_audit`, so a caller that is sent away to prove a factor has changed no state and
+    left no start row — which is what lets the console retry the identical request once the
+    operator has answered the code.
     """
     if principal.impersonating:
         raise ProblemError.forbidden(
@@ -886,7 +962,24 @@ async def mint_impersonation_grant(
     if tenant_id is None:
         raise ProblemError.not_found("Organization")
 
-    token, grant = mint_grant(tenant_id=UUID(str(tenant_id)), admin_id=admin_id)
+    now = datetime.now(UTC)
+    renewed = renewable_grant(
+        payload.renew, admin_id=admin_id, tenant_id=UUID(str(tenant_id)), now=now
+    )
+    if renewed is not None:
+        auth_time = renewed.auth_time
+    else:
+        step_up.require(x_confirm_action, view_as_confirmation(payload.slug))
+        # `verified_at` is the instant the second factor was proved, and `require` has just
+        # established it is inside `REAUTH_MAX_AGE`. It is `None` only on the local
+        # `dev:` branch that `require` waves through (`APP_ENV=local` with no
+        # `PLATFORM_KEK`), where there is no session row to carry one — `now` there means
+        # the window starts at this request, which is the strictest reading available.
+        auth_time = step_up.verified_at or now
+
+    token, grant = mint_grant(
+        tenant_id=UUID(str(tenant_id)), admin_id=admin_id, auth_time=auth_time
+    )
     # In the SAME transaction as nothing else: the row is the whole side effect, and it
     # commits with the response. A grant handed out whose start row rolled back is the
     # exact defect this route exists to remove.
@@ -899,11 +992,21 @@ async def mint_impersonation_grant(
         object_id=str(grant.tenant_id),
         ip=client_request_ip(request),
         # `grant_id` is what joins this row to the `admin.impersonation_read` rows the
-        # session goes on to produce (`core/auth.py`). Ids and an instant only.
+        # session goes on to produce (`core/auth.py`). Ids and instants only.
+        #
+        # `renews` carries the PREDECESSOR'S grant id, so the ledger says which start rows
+        # are one view-as session extending itself and which are an operator walking
+        # through the door again — the difference between four entries an hour and four
+        # entries an hour that each cost a second factor. `auth_time` dates the step-up
+        # the whole chain rests on, which is the field an auditor asking "was this
+        # session ever re-authenticated?" actually needs.
         summary={
             "grant_id": str(grant.grant_id),
             "expires_at": grant.expires_at.isoformat(),
             "ttl_s": int(GRANT_TTL.total_seconds()),
+            "auth_time": grant.auth_time.isoformat(),
+            "renews": str(renewed.grant_id) if renewed is not None else None,
+            "window_s": int(VIEW_AS_MAX_AGE.total_seconds()),
         },
     )
     return ImpersonationGrantOut(slug=payload.slug, grant=token, expires_at=grant.expires_at)

@@ -216,6 +216,8 @@ export interface paths {
         /**
          * Mint the short-lived grant a READ-ONLY view-as session needs (D-22)
          * @description Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation — an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.
+         *
+         *     STARTING a view-as session needs step-up: a second factor proved in the last five minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not — send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.
          */
         post: operations["mint_impersonation_grant_v1_admin_impersonation_grants_post"];
         delete?: never;
@@ -6202,6 +6204,8 @@ export interface components {
         };
         /** ImpersonationGrantIn */
         ImpersonationGrantIn: {
+            /** Renew */
+            renew?: string | null;
             /** Slug */
             slug: string;
         };
@@ -10209,7 +10213,9 @@ export interface operations {
     mint_impersonation_grant_v1_admin_impersonation_grants_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path?: never;
             cookie?: never;
         };

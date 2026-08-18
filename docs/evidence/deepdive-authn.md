@@ -369,7 +369,10 @@ all. `is_fresh(None)` is False, so a session that never proved a factor is refus
 than waved through. All 15 call sites take the gate as a `Depends`, which is what makes the
 pairing structural: `gate.require(...)` cannot be written without a `gate`.
 
-**What SHOULD require it and does not — named, not fixed, because it is a founder's call:**
+**What SHOULD require it and does not — named, not fixed, because it is a founder's call.
+BOTH WERE SUBSEQUENTLY TAKEN: D-210 and D-211, `docs/evidence/deepdive-stepup.md`. The two
+paragraphs below are left as written, because what they name is now the argument each
+decision had to answer:**
 
 1. **`POST /v1/admin/impersonation-grants`.** This is the single choke point for entering a
    client's data — `_load_admin_principal` refuses every impersonated request without a
@@ -453,5 +456,8 @@ adminAuthn,clientAuthn,realmSessions}.ts(x)` and `components/authn/*`.
 - **Whether the 5.7 ms reset-path timing gap is exploitable over the real edge.** It needs a
   measurement against the deployed nginx from a realistic network position, which this pass
   cannot take — there is no deployment.
-- **The two step-up gaps above**, both of which are decisions rather than defects and both
-  of which name what closes them.
+- **The two step-up gaps above** — decisions rather than defects, each naming what closes
+  it. Both are now CLOSED: D-210 puts the gate on the impersonation door with a bounded,
+  renewable view-as session and wires the console prompt this pass said was outside its
+  fence; D-211 resolves BACKEND-PATTERNS §7 by realm. See
+  `docs/evidence/deepdive-stepup.md`.

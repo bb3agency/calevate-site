@@ -5302,6 +5302,18 @@
       "ImpersonationGrantIn": {
         "additionalProperties": false,
         "properties": {
+          "renew": {
+            "anyOf": [
+              {
+                "maxLength": 4096,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Renew"
+          },
           "slug": {
             "maxLength": 100,
             "minLength": 1,
@@ -14433,8 +14445,26 @@
     },
     "/v1/admin/impersonation-grants": {
       "post": {
-        "description": "Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation \u2014 an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.",
+        "description": "Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation \u2014 an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last five minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
         "operationId": "mint_impersonation_grant_v1_admin_impersonation_grants_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
