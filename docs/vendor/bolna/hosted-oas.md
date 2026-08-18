@@ -114,7 +114,7 @@ look". Routes this adapter calls are marked.
 | Time filter is `from` / `to` on `created_at`, UTC ISO 8601 | listing query params `from`, `to` |
 | Call statuses: fifteen values incl. `rescheduled`; **no `voicemail`** | `AgentExecution.status` enum; listing `status` filter enum |
 | Voicemail is a boolean, not a status | `AgentExecution.answered_by_voice_mail` |
-| Costs are **in cents** | `AgentExecution.total_cost`, `.cost_breakdown`, and all five `CostBreakdown` members |
+| Costs are **in cents** — but see the contradiction below, this is NOT settled | `AgentExecution.total_cost`, `.cost_breakdown`, and all five `CostBreakdown` members |
 | Cost breakdown keys: `llm`, `network`, `platform`, `synthesizer`, `transcriber` | `CostBreakdown` |
 | Recording URL is nested under `telephony_data` | `TelephonyData.recording_url` |
 | Duration field is `conversation_duration` (float seconds) | `AgentExecution.conversation_duration` |
@@ -158,6 +158,34 @@ From the same repo at the same commit, `references/` and the SKILL.md set:
 - **Plivo is the India 160-series (transactional) carrier and Vobiz the 140-series
   (promotional) carrier** (`providers-matrix.md`) — which is the same split D-05 makes, from
   the vendor's side.
+
+## Where the vendor contradicts ITSELF, and how the tie is broken
+
+One conflict matters enough to sit above the "does not settle" list, because it is on the
+money path and both sides of it are first-party at the same commit.
+
+| Source | Says `total_cost` is |
+|---|---|
+| `references/openapi.yml` (OAS) | "Total cost incurred by this execution **in cents**" — minor units |
+| `references/execution-payload.md` (prose) | "Bolna cost in **account currency**" — major units |
+
+`bolna-core.md` publishes the tiebreak itself: *"Treat the YAML as the canonical schema if
+a SKILL.md and the spec disagree."* So "cents" wins, and it agrees with the constant this
+repo already had (`_ASSUMED_MINOR_UNITS_PER_MAJOR = 100`) — nothing changes in code.
+
+**What must NOT be concluded is that the unit is therefore verified.** A precedence rule
+that reconciles two documents is not an observation of a server, and the direction of the
+error is 100x on every metered call. The reading that reconciles both — "minor units OF
+the account currency" — is coherent and probably true, and is recorded here as a
+HYPOTHESIS because neither document states it. Note its second consequence: if that
+reading holds, the currency is the ACCOUNT's, which for an Indian account may be INR
+rather than `_ASSUMED_CURRENCY`'s USD. OPERATIONS §2 gate 7 therefore scores BOTH the unit
+and the currency, from one completed call read beside its charge on the dashboard.
+
+Two smaller self-inconsistencies, neither load-bearing, recorded so nobody re-derives them:
+`AgentExecution.id` is a uuid in the OAS and "integer" in `execution-payload.md` (we
+`str()` it either way), and the OAS's `cost_breakdown` is absent from the prose's
+top-level field list while the prose's `usage_breakdown` is `$ref`d by nothing in the OAS.
 
 ## What this does NOT settle
 
