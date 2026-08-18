@@ -438,7 +438,11 @@ def campaign_window_open(calling_hours: dict[str, Any] | None, now_ist: datetime
         # A window we cannot read is a window we cannot honour: fail closed.
         # (Unreachable via create_campaign, which validates before storing.)
         return False
-    return start <= now_ist.time() <= end
+    # HALF-OPEN at the end, the same convention and for the same reason as
+    # `compliance.service.within_calling_hours` (D-311): a campaign narrowed to
+    # 09:00-12:00 must not place a call AT 12:00, and the platform window this one may
+    # only shrink is a prohibition band whose first forbidden instant is its end.
+    return start <= now_ist.time() < end
 
 
 # The two rules `campaign_dialable_now` can return. Named constants because a runbook,
