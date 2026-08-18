@@ -667,17 +667,21 @@ VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = False
 
 #: WHERE an LLM leg runs, in OUR vocabulary — never the engine's (hard rule 2).
 #:
-#: `"sarvam"` is D-36's sovereign-by-vendor leg: one host, one static key, no base URL to
-#: state. `"vertex_openai"` is D-400's: Gemini on paid Vertex AI, reached through the
+#: `"vertex_openai"` is D-400's leg: Gemini on paid Vertex AI, reached through the
 #: OpenAI-compatible surface at `vertex_openai_base_url()`, region-pinned to Mumbai.
 #:
-#: TWO MEMBERS AND NOT AN OPEN STRING, which is the difference between this and the
-#: engine's own `provider` field. Bolna's is open by design because Bolna does not care
-#: where a model runs; ours is closed because we do — every member here is a residency
-#: posture somebody has argued for, and a third one arrives with a decision-log entry
-#: rather than with a config edit. `ModelConfig.llm_base_url`'s validator is what makes
-#: that more than a naming convention.
-LlmProvider = Literal["sarvam", "vertex_openai"]
+#: ONE MEMBER, AND THAT IS THE HONEST COUNT rather than a stub. `None` — "whatever the
+#: engine's own default is" — is what every agent in this repository still resolves to,
+#: because D-260/gate 16 has never been answered: nobody knows whether the hosted Bolna
+#: platform honours `provider` and `base_url` at all, and naming D-36's Sarvam leg here
+#: would mean CHANGING the wire body of every live agent on the strength of that
+#: unanswered question. So the vocabulary names the leg somebody has argued a residency
+#: posture for, and nothing else. A second member arrives with a decision-log entry.
+#:
+#: CLOSED WHERE THE ENGINE'S IS OPEN, deliberately. Bolna's `provider` is an open string
+#: because Bolna does not care where a model runs; ours is closed because we do, and
+#: `ModelConfig`'s validator is what makes that more than a naming convention.
+LlmProvider = Literal["vertex_openai"]
 
 
 #: THE ONE SENTENCE A SCRIPT MAY NOT CONTRADICT, and the string every read-back is

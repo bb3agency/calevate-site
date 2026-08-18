@@ -51,6 +51,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from calevate_shared.config import bolna_source_ips
@@ -68,6 +69,7 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     KBSourceRef,
     ListingIncompleteReason,
+    LlmProvider,
     ModelConfig,
     NumberSpec,
     ProvisionedNumber,
@@ -75,6 +77,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+from pydantic import ValidationError
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -190,6 +193,45 @@ _STATUS_MAP: dict[str, CallStatus] = {
     "error": "failed",
     "balance-low": "failed",
 }
+
+
+def _llm_routing(models: ModelConfig) -> dict[str, str]:
+    """The `provider`/`family`/`base_url` keys for one config's LLM leg (D-400).
+
+    THE ONLY PLACE a Calevate LLM leg becomes a Bolna provider name (hard rule 2).
+
+    UNSET STAYS UNSET-SHAPED. A `ModelConfig` with no `llm_provider` reproduces exactly
+    what this adapter sent before D-400 — `family: "openai"`, no `provider` — and that is
+    what every agent row in this repository still resolves to, because whether the hosted
+    platform honours `provider`/`base_url` at all is what gate 16 was opened to ask.
+    Changing the wire body for live agents on an unanswered vendor question is the
+    opposite of what this change is for.
+
+    `"custom"` for Vertex is their word rather than our workaround: their provider matrix
+    documents `Custom (LiteLLM-compatible)` as "OpenAI-style `base_url` + key … Set
+    `provider: "custom"`", and their server routes that value to the OpenAI client with
+    our `base_url` (`bolna/providers.py`, `bolna/llms/openai_llm.py`). `family` is
+    cosmetic on their side — declared and read by nothing — and is sent as `openai`
+    because `openai` is what the wire format IS.
+
+    **`provider: "google"` IS REFUSED, NOT MISSING**, and this is the branch a future
+    reader will want to add. Bolna ships a first-party Gemini provider needing one static
+    key named `GOOGLE`, and it is `genai.Client(api_key=…)` against
+    `generativelanguage.googleapis.com` — the AI Studio Developer API
+    (`bolna/llms/gemini_llm.py`). D-127 disqualified that host twice over: no region
+    anywhere in the URL, and free-tier terms under which Google states human reviewers
+    may read submitted prompts and responses. It is the EASY way to put Gemini on the
+    in-call leg and it moves Indian callers' words out of India.
+    """
+    if models.llm_provider is None:
+        return {"family": "openai"}
+    body = {"provider": "custom", "family": "openai"}
+    if models.llm_base_url:
+        # Proven Mumbai-pinned by `ModelConfig` itself, which is the only reason this
+        # line may hand a model endpoint to a third party without re-checking it here.
+        body["base_url"] = models.llm_base_url
+    return body
+
 
 _TERMINAL_RAW = frozenset(
     {
@@ -523,11 +565,40 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
             node = node.get(key)
         return node if isinstance(node, str) and node else None
 
+    # WHERE THE LLM LEG IS RUNNING, read back rather than assumed (D-400). Their
+    # `provider` cannot be inverted on its own — both of our legs render to `"custom"` —
+    # so the ENDPOINT is what identifies a Vertex leg, which is fitting: the endpoint is
+    # the fact that carries the residency guarantee, and the provider name is a routing
+    # detail.
+    #
+    # A base URL WE DO NOT RECOGNISE is reported as no provider and LOGGED, never
+    # normalised away and never raised. `ModelConfig` refuses a non-Mumbai Vertex URL by
+    # construction (that is the point of its validator), so accepting the value here
+    # would be impossible and letting the ValidationError escape would turn a read-back
+    # into a failed publish — the one shape D-260 says a snapshot must never take. The
+    # log line carries the HOST only: it is a vendor's endpoint, not transcript text, and
+    # the host is the whole of what an operator needs to see that something is off.
+    base_url = leaf("llm_agent", "base_url")
+    llm_provider: LlmProvider | None = None
+    if base_url is not None:
+        try:
+            ModelConfig(llm_provider="vertex_openai", llm_base_url=base_url)
+        except ValidationError:
+            log.warning(
+                "engine_llm_endpoint_unrecognised",
+                extra={"engine": "bolna", "host": urlsplit(base_url).netloc},
+            )
+            base_url = None
+        else:
+            llm_provider = "vertex_openai"
+
     return (
         ModelConfig(
             stt_provider=leaf("transcriber", "provider"),
             stt_model=leaf("transcriber", "model"),
             llm_model=leaf("llm_agent", "model"),
+            llm_provider=llm_provider,
+            llm_base_url=base_url,
             tts_provider=leaf("synthesizer", "provider"),
             tts_voice=leaf("synthesizer", "provider_config", "voice"),
         ),
@@ -830,33 +901,29 @@ class BolnaEngine:
                             "pipelines": [["transcriber", "llm", "synthesizer"]],
                         },
                         "tools_config": {
-                            # MARKED ASSUMPTION — `family` vs `provider` (D-260).
-                            # This flat block is their LEGACY `SimpleLlmAgent` shape and
-                            # it DOES validate (their `ToolsConfig.llm_agent` is a union
-                            # of `LlmAgent` and `SimpleLlmAgent`; ours lacks the
-                            # `agent_type`/`llm_config` pair the first requires, so it
-                            # binds to the second). What does NOT hold is the field we
-                            # use to choose the model's vendor:
+                            # THE D-260 MARKED ASSUMPTION IS SETTLED, AND IT WENT THE WAY
+                            # IT FEARED (D-400). It read: `family` is ASSUMED to select
+                            # the LLM client, CONTRADICTED BY the OSS server where
+                            # `family` is declared on `Llm` and read by NOTHING while
+                            # `provider` chooses the class out of `SUPPORTED_LLM_PROVIDERS`
+                            # — so a config naming no `provider` routes to OpenAI whatever
+                            # `model` says. Re-read at source 18 Aug 2026 on `master`
+                            # (`bolna/providers.py`, `bolna/enums.py::LLMProvider`,
+                            # `bolna/llms/openai_llm.py`): unchanged, and `provider:
+                            # "custom"` maps to `OpenAiLLM`, which constructs
+                            # `AsyncOpenAI(base_url=…, api_key=…)`. Their published
+                            # OpenAPI agrees by omission — `provider` and `family` carry
+                            # NO enum while `agent_flow_type` in the same block does.
                             #
-                            # ASSUMED: `family` selects which LLM client runs our model.
-                            # CONTRADICTED BY: in bolna-ai/bolna@cd2e192 `family` is
-                            # declared on `Llm` and READ BY NOTHING, while the client is
-                            # chosen by `llm_config["provider"]` against
-                            # `SUPPORTED_LLM_PROVIDERS` (`bolna/providers.py`). Their
-                            # `Llm.provider` defaults to `"openai"`, so a config that
-                            # names no provider routes to OpenAI whatever `model` says.
-                            # `LLMProvider` has no `sarvam` member at all, so D-36's
-                            # Sarvam 105B leg has no obvious value here — which is why
-                            # this is NOT silently "fixed" by guessing one: a wrong
-                            # `provider` is a 400 or a mis-routed call, and our
-                            # `ModelConfig` has no `llm_provider` to carry the right one.
-                            # SETTLED BY: OPERATIONS §2 gate 16 — create an agent, read it
-                            # back, and see which of `family`/`provider` the hosted
-                            # platform stores and honours. The answer decides whether
-                            # `ModelConfig` grows an `llm_provider` field.
+                            # So we now SEND `provider`, from `_LLM_PROVIDER_BODY` below,
+                            # and `family` stays only because it is free and their own
+                            # examples carry it. What is still not settled is what the
+                            # HOSTED platform stores (gate 16 asked exactly this) —
+                            # `_snapshot` reads both back so the answer arrives as data
+                            # from the first publish rather than as a reviewer's guess.
                             "llm_agent": {
                                 "agent_flow_type": "streaming",
-                                "family": "openai",
+                                **_llm_routing(cfg.models),
                                 "model": cfg.models.llm_model,
                                 # SENT EXPLICITLY, and the reason is that NOT sending them
                                 # was a decision nobody had taken (D-283).
