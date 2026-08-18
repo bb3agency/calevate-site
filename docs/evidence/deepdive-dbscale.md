@@ -380,6 +380,9 @@ already attached, and narrowing it is an API-contract change rather than an inde
 | Round-trip fidelity | `pg_dump -s` of the down/up database vs a pristine chain | PROVEN byte-identical |
 | The FK census is not an artefact of one database | same query on `calevate_replay`, built independently | PROVEN: 34 columns, identical lists |
 | The DNC scrub is indexed | `pg_indexes` + the scrub's own predicate | PROVEN: `ix_dnc_list_phone_e164` leads with the probed column |
+| The campaign dispatch scan is already O(live calls), not O(history) | the `calevate_dispatch_scan` probe re-run after this pass's indexes landed | PROVEN: still `Index Only Scan using ix_calls_outbound_live`, `Heap Fetches: 0`, 0.173 ms — `a8d4f21c9b06` had measured and fixed this surface, and nothing here disturbed it |
+| The due-contact claim is indexed | `campaign_contacts` claim query at 51,920 contacts | PROVEN: `ix_campaign_contacts_due` bitmap scan, 0.129 ms |
+| The DPDP subject-access export is unbounded BY DESIGN and stays so | read | REASONED: a subject access request that returns a page is not a subject access request |
 | The new indexes did not move an existing plan onto a worse one | `ix_leads_tenant_id`-driven queries (status counts, facets) re-measured after | PROVEN: same node types, same buffers (1,665) |
 | The index doctrine's existing pins still hold | `prefix_index_audit_test`, `credit_ledger_index_prune_test`, `usage_events_unique_index_test`, `orm_schema_fidelity_test` | PROVEN green |
 | Guardrails | `ruff check`, `ruff format --check`, `mypy apps packages`, `check_rls_coverage`, `check_metadata_columns` | PROVEN clean |
