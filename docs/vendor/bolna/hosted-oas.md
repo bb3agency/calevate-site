@@ -173,6 +173,15 @@ money path and both sides of it are first-party at the same commit.
 a SKILL.md and the spec disagree."* So "cents" wins, and it agrees with the constant this
 repo already had (`_ASSUMED_MINOR_UNITS_PER_MAJOR = 100`) — nothing changes in code.
 
+**A THIRD SOURCE CORROBORATES "cents", and it is worth exactly what its class is worth.**
+A WebSearch snippet of the vendor's own hosted reference page
+(`www.bolna.ai/docs/api-reference/executions/get_execution`, which this environment's
+proxy blocks directly) describes `total_cost` as the cost "in cents" and `cost_breakdown`
+as a breakdown "in cents" — i.e. the published docs page agrees with the OAS and NOT with
+`execution-payload.md`. That makes the prose file the lone outlier and is genuine evidence
+for the constant we already use. It is not proof: it is the retired REPORTED-DOCS class, a
+search summary of a page nobody here has read, and it says nothing about the currency.
+
 **What must NOT be concluded is that the unit is therefore verified.** A precedence rule
 that reconciles two documents is not an observation of a server, and the direction of the
 error is 100x on every metered call. The reading that reconciles both — "minor units OF
