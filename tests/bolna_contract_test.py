@@ -31,6 +31,7 @@ egress to that host is blocked from this environment (OPERATIONS §2 gate 2).
 from __future__ import annotations
 
 import ast
+import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -270,6 +271,105 @@ async def test_listing_knowledge_bases_refuses_rather_than_reporting_an_empty_en
     `Knowledgebase` schema does not have."""
     with pytest.raises(ProblemError):
         await _engine(lambda _r: httpx.Response(200, json=[])).list_kb("agent_1")
+
+
+# --- the rotating LLM credential (D-404) ----------------------------------------
+#
+# THREE DOCUMENTED ROUTES AND ONE UNDOCUMENTED SEMANTIC. `POST /providers` takes
+# `{provider_name, provider_value}` and answers a `ProviderAddedStatus` whose `status`
+# enum has exactly ONE member, `"added"` — there is no `"updated"`. So what a SECOND write
+# under the same name does is not written down, and the adapter is built to find out
+# rather than to assume: count under our name, write, count again.
+
+
+def _provider_row(provider_id: str, name: str) -> dict[str, str]:
+    """One `Provider` as the spec defines it — note the MASKED value, which is why the
+    adapter identifies entries by `provider_id` and never by what they hold."""
+    return {"provider_id": provider_id, "provider_name": name, "provider_value": "xxxxxxxaz"}
+
+
+async def test_installing_the_llm_credential_posts_the_documented_body() -> None:
+    """`ProviderRequest` is `{provider_name, provider_value}`, both required. The name
+    comes from `Settings.bolna_llm_credential_name` rather than a literal, because it is a
+    MARKED ASSUMPTION an operator must be able to correct from the ops console without a
+    deploy — nothing published says which entry the hosted platform reads `llm_key` from
+    for a `provider: "custom"` leg."""
+    seen: list[tuple[str, str, dict[str, str] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    placement = await _engine(handler).set_llm_credential("ya29.fresh")
+
+    assert placement.replaced_in_place is True
+    assert placement.superseded_removed == 0
+    posts = [(path, body) for method, path, body in seen if method == "POST"]
+    assert posts == [("/providers", {"provider_name": "CUSTOM", "provider_value": "ya29.fresh"})]
+
+
+async def test_a_store_that_appends_is_reported_rather_than_tolerated() -> None:
+    """**THE FAILURE THIS DANCE EXISTS FOR.** If the store APPENDS, the engine holds the
+    fresh bearer AND every expired one under one name, and which of them a call
+    authenticates with is the vendor's choice. The leg then keeps working for a while and
+    dies on a token nobody knew was installed — indistinguishable, from outside, from "the
+    refresher stopped", which is the one thing the alarm must be able to tell apart.
+
+    Detected by IDENTITY, not by count: an id present before the write and still present
+    after it cannot be the entry we just made."""
+    stale = _provider_row("p-old", "CUSTOM")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=[stale, _provider_row("p-new", "CUSTOM")])
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).set_llm_credential("ya29.fresh")
+
+    assert raised.value.code == "engine_credential_not_replaced"
+
+
+async def test_other_providers_are_never_counted_as_ours() -> None:
+    """The store holds every vendor key this account has — `SARVAM`, `PLIVO`, whatever an
+    operator added by hand. Counting them as superseded copies of OURS would report append
+    semantics on a store that replaced perfectly well, and the remedy the runbook then
+    gives is to delete somebody else's credential."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json=[_provider_row("p-sarvam", "SARVAM"), _provider_row("p-plivo", "PLIVO")],
+            )
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    placement = await _engine(handler).set_llm_credential("ya29.fresh")
+
+    assert placement.replaced_in_place is True
+
+
+async def test_the_write_happens_before_any_delete_could() -> None:
+    """POST-FIRST, NEVER DELETE-FIRST. The spec-clean rotation looks like "remove the old
+    entry, add the new one", and it is wrong on the only axis that matters: between the two
+    calls the engine holds NO credential, so a failure in the second takes the LLM leg down
+    IMMEDIATELY rather than at the old token's expiry. This pins the order."""
+    order: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        order.append(request.method)
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    await _engine(handler).set_llm_credential("ya29.fresh")
+
+    assert "DELETE" not in order
+    assert order.index("POST") < len(order) - 1, "the read-back must follow the write"
+    assert order == ["GET", "POST", "GET"]
 
 
 # --- dialling -----------------------------------------------------------------

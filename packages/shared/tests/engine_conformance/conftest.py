@@ -208,6 +208,20 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     # nothing — which would make every listing clause pass vacuously on a stub that had not
     # been asked to create one first.
     agents: dict[str, dict[str, Any]] = {str(BOLNA_COMPLETED["agent_id"]): {}}
+    # THE CREDENTIAL STORE (D-404), and it is stateful and REPLACE-IN-PLACE — keyed on
+    # `provider_name` — because that is the semantics the adapter is built to VERIFY
+    # rather than to assume. Their published spec documents `POST /providers` with a
+    # status enum whose only member is `added`, so what a second write under one name does
+    # is not written down. Modelling replacement here is what makes the conformance clause
+    # assert the good case honestly; `tests/bolna_contract_test.py` drives the append case
+    # against a stub that appends, which is the arm that must raise.
+    #
+    # Pre-seeded with an UNRELATED provider, because the store holds every vendor key the
+    # account has: counting somebody else's `SARVAM` entry as a superseded copy of ours
+    # would report append semantics on a store that replaced perfectly well.
+    providers: dict[str, dict[str, str]] = {
+        "SARVAM": {"provider_id": "prov_sarvam", "provider_name": "SARVAM"}
+    }
 
     def agent_id_for(body: dict[str, Any]) -> str:
         config = body.get("agent_config") or {}
@@ -216,6 +230,27 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path == "/providers" and request.method == "GET":
+            # `provider_value` comes back MASKED, exactly as their `Provider` schema shows
+            # (`example: xxxxxxxaz`). Modelling the mask is the point: an adapter that
+            # identified entries by their value would pass against a stub that echoed the
+            # real one and fail on the first live rotation.
+            return httpx.Response(
+                200,
+                json=[{**row, "provider_value": "xxxxxxxaz"} for row in providers.values()],
+            )
+        if path == "/providers" and request.method == "POST":
+            body = json.loads(request.content or b"{}")
+            name = str(body["provider_name"])
+            assert body["provider_value"], "ProviderRequest requires a non-empty value"
+            providers[name] = {
+                # A NEW id on every write, which is what makes replacement observable:
+                # the adapter's before/after comparison is on ids, so a stub that reused
+                # one would look like an append and the clause would assert nothing.
+                "provider_id": f"prov_{name.lower()}_{len(providers)}",
+                "provider_name": name,
+            }
+            return httpx.Response(200, json={"message": "successful", "status": "added"})
         if path == "/v2/agent" and request.method == "POST":
             body = json.loads(request.content or b"{}")
             agent_id = agent_id_for(body)
