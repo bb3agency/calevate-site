@@ -1113,7 +1113,29 @@ def hot_lead_dedupe_key(*, lead_id: UUID, call_id: UUID) -> str:
 
 async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
     """Store raw + redacted turns. Idempotent on (call_id, idx) so a re-run rewrites
-    rather than duplicates."""
+    rather than duplicates.
+
+    **A RE-RUN REPLACES THE TRANSCRIPT; IT DOES NOT MERGE TWO READINGS OF IT** (D-187).
+    The upsert used to refresh `text` and `text_redacted` and leave `speaker`, `lang`,
+    `start_ms` and `end_ms` at whatever the FIRST run wrote, and to leave any turn past
+    the end of the new transcript in place. Both halves produce a row nobody spoke: the
+    second run's words under the first run's speaker, and a tail belonging to a reading
+    that has been superseded.
+
+    It is reachable through our own parser rather than only through a fickle vendor.
+    Bolna sends one prefix-tagged blob and `bolna.parse_transcript` indexes turns by
+    POSITION, dropping a leading line it cannot attribute — so two fetches that disagree
+    about the opening line are off by one for the whole call, and every turn inherits the
+    other reading's speaker. `speaker` is not cosmetic: the extractor is speaker-aware
+    (that is why `SAMPLE_TURNS` has the CALLER ask to book), and a mis-attributed turn is
+    how a call becomes a hot lead nobody asked for.
+
+    The delete is bounded to THIS call's tail and runs in the same transaction as the
+    upserts, so a re-drive that is interrupted cannot leave the transcript shorter than
+    either reading. An EMPTY new transcript still returns early and deletes nothing: one
+    read coming back with no turns is not evidence that the turns we hold are wrong, and
+    `_expected_artifacts` already treats an absent transcript as "nothing implied".
+    """
     if not snapshot.transcript:
         return ""
     lines: list[str] = []
@@ -1127,7 +1149,9 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                     "text_redacted, lang, start_ms, end_ms, created_at, updated_at) VALUES "
                     "(:id, :tid, :cid, :idx, :speaker, :text, :redacted, :lang, :start, :end, "
                     "now(), now()) ON CONFLICT (call_id, idx) DO UPDATE SET "
-                    "text = EXCLUDED.text, text_redacted = EXCLUDED.text_redacted, "
+                    "speaker = EXCLUDED.speaker, text = EXCLUDED.text, "
+                    "text_redacted = EXCLUDED.text_redacted, lang = EXCLUDED.lang, "
+                    "start_ms = EXCLUDED.start_ms, end_ms = EXCLUDED.end_ms, "
                     "updated_at = now()"
                 ),
                 {
@@ -1143,6 +1167,27 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
                     "end": turn.end_ms,
                 },
             )
+        # Whatever an EARLIER reading left that this one does not claim. `transcript_turns`
+        # is tenant-scoped and is not an append-only ledger
+        # (`db.registry.APPEND_ONLY_TABLES`), so this is a correction rather than a
+        # rewrite of evidence — and the alternative is a call whose last turns come from a
+        # transcript we no longer believe.
+        #
+        # Matched against the indices actually written rather than `idx >= len(turns)`:
+        # contiguity is a property of today's parsers, not of `TranscriptTurn` (`idx` is
+        # only constrained `ge=0`), and a length comparison would silently delete real
+        # turns from the first adapter that numbers them any other way.
+        await session.execute(
+            text(
+                "DELETE FROM transcript_turns WHERE tenant_id = :tid AND call_id = :cid "
+                "AND NOT (idx = ANY(:kept))"
+            ),
+            {
+                "tid": tenant_id,
+                "cid": call_id,
+                "kept": [turn.idx for turn in snapshot.transcript],
+            },
+        )
     return "\n".join(lines)
 
 
@@ -2181,6 +2226,12 @@ def _expected_artifacts(
     NOT a lead: `_upsert_lead` returns None when the other party has no number, and that
     is invisible from here without re-deriving the direction rule. Its absence is
     covered transitively — a pipeline that reached metering reached the lead upsert.
+
+    **THE SNAPSHOT MUST BE A COMPLETE ONE, AND THIS FUNCTION CANNOT CHECK THAT** (D-187).
+    Everything above turns an ABSENCE in the engine's record into "nothing was owed",
+    which is sound for `get_execution` and unproven for a `list_executions` row — the
+    contract calls those summaries. `_pipeline_settled` is where that gap is closed: it
+    confirms an empty expectation set against the authenticated read before believing it.
     """
     expected: list[str] = []
     if snapshot.transcript:
@@ -2334,24 +2385,58 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
         "extraction": bool(has_extraction),
         "crm_fanout": bool(has_crm_fanout),
     }
-    missing = [
-        name
-        for name in _expected_artifacts(
-            snapshot,
-            extraction_owed=bool(extraction_owed),
-            crm_fanout_owed=bool(crm_fanout_owed),
-        )
-        if not present[name]
-    ]
-    if not missing:
-        return "settled"
     # `ended_at` is the engine's instant, not ours, and it can be absent on a call the
     # engine completed without one. Fall back to the snapshot's own value and, failing
     # that, treat the call as too young to judge: guessing "late" from a missing
     # timestamp would re-drive on every tick, which is the loop this probe exists to
     # avoid.
     finished_at = ended_at or snapshot.ended_at
-    if finished_at is None or datetime.now(UTC) - finished_at < PIPELINE_STALL_AFTER:
+    late = finished_at is not None and datetime.now(UTC) - finished_at >= PIPELINE_STALL_AFTER
+
+    expected = _expected_artifacts(
+        snapshot, extraction_owed=bool(extraction_owed), crm_fanout_owed=bool(crm_fanout_owed)
+    )
+    if not expected and late and not any(present.values()):
+        # THE SNAPSHOT THE POLLER HOLDS IS A LISTING ROW, AND A LISTING ROW IS A SUMMARY
+        # (D-187). `_expected_artifacts` reads what a call was owed off the engine's own
+        # record, which is only sound while that record is COMPLETE.
+        # `reconcile_executions` — this function's one production caller — passes rows
+        # from `list_executions`, and nothing promises those carry the cost and the
+        # transcript `get_execution` does: the contract calls them summaries
+        # (`VoiceEngine.get_execution`), Bolna publishes no OpenAPI spec, and whether
+        # their `GET /executions` rows are as rich as `GET /executions/{id}` is a vendor
+        # behaviour NOBODY HAS VERIFIED (D-31/D-32, OPERATIONS §2 gate 6). Both adapters
+        # happen to build listing rows with the same code as fetches, and the Bolna stub
+        # returns whole execution documents, so the conformance suite cannot fail on the
+        # assumption either — which is exactly why it survived as a silent premise.
+        #
+        # If it is wrong the failure is silent and total for one population: a completed
+        # call whose pipeline died, on an agent with no extraction schema and a tenant
+        # with no CRM endpoint, implies NOTHING from a summary row — `settled`, forever,
+        # never transcribed, never metered, never invoiced, and no alert anywhere. That
+        # is the shape D-31 appoints this poller to recover.
+        #
+        # So an EMPTY expectation set is confirmed against the authenticated read before
+        # it is believed, and only there — the three conditions bound the cost tightly.
+        # `not expected`: the row carried neither cost nor transcript, so a healthy call
+        # under a rich listing never reaches this line. `not any(present.values())`: the
+        # database holds nothing either, so a call whose pipeline ran is answered from
+        # its own artefacts with no vendor request at all. `late`: the 10-minute grace
+        # has elapsed, and the 30-minute listing window then admits the execution about
+        # three more times, so a genuinely silent call costs a handful of reads in its
+        # whole life rather than one per tick.
+        #
+        # A failing read PROPAGATES: `reconcile_executions` counts it as `unreached` and
+        # says so in `reconciliation_probe_incomplete`, which already reports repairs as
+        # a floor. Swallowing it would answer `settled` on no evidence, which is the
+        # defect this block exists to remove.
+        snapshot = await get_engine().get_execution(snapshot.engine_call_id)
+        expected = _expected_artifacts(
+            snapshot, extraction_owed=bool(extraction_owed), crm_fanout_owed=bool(crm_fanout_owed)
+        )
+
+    missing = [name for name in expected if not present[name]]
+    if not missing or not late:
         return "settled"
     log.warning(
         # Ids and artefact NAMES only (hard rule 6) — `missing` is a fixed vocabulary

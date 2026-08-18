@@ -1132,7 +1132,26 @@ class VoiceEngine(Protocol):
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
     ) -> CallHandle: ...
 
-    async def end_call(self, call_id: str) -> None: ...
+    async def end_call(self, call_id: str) -> None:
+        """Hang up a call that is in progress, from OUTSIDE it.
+
+        **A CALL THE ENGINE DOES NOT HOLD RAISES** (D-187), and the clause is here rather
+        than left to each adapter because the two we ship had already drifted apart on it
+        with nothing able to see the difference: both real adapters POST to the vendor and
+        surface its 404 as `engine_rejected`, while `FakeEngine` shrugged and returned
+        None — so the whole pipeline running offline (DEV-SETUP §3) reported a hang-up
+        that never happened, and the conformance suite had no clause for `end_call` at all.
+
+        SYMMETRIC WITH `transfer`, DELIBERATELY NOT WITH `delete_agent`, and the test is
+        always what the CALLER does next. This method's caller is a control plane — an
+        operator or a runaway-cost guard stopping a live call — and it has exactly one
+        observable failure: reporting success for a call it did not stop. Silence there
+        puts "call ended" on a screen while the caller is still connected and the minutes
+        are still being billed. `delete_agent` is the opposite case (a compensation path
+        whose postcondition is already satisfied by an absent object), which is why the
+        two answers differ.
+        """
+        ...
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None: ...
 

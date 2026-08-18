@@ -401,6 +401,14 @@ async def test_a_call_the_engine_reports_nothing_for_is_never_re_driven(
         async def list_executions(self, *, since: datetime) -> ExecutionListing:
             return ExecutionListing(snapshots=[bare], complete=True)
 
+        async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+            # The AUTHORITATIVE read agrees with the listing: this call really is
+            # silent and cost-less. Present so the probe's confirmation step (below,
+            # and see `_pipeline_settled`) is exercised rather than crashed through —
+            # a double that lacks the method would make this clause pass because the
+            # sweep swallowed an AttributeError, which is not the property claimed.
+            return bare
+
     monkeypatch.setattr(pipeline, "get_engine", lambda: _BareEngine())
 
     for _ in range(3):
@@ -440,6 +448,69 @@ async def test_a_finished_call_stays_finished_however_long_ago_it_ended(
         "a call whose pipeline finished must never be re-driven, however old it is"
     )
     assert repairs.kinds == []
+
+
+async def test_a_summary_listing_row_does_not_certify_a_call_as_finished(
+    monkeypatch: pytest.MonkeyPatch, repairs: _Repairs
+) -> None:
+    """THE SILENT PREMISE UNDER `_expected_artifacts`, and the one shape it cannot see.
+
+    The probe reads what a call was OWED off the snapshot the poller is holding, and
+    the poller is holding a row from `list_executions` — which TRD §5 calls a SUMMARY
+    ("the poller's listing rows are summaries", `VoiceEngine.get_execution`). Nothing in
+    the contract requires a listing row to carry the cost and the transcript, no adapter
+    promises it, and Bolna publishes no OpenAPI spec, so whether their `GET /executions`
+    rows are as rich as `GET /executions/{id}` is a VENDOR BEHAVIOUR NOBODY HAS VERIFIED
+    (D-31/D-32; OPERATIONS §2 gate 6).
+
+    The conformance suite cannot fail on it either: `FakeEngine.list_executions` builds
+    its rows with the same `_snapshot_from` as `get_execution`, and the Bolna stub's
+    `GET /executions` returns whole `BOLNA_COMPLETED` documents. Both adapters therefore
+    make listing rows and fetches indistinguishable, which is precisely the assumption at
+    issue.
+
+    If the assumption is wrong, the failure is silent and total for one population:
+    a completed call whose pipeline died, on an agent with no extraction schema and a
+    tenant with no CRM endpoint, implies NOTHING from a summary row — so the probe
+    answers `settled`, the poller never comes back, and the call is never transcribed,
+    never metered and never invoiced, with no alert anywhere. D-31 calls this poller the
+    guarantee of record; for that shape it would guarantee the status line again.
+
+    So the probe must not conclude "nothing was owed" from an absence in a row that was
+    never promised to be complete. It confirms with the authenticated read first.
+    """
+    tenant_id, agent_ref, execution_id = await _staged("summary", schema=False)
+    await _ingest_only(tenant_id, agent_ref, execution_id)
+    await _age(tenant_id, execution_id, minutes=25)
+
+    full = await get_engine().get_execution(execution_id)
+    assert full.cost is not None and full.transcript, (
+        "the premise: the ENGINE holds a cost and a transcript for this call"
+    )
+    # The same execution as the vendor's LIST endpoint might report it: status and ids,
+    # no cost object, no transcript. Nothing else about the call has changed.
+    summary = full.model_copy(update={"cost": None, "transcript": [], "raw_document": None})
+
+    class _SummaryListingEngine:
+        name = "fake"
+
+        async def list_executions(self, *, since: datetime) -> ExecutionListing:
+            return ExecutionListing(snapshots=[summary], complete=True)
+
+        async def get_execution(self, call_id: str) -> ExecutionSnapshot:
+            assert call_id == execution_id
+            return full
+
+    monkeypatch.setattr(pipeline, "get_engine", lambda: _SummaryListingEngine())
+
+    repairs.forget()
+    await pipeline.reconcile_executions({})
+
+    assert repairs.executions() == [execution_id], (
+        "a summary listing row was read as proof that this call owed nothing, so the "
+        "poller certified a completed call with no transcript and no usage row as done"
+    )
+    assert repairs.kinds == ["unfinished_pipeline"], repairs.kinds
 
 
 # ================================================================ 4. the shared threshold
