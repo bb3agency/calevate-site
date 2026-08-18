@@ -86,11 +86,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 
 import httpx
-from calevate_shared.engine import (
-    VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE,
-    VERTEX_LOCATION,
-    vertex_openai_base_url,
-)
+from calevate_shared.engine import VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE
 
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
@@ -351,21 +347,22 @@ async def refresh_in_call_llm_credential(ctx: dict[str, Any]) -> str:
         )
         return "lifetime_too_short"
 
-    # THE ENDPOINT IS RE-DERIVED AND RE-CHECKED HERE, one line before the credential is
-    # handed over, and it is not redundant with `ModelConfig`'s validator. That validator
-    # runs on the PUBLISH path; this runs on the ROTATION path, and the two are days
-    # apart. What this catches is a deployment whose agents point somewhere we would not
-    # authorise — the bearer is a bearer, and handing one to a third party for an endpoint
-    # nobody proved is Mumbai is the one mistake this whole decision exists to prevent.
-    base_url = vertex_openai_base_url(project)
-    if VERTEX_LOCATION not in base_url:  # pragma: no cover - unreachable by construction
-        _page(
-            "The in-call LLM endpoint this deployment would credential is not "
-            f"{VERTEX_LOCATION}. NOT installed.",
-            project=project,
-        )
-        return "endpoint_not_in_region"
-
+    # NO REGION RE-CHECK HERE, AND THE ABSENCE IS THE DECISION. An earlier version of this
+    # function re-derived `vertex_openai_base_url(project)` one line before handing the
+    # bearer over and refused a non-Mumbai result — which reads like diligence on the one
+    # property this whole decision exists to protect, and is worth nothing: that function
+    # interpolates the `Final` `VERTEX_LOCATION` into both the host and the `locations/`
+    # segment, so the branch is unreachable by construction, and the URL it computed was
+    # then used by nothing. A defensive arm that cannot be reached is a suppression
+    # pretending to be a check (CLAUDE.md hard rule 10).
+    #
+    # WHERE RESIDENCY IS ACTUALLY ENFORCED, three places, none of them here: the AST proof
+    # that every Google model URL written in this tree names Mumbai
+    # (`scripts/check_model_residency.py`), `ModelConfig`'s validator refusing a non-Mumbai
+    # Vertex URL by construction on the PUBLISH path, and `_agent_models` logging
+    # `engine_llm_endpoint_unrecognised` when an agent reads back holding a URL we do not
+    # recognise. A rotation-time check on a URL we computed ourselves proves nothing about
+    # what the engine holds; the read-back is the one that does.
     fingerprint = _token_fingerprint(bearer.value)
     try:
         placement = await engine.set_llm_credential(bearer.value)
