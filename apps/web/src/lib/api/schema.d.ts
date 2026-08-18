@@ -937,6 +937,14 @@ export interface paths {
          *
          *     The tenant session is not merely a scope: `invitations` is RLS'd, so this is also
          *     what makes `create_invitation`'s reads answer about THIS account only.
+         *
+         *     THE LINK IS MAILED HERE AND NOT HANDED BACK (D-198). This route is the twin of
+         *     `tenancy/routes.py::invite_member`, which D-190 moved onto the mailer; this one kept
+         *     returning the raw token and sending nothing, so the wizard displayed a live owner
+         *     credential and the invitee heard from nobody. The enqueue is in the SAME transaction as
+         *     the invitation row for the reason D-190 gives: an invitation committed without its mail
+         *     is a person who is never told, and a mail sent for a row that rolled back is a link that
+         *     does not work.
          */
         post: operations["invite_member_v1_admin_tenants__tenant_id__invitations_post"];
         delete?: never;
@@ -6521,6 +6529,8 @@ export interface components {
         };
         /** InviteOut */
         InviteOut: {
+            /** Delivery */
+            delivery: string;
             /** Expires In Hours */
             expires_in_hours: number;
             /**
@@ -6528,8 +6538,6 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Token */
-            token: string;
         };
         /** InvoiceLineItemOut */
         InvoiceLineItemOut: {

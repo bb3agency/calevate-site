@@ -17,6 +17,13 @@ the API origin, so no sibling subdomain and no compromised `*.calevate.tech` hos
 or overwrite it. This is the one attribute that defends against cookie FIXATION from a
 neighbouring host, which `SameSite` does not touch.
 
+**That sentence is only true because `read_token` accepts ONE name per request** (D-198).
+A prefix defends nothing while an unprefixed alias of the same cookie is still read: a
+sibling host cannot overwrite `__Host-calevate_client_session`, but it can set
+`calevate_client_session` with `Domain=.calevate.tech` and have the browser send it here.
+See `read_token` for the attack that reached, and for why the stripped name is now honoured
+only on a request that did not arrive over TLS.
+
 `HttpOnly` — the point of the exercise.
 
 `Secure` — implied by `__Host-` and stated anyway, so the intent survives somebody
@@ -135,14 +142,46 @@ def _is_secure(request: Request) -> bool:
 def read_token(request: Request, realm: str) -> str | None:
     """The session token this request presents for this realm, if any.
 
-    Tries the secure name first and the stripped one second, so a single deployment can
-    serve both without the caller knowing which it is.
+    ONE NAME PER REQUEST, CHOSEN BY THE SCHEME THE REQUEST ARRIVED ON — not both names
+    tried in order, which is what this did and which quietly gave back everything the
+    `__Host-` prefix was bought for (D-198).
+
+    The prefix's whole value, stated at the top of this module, is that "no sibling
+    subdomain and no compromised `*.calevate.tech` host can set or overwrite it". That is
+    true of the PREFIXED name and of nothing else: a page on any host under the registrable
+    domain may set `calevate_client_session=<value>; Domain=.calevate.tech; Path=/`, and the
+    browser then attaches it to `api.calevate.tech`. While the stripped name was accepted on
+    an HTTPS request, that cookie WAS a credential — so the prefix stopped a sibling
+    overwriting the cookie and did not stop it supplying one.
+
+    What that bought an attacker, end to end: a visitor who is not signed in arrives at the
+    console carrying the attacker's session token, is silently signed in as the attacker,
+    and types their own data into the attacker's tenant. It survives sign-out, because
+    `clear_session_cookie` can only delete a HOST-ONLY cookie — a `Domain=`-scoped one is a
+    different cookie to the browser and is still sent on the next request, so the victim is
+    signed back into the attacker's account without a second visit. That is OWASP's session
+    fixation (Session Management Cheat Sheet, "Renew the Session ID After Any Privilege
+    Level Change" and its cookie-prefix guidance) arriving through the one door the design
+    left open, and rotation on sign-in cannot close it because the fixated session is never
+    the victim's to rotate.
+
+    The stripped name exists for exactly one deployment — plain-HTTP local development,
+    where a browser refuses a `__Host-` cookie outright — so it is honoured on exactly that
+    request and no other. `_is_secure` is the same predicate `set_session_cookie` uses to
+    decide which name to WRITE, so read and write cannot disagree about which name this
+    deployment speaks.
+
+    Rejected: keeping the fallback and comparing the two values, or preferring the prefixed
+    one. Both leave the stripped name a live credential whenever there is no prefixed one to
+    prefer — which is precisely the signed-out visitor the attack targets.
+
+    A deployment that gains TLS between a sign-in and the next request stops reading the
+    cookie it wrote and the person signs in again. That is the safe direction, it happens
+    once per deployment, and `clear_session_cookie` still clears both names so nothing is
+    left rotting in the browser.
     """
-    for secure in (True, False):
-        token = request.cookies.get(cookie_name(realm, secure=secure))
-        if token:
-            return token
-    return None
+    token = request.cookies.get(cookie_name(realm, secure=_is_secure(request)))
+    return token or None
 
 
 def set_session_cookie(response: Response, *, realm: str, token: str, request: Request) -> None:

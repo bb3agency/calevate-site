@@ -83,6 +83,9 @@ import { WIZARD_LANGUAGES } from "./languages";
  *   single-use credential shown once. Minting one for `owner@a`, then failing to mint one
  *   for `owner@b`, left `owner@a`'s token on screen beside a red error — an operator
  *   copying "the token" would send the wrong person's. It is cleared at submit.
+ *   **The token is no longer rendered at all (D-198):** it is mailed to the invitee and
+ *   `InviteOut` carries `delivery` instead, so the panel confirms an address rather than
+ *   displaying a credential. The clear-at-submit rule survives, pointed at that address.
  * - **`language as "te-IN"` was a cast that lied**: the state was a bare `string`, and the
  *   cast made any string typecheck as the API's three-member enum. The state now IS the
  *   generated union, so a language this API does not accept fails the build instead of the
@@ -649,10 +652,11 @@ function CreatedPanel({
   const invite = useInvite();
   const revoke = useRevokeTenantInvitation();
   const [email, setEmail] = useState(defaultEmail);
-  // The token is shown ONCE and cannot be recovered, so it is state rather than
-  // `invite.data` — and it is cleared at every submit so a token minted for one address
-  // can never sit under a refusal for another.
-  const [inviteToken, setInviteToken] = useState<string | null>(null);
+  // WAS the raw token, rendered on screen. D-198 removed it from the response and put the
+  // link in the invitee's mailbox instead, so what is remembered here is the ADDRESS it was
+  // sent to — the one thing an operator still needs to see, and not a credential. Cleared
+  // at every submit so a send to one address can never sit under a refusal for another.
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const refusal = refusalReason(invite.error);
   // THE EXIT FROM THE SERVER'S OWN REFUSAL, and the reason it needs its own state.
   //
@@ -709,9 +713,9 @@ function CreatedPanel({
             className="flex flex-wrap items-start gap-2"
             onSubmit={(e) => {
               e.preventDefault();
-              // A previous token must not survive this attempt: an operator copying "the
-              // token" after a failure would send the wrong person's credential.
-              setInviteToken(null);
+              // A previous confirmation must not survive this attempt: "sent to …" left
+              // over from an earlier address is a claim about mail nobody sent.
+              setSentTo(null);
               // No placeholder fallback: an invite is a single-use credential for a real
               // inbox, and minting one for `owner@example.com` because the billing-email
               // field was left blank is a token nobody can use and a membership row
@@ -720,7 +724,7 @@ function CreatedPanel({
                 { tenantId: created.id, email: email.trim(), role: "owner" },
                 {
                   onSuccess: (data) => {
-                    setInviteToken(data.token);
+                    setSentTo(email.trim());
                     setMinted({ id: data.id, email: email.trim().toLowerCase() });
                   },
                 },
@@ -800,7 +804,10 @@ function CreatedPanel({
                 disabled={revoke.isPending}
                 className={SECONDARY_BUTTON}
                 onClick={() => {
-                  setInviteToken(null);
+                  // The confirmation goes with the invitation it described — leaving "sent
+                  // to …" beside a cancelled link is a claim about a link that no longer
+                  // opens anything.
+                  setSentTo(null);
                   revoke.mutate(
                     { tenantId: created.id, invitationId: cancellable },
                     {
@@ -823,18 +830,21 @@ function CreatedPanel({
             </div>
           )}
 
-          {inviteToken && (
+          {sentTo && (
             <NoticeBox
-              tone="warn"
+              tone="ok"
               icon={<KeyRound aria-hidden className="h-5 w-5" />}
-              title="Copy this now — it is not shown again"
+              title="Invitation sent"
             >
-              <p className="mt-1 break-all font-mono text-xs">{inviteToken}</p>
+              <p className="mt-1">
+                The link is on its way to <span className="font-mono">{sentTo}</span>. It is
+                not shown here and cannot be re-read — only its hash is stored.
+              </p>
               <p className="mt-2 flex items-start gap-2 text-xs">
                 <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                Anyone holding this becomes an owner of{" "}
-                <span className="font-mono">/c/{created.slug}</span>. Send it to the
-                address above and nowhere else.
+                Whoever opens it becomes an owner of{" "}
+                <span className="font-mono">/c/{created.slug}</span>. If it went to the
+                wrong address, cancel the invitation rather than sending a second one.
               </p>
             </NoticeBox>
           )}

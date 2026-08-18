@@ -54,12 +54,18 @@ async def _redeem(http: httpx.AsyncClient, raw_token: str) -> httpx.Response:
     )
 
 
-async def _mailed_token(address: str) -> str:
+async def mailed_invitation_token(address: str) -> str:
     """The invitation token as the INVITEE receives it — out of the queued email.
 
-    D-190 removed `token` from the create response, so this is how a test gets one. It is
-    the same path a real invitee's link comes down, which makes every redemption test below
-    an end-to-end check of the delivery rather than of a field the API used to echo back.
+    D-190 removed `token` from the client realm's create response and D-198 removed it from
+    the admin realm's, so this is how a test gets one on EITHER route. It is the same path a
+    real invitee's link comes down, which makes every redemption test an end-to-end check of
+    the delivery rather than of a field the API used to echo back.
+
+    PUBLIC, and imported by `tests/tenant_birth_test.py` and
+    `tests/onboarding_to_live_test.py` rather than copied into them: the two routes queue
+    the identical outbox row, and two spellings of "read the token out of the mail" is where
+    one of them would come to accept a shape the other does not.
     """
     async with untenanted_session() as session:
         row = (
@@ -249,7 +255,7 @@ async def test_redemption_creates_the_invited_address_and_no_other() -> None:
             headers=_headers(slug, token),
         )
     assert invited.status_code == 201, invited.text
-    raw = await _mailed_token(intended)
+    raw = await mailed_invitation_token(intended)
     async with _client() as http:
         accepted = await _redeem(http, raw)
 
@@ -291,7 +297,7 @@ async def test_a_revoked_invitation_cannot_be_redeemed_afterwards() -> None:
         )
         body = created.json()
         revoked = await http.delete(f"/v1/invitations/{body['id']}", headers=_headers(slug, token))
-        replayed = await _redeem(http, await _mailed_token(address))
+        replayed = await _redeem(http, await mailed_invitation_token(address))
         remaining = await http.get("/v1/invitations", headers=_headers(slug, token))
 
     assert revoked.status_code == 200, revoked.text
@@ -318,7 +324,7 @@ async def test_an_invitation_cannot_be_redeemed_twice() -> None:
             headers=_headers(slug, token),
         )
         assert invited.status_code == 201, invited.text
-        raw = await _mailed_token(address)
+        raw = await mailed_invitation_token(address)
         first = await _redeem(http, raw)
         second = await _redeem(http, raw)
 
