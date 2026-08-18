@@ -946,9 +946,14 @@ TIER_CORRECTION_META_KIND: Final = "tts_tier_correction"
 # by a zero duration, so for a call the engine reports as zero-length it keeps the LEG
 # COST whole on the row — and `qty * unit_cost_paid` then evaluates that leg at ₹0.00.
 # Measured on a zero-duration call the engine charged ₹1.0000 for (₹0.20 network,
-# ₹0.50 platform, ₹0.30 synthesizer): the margin panel reported our cost as ₹0.30 and a
-# closed month's `spend_used` was light by the same ₹0.70, while `spend_state.spend_used`
-# — which takes `cost.total_inr` directly — recorded the full rupee. `_unit_price`'s own
+# ₹0.50 platform, ₹0.30 synthesizer): `margin_for_tenant` reported our cost as ₹0.30 —
+# 70% light — while `spend_state.spend_used`, which takes `cost.total_inr` from the
+# adapter and never touches these rows, recorded the full rupee. Two accounts of one
+# call, which is the one thing two readers of the same money may never be. (The CLIENT's
+# closed-month `spend_used` is NOT among the affected readers and has not been since
+# P1.3: `calling_revenue_inr` prices it off MINUTES at the client's own rate, not off
+# `unit_cost_paid`. The blast radius is the admin margin card and `tier_usage`, which is
+# where our supplier cost is published and nowhere else.) `_unit_price`'s own
 # docstring named this and named the fix ("the closable half is a reader that treats a
 # zero-qty row as a whole-leg row, and that lives in `apps/api/billing`"); this is that
 # reader. Writing `qty = 1` instead would bill the client a second that never happened.

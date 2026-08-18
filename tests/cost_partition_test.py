@@ -97,10 +97,15 @@ async def test_a_zero_duration_call_does_not_lose_its_leg_costs() -> None:
     synthesizer. `_unit_price` cannot divide the first two by a zero duration, so it keeps
     the leg cost whole on the row; `SUM(qty * unit_cost_paid)` then valued both at ₹0.00
     and the margin panel reported our cost for the call as ₹0.30. Seventy paise of a real
-    supplier charge invisible on the panel and missing from the closed month's
-    `spend_used`, while `spend_state.spend_used` — which takes `cost.total_inr` straight
-    from the adapter — recorded the whole rupee. Two accounts of one call, which is the
-    one thing two readers of the same money may never be.
+    supplier charge invisible on the one screen whose whole job is "is this client making
+    us money", while `spend_state.spend_used` — which takes `cost.total_inr` straight from
+    the adapter and never touches these rows — recorded the whole rupee. Two accounts of
+    one call, which is the one thing two readers of the same money may never be.
+
+    The CLIENT's own closed-month `spend_used` is deliberately NOT asserted here: since
+    P1.3 it is `calling_revenue_inr`, priced off MINUTES at the client's rate rather than
+    off `unit_cost_paid`, so it never read this number. The blast radius is
+    `margin_for_tenant` and `tier_usage` — both checked below.
     """
     tenant_id = await _tenant_with_rows(
         (
