@@ -276,6 +276,13 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# `lint-imports` and the redaction scan ask. Its negative controls, which need a
 	# tmp tree and a doctored route table, live in tests/wiring_guard_test.py.
 	uv run python -m scripts.check_wiring
+	# The same doctrine on BACKGROUND work, which `check_wiring` declines by name ("No
+	# ARQ cron check"). Three questions, all derived: a job function nothing registers, a
+	# registration nothing enqueues, and — the silent one — an enqueue by a name no
+	# worker answers to, which arq accepts and then drops with a warning nothing reads.
+	# Needs no database; it parses the tree and imports `WorkerSettings`. Negative
+	# controls in tests/job_registration_test.py.
+	uv run python -m scripts.check_job_wiring
 	# Hard rule 5 over the whole tree (D-29's `check:compliance-invariants`). Here and
 	# not in pytest for two reasons: its schema half reads pg_catalog exactly as
 	# `check_rls_coverage` does, and its subject is the SHAPE of every dial path rather

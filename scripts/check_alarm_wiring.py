@@ -111,6 +111,13 @@ DYNAMIC_ALERT_SITES: dict[str, tuple[tuple[str, ...], str]] = {
         "(threshold, code, detail) so that the most severe one wins with a `break`; the "
         "code is the loop variable",
     ),
+    "apps/workers/settings.py": (
+        ("job_function_not_registered", "job_retries_exhausted"),
+        "the arq terminal alerter routes arq's own two warnings into `alert()`, so the "
+        "code is looked up from `ARQ_TERMINAL_MESSAGES` by the log record's unformatted "
+        "template — a dict lookup by construction, because the whole point is to read "
+        "arq's intent rather than a rendered string",
+    ),
     "apps/api/billing/caps.py": (
         ("tenant_spend_capped", "tenant_spend_cap_approaching"),
         "the same (threshold, code, detail) tuple walk `ai_quota` uses for the platform "

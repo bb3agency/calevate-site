@@ -67,6 +67,7 @@ different — read the `note:` lines.
 
 | Code | Stage | What it means | What to do |
 | --- | --- | --- | --- |
+| `auth_email_exhausted` | WORKER_DELIVERY | A sign-in email — password reset, OTP second factor, or an invitation — failed every attempt. **Somebody is locked out and the screen truthfully told them mail was on its way.** | Check the email transport (`EMAIL_PROVIDER`, `RESEND_API_KEY`, sender-domain verification). The ladder is deliberately tight (10s, 30s) because an OTP expires in ten minutes, so this fires while the person is still watching the screen. |
 | `hot_lead_notification_exhausted` | WORKER_DELIVERY | A hot-lead email failed every attempt. The client did not hear about a lead. | Check the email transport (`EMAIL_PROVIDER`, sender domain verification). |
 | `hot_lead_no_channel` | WORKER_TERMINAL | A hot lead arrived for a tenant with no billing email and no other channel. Nothing can be delivered. | Fill in the tenant's contact details. |
 | `hot_lead_whatsapp_exhausted` | WORKER_DELIVERY | The WhatsApp hot-lead alert failed every attempt. | BSP credentials or template status. Email is the other channel. |
@@ -84,6 +85,8 @@ different — read the `note:` lines.
 
 | Code | Stage | What it means | What to do |
 | --- | --- | --- | --- |
+| `job_function_not_registered` | WORKER_TERMINAL | **arq accepted an enqueue for a job name no worker has registered, and dropped it.** The enqueuing code saw success; the side effect never happened. arq logs a warning, retries nothing, and nothing in this repo reads its result keys — so without this alarm the only symptom is an outcome that silently never arrives. | A deploy skew (a producer shipped ahead of its worker) or a rename that missed `WorkerSettings.functions`. `scripts/check_job_wiring` fails the build on this in CI; reaching production means it was bypassed. Re-enqueue after fixing the registration. |
+| `job_retries_exhausted` | WORKER_TERMINAL | A job spent its whole retry ladder and arq gave up. This is where every `Retry` ends when the condition never clears, and where a cron cancelled three times at `job_timeout` ends — e.g. the nightly retention sweep gone until tomorrow with only a log line. | Read the job name in the detail and go to that job's own runbook row. The next scheduled tick is the replay for crons; queued jobs need re-enqueuing. |
 | `outbox_dead_letter` | OUTBOX_DISPATCH | Messages spent their whole attempt budget and need an operator. | `runbooks/webhook-delivery-failures.md` §3; `POST /v1/ops/outbox/replay`. |
 | `outbox_queue_unreachable` | OUTBOX_DISPATCH | The dispatcher could not reach Redis and handed the batch back with a backoff. **Nothing is lost and there is nothing to replay.** | Fix Redis; the next tick drains it. Do NOT replay. |
 | `webhook_source_rejected` | ROUTE_HANDLER | An engine webhook arrived from an address outside the allowlist. For an unsigned engine this is the whole authenticity control. | If the vendor renumbered, update `BOLNA_WEBHOOK_SOURCE_IPS` — until then every call waits for the 10-minute poller. Otherwise it is a stranger. |

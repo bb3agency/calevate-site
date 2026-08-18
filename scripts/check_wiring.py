@@ -39,10 +39,14 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   statically decidable here and a check that guessed would train people to add
   exemptions. Those values are constrained where they can be: CHECK constraints in the
   migration, and the engine conformance suite.
-* No ARQ cron check. `cron()` takes the coroutine BY REFERENCE, so "a cron registered
-  with no function" cannot be expressed; the real failure — a job enqueued by a name no
-  worker answers to — is `tests/job_registration_test.py`. What this file adds there is
-  in `tests/wiring_guard_test.py`: that `WorkerSettings` still IS those two lists.
+* No ARQ check of any kind, and that is a DIVISION OF LABOUR now rather than a gap.
+  `scripts/check_job_wiring.py` (D-199) owns the background fleet: it asks the three-way
+  question — defined, registered, enqueued — off the same kind of live registry this file
+  uses for routes, and it is in `make guardrails` and CI beside this one. Keeping both
+  scans here would mean one file importing `WorkerSettings` to answer a question about
+  routers. (`cron()` takes the coroutine BY REFERENCE, so "a cron registered with no
+  function" is still not expressible anywhere.) What this file's own test suite adds is in
+  `tests/wiring_guard_test.py`: that `WorkerSettings` still IS those two lists.
 
 AND A FIFTH SECTION THAT RUNS FIRST (D-176): three of the four questions above compare a
 declaration against a registry, and a comparison whose LEFT side is empty answers yes for

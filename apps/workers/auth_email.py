@@ -21,14 +21,36 @@ line here carries the `kind` and the recipient's DOMAIN (via `transport._domain`
 that exists for exactly this), and never the mailbox, never the token, never the code. A
 failure that needs diagnosing is diagnosed from the outbox row's id, which is in the log.
 
-═══ RETRIES ═══
+═══ RETRIES, AND THE TWO THINGS THIS PARAGRAPH USED TO GET WRONG ═══
 
-Returning a string marks the job done; RAISING is what makes arq retry it, and this job
-raises on an undelivered send because the whole point of the outbox is that the promise
-survives a bad minute at the provider. `WORKER_MAX_TRIES` then bounds it and the DLQ
-catches what is left. A code that expires before the retries succeed is not a problem worth
-solving here — the person simply asks for another one, and the expiry is what makes that
-safe.
+It said: *"RAISING is what makes arq retry it ... `WORKER_MAX_TRIES` then bounds it and the
+DLQ catches what is left."* Both halves were false, and they were false in the direction
+that looks fine.
+
+* **arq 0.28 retries for `Retry`, `RetryJob` and `CancelledError` and for NOTHING else**
+  (`Worker.run_job`: `if self.retry_jobs and isinstance(e, Retry)` … `elif self.retry_jobs
+  and isinstance(e, (asyncio.CancelledError, RetryJob))`, everything else falls to
+  `finish` = True). This job raised `RuntimeError`, so it got exactly ONE attempt —
+  `WorkerSettings.max_tries = 3` never applied to it. A reset link lost to one slow minute
+  at the mail provider was lost for good, while the sign-in screen truthfully reported that
+  an email was on its way.
+* **There is no arq DLQ.** `WorkerSettings`' own docstring says so at length: an exhausted
+  job is written to a result key nothing in `apps/` or `scripts/` reads. The only DLQ here
+  is the OUTBOX's `status='failed'`, which covers the ENQUEUE leg — and this job's enqueue
+  succeeded. So "the DLQ catches what is left" named a mechanism that does not exist, and
+  the failure of the one message a person is actively waiting for was a `log.warning`.
+
+Both are closed by taking the shape every other delivery job in this fleet already uses
+(`notify_hot_lead`, `notify_hot_lead_whatsapp`, `escalate_campaign_contact`,
+`deliver_outbound_webhook`): `raise Retry(defer=...)` while the budget lasts, then
+`alert()` on the last attempt, because the alert IS the dead-letter mechanism.
+
+THE LADDER IS THE TIGHTEST IN THE FLEET, and the reason is the payload: an
+`otp_login_challenge` code expires in ten minutes and somebody is looking at a sign-in
+screen for the whole of it. 10s + 30s spends at most 40 seconds of that on a provider
+having a bad minute, where the hot-lead ladder's 15+45 is paced for a 2-minute SLO nobody
+is watching in real time. A code that expires anyway is not a problem worth solving here —
+the person asks for another one, and the expiry is what makes that safe.
 """
 
 from __future__ import annotations
@@ -36,7 +58,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from arq import Retry
+
+from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.workers.transport import _domain, get_transport
 
 log = get_logger(__name__)
@@ -58,6 +84,17 @@ _SUBJECTS: dict[str, str] = {
 _CONSOLE_BASE = "https://app.calevate.tech"
 _ADMIN_BASE = "https://admin.calevate.tech"
 
+#: Seconds to wait before each retry, indexed by the attempt that just failed. One entry
+#: shorter than `WORKER_MAX_TRIES`, because the last attempt has nothing after it — the
+#: same shape as `notifications.RETRY_BACKOFF_S`, tighter for the reason in the module
+#: docstring.
+RETRY_BACKOFF_S: tuple[float, ...] = (10.0, 30.0)
+
+
+def _retry_after(attempt: int) -> float:
+    index = min(attempt, len(RETRY_BACKOFF_S)) - 1
+    return RETRY_BACKOFF_S[max(index, 0)]
+
 
 def _body(kind: str, realm: str, secret: str) -> str:
     """The message. Plain text, because a transactional secret does not need HTML and an
@@ -77,7 +114,13 @@ def _body(kind: str, realm: str, secret: str) -> str:
         # this template mints them. It pointed at the legacy path while nothing sent it;
         # D-190 made it the only way an invitation reaches anybody, which is what turned a
         # stale string into a live extra hop. Kept in step with
-        # `apps/web/src/lib/api/members.INVITE_PATH` by `tests/auth_email_test.py`.
+        # `apps/web/src/lib/authn/clientAuthn.CLIENT_ACCEPT_INVITE_PATH` (which
+        # `members.INVITE_PATH` re-exports) by `tests/auth_email_delivery_test.py`,
+        # in the test whose name says so. That reference named
+        # `tests/auth_email_test.py`, a file this repo does not have — a guard
+        # promised in a comment and never written, which is the same defect class as
+        # an unmounted router: the two strings could drift apart and nothing anywhere
+        # would go red.
         return (
             "You have been invited to a Calevate workspace.\n\n"
             f"{base}/auth/accept-invitation?token={secret}\n\n"
@@ -95,11 +138,13 @@ def _body(kind: str, realm: str, secret: str) -> str:
 async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
     """Send one authentication email. Registered in `settings.FUNCTIONS`.
 
-    `ctx` is arq's job context and is unused — the transport is process-global and this job
-    holds no database session, which is deliberate: it must not need one, because the row
-    it is acting on was already committed by the request that enqueued it.
+    `ctx` is read for ONE thing — `job_try`, which bounds the retry ladder below. It was
+    discarded on the first line, which is how the missing ladder went unnoticed: nothing in
+    the body could see which attempt it was, so there was nowhere for the question to be
+    asked. The job still holds no database session, deliberately: it must not need one,
+    because the row it is acting on was already committed by the request that enqueued it.
     """
-    del ctx
+    attempt = int(ctx.get("job_try", 1) or 1)
     kind = str(payload.get("kind", ""))
     to = str(payload.get("to", ""))
     secret = str(payload.get("secret", ""))
@@ -120,11 +165,33 @@ async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> st
         # Domain only — never the mailbox (hard rule 6), never the secret.
         log.warning(
             "auth_email_undelivered",
-            extra={"kind": kind, "realm": realm, "domain": _domain(to)},
+            extra={"kind": kind, "realm": realm, "domain": _domain(to), "attempt": attempt},
         )
-        raise RuntimeError(f"auth email undelivered (kind={kind})")
-    log.info("auth_email_sent", extra={"kind": kind, "realm": realm, "domain": _domain(to)})
+        if attempt < WORKER_MAX_TRIES:
+            # The one exception type arq treats as "not finished". Nothing here is
+            # committed, so the retry starts from exactly where this attempt did.
+            raise Retry(defer=_retry_after(attempt))
+        # Out of attempts, and there is no queue-level dead letter to fall into — the
+        # alert IS the dead letter (`WorkerSettings`' docstring argues why the repo has no
+        # second durable store for this). A person is waiting on this message and only an
+        # operator can tell them it is not coming.
+        alert(
+            "WORKER_DELIVERY",
+            "auth_email_exhausted",
+            # `kind` and the recipient's DOMAIN, never the mailbox: an alert body is
+            # forwarded further than a log line is (hard rule 6).
+            detail=(
+                f"{kind} email to a {_domain(to)} address undelivered after "
+                f"{attempt} attempt(s); the person who asked for it will never receive it"
+            ),
+            realm=realm,
+        )
+        return f"exhausted after {attempt}"
+    log.info(
+        "auth_email_sent",
+        extra={"kind": kind, "realm": realm, "domain": _domain(to), "attempts": attempt},
+    )
     return "sent"
 
 
-__all__ = ["deliver_auth_email"]
+__all__ = ["RETRY_BACKOFF_S", "deliver_auth_email"]
