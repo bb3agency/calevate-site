@@ -783,7 +783,7 @@ async def test_the_stall_alarm_survives_a_tenant_it_cannot_probe(
         fired.append((kind, code, detail))
 
     monkeypatch.setattr(dispatcher, "tenant_session", _session)
-    monkeypatch.setattr(dispatcher, "_callable_tenants", _broken_first)
+    monkeypatch.setattr(dispatcher, "callable_tenants", _broken_first)
     monkeypatch.setattr(dispatcher, "alert", _alert)
 
     result = await dispatcher.report_stalled_pipeline({})
@@ -816,7 +816,7 @@ async def test_a_stall_sweep_that_reached_nobody_still_alerts(
 
     fired: list[str] = []
     monkeypatch.setattr(dispatcher, "tenant_session", _session)
-    monkeypatch.setattr(dispatcher, "_callable_tenants", lambda: _only(tenant_id))
+    monkeypatch.setattr(dispatcher, "callable_tenants", lambda: _only(tenant_id))
     monkeypatch.setattr(dispatcher, "alert", lambda kind, code, **kw: fired.append(code))
 
     result = await dispatcher.report_stalled_pipeline({})
@@ -886,3 +886,159 @@ async def test_a_settled_call_stays_settled_after_its_outbox_rows_are_pruned() -
         "the verdict followed the outbox rather than the call, so forgetting a delivered "
         "promise re-opened a finished call (P6.7)"
     )
+
+
+# ====================================== 4. the window the listing cannot reach (D-242)
+
+
+async def _long_call_lost_at_the_end(label: str) -> tuple[UUID, str, str]:
+    """A call that RAN LONGER THAN THE LISTING WINDOW and whose ending we never heard.
+
+    Both halves are staged the way they actually happen:
+
+    * the ENGINE's record says the call started 45 minutes ago and completed 2 minutes
+      ago — so `list_executions(since=now-30m)`, which filters on when the execution was
+      CREATED, does not return it and never will again;
+    * OUR record is the row the `in-progress` webhook wrote, still non-terminal, with
+      nothing behind it. That is exactly what a lost at-most-once `completed` delivery
+      leaves (D-31: "a single aiohttp POST, no retry, no timeout, errors swallowed").
+    """
+    tenant_id, agent_ref, execution_id = await _staged(label)
+    call = get_engine()._calls[execution_id]  # type: ignore[attr-defined]
+    call["started_at"] = datetime.now(UTC) - timedelta(minutes=45)
+    call["ended_at"] = datetime.now(UTC) - timedelta(minutes=2)
+    async with tenant_session(tenant_id) as session:
+        agent_id = (
+            await session.execute(
+                text("SELECT id FROM agents WHERE engine_agent_ref = :r"), {"r": agent_ref}
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
+                "status, started_at, created_at, updated_at) VALUES (:id, :t, :a, :e, "
+                "'inbound', 'in_progress', now() - interval '45 minutes', "
+                "now() - interval '45 minutes', now())"
+            ),
+            {"id": uuid7(), "t": tenant_id, "a": agent_id, "e": execution_id},
+        )
+    return tenant_id, agent_ref, execution_id
+
+
+async def test_a_call_longer_than_the_listing_window_is_still_recovered(
+    repairs: _Repairs,
+) -> None:
+    """The listing is filtered on CREATION time and the guarantee is about COMPLETION.
+
+    For any call whose duration plus settle time exceeds the 30-minute window, the
+    execution has fallen out of the listing before its terminal transition ever happens —
+    so `reconcile_executions` could not have seen it however many times it ticked, and
+    D-31's guarantee of record silently did not cover it. `report_stalled_pipeline` cannot
+    see it either: `EXTRACTION_OWED_SQL` only asks about calls already recorded
+    `completed`, and this one is stuck at `in_progress`.
+
+    Nothing in the tree said the poller's coverage was bounded by call LENGTH. That is the
+    silent premise D-31/D-32 forbid, sitting under the one mechanism appointed to be the
+    backstop.
+    """
+    tenant_id, _agent_ref, execution_id = await _long_call_lost_at_the_end("outside")
+
+    listing = await get_engine().list_executions(since=datetime.now(UTC) - timedelta(minutes=30))
+    assert execution_id not in [snap.engine_call_id for snap in listing.snapshots], (
+        "the premise of this test is that the listing cannot see this call"
+    )
+
+    repairs.forget()
+    await pipeline.reconcile_executions({})
+    assert execution_id not in repairs.executions(), (
+        "the listing sweep cannot reach this call; if it did, this test is not measuring "
+        "the gap it was written for"
+    )
+
+    await pipeline.reconcile_outstanding_calls({})
+    assert execution_id in repairs.executions(), (
+        "a call that outlived the listing window was never re-driven — its transcript, "
+        "its usage row and its lead do not exist and nothing anywhere says so"
+    )
+    await _drain(repairs)
+
+    state = await _artifacts(tenant_id, execution_id)
+    assert state["status"] == "completed", state
+    assert state["turns"] > 0 and state["usage"] > 0 and state["leads"] > 0, state
+
+
+async def test_the_direct_probe_leaves_a_call_that_is_still_running_alone(
+    repairs: _Repairs,
+) -> None:
+    """The over-correction this phase must not make.
+
+    A call that is genuinely still up is non-terminal for a good reason. Re-driving it
+    would run the post-call pipeline — a billed extraction, a metering write — against a
+    call that has not produced a cost yet, on every tick until it ends.
+    """
+    tenant_id, _agent_ref, execution_id = await _long_call_lost_at_the_end("running")
+    # The engine says it is STILL UP: no ending, and a status that is not terminal.
+    call = get_engine()._calls[execution_id]  # type: ignore[attr-defined]
+    call["status"] = "in_progress"
+    call["ended_at"] = None
+
+    repairs.forget()
+    await pipeline.reconcile_outstanding_calls({})
+
+    assert execution_id not in repairs.executions(), (
+        "a call the engine says is still in progress was re-driven as if it had ended"
+    )
+    assert (await _artifacts(tenant_id, execution_id))["turns"] == 0
+
+
+async def test_a_call_the_engine_has_not_finished_for_hours_is_reported(
+    repairs: _Repairs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other outcome of the direct probe, and the one nothing could produce before.
+
+    A row that is still non-terminal hours later is either a call genuinely burning
+    platform minutes with nobody watching, or an `engine_call_id` that no longer names
+    anything. There is nothing to re-drive, so a repair counter would never move — which
+    is precisely why it has to be an alert instead.
+    """
+    tenant_id, _agent_ref, execution_id = await _long_call_lost_at_the_end("abandoned")
+    call = get_engine()._calls[execution_id]  # type: ignore[attr-defined]
+    call["status"] = "in_progress"
+    call["ended_at"] = None
+    call["started_at"] = datetime.now(UTC) - timedelta(hours=5)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET started_at = now() - interval '5 hours' WHERE engine_call_id = :e"
+            ),
+            {"e": execution_id},
+        )
+
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        pipeline,
+        "alert",
+        lambda stage, code, **kw: fired.append((str(stage), str(code))),
+    )
+    repairs.forget()
+    await pipeline.reconcile_outstanding_calls({})
+
+    assert ("WORKER_STALL", "calls_never_finished") in fired, fired
+
+
+def test_the_direct_probe_is_bounded_in_age_and_in_count() -> None:
+    """Both bounds are the point of the design, so both are pinned.
+
+    Without the HORIZON a permanently broken row costs one vendor request per tick for
+    the life of the deployment; without the per-tenant CAP one broken tenant makes the
+    tick unbounded, and this tick is the guarantee of record for everybody else.
+    """
+    assert pipeline.OUTSTANDING_PROBE_AFTER == pipeline.PIPELINE_STALL_AFTER, (
+        "the probe and the stall alarm must agree about when a call is late, or one of "
+        "them is acting on a call the other still calls healthy"
+    )
+    assert pipeline.OUTSTANDING_PROBE_HORIZON > pipeline.CALL_ABANDONED_AFTER, (
+        "a call would fall past the probe horizon before it could ever be reported as "
+        "never finished"
+    )
+    assert pipeline.OUTSTANDING_PROBE_PER_TENANT > 0

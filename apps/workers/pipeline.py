@@ -36,6 +36,7 @@ from uuid import UUID
 
 from arq import Retry
 from calevate_shared.engine import ExecutionSnapshot
+from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2447,6 +2448,251 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
     return "unfinished_pipeline"
 
 
+async def callable_tenants() -> list[UUID]:
+    """Every tenant that can have call rows at all.
+
+    `engine_agent_routes` is the SAME non-tenant-scoped bridge `ingest_engine_event`
+    uses, and it exists precisely so a cross-tenant resolution needs no RLS exemption
+    (hard rule 1, `db/registry.py`). A call row is only ever created for an agent the
+    engine knows, the publish path upserts the route in the transaction that mints the
+    ref, and routes are deactivated rather than deleted — so this set covers every
+    tenant a stalled call can belong to, without walking organizations that have never
+    taken one.
+
+    Deliberately unfiltered on `active`: an agent unpublished after a call still leaves
+    that call's extraction owed.
+
+    IT LIVES HERE RATHER THAN IN `dispatcher.py`, WHERE IT WAS WRITTEN. Two sweeps now
+    need it — `report_stalled_pipeline` and this module's `_reconcile_outstanding_calls`
+    (D-242) — and `dispatcher` already imports `pipeline`, so a second copy was the only
+    other way and would have been a second answer to "which tenants can hold a call".
+    """
+    async with untenanted_session() as session:
+        rows = (
+            (
+                await session.execute(
+                    # ORDER BY for `retention._due_tenants`' reason: without it the order
+                    # is planner-dependent, so which tenants a partially failing sweep
+                    # reached changed from tick to tick.
+                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY tenant_id")
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return [UUID(str(row)) for row in rows]
+
+
+# --- the half of the guarantee the LISTING cannot cover (D-242) ---------------
+#
+# `list_executions` asks the vendor for `created_after=<now - 30 minutes>` — a filter on
+# when the execution was CREATED. The poller's promise is about when a call FINISHED, and
+# those are the same instant only for calls shorter than the window. For a call that ran
+# 40 minutes, `completed` lands ~43 minutes after creation and every listing from then on
+# excludes it: the execution falls out of the window before its terminal transition ever
+# happens. Bolna's webhook is at-most-once with errors swallowed (D-31, verified in their
+# OSS delivery code), so ONE lost delivery on a long call left it never transcribed, never
+# metered, never invoiced — and invisible to everything else: `report_stalled_pipeline`
+# asks `EXTRACTION_OWED_SQL`, which only sees calls already recorded `completed`, and the
+# row a lost terminal webhook leaves behind is stuck at `in_progress`.
+#
+# Nothing in this tree ever said the poller's coverage was bounded by call DURATION. That
+# is the silent premise D-31/D-32 exist to forbid, sitting under the one mechanism
+# appointed the guarantee of record.
+#
+# WHY NOT JUST WIDEN THE LISTING WINDOW. A `created_after` of 25 hours would cover the
+# tail, and it would also re-list a whole day of executions on every sweep — past
+# `_LISTING_MAX_PAGES` for any real fleet, so the poller would report
+# `reconciliation_listing_incomplete` on every healthy tick and train the operator to
+# ignore the one alarm that says calls are unrecoverable. It also does nothing at all for
+# a call that never completes.
+#
+# WHY NOT AN `updated_after` FILTER. Because it would be a GUESS. `_next_link` refuses to
+# invent a pagination parameter for exactly this reason — "a `?page=` the vendor ignores
+# returns page one forever, which is a silent truncation wearing the costume of a fix" —
+# and inventing a freshness parameter has the identical failure mode. Bolna publishes no
+# OpenAPI spec; whether `GET /executions` accepts any such filter is OPERATIONS §2 gate 6,
+# and if it turns out to, this job gets cheaper rather than unnecessary.
+#
+# WHAT THIS DOES INSTEAD is ask the engine about the executions WE ALREADY KNOW ARE
+# OUTSTANDING. A call row exists from its first transition (`_ingest_stages` upserts on
+# every one), so a non-terminal row older than the stall window IS the list of calls whose
+# ending we never heard about. Each gets one authenticated `get_execution` — the read
+# D-187 made `_pipeline_settled` trust — and a terminal answer is re-driven through the
+# same `INGEST_JOB` under the same fixed job id, so this job and the listing sweep cannot
+# queue one call's repair twice.
+#
+# ITS OWN CRON RATHER THAN A SECOND PHASE OF `reconcile_executions`, and the reason is
+# cost shape. This sweep is O(tenants) — `calls` is FORCE-RLS'd, so "which tenants hold an
+# unfinished call" can only be asked one tenant session at a time, exactly as
+# `report_stalled_pipeline` asks its question. Bolting that onto the 10-minute guarantee
+# tick would triple the fleet-wide fan-out to buy a recovery latency nobody needs: the
+# COMMON path (a short call whose webhook was lost) is already covered by the listing
+# within ten minutes, and the population this job exists for is calls that have already
+# been unfinished for longer than the stall window. Half-hourly, offset from both
+# neighbours so the three fan-outs do not collide.
+
+#: How long a non-terminal call row is left alone before the engine is asked about it
+#: directly. The same number `_pipeline_settled` waits before believing a call is late:
+#: inside it, a call is overwhelmingly still ringing or still talking.
+OUTSTANDING_PROBE_AFTER = PIPELINE_STALL_AFTER
+
+#: And how far back it keeps asking. A row still non-terminal a day later is not something
+#: another `get_execution` will fix — the vendor has forgotten the call, or the id we hold
+#: never named one — so probing it forever would spend a vendor request per sweep per
+#: broken row for the life of the deployment. It is REPORTED instead
+#: (`calls_never_finished`), which is the outcome a human can act on.
+OUTSTANDING_PROBE_HORIZON = timedelta(hours=24)
+
+#: Rows read per tenant per sweep. Oldest first, so a tenant over the cap makes progress
+#: from the end closest to falling past the horizon rather than churning the newest rows.
+OUTSTANDING_PROBE_PER_TENANT = 50
+
+#: Vendor requests this sweep will make in total, across every tenant. The per-tenant cap
+#: bounds one tenant; this bounds the SWEEP, which is what keeps a fleet-wide incident from
+#: turning one cron tick into thousands of requests against the engine we are already
+#: failing to hear from. Hitting it is itself alerted — a truncated sweep that passed
+#: quietly would be the same defect as a truncated listing that reported `complete=True`.
+OUTSTANDING_PROBE_BUDGET = 200
+
+#: A call the ENGINE still calls non-terminal this long after it started. Not a repair —
+#: there is nothing to re-drive — but it is the shape of a call burning platform minutes
+#: with nobody watching, or of an `engine_call_id` that no longer names anything. Two hours
+#: is far past any plausible SMB call.
+CALL_ABANDONED_AFTER = timedelta(hours=2)
+
+_OUTSTANDING_CALLS_SQL = (
+    "SELECT engine_call_id, COALESCE(started_at, created_at) AS began "
+    "FROM calls "
+    "WHERE status <> ALL(:terminal) "
+    "AND COALESCE(started_at, created_at) < now() - :after "
+    "AND COALESCE(started_at, created_at) > now() - :horizon "
+    "ORDER BY began LIMIT :cap"
+)
+
+
+async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
+    """Ask the engine about every call whose ending we never heard about.
+
+    The second half of D-31's guarantee of record — see the block comment above for why
+    the listing sweep cannot cover it and why this is not a wider window.
+
+    ONE TENANT'S FAILURE IS NOT THE SWEEP'S, and one CALL's is not its tenant's: the same
+    shape `reconcile_executions`, `report_stalled_pipeline`, `retention.sweep_tenants` and
+    `qa_sampling.draw_for_tenants` all take (R-4). Every counter rides the return string
+    and the alert, so a repair count reads as a FLOOR rather than a total.
+    """
+    engine = get_engine()
+    repaired = 0
+    unreached = 0
+    abandoned = 0
+    probes = 0
+    truncated = False
+    for tenant_id in await callable_tenants():
+        if probes >= OUTSTANDING_PROBE_BUDGET:
+            truncated = True
+            break
+        try:
+            async with tenant_session(tenant_id) as session:
+                rows = (
+                    await session.execute(
+                        text(_OUTSTANDING_CALLS_SQL),
+                        {
+                            "terminal": sorted(TERMINAL_STATUSES),
+                            "after": OUTSTANDING_PROBE_AFTER,
+                            "horizon": OUTSTANDING_PROBE_HORIZON,
+                            "cap": OUTSTANDING_PROBE_PER_TENANT,
+                        },
+                    )
+                ).all()
+        except Exception:
+            # The tenant id, never the exception's payload: a psycopg error string can
+            # quote the row that broke it, and these rows are calls (hard rule 6).
+            log.exception("outstanding_probe_failed", extra={"tenant_id": str(tenant_id)})
+            unreached += 1
+            continue
+        for engine_call_id, began in rows:
+            if probes >= OUTSTANDING_PROBE_BUDGET:
+                truncated = True
+                break
+            execution_id = str(engine_call_id)
+            probes += 1
+            try:
+                snapshot = await engine.get_execution(execution_id)
+            except Exception:
+                # Includes the honest refusal an adapter raises for an execution the
+                # vendor does not hold — a real answer about a real problem, but not one
+                # a re-drive fixes, so it is counted rather than acted on.
+                log.warning(
+                    "outstanding_probe_unreadable",
+                    extra={"execution_id": execution_id, "engine": engine.name},
+                )
+                unreached += 1
+                continue
+            if not snapshot.terminal:
+                if datetime.now(UTC) - began >= CALL_ABANDONED_AFTER:
+                    abandoned += 1
+                continue
+            await enqueue(
+                INGEST_JOB,
+                {
+                    "engine": engine.name,
+                    "execution_id": execution_id,
+                    "raw_status": snapshot.raw_status,
+                    "engine_agent_ref": snapshot.engine_agent_ref,
+                    "source": "reconciliation",
+                },
+                # The SAME key the listing sweep uses, so a call that both mechanisms
+                # reach cannot be driven twice.
+                job_id=job_id_for(INGEST_JOB, engine.name, execution_id, "reconcile"),
+            )
+            record_reconciliation_repair(kind="outside_listing_window")
+            repaired += 1
+
+    if abandoned:
+        # NOT a repair: there is nothing to re-drive, because the engine says the call has
+        # not ended. Either it is genuinely still up hours later — platform minutes burning
+        # with nobody watching — or the row's `engine_call_id` no longer names anything the
+        # vendor holds. Both need a human; neither is fixed by another sweep.
+        alert(
+            "WORKER_STALL",
+            "calls_never_finished",
+            detail=(
+                f"{abandoned} call(s) have been non-terminal for over "
+                f"{CALL_ABANDONED_AFTER.total_seconds() / 3600:.0f}h and the engine still "
+                "reports them unfinished — check the engine console for live calls and the "
+                "worker log for outstanding_probe_unreadable"
+            ),
+            engine=engine.name,
+        )
+    if unreached:
+        alert(
+            "WORKER_DELIVERY",
+            "outstanding_probe_incomplete",
+            detail=(
+                f"{unreached} tenant(s) or call(s) could not be probed, so repaired="
+                f"{repaired} is a floor rather than a total — check the worker log for "
+                "outstanding_probe_failed and outstanding_probe_unreadable"
+            ),
+            engine=engine.name,
+        )
+    if truncated:
+        # A sweep that stopped early and said nothing would be the listing's
+        # `complete=True` defect in a second place: the calls past the cut have no other
+        # mechanism behind them until they fall past the horizon.
+        alert(
+            "WORKER_DELIVERY",
+            "outstanding_probe_budget_exhausted",
+            detail=(
+                f"more than {OUTSTANDING_PROBE_BUDGET} unfinished calls are outstanding; "
+                "this sweep stopped there and the rest were not probed. That many at once "
+                "is an engine or ingest incident, not a backlog to wait out"
+            ),
+            engine=engine.name,
+        )
+    return f"repaired={repaired} probed={probes} unreached={unreached} abandoned={abandoned}"
+
+
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
     """The guarantee of record (D-31), not a safety net.
 
@@ -2457,9 +2703,15 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     call something dropped — which is why it emits a metric rather than passing quietly,
     and why the metric names WHICH of the two drops it was.
 
-    And it reports what it could NOT see. The listing is the only window onto lost calls,
-    so an adapter that cannot vouch for having read all of it (`ExecutionListing.complete`)
+    And it reports what it could NOT see. The listing is one window onto lost calls, so an
+    adapter that cannot vouch for having read all of it (`ExecutionListing.complete`)
     turns this tick into an incident: see the alert below.
+
+    IT IS NOT THE ONLY WINDOW, and saying it was is what let D-242 through. The listing is
+    filtered on when an execution was CREATED, so a call that runs longer than the window
+    has fallen out of it before it ever ends. `reconcile_outstanding_calls` is the second
+    half: it asks the engine directly about every call row we hold that has not reached a
+    terminal status, which needs no vendor filter and covers a call of any length.
 
     ONE REPAIR ATTEMPT PER EXECUTION PER HOUR, and it is worth naming because it bounds
     the guarantee: the ARQ job id below is fixed per execution and `WorkerSettings.
@@ -2585,7 +2837,9 @@ __all__ = [
     "PIPELINE_STALL_AFTER",
     "POSTCALL_JOB",
     "ReconcileVerdict",
+    "callable_tenants",
     "ingest_engine_event",
     "reconcile_executions",
+    "reconcile_outstanding_calls",
     "run_post_call_pipeline",
 ]

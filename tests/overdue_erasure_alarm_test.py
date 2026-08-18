@@ -193,7 +193,7 @@ async def test_an_executed_erasure_stops_being_counted(only: Any) -> None:
 async def test_a_tenant_with_no_published_agent_is_still_probed(alerts: _Alerts) -> None:
     """THE TEST THAT REJECTS THE OBVIOUS IMPLEMENTATION.
 
-    `_callable_tenants()` — what `report_stalled_pipeline` sweeps — is
+    `callable_tenants()` — what `report_stalled_pipeline` sweeps — is
     `SELECT DISTINCT tenant_id FROM engine_agent_routes`. A tenant with no PUBLISHED agent
     has no row there, and `admin_service.create_organization` does not publish one, so
     this tenant is invisible to that list by construction.
@@ -205,7 +205,7 @@ async def test_a_tenant_with_no_published_agent_is_still_probed(alerts: _Alerts)
     where it is needed.
     """
     tenant_id = await _tenant()
-    assert tenant_id not in await dispatcher._callable_tenants(), (
+    assert tenant_id not in await dispatcher.callable_tenants(), (
         "this tenant has no engine route, which is what makes the assertion below mean "
         "something — if that changes, the test has stopped testing the finding"
     )

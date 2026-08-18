@@ -74,6 +74,27 @@ log = get_logger(__name__)
 KNOWN_ENGINES: frozenset[str] = frozenset(WEBHOOK_AUTH_BY_ENGINE)
 
 
+#: What an engine name is allowed to become once it leaves this process — a metric label,
+#: a log field, an alert body.
+#:
+#: THE URL SEGMENT IS AN UNAUTHENTICATED STRANGER'S STRING on every refusal path, and it
+#: is refused precisely because it names nothing we answer for. `webhook_routes._refuse`
+#: already bounded it for the metric and argued why ("passing it through raw would let
+#: anyone who found the URL mint unbounded label cardinality in the metrics pipeline — a
+#: cheap way to hurt the monitoring of the service they are already probing"), and the
+#: `alert()` twenty lines above it passed the raw value straight into a structured log
+#: field on EVERY request and into the alert body. Measured: 414 characters of
+#: attacker-chosen text, newline included, on `calevate.alert`'s record, at request rate,
+#: from any source address — the metric label beside it correctly read `unknown`.
+#:
+#: One answer, three consumers. What an operator needs from a refusal is the REASON and
+#: the source address, both of which are already there; the stranger's own spelling is not
+#: evidence about anything.
+def engine_label(engine: str) -> str:
+    """`engine` if this deployment answers for it, else `"unknown"`."""
+    return engine if engine in KNOWN_ENGINES else "unknown"
+
+
 @dataclass(frozen=True, slots=True)
 class IntakeVerdict:
     ok: bool
@@ -293,6 +314,7 @@ __all__ = [
     "KNOWN_ENGINES",
     "IntakeEvent",
     "IntakeVerdict",
+    "engine_label",
     "execution_key",
     "extract",
     "verify_source",

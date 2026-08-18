@@ -59,7 +59,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import untenanted_session
 from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbox_enqueued
 from calevate_shared.client_address import client_ip
-from engine_intake import KNOWN_ENGINES, IntakeEvent, extract, verify_source
+from engine_intake import IntakeEvent, engine_label, extract, verify_source
 from fastapi import APIRouter, Request, Response
 from sqlalchemy import text
 from starlette.requests import ClientDisconnect
@@ -294,14 +294,13 @@ def _refuse(started: float, engine: str, *, meter: AckMeter = WEBHOOK_ACK) -> st
     for provider=bolna does not spike, it goes SILENT, which on a graph is indistinguish-
     able from a quiet night.
 
-    `engine` is bounded to the engines we actually run before it becomes a label. It
-    comes out of the URL path, so on the refusal path it is an unauthenticated
-    stranger's string: passing it through raw would let anyone who found the URL mint
-    unbounded label cardinality in the metrics pipeline — a cheap way to hurt the
-    monitoring of the service they are already probing.
+    `engine` is bounded to the engines we actually run before it becomes a label
+    (`engine_intake.engine_label`, which carries the argument and is now the ONE place
+    that bounds it — this function used to do it inline while the `alert()` on the
+    refusal path passed the raw value through).
     """
     elapsed = _ack_ms(started)
-    meter.record(elapsed, provider=engine if engine in KNOWN_ENGINES else "unknown")
+    meter.record(elapsed, provider=engine_label(engine))
     return f"{elapsed:.1f}"
 
 
@@ -541,7 +540,10 @@ async def _receive(
             "ROUTE_HANDLER",
             "webhook_source_rejected",
             detail=verdict.reason,
-            engine=engine,
+            # BOUNDED, like the metric label (`_refuse`). This is the one alert whose
+            # `engine` is a stranger's string rather than one of ours, and it reached a
+            # structured log field on every request and the alert body every 15 minutes.
+            engine=engine_label(engine),
             source_ip=source_ip or "unknown",
         )
         raise ProblemError.unauthorized("This caller is not permitted to post events.")

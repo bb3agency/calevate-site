@@ -84,6 +84,12 @@ worse than none:**
 5. **One box, one process, one event loop.** The numbers do not generalise to the target
    host. The SHAPE does: a flat distribution stays flat wherever the loop is.
 
+The instrument itself — the percentile estimator, the warm-up discipline and the barrier
+that makes "concurrent" mean concurrent — is `tests/ack_harness.py` (D-241). It was
+written here first and then needed a second time by the WEBHOOK receiver's budget, which
+is hard rule 3's own number and had never had a distribution measured at all; two copies
+of `percentile` is how two measurements of one service stop being comparable.
+
 ════ WHY THE NUMBERS ARE NOT ASSERTED, AND WHAT IS ═══════════════════════════════════
 
 No test here fails on a millisecond. `tests/voice_runtime_security_test.py` declines a
@@ -112,10 +118,7 @@ reason string. No phone number, no transcript, in a payload or an assertion mess
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import math
-import time
 import uuid
 from collections.abc import Callable, Iterator
 from typing import Any
@@ -123,9 +126,10 @@ from typing import Any
 import pytest
 import tool_routes
 from apps.api.db.session import get_engine
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from main import app as voice_app
 from sqlalchemy import event
+from tests import ack_harness
 
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
@@ -272,76 +276,27 @@ async def test_an_unkeyable_tool_call_costs_nothing_and_is_still_measured(
 # --- 2. the measurement -------------------------------------------------------
 
 
-def percentile(values: list[float], q: float) -> float:
-    """Nearest-rank: the reported percentile IS one of the observed samples.
-
-    Imported spelling and rationale from `scripts.pilot.knowledge.percentile` — an
-    interpolated percentile invents a value between two measurements, which is the one
-    thing a recorded measurement must not do.
-    """
-    ordered = sorted(values)
-    return ordered[max(1, math.ceil(q * len(ordered))) - 1]
-
-
-def distribution(samples: list[float]) -> dict[str, float]:
-    return {
-        "n": len(samples),
-        "min": round(min(samples), 2),
-        "p50": round(percentile(samples, 0.50), 2),
-        "p95": round(percentile(samples, 0.95), 2),
-        "p99": round(percentile(samples, 0.99), 2),
-        "max": round(max(samples), 2),
-    }
-
-
 async def measure_sequential(n: int) -> tuple[dict[str, float], dict[str, float]]:
-    """`n` warm tool calls, one in flight. Returns (server clock, client clock).
-
-    Warm-up requests are discarded rather than folded in: the first call builds the ARQ
-    pool, and a cold sample inside a warm distribution moves the max by an amount nobody
-    can later separate out — the same reason `scripts/pilot/latency.py` keeps greeting
-    delay out of its turn ledger.
-    """
-    server_ms: list[float] = []
-    client_ms: list[float] = []
+    """`n` warm tool calls, one in flight. Returns (server clock, client clock)."""
     async with _client() as http:
-        for _ in range(5):
-            await http.post(TOOL, json=_body(), headers=HEADERS)
-        for _ in range(n):
-            started = time.perf_counter()
-            response = await http.post(TOOL, json=_body(), headers=HEADERS)
-            client_ms.append((time.perf_counter() - started) * 1000)
-            assert response.status_code == 202, response.text
-            server_ms.append(float(response.headers["X-Ack-Ms"]))
-    return distribution(server_ms), distribution(client_ms)
+        return await ack_harness.measure_sequential(
+            lambda: http.post(TOOL, json=_body(), headers=HEADERS), n
+        )
 
 
 async def measure_concurrent(width: int) -> dict[str, float]:
     """Server-measured ack for `width` tool calls released at ONE event-loop tick.
 
-    `asyncio.Barrier`, for the reason `webhook_storm_test.py` records: creating N tasks
-    staggers them by however long each takes to reach its first await, so without the
-    barrier nothing ever overlaps and the measurement is N sequential requests wearing a
-    concurrency label.
+    A client PER CALL, which is what the recorded table was produced with: an
+    `ASGITransport` client is cheap and sharing one would fold its own bookkeeping into
+    the number under test.
     """
-    async with _client() as http:
-        for _ in range(5):
-            await http.post(TOOL, json=_body(), headers=HEADERS)
 
-    gate = asyncio.Barrier(width)
-    server_ms: list[float] = []
-
-    async def _one() -> None:
+    async def one() -> Response:
         async with _client() as http:
-            await gate.wait()
-            response = await http.post(TOOL, json=_body(), headers=HEADERS)
-            assert response.status_code == 202, response.text
-            server_ms.append(float(response.headers["X-Ack-Ms"]))
+            return await http.post(TOOL, json=_body(), headers=HEADERS)
 
-    async with asyncio.TaskGroup() as group:
-        for _ in range(width):
-            group.create_task(_one())
-    return distribution(server_ms)
+    return await ack_harness.measure_concurrent(one, width)
 
 
 async def test_the_measurement_runs_and_reports_a_distribution(
@@ -364,11 +319,7 @@ async def test_the_measurement_runs_and_reports_a_distribution(
     concurrent = await measure_concurrent(8)
 
     for label, dist in (("server", server), ("client", client), ("concurrent-8", concurrent)):
-        assert dist["n"] > 0, label
-        assert dist["min"] > 0, f"{label}: a zero sample means the clock was never read"
-        assert dist["min"] <= dist["p50"] <= dist["p95"] <= dist["p99"] <= dist["max"], (
-            f"{label}: percentiles out of order — the estimator is broken, not the endpoint"
-        )
+        ack_harness.assert_well_formed(label, dist)
     # The one relationship that is a property rather than a measurement: the request as
     # seen from outside contains the handler's own clock, so it cannot be shorter.
     assert client["p50"] >= server["p50"], (server, client)

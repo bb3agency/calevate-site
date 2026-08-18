@@ -53,11 +53,12 @@ from apps.api.core.redis import get_redis
 from apps.api.db import session as db_session
 from apps.api.db.session import MAX_NESTED_CONNECTIONS, get_engine, untenanted_session
 from calevate_shared.config import Settings
-from httpx import ASGITransport, AsyncClient
+from httpx import ASGITransport, AsyncClient, Response
 from main import app as voice_app
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.pool import AsyncAdaptedQueuePool, QueuePool
+from tests import ack_harness
 
 ENGINE_EGRESS_IP = "198.51.100.7"
 ATTACKER_IP = "203.0.113.9"
@@ -563,6 +564,92 @@ async def _concurrent_deliveries(width: int) -> None:
 
 
 # --- 2. a dependency that stops answering ------------------------------------
+
+
+# --- §1c. the number itself, as a distribution (D-241) ------------------------
+#
+# §1 pins what a request COSTS and §1b what it costs the process. Neither ever produced
+# the quantity hard rule 3 is actually written in: milliseconds. That gap was one-sided —
+# the IN-CALL tool endpoint has had a measured distribution since D-109
+# (`tests/tool_endpoint_budget_test.py`), while the receiver, whose budget is the one
+# CLAUDE.md states as a hard rule and whose vendor never retries, had none.
+#
+# STILL NOT ASSERTED. The docstring above and `tests/voice_runtime_security_test.py` both
+# decline a millisecond bound, and nothing here adds one: a latency assertion on a shared
+# runner measures the runner (D-29's notes). What is asserted is that the instrument
+# works. The NUMBER's home is `docs/evidence/deepdive-voice2.md`, beside the conditions it
+# was taken under.
+#
+# The instrument is shared with the tool endpoint's file (`tests/ack_harness.py`) so the
+# two budgets stay comparable — same nearest-rank percentile, same discarded warm-up, same
+# barrier release.
+
+ACK_BUDGET_MS = webhook_routes._ACK_BUDGET_MS
+
+
+async def test_the_receiver_reports_a_distribution_against_its_own_budget(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Hard rule 3's 500ms, measured on the real handler with nothing stubbed.
+
+    Every delivery carries a DISTINCT transition. A repeated one would be answered off the
+    Redis fast path — one read and no Postgres — so a distribution built from repeats
+    would measure the cheapest path this endpoint has and report it as the ack cost.
+
+    Read `X-Ack-Ms` rather than the client's clock: it is the handler's own
+    `time.perf_counter()` from the route's first line to `_ack`, which is the only reading
+    that excludes `ASGITransport`. Both are printed, because the client number is the one
+    that contains everything the server number leaves out.
+    """
+
+    async def one() -> Response:
+        execution_id, status, _ = _event()
+        return await http.post(HOOK, json=_body(execution_id, status), headers=HEADERS)
+
+    async with _client() as http:
+        server, client = await ack_harness.measure_sequential(one, 40)
+        concurrent = await ack_harness.measure_concurrent(one, 8)
+
+    for label, dist in (("server", server), ("client", client), ("concurrent-8", concurrent)):
+        ack_harness.assert_well_formed(label, dist)
+    # A property rather than a measurement: the request as seen from outside CONTAINS the
+    # handler's own clock, so it cannot be shorter.
+    assert client["p50"] >= server["p50"], (server, client)
+
+    with capsys.disabled():
+        print(f"\n  webhook receiver, budget {ACK_BUDGET_MS:.0f}ms (server side only)")
+        print(f"  sequential server X-Ack-Ms : {server}")
+        print(f"  sequential client via ASGI : {client}")
+        print(f"  concurrent width=8, server : {concurrent}")
+
+
+async def test_a_refusal_is_measured_too_and_is_the_cheapest_path_there_is(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The path a FLOOD takes, which is the one nobody measures.
+
+    `_refuse` exists because a rejection storm made `webhook_ack_ms` go silent rather than
+    spike, and the fix was to record refusals as well as acks. That closed the hole and
+    left the number unknown: an operator reading a runbook has never been told what a
+    refused delivery costs, so "the receiver is saturated by strangers" has no scale to be
+    read against. It is measured here, on the same instrument as the accepted path, so the
+    two are directly comparable.
+    """
+
+    async def one() -> Response:
+        execution_id, status, _ = _event()
+        return await http.post(
+            HOOK,
+            json=_body(execution_id, status),
+            headers={"CF-Connecting-IP": ATTACKER_IP},
+        )
+
+    async with _client() as http:
+        refused, _client_side = await ack_harness.measure_sequential(one, 40, expect_status=401)
+
+    ack_harness.assert_well_formed("refused", refused)
+    with capsys.disabled():
+        print(f"  refused (401) server X-Ack-Ms : {refused}")
 
 
 async def test_a_stalled_database_is_abandoned_at_the_deadline_not_waited_on(

@@ -27,8 +27,10 @@ Notes for whoever reads this next:
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 import time
+import urllib.parse
 import uuid
 from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
@@ -952,6 +954,59 @@ def test_an_engine_this_deployment_never_heard_of_is_refused_and_never_labelled(
     webhook_routes._refuse(time.perf_counter(), "twilio", meter=spy)
     webhook_routes._refuse(time.perf_counter(), "bolna", meter=spy)
     assert labels == ["unknown", "bolna"], "a stranger's engine name must not become a label"
+
+
+async def test_a_strangers_engine_name_reaches_no_alert_field_either(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The half the clause above measured and the code did not (D-243).
+
+    `_refuse` bounds the value before it becomes a METRIC label and spends a paragraph on
+    why. The `alert()` on the same refusal path — twenty lines above it in
+    `webhook_routes._receive`, and its twin in `tool_routes._opt_out` — passed the raw
+    path segment through into a structured log field, on EVERY request rather than on
+    every fifteenth minute, and into the alert email body. Measured before the fix: 414
+    characters of attacker-chosen text with an embedded newline on `calevate.alert`'s
+    record, from an unauthenticated caller at any source address, while the metric label
+    beside it correctly read `unknown`.
+
+    Both endpoints, because they are the same shape and a fix to one is how the other
+    becomes the survivor. Nothing about the OPERATOR's information is lost: the reason
+    string and the source address are both still on the record, and a stranger's spelling
+    of a name we do not answer for is not evidence about anything.
+    """
+    hostile = "A" * 400 + "\ninjected: yes"
+    quoted = urllib.parse.quote(hostile)
+    async with _client(EDGE_PROXY_IP) as http:
+        with caplog.at_level(logging.DEBUG):
+            webhook = await http.post(
+                f"/hooks/v1/engine/{quoted}",
+                json={},
+                headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
+            )
+            tool = await http.post(
+                f"/tools/v1/{quoted}/opt-out",
+                json={},
+                headers={"CF-Connecting-IP": ENGINE_EGRESS_IP},
+            )
+
+    assert (webhook.status_code, tool.status_code) == (401, 401)
+    rejections = [
+        record
+        for record in caplog.records
+        if getattr(record, "code", None) in {"webhook_source_rejected", "tool_source_rejected"}
+    ]
+    assert len(rejections) == 2, "both refusals must have alerted; nothing here is measured yet"
+    for record in rejections:
+        engine = str(getattr(record, "engine", ""))
+        assert engine == "unknown", (
+            f"{record.code}: an unauthenticated stranger put {len(engine)} characters of "
+            "their own text into an alert field — the same value the metric label beside "
+            "it bounds, for the same reason"
+        )
+        assert getattr(record, "detail", None) == "unknown engine", (
+            "the operator still needs the REASON; bounding the name must not cost it"
+        )
 
 
 async def test_an_unknown_engine_delivery_is_refused_over_http_and_writes_nothing() -> None:
