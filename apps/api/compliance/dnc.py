@@ -61,6 +61,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.export import subject_ref
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm.service import mask_phone
@@ -246,6 +247,63 @@ async def check_number(session: AsyncSession, *, tenant_id: UUID, raw: str) -> C
     return CheckResult(valid=True, suppressed=True, scope=row[0])
 
 
+@dataclass(frozen=True, slots=True)
+class Removal:
+    """What a release leaves behind — the TOMBSTONE for a suppression that was lifted.
+
+    Until D-185 a removal left nothing at all. The row was hard-deleted and the audit row
+    carried the entry id and the `source` but never the number (correctly — hard rule 6),
+    so once the row was gone *nothing anywhere* answered "which number stopped being
+    suppressed". A `manual` entry that was really a mis-recorded in-call opt-out could be
+    released and the number returned to the dial pool with no reviewable trail, and TRAI's
+    obligation attaches to the number rather than to our row id.
+
+    `subject_ref` closes that: the same one-way handle `compliance/export.subject_ref`
+    already mints, which `deletion_requests.subject_ref` stores and the erasure proof
+    quotes. It confirms a release to an auditor who already holds the number — the
+    complaint that prompts the review always arrives WITH the number — and discloses
+    nothing to anyone who does not. One instrument for "name a data subject without
+    writing a number down", not a second one.
+
+    REJECTED: a tombstone row — keeping `dnc_list` and marking it `removed_at`. It looks
+    like the more faithful record and is the worse one, in three separate ways:
+
+    * It keeps a phone number that no longer suppresses anybody. `deletion.ERASURE_LIMITATIONS`
+      discloses that a DNC entry survives an erasure, and the whole justification it gives
+      the data principal is "removing it would make the person callable again". That
+      sentence is FALSE of a released row, so a tombstone would be retained personal data
+      with no purpose left — DPDP §8(7) storage limitation — and would force that
+      limitation to be widened rather than left alone.
+    * `add_numbers`' dedupe read (`WHERE phone_e164 = ANY(:phones)`) would match the
+      tombstone and report a re-add as `already_suppressed`. Re-suppressing a released
+      number would silently do nothing. Every other read path that missed the
+      `removed_at IS NULL` predicate over-blocks, which is safe; that one under-blocks,
+      which is the direction hard rule 5 cannot take.
+    * It requires the `UNIQUE (tenant_id, phone_e164)` key to become partial, and that key
+      is a checked compliance invariant (`scripts/check_compliance_invariants.py`,
+      "dnc_list unique (tenant_id, phone_e164)") because it is what makes `add_to_dnc`
+      idempotent.
+
+    So the history goes where `dnc.removed` already goes and `dnc_list` keeps meaning
+    exactly one thing: the numbers we will not dial right now.
+
+    WHERE IT ACTUALLY LANDS, stated precisely because the word "audited" invites a stronger
+    reading than the mechanism supports: `write_audit` writes a hash-chained ROW, and the
+    `summary` is NOT part of it — `audit_log` has no summary column, so hashing a field the
+    row does not carry would make the chain unverifiable. The chained row carries the actor,
+    the tenant, the action and the entry id; `subject_ref` rides the sanitised summary into
+    the log stream, keyed by the same entry id. That is the same placement
+    `deletion.request_deletion` gives the erasure's `subject_ref`, and following it is the
+    point — a second home for one kind of fact is the drift this repo pays for. It is a
+    tamper-EVIDENT record of the release plus a correlated detail line, not a tamper-evident
+    record of the number. Making the reference itself chained would mean putting it in
+    `object_id`, which every other row uses for the object's own id.
+    """
+
+    source: str
+    subject_ref: str
+
+
 # A suppression a HUMAN AT THE CLIENT typed in is theirs to undo — a wrong digit in a
 # pasted list must be fixable. A suppression that records a CONSUMER's request is not:
 # "don't call me again" is the caller's decision, and an account that can delete it can
@@ -261,8 +319,8 @@ def is_removable(*, scope: str, source: str | None) -> bool:
     return scope != "global" and source in REMOVABLE_SOURCES
 
 
-async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> str:
-    """Delete one hand-added tenant entry. Returns its source, for the audit row.
+async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
+    """Delete one hand-added tenant entry. Returns the audit row's payload.
 
     Deliberately NOT an admin-realm route. It cannot be one: `admin:tenants` is a
     MUTATING permission, and D-22 refuses mutating permissions while impersonating —
@@ -272,7 +330,8 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> str:
     """
     row = (
         await session.execute(
-            text("SELECT scope, source FROM dnc_list WHERE id = :id"), {"id": entry_id}
+            text("SELECT scope, source, phone_e164 FROM dnc_list WHERE id = :id"),
+            {"id": entry_id},
         )
     ).first()
     if row is None:
@@ -296,7 +355,7 @@ async def remove_entry(session: AsyncSession, *, entry_id: UUID) -> str:
     if rowcount_of(result) != 1:
         # RLS refusing the write looks exactly like this. Do not report success.
         raise ProblemError.not_found("DNC entry")
-    return str(source)
+    return Removal(source=str(source), subject_ref=subject_ref(row[2]))
 
 
 async def add_global_numbers(
@@ -404,8 +463,8 @@ async def list_global_entries(session: AsyncSession, *, limit: int = 100) -> lis
     ]
 
 
-async def remove_global_entry(session: AsyncSession, *, entry_id: UUID) -> str:
-    """Lift one platform-wide suppression. Ops only. Returns its source, for the audit row.
+async def remove_global_entry(session: AsyncSession, *, entry_id: UUID) -> Removal:
+    """Lift one platform-wide suppression. Ops only. Returns the audit row's payload.
 
     A separate function from `remove_entry` and NOT a relaxation of it: that one refuses
     global rows by name (`dnc_global_entry`) and must keep doing so, because the account
@@ -416,11 +475,14 @@ async def remove_global_entry(session: AsyncSession, *, entry_id: UUID) -> str:
 
     A regulator instruction genuinely gets withdrawn and a number blocked by mistake has
     to be recoverable, so the row is deletable; `audit_log` is where the history of both
-    lives (this table is not append-only, and `remove_entry` already deletes).
+    lives (this table is not append-only, and `remove_entry` already deletes). It carries
+    the same `Removal` tombstone as `remove_entry` for the same reason, and more urgently:
+    the entry a `regulator` source names is the one whose release most needs to be
+    answerable to the regulator that asked for it.
     """
     row = (
         await session.execute(
-            text("SELECT source FROM dnc_list WHERE id = :id AND tenant_id IS NULL"),
+            text("SELECT source, phone_e164 FROM dnc_list WHERE id = :id AND tenant_id IS NULL"),
             {"id": entry_id},
         )
     ).first()
@@ -432,7 +494,7 @@ async def remove_global_entry(session: AsyncSession, *, entry_id: UUID) -> str:
     if rowcount_of(result) != 1:
         # RLS refusing the write looks exactly like this. Do not report success.
         raise ProblemError.not_found("Global DNC entry")
-    return str(row[0])
+    return Removal(source=str(row[0]), subject_ref=subject_ref(row[1]))
 
 
 __all__ = [
@@ -444,6 +506,7 @@ __all__ = [
     "AddResult",
     "CheckResult",
     "DncEntryView",
+    "Removal",
     "add_global_numbers",
     "add_numbers",
     "check_number",

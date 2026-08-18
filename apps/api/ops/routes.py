@@ -24,7 +24,7 @@ Step-up is a required `X-Confirm-Action` header that must echo the action being 
 
 **IT IS NOT THE SECOND FACTOR, AND IT IS NO LONGER STANDING IN FOR ONE.** Admin-realm
 MFA is now enforced by the API itself: `core/auth.py::verify_token` refuses any
-admin-realm token whose Clerk session never completed a second factor (`fva[1] == -1`),
+admin-realm session that never completed its second factor (`mfa_verified_at IS NULL`),
 so every route in this file is already behind MFA before its dependency runs. This
 header was written as an explicit stopgap for that; the stopgap's occasion has passed
 and the header STAYS anyway, because it answers a different question:
@@ -42,7 +42,7 @@ doing ONE thing, and these are two things — an authentication assertion about 
 and a consent assertion about an action. Removing it would leave the big red switch
 reachable by a single POST from any live operator session, which is the property the
 header was introduced to remove and which MFA does not restore. The strictly better
-version — Clerk *reverification*, i.e. requiring the second factor to have been proved
+version — *reverification*, i.e. requiring the second factor to have been proved
 within the last N minutes and binding that proof to the action — is a NAMED follow-up
 in OPERATIONS §2, not something silently skipped: it needs a reverification flow in
 `apps/web` to raise the prompt, and until that exists gating an incident lever on a
@@ -101,7 +101,7 @@ from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.rbac import permission_meta
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb.reconciliation import read_kb_drift
@@ -623,6 +623,9 @@ async def set_platform(
     payload: PlatformStateIn,
     session: GlobalSession,
     request: Request,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> PlatformStateOut:
@@ -650,7 +653,7 @@ async def set_platform(
     confirmation = platform_confirmation(
         outbound_halted=payload.outbound_halted, load_shed_mode=payload.load_shed_mode
     )
-    require_step_up(x_confirm_action, confirmation)
+    step_up.require(x_confirm_action, confirmation)
 
     status = await set_platform_status(
         mode=payload.load_shed_mode,
@@ -698,6 +701,9 @@ async def set_tm_registration_route(
     payload: TmRegistrationIn,
     session: GlobalSession,
     request: Request,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> TmRegistrationOut:
@@ -713,7 +719,7 @@ async def set_tm_registration_route(
     one cannot perform the other by replaying a header.
     """
     action = "record_tm_registration" if payload.status == "active" else "withdraw_tm_registration"
-    require_step_up(x_confirm_action, action)
+    step_up.require(x_confirm_action, action)
 
     registration = await set_tm_registration(
         session,
@@ -769,6 +775,9 @@ def spend_cap_confirmation(tenant_id: UUID) -> str:
 async def recompute_spend_cap(
     tenant_id: UUID,
     request: Request,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
 ) -> SpendCapRecomputeOut:
@@ -796,7 +805,7 @@ async def recompute_spend_cap(
     # Bound to the tenant, not just to the verb: a confirmation captured for one client
     # cannot be replayed against another. See the module docstring on why the big red
     # switch's generic string is not the standard to copy.
-    require_step_up(x_confirm_action, spend_cap_confirmation(tenant_id))
+    step_up.require(x_confirm_action, spend_cap_confirmation(tenant_id))
 
     async with tenant_session(tenant_id) as session:
         if not await tenant_exists(session, tenant_id):
@@ -917,6 +926,9 @@ def outbox_replay_confirmation(job: str | None) -> str:
 async def replay_outbox(
     session: GlobalSession,
     request: Request,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     job: JobScope = None,
     principal: Principal = Depends(requires("ops:manage", realm="admin")),
     x_confirm_action: str | None = Header(default=None),
@@ -957,7 +969,7 @@ async def replay_outbox(
     """
     # Bound to the action AND to the scope it will use, checked BEFORE any row moves.
     # See `outbox_replay_confirmation` for why the string grew a suffix.
-    require_step_up(x_confirm_action, outbox_replay_confirmation(job))
+    step_up.require(x_confirm_action, outbox_replay_confirmation(job))
 
     count = await replay_dead_letters(session, job=job)
     # BACKEND-PATTERNS §4 requires the replay to carry an audit note — a message that

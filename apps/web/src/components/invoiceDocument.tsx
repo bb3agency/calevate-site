@@ -1,6 +1,6 @@
 "use client";
 
-import { formatINR, formatIST } from "@/components/ui";
+import { ScrollRegion, formatINR, formatIST } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 
 /**
@@ -121,7 +121,7 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
         </section>
       </div>
 
-      <div className="-mx-4 mt-6 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+      <ScrollRegion label="Invoice line items" className="-mx-4 mt-6 px-4 sm:mx-0 sm:px-0">
         <table className="w-full min-w-[600px] text-sm">
           <thead>
             <tr className="border-b border-slate-300 text-xs uppercase tracking-wide text-slate-500">
@@ -184,7 +184,7 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
             </tr>
           </tfoot>
         </table>
-      </div>
+      </ScrollRegion>
 
       <footer className="mt-6 space-y-1 border-t border-slate-200 pt-3 text-xs text-slate-500">
         <p>

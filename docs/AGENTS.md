@@ -19,7 +19,7 @@ post-call extraction stays on
 Sarvam because it reads raw transcript text. Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
-Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, Clerk auth
+Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, first-party auth
 (two realms — reaffirmed D-37). Hosting is a general-purpose Hetzner-class VPS (D-25
 superseded D-13's "DO Bangalore"; India co-location is required only for in-call-path
 services), and nothing has been deployed — `infra/` is templates nobody has applied.
@@ -45,7 +45,8 @@ make web-check                # frontend: typecheck + lint + vitest (D-53)
 
 ## Structure
 
-- `apps/web` — Next.js; `/admin` and `/c/<slug>` route trees; separate Clerk apps; typed
+- `apps/web` — Next.js; `/admin` and `/c/<slug>` route trees; separate first-party
+  session modules (`lib/authn/`, D-177) that share no logic; typed
   API client via `pnpm -C apps/web gen:api` (never hand-write fetchers).
 - `apps/api` — modular monolith; modules own their tables; no cross-module SQL.
 - `apps/voice-runtime` — latency-critical webhooks + in-call tool endpoints; ack <500ms,

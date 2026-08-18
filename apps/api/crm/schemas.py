@@ -200,6 +200,44 @@ class LeadFacetsOut(Strict):
     omitted_field_count: int
 
 
+class LeadLensIn(Strict):
+    """The Leads table's lens — WHICH ROWS and WHICH COLUMNS — carried in a request BODY.
+
+    It exists because of the one field in it that is personal data. `search` is matched
+    against `leads.phone_e164` with a suffix LIKE (`crm.service._lead_scope`), so on a
+    GET it is a customer's phone number written into nginx's `combined` access log
+    (`$request` is the whole request line), into Cloudflare's edge log, into browser
+    history and into the `Referer` of the next navigation. This repository already made
+    that judgement twice — `POST /v1/dnc/check` is a POST because "the identifier IS the
+    personal data", and SEC-COMP §4 requires a number in the body and never in a URL —
+    and the leads screen is the busiest surface in the product to have been left out of
+    it (hard rule 6).
+
+    The field NAMES match the query parameters the GET routes take, including the two
+    encoded ones (`columns` as a comma-separated string, `f` as `key:value` entries), so
+    one parser serves both shapes and the client's lens object does not change form when
+    it moves into a body.
+    """
+
+    status: str | None = None
+    #: The one field that made this a body. Same 60-character bound the GET had.
+    search: str | None = Field(None, max_length=60)
+    agent_id: UUID | None = None
+    assigned_to: UUID | None = None
+    #: Comma-separated column keys, in display order. Omit for every column.
+    columns: str | None = None
+    #: Facet filters as `key:value`, repeated. An unknown key is REFUSED, never dropped —
+    #: dropping one would widen the set, which on the export is a mailed contact list.
+    f: list[str] = Field(default_factory=list)
+
+
+class LeadSearchIn(LeadLensIn):
+    """The lens plus the page. Export takes no page: it is the whole filtered set."""
+
+    limit: int = Field(50, ge=1, le=200)
+    offset: int = Field(0, ge=0)
+
+
 class LeadListOut(Strict):
     """The Leads table is schema-driven (TRD §7): the columns travel WITH the rows so
     the frontend never hard-codes a client's fields."""
@@ -292,13 +330,17 @@ class LeadBulkIn(Strict):
     ambiguity is the defect this field exists to remove; a client that forgets to say
     gets a 422 rather than an action over a set it did not choose.
 
-    The FILTER scope's predicates are not here: they ride as the same query parameters
-    `GET /v1/leads` and `GET /v1/leads/export.csv` take, with the same meanings, so there
-    is one spelling of "which rows" across the screen, the file and this. Putting them in
-    the body would be a second one.
+    The FILTER scope's predicates ride as the same query parameters `GET /v1/leads` and
+    `GET /v1/leads/export.csv` take, with the same meanings, so there is one spelling of
+    "which rows" across the screen, the file and this — EXCEPT `search`, which is here in
+    the body because it matches a phone number and a query string is written to access
+    logs, history and referrers (`LeadLensIn` carries the full argument). The lens's
+    other members are not personal data and stay where they were.
     """
 
     scope: Literal["ids", "filter"]
+    #: The filter scope's search term. Same 60-character bound the query parameter had.
+    search: str | None = Field(None, max_length=60)
     #: The ticked rows, for `scope: "ids"`. Bounded by the same cap the filter scope is
     #: refused at, so neither route into the action can exceed it.
     ids: list[UUID] = Field(default_factory=list, max_length=MAX_BULK_LEADS)

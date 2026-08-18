@@ -103,9 +103,8 @@ class TestTheRealTree:
         which credential the browser presents."""
         reads = guard.collect().usage.reads
         assert "NEXT_PUBLIC_AUTH_MODE" in reads
-        assert "NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY" in reads
-        assert "NEXT_PUBLIC_CLERK_CLIENT_PUBLISHABLE_KEY" in reads
-        assert any("lib/auth/mode.ts" in site for site in reads["NEXT_PUBLIC_AUTH_MODE"])
+        assert "NEXT_PUBLIC_API_BASE_URL" in reads
+        assert any("lib/authn/mode.ts" in site for site in reads["NEXT_PUBLIC_AUTH_MODE"])
 
     def test_the_two_halves_of_config_parity_do_not_overlap(self) -> None:
         """One way per problem: the API's file declares no browser key, and the browser's
@@ -119,11 +118,13 @@ class TestTheRealTree:
 
     def test_the_registry_is_pinned(self) -> None:
         """Declaring a browser-visible value "public by design" costs a visible diff in a
-        TEST, not one line in a dict — the rule every other exemption here follows."""
-        assert set(guard.PUBLIC_BY_DESIGN) == {
-            "NEXT_PUBLIC_CLERK_CLIENT_PUBLISHABLE_KEY",
-            "NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY",
-        }
+        TEST, not one line in a dict — the rule every other exemption here follows.
+
+        IT IS EMPTY SINCE D-177 and the assertion is kept rather than deleted: an empty
+        exemption list is a property worth defending, and this is what makes re-adding one
+        cost a test edit. Its two entries were the realms' Clerk publishable keys;
+        authentication configures nothing in the browser now."""
+        assert set(guard.PUBLIC_BY_DESIGN) == set()
 
 
 # ============================================================================
@@ -189,7 +190,7 @@ class TestUnreadDeclarations:
         a string constant. With the actual read gone, the deployment's `clerk`/`dev` choice
         is decided by nothing — and the check must still see that, or the comments are doing
         the work the code stopped doing."""
-        _edit(tree, "apps/web/src/lib/auth/mode.ts", "process.env.NEXT_PUBLIC_AUTH_MODE", '""')
+        _edit(tree, "apps/web/src/lib/authn/mode.ts", "process.env.NEXT_PUBLIC_AUTH_MODE", '""')
         code, output = _run(tree, capsys)
         assert code == 1
         assert "declares NEXT_PUBLIC_AUTH_MODE" in output
@@ -240,14 +241,28 @@ class TestSecretShapedKeys:
         fired on `SORT_KEY_LABEL` would teach people to add exemptions."""
         assert guard._secret_shape(key) is None
 
-    def test_a_publishable_key_passes_only_because_the_registry_says_why(self) -> None:
-        """The mutation is the EXEMPTION, not the tree: the two Clerk keys are legitimately
-        named and legitimately public, and the ONLY thing keeping them green is the entry
-        recording that `publishable` is the vendor's own word for the public half. Take it
-        away and they must come back into view, or the entry is load-bearing for nothing."""
-        offenders = guard.secret_shaped_keys(guard.collect(), registry={})
-        assert any("NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY" in o for o in offenders)
-        assert any("NEXT_PUBLIC_CLERK_CLIENT_PUBLISHABLE_KEY" in o for o in offenders)
+    def test_a_publishable_key_is_reported_unless_the_registry_says_why(self) -> None:
+        """The exemption mechanism, driven now that the real tree has nothing to exempt.
+
+        It used to mutate the REGISTRY against the two Clerk publishable keys, which were
+        the only credential-shaped browser values this app had. D-177 removed both, so the
+        subject moves to a declared key that does not exist — the mechanism is what is
+        under test, and a check that can only be exercised by the tree happening to
+        contain a hazard is a check that stops being exercised the day it works."""
+        key = "NEXT_PUBLIC_ACME_PUBLISHABLE_KEY"
+        state = guard.collect()
+        state.declared[key] = ""
+        assert any(key in offender for offender in guard.secret_shaped_keys(state, registry={}))
+        assert (
+            guard.secret_shaped_keys(
+                state,
+                registry={
+                    key: "the vendor's own word for the "
+                    "half meant to ship in a browser; its secret twin never leaves the API"
+                },
+            )
+            == []
+        )
 
     def test_a_stale_registry_entry_is_refused(self) -> None:
         state = guard.collect()
@@ -265,8 +280,9 @@ class TestSecretShapedKeys:
 
     def test_a_reasonless_registry_entry_is_refused(self) -> None:
         state = guard.collect()
+        state.declared["NEXT_PUBLIC_ACME_PUBLISHABLE_KEY"] = ""
         failures = guard.stale_registry(
-            state, registry={"NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY": "it's fine"}
+            state, registry={"NEXT_PUBLIC_ACME_PUBLISHABLE_KEY": "it's fine"}
         )
         assert any("too thin to review" in f for f in failures)
 
@@ -279,14 +295,14 @@ class TestUninlinableReads:
         that stubs `process.env` in node keeps passing."""
         _edit(
             tree,
-            "apps/web/src/lib/auth/adminRealm.tsx",
-            "process.env.NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY",
-            "process.env[ADMIN_PUBLISHABLE_KEY_ENV]",
+            "apps/web/src/lib/authn/realmSessions.ts",
+            "process.env.NEXT_PUBLIC_DEV_ADMIN",
+            "process.env[DEV_ADMIN_ENV]",
         )
         code, output = _run(tree, capsys)
         assert code == 1
         assert "reaches `process.env` other than as `process.env.NAME`" in output
-        assert "lib/auth/adminRealm.tsx" in output
+        assert "lib/authn/realmSessions.ts" in output
 
     def test_catches_a_destructure(self, tree: Path, capsys: pytest.CaptureFixture[str]) -> None:
         _append(
@@ -426,10 +442,10 @@ class TestBlindSpots:
 
 class TestCommentStripping:
     def test_a_key_named_only_in_a_comment_is_not_a_read(self) -> None:
-        """The narrowing that makes the stale direction work — and it is load-bearing on the
-        REAL tree: `lib/auth/clientRealm.tsx` explains in a comment why the key is NOT called
-        `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. Counted as a mention, that comment alone would
-        fail this guardrail against correct code."""
+        """The narrowing that makes the stale direction work — and it was load-bearing on
+        the real tree while `lib/auth/clientRealm.tsx` existed to explain in a comment why
+        its key was NOT called `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`. Counted as a mention,
+        that comment alone would have failed this guardrail against correct code."""
         code = guard.strip_comments(
             "// process.env.NEXT_PUBLIC_GHOST\n"
             "/* NEXT_PUBLIC_PHANTOM */\n"

@@ -124,8 +124,8 @@ export function useAddContacts(session: Session, campaignId: string | null) {
         body: { contacts },
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
     },
   });
 }
@@ -162,8 +162,8 @@ export function useDeclareConsentProvenance(session: Session, campaignId: string
         body: provenance,
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
     },
   });
 }
@@ -173,7 +173,9 @@ export function useLaunchCheck(
   campaignId: string | null,
 ): UseQueryResult<LaunchCheck> {
   return useQuery({
-    queryKey: ["campaign-check", campaignId],
+    // Org slug first, then the id — see `useCallbackEligibility` for why the uuid_v7
+    // being uncollidable is not the same thing as the cache being tenant-scoped.
+    queryKey: ["campaign-check", session.orgSlug, campaignId],
     queryFn: () => apiRequest<LaunchCheck>(session, `/v1/campaigns/${campaignId}/launch-check`),
     enabled: Boolean(campaignId),
   });
@@ -181,7 +183,7 @@ export function useLaunchCheck(
 
 export function useCampaignProgress(session: Session, campaignId: string | null) {
   return useQuery({
-    queryKey: ["campaign", campaignId],
+    queryKey: ["campaign", session.orgSlug, campaignId],
     queryFn: () => apiRequest<CampaignProgress>(session, `/v1/campaigns/${campaignId}`),
     enabled: Boolean(campaignId),
     // Poll only while the campaign is actually dispatching, and no faster than the
@@ -206,8 +208,8 @@ export function useLaunchCampaign(session: Session, campaignId: string | null) {
     mutationFn: () =>
       apiRequest<LaunchResult>(session, `/v1/campaigns/${campaignId}/launch`, { method: "POST" }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
-      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
     },
   });
@@ -227,7 +229,7 @@ export function usePauseCampaign(session: Session, campaignId: string | null) {
         method: "POST",
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
       // The list carries the status too, and it is one click away ("Start another
       // campaign") — without this it keeps showing "running" for a paused campaign.
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
@@ -307,8 +309,8 @@ export function useScheduleCampaign(session: Session, campaignId: string | null)
         body: { start_at: startAt },
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
-      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
     },
   });
@@ -345,8 +347,8 @@ export function useUnscheduleCampaign(session: Session, campaignId: string | nul
         method: "DELETE",
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
-      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
     },
   });
@@ -399,8 +401,8 @@ export function useSetRecurrence(session: Session, campaignId: string | null) {
         body: payload,
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["campaign", campaignId] });
-      void client.invalidateQueries({ queryKey: ["campaign-check", campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign", session.orgSlug, campaignId] });
+      void client.invalidateQueries({ queryKey: ["campaign-check", session.orgSlug, campaignId] });
       void client.invalidateQueries({ queryKey: ["campaigns", session.orgSlug] });
     },
   });

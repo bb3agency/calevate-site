@@ -1,7 +1,7 @@
 """Middleware, in BACKEND-PATTERNS §2 step 5's order with TWO recorded departures:
 
     correlation id → security headers → CORS → body limit → rate limit → load shed
-                   → [auth, as a route dependency] → tracing → routes
+                   → cookie CSRF → [auth, as a route dependency] → tracing → routes
 
 Starlette makes the LAST-added middleware outermost, so `install_middleware` adds them in
 reverse of that list. §2 step 5 reads "security headers → CORS → auth → rate limit →
@@ -282,13 +282,18 @@ class LoadShedMiddleware:
 
     WHAT IS NEVER SHED IS `loadshed.ALWAYS_ALLOWED_PREFIXES`, and this docstring
     deliberately does not repeat the list. It used to, and it named `auth` among them
-    after that exemption had been removed — nothing under `/v1/auth` mints a session
-    (Clerk owns those, TRD §11), so the only route the prefix ever covered was
-    `POST /v1/auth/signup`, i.e. the platform kept manufacturing tenants while it was too
-    degraded to serve the ones it had. A prose copy of a list is how the copy and the list
-    part company; `tests/loadshed_exemption_test.py` asserts the census against the
-    constant, including that each prefix still names a live route and records why it is
-    exempt.
+    after that exemption had been removed — at the time nothing under `/v1/auth` minted a
+    session, because a vendor did (TRD §11), so the only route the prefix covered was
+    `POST /v1/auth/signup`: the platform kept manufacturing tenants while it was too
+    degraded to serve the ones it had. **`/v1/auth/**` DOES mint sessions now (D-177), and
+    the exemption is still deliberately absent** — an incident is not a reason to keep the
+    sign-in path open to everyone, and an operator's own way in is `/v1/ops`, which is on
+    the list. Whether sign-in should join it is a decision with a load-shedding argument on
+    both sides and is not one this docstring may make by omission.
+
+    A prose copy of a list is how the copy and the list part company;
+    `tests/loadshed_exemption_test.py` asserts the census against the constant, including
+    that each prefix still names a live route and records why it is exempt.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -464,6 +469,70 @@ class RateLimitMiddleware:
         await self.app(scope, receive, send)
 
 
+class CookieCsrfMiddleware:
+    """Cross-site refusal for EVERY mutating request that carries a session cookie (D-178).
+
+    WHY A MIDDLEWARE AND NOT A DEPENDENCY. `authn/routes.py` already calls
+    `enforce_same_origin` on each of its own mutating handlers, and that was sufficient
+    while the cookie only opened `/v1/auth/**`. It stops being sufficient the moment the
+    session cookie authenticates the rest of the API (AUTH-MIGRATION §5 step 6), because
+    from then on every mutating route in the process is a CSRF target and the protection
+    would be a line each of them had to remember. A per-route control that has to be
+    remembered is the shape of gap this repo treats as a defect, so the rule is applied
+    once, before routing, to the whole surface.
+
+    It is NOT dead weight in the meantime: it refuses today, on the auth routes and on any
+    request a browser sends with one of our cookies attached, and
+    `tests/authn_csrf_test.py` drives it against a non-auth route.
+
+    THE TRIGGER IS THE COOKIE, not the path. A request with no session cookie has no
+    ambient credential to be replayed — that is the entire premise of CSRF — so refusing it
+    would only break `curl`, the ingest webhooks and every server-to-server caller, none of
+    which can be cross-site in the sense that matters. `Authorization:` callers are
+    structurally immune for the same reason and are deliberately untouched.
+
+    WHY NOT THE SIGNED DOUBLE-SUBMIT TOKEN INSTEAD: `authn/cookies.py`'s module docstring
+    makes that argument in full, with the OWASP conditions it turns on.
+    """
+
+    #: The methods that can change state. `GET`/`HEAD`/`OPTIONS` are excluded because
+    #: nothing in this API mutates on them (`tests/edge_route_policy_test.py` walks the
+    #: route table and asserts it) and because `OPTIONS` is the CORS preflight, which by
+    #: definition arrives cross-origin and must be answered rather than refused.
+    UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or str(scope.get("method", "")) not in self.UNSAFE_METHODS:
+            await self.app(scope, receive, send)
+            return
+        # Imported here rather than at module scope: `core.bootstrap` imports this module
+        # while assembling the app, and `authn.cookies` pulls in the credential layer.
+        from apps.api.authn.cookies import cross_site_refusal, session_cookie_present
+
+        headers = _headers(scope)
+        if not session_cookie_present(headers.get("cookie")):
+            await self.app(scope, receive, send)
+            return
+        path = str(scope.get("path", ""))
+        host = headers.get("host")
+        scheme = headers.get("x-forwarded-proto", "").split(",")[0].strip() or str(
+            scope.get("scheme", "http")
+        )
+        refusal = cross_site_refusal(
+            sec_fetch_site=headers.get("sec-fetch-site"),
+            origin=headers.get("origin"),
+            own_origin=f"{scheme}://{host}" if host else None,
+            path=path,
+        )
+        if refusal is not None:
+            await _problem_response(refusal, path)(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
     """Added innermost-first; Starlette makes the last one outermost."""
     if "*" in cors_origins:
@@ -483,6 +552,10 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
             "CORS: a wildcard origin cannot be combined with allow_credentials=True — "
             "name each realm's origin (see core/bootstrap.DEFAULT_CORS_ORIGINS)."
         )
+    # INNERMOST, so a request that is refused here has already passed the body limit, the
+    # rate limiter and the load-shed gate — a cross-site probe must not be a cheaper way to
+    # reach the process than an honest request.
+    app.add_middleware(CookieCsrfMiddleware)
     app.add_middleware(LoadShedMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(BodyLimitMiddleware)
@@ -532,6 +605,7 @@ __all__ = [
     "MAX_BODY_BYTES",
     "SECURITY_HEADERS",
     "BodyLimitMiddleware",
+    "CookieCsrfMiddleware",
     "CorrelationIdMiddleware",
     "LoadShedMiddleware",
     "RateLimitMiddleware",

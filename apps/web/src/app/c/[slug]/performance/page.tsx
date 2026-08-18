@@ -9,6 +9,7 @@ import {
   FilterChip,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   StatTile,
   formatCount,
@@ -331,7 +332,7 @@ function HourHistogram({ hours, calls }: { hours: number[]; calls: number }) {
   const started = hours.reduce((sum, count) => sum + count, 0);
   return (
     <div>
-      <div className="overflow-x-auto">
+      <ScrollRegion label="Calls by hour of day">
         <div className="flex min-w-[620px] items-end gap-1">
           {hours.map((count, hour) => (
             <div
@@ -364,7 +365,7 @@ function HourHistogram({ hours, calls }: { hours: number[]; calls: number }) {
             </div>
           ))}
         </div>
-      </div>
+      </ScrollRegion>
       <p className="mt-2 text-xs text-ink-muted">
         When your phone rings the most — useful for staffing the counter and picking the
         best time for outgoing calls. Each bar counts the calls that STARTED in that hour,

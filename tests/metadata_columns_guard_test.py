@@ -88,6 +88,25 @@ def test_a_model_column_the_database_lacks_is_reported(url: str) -> None:
     assert [f for f in failures if f.startswith(f"{TABLE}.{invented}:")], failures
 
 
+def test_an_unmigrated_database_is_refused_rather_than_reported_clean() -> None:
+    """D-176: the vacuous pass this check used to have, pinned in both halves.
+
+    `sqlite://` is a database with nothing in it — every table the models declare is
+    absent. `compare_metadata` reports each of those as ONE `add_table` op rather than one
+    `add_column` per column, so the COLUMN verdict is empty and the check printed
+    `METADATA COLUMNS: OK (61 tables agree in both directions)` against a schema it had
+    never seen. Both assertions matter: the first is why a refusal is needed at all, and
+    the second is the refusal seeing every one of them.
+
+    No Postgres, deliberately: an empty in-memory database is exactly the input, and a test
+    that skipped without one would be a negative control nobody ever runs.
+    """
+    entries = check_metadata_columns.compare_entries("sqlite://")
+
+    assert check_metadata_columns.column_failures(entries) == []
+    assert check_metadata_columns.absent_model_tables(entries) == sorted(Base.metadata.tables)
+
+
 def test_absent_tables_are_not_reported_as_column_failures(url: str) -> None:
     """The scope pin: 56 of 57 tables are missing from the doctored metadata and the
     check says nothing about them. A widened op set would fail here before it reached CI

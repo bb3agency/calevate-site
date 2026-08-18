@@ -190,13 +190,18 @@ async def remove(
     cannot inspect — the whole class of defect D-71 and D-75 fixed elsewhere. Echoing
     the entry back was the other option and is the one to avoid hardest: the row we
     just deleted holds a phone number, and the response to "please forget this" is not
-    the place to repeat it. The `source` this reads is for the AUDIT row, which is
+    the place to repeat it. What `remove_entry` returns is for the AUDIT row, which is
     where "who un-suppressed what, and what kind of entry it was" belongs.
+
+    `subject_ref` rides along with `source` (D-185): the entry id alone stops answering
+    "which number was released" the moment the row is gone, and the one-way handle
+    answers it for an auditor holding the number without writing a number into the
+    ledger (hard rule 6). See `dnc.Removal` for why this is not a tombstoned row.
 
     Same shape as `DELETE /v1/lead-sources/{id}` and `DELETE /v1/leads/views/{id}`,
     which is the answer this repo already gives for a delete with nothing to report.
     """
-    source = await dnc.remove_entry(session, entry_id=entry_id)
+    removal = await dnc.remove_entry(session, entry_id=entry_id)
     await write_audit(
         session,
         action="dnc.removed",
@@ -205,7 +210,7 @@ async def remove(
         object_type="dnc_list",
         object_id=str(entry_id),
         ip=client_request_ip(request),
-        summary={"source": source},
+        summary={"source": removal.source, "subject_ref": removal.subject_ref},
     )
 
 

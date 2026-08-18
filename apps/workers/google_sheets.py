@@ -146,7 +146,7 @@ SCOPE = "https://www.googleapis.com/auth/spreadsheets"
 
 # The only credential reference this deployment can resolve. The scheme is a namespace
 # so that a value from a DATABASE ROW can never name arbitrary key material: `secret_ref`
-# is client-adjacent config, and a resolver that accepted `sm://clerk/admin` would be a
+# is client-adjacent config, and a resolver that accepted `sm://platform/kek` would be a
 # tenancy hole wearing a config field's clothes.
 CREDENTIAL_REF_PREFIX = "sm://google-sheets/"
 DEPLOYMENT_CREDENTIAL_NAME = "default"

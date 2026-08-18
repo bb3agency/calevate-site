@@ -75,7 +75,7 @@ from apps.api.core.settings import (
     env_var_for,
     get_settings,
 )
-from apps.api.core.stepup import require_step_up
+from apps.api.core.stepup import StepUpGate
 from apps.api.ops.config_service import (
     WriteResult,
     clear_value,
@@ -462,11 +462,14 @@ async def set_config(
     tasks: BackgroundTasks,
     principal: ConfigOperator,
     key: ConfigKey,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
     if_match: Annotated[str | None, Header()] = None,
 ) -> ConfigWriteOut:
     """Bound to the key, audited in the same transaction, propagated after it commits."""
-    require_step_up(x_confirm_action, config_confirmation(key))
+    step_up.require(x_confirm_action, config_confirmation(key))
     expected = require_if_match(if_match, key=key)
     if principal.user_id is None:
         # `updated_by` is NOT NULL and references `admin_users`: every value in this
@@ -517,6 +520,9 @@ async def revert_config(
     tasks: BackgroundTasks,
     principal: ConfigOperator,
     key: ConfigKey,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
     x_confirm_action: Annotated[str | None, Header()] = None,
     if_match: Annotated[str | None, Header()] = None,
 ) -> ConfigWriteOut:
@@ -526,7 +532,7 @@ async def revert_config(
     `platform.config_reverted` entry in a tamper-evident ledger for a change nobody made
     — the same objection `platform_confirmation` raises against the empty transition.
     """
-    require_step_up(x_confirm_action, revert_confirmation(key))
+    step_up.require(x_confirm_action, revert_confirmation(key))
     expected = require_if_match(if_match, key=key)
     if principal.user_id is None:
         raise ProblemError(

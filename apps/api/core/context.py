@@ -41,7 +41,7 @@ def bearer_token(header_value: str | None) -> str | None:
 
     HERE, in the leaf module, for the reason the header names above are here — one more
     thing two layers must agree about, where disagreeing is invisible to curl. The two
-    readers are `core.auth._bearer`, which authenticates with it, and
+    readers are `core.auth._credential`, which authenticates with it, and
     `core.middleware.RateLimitMiddleware._caller`, which keys the per-caller rate-limit
     bucket on it; the limiter used to key on `fingerprint(<the whole raw header>)`, so
     `Bearer x`, `bearer x`, `BEARER x`, `Bearer  x` and `Bearer x ` — five spellings the
@@ -62,12 +62,14 @@ def bearer_token(header_value: str | None) -> str | None:
     carrying a control byte:
 
       a credential is ASCII-printable — a JWT is base64url, a dev token is
-      `dev:<realm>:<clerk-user-id>` — so a control byte is not a token that failed to
-      verify. It matters because the token's subject travels into a SQL parameter:
-      `Bearer dev:client:a\\x00b` reached the `users` lookup and psycopg refused it
-      ("PostgreSQL text fields cannot contain NUL"), which is a 500 and an alert, on
-      every authenticated endpoint, for any unauthenticated caller. Rejected here, at
-      the boundary, so every path downstream is spared the case.
+      `dev:<realm>:<subject-uuid>` — so a control byte is not a token that failed to
+      verify. It mattered because the token's subject used to travel into a SQL
+      parameter: `Bearer dev:client:a\\x00b` reached the `users` lookup and psycopg
+      refused it ("PostgreSQL text fields cannot contain NUL"), which is a 500 and an
+      alert, on every authenticated endpoint, for any unauthenticated caller. The
+      subject is a UUID since D-177 and would not parse either, but this stays: two
+      independent reasons for one refusal, and this one is at the boundary, where
+      every path downstream is spared the case rather than each handling it.
     """
     scheme, _, token = (header_value or "").partition(" ")
     if scheme.lower() != "bearer":
@@ -83,8 +85,11 @@ class Principal:
     """Who is making this request. Ids only (hard rule 6)."""
 
     realm: Realm
+    #: `users.id` on the client realm, `admin_users.id` on the admin realm. There is no
+    #: second identifier: D-177 removed `clerk_user_id` from this dataclass because the
+    #: credential's subject IS one of our ids, so a vendor id had nothing left to carry
+    #: and nothing read it.
     user_id: UUID | None
-    clerk_user_id: str | None
     tenant_id: UUID | None
     role: str | None
     # D-22: an admin viewing a client dashboard gets a READ-ONLY scoped session.

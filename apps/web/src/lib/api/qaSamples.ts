@@ -23,7 +23,7 @@
  *   so the mutation surfaces the refusal rather than pretending the click worked.
  *
  * `adminSession` is imported from `./admin` rather than rebuilt: that file owns the
- * admin realm's credential (TRD §11, D-37 — two Clerk applications, no shared session
+ * admin realm's credential (TRD §11 — two realms, no shared session
  * logic), and a second builder here would be the second place a realm can be got wrong.
  *
  * Types are the GENERATED ones, aliased from `schema.d.ts`. `QaVerdict` is derived from

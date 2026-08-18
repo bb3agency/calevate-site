@@ -54,14 +54,13 @@ async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
 
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -75,7 +74,7 @@ async def _tenant(role: str = "owner") -> tuple[uuid.UUID, uuid.UUID, str, str]:
             text("UPDATE agents SET status = 'live', direction = 'outbound' WHERE id = :a"),
             {"a": agent_id},
         )
-    return tenant_id, agent_id, str(slug), f"dev:client:{clerk_id}"
+    return tenant_id, agent_id, str(slug), f"dev:client:{user_id}"
 
 
 def _client() -> AsyncClient:
@@ -337,6 +336,90 @@ async def test_removal_is_audited_by_id_and_never_by_number() -> None:
     # ever carry the id, which is the property this test is here to keep true.)
     assert row[0] == str(entry_id)
     assert row[1] == "user"
+
+
+async def test_a_release_records_which_number_it_freed_without_writing_a_number(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """S-4, D-185. The tombstone a hard DELETE used to leave nothing of.
+
+    Before this, a removal deleted the row and wrote an audit entry carrying the entry id
+    and the `source` — correctly never the number (hard rule 6) — so the moment the row was
+    gone, NOTHING anywhere answered "which number stopped being suppressed". A `manual` row
+    that was really a mis-recorded in-call opt-out could be released and the number returned
+    to the dial pool with no reviewable trail, and TRAI's obligation attaches to the number
+    rather than to our row id.
+
+    The two halves have to hold together, and each of the two obvious fixes breaks one:
+    keeping the row keeps a number that no longer suppresses anybody (see `dnc.Removal` on
+    why that is worse, not more faithful), and writing the number into the audit summary is
+    a hard-rule-6 violation on the one surface where "who asked us to stop calling them" is
+    itself the sensitive fact. `compliance.export.subject_ref` is the instrument this repo
+    already uses for exactly this — the same handle `deletion_requests.subject_ref` stores —
+    and it answers the question for an auditor holding the number while telling anyone else
+    nothing.
+    """
+    from apps.api.compliance.export import subject_ref
+
+    tenant_id, _agent_id, slug, token = await _tenant()
+    phone = _number()
+    formatter = JsonFormatter()
+
+    async with tenant_session(tenant_id) as session:
+        await dnc.add_numbers(session, tenant_id=tenant_id, raw_numbers=[phone], source="manual")
+        entry_id = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+
+    with caplog.at_level(logging.INFO):
+        async with _client() as http:
+            released = await http.delete(f"/v1/dnc/{entry_id}", headers=_headers(token, slug))
+    assert released.status_code == 204
+
+    rendered = "\n".join(formatter.format(record) for record in caplog.records)
+    assert subject_ref(phone) in rendered, (
+        "a released suppression has to leave a handle that identifies the number to "
+        "somebody who already has it"
+    )
+    # And the number itself is in none of it — not the row (deleted), not the response
+    # (204, empty), not the ledger, not the log stream.
+    assert phone not in rendered and phone.lstrip("+") not in rendered
+    assert released.content == b""
+
+
+async def test_a_release_the_rules_refuse_records_nothing_at_all(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The tombstone must not become a way to enumerate. A refused removal — a consumer
+    opt-out, or a global entry — leaves no handle behind, because nothing was released and
+    a `subject_ref` written on a refusal would turn `DELETE` into an oracle that confirms a
+    number is on the list for anyone who can guess an entry id."""
+    from apps.api.compliance.export import subject_ref
+
+    tenant_id, _agent_id, slug, token = await _tenant()
+    phone = _number()
+
+    async with tenant_session(tenant_id) as session:
+        await dnc.add_numbers(
+            session, tenant_id=tenant_id, raw_numbers=[phone], source="call_optout"
+        )
+        entry_id = (
+            await session.execute(
+                text("SELECT id FROM dnc_list WHERE tenant_id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+
+    formatter = JsonFormatter()
+    with caplog.at_level(logging.INFO):
+        async with _client() as http:
+            refused = await http.delete(f"/v1/dnc/{entry_id}", headers=_headers(token, slug))
+
+    assert refused.status_code == 422
+    assert _code(refused) == "dnc_consumer_optout"
+    rendered = "\n".join(formatter.format(record) for record in caplog.records)
+    assert subject_ref(phone) not in rendered
 
 
 async def test_one_tenants_suppressions_are_invisible_to_another() -> None:

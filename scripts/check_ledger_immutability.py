@@ -283,17 +283,83 @@ def check_allowances(root: Path | None = None) -> list[str]:
     return failures
 
 
-def check_sources(root: Path | None = None, dirs: tuple[str, ...] = SEARCH_DIRS) -> list[str]:
+def scanned_files(root: Path | None = None, dirs: tuple[str, ...] | None = None) -> list[Path]:
+    """The files check 1 actually reads. Shared with `blind_spots()` so the floor below
+    counts the same thing the scan counts, rather than a second walk that could drift.
+
+    `dirs=None` rather than `dirs=SEARCH_DIRS`: a default argument binds the tuple ONCE at
+    import, so the module constant and the parameter would be two values that agree until
+    somebody rebinds one. Reading it at call time is what `check_env_parity.blind_spots`
+    does and is what lets a test point this at nothing (D-176).
+    """
+    root = root or REPO_ROOT
+    return [
+        path
+        for directory in (SEARCH_DIRS if dirs is None else dirs)
+        for path in sorted((root / directory).rglob("*.py"))
+        if not any(part in str(path) for part in EXCLUDED_PARTS)
+    ]
+
+
+def blind_spots(root: Path | None = None, dirs: tuple[str, ...] | None = None) -> list[str]:
+    """Can check 1 still see the code it is judging? (D-176)
+
+    Checks 2 and 3 cannot go quiet — the allowance registry names files whose absence it
+    reports, and an unmigrated database has no triggers to verify. Check 1 is a SEARCH:
+    `(root / directory).rglob("*.py")` over a directory that has been renamed yields
+    nothing and raises nothing, so `check_sources()` returns `[]` and the run prints
+    `LEDGER IMMUTABILITY: OK (... no mutating statements in app code)` having read no code
+    at all. Measured, not theorised: `check_sources(root=<empty dir>) == []`.
+
+    It looked anchored and was not. The only thing that failed on an empty tree was
+    `check_allowances`, and only because `BOUNDED_MUTATIONS` happens to hold one entry
+    naming a real file — an EXCEPTION registry, whose whole purpose is to be emptied when
+    D-97's KEK re-wrap stops needing an exception. Removing that entry is a desirable
+    change, and it would silently remove check 1's only floor. An anchor that a correct
+    change can delete is not an anchor.
+
+    Floors an order of magnitude below the live counts (269 files, 8 ledger classes),
+    because the question is "is this scan still looking at the tree", not "has anybody
+    deleted a file" — a floor tracking the real number would fail on every deletion.
+    """
+    search = SEARCH_DIRS if dirs is None else dirs
+    failures = [
+        f"{directory}/ does not exist under {root or REPO_ROOT} — check 1 walks it with "
+        "rglob, which reports nothing rather than raising, so an UPDATE against a ledger "
+        "written there is now invisible to hard rule 4's code half"
+        for directory in search
+        if not ((root or REPO_ROOT) / directory).is_dir()
+    ]
+    scanned = scanned_files(root, search)
+    if len(scanned) < 30:
+        failures.append(
+            f"check 1 read {len(scanned)} source file(s) under {list(search)}. This tree has "
+            "hundreds; a scan this small is looking at the wrong place, and finding no "
+            "mutation in it is not evidence that there is none."
+        )
+    if not APPEND_ONLY_TABLES:
+        failures.append(
+            "APPEND_ONLY_TABLES is empty — there is no ledger left to protect, so all "
+            "three checks pass by having no subject (hard rule 4 names this constant as "
+            "the single source of truth precisely so it cannot be quietly emptied)."
+        )
+    elif not ledger_model_classes():
+        failures.append(
+            f"no ORM class maps to any of the {len(APPEND_ONLY_TABLES)} append-only "
+            "table(s), so the ORM-mutation and cascade-delete halves of check 1 are "
+            "matching against an empty class map and can only ever report nothing."
+        )
+    return failures
+
+
+def check_sources(root: Path | None = None, dirs: tuple[str, ...] | None = None) -> list[str]:
     root = root or REPO_ROOT
     classes = ledger_model_classes()
     offenders: list[str] = []
-    for directory in dirs:
-        for path in (root / directory).rglob("*.py"):
-            if any(part in str(path) for part in EXCLUDED_PARTS):
-                continue
-            offenders += scan_source(
-                path.relative_to(root), path.read_text(encoding="utf-8"), classes=classes
-            )
+    for path in scanned_files(root, dirs):
+        offenders += scan_source(
+            path.relative_to(root), path.read_text(encoding="utf-8"), classes=classes
+        )
     return sorted(offenders)
 
 
@@ -421,7 +487,16 @@ def check_triggers() -> list[str]:
 
 
 def main() -> int:
-    # The registry first: a stale allowance would silence a real finding below it.
+    # Before everything: a report from a scan that read no code is a report about nothing,
+    # and it is the one outcome here that looks exactly like a clean run (D-176).
+    blind = blind_spots()
+    if blind:
+        print("LEDGER IMMUTABILITY: FAIL — this check cannot see its own subject")
+        for failure in blind:
+            print(f"  - {failure}")
+        return 1
+
+    # The registry next: a stale allowance would silence a real finding below it.
     allowance_offenders = check_allowances()
     if allowance_offenders:
         print("LEDGER IMMUTABILITY: FAIL — the bounded-mutation registry is stale")

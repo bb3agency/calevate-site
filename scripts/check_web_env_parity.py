@@ -183,19 +183,14 @@ INFRA_ENV_KEYS: frozenset[str] = frozenset({"NODE_ENV", "NEXT_RUNTIME", "PORT", 
 # `stale_registry()` fails on any entry that names no declared key, so this can only
 # shrink, and `tests/web_env_parity_guard_test.py` pins the set so a new entry costs a
 # visible diff in a test too.
-PUBLIC_BY_DESIGN: dict[str, str] = {
-    "NEXT_PUBLIC_CLERK_CLIENT_PUBLISHABLE_KEY": (
-        "PUBLISHABLE is Clerk's own term for the half of the pair meant to ship in the "
-        "browser: it identifies the application to clerk-js and grants nothing on its "
-        "own. Its secret twin is CLERK_CLIENT_SECRET_KEY, which stays in the API's "
-        "Settings and is never NEXT_PUBLIC_. Closes if Clerk ever stops splitting the pair"
-    ),
-    "NEXT_PUBLIC_CLERK_ADMIN_PUBLISHABLE_KEY": (
-        "the admin realm's twin of the above, separate because TRD §11 and D-37 keep the "
-        "two realms in two Clerk APPLICATIONS with no shared session logic — one entry "
-        "covering both would be a per-vendor exemption where the repo keys them per value"
-    ),
-}
+#
+# EMPTY SINCE D-177, and the emptiness is the interesting state rather than a gap. Its two
+# entries were the realms' Clerk publishable keys — the half of a vendor pair meant to ship
+# in the browser. Authentication is first-party now and configures NOTHING in the browser:
+# the credential is a cookie the browser attaches by itself, so there is no key-shaped
+# value left for this registry to have reviewed. `stale_registry()` is what made removing
+# them compulsory rather than optional.
+PUBLIC_BY_DESIGN: dict[str, str] = {}
 
 # Names that must not be browser-visible. Substrings for the words that mean "credential"
 # in any position, suffixes for `_KEY`/`_TOKEN`, which are only credential-shaped at the
