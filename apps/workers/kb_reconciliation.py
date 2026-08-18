@@ -186,7 +186,14 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
     fourteen. It short-circuits the second bracket read, which has nothing left to bracket.
     """
     async with tenant_session(candidate.tenant_id) as session:
-        before = await handles_if_no_publish_in_flight(session, agent_id=candidate.agent_id)
+        before = await handles_if_no_publish_in_flight(
+            session,
+            agent_id=candidate.agent_id,
+            # THE ROUTE'S OWN VENDOR OBJECT (D-380). Without it an experiment arm's route
+            # was scored against the parent AGENT's recorded handles, which is `missing`
+            # on every tick for as long as a client's script test runs.
+            engine_agent_ref=candidate.engine_agent_ref,
+        )
     if before is None:
         return None
 
@@ -210,7 +217,9 @@ async def _observe_one(engine_name: str, candidate: KbDriftCandidate) -> _Observ
         return _Observation(candidate=candidate, attached=None, recorded=before)
 
     async with tenant_session(candidate.tenant_id) as session:
-        after = await handles_if_no_publish_in_flight(session, agent_id=candidate.agent_id)
+        after = await handles_if_no_publish_in_flight(
+            session, agent_id=candidate.agent_id, engine_agent_ref=candidate.engine_agent_ref
+        )
     if after is None or after != before:
         log.info(
             "kb_drift_sweep_skipped_mid_publish",
