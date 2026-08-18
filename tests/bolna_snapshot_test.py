@@ -317,3 +317,48 @@ def test_a_webhook_for_a_call_we_placed_still_reads_outbound() -> None:
     event = _engine().parse_webhook(_payload(telephony_data={"call_type": "outbound"}))
 
     assert event.direction == "outbound"
+
+
+def test_the_end_instant_comes_from_the_timestamp_the_vendor_actually_sends() -> None:
+    """`AgentExecution` carries exactly two timestamps, `created_at` and `updated_at`
+    (VERIFIED-OAS). `ended_at` is in neither the spec nor `references/execution-payload.md`.
+
+    The adapter reads `ended_at or updated_at`, so on every real payload the FALLBACK is
+    what runs — and the conformance fixture used to supply `ended_at`, which meant the
+    suite exercised the branch no live payload can take and never exercised the one all of
+    them take. Same shape as the `direction` defect above (D-359, D-361): a stub that
+    invents a field agrees with an adapter that reads it, forever.
+    """
+    payload = _payload(created_at="2026-08-10T09:15:00Z", updated_at="2026-08-10T09:16:35Z")
+    snapshot = _engine()._snapshot(payload)
+
+    assert snapshot.started_at is not None and snapshot.started_at.minute == 15
+    assert snapshot.ended_at is not None, (
+        "a payload carrying only the vendor's real timestamps must still yield an end "
+        "instant — `updated_at` is the fallback and it has to work"
+    )
+    assert snapshot.ended_at.minute == 16
+
+
+def test_the_billable_instant_is_our_observation_not_a_vendor_field() -> None:
+    """`completed_at` does not exist on this vendor, so `billable_ready_at` is always the
+    moment WE looked — a ceiling set by the poller's tick, never a vendor precision.
+
+    Pinned because the comment used to read "their `completed` timestamp where they give
+    one", which invites a reader to plan around an accuracy nothing supplies.
+    """
+    before = datetime.now(UTC)
+    snapshot = _engine()._snapshot(_payload(updated_at="2020-01-01T00:00:00Z"))
+    after = datetime.now(UTC)
+
+    assert snapshot.billable_ready_at is not None
+    assert before <= snapshot.billable_ready_at <= after, (
+        "billable_ready_at must be the observation instant, not anything read out of the "
+        "payload — the 2020 `updated_at` above is there to catch a read that drifts onto it"
+    )
+
+
+def test_a_call_that_is_not_completed_has_no_billable_instant() -> None:
+    """Non-vacuity for the pair above: `billable_ready_at` is None until the vendor's
+    terminal status, so it can never read as "ready at" for a call that is not."""
+    assert _engine()._snapshot(_payload(status="in-progress")).billable_ready_at is None

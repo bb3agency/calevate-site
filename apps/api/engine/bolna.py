@@ -1410,6 +1410,22 @@ class BolnaEngine:
         call_id = str(payload.get("id") or payload.get("execution_id") or "")
         cost = self._cost(payload)
         turns, unparsed = parse_transcript(payload.get("transcript"), call_id)
+        # THE VENDOR HAS EXACTLY TWO TIMESTAMPS ON AN EXECUTION, AND THEY ARE THE
+        # FALLBACKS HERE RATHER THAN THE PRIMARIES (D-361). `AgentExecution` declares
+        # `created_at` and `updated_at` and nothing else; `started_at`, `ended_at` and
+        # `completed_at` appear in NEITHER the pinned OAS nor
+        # `references/execution-payload.md`. Two of the three reads below therefore never
+        # match on a real payload — which is harmless ONLY because the real field is the
+        # other operand of each `or`, and that is luck rather than design.
+        #
+        # LEFT AS TWO-PLACE READS, deliberately. `created_at`/`updated_at` are FIRST for
+        # `started` (already correct) and the invented `ended_at` is kept ahead of
+        # `updated_at` for one reason: `updated_at` is "last updated", which on a row that
+        # is still transitioning is NOT when the call ended. If the platform ever does
+        # emit a real end instant under that name, it is strictly better than the
+        # fallback. What is NOT acceptable is a fixture that carries the invented spelling
+        # — that is how `direction` (D-359) hid, and the conformance fixture now uses
+        # `updated_at` so the path a live payload takes is the path the suite exercises.
         started = _parse_dt(payload.get("created_at") or payload.get("started_at"))
         ended = _parse_dt(payload.get("ended_at") or payload.get("updated_at"))
         duration = payload.get("conversation_duration") or payload.get("duration")
@@ -1442,10 +1458,19 @@ class BolnaEngine:
             transcript=turns,
             transcript_lines_unparsed=unparsed,
             cost=cost,
-            # Their `completed` timestamp where they give one, else the instant we
-            # OBSERVED it — which is what the poller's tick resolution actually buys and
-            # is honest about being a ceiling. Absent until the execution is billable,
-            # so it never reads as "ready at" for a call that is not.
+            # ALWAYS THE INSTANT WE OBSERVED IT, and that is now a statement of fact
+            # rather than a fallback nobody had checked (D-361): the vendor publishes NO
+            # `completed_at` — not in the OAS, not in `execution-payload.md` — so the
+            # left operand is always None and `datetime.now(UTC)` always wins. The read is
+            # kept because it costs nothing and is right the day they add one, but nobody
+            # should read this line as "their timestamp where they give one" and plan
+            # around a precision we do not have. What we actually record is the poller's
+            # tick resolution, which is honest about being a CEILING on when the execution
+            # became billable. `updated_at` is deliberately NOT used here: on a `completed`
+            # row it is the last write of any kind, which is close but is not the same
+            # claim, and a wrong instant on the billing path is worse than a coarse one.
+            # Absent until the execution is billable, so it never reads as "ready at" for
+            # a call that is not.
             billable_ready_at=(
                 _parse_dt(payload.get("completed_at")) or datetime.now(UTC)
                 if raw_status == "completed"

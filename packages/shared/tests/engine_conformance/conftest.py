@@ -73,7 +73,13 @@ BOLNA_COMPLETED: dict[str, Any] = {
     "agent_id": "agent_xyz",
     "status": "completed",
     "created_at": "2026-08-10T09:15:00Z",
-    "ended_at": "2026-08-10T09:16:35Z",
+    # `updated_at`, NOT `ended_at` (D-361). The vendor's execution object carries exactly
+    # two timestamps — `created_at` and `updated_at` — and `ended_at` is in neither the
+    # pinned OAS nor `references/execution-payload.md`. This fixture used to carry the
+    # invented spelling, which is the `direction` mistake in a second place: the adapter
+    # reads `ended_at or updated_at`, the stub supplied `ended_at`, so the suite exercised
+    # a branch no live payload can take and the branch that ALL of them take was never run.
+    "updated_at": "2026-08-10T09:16:35Z",
     "conversation_duration": 95,
     "total_cost": 8.5,
     "cost_breakdown": {
