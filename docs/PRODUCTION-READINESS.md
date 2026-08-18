@@ -116,18 +116,28 @@ These are not defects. They are marked assumptions (D-31/D-32's doctrine: a vend
 behaviour is a gate or a marked assumption, never a silent premise). Listing them together
 because a reader should know how much of the adapter rests on a claim.
 
-**Bolna publishes no OpenAPI spec, so every payload shape in the adapter is a
-hand-maintained claim.** Specifically:
+**THIS LIST USED TO OPEN "Bolna publishes no OpenAPI spec, so every payload shape in the
+adapter is a hand-maintained claim." That premise was false and it is retired (D-350):**
+the vendor publishes an OpenAPI 3.1 document in its own GitHub organisation, the adapter's
+shapes are read from it, and `docs/vendor/bolna/hosted-oas.md` holds the pin and checksum.
+Four of the six entries this list carried were answered by simply reading it, and are
+struck rather than restated — a marked assumption that has been settled is no longer one:
 
-- **Listing page size** — `bolna._LISTING_PAGE_SIZES` guesses from round numbers (gate 6b).
-- **Pagination shape** — the adapter follows only a continuation the payload hands it, and
-  never a guessed `?page=`. Where it cannot rule out a further page it returns
-  `complete=False` and the poller alerts. (gate 6c)
-- **Repeat `delete_agent`** — assumed 404, folded into idempotent success. (gate 2)
-- **`list_kb` agent linkage** — assumed present. If absent, the D-158 sweep reports
-  `unreadable` rather than a fleet-wide false alarm. (gate 8a)
-- **`DELETE /knowledgebase/{rag_id}`** — whether it also clears the agent's reference, or
-  leaves a dangling `rag_id`. (gate 8b)
+- ~~**Listing page size**~~ — published: `page_size` defaults 20, maximum 50.
+  `_LISTING_PAGE_SIZES`, the round-number heuristic, is DELETED (D-353).
+- ~~**Pagination shape**~~ — published: `page_number`/`page_size`/`has_more`, on a PER-AGENT
+  route. The old global `GET /executions` the adapter called does not exist (D-353).
+- ~~**`list_kb` agent linkage**~~ — answered, and the answer was no: a Bolna knowledge base
+  carries no agent field at all, so that filter matched nothing and every agent listed
+  empty forever. The capability is now declared absent and the methods refuse (D-354).
+- ~~**`DELETE /knowledgebase/{rag_id}`**~~ — moot for the same reason.
+- **Repeat `delete_agent`** — STILL an assumption: assumed 404, folded into idempotent
+  success. The spec documents 200 and 400 for that route and says nothing about an agent
+  that is already gone. (gate 2)
+- **The cost UNIT** — a NEW marked assumption this list did not have, and the vendor
+  contradicts itself: the OAS says `total_cost` is "in cents", `execution-payload.md` says
+  "account currency". Their own precedence rule picks cents, which is what the adapter
+  already does — but that is two documents reconciled, not a server observed. (gate 7)
 - **Cartesia `DELETE /agents/{id}`** — INFERRED; Cartesia publishes no agent-delete
   reference at all.
 
@@ -243,8 +253,10 @@ None`, so the reconciliation poller — D-31's *guarantee of record* — classif
 The blast radius is the entire billing surface, because every client-facing figure derives
 from `usage_events` and not from `calls` (`service.py:992` counts
 `COUNT(DISTINCT call_id) FROM usage_events`). `total_cost` and `cost_breakdown.*` are
-**hand-maintained claims from a vendor with no OpenAPI spec** (gate 7). If the live account
-spells that key differently: every usage panel reads 0 calls / 0 minutes / ₹0.00, every
+**read from the vendor's published OpenAPI document rather than hand-maintained** since
+D-350 — so a MISSPELLED key is no longer the live risk; the unresolved one is the UNIT,
+where the vendor's spec ("in cents") and the vendor's prose ("account currency") disagree
+by 100x (gate 7). If the live account spells that key differently anyway: every usage panel reads 0 calls / 0 minutes / ₹0.00, every
 invoice renders empty, no spend cap ever arms, no wallet is ever debited — **and nothing
 anywhere goes red.**
 

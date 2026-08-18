@@ -35,8 +35,11 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   Ruff + mypy(strict) in CI. One backend language (voice/AI ecosystem is Python-first;
   phase-2 Pipecat runtime reuses everything).
 - **Frontend:** Next.js 15 + TypeScript, Tailwind + shadcn/ui, TanStack Query, Recharts/
-  Tremor. Typed API client generated from FastAPI OpenAPI. (Bolna publishes no OpenAPI
-  spec — adapter models are hand-maintained from docs + pilot-captured payloads, §5.)
+  Tremor. Typed API client generated from FastAPI OpenAPI. (Bolna DOES publish an
+  OpenAPI spec — this line said otherwise for the repository's whole life, D-350. It is
+  `references/openapi.yml` in `bolna-ai/skills`, their own GitHub org, pinned and
+  checksummed in `docs/vendor/bolna/hosted-oas.md`; the adapter's models are now read
+  from it rather than hand-maintained, §5.)
 - **DB:** Postgres 16 for all system-of-record data. Vector/RAG: a managed RAG/memory
   service via API (D-28 — supersedes the earlier in-Postgres pgvector plan and the "no
   external vector DB" rule; D-08's RTT physics now governs provider REGION choice and
@@ -90,9 +93,10 @@ crm, analytics, billing, kb, integrations, compliance, audit.
 ## 3. Voice Stack (locked, with verification gates)
 
 Primary engine: **Bolna** (api.bolna.ai, Bearer auth; agent CRUD under /v2 — legacy
-unversioned paths are deprecated, never call them; no published OpenAPI spec, so the
-adapter's typed models are hand-maintained from docs.bolna.ai + payloads captured
-during the pilot; doc index at bolna.ai/docs/llms.txt). Adopted by D-31 (supersedes
+unversioned paths are deprecated, never call them; the adapter's typed models are read
+from the vendor's OWN published OpenAPI 3.1 document — `references/openapi.yml` in
+`bolna-ai/skills`, pinned and checksummed in `docs/vendor/bolna/hosted-oas.md` — and no
+longer hand-maintained from prose, D-350). Adopted by D-31 (supersedes
 D-02's ThinnestAI pick), gated on the pilot scorecard.
 Models (per-agent config, BYOK):
 - STT: **Sarvam Saaras V3** (22 Indian languages, streaming, code-mixed) — their docs
@@ -313,9 +317,14 @@ scorecard — D-31]:
   are an API client (CRUD/provisioning), a webhook consumer, and a custom-function
   server (their agent calls our endpoints mid-call; no documented timeout — measure at
   pilot, design async regardless). Bearer auth, base api.bolna.ai; agent CRUD under
-  /v2/agent (legacy unversioned paths deprecated); /call and /executions/{id}
-  unversioned. No published OpenAPI spec — typed models hand-maintained from docs +
-  captured payloads (pilot artifact, committed as evidence).
+  /v2/agent (legacy unversioned paths deprecated); /call, /call/{id}/stop and
+  /executions/{id} unversioned — and note that the EXECUTIONS LISTING is per agent,
+  `GET /v2/agent/{agent_id}/executions`, not a global collection: there is no
+  `/executions` collection at all, which is what D-353 fixed. A published OpenAPI 3.1
+  spec exists and the typed models are read from it (`docs/vendor/bolna/hosted-oas.md`
+  holds the pin, the checksum and the complete endpoint inventory). A captured payload
+  is still a pilot artifact worth committing — a spec is what the vendor says the server
+  does, not what it does.
 - **Outbound**: POST /call {agent_id, recipient_phone_number E.164} → execution_id;
   per-call context via `user_data` dynamic variables rendered into the agent prompt —
   OUR CallContext mechanism for lead callbacks; scheduled_at ISO-8601+tz built in.
@@ -358,12 +367,16 @@ scorecard — D-31]:
   exact API mechanics, pacing and limits unpublished (pilot). Built-in KB: rag_id CRUD
   API (POST /knowledgebase, GET /knowledgebase/all, GET|DELETE /knowledgebase/{rag_id}),
   multiple KBs per agent; multilingual mode
-  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. The ROUTES and the fact that
-  a KB is addressed by the vendor's `rag_id` are verified from published docs; every
-  BODY on this path is a hand-maintained claim (no OpenAPI spec), including the `rag_id`
-  field name and the list row shape — the two that decide whether D-41's detach works are
-  pilot gate 8 questions: does the list response carry the agent linkage `list_kb`
-  filters on, and does deleting a KB clear the agent's reference to it? Custom functions follow
+  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. **THE BUILT-IN KB IS NOT
+  DRIVABLE THROUGH OUR PORT AND THE ENGINE NOW DECLARES THE CAPABILITY ABSENT (D-354).**
+  `POST /knowledgebase` is `multipart/form-data` taking a PDF (max 20 MB) OR a `url` —
+  never raw text, which is all `KBSourceRef` carries — and the created object has NO
+  agent field: an agent references a knowledge base by `vector_id` inside
+  `llm_agent.llm_config.vector_store.provider_config.vector_ids`, not by the `rag_id`
+  this port returned and deleted by. Both of gate 8's questions are therefore answered
+  (the list carries no agent linkage, so `list_kb` reported every agent empty forever),
+  and in-call retrieval stays OURS — the D-28 managed vector service behind the RAG tool
+  endpoint, which is where every tier above T0 already lives. Custom functions follow
   the OpenAI function-calling schema (bearer/custom-header auth, pre_call_message
   filler line).
 - **BYOK key custody — where the keys actually live.** First, a terminology fix: in this

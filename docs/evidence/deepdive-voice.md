@@ -29,9 +29,20 @@ Nothing anywhere requires a listing row to be as rich as a fetch:
 
 * the Protocol's `list_executions` clause is entirely about COMPLETENESS of the listing
   (pagination), never about the richness of a row;
-* Bolna publishes no OpenAPI spec, so whether `GET /executions` rows carry
-  `total_cost`/`cost_breakdown` and the transcript blob is a **vendor behaviour nobody
-  has verified** (D-31/D-32);
+* whether a listing row carries `total_cost`/`cost_breakdown` and the transcript blob is
+  a **vendor behaviour nobody has verified** (D-31/D-32);
+
+  > **CORRECTION, D-350.** This bullet originally read "Bolna publishes no OpenAPI spec,
+  > so whether `GET /executions` rows carry ..." — and it was wrong on both halves. Bolna
+  > DOES publish an OpenAPI 3.1 document (`docs/vendor/bolna/hosted-oas.md`), and there is
+  > no `GET /executions` collection to ask about: the listing is per agent,
+  > `GET /v2/agent/{agent_id}/executions` (D-353). The finding this bullet supports
+  > SURVIVES both corrections, which is why it is corrected in place rather than struck.
+  > The spec declares the listing's `data[]` as `AgentExecution` — the identical schema
+  > `GET /executions/{execution_id}` returns — so on paper a row is a full execution. What
+  > a schema cannot say is whether the server POPULATES the expensive fields on a list
+  > response, and a nullable-everywhere schema is exactly how a server that omits them
+  > still validates. The gate stands.
 * the conformance suite cannot fail on it, and this was checked rather than assumed:
   `FakeEngine.list_executions` builds its rows with the same `_snapshot_from` as
   `get_execution`, and the Bolna stub's `GET /executions` branch returns whole

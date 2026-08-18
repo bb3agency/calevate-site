@@ -21,6 +21,13 @@ in any `except` clause on the path.**
   caught it even if the call were inside one. `list_executions`' only caller is
   `reconcile_executions`, which under D-31 IS the guarantee of record.
 
+  **P2.3's CALL SITE IS NOW GONE, AND THE TEST BECAME A SCAN (D-353).** `_next_link` was
+  written because Bolna was believed to publish no pagination contract; it publishes one,
+  and the adapter now builds its own paged URLs. So no adapter parses a URL it did not
+  build, the `InvalidURL` exposure is unreachable rather than handled, and the vendor can
+  no longer name a destination that receives our `Authorization` header. The scan holds
+  that property for the adapter written next — see the P2.3 test below.
+
 **THE STRUCTURAL TEST IS THE ONE THAT MATTERS.** The two behavioural tests cover the two
 call sites somebody remembered. The scan covers the adapters and the call sites that do
 not exist yet — and this repository had ALREADY solved P2.2 twice, in
@@ -33,7 +40,6 @@ from __future__ import annotations
 
 import ast
 import json
-from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -124,27 +130,48 @@ async def test_an_empty_success_is_still_not_an_error() -> None:
 # ============================================================================
 
 
-async def test_an_unparseable_next_link_is_dropped_rather_than_raised() -> None:
-    """The docstring already promised this: "anything else is dropped — dropping degrades
-    to `explicit_more`, which is loud".
+def test_no_adapter_turns_a_vendor_supplied_string_into_a_request_url() -> None:
+    """P2.3 IS NOW STRUCTURAL, BECAUSE THE CALL SITE IT GUARDED NO LONGER EXISTS (D-353).
 
-    A zero-width space inside the host is enough to make `httpx.URL` raise, and it is
-    exactly the shape a copy-pasted or mangled vendor field takes. The listing must come
-    back — incomplete and SAYING so — rather than taking the reconciliation poller down
-    with it.
+    The original test drove `BolnaEngine._next_link` with a zero-width space in the host
+    and asserted the listing came back incomplete rather than raising. That function is
+    gone: Bolna's real listing contract is `page_number`/`page_size`/`has_more`
+    (VERIFIED-OAS), not a continuation URL, so the adapter constructs every URL it fetches
+    from its own base and its own parameters and never GETs a string the vendor chose.
+
+    Deleting the old test outright would have quietly given back the property it bought.
+    `httpx.InvalidURL` escaping an adapter was only ever REACHABLE because some adapter
+    parsed a vendor-supplied URL — so the strongest statement available now is that none
+    of them does, which is also a real SSRF surface (a vendor-controlled destination
+    receiving our `Authorization` header) that this tree no longer has at all.
+
+    Written as a scan rather than as a behavioural test for the same reason the module
+    docstring gives for the P2.2 scan: this has to cover the adapter somebody writes next,
+    not the two that exist today. A future adapter whose vendor DOES hand out continuation
+    links may legitimately need this — and then it fails here, which is the point: it is a
+    decision with an SSRF story to write down, not a line to slip in.
     """
-    page = {
-        "data": [{"id": f"exec_{i}", "agent_id": "a", "status": "completed"} for i in range(10)],
-        "next": "http://a​.com/executions?page=2",
-    }
-    engine = _engine(lambda request: httpx.Response(200, json=page))
+    offenders: dict[str, list[str]] = {}
+    for path in sorted(ENGINE_DIR.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        hits = [
+            f"line {node.lineno}: httpx.URL(...)"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "URL"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "httpx"
+        ]
+        if hits:
+            offenders[path.name] = hits
 
-    listing = await engine.list_executions(since=datetime.now(UTC) - timedelta(minutes=30))
-
-    assert len(listing.snapshots) == 10
-    assert listing.complete is False, (
-        "a dropped continuation must leave the listing INCOMPLETE — the poller reads that "
-        "flag to decide whether it saw the whole window"
+    assert not offenders, (
+        f"an adapter parses a URL it did not build: {offenders}. `httpx.URL()` raises "
+        "`httpx.InvalidURL`, whose MRO excludes `httpx.HTTPError` (measured above), so no "
+        "`except` clause on the listing path catches it — and a vendor-chosen destination "
+        "would carry our Authorization header. Build request URLs from the configured "
+        "base and typed parameters instead."
     )
 
 
