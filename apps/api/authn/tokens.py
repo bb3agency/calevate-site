@@ -42,6 +42,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.codes import code_fingerprint, code_fingerprints, new_url_token
+from apps.api.authn.locks import lock_subject_credentials
 from apps.api.authn.models import AUTHN_REALMS, EMAIL_TOKEN_PURPOSES
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -219,9 +220,19 @@ async def invalidate_outstanding(
     holds a working key. The same reasoning covers the ordinary case of a person clicking
     "forgot password" three times: only the newest link should work, and this is what makes
     that true.
+
+    **IT TAKES THE SUBJECT LOCK, AND THAT IS WHAT MAKES "ONLY THE NEWEST" TRUE** (D-320).
+    Both promises above are retire-then-issue across two statements, and under READ
+    COMMITTED two overlapping reset requests each retired nothing and each issued a link:
+    two live keys in one mailbox, which is the state this function exists to prevent. The
+    lock lives here rather than in `issue_token` because this is the statement the
+    exclusivity is ABOUT — every caller that needs "only mine survives" already calls this
+    first, in the same transaction, and the lock is held through their INSERT by being
+    transaction-scoped (`authn.locks`).
     """
     _refuse_unknown(purpose, realm)
     at = now or datetime.now(UTC)
+    await lock_subject_credentials(session, realm=realm, subject_id=subject_id)
     result = await session.execute(
         text(
             "UPDATE auth_email_tokens SET used_at = :now, updated_at = :now "
