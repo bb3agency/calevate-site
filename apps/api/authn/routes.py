@@ -369,6 +369,13 @@ def _realm_router(realm: str) -> APIRouter:
         "/login/otp/resend",
         status_code=202,
         response_model=None,
+        # An EMPTY 202: the handler returns a bare `Response`, so there is no body and
+        # no media type. Without `response_class` FastAPI documents these as
+        # `application/json` with a `{}` schema — a shape the route can never produce,
+        # which the generated TypeScript client turns into a value nobody receives and
+        # which the response-model sweep in `tests/response_shape_test.py` cannot tell
+        # apart from a genuinely undeclared body (D-303).
+        response_class=Response,
         summary="Email a fresh one-time code for a sign-in that is waiting on one",
     )
     async def login_otp_resend(
@@ -441,6 +448,13 @@ def _realm_router(realm: str) -> APIRouter:
         "/password/reset/request",
         status_code=202,
         response_model=None,
+        # An EMPTY 202: the handler returns a bare `Response`, so there is no body and
+        # no media type. Without `response_class` FastAPI documents these as
+        # `application/json` with a `{}` schema — a shape the route can never produce,
+        # which the generated TypeScript client turns into a value nobody receives and
+        # which the response-model sweep in `tests/response_shape_test.py` cannot tell
+        # apart from a genuinely undeclared body (D-303).
+        response_class=Response,
         summary="Ask for a password reset link (answers identically for unknown addresses)",
     )
     async def reset_request(payload: ResetRequestIn, request: Request) -> Response:
@@ -474,6 +488,13 @@ def _realm_router(realm: str) -> APIRouter:
         "/otp/request",
         status_code=202,
         response_model=None,
+        # An EMPTY 202: the handler returns a bare `Response`, so there is no body and
+        # no media type. Without `response_class` FastAPI documents these as
+        # `application/json` with a `{}` schema — a shape the route can never produce,
+        # which the generated TypeScript client turns into a value nobody receives and
+        # which the response-model sweep in `tests/response_shape_test.py` cannot tell
+        # apart from a genuinely undeclared body (D-303).
+        response_class=Response,
         summary="Email a one-time code to this session's own address",
     )
     async def otp_request(
@@ -514,6 +535,9 @@ def _realm_router(realm: str) -> APIRouter:
             "/step-up",
             status_code=202,
             response_model=None,
+            # An empty 202 — see the sibling routes above for why `response_class`
+            # matters here (D-303).
+            response_class=Response,
             summary="Email a code to re-prove this operator's second factor before a "
             "dangerous action",
         )

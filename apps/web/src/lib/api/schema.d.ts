@@ -6703,6 +6703,27 @@ export interface components {
             undetermined: number;
         };
         /**
+         * KbReviewOut
+         * @description The review verdict, as a DECLARED model rather than a `dict[str, str]` (D-303).
+         *
+         *     These two handlers returned a bare mapping, which is not a shape — it is the absence
+         *     of one. Three things read a response model and none of them can read a mapping:
+         *     `scripts/check_redaction_exposure.py` walks response models and is structurally blind
+         *     to a route that declares none, the generated TypeScript client renders it as an index
+         *     signature so the frontend hand-writes its own interface, and BACKEND-PATTERNS §1's
+         *     "the response model IS the output whitelist" has nothing to whitelist. Nothing leaked
+         *     here — the value is a literal three lines below — but the guardrail could not have
+         *     said so, which is the same argument `tests/response_shape_test.py` already made for
+         *     the panels.
+         */
+        KbReviewOut: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "approved" | "rejected";
+        };
+        /**
          * KekOut
          * @description The key-management panel's read (§8 panel 4): which KEK is live, and what is
          *     still wrapped under something else.
@@ -7569,6 +7590,17 @@ export interface components {
             id: string;
             /** Series */
             series: string;
+        };
+        /**
+         * NumberDltStatusOut
+         * @description What the number's DLT status is now — declared, for `KbReviewOut`'s reasons.
+         */
+        NumberDltStatusOut: {
+            /**
+             * Dlt Status
+             * @enum {string}
+             */
+            dlt_status: "pending" | "registered" | "blocked";
         };
         /** NumberOut */
         NumberOut: {
@@ -9192,10 +9224,37 @@ export interface components {
             /** Status */
             status: string;
         };
+        /**
+         * TemplateRegisteredOut
+         * @description The template we just filed, and the ONE status a registration may start in.
+         */
+        TemplateRegisteredOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "submitted";
+        };
         /** TemplateStatusIn */
         TemplateStatusIn: {
             /** Dlt Ref */
             dlt_ref?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "submitted" | "approved" | "rejected";
+        };
+        /**
+         * TemplateStatusOut
+         * @description The registrar's verdict as recorded — declared, for `KbReviewOut`'s reasons.
+         */
+        TemplateStatusOut: {
             /**
              * Status
              * @enum {string}
@@ -10731,7 +10790,9 @@ export interface operations {
     };
     prompt_history_v1_admin_tenants__tenant_id__agents__agent_id__prompt_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path: {
                 tenant_id: string;
@@ -11237,9 +11298,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["TemplateRegisteredOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11275,9 +11334,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["TemplateStatusOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11497,7 +11554,9 @@ export interface operations {
     };
     list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path: {
                 tenant_id: string;
@@ -11642,9 +11701,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["KbReviewOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11712,9 +11769,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["KbReviewOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11853,9 +11908,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["NumberDltStatusOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11972,7 +12025,9 @@ export interface operations {
     };
     list_agents_v1_agents_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -12358,9 +12413,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -12449,9 +12502,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -12544,9 +12595,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -12631,9 +12680,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -12792,9 +12839,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -12883,9 +12928,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -12978,9 +13021,7 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -13525,7 +13566,9 @@ export interface operations {
     };
     list_campaigns_v1_campaigns_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -14554,7 +14597,9 @@ export interface operations {
     };
     list_endpoints_v1_integrations_endpoints_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -14707,7 +14752,9 @@ export interface operations {
     };
     list_invitations_v1_invitations_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -14802,6 +14849,7 @@ export interface operations {
         parameters: {
             query?: {
                 status?: string | null;
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -14895,7 +14943,9 @@ export interface operations {
     };
     list_lead_sources_v1_lead_sources_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -15733,7 +15783,9 @@ export interface operations {
     };
     list_members_v1_members_get: {
         parameters: {
-            query?: never;
+            query?: {
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;

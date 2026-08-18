@@ -41,7 +41,7 @@ import json
 import time
 from collections.abc import Coroutine
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 from apps.api.core.alerting import (
     alert,
@@ -61,6 +61,7 @@ from apps.api.reliability.service import body_hash, claim_inbox_event, mark_inbo
 from calevate_shared.client_address import client_ip
 from engine_intake import KNOWN_ENGINES, IntakeEvent, extract, verify_source
 from fastapi import APIRouter, Request, Response
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 from starlette.requests import ClientDisconnect
 
@@ -505,9 +506,40 @@ async def _read_bounded(
     return b"".join(chunks)
 
 
+class WebhookAckOut(BaseModel):
+    """What the engine is told, as a DECLARED shape rather than a `dict[str, str]` (D-303).
+
+    Four acks leave this receiver — `accepted`, `duplicate` (twice) and `ignored` — and
+    until this model they left as bare mappings assembled at four `return` sites. Nothing
+    leaked: every value here is ours (a status word, an execution id, an ARQ job id, one
+    of two fixed reason strings). But this endpoint's INPUT is a vendor payload that can
+    carry a caller's phone number, `apps/api`'s redaction guardrail does not walk this
+    service's schema at all, and the distance between "an ack" and "an ack that echoes
+    the field we could not key on" is one debugging session.
+
+    `extra="forbid"` makes the model the output whitelist BACKEND-PATTERNS §1 asks for,
+    and `response_model_exclude_none=True` on the route keeps the wire bytes exactly what
+    they were — an ack with three null keys in it would be a new shape shipped to a
+    vendor for a schema's benefit.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["accepted", "duplicate", "ignored"]
+    execution_id: str | None = None
+    job_id: str | None = None
+    #: Why an event was ignored, in OUR words — never the payload's. The two values are
+    #: written at the one `ignored` site below.
+    reason: str | None = None
+
+
 @router.post(
     "/engine/{engine}",
     status_code=202,
+    response_model=WebhookAckOut,
+    # The bytes on the wire are unchanged: `duplicate` still carries an execution id and
+    # nothing else, `ignored` still carries a reason and nothing else.
+    response_model_exclude_none=True,
     summary="Engine status webhook (unsigned for Bolna — hint only, poller is truth)",
 )
 async def engine_webhook(engine: str, request: Request, response: Response) -> dict[str, str]:
