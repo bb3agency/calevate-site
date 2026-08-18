@@ -26,6 +26,7 @@ from uuid import UUID
 import pytest
 from apps.api.billing import rates
 from apps.api.billing import service as billing
+from apps.api.billing.invoice import build_invoice
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.workers.pipeline import _meter
@@ -402,9 +403,24 @@ async def test_a_correction_that_changes_nothing_writes_nothing() -> None:
     assert not [r for r in rows if r["meta"].get("kind") == "tts_tier_correction"]
 
 
-async def test_a_self_serve_wallet_is_refunded_when_the_tier_was_wrong() -> None:
-    """For a self-serve client the wallet IS the bill (D-39), so a call billed at the
-    premium rate it did not get has to come back — as a NEW ledger entry."""
+async def test_a_prepaid_wallet_does_not_move_when_the_tier_was_wrong() -> None:
+    """D-373. A prepaid client is charged `self_serve_inr_per_min x minutes` and the TTS
+    rung is not an input to that price, so a tier correction owes them NOTHING.
+
+    THE DEFECT THIS PINS. This assertion used to read the other way — the wallet was
+    credited `-delta`, OUR supplier cost difference between the rungs — on the strength of
+    a comment ("the call was debited at metered cost") that P1.1/P1.3 had already made
+    false. The fixture below is the measurement: a 120-second call debits ₹12.00 at the
+    ₹6.00/min list price, and the old code then credited ₹15.00 back for a premium→value
+    correction over 10,000 characters. The client ended a mis-tiered call ₹3.00 RICHER
+    than if it had never been placed, out of a supplier cost they never paid and cannot
+    see. The reverse correction is the same error pointed at the client: a value→premium
+    finding DEBITED ₹15.00 for a rate they were never on.
+
+    The correction still happens — on the cost ledger, which is where the mis-statement
+    was — and the assertions below check that both halves are true at once, because
+    "nothing moved" is also what a correction that silently did nothing looks like.
+    """
     tenant_id, call_id = await _tenant_with_call("wallet", voice="bulbul:v3")
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -418,7 +434,7 @@ async def test_a_self_serve_wallet_is_refunded_when_the_tier_was_wrong() -> None
 
     async with tenant_session(tenant_id) as session:
         before = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
-        await billing.record_tier_correction(
+        delta = await billing.record_tier_correction(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
@@ -428,116 +444,102 @@ async def test_a_self_serve_wallet_is_refunded_when_the_tier_was_wrong() -> None
             ref="ops-4",
         )
         after = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
-    assert after - before == Decimal("15.0000"), "the overcharge is refunded, not edited away"
+
+    # The call itself: two minutes at the ₹6.00/min list price, and not one paisa of the
+    # ₹15.00 rung difference. Spelled as the debit rather than as "500 minus something",
+    # so a change to `self_serve_inr_per_min` fails this line loudly instead of quietly.
+    assert before == Decimal("500.00") - Decimal("12.0000"), (
+        "a prepaid call is debited at the LIST PRICE, which is what makes the rung "
+        "irrelevant to this wallet"
+    )
+    assert after == before, (
+        "a TTS rung is not an input to a prepaid client's price, so a rung correction "
+        "owes them nothing — crediting our supplier cost hands them money they never paid"
+    )
 
     async with tenant_session(tenant_id) as session:
-        reasons = (
-            (
-                await session.execute(
-                    text(
-                        "SELECT reason FROM credit_ledger WHERE tenant_id = :t AND ref = :r "
-                        "ORDER BY occurred_at"
-                    ),
-                    {"t": tenant_id, "r": f"tier-correction:{call_id}:ops-4"},
-                )
-            )
-            .scalars()
-            .all()
-        )
-    assert reasons == ["adjustment"]
-
-
-async def test_one_reference_over_two_calls_refunds_both_and_replays_neither() -> None:
-    """The wallet half of a tier correction is keyed on (CALL, reference), and that key
-    is the whole idempotency story for real money moving back to a client.
-
-    TWO PROPERTIES, and the first one used to be false. An ops script correcting a BATCH
-    of mis-tiered calls under a single reference must refund EVERY call in the batch:
-    the wallet key was the reference alone, so the second and every later call was
-    corrected on the cost ledger and never refunded — the client's costs said "put
-    right" while their balance did not move, which is the worst shape a half-finished
-    correction can take, because nothing afterwards reads as wrong.
-
-    The second property is the replay this has always defended against: the same script
-    dying halfway and being re-run must not refund a call twice. Hard rule 4 means a
-    second refund can never be deleted, only compensated by taking money back off a
-    client who did nothing wrong.
-    """
-    tenant_id, first_call = await _tenant_with_call("refonce", voice="bulbul:v3")
-    second_call = uuid7()
-    async with tenant_session(tenant_id) as session:
-        await session.execute(
-            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
-            {"t": tenant_id},
-        )
-        agent_id = (
-            await session.execute(
-                text("SELECT agent_id FROM calls WHERE id = :c"), {"c": first_call}
-            )
-        ).scalar_one()
-        await session.execute(
-            text(
-                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                "to_e164, status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', "
-                "'+919876500001', 'completed', now(), now())"
-            ),
-            {"i": second_call, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
-        )
-        await billing.record_entry(
-            session, tenant_id=tenant_id, delta=Decimal("500.00"), reason="topup", ref="rzp_refonce"
-        )
-    await _meter(tenant_id, first_call, _snapshot())
-    await _meter(tenant_id, second_call, _snapshot())
-
-    async def _correct() -> None:
-        async with tenant_session(tenant_id) as session:
-            for call_id in (first_call, second_call):
-                await billing.record_tier_correction(
-                    session,
-                    tenant_id=tenant_id,
-                    call_id=call_id,
-                    chars=10_000,
-                    billed_tier="premium",
-                    actual_tier="value",
-                    ref="ops-batch-9",
-                )
-
-    async with tenant_session(tenant_id) as session:
-        before = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
-    await _correct()
-    # The script dies and is re-run over the same batch.
-    await _correct()
-    async with tenant_session(tenant_id) as session:
-        after = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
-
-    # ₹30 premium vs ₹15 value on 10k chars: ₹15 per call, both calls, once each.
-    assert str(after - before) == "30.0000", "every call in the batch is refunded, exactly once"
-
-    async with tenant_session(tenant_id) as session:
-        wallet_rows = (
+        adjustments = (
             await session.execute(
                 text(
-                    "SELECT ref, delta FROM credit_ledger WHERE tenant_id = :t "
-                    "AND reason = 'adjustment' ORDER BY ref"
+                    "SELECT count(*) FROM credit_ledger WHERE tenant_id = :t "
+                    "AND reason = 'adjustment'"
                 ),
                 {"t": tenant_id},
             )
-        ).all()
-    assert [str(row[1]) for row in wallet_rows] == ["15.0000", "15.0000"]
-    assert {row[0] for row in wallet_rows} == {
-        f"tier-correction:{first_call}:ops-batch-9",
-        f"tier-correction:{second_call}:ops-batch-9",
-    }, "the wallet key names the call, so a batch reference cannot collapse two refunds"
+        ).scalar()
+    assert adjustments == 0
 
-    # The cost ledger is keyed the same way, and the two halves now agree: corrected and
-    # refunded are the same set, which is the property the old keying broke.
+    # …and the correction DID happen, on the ledger it belongs to. Without this the test
+    # above would also pass against a `record_tier_correction` that had stopped working.
+    assert delta == Decimal("-15.0000")
     corrections = [
-        r
-        for call_id in (first_call, second_call)
-        for r in await _usage_rows(tenant_id, call_id)
-        if r["meta"].get("kind") == "tts_tier_correction"
+        row
+        for row in await _usage_rows(tenant_id, call_id)
+        if row["meta"].get("kind") == "tts_tier_correction"
     ]
-    assert len(corrections) == 2
+    assert len(corrections) == 1
+
+
+async def test_a_correction_reprices_a_managed_month_onto_the_rung_that_ran() -> None:
+    """D-372. The CLIENT-facing half of a tier correction, which nothing used to move.
+
+    A managed plan quotes two overage rates, and `priced_overage` splits the month by the
+    rung each call's `telephony_s` row is attributed to. A correction cannot append a
+    second `telephony_s` row — `ux_usage_events_tenant_call_unit` forbids one — so the
+    original row keeps the rung it was MIS-metered on, and before `_CORRECTED_TIER_SQL`
+    existed nothing else moved it either: the client went on being charged the premium
+    rate for minutes that ran on the value voice, on every re-render of the invoice, for
+    ever. The correction fixed our margin sheet and left the bill exactly as wrong as it
+    was, which is the precise inverse of what SURFACES §2b asks for.
+
+    The fixture: one 120-second call (2.00 min) metered premium, on a plan with no
+    included minutes, ₹30.00/min premium and ₹6.00/min value. Priced on the rung it was
+    metered on that is ₹60.00; on the rung that RAN it is ₹12.00.
+    """
+    tenant_id, call_id = await _tenant_with_call("reprice", voice="bulbul:v3")
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO plans (id, tenant_id, included_min, overage_rate, "
+                "overage_rate_value, created_at, updated_at) VALUES (:i, :t, 0, "
+                "30.0000, 6.0000, now(), now())"
+            ),
+            {"i": uuid7(), "t": tenant_id},
+        )
+    await _meter(tenant_id, call_id, _snapshot())
+
+    async with tenant_session(tenant_id) as session:
+        before = await billing.usage_summary(session, tenant_id=tenant_id)
+    assert before["overage_cost_inr"] == Decimal("60.00"), (
+        "the fixture must start on the premium rung or this test proves nothing"
+    )
+
+    async with tenant_session(tenant_id) as session:
+        await billing.record_tier_correction(
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            chars=10_000,
+            billed_tier="premium",
+            actual_tier="value",
+            ref="ops-reprice",
+        )
+        after = await billing.usage_summary(session, tenant_id=tenant_id)
+        invoice = await build_invoice(session, tenant_id=tenant_id)
+
+    assert after["overage_minutes_premium"] == Decimal("0.00")
+    assert after["overage_minutes_value"] == Decimal("2.00")
+    assert after["overage_cost_inr"] == Decimal("12.00"), (
+        "the corrected call's minutes are still priced on the rung it was mis-metered "
+        "on, so the client is being overcharged ₹48.00 by a correction that claimed to "
+        "put it right"
+    )
+    # The invoice is the document the client actually receives, and it is a separate
+    # reader of the same rungs — a fix that moved the panel and not the statement would
+    # be the two-numbers-for-one-month defect this repo keeps closing.
+    amounts = [line["amount_inr"] for line in invoice["line_items"]]
+    assert amounts == [Decimal("12.00")]
+    assert "value voice" in invoice["line_items"][0]["description"]
 
 
 async def test_a_managed_client_wallet_is_untouched_by_a_correction() -> None:

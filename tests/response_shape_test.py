@@ -276,15 +276,62 @@ async def test_the_wallet_is_a_string_for_a_self_serve_client() -> None:
     assert response.status_code == 200, response.text
     body = UsagePanelOut.model_validate(response.json())
     assert body.plan_tier == "self_serve"
-    # "300.0000", NOT "9999.00": this is the one money field on the panel that does not
-    # pass through `billing.to_paise` — the route stringifies `get_balance()`, which is
-    # `credit_ledger.balance_after` read back at its NUMERIC(12,4) storage precision.
-    # Pinned as it is rather than as it ought to be, because this file types what the
-    # service returns; the inconsistency is reported, not quietly rounded away here.
-    assert body.credit_balance_inr == "300.0000"
-    assert body.monthly_fee_inr == "9999.00", "every other money field IS paise-quantized"
+    # PAISE, like every other money field on this panel (D-375). It used to be
+    # "300.0000" — the route stringified `get_balance()`, i.e. `credit_ledger
+    # .balance_after` at its NUMERIC(12,4) storage precision — and this assertion pinned
+    # the inconsistency rather than the fix. It is a fix rather than a tidy-up because
+    # `formatINR` TRUNCATES a fraction to two digits where `to_paise` rounds half-up: at
+    # a balance of ₹489.7050 the admin wallet screen said ₹489.71 and the client's own
+    # panel said ₹489.70, off one wallet, in one instant.
+    assert body.credit_balance_inr == "300.00"
+    assert body.monthly_fee_inr == "9999.00", "and it is not the odd one out any more"
     # Runway is now priced off the wallet, not the cap (₹300 at the ₹6/min list rate).
     assert body.minutes_left == 50
+
+
+async def test_one_wallet_reads_the_same_on_the_client_panel_and_the_admin_console() -> None:
+    """D-375. The client's own panel and the admin wallet screen are two readers of ONE
+    `credit_ledger.balance_after`, and they must not publish it differently.
+
+    THE BALANCE IS DELIBERATELY A FOUR-DECIMAL ONE, because that is the case the paise
+    quantum decides and the only case that ever disagreed. It is not exotic: a prepaid
+    debit is `rates.prepaid_billed_inr`, quantized at MONEY_Q, so any
+    `self_serve_inr_per_min` that is not a divisor of 60 produces one on the first call —
+    a 95-second call at ₹6.50/min is ₹10.2917.
+
+    ₹489.7050 is the awkward half: `to_paise` (ROUND_HALF_UP, the repo's one mode) makes
+    it ₹489.71, while the panel used to publish `489.7050` verbatim into `formatINR`,
+    which TRUNCATES a fraction to two digits — ₹489.70. One wallet, two screens, one
+    paisa apart, and the client's screen was always the low one.
+    """
+    tenant_id, agent_id, headers = await _owner_tenant("walq")
+    await _seed_billing(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'self_serve' WHERE id = :t"),
+            {"t": tenant_id},
+        )
+        await billing.record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal("489.7050"),
+            reason="topup",
+            ref="rzp_shape_q",
+        )
+        stored = (await billing.get_balance(session, tenant_id=tenant_id)).amount_inr
+
+    assert stored == Decimal("489.7050"), (
+        "the LEDGER keeps its full precision — only the wire is quantized"
+    )
+
+    async with _client() as http:
+        response = await http.get(USAGE, headers=headers)
+    body = UsagePanelOut.model_validate(response.json())
+
+    assert body.credit_balance_inr == str(billing.to_paise(stored)) == "489.71", (
+        "the client's own wallet figure must be the same paisa the admin console shows; "
+        "publishing the storage precision hands it to a formatter that truncates"
+    )
 
 
 async def test_a_brand_new_tenant_still_gets_a_usage_panel() -> None:

@@ -305,6 +305,30 @@ marked; this one is not — the exact shape D-31/D-32 forbid.
 **FIX:** name the minor-unit assumption in a constant beside `_ASSUMED_CURRENCY` and add it
 to gate 7, or refuse the INR branch until the gate answers.
 
+**HALF DONE (D-261), AND THE REMAINING HALF IS THE ONE THIS ENTRY IS ACTUALLY ABOUT.** The
+divisor is now `bolna._ASSUMED_MINOR_UNITS_PER_MAJOR` — named, argued, and carrying real
+evidence AGAINST itself (their OSS `calculate_total_cost_of_llm_from_transcript` returns a
+rounded *dollar* float; every published price is quoted in dollars per minute) — and gate 7
+was raised from S to H to settle it. That closes "name the assumption" and "add it to gate
+7" **for the USD branch**.
+
+The INR branch is still on a silent premise, and the constant's own docstring is why: it
+defines itself as "how many of the vendor's cost UNITS make one unit of
+`_ASSUMED_CURRENCY`", and `_ASSUMED_CURRENCY` is USD. `_cost` nevertheless applies it to a
+payload that STATES `INR` at `rate = 1`. Verified against this tree rather than read:
+`_cost({"total_cost": 450, "currency": "INR"})` returns `total_inr = 4.5000` with
+`currency_stated=True` — so if Bolna bills an Indian account in RUPEES, every INR call
+meters at 1/100th of true cost on a row that looks *more* trustworthy than a guessed one,
+not less. Nothing has ever observed Bolna quoting INR, which is exactly why the divisor was
+inherited there rather than decided.
+
+Gate 7's row in OPERATIONS §2 now names that branch separately and says what to compare.
+**STILL EXTERNAL:** a funded Bolna account placing one real call. **NOT changed on
+inference** — refusing the INR branch would meter NOTHING for a vendor that turns out to
+bill us correctly in INR, and an absent cost is a bigger hole than a marked assumption;
+flipping the divisor for INR alone would be a second guess dressed as a fix, in the file
+whose whole subject is not doing that.
+
 ### P1.6 — The ledger-correction path has no production entrypoint · SERIOUS · OURS
 
 `billing/service.py:1241` defines `record_tier_correction`; its only callers are in
@@ -317,6 +341,28 @@ table.
 **FIX:** one audited ops action, or a `scripts/` entry point in the family of
 `reconcile_credit_ledger.py`. It needs a `chars` input only a Sarvam usage export supplies —
 name that in the runbook.
+
+**DONE (D-374).** `scripts/correct_tts_tier.py`, the second of the two shapes: dry run by
+default, `--from-csv` for a vendor export, `--ref` as the idempotency key. It reads
+`billed_tier` OFF THE LEDGER rather than taking the operator's word for it — restating it
+from memory is how a correction writes the delta between two rungs the call was never on —
+and it refuses a malformed line instead of skipping it, because a batch that corrects some
+of its file and reports success is the half-applied state hard rule 4 exists to keep out.
+`tests/tts_tier_correction_script_test.py` exercises it. The console button was weighed and
+rejected in the module docstring: the input is a file an operator downloads from a vendor,
+so a button needs an upload, a parser and a review screen for a correction needed zero times
+so far.
+
+**WHERE THE `chars` REQUIREMENT IS NAMED, since this entry asked for a runbook and there is
+not one.** It is in the script's module docstring and in `--help` on `--chars` ("characters
+synthesized, from the vendor export"), which is where an operator holding the problem
+actually looks. No `runbooks/` page was added: a tier correction pages nobody — it is
+reached by reading a Sarvam usage export, not by an alarm — so it has no row in the derived
+`alarm-index.md` and a standalone page for a procedure with no trigger and no occurrences
+would be the same "progress that looks like progress" the console button was rejected for.
+The day one is needed, `runbooks/topup-payments.md` is its neighbour. **The correction it invokes was also WRONG IN BOTH DIRECTIONS until this audit** —
+it never repriced the client's bill (D-372) and it moved a prepaid wallet by our supplier
+cost (D-373).
 
 ### P1.7 — `tts_tier_source` is written on every row and read by nothing; the register was wrong about why · SERIOUS · OURS
 
