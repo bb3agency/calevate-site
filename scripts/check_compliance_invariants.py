@@ -266,6 +266,13 @@ class GateRegistry:
     truthful_names: frozenset[str]
     prompt_composer: str
     agent_config_fields: frozenset[str]
+    #: D-282. The names section 6's SECOND half polices — the per-call home hard rule 5
+    #: gets on an engine whose agent record cannot hold a prompt. Read off the real
+    #: objects for this dataclass's whole reason.
+    call_floor_guard: str
+    call_prompt_field: str
+    hosting_shapes: frozenset[str]
+    external_hosting: str
 
 
 def gate_registry() -> GateRegistry:
@@ -280,11 +287,14 @@ def gate_registry() -> GateRegistry:
         kyc_blocker,
         spend_capped,
     )
+    from apps.api.engine.capabilities import require_call_compliance_floor
     from apps.workers.whatsapp import Destination, get_whatsapp_transport
     from calevate_shared.engine import (
         TRUTHFUL_ANSWER_DIRECTIVE,
         TRUTHFUL_ANSWER_MARKER,
         AgentConfig,
+        AgentHosting,
+        CallContext,
         VoiceEngine,
         compose_engine_prompt,
     )
@@ -314,6 +324,15 @@ def gate_registry() -> GateRegistry:
         truthful_names=frozenset({"TRUTHFUL_ANSWER_MARKER", "TRUTHFUL_ANSWER_DIRECTIVE"}),
         prompt_composer=compose_engine_prompt.__name__,
         agent_config_fields=frozenset(AgentConfig.model_fields),
+        call_floor_guard=require_call_compliance_floor.__name__,
+        call_prompt_field=next(
+            name for name in CallContext.model_fields if name == "system_prompt"
+        ),
+        # From the Literal, never retyped: a hosting shape added to the port lands in this
+        # set on the day it is declared, and the section below then has to say what that
+        # shape owes hard rule 5 instead of silently exempting it.
+        hosting_shapes=frozenset(AgentHosting.__args__),
+        external_hosting="external_deployment",
     )
 
 
@@ -852,11 +871,32 @@ def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[s
                     "per-agent variant; a parameter is a switch with a longer name"
                 )
 
-    # EVERY ADAPTER, not a list of adapters. `compose_engine_prompt` is what carries the
-    # directive onto the engine, so an adapter that builds its prompt by hand is the one
-    # way it goes missing on one vendor and nowhere else.
+    # EVERY ADAPTER, not a list of adapters — and WHAT each one owes depends on the
+    # hosting shape it declares (D-282). There are two homes for the directive and an
+    # adapter must be holding it in the one its own `EngineCapabilities` names:
+    #
+    #   control_plane        the prompt is agent-record state, so the adapter must build
+    #                        it with `compose_engine_prompt`;
+    #   external_deployment  there is no agent record, so the prompt rides the CALL and
+    #                        the adapter must run `require_call_compliance_floor` inside
+    #                        `start_outbound_call` — which refuses a dial that is not
+    #                        carrying the rule, including one this adapter cannot carry.
+    #
+    # Before this, section 6 asked every adapter for the first one. That was right while
+    # every engine was Bolna-shaped and became wrong the day one was not: `cartesia.py`
+    # composes nothing because it writes no agent, and a check that could only see the
+    # composer would have forced a dead call to it — a guardrail teaching the code to lie
+    # to it, which is worse than no guardrail.
     for adapter in _adapter_files(roots):
         tree = _parse(adapter)
+        declared = _declared_hosting(tree, registry)
+        unknown = sorted(declared - registry.hosting_shapes)
+        if unknown:
+            failures.append(
+                f"{adapter.name} declares agent hosting {unknown[0]!r}, which is not a "
+                "member of `AgentHosting`. This section only knows what the two shipped "
+                "shapes owe hard rule 5; a third has to say so here before it can ship"
+            )
         # A CALL, not a mention: an adapter that keeps the import and hand-rolls the
         # f-string underneath it is exactly the regression this section exists for, and a
         # substring search would report it clean.
@@ -867,7 +907,8 @@ def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[s
         renders_agents = any(
             isinstance(node, ast.Name) and node.id == "AgentConfig" for node in ast.walk(tree)
         )
-        if renders_agents and not composes:
+        hosts = bool(declared - {registry.external_hosting}) or not declared
+        if renders_agents and hosts and not composes:
             failures.append(
                 f"{adapter.name} renders an agent without calling "
                 f"`{registry.prompt_composer}`. Every engine prompt is composed by that "
@@ -875,7 +916,86 @@ def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[s
                 "— and the conformance suite reads it back off each adapter for the same "
                 "reason"
             )
+        if registry.external_hosting not in declared:
+            continue
+        # IN `start_outbound_call`, not merely somewhere in the file. The guard's whole
+        # value is that it runs before the vendor is asked to dial; one sitting in a
+        # helper nothing calls would satisfy a file-wide search and stop no call.
+        dial = _function_named(tree, registry.engine_start)
+        if dial is None:
+            failures.append(
+                f"{adapter.name} declares {registry.external_hosting!r} agent hosting and "
+                f"has no `{registry.engine_start}`, so the one place its agents could "
+                "receive the truthful-answer rule does not exist"
+            )
+        elif not any(
+            isinstance(node, ast.Call) and _called_name(node) == registry.call_floor_guard
+            for node in ast.walk(dial)
+        ):
+            failures.append(
+                f"{adapter.name} declares {registry.external_hosting!r} agent hosting and "
+                f"dials without `{registry.call_floor_guard}`. On that shape the engine "
+                "holds no prompt of ours, so nothing else can stop a call being placed "
+                "with no rule making the agent answer truthfully about being an AI"
+            )
+
+    # AND THE WRITER. The guard refuses a dial that is not carrying the prompt; something
+    # has to put one there, and there is exactly one outbound entry point in this system
+    # (section 1 is the check that keeps it exactly one). A `CallContext` built without
+    # the field would make every dial on an externally-deployed engine refuse — the safe
+    # direction, and still a broken product — so it is checked rather than assumed.
+    for file_path in _python_files(root_tuple):
+        dispatch = _function_named(_parse(file_path), registry.dial)
+        if dispatch is None:
+            continue
+        contexts = [
+            node
+            for node in ast.walk(dispatch)
+            if isinstance(node, ast.Call) and _called_name(node) == "CallContext"
+        ]
+        for context in contexts:
+            if not any(kw.arg == registry.call_prompt_field for kw in context.keywords):
+                failures.append(
+                    f"{_key(file_path, root_tuple)}::{registry.dial} builds a CallContext "
+                    f"without `{registry.call_prompt_field}=`. On an engine whose agents "
+                    "are deployed elsewhere that field is the only place the "
+                    "truthful-answer rule can ride, so every dial there would be refused"
+                )
     return failures
+
+
+def _declared_hosting(tree: ast.AST, registry: GateRegistry) -> set[str]:
+    """The `agent_hosting` values this adapter file declares, read off its
+    `EngineCapabilities(...)` literals.
+
+    READ FROM THE AST rather than by importing the module, because the negative controls
+    mirror the adapters into a tmp tree and doctor one — the same door every other section
+    here opens with `roots`. An adapter with more than one profile (the fake engine has
+    three) declares all of them, and owes what each shape owes: it is one file that can be
+    run as either engine, so a rule satisfied for only one of its profiles is a rule that
+    is not satisfied.
+    """
+    shapes: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or _called_name(node) != "EngineCapabilities":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg == "agent_hosting" and isinstance(keyword.value, ast.Constant):
+                shapes.add(str(keyword.value.value))
+    return shapes
+
+
+def _function_named(tree: ast.AST, name: str) -> ast.AST | None:
+    """The `def`/`async def` called `name`, or None.
+
+    Scoped lookup rather than a file-wide walk: "the guard is in this file" and "the guard
+    runs before this vendor is dialled" are different claims, and only the second is worth
+    checking.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name == name:
+            return node
+    return None
 
 
 def _keywords_named(tree: ast.AST, name: str) -> list[str]:
@@ -1151,8 +1271,9 @@ def main() -> int:
     print(
         f"COMPLIANCE INVARIANTS: OK ({len(dial_sites())} dial sites all gated and obeying "
         f"the decision, {len(_engine_sites())} engine reaches all accounted for, "
-        f"{len(_adapter_files())} adapters composing the truthful-answer rule they cannot "
-        f"switch off, {len(SCHEMA_INVARIANTS)} schema invariants verified against "
+        f"{len(_adapter_files())} adapter modules holding the truthful-answer rule in the "
+        f"home their declared agent hosting gives it, {len(SCHEMA_INVARIANTS)} schema "
+        "invariants verified against "
         "pg_catalog)"
     )
     return 0

@@ -69,17 +69,29 @@ stylistic:
   system_prompt` on the websocket start message, or `LlmConfig(system_prompt=...)` inside
   the program. Never agent-record state.
 
-So `create_agent`, the prompt half of `update_agent`, and the prompt/greeting/model half
-of `get_agent` describe a platform Cartesia does not run. They are LEFT IN PLACE and
-relabelled CONTRADICTED rather than deleted, for one reason: the `VoiceEngine` port and
-its conformance suite require them, `EngineCapabilities` has no way to say "this engine
-cannot host an agent of ours", and inventing one is a port change with an admin console
-and a publish path hanging off it — not a change to make on the same afternoon the
-evidence arrives. What the relabelling buys is that nobody reads this file again and
-believes the round trip works. OPERATIONS §2 gate 19(a) is what closes it.
+So `create_agent`, `update_agent` and the prompt read-back in `get_agent` describe a
+platform Cartesia does not run. **D-270 could only relabel them; D-280/D-281 removed
+them.** `EngineCapabilities` now has a member for exactly this —
+`agent_hosting="external_deployment"` — so all three refuse through the one capability
+refusal in `capabilities.py`, before any request leaves this process, with a remediation a
+person can act on. `publish_agent` asks the same capability first and refuses at the
+button rather than at a 404 in the middle of a half-written transaction, and the admin
+console asks it too, so the control is not offered.
 
-The parts of the port that DO survive are now verified rather than assumed: reading an
-agent, renaming it, deleting it, reading a call, and listing calls.
+**AND HARD RULE 5 DID NOT GET WEAKER TO ACCOMMODATE ANY OF THAT.** If the prompt is
+per-call data on this platform, then the truthful-answer floor must ride the per-call
+payload — `CallContext.system_prompt`, composed by `dispatch_call` and checked by
+`require_call_compliance_floor` inside every adapter's dial. This adapter's outbound shape
+(`POST /agents/calls`, REPORTED-DOCS) has no field for a prompt, so it cannot carry the
+floor, so **it refuses every dial**. That is the port's instruction for this case and it is
+deliberately not negotiable: an engine we cannot hold the floor on is an engine we do not
+dial from. `fake.EXTERNAL_DEPLOYMENT_CAPABILITIES` is what exercises the other branch —
+an externally-deployed engine that DOES carry our prompt on the call — so the alternative
+contract is proven in CI rather than described here.
+
+The parts of the port that survive are verified rather than assumed: deleting an agent,
+listing agents, reading a call, and listing calls. OPERATIONS §2 gate 19(a) and 19(b) are
+what turn the two refusals back into behaviour.
 
 WHAT IS DELIBERATELY NOT HERE
 ------------------------------
@@ -123,11 +135,9 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     KBSourceRef,
     ListingIncompleteReason,
-    ModelConfig,
     NumberSpec,
     ProvisionedNumber,
     WebhookVerdict,
-    compose_engine_prompt,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
@@ -136,8 +146,8 @@ from apps.api.core.logging import get_logger
 from apps.api.engine.capabilities import (
     NO_CREDENTIALS_REASON,
     engine_not_configured,
+    require_call_compliance_floor,
     require_capability,
-    require_speech_leg,
 )
 from apps.api.engine.document import engine_document
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
@@ -254,10 +264,30 @@ _TERMINAL_RAW: Final = frozenset(
 #   There is NO provider field on either: the speech stack is Cartesia's product (Sonic /
 #   Ink), and our Sarvam Bulbul catalogue addresses nothing on this engine. This is the
 #   whole reason `SpeechControl` is per-leg.
-# * `llm="ours"` — READ AT SOURCE. `line/llm_agent/provider.py:5` routes through LiteLLM
-#   ("See https://docs.litellm.ai/docs/providers"), and their README's own quick start is
-#   `LlmAgent(model=..., api_key=os.getenv(...))`. Sarvam is a first-class LiteLLM
-#   provider, so D-36's free-per-token LLM leg survives the move. One leg of three.
+# * `llm="engine"` — **THE VALUE CHANGED AND THE VENDOR FACT DID NOT** (D-281), which is
+#   `transfer`'s argument two paragraphs down, applied to a speech leg. READ AT SOURCE,
+#   and still true: `line/llm_agent/provider.py:5` routes through LiteLLM ("See
+#   https://docs.litellm.ai/docs/providers") and their quick start is
+#   `LlmAgent(model=..., api_key=os.getenv(...))`, so Sarvam 105B really does run on Line
+#   and D-36's free-per-token leg really does survive a move (TRD §10.5's table says so
+#   about the VENDOR and stays correct).
+#   But `SpeechControl` does not ask "can this vendor run our model". Its own docstring
+#   says `ours` means "our provider and model strings REACH THE VENDOR and run on OUR
+#   key", and on this platform they do not: `LlmAgent(model=...)` is a constructor call
+#   inside the DEPLOYED PROGRAM, `AgentSummary` has no `model` field, and
+#   `AgentUpdateParams` is `{description, name, tts_language, tts_voice}` — so there is no
+#   endpoint this adapter holds through which a `ModelConfig` value could arrive. That is
+#   the same shape as the prompt (`agent_hosting`), and for the same reason.
+#   WHY IT HAD TO CHANGE RATHER THAN BE LEFT: with the three agent-write methods refusing,
+#   `require_speech_leg` no longer runs on this adapter at all, so `llm="ours"` would have
+#   become a claim NOTHING could contradict — the unfalsifiable descriptor entry
+#   `test_an_engine_side_campaign_object_is_not_claimable_yet` refuses outright, sitting in
+#   the same object as six claims that are enforced and borrowing their credibility.
+#   THIS IS NOT A GATE-16-SHAPED GUESS: gate 16 is Bolna's `family`-versus-`provider`,
+#   where no correct value is derivable. Here the value is derived from the SAME
+#   VERIFIED-SDK absence that settled `agent_hosting`, and it makes the descriptor say
+#   less rather than more. It reverts the day our model reaches a call the way the prompt
+#   would (gate 19(b)).
 # * `campaigns=False` — no campaign object appears anywhere in the SDK, and ours are
 #   dispatched in our own layer through the compliance gate regardless.
 # * `knowledge_base=True` — READ AT SOURCE, and a CORRECTION to TRD §10.5 (module
@@ -293,10 +323,22 @@ _TERMINAL_RAW: Final = frozenset(
 #   than the evidence supports. FALSIFIED BY: reading their webhook page. If it is a
 #   shared secret, a `shared_secret` method lands in `WebhookAuthMethod` and in both
 #   halves together. Gate 19(e).
+# * `agent_hosting="external_deployment"` — THE FIELD THIS ADAPTER WAS WAITING FOR
+#   (D-280). READ AT SOURCE: `cartesia-python`'s `AgentsResource` has no `create`,
+#   `AgentSummary` carries `git_repository`/`git_deploy_branch` and no prompt, greeting or
+#   model, and `PATCH /agents/{id}` accepts exactly `{description, name, tts_language,
+#   tts_voice}`. An agent here is a DEPLOYED PROGRAM, so `create_agent`, the prompt half of
+#   `update_agent` and the prompt read-back of `get_agent` described a platform Cartesia
+#   does not run. They now REFUSE by name through the one capability refusal instead of
+#   posting to endpoints that do not exist. What that costs and what replaces it is in
+#   each method; what it BUYS is that a deployment running `ENGINE=cartesia` fails at the
+#   publish button with a sentence an operator can act on, rather than at a 404 in the
+#   middle of a transaction that has already written half of itself.
 CARTESIA_CAPABILITIES = EngineCapabilities(
     stt="engine",
     tts="engine",
-    llm="ours",
+    llm="engine",
+    agent_hosting="external_deployment",
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
@@ -472,75 +514,8 @@ class CartesiaEngine:
             **kwargs,
         )
 
-    def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
-        """Our `AgentConfig` → their agent object.
-
-        **CONTRADICTED IN PART, AND THE PART THAT IS CONTRADICTED IS THE COMPLIANCE HALF
-        (D-270).** READ AT SOURCE, `cartesia-python/src/cartesia/types/agent_update_params.py`:
-        `PATCH /agents/{id}` accepts exactly `{description, name, tts_language, tts_voice}`.
-        Of what this method used to send, `name` is accepted, `language` was the wrong name
-        for `tts_language`, and `system_prompt`, `introduction`, `model` and `webhook_url`
-        are not fields of the agent at all — the agent is a deployed program, and
-        `AgentSummary` carries `git_repository`/`git_deploy_branch` where a hosted platform
-        would carry a prompt.
-
-        WHAT IS FIXED HERE: `language` → `tts_language`, and the invented `webhook_url` is
-        gone (a webhook is its own resource on this platform; the agent carries a read-only
-        `webhook_id`).
-
-        WHAT IS DELIBERATELY NOT FIXED: `system_prompt`, `introduction` and `model` are
-        still sent. Removing them would leave `create_agent` posting an object with no
-        behaviour in it, and would make the conformance suite's hard-rule-5 read-back
-        clauses fail for a reason that has nothing to do with our mapping. They stay,
-        labelled, until the port grows a way to say "this engine cannot host our agent" —
-        OPERATIONS §2 gate 19(a). Against a real account they will be ignored or rejected,
-        and either way it is loud rather than silent.
-
-        READ AT SOURCE for what the names WOULD be if the platform took them:
-        `line/voice_agent_app.py:88-96` defines the per-call payload the harness delivers
-        as `AgentConfig(id, system_prompt, introduction)`, and `cartesia-ai/skills`
-        `calls-api.md:64-67` shows a caller supplying `agent: {system_prompt, introduction}`
-        on a single call's `start` event. So the NAMES are right and the PLACE is wrong:
-        on Cartesia these are per-call data, not agent state.
-
-        HARD RULE 5. The opening line is PREPENDED to the prompt AND is the
-        `introduction`, so it is spoken first on every call whichever way the agent opens.
-        Sending it only as the introduction would be a compliance control resting on an
-        engine field we have never observed; sending it only in the prompt would let a
-        model paraphrase it. Both, deliberately. Since D-163 that line is composed from
-        the agent's two notice toggles and may be EMPTY — sent as "" rather than omitted,
-        because an omitted key leaves the vendor holding the greeting it already has, and
-        a withdrawn notice that keeps being spoken is a screen that lies about a phone
-        line. `TRUTHFUL_ANSWER_DIRECTIVE` rides at the END of the prompt through
-        `compose_engine_prompt` and is not toggleable by anything.
-
-        NO SPEECH CONFIG IS SENT. `TTSConfig`/`STTConfig` take no provider and Sonic/Ink
-        are the product, so there is nothing of ours to put there — and `require_speech_leg`
-        refuses a caller that tries, rather than dropping it silently.
-        """
-        require_speech_leg("stt", engine=self, value=cfg.models.stt_model)
-        require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
-        require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
-        body: dict[str, Any] = {
-            # ACCEPTED — READ AT SOURCE, `agent_update_params.py`.
-            "name": cfg.name,
-            # ACCEPTED under THIS name. It was `language`, which is not a field.
-            "tts_language": cfg.language_primary,
-            # CONTRADICTED: not fields of the agent object. See the docstring.
-            "system_prompt": compose_engine_prompt(cfg),
-            "introduction": cfg.opening_line,
-        }
-        if cfg.models.llm_model:
-            # The one BYOK leg, and CONTRADICTED as an agent field: LiteLLM's
-            # provider-prefixed form (`sarvam/...`) is READ AT SOURCE as the SDK's own
-            # `LlmAgent(model=...)` argument — which lives in the DEPLOYED PROGRAM, not on
-            # the agent record. Kept because the conformance suite requires a BYOK leg it
-            # can read back and `llm="ours"` is a true statement about the vendor.
-            body["model"] = cfg.models.llm_model
-        return body
-
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
-        """`POST /agents` — **CONTRADICTED. THIS ENDPOINT DOES NOT EXIST** (D-270).
+        """**REFUSES BY NAME. THERE IS NO `POST /agents`** (D-270 found it, D-281 acts).
 
         This was the weakest claim in the module, labelled INFERRED. It has now been
         checked and it failed. READ AT SOURCE: `cartesia-python`'s `AgentsResource` exposes
@@ -552,32 +527,35 @@ class CartesiaEngine:
         `skills/line-voice-agent/SKILL.md:60-86`), and by `AgentSummary` identifying an
         agent by `git_repository` + `git_deploy_branch`.
 
-        LEFT IN PLACE, NOT DELETED, and the reason is in the module docstring: the
-        `VoiceEngine` port requires this method, `EngineCapabilities` cannot yet say "this
-        engine does not host agents of ours", and inventing that capability is a port
-        change with a console and a publish path hanging off it. What was in our power was
-        to stop the file claiming this might work.
+        **WHAT CHANGED.** This used to POST to `/agents` with a relabelled docstring
+        saying the endpoint is not there — the file told the truth and the code did not,
+        because `EngineCapabilities` had no way to say "this engine does not host an agent
+        of ours". It has one now (`agent_hosting`), so the refusal is the CAPABILITY's,
+        raised before any request leaves this process, carrying a remediation.
 
-        Against a real account it now fails LOUDLY on the 404 rather than plausibly: an
-        agent ref we invented would be stored in `agents.engine_agent_ref`, join no webhook
-        to any tenant, and turn a broken integration into a silently broken one.
+        THAT IS STRICTLY BETTER THAN THE 404 IT REPLACES, and the difference is not
+        cosmetic. `publish_agent` writes our side of the marriage in one transaction after
+        the vendor call; a 404 arriving mid-publish is indistinguishable from a vendor
+        outage, so an operator retries it, and every retry pays a round trip to learn a
+        structural fact. A named refusal is the same answer given before the transaction
+        opens, in a sentence a person can act on.
 
-        WHAT THE REAL PATH LOOKS LIKE, for whoever closes gate 19(a): an agent already
-        exists (deployed from a repository) and `create_agent` becomes "adopt the agent
-        whose `name` matches" via `GET /agents` — which is a real endpoint returning
-        `{"summaries": [...]}`. That is a port change, not a rename, because nothing in
-        our publish flow can create the deployment the agent IS.
+        WHAT THE REAL PATH LOOKS LIKE, for whoever closes gate 19(a): the agent already
+        exists (deployed from a repository) and publishing becomes "ADOPT the agent whose
+        `name` matches" via `GET /agents` — a real endpoint returning `{"summaries": [...]}`
+        with `name` documented as unique. **That is deliberately NOT implemented here**,
+        and the reason is hard rule 5 rather than effort: an adopted agent runs a prompt we
+        did not write and cannot read back, so its truthful-answer floor would rest on a
+        repository nobody in this deployment can see. Adoption becomes correct on the day
+        our prompt reaches the call (`CallContext.system_prompt`, see
+        `start_outbound_call`) — which needs the outbound shape settled at gate 19(b) — or
+        on the day the deployed program is ours to audit. Either is a decision with a
+        compliance consequence, not a rename.
         """
-        data = await self._request("POST", "/agents", json=self._agent_body(cfg))
-        ref = _first_str(data, ("id", "agent_id"))
-        if ref is None:
-            raise ProblemError(
-                kind="dependency",
-                code="engine_bad_response",
-                title="Voice engine returned an unusable response",
-                detail="The voice platform did not return an agent id.",
-            )
-        return ref
+        require_capability("agent_hosting", engine=self)
+        raise AssertionError(  # unreachable while `agent_hosting` is `external_deployment`
+            "agent hosting was declared available but Cartesia has no create-agent endpoint"
+        )
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
         """`PATCH /agents/{id}` — **PATH AND VERB READ AT SOURCE; the BODY is half wrong.**
@@ -592,8 +570,20 @@ class CartesiaEngine:
         The prompt does not travel this way on this platform, so a publish here cannot be
         the thing that makes an agent say the disclosure. Hard rule 5's enforcement point
         on Cartesia is the deployed program, which is outside this repository. Gate 19(a).
+
+        **IT REFUSES BY NAME TOO** (D-281), even though the route is real and two of the
+        four writable fields are ours to set. Its ONLY caller is `publish_agent`, whose
+        subject is an agent with an `engine_agent_ref` we recorded — and `create_agent`
+        refuses, so no such ref can exist on this engine. Leaving the method live would
+        make it reachable by exactly one caller: a future one that decided to rename an
+        agent it had adopted, which is the adoption path `create_agent` argues must not
+        exist until the floor has somewhere to live. Refusing keeps the three agent-write
+        methods giving one answer.
         """
-        await self._request("PATCH", f"/agents/{ref}", json=self._agent_body(cfg))
+        require_capability("agent_hosting", engine=self)
+        raise AssertionError(  # unreachable while `agent_hosting` is `external_deployment`
+            "agent hosting was declared available but Cartesia holds no agent of ours"
+        )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """`DELETE /agents/{id}` — **READ AT SOURCE. The route exists.**
@@ -621,88 +611,41 @@ class CartesiaEngine:
         await self._request("DELETE", f"/agents/{ref}", absent_is_success=True)
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
-        """`GET /agents/{id}` → our `AgentSnapshot`. **PATH READ AT SOURCE; three of the
-        four things we read back are not on the object** (D-270).
+        """**THE PROMPT READ-BACK, AND IT REFUSES BY NAME** (D-270 found it, D-281 acts).
 
-        `cartesia-python/src/cartesia/resources/agents/agents.py` issues
-        `GET /agents/{agent_id}` and types the response as `AgentSummary`:
+        `GET /agents/{id}` is real — `cartesia-python/src/cartesia/resources/agents/
+        agents.py` issues it and types the response as `AgentSummary`. What it returns is
         `{id, name, description, created_at, updated_at, deleted_at, deployment_count,
         has_text_to_agent_run, tts_language, tts_voice, git_repository, git_deploy_branch,
-        phone_numbers, webhook_id}`. There is no `system_prompt`, no `introduction`, no
-        `model` and no `documents`.
+        phone_numbers, webhook_id}`. **There is no `system_prompt`, no `introduction`, no
+        `model` and no `documents`**, and there never will be: the agent is a deployed
+        program and those live in its repository.
 
-        So against a real account this method reports `system_prompt_readable=False`,
-        `greeting_readable=False`, `models_readable=False` and
-        `knowledge_base_refs_readable=False` — every publish through
-        `apps/api/agents/verification.py` fails closed as `unreadable`, which is the
-        correct direction and is also a live integration that does not work. It is left
-        reading the fields it reads because the tolerant lookups cost nothing and because
-        the conformance suite's stub is the only thing that answers them today; what
-        changed is that the file no longer calls the arrangement INFERRED, as though the
-        next reader might find it works.
+        WHY REFUSING BEATS ANSWERING `readable=False`, which is what this method used to
+        do and which looks like the honest option. `AgentSnapshot`'s three `_readable`
+        tri-states mean one specific thing — *the adapter could not FIND the field* — and
+        the whole reason they exist is that "we could not find it" is a reason to go and
+        look at the adapter while "it is not set" is a reason to publish. On this platform
+        neither is true: the field is not there, for everyone, permanently. Reporting a
+        platform fact through the lookup-failure channel sends every future reader after a
+        bug that does not exist, and it makes `verification.judge` score `unreadable` on
+        every publish for ever — a verdict that is not wrong, is not actionable, and is
+        indistinguishable from an adapter somebody should fix.
 
-        ONLY THE LLM LEG IS REPORTED, because only the LLM leg is ours. STT and TTS are
-        Cartesia's to dictate, so there is no selection of ours to read back for them, and
-        reporting the engine's own `voice_id` would put a vendor string where every caller
-        expects one of ours — reading, to everything above, exactly like an applied BYOK
-        selection (`AgentSnapshot.models`).
+        WHAT IS NOT LOST. This method's two promises are APPLIED-not-ACCEPTED and D-41's
+        dangling KB handle, and both are questions about properties an externally-deployed
+        agent does not carry. Its only caller is `agents/verification.verify_publish`,
+        whose only caller in turn is a publish that `agent_hosting` already refused. The
+        agent's name and voice ARE readable here, and nothing in this system asks for
+        them on their own; when something does, it gets its own method rather than a
+        snapshot with four fields hollowed out.
 
-        The LLM leg IS read back, and the conformance suite requires it: an adapter that
-        claims a leg is ours and cannot show what the engine holds for it is asserting
-        BYOK on faith. `model` is the field `_agent_body` sends (READ AT SOURCE as the
-        SDK's own `LlmAgent(model=...)` argument); whether the agent object echoes it under
-        that name on a GET is INFERRED, and if it does not, `models_readable` is False and
-        the suite fails us — loudly, which is correct, rather than letting the claim stand
-        unchecked.
-
-        The prompt half IS attempted, because that is what pilot gate 2's
-        ACCEPTED-versus-APPLIED question needs, and `system_prompt_readable` reports
-        honestly when the field cannot be found.
+        The refusal is the CAPABILITY's — the same one `create_agent` and `update_agent`
+        raise — so a caller can ask before calling and get the identical answer.
         """
-        payload = await self._request("GET", f"/agents/{ref}")
-        # An `{"agent": {...}}` envelope is tolerated as well as a bare object: their
-        # in-call start message wraps the agent (`StartInput.agent`), so a control-plane
-        # response that does the same would otherwise read as an agent with no fields —
-        # i.e. as "the prompt was never applied", on no evidence.
-        inner = payload.get("agent")
-        agent: dict[str, Any] = inner if isinstance(inner, dict) else payload
-        prompt = agent.get("system_prompt")
-        prompt_text = prompt if isinstance(prompt, str) and prompt else None
-        # THE GREETING, on the `(value, readable)` pair `bolna._agent_greeting` argues
-        # for: a key present and EMPTY is an agent that speaks nothing first — a real
-        # compliance failure — while an ABSENT key is us looking in the wrong place, and
-        # only the first may fail a publish (P3.3). `introduction` is the field
-        # `_agent_body` sends and the SDK's own `AgentConfig(introduction=...)` argument;
-        # that the GET echoes it is INFERRED, like the rest of this method.
-        greeting_readable = "introduction" in agent
-        raw_greeting = agent.get("introduction")
-        greeting = None
-        if greeting_readable:
-            greeting = raw_greeting if isinstance(raw_greeting, str) else ""
-        returned_id = _first_str(agent, ("id", "agent_id"))
-        name = agent.get("name")
-        # UNVERIFIED: that the agent object lists its documents, or under what key. An
-        # absent key reads as "we could not tell" (`readable=False`), never as "it
-        # references none" — the D-41 tri-state, for the same reason.
-        raw_docs = agent.get("documents") or agent.get("document_ids")
-        docs_readable = raw_docs is not None
-        handles = [str(item) for item in raw_docs if item] if isinstance(raw_docs, list) else []
-        held_model = agent.get("model")
-        model_text = held_model if isinstance(held_model, str) and held_model else None
-        return AgentSnapshot(
-            engine_agent_ref=returned_id or ref,
-            name=name if isinstance(name, str) and name else None,
-            system_prompt=prompt_text,
-            system_prompt_readable=prompt_text is not None,
-            greeting=greeting,
-            greeting_readable=greeting_readable,
-            knowledge_base_refs=handles,
-            knowledge_base_refs_readable=docs_readable,
-            # The LLM leg only. STT/TTS stay None because they are not ours to set — a
-            # dictated leg has no selection of ours to report (`AgentSnapshot.models`).
-            models=ModelConfig(llm_model=model_text),
-            models_readable=model_text is not None,
-            engine=self.name,
+        require_capability("agent_hosting", engine=self)
+        raise AssertionError(  # unreachable while `agent_hosting` is `external_deployment`
+            "agent hosting was declared available but Cartesia holds no prompt to read back"
         )
 
     # --- calls ---------------------------------------------------------------
@@ -729,7 +672,37 @@ class CartesiaEngine:
         non-PII context is sent: `lead_id` is an id, and the note is business text the
         operator wrote. The lead's NAME and NUMBER are not put in metadata (hard rule 6) —
         the number is already the dial target.
+
+        **AND IT REFUSES EVERY DIAL TODAY, BECAUSE HARD RULE 5 HAS NOWHERE TO RIDE**
+        (D-282). This engine is `agent_hosting="external_deployment"`: there is no agent
+        record holding our prompt and no read-back proving one, so the truthful-answer
+        directive can only reach a call as `CallContext.system_prompt`. **This body has no
+        field for it.** The outbound shape above is REPORTED-DOCS and names four keys, none
+        of them a prompt; the per-call prompt that IS read at source — `agent:
+        {system_prompt, introduction}` on a `start` event
+        (`cartesia-ai/skills/.../calls-api.md:56-73`) — belongs to the WebSocket Calls API,
+        a different surface this adapter does not speak.
+
+        So `require_call_compliance_floor` refuses: `ctx.system_prompt` is None on this
+        path and there is nothing that could put it there without inventing a request
+        field. That is the instruction the port gives an adapter that cannot carry the
+        floor — refuse the dial, never dial with a weaker one — and it is the same
+        direction gate 19(a) already says a Cartesia deployment must fail in.
+
+        **WHAT WOULD MAKE IT DIAL**, and it is one observation rather than any code here:
+        gate 19(b) places one real outbound call and reads what `POST /agents/calls`
+        actually accepts. If it takes a prompt (or if the WebSocket Calls API is the
+        outbound path), this method sends `ctx.system_prompt` in it, `dispatch_call`
+        already composes one, and the refusal below stops firing on its own — the guard
+        checks the CONTEXT, not the vendor name. Nothing else in this file changes.
         """
+        # `prompt_on_the_wire=None` IS THE FINDING, not a placeholder: the body below has
+        # no field a prompt could go in, so whatever `ctx.system_prompt` holds cannot reach
+        # the call. Passing the context here instead would let a floor-carrying context
+        # satisfy the guard while the request dropped it on the floor — the exact silent
+        # drop this check exists to prevent. It refuses every dial until gate 19(b) says
+        # which field carries a prompt, and then this argument becomes that field.
+        require_call_compliance_floor(engine=self, prompt_on_the_wire=None)
         if self._from_number_id is None:
             # ITS OWN CODE, and it did not have one: this reused `engine_not_configured`,
             # which is the credential refusal (P2.6). One code for two causes means an

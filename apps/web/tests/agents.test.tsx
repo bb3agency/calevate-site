@@ -133,6 +133,10 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     engine_verification: {
       state: "applied",
       confirmed: true,
+      // The engine hosts agents of ours, so Publish is offered. `false` is the shape a
+      // deployment on an externally-deployed platform sends (D-281) and it hides the
+      // button — asserted in `agents.test.tsx`, not left to the default here.
+      publishable: true,
       verified_at: "2026-08-15T09:20:00Z",
       headline: "The voice platform was read back and is running this script and voice.",
     },

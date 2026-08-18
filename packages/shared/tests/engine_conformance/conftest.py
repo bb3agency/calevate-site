@@ -24,7 +24,11 @@ import pytest
 from apps.api.engine import cartesia as cartesia_module
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.cartesia import CartesiaEngine
-from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
+from apps.api.engine.fake import (
+    DICTATED_SPEECH_CAPABILITIES,
+    EXTERNAL_DEPLOYMENT_CAPABILITIES,
+    FakeEngine,
+)
 from calevate_shared.engine import VoiceEngine
 
 #: FOUR SUBJECTS, THREE OF THEM REAL ADAPTERS (D-93).
@@ -43,7 +47,15 @@ from calevate_shared.engine import VoiceEngine
 #: in unit tests cheaply, and it keeps the `hmac` branch executable with a verifier that
 #: actually verifies (the Cartesia adapter's fails closed, by design, because its scheme
 #: is unsourced).
-ENGINE_IDS = ["fake", "fake-restricted", "bolna", "cartesia"]
+#: `fake-deployed` is the FIFTH subject and the only one that satisfies the ALTERNATIVE
+#: half of hard rule 5 (D-280/D-282): an engine whose agents are deployed elsewhere, whose
+#: `create_agent`/`get_agent` refuse by name, and which carries our prompt onto every call
+#: through `CallContext.system_prompt`. `cartesia` is the same SHAPE and cannot do the
+#: second half — its outbound body has no prompt field, so it refuses every dial — so
+#: without this fixture the branch where an externally-deployed engine actually dials
+#: would be contract nothing executes. Same argument as `fake-restricted`, about a bigger
+#: difference: a capability profile needs no vendor account and no imagined vendor JSON.
+ENGINE_IDS = ["fake", "fake-restricted", "fake-deployed", "bolna", "cartesia"]
 
 # A completed execution as Bolna documents it: USD-cent costs with a per-leg
 # breakdown, prefix-tagged transcript text, recording on their S3.
@@ -530,6 +542,15 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
             # table ambiguous — and the table is what the voice-runtime receiver reads.
             name="fake-restricted",
         )
+    if engine_id == "fake-deployed":
+        return FakeEngine(
+            listing_page_size=FULL_LISTING_PAGE,
+            capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES,
+            # Its own name for `fake-restricted`'s reason: `WEBHOOK_AUTH_BY_ENGINE` is
+            # keyed by name, and two instances answering to one name while declaring
+            # different capabilities make that table ambiguous.
+            name="fake-deployed",
+        )
     if engine_id == "cartesia":
         return CartesiaEngine(
             api_key="test-key",
@@ -606,6 +627,17 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
 @pytest.fixture(params=ENGINE_IDS)
 def saturated_engine(request: pytest.FixtureRequest) -> VoiceEngine:
     return saturated(make_engine(str(request.param)))
+
+
+@pytest.fixture
+def declared_agent_hostings() -> frozenset[str]:
+    """Every `agent_hosting` value the roster actually declares.
+
+    Built here rather than in the clause because `ENGINE_IDS` and `make_engine` live here:
+    the clause asks which shapes are exercised, and this answers it from the same roster
+    every other fixture is parametrised over, so the two cannot describe different suites.
+    """
+    return frozenset(make_engine(eid).capabilities.agent_hosting for eid in ENGINE_IDS)
 
 
 @pytest.fixture

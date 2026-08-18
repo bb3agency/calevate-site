@@ -287,11 +287,31 @@ async def run_gate_2(ctx: GateContext) -> GateRun:
     try:
         ref = await ctx.engine.create_agent(cfg)
     except Exception as exc:
-        # Everything downstream needs the agent ref, so this one failure is the gate.
+        # Everything downstream needs the agent ref, so this one failure is the gate — but
+        # WHICH failure it is decides whether this reads as red or as inapplicable, and the
+        # distinction is the same one `update_prompt_applied` already makes below (D-280).
+        # An engine that declares `agent_hosting="external_deployment"` has no create
+        # endpoint at all: its agents are programs deployed to it from elsewhere, and
+        # `create_agent` refuses by name before a request is built. Scoring that as a FAILED
+        # provisioning gate would report a platform's shape as our vendor's defect and send
+        # an operator hunting a 4xx that never happened. The gate that applies to such an
+        # engine is 19(a), which is about confirming the absence rather than measuring it
+        # here.
+        code = getattr(exc, "code", None)
+        outcome = (
+            not_run(
+                "create_agent",
+                f"this engine does not host agents built here (`{code}`), so there is "
+                "nothing for an API-provisioning gate to provision. OPERATIONS §2 gate "
+                "19(a) is the one that applies.",
+            )
+            if code in _NO_CAPABILITY_CODES
+            else failed("create_agent", f"create_agent failed: {_engine_error(exc)}")
+        )
         return GateRun(
             number=2,
             title="Full API provisioning",
-            checks=(failed("create_agent", f"create_agent failed: {_engine_error(exc)}"),),
+            checks=(outcome,),
             findings=tuple(findings),
         )
     checks.append(passed("create_agent", f"agent created (ref {ref})"))
@@ -499,6 +519,12 @@ async def _delete_agent_checks(ctx: GateContext, nonce: str) -> list[SubCheck]:
     try:
         ref = await ctx.engine.create_agent(disposable)
     except Exception as exc:
+        # Already `not_run` rather than `failed`, and that stays right for the new reason
+        # too: on an engine whose agents are deployed elsewhere there is no throwaway agent
+        # to make, so nothing below — including the `delete_agent_removed` probe, which
+        # reads ANY exception from `get_agent` as evidence of removal — can run. That probe
+        # would pass vacuously against an engine whose `get_agent` always refuses, and this
+        # early return is what keeps it unreachable there.
         return [
             not_run(
                 "delete_agent",

@@ -9724,6 +9724,8 @@ export interface components {
             confirmed: boolean;
             /** Headline */
             headline: string;
+            /** Publishable */
+            publishable: boolean;
             /** State */
             state: string;
             /** Verified At */

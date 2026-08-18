@@ -27,7 +27,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from types import ModuleType
@@ -43,7 +43,11 @@ from apps.api.db.session import get_engine as get_db_engine
 from apps.api.db.session import untenanted_session
 from apps.api.engine import vendor_http
 from apps.api.engine.bolna import BolnaEngine
-from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
+from apps.api.engine.fake import (
+    DEFAULT_FAKE_CAPABILITIES,
+    EXTERNAL_DEPLOYMENT_CAPABILITIES,
+    FakeEngine,
+)
 from apps.api.reliability import service as reliability
 from apps.api.reliability.service import body_hash
 from calevate_shared.config import (
@@ -436,6 +440,72 @@ class _ClaimsATransferItCannotPerform(FakeEngine):
         return
 
 
+class _HostsAgentsItSaysItDoesNot(FakeEngine):
+    """Declares that its agents are deployed elsewhere, then creates and serves one anyway.
+
+    THE DESCRIPTOR LIE THIS SLICE EXISTS TO REMOVE, staged the way it would actually
+    arrive: somebody sets `agent_hosting="external_deployment"` on an adapter to silence a
+    publish failure, and leaves the write path doing what it always did. Nothing errors —
+    the publish still refuses at `publish_agent` because the SEAM reads the descriptor, so
+    the only thing that changes is that the descriptor and the adapter now disagree, and
+    the next reader believes whichever they looked at first.
+
+    It matters more than a mislabel: the same declaration decides where hard rule 5 lives.
+    An adapter claiming this shape is claiming the truthful-answer rule rides its calls,
+    and this one carries no prompt on a dial at all.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault(
+            "capabilities",
+            DEFAULT_FAKE_CAPABILITIES.model_copy(update={"agent_hosting": "external_deployment"}),
+        )
+        super().__init__(**kwargs)
+
+    def _assert_this_engine_hosts_agents(self) -> None:
+        return  # the silent acceptance
+
+
+class _DialsWithoutTheTruthfulAnswerRule(FakeEngine):
+    """Declares agents deployed elsewhere AND drops the compliance floor on every dial.
+
+    The quietest failure in this file and the only one with a legal consequence. On this
+    shape there is no agent record holding the truthful-answer directive and no read-back
+    to score, so `CallContext.system_prompt` is the only vehicle — and an adapter that
+    places the call regardless has produced an agent that can be scripted into claiming it
+    is human, with nothing anywhere able to detect it afterwards. `start_outbound_call`
+    returns a handle and no read-back, so from every screen we own this looks identical to
+    a working dial.
+
+    It differs from the saboteur above by keeping the agent methods honest: only the DIAL
+    is wrong, which is exactly the residue a fix aimed at the publish path would leave.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("capabilities", EXTERNAL_DEPLOYMENT_CAPABILITIES)
+        kwargs.setdefault("name", "fake")
+        super().__init__(**kwargs)
+
+    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+        # No `require_call_compliance_floor`, and the prompt is thrown away rather than
+        # carried — the two halves of the drop, together, because an adapter that checked
+        # and then dropped would be caught by the guard alone.
+        handle = self._stable_id("fakecall", ref, to, ctx.lead_id or "", str(len(self._calls)))
+        self._calls[handle] = {
+            "agent_ref": ref,
+            "direction": "outbound",
+            "status": "completed",
+            "started_at": datetime.now(UTC) - timedelta(seconds=95),
+            "ended_at": datetime.now(UTC),
+            "duration_s": 95,
+            "from_e164": "+911140000000",
+            "to_e164": to,
+            "context": ctx.model_dump(),
+            "system_prompt": None,
+        }
+        return handle
+
+
 SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     "agent-read-back-echoes-the-last-write": _EchoesTheLastWrite,
     "archives-nothing": _ArchivesNothing,
@@ -461,6 +531,10 @@ SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     # refuses the claim outright rather than pretending to test it.
     "claims-engine-side-campaigns": _with_capabilities(campaigns=True),
     "claims-a-transfer-it-cannot-perform": _ClaimsATransferItCannotPerform,
+    # Agent hosting (D-280). The first is the descriptor lie; the second keeps the
+    # descriptor honest and drops hard rule 5's only vehicle on that shape.
+    "hosts-agents-it-says-it-does-not": _HostsAgentsItSaysItDoesNot,
+    "dials-without-the-truthful-answer-rule": _DialsWithoutTheTruthfulAnswerRule,
 }
 
 
@@ -1449,7 +1523,6 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",
-        "document_ids",
         "duration_seconds",
         "from_number_id",
         "has_more",
@@ -1462,12 +1535,15 @@ _VENDOR_ONLY_KEYS = frozenset(
         # clearest example in this list of why the ban is per vendor noun rather than per
         # concept.
         "telephony_params",
-        # Cartesia's spelling of the same greeting field. VENDOR-ONLY rather than shared
-        # despite being an ordinary English word: nothing of ours is called an
-        # `introduction` — `AgentSnapshot` calls it `greeting` — so the word appearing
-        # outside the adapter is a vendor shape that escaped, which is what the scan is
-        # for.
-        "introduction",
+        # `introduction` AND `document_ids` USED TO BE HERE and were removed by D-281,
+        # which is the third way an entry can go stale and the one the clause below could
+        # not have guessed: the vendor did not rename either field and neither entry was
+        # fictional — the OPERATIONS that read them stopped existing. Cartesia's agent
+        # record carries no prompt, no greeting and no document list, so `create_agent`,
+        # `update_agent` and `get_agent` refuse on `agent_hosting` rather than reading a
+        # response with those keys in it. A word no adapter reads cannot escape from one,
+        # which is the whole premise of this list; if a Cartesia agent read ever comes back
+        # (gate 19(a)), both entries come back with it.
         "outbound_calls",
         # `start_time`/`end_time` are Cartesia's names for the two instants everything
         # else in this repo calls `started_at`/`ended_at` — `ExecutionSnapshot`,

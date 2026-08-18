@@ -20,7 +20,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from apps.api.core.errors import ProblemError
-from apps.api.engine.fake import FakeEngine
+from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
     AgentSnapshot,
@@ -291,6 +291,39 @@ async def test_gate_2_scores_an_unreadable_prompt_as_not_run_rather_than_applied
     applied = _check(result, "update_prompt_applied")
     assert applied.status == "not_run"
     assert "ACCEPTED only" in applied.detail
+
+
+async def test_gate_2_does_not_score_an_engine_that_hosts_no_agents_as_a_failure() -> None:
+    """D-280. An absent capability is not a vendor defect, and gate 2 must not print one.
+
+    An engine declaring `agent_hosting="external_deployment"` has no create endpoint at
+    all — its agents are programs deployed to it from elsewhere — so `create_agent` refuses
+    by name before a request is built. Reporting that as a FAILED provisioning gate would
+    put a red row in the pilot register describing our vendor as broken, and send an
+    operator hunting a 4xx that never happened. `not_run` is the same distinction this file
+    already makes for `update_prompt_applied` between an unreadable prompt and a dropped
+    one, applied one step earlier.
+
+    A REAL create failure must still be red — asserted below, because a `not_run` that
+    swallowed both would be worse than the failure it replaced.
+    """
+    hosted = _ctx(FakeEngine(), calls_remaining=1, to_e164="+919000000001")
+    deployed = _ctx(
+        FakeEngine(capabilities=EXTERNAL_DEPLOYMENT_CAPABILITIES),
+        calls_remaining=1,
+        to_e164="+919000000001",
+    )
+
+    result = await run_gate_2(deployed)
+    created = _check(result, "create_agent")
+    assert created.status == "not_run", (
+        "gate 2 scored a platform that does not host agents as a create FAILURE, which "
+        "reads in the register as a vendor defect rather than as an inapplicable gate"
+    )
+    assert "19(a)" in created.detail, "the row does not name the gate that DOES apply"
+
+    # The control: an engine that hosts agents still runs the gate for real.
+    assert _check(await run_gate_2(hosted), "create_agent").status == "pass"
 
 
 async def test_gate_2_reports_a_failed_read_back_without_blaming_the_vendor() -> None:

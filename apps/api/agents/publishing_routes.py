@@ -210,6 +210,14 @@ class VerificationOut(Strict):
     verified_at: datetime | None
     confirmed: bool
     headline: str
+    #: **Whether a publish is possible at all on this deployment's voice platform**
+    #: (D-281). False when the platform's agents are deployed to it from elsewhere: there
+    #: is no create endpoint and no prompt read-back, so `POST /publish` refuses every
+    #: attempt by name. A console that renders Publish while this is False is offering a
+    #: control the route cannot honour — the divergence the capability descriptor exists
+    #: to remove — so it is on THIS object rather than a second endpoint, and it carries
+    #: no default for the reason the rest of this class does not.
+    publishable: bool
 
 
 class EngineStateOut(Strict):
@@ -399,6 +407,7 @@ def _render(state: publishing.PendingState) -> PendingOut:
             verified_at=state.engine_verification.verified_at,
             confirmed=state.engine_verification.confirmed,
             headline=state.engine_verification.headline,
+            publishable=state.engine_verification.publishable,
         ),
         precedence_rule=state.precedence_rule,
     )

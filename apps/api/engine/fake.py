@@ -46,7 +46,11 @@ from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 
 from apps.api.billing.rates import ROUNDING
 from apps.api.core.errors import ProblemError
-from apps.api.engine.capabilities import require_capability, require_speech_leg
+from apps.api.engine.capabilities import (
+    require_call_compliance_floor,
+    require_capability,
+    require_speech_leg,
+)
 from apps.api.engine.document import engine_document
 
 # A short code-mixed exchange: Telugu with English clinical terms, which is what
@@ -99,6 +103,9 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     stt="ours",
     tts="ours",
     llm="ours",
+    # Bolna's shape: this engine holds the agent, and the prompt (with hard rule 5's
+    # directive inside it) is agent-record state a publish writes and a read-back scores.
+    agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
@@ -133,11 +140,51 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     stt="engine",
     tts="engine",
     llm="ours",
+    # Still `control_plane`: this fixture's axis is SPEECH, and giving it a second
+    # difference would stop any clause it fails from saying which one it measured. The
+    # agent-hosting axis has its own profile below, for the same reason.
+    agent_hosting="control_plane",
     campaigns=False,
     knowledge_base=False,
     number_series=frozenset(),
     transfer=True,
     webhook_auth="hmac",
+)
+
+# THE THIRD SHAPE, and the one that keeps the OTHER half of hard rule 5 executable
+# (D-280/D-282).
+#
+# `DICTATED_SPEECH_CAPABILITIES` above exists because a capability difference needs no
+# vendor contract to express. This exists for the same reason and about a bigger
+# difference: an engine that does not host an agent of ours at all. Its agents are
+# programs deployed somewhere else, there is no create endpoint, the agent record carries
+# no prompt, and our script can only reach the agent as per-call data. That is Cartesia
+# Line, read at source (`docs/vendor/cartesia/agents-control-plane.md`) — and it is a
+# SHAPE rather than a vendor, which is why it is not named after one.
+#
+# **WHAT ONLY THIS FIXTURE CAN PROVE.** The real adapter with this shape (`cartesia`)
+# cannot carry our prompt on a dial: its outbound body has no field for one, so it
+# refuses every call, which is the correct answer and also a branch that exercises
+# nothing. So without this profile, the ALTERNATIVE contract — the prompt riding
+# `CallContext.system_prompt` all the way onto a call, and a dial without it being refused
+# — would be code no test has ever run, on the one rule a client may not switch off. It
+# needs no account and no network, which is the whole argument for the fake engine.
+#
+# Every other answer matches the default deliberately: the axis under test is where the
+# agent comes from, and a fixture that differed on five axes could not tell a reader which
+# one a failure was about. The three speech legs are the exception that is forced rather
+# than chosen — see `EXTERNAL_DEPLOYMENT_SPEECH_IS_NOT_OURS` in the conformance suite for
+# why an engine with no agent record can have no BYOK leg either.
+EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
+    stt="engine",
+    tts="engine",
+    llm="engine",
+    agent_hosting="external_deployment",
+    campaigns=False,
+    knowledge_base=True,
+    number_series=frozenset(),
+    transfer=False,
+    webhook_auth="none",
 )
 
 
@@ -223,13 +270,26 @@ class FakeEngine:
         require_speech_leg("llm", engine=self, value=cfg.models.llm_model)
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
 
+    def _assert_this_engine_hosts_agents(self) -> None:
+        """Refuse the three agent-write/read methods when this instance says its agents
+        are deployed elsewhere (D-280).
+
+        All three go through it, in the order a publish uses them, because an engine that
+        refused a create and accepted an update would let a caller reach the second by
+        supplying a ref it invented — and on this shape every ref IS invented, since
+        nothing here mints one.
+        """
+        require_capability("agent_hosting", engine=self)
+
     async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
+        self._assert_this_engine_hosts_agents()
         self._assert_speech_is_ours(cfg)
         ref = self._stable_id("fakeagent", cfg.tenant_id, cfg.agent_id)
         self._agents[ref] = cfg
         return ref
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None:
+        self._assert_this_engine_hosts_agents()
         self._assert_speech_is_ours(cfg)
         self._agents[ref] = cfg
 
@@ -265,7 +325,13 @@ class FakeEngine:
 
         An unknown ref raises, mirroring the vendor's 404: the caller that reads back an
         agent nobody created must not be handed a snapshot that quietly disagrees.
+
+        **AND IT REFUSES BY NAME on an instance whose agents are deployed elsewhere**
+        (D-280): there is no agent record to read, so the prompt read-back is not a lookup
+        that failed — it is a question this platform does not answer. `CartesiaEngine.
+        get_agent` carries the argument for why that is not the same as `readable=False`.
         """
+        self._assert_this_engine_hosts_agents()
         cfg = self._agents.get(ref)
         if cfg is None:
             raise ProblemError(
@@ -317,6 +383,27 @@ class FakeEngine:
     async def start_outbound_call(
         self, ref: EngineAgentRef, to: E164, ctx: CallContext
     ) -> CallHandle:
+        """Place a call, and — on the externally-deployed shape — CARRY THE PROMPT ON IT.
+
+        THE ONLY PLACE THE ALTERNATIVE HALF OF HARD RULE 5 RUNS (D-282). On a
+        `control_plane` instance the guard is a no-op and `ctx.system_prompt` is None: the
+        directive is agent-record state that `get_agent` reads back and
+        `verification.judge` scores. On an `external_deployment` instance there is no
+        agent record, so the guard refuses a context that does not carry the truthful-
+        answer rule, and the prompt that DOES carry it is stored on the call — which is
+        what a real adapter of this shape would put in its request body.
+
+        Storing it is not decoration. `start_outbound_call` returns a handle and nothing
+        else, so "the adapter sent our prompt" and "the adapter dropped it" are otherwise
+        the same observation — the identical hole `transfer` has, and the reason that
+        clause probes a call the engine does not hold. Here the fake IS the vendor, so the
+        round trip can be observed directly (`call_prompt`), and
+        `tests/engine_capability_test.py` observes it.
+        """
+        # THE ADAPTER'S OWN VALUE, not the context it was handed — `ctx.system_prompt` is
+        # both what the guard checks and what the line below stores, so an edit that stops
+        # storing it stops passing the guard in the same breath.
+        require_call_compliance_floor(engine=self, prompt_on_the_wire=ctx.system_prompt)
         handle = self._stable_id("fakecall", ref, to, ctx.lead_id or "", str(len(self._calls)))
         now = datetime.now(UTC)
         self._calls[handle] = {
@@ -329,8 +416,34 @@ class FakeEngine:
             "from_e164": "+911140000000",
             "to_e164": to,
             "context": ctx.model_dump(),
+            # The per-call prompt AS THIS ENGINE RECEIVED IT, kept beside the call rather
+            # than only inside `context`: it is the thing a compliance question is asked
+            # about, and burying it in a dumped model would make the read that answers
+            # that question look like a peek at an internal.
+            "system_prompt": ctx.system_prompt,
         }
         return handle
+
+    def call_prompt(self, call_id: CallHandle) -> str | None:
+        """What prompt this engine is running for `call_id` — the read-back that makes the
+        per-call compliance floor observable.
+
+        A TEST AFFORDANCE, like `seed_inbound_call`, and deliberately NOT a `VoiceEngine`
+        method. No real vendor of this shape publishes such a read-back — Cartesia's call
+        object (`AgentCall`) carries no prompt — so putting it on the Protocol would mint a
+        contract exactly one implementation could ever satisfy, and every other adapter
+        would answer None. A method every real engine must stub out is a method that
+        proves nothing about any of them.
+
+        What it IS good for is the one thing the port cannot do: proving that an adapter
+        which ACCEPTED a floor-carrying dial actually carried it, rather than checking the
+        context and throwing it away.
+        """
+        call = self._calls.get(call_id)
+        if call is None:
+            return None
+        stored = call.get("system_prompt")
+        return stored if isinstance(stored, str) else None
 
     async def end_call(self, call_id: str) -> None:
         call = self._calls.get(call_id)
@@ -676,6 +789,7 @@ class FakeEngine:
 __all__ = [
     "DEFAULT_FAKE_CAPABILITIES",
     "DICTATED_SPEECH_CAPABILITIES",
+    "EXTERNAL_DEPLOYMENT_CAPABILITIES",
     "FAKE_SIGNATURE_HEADER",
     "FAKE_WEBHOOK_SECRET",
     "SAMPLE_TURNS",
