@@ -254,3 +254,73 @@ def test_the_llm_leg_costs_more_per_minute_on_a_longer_call() -> None:
     assert llm_cost_inr_per_minute(1) < llm_cost_inr_per_minute(5) < llm_cost_inr_per_minute(10)
     with pytest.raises(ValueError):
         llm_cost_inr_per_minute(0)
+
+
+# --- the one switch, and what happens when it is flipped ------------------------------
+#
+# `in_call_llm` is the single decision point between D-400 (the leg IS Gemini on Vertex)
+# and D-402 (it is not deliverable yet). Both sides of it are exercised here, because a
+# switch whose other arm nobody has run is a switch nobody knows the shape of — and the
+# day it flips is a day somebody publishes live agents with it.
+
+
+def test_the_leg_stays_where_it_is_while_the_credential_route_is_unproven() -> None:
+    """The state of the tree today, and the one that must not change by accident:
+    `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, so the configured model is passed
+    through untouched and no endpoint is named."""
+    from apps.api.agents.service import in_call_llm
+
+    assert in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
+
+
+def test_a_deployment_with_no_gcp_project_stays_put_even_if_the_route_opens(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BOTH conditions are necessary. A deployment that has the vendor route but no
+    project has no id to interpolate into the URL — local, CI and any staging without a
+    Google account are exactly this, and they must keep publishing."""
+    from apps.api.agents import service
+
+    monkeypatch.setattr(service, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", True)
+    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
+
+
+def test_flipping_the_constant_moves_the_endpoint_and_the_model_together(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The half a reviewer would wave through: `agents.llm_model` holds what an operator
+    configured, and sending `sarvam-105b` to Vertex is a 404 at dial time on a live phone
+    line. The endpoint and the identifier are ONE decision."""
+    from apps.api.agents import service
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(service, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", True)
+    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
+
+    leg = service.in_call_llm("sarvam-105b")
+    assert leg == {
+        "llm_model": GEMINI_DEFAULT_LLM,
+        "llm_provider": "vertex_openai",
+        "llm_base_url": vertex_openai_base_url(PROJECT),
+    }
+    # And it must be a config `ModelConfig` will actually accept — the residency
+    # validator runs on exactly this dict the moment `_to_config` builds one from it.
+    assert ModelConfig(**leg).llm_base_url == vertex_openai_base_url(PROJECT)
+
+
+def test_a_deployment_with_a_gcp_project_stays_put_while_the_route_is_unproven(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE CASE A REAL DEPLOYMENT IS IN, and the one the other arm of this switch does
+    not cover. Any deployment running D-127's dashboard AI already has `gcp_project_id`
+    set — so if the project alone were enough, turning on the dashboard assistant would
+    silently move every agent's in-call LLM to an endpoint whose credential dies within
+    the hour (D-402). The vendor route is a separate, necessary condition, and this test
+    is what says so; removing it from `in_call_llm` passes every other test in this file.
+    """
+    from apps.api.agents import service
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
+    assert not service.VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE
+    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
