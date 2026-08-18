@@ -85,11 +85,31 @@ export function useQaSample(sampleId: string): UseQueryResult<QaSampleDetail> {
     queryKey: [...QA_SAMPLES_QUERY_KEY, sampleId],
     queryFn: () => apiRequest<QaSampleDetail>(adminSession(), `${QA_SAMPLES_PATH}/${sampleId}`),
     enabled: Boolean(sampleId),
-    // Every read of this route writes an `audit_log` row (it discloses one tenant's call
-    // to somebody outside that tenant). Refetching on a timer would turn one review into
-    // a page of audit entries and make the trail unreadable, which is the same argument
-    // `kyc_routes.py` makes for not auditing a poll — solved here from the other end.
+    /*
+     * Every read of this route writes an `audit_log` row (it discloses one tenant's call
+     * to somebody outside that tenant), and the trail has to count OPENINGS: not fewer,
+     * which understates who saw what, and not more, which buries the real reads under
+     * background churn. That is three settings, not one.
+     *
+     * `staleTime: Infinity` + the two `refetchOn*: false` kill the automatic reads. A
+     * timer or a tab regaining focus is not a reviewer asking, and turning one review
+     * into a page of audit entries makes the trail unreadable — the same argument
+     * `kyc_routes.py` makes for not auditing a poll, solved here from the other end.
+     *
+     * `refetchOnMount: "always"` is what keeps the DELIBERATE read counted, and it is
+     * why an infinite staleTime is not the whole answer. TanStack reads `true` as
+     * "refetch on mount if stale", which under this staleTime is never; `"always"`
+     * refetches on every mount regardless of staleness (TanStack Query v5
+     * `refetchOnMount`). Without it a reviewer who worked two samples and came back to
+     * the first was served from the cache — the screen remounts, the request does not
+     * happen — and the audit log recorded one disclosure where there had been two.
+     * SEC-COMP §5 says admin reads are ALWAYS audited, and a cache is not an exception
+     * that rule grants. `tests/qaSampling.test.tsx` drives two mounts through one
+     * `QueryClient` and counts the requests.
+     */
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchOnMount: "always",
     staleTime: Infinity,
   });
 }
