@@ -103,7 +103,7 @@ from apps.api.agents.proportions import (
     newcombe_difference,
     wilson_interval,
 )
-from apps.api.agents.service import publish_variant
+from apps.api.agents.service import ArmToPublish, publish_variants
 from apps.api.compliance.disclosure import bundled_disclosure_line
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -421,6 +421,14 @@ async def start(
             ) from exc
 
         variant_ids: list[UUID] = []
+        # THE ARMS ARE PUBLISHED TOGETHER, AFTER ALL OF THEM ARE WRITTEN (D-382), and that
+        # ordering is the point rather than tidiness. Publishing inside this loop meant
+        # arm A's vendor object was already created and verified when arm B's publish
+        # failed; the transaction then rolled arm A's `engine_agent_ref` and its routing
+        # row away and left the object at the vendor, named by nothing and therefore
+        # invisible to the drift sweep, which claims routes. `publish_variants` reclaims
+        # exactly the objects that call created.
+        arms: list[ArmToPublish] = []
         for label in VARIANT_LABELS:
             variant_id = uuid7()
             variant_ids.append(variant_id)
@@ -446,16 +454,17 @@ async def start(
                     {"id": version_ids[label]},
                 )
             ).scalar_one()
-            await publish_variant(
-                session,
-                tenant_id=tenant_id,
-                agent_id=agent_id,
-                variant_id=variant_id,
-                label=label,
-                body=str(body),
-                disclosure_line=disclosures[label],
-                existing_ref=None,
+            arms.append(
+                ArmToPublish(
+                    variant_id=variant_id,
+                    label=label,
+                    body=str(body),
+                    disclosure_line=disclosures[label],
+                    existing_ref=None,
+                )
             )
+
+        await publish_variants(session, tenant_id=tenant_id, agent_id=agent_id, arms=arms)
 
     log.info(
         "prompt_experiment_started",
