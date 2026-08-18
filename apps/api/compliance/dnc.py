@@ -62,6 +62,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance.export import subject_ref
+from apps.api.compliance.models import DNC_REMOVABLE_SOURCES
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.crm.service import mask_phone
@@ -308,7 +309,13 @@ class Removal:
 # pasted list must be fixable. A suppression that records a CONSUMER's request is not:
 # "don't call me again" is the caller's decision, and an account that can delete it can
 # un-hear it. So removal is scoped to the one source that means "we typed this".
-REMOVABLE_SOURCES = ("manual",)
+#
+# THE DEFINITION MOVED to `compliance/models.py` (D-189) and this is a re-export, not a
+# second copy. `compliance.service.add_to_dnc` has to know the same thing — it is what
+# stops a caller's opt-out landing on top of a `manual` row and inheriting its
+# deletability — and it cannot import this module: `dnc` normalises through
+# `ingest.service`, which imports `compliance.service`, so the arrow only goes one way.
+REMOVABLE_SOURCES = DNC_REMOVABLE_SOURCES
 
 
 def is_removable(*, scope: str, source: str | None) -> bool:
