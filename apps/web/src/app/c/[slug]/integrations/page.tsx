@@ -111,7 +111,27 @@ export default function IntegrationsPage() {
   const payloadAccess = useWriteAccess(session, "calls:read_raw", "open a delivered payload");
   const mayReadPayload = payloadAccess.allowed;
   const [openPayload, setOpenPayload] = useState<string | null>(null);
-  const payload = useDeliveryPayload(session, openPayload);
+  const payload = useDeliveryPayload(session);
+  /**
+   * One press, one request, one audit row — in BOTH directions.
+   *
+   * Opening always mints a request even if the same body was open a moment ago; closing
+   * throws the answer away rather than parking it where the next press can read it back
+   * without asking the server. The permission is re-checked here and not only on the
+   * button: fail closed, and a control that is disabled for a reason should also be inert
+   * for that reason. Identical shape to `toggleRaw` on the call detail screen, which is
+   * the other audited read in this product.
+   */
+  const togglePayload = (deliveryId: string) => {
+    if (openPayload === deliveryId) {
+      setOpenPayload(null);
+      payload.reset();
+      return;
+    }
+    if (!mayReadPayload) return;
+    setOpenPayload(deliveryId);
+    payload.mutate(deliveryId);
+  };
 
   return (
     <div className="space-y-5">
@@ -317,11 +337,7 @@ export default function IntegrationsPage() {
                       {delivery.payload_stored ? (
                         <button
                           type="button"
-                          onClick={() =>
-                            setOpenPayload((current) =>
-                              current === delivery.id ? null : delivery.id,
-                            )
-                          }
+                          onClick={() => togglePayload(delivery.id)}
                           title="Shows the exact data we sent, personal details included. The read is written to your audit log."
                           className="rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
                         >
@@ -366,7 +382,7 @@ export default function IntegrationsPage() {
               </h3>
               <button
                 type="button"
-                onClick={() => setOpenPayload(null)}
+                onClick={() => togglePayload(openPayload)}
                 className="ml-auto rounded-md border border-slate-300 px-2 py-1.5 text-xs dark:border-slate-600"
               >
                 Close

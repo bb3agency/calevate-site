@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -121,6 +122,69 @@ describe("the retained delivery body", () => {
 
     expect(await screen.findByText(BODY)).toBeTruthy();
     expect(calls.filter((c) => c.path === payloadPath)).toHaveLength(1);
+  });
+
+  /**
+   * The audit row, and the two doors it used to escape through.
+   *
+   * The GET writes an `audit_log` row in the same transaction as the read
+   * (integrations/routes.py), and hard rule 5 exists so "who opened this customer's
+   * details" is answerable — about EVERY opening, not the first one. The read was a
+   * `useQuery` with `staleTime: Infinity`, so the second press and a return visit inside
+   * `gcTime` both came out of the cache: no request, no row.
+   *
+   * Both tests count REQUESTS at the network seam, which is the only place the audit row
+   * is observable from a browser. They fail against the query version and pass against the
+   * mutation, which is what makes them a guard rather than a restatement of the fix.
+   */
+  it("mints a second request, and so a second audit row, on a second opening", async () => {
+    const { calls } = await renderClientPage(page, {
+      ...routes(),
+      "/v1/integrations/deliveries/d1/payload": PAYLOAD,
+    });
+    const payloadPath = "/v1/integrations/deliveries/d1/payload";
+
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    expect(calls.filter((c) => c.path === payloadPath)).toHaveLength(1);
+
+    // Close. The body must LEAVE, not be parked where the next press reads it back
+    // without asking the server.
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByText(BODY)).toBeNull();
+
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    expect(calls.filter((c) => c.path === payloadPath)).toHaveLength(2);
+  });
+
+  it("asks again after leaving the screen and coming back", async () => {
+    // ONE `QueryClient` ACROSS BOTH MOUNTS is what makes this able to fail: the app has
+    // exactly one per shell mount and navigating away and back keeps it, while a second
+    // `renderClientPage` with its own client has no cache to restore from — so the same
+    // assertions would pass against the broken version and prove nothing.
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const payloadPath = "/v1/integrations/deliveries/d1/payload";
+    const table = { ...routes(), [payloadPath]: PAYLOAD };
+
+    const first = await renderClientPage(page, table, "acme", client);
+    fireEvent.click(await screen.findByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    expect(first.calls.filter((c) => c.path === payloadPath)).toHaveLength(1);
+
+    first.unmount();
+
+    const second = await renderClientPage(page, table, "acme", client);
+    // Nothing unredacted on screen, and nothing asked for, before the reader asks.
+    expect(await screen.findByRole("button", { name: "View" })).toBeTruthy();
+    expect(screen.queryByText(BODY)).toBeNull();
+    expect(second.calls.filter((c) => c.path === payloadPath)).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+    expect(await screen.findByText(BODY)).toBeTruthy();
+    expect(second.calls.filter((c) => c.path === payloadPath)).toHaveLength(1);
   });
 
   it("is not offered at all to a reader without calls:read_raw", async () => {

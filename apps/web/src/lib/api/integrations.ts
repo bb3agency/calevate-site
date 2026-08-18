@@ -8,7 +8,13 @@
  * with a support ticket costs more than answering it with a table.
  */
 
-import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { lookup } from "@/lib/lookup";
 
@@ -157,32 +163,45 @@ export function useDeliveries(session: Session): UseQueryResult<Delivery[]> {
 }
 
 /**
- * What we actually sent for one delivery — a GET WITH A SIDE EFFECT, and treated as one.
+ * What we actually sent for one delivery — a GET WITH A SIDE EFFECT, and therefore a
+ * MUTATION.
  *
  * `/v1/integrations/deliveries/{id}/payload` writes an `audit_log` row in the same
  * transaction as the read (integrations/routes.py), because the body is unredacted
- * personal data under hard rule 5. So every automatic refetch would both re-expose a
- * customer's details and forge an audit entry naming someone who did not ask for them:
- * all of the library's implicit refetching is off, and the request happens when someone
- * presses the button and at no other moment. Same shape, same reasoning, as
- * `useRawTranscript` on the call detail screen.
+ * personal data under hard rule 5. "Who opened this customer's details" is a question a
+ * DPDP enquiry asks about EVERY opening, not the first one.
  *
- * `retry: false`: a 403 or a "we no longer keep it" must surface once, not three times.
+ * This was a `useQuery` with `staleTime: Infinity` and all three implicit refetches off,
+ * and its comment claimed the "same shape, same reasoning, as `useRawTranscript`" — which
+ * had by then stopped being true, because the raw transcript moved to a mutation for
+ * exactly this defect and this hook did not follow. Those options are the right answer to
+ * half the problem: they correctly stop the library re-exposing personal data on a window
+ * focus or a reconnect, and they also stop a DELIBERATE second opening from being a
+ * request. Press View, press Close, press View: the body came back out of the cache with
+ * no network call and no second audit row, and so did returning to the screen inside
+ * `gcTime`. The trail recorded the first read and under-reported every one after it.
+ *
+ * A mutation is not a workaround for the cache, it is the accurate description: this
+ * request CHANGES SERVER STATE, so it has no business in a cache keyed by what it reads.
+ * It is also what lets Close actually DROP the body — a disabled query keeps its observer
+ * subscribed, so the personal data stayed in the JS heap for the life of the page after
+ * the reader said they were done with it.
+ *
+ * `deliveryId` is the mutation VARIABLE rather than a hook argument: one hook instance now
+ * serves every row, and "which delivery is open" stays the screen's single piece of state
+ * instead of being duplicated into a query key that could disagree with it.
+ *
+ * No `retry`: a 403 or a "we no longer keep it" must surface once, not three times.
+ * TanStack Query v5 defaults mutations to `retry: 0`
+ * (https://tanstack.com/query/v5/docs/framework/react/guides/mutations), so that is the
+ * default here rather than an override.
  */
 export function useDeliveryPayload(
   session: Session,
-  deliveryId: string | null,
-): UseQueryResult<DeliveryPayload> {
-  return useQuery({
-    queryKey: ["delivery-payload", session.orgSlug, deliveryId],
-    queryFn: () =>
+): UseMutationResult<DeliveryPayload, unknown, string> {
+  return useMutation({
+    mutationFn: (deliveryId: string) =>
       apiRequest<DeliveryPayload>(session, `/v1/integrations/deliveries/${deliveryId}/payload`),
-    enabled: deliveryId !== null,
-    staleTime: Infinity,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    retry: false,
   });
 }
 
