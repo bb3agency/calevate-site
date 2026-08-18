@@ -2516,11 +2516,12 @@ async def callable_tenants() -> list[UUID]:
 #
 # WHAT THIS DOES INSTEAD is ask the engine about the executions WE ALREADY KNOW ARE
 # OUTSTANDING. A call row exists from its first transition (`_ingest_stages` upserts on
-# every one), so a non-terminal row older than the stall window IS the list of calls whose
-# ending we never heard about. Each gets one authenticated `get_execution` — the read
-# D-187 made `_pipeline_settled` trust — and a terminal answer is re-driven through the
-# same `INGEST_JOB` under the same fixed job id, so this job and the listing sweep cannot
-# queue one call's repair twice.
+# every one), so our own `calls` table already names every call whose ending we never
+# heard about — see `_OUTSTANDING_CALLS_SQL` for the two shapes that takes. Each candidate
+# gets one authenticated `get_execution` — the read D-187 made `_pipeline_settled` trust —
+# and anything the pipeline still owes is re-driven through the same `INGEST_JOB` under the
+# same fixed job id, so this job and the listing sweep cannot queue one call's repair
+# twice.
 #
 # ITS OWN CRON RATHER THAN A SECOND PHASE OF `reconcile_executions`, and the reason is
 # cost shape. This sweep is O(tenants) — `calls` is FORCE-RLS'd, so "which tenants hold an
@@ -2551,8 +2552,16 @@ OUTSTANDING_PROBE_PER_TENANT = 50
 #: Vendor requests this sweep will make in total, across every tenant. The per-tenant cap
 #: bounds one tenant; this bounds the SWEEP, which is what keeps a fleet-wide incident from
 #: turning one cron tick into thousands of requests against the engine we are already
-#: failing to hear from. Hitting it is itself alerted — a truncated sweep that passed
-#: quietly would be the same defect as a truncated listing that reported `complete=True`.
+#: failing to hear from.
+#:
+#: WHAT IT COSTS, said plainly: `callable_tenants()` is ordered by tenant id, so a sweep
+#: that exhausts the budget starves the SAME tail of the fleet every time until the
+#: incident clears or those calls fall past the horizon. That is why hitting it is
+#: ALERTED rather than merely bounded — a truncated sweep that passed quietly would be the
+#: same defect as a truncated listing reporting `complete=True`. A rotating start offset
+#: was the alternative and was rejected: it needs durable state to be fair and makes the
+#: sweep non-deterministic to reason about, in exchange for spreading an incident the
+#: alert already says to go and fix.
 OUTSTANDING_PROBE_BUDGET = 200
 
 #: A call the ENGINE still calls non-terminal this long after it started. Not a repair —
@@ -2561,12 +2570,32 @@ OUTSTANDING_PROBE_BUDGET = 200
 #: is far past any plausible SMB call.
 CALL_ABANDONED_AFTER = timedelta(hours=2)
 
+# TWO SHAPES OF UNFINISHED CALL, and both of them are invisible once the execution has
+# aged out of the listing window:
+#
+#   * a row that never reached a terminal status — the terminal webhook was lost, so the
+#     call is stuck at `queued`/`ringing`/`in_progress` and NOTHING watches it:
+#     `EXTRACTION_OWED_SQL` only asks about calls already recorded `completed`;
+#   * a row recorded `completed` that carries neither a usage event nor a transcript turn
+#     — the status webhook landed and the pipeline behind it did not. Inside the listing
+#     window `_pipeline_settled` catches this (D-187); outside it, on an agent with no
+#     extraction schema and a tenant with no CRM endpoint, `report_stalled_pipeline` is
+#     silent too, because nothing was owed an extraction.
+#
+# `status = 'completed'` bounds the second clause rather than `status = ANY(terminal)`, and
+# that is the whole reason it is affordable: a `no_answer`, `busy` or `failed` call
+# legitimately has no cost and no transcript FOREVER, so the wider predicate would make
+# every failed dial in the last 24 hours a candidate on every sweep. Only `completed`
+# promises artefacts (TRD §5: cost, recording and transcript populate at `completed`), so
+# only `completed` can be missing them.
 _OUTSTANDING_CALLS_SQL = (
-    "SELECT engine_call_id, COALESCE(started_at, created_at) AS began "
-    "FROM calls "
-    "WHERE status <> ALL(:terminal) "
-    "AND COALESCE(started_at, created_at) < now() - :after "
-    "AND COALESCE(started_at, created_at) > now() - :horizon "
+    "SELECT c.engine_call_id, COALESCE(c.started_at, c.created_at) AS began, c.status "
+    "FROM calls c "
+    "WHERE COALESCE(c.started_at, c.created_at) < now() - :after "
+    "AND COALESCE(c.started_at, c.created_at) > now() - :horizon "
+    "AND (c.status <> ALL(:terminal) OR (c.status = 'completed' "
+    "  AND NOT EXISTS (SELECT 1 FROM usage_events u WHERE u.call_id = c.id) "
+    "  AND NOT EXISTS (SELECT 1 FROM transcript_turns t WHERE t.call_id = c.id))) "
     "ORDER BY began LIMIT :cap"
 )
 
@@ -2611,7 +2640,7 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             log.exception("outstanding_probe_failed", extra={"tenant_id": str(tenant_id)})
             unreached += 1
             continue
-        for engine_call_id, began in rows:
+        for engine_call_id, began, status in rows:
             if probes >= OUTSTANDING_PROBE_BUDGET:
                 truncated = True
                 break
@@ -2632,6 +2661,17 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
             if not snapshot.terminal:
                 if datetime.now(UTC) - began >= CALL_ABANDONED_AFTER:
                     abandoned += 1
+                continue
+            if str(status) in TERMINAL_STATUSES and (
+                await _pipeline_settled(engine.name, snapshot) == "settled"
+            ):
+                # THE VERDICT IS NOT RE-DERIVED HERE. A completed call with no cost and no
+                # transcript is not necessarily a dropped pipeline — the engine may simply
+                # have nothing to give for it — and `_pipeline_settled` is where that
+                # question is already answered from the snapshot rather than from what
+                # calls in general look like (D-187). Asking it a second way here is how
+                # the poller would start re-driving healthy calls, which is the defect its
+                # whole history is made of.
                 continue
             await enqueue(
                 INGEST_JOB,

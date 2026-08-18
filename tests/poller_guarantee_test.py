@@ -891,6 +891,50 @@ async def test_a_settled_call_stays_settled_after_its_outbox_rows_are_pruned() -
 # ====================================== 4. the window the listing cannot reach (D-242)
 
 
+async def _sweep_one_tenant(monkeypatch: pytest.MonkeyPatch, tenant_id: UUID) -> str:
+    """Run the outstanding-call sweep over THIS test's tenant and nobody else's.
+
+    Scope discipline, the same shape `outbox_dispatcher_test` uses on the stall alarm:
+    other suites share this Postgres and leave thousands of unfinished call rows in it, so
+    a fleet-wide sweep here would spend its whole vendor budget on other tests' residue
+    before reaching the tenant under test — and it would be measuring them rather than it.
+    `callable_tenants` is the seam that decides which tenants a sweep visits, so it is the
+    seam a scoped test drives.
+    """
+
+    async def _only_this_one() -> list[UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(pipeline, "callable_tenants", _only_this_one)
+    return await pipeline.reconcile_outstanding_calls({})
+
+
+async def _age_beyond_the_listing_window(tenant_id: UUID, execution_id: str) -> None:
+    """A 45-minute call that ended 15 minutes ago — outside the listing window on both
+    counts that matter.
+
+    Its START is past the poller's 30-minute `created_after` filter, so no listing will
+    ever return it again; its END is past `PIPELINE_STALL_AFTER`, so a pipeline that owed
+    something for it is late by the SLO's own definition rather than merely queued. A call
+    that ended two minutes ago is INSIDE its grace and must not be re-driven, which is
+    what `test_a_pipeline_still_inside_its_ladder_is_left_alone` holds.
+
+    Both sides of the seam, for `_age`'s reason: the engine's copy decides what
+    `list_executions(since=...)` returns and ours decides what the direct probe sees.
+    """
+    call = get_engine()._calls[execution_id]  # type: ignore[attr-defined]
+    call["started_at"] = datetime.now(UTC) - timedelta(minutes=60)
+    call["ended_at"] = datetime.now(UTC) - timedelta(minutes=15)
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE calls SET started_at = now() - make_interval(mins => 60), "
+                "ended_at = now() - make_interval(mins => 15) WHERE engine_call_id = :e"
+            ),
+            {"e": execution_id},
+        )
+
+
 async def _long_call_lost_at_the_end(label: str) -> tuple[UUID, str, str]:
     """A call that RAN LONGER THAN THE LISTING WINDOW and whose ending we never heard.
 
@@ -926,7 +970,7 @@ async def _long_call_lost_at_the_end(label: str) -> tuple[UUID, str, str]:
 
 
 async def test_a_call_longer_than_the_listing_window_is_still_recovered(
-    repairs: _Repairs,
+    repairs: _Repairs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The listing is filtered on CREATION time and the guarantee is about COMPLETION.
 
@@ -955,7 +999,7 @@ async def test_a_call_longer_than_the_listing_window_is_still_recovered(
         "the gap it was written for"
     )
 
-    await pipeline.reconcile_outstanding_calls({})
+    await _sweep_one_tenant(monkeypatch, tenant_id)
     assert execution_id in repairs.executions(), (
         "a call that outlived the listing window was never re-driven — its transcript, "
         "its usage row and its lead do not exist and nothing anywhere says so"
@@ -968,7 +1012,7 @@ async def test_a_call_longer_than_the_listing_window_is_still_recovered(
 
 
 async def test_the_direct_probe_leaves_a_call_that_is_still_running_alone(
-    repairs: _Repairs,
+    repairs: _Repairs, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The over-correction this phase must not make.
 
@@ -983,7 +1027,7 @@ async def test_the_direct_probe_leaves_a_call_that_is_still_running_alone(
     call["ended_at"] = None
 
     repairs.forget()
-    await pipeline.reconcile_outstanding_calls({})
+    await _sweep_one_tenant(monkeypatch, tenant_id)
 
     assert execution_id not in repairs.executions(), (
         "a call the engine says is still in progress was re-driven as if it had ended"
@@ -1021,7 +1065,7 @@ async def test_a_call_the_engine_has_not_finished_for_hours_is_reported(
         lambda stage, code, **kw: fired.append((str(stage), str(code))),
     )
     repairs.forget()
-    await pipeline.reconcile_outstanding_calls({})
+    await _sweep_one_tenant(monkeypatch, tenant_id)
 
     assert ("WORKER_STALL", "calls_never_finished") in fired, fired
 
@@ -1042,3 +1086,78 @@ def test_the_direct_probe_is_bounded_in_age_and_in_count() -> None:
         "never finished"
     )
     assert pipeline.OUTSTANDING_PROBE_PER_TENANT > 0
+
+
+async def test_a_completed_call_whose_pipeline_died_is_recovered_after_the_window_too(
+    repairs: _Repairs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The SECOND shape the direct probe has to cover, and the one D-187 only half-closed.
+
+    D-187 taught `_pipeline_settled` to confirm an empty expectation set against the
+    authenticated read, so a completed call whose pipeline died — on an agent with no
+    extraction schema and a tenant with no CRM endpoint — stops reading `settled`. That
+    fix lives entirely INSIDE the listing sweep, and the listing is filtered on creation
+    time: a call that ran longer than the window falls out of it and the fix never gets to
+    run. `report_stalled_pipeline` is silent for that call too, because with no schema
+    nothing was owed an extraction.
+
+    So: a `completed` row with no usage event and no transcript turn, aged past the
+    listing window. Nothing before this could see it.
+    """
+    tenant_id, agent_ref, execution_id = await _staged("deadpipe", schema=False)
+    await _ingest_only(tenant_id, agent_ref, execution_id)
+    await _age_beyond_the_listing_window(tenant_id, execution_id)
+
+    repairs.forget()
+    await pipeline.reconcile_executions({})
+    assert execution_id not in repairs.executions(), (
+        "the listing sweep can still reach this call; the test is not measuring the gap"
+    )
+
+    await _sweep_one_tenant(monkeypatch, tenant_id)
+    assert execution_id in repairs.executions(), (
+        "a completed call whose pipeline died outside the listing window was never "
+        "re-driven, and no alarm asks about it either"
+    )
+    await _drain(repairs)
+    state = await _artifacts(tenant_id, execution_id)
+    assert state["turns"] > 0 and state["usage"] > 0, state
+
+
+async def test_the_direct_probe_does_not_re_drive_a_call_that_owed_nothing(
+    repairs: _Repairs, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The over-correction the second shape invites, and the more expensive of the two.
+
+    A call the engine reports no cost and no transcript for owes neither, so a `completed`
+    row with no artefacts can be perfectly healthy — a call that connected and produced
+    nothing. Re-driving it costs a model round trip, billed, on every sweep forever. The
+    verdict is therefore delegated to `_pipeline_settled` rather than re-derived from the
+    row, which is where that question was already answered from the SNAPSHOT (D-187).
+    """
+    tenant_id, agent_ref, execution_id = await _staged("nothingowed", schema=False)
+    await _ingest_only(tenant_id, agent_ref, execution_id)
+    await _age_beyond_the_listing_window(tenant_id, execution_id)
+
+    # The engine record for THIS execution carries neither a cost nor a transcript. The
+    # fake adapter always produces both, so the bare answer is staged here rather than in
+    # the fixture: what is under test is our reasoning about an empty record, not the
+    # fake engine's generosity.
+    engine = get_engine()
+    real_get = engine.get_execution
+
+    async def _bare(call_id: str) -> Any:
+        snapshot = await real_get(call_id)
+        if call_id != execution_id:
+            return snapshot
+        return snapshot.model_copy(update={"transcript": [], "cost": None})
+
+    monkeypatch.setattr(engine, "get_execution", _bare)
+
+    repairs.forget()
+    await _sweep_one_tenant(monkeypatch, tenant_id)
+
+    assert execution_id not in repairs.executions(), (
+        "a call the engine reports nothing for was re-driven anyway — that is a billed "
+        "extraction on a healthy call, on every sweep"
+    )
