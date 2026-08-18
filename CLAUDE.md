@@ -128,6 +128,16 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
     you measured nothing. This rule used to print the plain-pytest pair here, which is
     how the mistake got made twice.
 
+    **READ THE EXIT STATUS OF `make`, NOT OF THE LINE AFTER IT.** A ratchet run wrapped
+    as `make coverage-ratchet; echo "EXIT=$?"` or piped into `tail` reports the status of
+    the ECHO or the TAIL — so a run killed at 7% by an external SIGTERM (a container
+    restart, a parent stopping it, an OOM) surfaces as **exit code 0** and reads exactly
+    like a pass. This has already nearly produced a reported pass for a run that never
+    finished. Capture `make`'s own status before anything else touches it, and treat a
+    result with no `COVERAGE RATCHET:` line in the output as NOT RUN — never as OK. The
+    gate's whole value is that it refuses to vouch for what it did not measure; a wrapper
+    that launders a kill into a zero defeats it more quietly than any of the causes above.
+
     **THE DATABASE MUST BE MIGRATED *AND SEEDED*, AND REDIS EMPTY.** `alembic upgrade head`
     alone leaves `reserved_slugs` empty and four tests that assert a reserved slug is
     refused then fail with nothing to refuse — they are not defects and their fix is
