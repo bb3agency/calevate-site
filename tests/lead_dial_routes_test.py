@@ -755,6 +755,66 @@ async def test_a_dial_the_engine_may_have_started_leaves_a_call_row_and_refuses_
     await _settle_calls(tenant_id)
 
 
+async def test_a_callback_the_engine_may_have_started_says_so_and_does_not_offer_a_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The same D-181 third outcome, on the OTHER button — and the two buttons had only
+    one of them tested.
+
+    The callback is the sharper case. Its idempotency key is derived from the parent
+    call rather than supplied by the client, so "press it again" is not a new request
+    the server can tell apart: the claim taken before the dial is deliberately LEFT
+    `processing` when the vendor's answer is lost, which is what stops a second press
+    from ringing somebody whose phone may already be ringing. A claim completed here —
+    or rolled back — would each, in opposite ways, hand the customer a second call.
+
+    So this pins three things at once: the client is told the truth in words they can
+    act on, the possible charge is on the client's own call log as a `queued` row, and
+    the button cannot be used to try again.
+    """
+    tenant_id, agent_id, _slug, headers = await _dialable_tenant()
+    lead_id, phone = await _lead(tenant_id, agent_id)
+    parent = await _finished_call(tenant_id, agent_id, lead_id, phone)
+
+    async def lost_response(self: object, ref: str, to: str, ctx: object) -> str:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_unreachable",
+            title="Voice engine unreachable",
+            detail="The voice platform did not respond.",
+        )
+
+    original = FakeEngine.start_outbound_call
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", lost_response)
+    async with _client() as http:
+        response = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+
+    assert response.status_code >= 500, response.text
+    body = response.json()
+    assert body["type"].endswith("/dial_unconfirmed"), body
+    assert "ring them twice" in body["remediation"], (
+        "the person reading this is about to press the button again"
+    )
+    assert await _outbound_calls(tenant_id) == [(phone, "completed"), (phone, "queued")], (
+        "the parent call and ONE unconfirmed follow-up — the possible charge is on record"
+    )
+
+    # The second press, with the engine working again: the claim left `processing` is
+    # what has to refuse it, because nothing else on this route can. Restored BY NAME
+    # rather than through `monkeypatch.undo()`, which is per-test and would also revert
+    # the autouse `_daytime` pin — the retry would then meet the calling-hours gate
+    # instead of the claim, and pass for a reason this test is not about.
+    monkeypatch.setattr(FakeEngine, "start_outbound_call", original)
+    async with _no_reraise_client() as http:
+        again = await http.post(f"/v1/calls/{parent}/callback", headers=headers)
+    assert again.status_code == 409, again.text
+    assert again.json()["type"].endswith("/idempotent_request_in_flight"), again.text
+    assert await _outbound_calls(tenant_id) == [(phone, "completed"), (phone, "queued")], (
+        "the second press rang a customer whose phone may already have been ringing"
+    )
+    await _settle_calls(tenant_id)
+
+
 async def test_a_failure_after_the_phone_rang_does_not_let_the_same_key_dial_again(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
