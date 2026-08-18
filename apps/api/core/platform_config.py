@@ -336,6 +336,13 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # constant and `scripts/check_model_residency.py` fails the build on any `Settings`
     # field whose name says region, location, residency, vertex or aiplatform.
     "gcp_project_id": AppliesRule(LIVE),
+    # LIVE because being able to change it without a deploy is the entire point (D-404).
+    # It names which entry in the engine's credential store the in-call LLM bearer is
+    # written to, our default is a marked assumption, and the operator who settles it
+    # (OPERATIONS §2 gate 16c) is looking at a broken LLM leg while they do. The refresher
+    # re-reads settings each tick and pushes the bearer under whatever name it then finds,
+    # so a correction takes effect on the next tick with no restart and no republish.
+    "bolna_llm_credential_name": AppliesRule(LIVE),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
     # The Secrets panel implies exactly what the config panel implies — set it and it is

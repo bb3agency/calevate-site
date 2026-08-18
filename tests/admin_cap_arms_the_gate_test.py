@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
+import pytest
 from apps.api.billing import terms as billing_terms
 from apps.api.compliance.service import DispatchDecision, check_dispatch
 from apps.api.db.session import tenant_session
@@ -36,6 +37,36 @@ from tests.spend_caps_test import _bill, _plan, _spend_state, _tenant
 
 #: The rate `tests/spend_caps_test._plan` quotes, so the rupees below are derivable.
 _OVERAGE_RATE = Decimal("8.0000")
+
+
+@pytest.fixture(autouse=True)
+def _gate_reaches_the_spend_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The same two pins `tests/spend_caps_test.py` explains at length, and this file was
+    the one of five that did not have them.
+
+    THE SYMPTOM WAS A CLOCK. `check_dispatch` tests calling hours (09:00-21:00 IST) AFTER
+    the spend cap, so it can only ever mask an ALLOWED result — and both `assert
+    (...).allowed, "nothing is capped yet"` lines here failed with
+    `rule='calling_hours'` for every suite run between 21:00 and 09:00 IST. Half of every
+    day, this file turned the coverage ratchet's "REFUSED TO SCORE" on work that had
+    nothing to do with caps, which is the D-29 class of failure exactly. The big red
+    switch is the second pin: global platform state a concurrently running suite can flip.
+
+    NEITHER WEAKENS A REFUSAL CASE. The tests that assert a cap BITES assert
+    `rule == "spend_cap"`, and no amount of stubbing here can manufacture that.
+
+    THIS IS THE FIFTH COPY of a fixture that should be defined once. It is added here
+    rather than centralised because centralising means moving all five in one change
+    (CLAUDE.md: "replacing means the old callers move too") and it cannot be autouse
+    repo-wide — the suites that TEST the calling-hours window need the real one.
+    """
+    from apps.api.core.loadshed import PlatformStatus
+
+    async def _running(*, force_refresh: bool = False) -> PlatformStatus:
+        return PlatformStatus(mode="normal", outbound_halted=False)
+
+    monkeypatch.setattr("apps.api.compliance.service.get_platform_status", _running)
+    monkeypatch.setattr("apps.api.compliance.service.within_calling_hours", lambda *a, **k: True)
 
 
 async def _gate(tenant_id: UUID, agent_id: UUID) -> DispatchDecision:

@@ -397,6 +397,33 @@ class Settings(BaseSettings):
     # is a coherent deployment, and a readiness probe that goes red for an absent optional
     # feature is a probe operators learn to ignore.
     gcp_service_account_json: str | None = None
+    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE IN-CALL LLM BEARER (D-404).
+    #
+    # A SETTING RATHER THAN A CONSTANT, and the reason is that nobody knows the right
+    # value yet. VERIFIED-OSS proves the framework hands `llm_key` straight to
+    # `AsyncOpenAI` for a `provider: "custom"` leg (`bolna/llms/openai_llm.py`); nothing
+    # the vendor publishes says which credential-store entry the HOSTED platform injects
+    # it FROM. Their other providers use shouty names (`OPENAI`, `GOOGLE`, `SARVAM`), and
+    # their provider matrix says a custom model's key is "registered via
+    # `POST /user/model/custom`" — an endpoint whose published schema has no credential
+    # field at all, so that sentence cannot be taken literally.
+    #
+    # `CUSTOM` is therefore a DEFAULT, not a fact. It is console-managed (`applies: live`)
+    # precisely so the operator who gets the answer from OPERATIONS §2 gate 16c types it
+    # into a screen instead of waiting for a deploy — which is the difference between a
+    # five-minute fix and an outage that lasts until the next release.
+    #
+    # NOT a credential itself: it is the NAME of one, it is not secret, and it must stay
+    # out of `platform_secrets` (whose sealing is keyed on `_json`/`_key` style names) so
+    # an operator can actually SEE what is currently configured. The value it names is
+    # never stored here or anywhere else of ours — it is minted per refresh and pushed
+    # straight to the engine.
+    #
+    # Bounded to the shape a credential-store key can take: their examples are
+    # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores.
+    bolna_llm_credential_name: str = Field(
+        default="CUSTOM", min_length=2, max_length=64, pattern=r"^[A-Z][A-Z0-9_]{1,63}$"
+    )
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
     # therefore offered to an operator on the ops console as a key they could install —

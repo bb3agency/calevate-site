@@ -82,6 +82,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from calevate_shared.config import bolna_source_ips
@@ -99,6 +100,8 @@ from calevate_shared.engine import (
     ExecutionSnapshot,
     KBSourceRef,
     ListingIncompleteReason,
+    LlmCredentialPlacement,
+    LlmProvider,
     ModelConfig,
     NumberSpec,
     ProvisionedNumber,
@@ -106,6 +109,7 @@ from calevate_shared.engine import (
     compose_engine_prompt,
 )
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+from pydantic import ValidationError
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -268,6 +272,56 @@ _STATUS_MAP: dict[str, CallStatus] = {
     "error": "failed",
     "balance-low": "failed",
 }
+
+
+def _llm_routing(models: ModelConfig) -> dict[str, str]:
+    """The `provider`/`family`/`base_url` keys for one config's LLM leg (D-400).
+
+    THE ONLY PLACE a Calevate LLM leg becomes a Bolna provider name (hard rule 2).
+
+    UNSET REPRODUCES THE BODY WE ALREADY SEND — `provider: "openai"`, `family: "openai"`
+    — which is what every agent row in this repository still resolves to, because whether
+    the hosted platform honours `provider`/`base_url` at all is what gate 16 was opened to
+    ask. Changing the wire body for live agents on an unanswered vendor question is the
+    opposite of what this change is for.
+
+    THAT LINE SAID `{"family": "openai"}` WHEN IT ARRIVED, AND THAT WAS A SILENT REVERT.
+    D-400 was written against a tree whose body carried no `provider` at all; D-355 landed
+    `"provider": "openai"` in between, arguing that sending both fields spelling the same
+    thing "is the only combination that cannot route somewhere we did not name" — an
+    omitted `provider` merely DEFAULTS to `openai` on their side (`Llm.provider`,
+    `bolna/models.py`), so dropping it swaps an explicit choice for a vendor default that
+    can change in a release note. Preserving it is what this docstring's own
+    do-not-change-live-bodies rule asks for once "before" means D-355 rather than D-283.
+
+    `"custom"` for Vertex is their word rather than our workaround: their provider matrix
+    documents `Custom (LiteLLM-compatible)` as "OpenAI-style `base_url` + key … Set
+    `provider: "custom"`", and their server routes that value to the OpenAI client with
+    our `base_url` (`bolna/providers.py`, `bolna/llms/openai_llm.py`). `family` is
+    cosmetic on their side — declared and read by nothing — and is sent as `openai`
+    because `openai` is what the wire format IS.
+
+    **`provider: "google"` IS REFUSED, NOT MISSING**, and this is the branch a future
+    reader will want to add. Bolna ships a first-party Gemini provider needing one static
+    key named `GOOGLE`, and it is `genai.Client(api_key=…)` against
+    `generativelanguage.googleapis.com` — the AI Studio Developer API
+    (`bolna/llms/gemini_llm.py`). D-127 disqualified that host on two grounds, and **only
+    ONE of them survives the founder paying, which is the version to remember**: Google
+    states it does not train on PAID Developer API data, so the human-reviewer objection
+    is a free-tier objection; what does not go away is that **the Developer API has no
+    region pinning at all** — no region in the host, no field in which to ask for one. It
+    is the EASY way to put Gemini on the in-call leg and it moves Indian callers' words
+    out of India (D-401).
+    """
+    if models.llm_provider is None:
+        return {"provider": "openai", "family": "openai"}
+    body = {"provider": "custom", "family": "openai"}
+    if models.llm_base_url:
+        # Proven Mumbai-pinned by `ModelConfig` itself, which is the only reason this
+        # line may hand a model endpoint to a third party without re-checking it here.
+        body["base_url"] = models.llm_base_url
+    return body
+
 
 _TERMINAL_RAW = frozenset(
     {
@@ -636,11 +690,47 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     # Falling back costs one dict lookup and the alternative is calling a real, readable
     # agent unreadable.
     llm_model = leaf("llm_agent", "llm_config", "model") or leaf("llm_agent", "model")
+
+    # WHERE THE LLM LEG IS RUNNING, read back rather than assumed (D-400). Their
+    # `provider` cannot be inverted on its own — both of our legs render to `"custom"` —
+    # so the ENDPOINT is what identifies a Vertex leg, which is fitting: the endpoint is
+    # the fact that carries the residency guarantee, and the provider name is a routing
+    # detail.
+    #
+    # DUAL-SPELLED FOR THE SAME REASON `llm_model` IS, and it did not arrive that way.
+    # D-400 wrote this read against a FLAT `llm_agent` because the branch it came from
+    # also wrote a flat body; D-355 is what the write path actually does, and
+    # `_llm_routing`'s keys go INSIDE `llm_config`. Reading only the flat key would
+    # report every v2 agent's Vertex endpoint as ABSENT — the same confident-wrong answer
+    # the paragraph above rejects, on the one field that carries residency.
+    #
+    # A base URL WE DO NOT RECOGNISE is reported as no provider and LOGGED, never
+    # normalised away and never raised. `ModelConfig` refuses a non-Mumbai Vertex URL by
+    # construction (that is the point of its validator), so accepting the value here
+    # would be impossible and letting the ValidationError escape would turn a read-back
+    # into a failed publish — the one shape D-260 says a snapshot must never take. The
+    # log line carries the HOST only: it is a vendor's endpoint, not transcript text, and
+    # the host is the whole of what an operator needs to see that something is off.
+    base_url = leaf("llm_agent", "llm_config", "base_url") or leaf("llm_agent", "base_url")
+    llm_provider: LlmProvider | None = None
+    if base_url is not None:
+        try:
+            ModelConfig(llm_provider="vertex_openai", llm_base_url=base_url)
+        except ValidationError:
+            log.warning(
+                "engine_llm_endpoint_unrecognised",
+                extra={"engine": "bolna", "host": urlsplit(base_url).netloc},
+            )
+            base_url = None
+        else:
+            llm_provider = "vertex_openai"
     return (
         ModelConfig(
             stt_provider=leaf("transcriber", "provider"),
             stt_model=leaf("transcriber", "model"),
             llm_model=llm_model,
+            llm_provider=llm_provider,
+            llm_base_url=base_url,
             tts_provider=leaf("synthesizer", "provider"),
             tts_voice=leaf("synthesizer", "provider_config", "voice"),
         ),
@@ -987,54 +1077,45 @@ class BolnaEngine:
                             # `vector_store` — see `BOLNA_CAPABILITIES.knowledge_base` for
                             # why we do not send it).
                             #
-                            # MARKED ASSUMPTION RETAINED, AND NARROWED — `family` vs
-                            # `provider` (D-260). Both fields exist on `SimpleLlmAgent` and
-                            # both default to `"openai"`. VERIFIED-OSS says `family` is read
-                            # by nothing and `provider` chooses the client
-                            # (bolna-ai/bolna@cd2e192, `bolna/providers.py`), so both are
-                            # sent, spelling the same thing, which is the only combination
-                            # that cannot route somewhere we did not name.
-                            # WHICH LLM PROVIDERS ARE REACHABLE — AND THE TWO SOURCES PROVE
-                            # DIFFERENT THINGS, WHICH AN EARLIER VERSION OF THIS COMMENT RAN
-                            # TOGETHER. `references/providers-matrix.md` (VERIFIED-VENDOR-REPO)
-                            # lists OpenAI, Azure OpenAI, OpenRouter, Google Gemini and
-                            # "Custom (LiteLLM-compatible)", and names no `sarvam`. That is
-                            # a statement about what the vendor DOCUMENTS AND SUPPORTS.
+                            # THE D-260 MARKED ASSUMPTION IS SETTLED, AND IT WENT THE WAY
+                            # IT FEARED (D-400). It read: `family` is ASSUMED to select
+                            # the LLM client, CONTRADICTED BY the OSS server where
+                            # `family` is declared on `Llm` and read by NOTHING while
+                            # `provider` chooses the class out of `SUPPORTED_LLM_PROVIDERS`
+                            # — so a config naming no `provider` routes to OpenAI whatever
+                            # `model` says. Re-read at source 18 Aug 2026 on `master`
+                            # (`bolna/providers.py`, `bolna/enums.py::LLMProvider`,
+                            # `bolna/llms/openai_llm.py`): unchanged, and `provider:
+                            # "custom"` maps to `OpenAiLLM`, which constructs
+                            # `AsyncOpenAI(base_url=…, api_key=…)`. Their published
+                            # OpenAPI agrees by omission — `provider` and `family` carry
+                            # NO enum while `agent_flow_type` in the same block does, and
+                            # the spec's author uses `enum` when they mean a closed set
+                            # (telephony is `enum: ["twilio", "plivo"]`). An arbitrary
+                            # OpenAI-compatible endpoint is the DESIGNED extension point,
+                            # not a workaround.
                             #
-                            # It is NOT a statement about what the API accepts, and this
-                            # comment used to say Sarvam was reachable "only" as a custom
-                            # model — a wall inferred from a prose table. The SPEC says
-                            # otherwise, decisively: in this very schema `agent_flow_type`
-                            # carries `enum: [streaming, preprocessed]` while `provider` and
-                            # `family` carry NO enum, only `default: "openai"`, beside a
-                            # settable `base_url` whose example is OpenAI's `/v1`. The spec's
-                            # author uses `enum` when they mean a closed set — including on
-                            # OTHER `provider` fields (telephony is `enum: ["twilio",
-                            # "plivo"]`) — and deliberately did not here. An arbitrary
-                            # OpenAI-compatible endpoint is therefore the DESIGNED extension
-                            # point, not a workaround.
-                            #
-                            # So: `POST /user/model/custom` + `provider: "custom"` is the
-                            # SUPPORTED route and probably the operationally correct one, and
-                            # it remains D-356 (it needs `ModelConfig` to grow an
-                            # `llm_provider` and somebody to register the model). But it is
-                            # not the only route the contract permits, and nobody reading
-                            # this should treat it as a wall. Which of the two actually works
-                            # is a live question no document settles — gate 7's sibling in
-                            # OPERATIONS §2. Until then this agent runs on whatever
-                            # OpenAI-compatible model `cfg.models.llm_model` names.
-                            #
-                            # (D-36's Sarvam LLM leg is superseded anyway: the founder has
-                            # moved the LLM to Gemini on GCP Vertex, paid and usage-billed.
-                            # Gemini IS named in the matrix above, which is the friendliest
-                            # of the possible answers — see the Vertex decision in ROADMAP.)
+                            # So we now SEND `provider`, from `_llm_routing` above, and
+                            # `family` stays only because it is free and their own examples
+                            # carry it. D-356 ("it needs `ModelConfig` to grow an
+                            # `llm_provider` and somebody to register the model") is closed
+                            # by that function's existence. What is still not settled is
+                            # what the HOSTED platform STORES (gate 16 asked exactly this) —
+                            # `_snapshot` reads both back so the answer arrives as data
+                            # from the first publish rather than as a reviewer's guess.
                             "llm_agent": {
                                 "agent_type": "simple_llm_agent",
                                 "agent_flow_type": "streaming",
                                 "llm_config": {
                                     "agent_flow_type": "streaming",
-                                    "provider": "openai",
-                                    "family": "openai",
+                                    # `provider`/`family`/`base_url` from the ONE
+                                    # function that turns a Calevate LLM leg into a
+                                    # Bolna provider name (D-400). It sits INSIDE
+                                    # `llm_config` because that is where `LlmAgentV2`
+                                    # keeps the model settings (D-355) — the branch
+                                    # that introduced `_llm_routing` spread it at the
+                                    # flat v1 level, which the v2 endpoint ignores.
+                                    **_llm_routing(cfg.models),
                                     "model": cfg.models.llm_model,
                                     # SENT EXPLICITLY, and the reason is that NOT sending them
                                     # was a decision nobody had taken (D-283).
@@ -1067,11 +1148,23 @@ class BolnaEngine:
                                     # IndicSuperTokenizer report. REPORTED, NOT READ against
                                     # Sarvam's own tokenizer, and it does not need to be: the
                                     # decision is "leave headroom", and the direction is not in
-                                    # doubt.) The LLM leg is Sarvam 105B, FREE PER TOKEN
-                                    # (D-35/D-36, TRD §10), so the headroom costs nothing on the
-                                    # money path — the only cost of a higher cap is a longer
-                                    # worst-case utterance, which `max_call_duration_s` already
-                                    # bounds from the other side.
+                                    # doubt.)
+                                    #
+                                    # THE HEADROOM USED TO BE FREE AND IS NOT ANY MORE (D-400).
+                                    # This paragraph ended "the LLM leg is Sarvam 105B, FREE PER
+                                    # TOKEN, so the headroom costs nothing on the money path" —
+                                    # true under D-36 and false the moment the leg moved to paid
+                                    # Vertex, where output tokens are the EXPENSIVE leg at 8.3x
+                                    # input. **The number does not move**, and that is the point
+                                    # worth recording: a cap is a safety valve against a runaway
+                                    # generation, not a budget, and a ceiling that bites
+                                    # mid-sentence still truncates a reply rather than shortening
+                                    # one. What changed is that the argument now has to be made
+                                    # on its merits instead of leaning on a zero. The real
+                                    # spending bound is unchanged too: `max_call_duration_s` from
+                                    # one side and, per `billing/rates.py::llm_cost_inr_per_minute`,
+                                    # a cost curve dominated by the RESENT history rather than by
+                                    # any single reply.
                                     #
                                     # WHY 0.1 — THE VENDOR'S DEFAULT IS RIGHT, AND IS SENT
                                     # ANYWAY. This agent reads a client's script and carries
@@ -1383,6 +1476,132 @@ class BolnaEngine:
             code="engine_capability_unverified",
             title="Number provisioning is not automated yet",
             detail="Numbers are provisioned with the telephony provider directly (M1).",
+        )
+
+    # --- the rotating LLM credential (D-404) ---------------------------------
+
+    async def _llm_credential_ids(self, name: str) -> set[str]:
+        """The `provider_id`s the store currently holds under `name`.
+
+        `GET /providers` returns a `ProviderList` — an array, which `vendor_request`
+        wraps as `{"data": [...]}` — of `{provider_id, provider_name, provider_value}`
+        where **`provider_value` is MASKED** (the spec's own example is `xxxxxxxaz`).
+        That masking is why identity is read off `provider_id` and never off the value:
+        the store will not tell us which bearer it is holding, only how many.
+        """
+        listing = await self._request("GET", "/providers")
+        rows = listing.get("data")
+        if not isinstance(rows, list):
+            return set()
+        return {
+            str(row["provider_id"])
+            for row in rows
+            if isinstance(row, dict)
+            and row.get("provider_name") == name
+            and row.get("provider_id") is not None
+        }
+
+    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Write the in-call LLM bearer into Bolna's credential store (D-404).
+
+        VERIFIED-OAS (`bolna-ai/skills@28b24aa`, `references/openapi.yml`, md5
+        5597f7da080d47564696bc05c12e9112 — re-downloaded and re-hashed 18 Aug 2026, so
+        the pin is a re-read rather than a citation): `POST /providers` takes
+        `{provider_name, provider_value}`, `GET /providers` lists them with the value
+        MASKED, and `DELETE /providers/{provider_key_name}` removes one.
+
+        **WHY THIS IS A THREE-CALL DANCE AND NOT ONE POST**, which is the whole design
+        question here. The POST response's `status` enum has exactly one member,
+        `"added"` — there is no `"updated"` — so the spec DOCUMENTS an add and says
+        nothing about what a second add under the same name does. Three behaviours are
+        possible and they are not equally survivable:
+
+        * **Replace in place.** The happy case, and what a credential store usually does.
+        * **Append.** The store ends up holding the fresh bearer AND every expired one,
+          and WHICH of them a call authenticates with is the vendor's choice. The leg
+          keeps working for a while and then fails on a token nobody knew was installed —
+          a failure indistinguishable, from the outside, from "the refresher stopped",
+          which is precisely the sentence `vertex_llm_credential_refresh_failed` exists
+          to make unambiguous.
+        * **Refuse the duplicate.** Loud, and handled by the ladder as `engine_rejected`.
+
+        So we COUNT BEFORE AND AFTER and clean up what we find, using only documented
+        routes. The reward is that the answer to "which semantics does the live platform
+        have" arrives as DATA from the first rotation instead of as a reviewer's guess —
+        the same move `_snapshot` makes for gate 16. `LlmCredentialPlacement` is how it
+        reaches the log.
+
+        WHY POST-THEN-DELETE AND NEVER DELETE-THEN-POST. The obvious spec-clean rotation
+        is "remove the old entry, add the new one". It is wrong on the only axis that
+        matters: between the two calls the engine holds NO credential, so a POST that
+        fails after a successful DELETE takes the LLM leg down IMMEDIATELY rather than at
+        the old token's expiry. Post-first is strictly safer — the worst case is a
+        duplicate we then remove, and the second-worst is a duplicate we log.
+
+        THE SECRET IS NEVER LOGGED, and nothing here puts it in an exception: the ladder
+        in `vendor_http` logs status and route only, and this method's own log lines carry
+        a name, two counts and a verdict. `extra=` never sees the value (hard rule 6 is
+        about PII; a credential is the one thing whose leak is worse).
+        """
+        # An engine whose LLM leg it DICTATES has no credential of ours to hold, and a
+        # silent no-op there would be a refresher reporting green forever about somebody
+        # else's model. `has("llm")` is `is_ours("llm")` — see the Protocol's note on why
+        # this is that gate rather than a capability flag of its own.
+        require_capability("llm", engine=self)
+        # Read per call rather than copied at construction, because this is the one
+        # setting whose value is a MARKED ASSUMPTION (`Settings.bolna_llm_credential_name`)
+        # and the operator correcting it is looking at a broken leg while they do. The
+        # adapter is cached per process, so a constructor copy would make an `applies:
+        # live` classification a lie. This method runs on a multi-hour cron, so the read
+        # costs nothing that matters.
+        name = get_settings().bolna_llm_credential_name
+        before = await self._llm_credential_ids(name)
+        await self._request(
+            "POST", "/providers", json={"provider_name": name, "provider_value": secret}
+        )
+        after = await self._llm_credential_ids(name)
+
+        superseded = before & after
+        if not superseded:
+            # Replace-in-place (or a first install): the ids under our name did not
+            # survive the write, so the store swapped the entry.
+            log.info(
+                "engine_llm_credential_installed",
+                extra={"engine": self.name, "credential": name, "held": len(after)},
+            )
+            return LlmCredentialPlacement(replaced_in_place=True)
+
+        # APPEND SEMANTICS. Every id that was there before AND is still there is a
+        # superseded copy, because the entry we just wrote cannot be one of them. Removal
+        # is by NAME — the vendor's delete is `/providers/{provider_key_name}`, which
+        # addresses the name and not the id — so we cannot remove them individually, and
+        # deleting by name would take our fresh one with them.
+        #
+        # NOT SILENTLY TOLERATED. This is an alarm rather than a cleanup, and the reason
+        # is the docstring's second bullet: a store holding several bearers under one name
+        # authenticates calls with one of them at its own discretion, so the leg's health
+        # stops being a function of anything we do. It is reported as a REFUSAL of the
+        # rotation, which is exactly right — the rotation did not achieve its purpose.
+        log.warning(
+            "engine_llm_credential_appended",
+            extra={
+                "engine": self.name,
+                "credential": name,
+                "superseded": len(superseded),
+                "held": len(after),
+            },
+        )
+        raise ProblemError(
+            kind="dependency",
+            code="engine_credential_not_replaced",
+            title="The voice platform kept the superseded LLM credential",
+            detail=(
+                "The credential store appended the new value beside the old one instead "
+                "of replacing it, so which credential a call uses is no longer ours to "
+                "decide."
+            ),
+            remediation=("Remove the stale entry in the vendor console, then re-run the refresh."),
+            failure_stage="CORE_LOGIC",
         )
 
     # --- knowledge base ------------------------------------------------------

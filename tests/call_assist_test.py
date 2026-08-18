@@ -513,14 +513,14 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
     # 300 candidates + 500 thinking tokens: Gemini 3 bills thoughts at the OUTPUT rate and
     # `candidatesTokenCount` does not include them.
     assert rows[1][1] == Decimal("0.8000")
-    assert rows[0][2] == ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["in"]
-    assert rows[1][2] == ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["out"]
+    assert rows[0][2] == ai_quota.LLM_INR_PER_KTOK["in"]
+    assert rows[1][2] == ai_quota.LLM_INR_PER_KTOK["out"]
     assert rows[0][3] == rows[1][3], "both legs of one assist share one key"
     assert rows[0][3].startswith("assist:"), "the key is the server's, never a browser's"
 
     exact = (
-        Decimal("1.2") * ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["in"]
-        + Decimal("0.8") * ai_quota.ASSIST_LIST_PRICE_INR_PER_KTOK["out"]
+        Decimal("1.2") * ai_quota.LLM_INR_PER_KTOK["in"]
+        + Decimal("0.8") * ai_quota.LLM_INR_PER_KTOK["out"]
     )
     # ₹0.225800 exactly at `gemini-2.5-flash` prices, and `platform_ai_spend.spend_inr` is
     # NUMERIC(12,4), so what the counter can hold is ₹0.2258. QUANTIZED here rather than

@@ -600,11 +600,24 @@ def default_cost_model() -> tuple[CostLine, ...]:
         CostLine(leg="Platform fee (BYOK)", estimate="unpublished; target <= ~INR 1.5/min"),
         CostLine(leg="Sarvam Saaras V3 STT", estimate="INR 0.50/min"),
         CostLine(leg="Sarvam Bulbul V3 TTS", estimate="INR 0.90-1.40/min (beta pricing)"),
-        # Gemini is NOT the alternative here: D-127 puts it on Vertex `asia-south1` for
-        # the post-call assistant only, and an in-call Gemini leg would need a new
-        # India-co-located OpenAI-shaped proxy (PLAN Part 17, pilot-gated). The band is
-        # what a paid in-call LLM would cost if Sarvam's free tier moved.
-        CostLine(leg="LLM", estimate="INR 0.00 (Sarvam 105B per D-36); paid LLM 0.15-0.20"),
+        # GEMINI IS NOW THE DECISION AND NOT THE ALTERNATIVE (D-400), AND IT IS BUILT
+        # (D-404): `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, the one-hour-bearer
+        # blocker having been answered by rotating the credential rather than proxying it.
+        # WHICH LEG A PILOT ACTUALLY RUNS IS NOW A DEPLOYMENT FACT, not a code fact — it
+        # is Vertex where the pilot account holds a GCP project and service account, and
+        # Sarvam where it does not — so this line states BOTH bands rather than picking
+        # one. At 2.5 Flash's published $0.30/$2.50 the paid band is 0.23/min on a
+        # one-minute call rising to 0.51 at ten, because TRD 6.1 resends the whole history
+        # every turn (`billing/rates.py::llm_cost_inr_per_minute`). An operator filling
+        # this scorecard in knows which of the two their pilot ran.
+        CostLine(
+            leg="LLM",
+            estimate=(
+                "INR 0.23 (1 min) - 0.51 (10 min) on Gemini 2.5 Flash / Vertex "
+                "asia-south1 (D-400/D-404, where GCP is configured); INR 0.00 on the "
+                "Sarvam 105B fallback (D-36)"
+            ),
+        ),
         CostLine(leg="Telephony", estimate="INR 0.35-0.50/min"),
         CostLine(
             leg="Built-in KB",

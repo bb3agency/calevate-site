@@ -101,15 +101,22 @@ specific things, and neither has been run:
 
 ## One-line summary of the locked stack
 
-Bolna (engine, adapter-isolated — D-31) + the **D-36 canonical all-Sarvam BYOK stack**
-(Saaras STT · Sarvam 105B LLM, free + sovereign · Bulbul v3 TTS default, v2 as the value
-tier) — **Gemini 2.5 Flash runs the user-triggered dashboard AI on Vertex AI
-`asia-south1` (D-127) — 2.5 because Mumbai is the only permitted region and no 3.x model
-is reported there, so BRD R-04's 16 Oct 2026 retirement is LIVE for this leg
-(`GEMINI_DEFAULT_LLM_RETIRES`) — with `GEMINI_MODEL_CONFIRMED_IN_REGION is False` because
-nobody has yet made the one call that verifies it (OPERATIONS §2 gate 14);
-`GEMINI_EXTRACTION_DEFAULT is False`, so the first post-call
-extraction stays on Sarvam. D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
+Bolna (engine, adapter-isolated — D-31) + **Sarvam for SPEECH** (D-36's Saaras STT ·
+Bulbul v3 TTS default, v2 as the value tier — unchanged) + **Gemini 2.5 Flash on a PAID
+Vertex AI account, `asia-south1`, for LANGUAGE** — **D-400 supersedes D-36's "Sarvam 105B,
+free per token" LLM leg outright**, D-127 having already taken the dashboard surface. One
+model, one region, one retirement date; 2.5 because Mumbai is the only permitted region
+and no 3.x model is reported there, so BRD R-04's 16 Oct 2026 retirement is LIVE
+(`GEMINI_DEFAULT_LLM_RETIRES`). **The in-call leg is now BUILT, not merely decided**:
+`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True` — D-404 puts the engine on Vertex Mumbai
+directly (no proxy, no added hop on a live call, no new deployable) with a GCP OAuth2
+access token minted at 12 hours and rotated every 4 by `apps/workers/vertex_credential.py`,
+because a store that holds a static string can hold one we replace on a schedule.
+`GEMINI_MODEL_CONFIRMED_IN_REGION is False` remains (nobody has made
+the one call that verifies Mumbai serves the identifier — OPERATIONS §2 gate 14). The
+third, `GEMINI_EXTRACTION_DEFAULT is False`, is decided the OTHER way and permanently: the
+first post-call extraction stays on Sarvam because it reads the raw transcript, and D-400
+does not move it. **D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
 Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · first-party auth, two
 realms (D-165/D-170/D-177 — Clerk is deleted) ·
 a general-purpose VPS (D-25 moved hosting off DigitalOcean; nothing is provisioned yet).

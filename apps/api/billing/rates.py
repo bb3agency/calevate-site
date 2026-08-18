@@ -82,6 +82,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Final, Literal
 
+from calevate_shared.engine import GEMINI_LIST_PRICE_USD_PER_MTOK
+
 from apps.api.agents.voices import VoiceTier, get_voice
 from apps.api.billing.models import MONEY
 
@@ -158,6 +160,110 @@ MONEY_Q = Decimal(1).scaleb(-(MONEY.scale or 0))
 #
 # `tests/money_rounding_mode_test.py` scans the tree for a `quantize` that omits it.
 ROUNDING = ROUND_HALF_UP
+
+
+# --- the LLM leg, which stopped being free (D-400) -----------------------------------
+#
+# D-36 priced the in-call LLM leg at ₹0.00 because Sarvam 105B is free per token, and
+# TRD §10 has reasoned the whole margin from that zero since. The founder has moved the
+# leg to Gemini on a PAID Vertex AI account, so the zero is gone and there is nothing in
+# the cost model that survives it unexamined. This block is where the replacement number
+# comes from, in the same shape as the TTS card above: one statement of the vendor's
+# price, everything else derived, and the doc that quotes it checked against it.
+#
+# ⚠ **NOTHING IS BILLING THIS, AND THAT IS NOT AN OVERSIGHT — IT IS PERMANENT.** The
+# reason used to be two facts and is now one. The first is gone: since D-404
+# `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, so a deployment holding a GCP project
+# and service account runs this leg for real. The second does not go away, and it is the
+# one that matters — WE CANNOT SEE THE TOKENS: `CostBreakdown` carries a per-leg cost in
+# the engine's currency
+# and, on a BYOK leg, the engine pays nothing and reports nothing — which is exactly the
+# blindness `ENGINE_REPORTS_TTS_MODEL` documents one section up, arriving on a second
+# leg. The truth will be the GCP invoice, per project and not per tenant. So these
+# constants price the DECISION (TRD §10's unit economics, the margin a founder is
+# choosing) and deliberately do not pretend to meter a call.
+
+#: The USD/INR rate every published vendor list price in this repository is struck at.
+#: RBI reference, 16 Aug 2026.
+#:
+#: NOT `Settings.usd_inr_rate`, and the distinction is why this is a named constant. That
+#: field is the rate a CALL's engine cost is converted at, stamped into `usage_events
+#: .meta` at capture so a ledger row can always be re-derived (`engine/bolna.py`). This
+#: is the rate a LIST PRICE was quoted at — an input to a cost model and to an estimate
+#: on a screen, never to a charge. Reading the live field here would make every "about N
+#: assists" figure and every §10 margin move with an ops console, which is the opposite
+#: of a number a person can plan around.
+LIST_PRICE_USD_INR: Final = Decimal("95.66")
+
+#: `GEMINI_DEFAULT_LLM`'s published price in rupees per THOUSAND tokens, derived from the
+#: one place the vendor's own figure is written down.
+#:
+#: FOUR DECIMALS because `unit_cost_paid` is NUMERIC(12,4) — a price this ledger cannot
+#: store is a price it cannot honour — and `ROUNDING` rather than the ambient decimal
+#: context for the reason stated at that constant.
+LLM_INR_PER_KTOK: Mapping[str, Decimal] = MappingProxyType(
+    {
+        leg: (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(MONEY_Q, rounding=ROUNDING)
+        for leg, usd in GEMINI_LIST_PRICE_USD_PER_MTOK.items()
+    }
+)
+
+#: THE REFERENCE CONVERSATION the §10 per-minute figure is computed from. Every number
+#: here is an ASSUMPTION and is named so it can be argued with, which is the whole reason
+#: the per-minute figure is a function rather than a literal: the old "₹0.15-0.20/min for
+#: a paid LLM" in TRD §10 had no inputs at all, so nobody could tell whether it had gone
+#: stale when the model, the price or the prompt changed. All three have.
+#:
+#: `prompt_tokens` — the system prompt as `compose_engine_prompt` renders it: a client's
+#: script, the opening line, `TRUTHFUL_ANSWER_DIRECTIVE`, and whatever RAG snippet the
+#: turn carried.
+#:
+#: `turn_tokens` — one full exchange, caller utterance plus agent reply, at Telugu's
+#: token fertility (~2.1-2.3 tokens per word against English's ~1.2-1.4; the same figures
+#: `engine/bolna.py` cites for its 400-token cap).
+#:
+#: `turns_per_minute` — six, a ten-second turn cycle on a phone call.
+#:
+#: `output_tokens_per_turn` — well under the 400-token cap, which is a safety valve
+#: rather than a target.
+REFERENCE_CALL: Final[Mapping[str, int]] = MappingProxyType(
+    {
+        "prompt_tokens": 900,
+        "turn_tokens": 60,
+        "turns_per_minute": 6,
+        "output_tokens_per_turn": 35,
+    }
+)
+
+
+def llm_cost_inr_per_minute(minutes: int) -> Decimal:
+    """What the Vertex LLM leg costs per minute on a call of this length, at list price.
+
+    **IT IS NOT A CONSTANT PER MINUTE, AND THAT IS THE FINDING.** TRD §6.1 records that
+    the full conversation is resent to the model on every turn, so input tokens grow
+    linearly through a call and total input cost grows QUADRATICALLY with duration. A
+    single "₹x/min" figure is therefore a blended average that a long call skews above —
+    `scripts/pilot/knowledge.py::probe_h1_history_handling` exists to measure exactly
+    this shape on the real engine, and says in its own docstring that a priced in-call
+    LLM makes the correction matter. Taking `minutes` as an argument is what stops the
+    cost model quoting minute one and reasoning about minute ten.
+
+    Rounded ONCE, at the end. Quantizing per turn would round 6·N times and drift.
+    """
+    if minutes < 1:
+        raise ValueError("a reference call is at least one minute")
+    turns = minutes * REFERENCE_CALL["turns_per_minute"]
+    # Turn k carries the prompt plus everything said before it (k-1 exchanges), so the
+    # sum over the call is `turns * prompt + turn_tokens * (0 + 1 + … + turns-1)`.
+    input_tokens = REFERENCE_CALL["prompt_tokens"] * turns + REFERENCE_CALL["turn_tokens"] * (
+        turns * (turns - 1) // 2
+    )
+    output_tokens = REFERENCE_CALL["output_tokens_per_turn"] * turns
+    total = (
+        Decimal(input_tokens) * LLM_INR_PER_KTOK["in"]
+        + Decimal(output_tokens) * LLM_INR_PER_KTOK["out"]
+    ) / Decimal("1000")
+    return (total / Decimal(minutes)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
 def tts_rate_inr_per_char(tier: TtsTier) -> Decimal:

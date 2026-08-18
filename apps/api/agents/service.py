@@ -80,6 +80,8 @@ from typing import cast
 from uuid import UUID
 
 from calevate_shared.engine import (
+    GEMINI_DEFAULT_LLM,
+    VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE,
     AgentConfig,
     CallContext,
     DisclosurePosture,
@@ -87,6 +89,7 @@ from calevate_shared.engine import (
     VoiceEngine,
     compose_engine_prompt,
     compose_opening_line,
+    vertex_openai_base_url,
 )
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -312,6 +315,61 @@ def _assert_has_a_script(agent: dict[str, object]) -> str:
     )
 
 
+def in_call_llm(configured_model: object) -> dict[str, object]:
+    """The LLM leg's three `ModelConfig` fields for one agent — D-400's one decision point.
+
+    THE WHOLE SWITCH LIVES HERE, and that is the reason this function exists rather than
+    three expressions inline. D-400 makes the canonical in-call LLM Gemini on paid Vertex
+    AI; D-404 delivers it, by ROTATING the bearer on a cron rather than proxying the
+    endpoint. Between a decision and its delivery there is always a temptation to leave
+    the decision as prose and the code as it was — and then nobody can say what "when it
+    lands, flip it" actually means. It means this function, and nothing else.
+
+    THREE CONDITIONS, AND EVERY ONE IS NECESSARY. Each names a different way the leg
+    fails, and each fails at a different, worse moment:
+
+    1. **The route exists** (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`). A founder's switch.
+       While it is False nothing here changes, whatever else is configured.
+    2. **This deployment has a project to bill** (`gcp_project_id`). Without it there is
+       no id to interpolate into the URL, so there is no endpoint to name.
+    3. **This deployment can MINT A BEARER for that endpoint**
+       (`gcp_service_account_json`). **This condition is D-404's, and it is the one a
+       reviewer would drop.** Every deployment running D-127's dashboard AI already has a
+       project id — so without this third check, turning on the dashboard assistant would
+       silently move every agent's in-call LLM to an endpoint this deployment holds no
+       credential for. That does not fail at publish time, where somebody would see it. It
+       fails as a 401 from Vertex, mid-sentence, on a client's live phone call.
+
+    The key is checked for PRESENCE, not parsed. Parsing is
+    `apps/workers/vertex_credential.py`'s job and a present-but-malformed key is a paged
+    alarm there (`vertex_llm_credential_refresh_failed`); a publish path that did crypto
+    to answer a routing question would be a second place the credential is read, and this
+    module would then need the worker's imports to decide what an agent runs.
+
+    THE MODEL IDENTIFIER MOVES WITH THE ENDPOINT, and this is the half a reviewer would
+    wave through. `agents.llm_model` holds what an operator configured, which today is a
+    Sarvam identifier; sending `sarvam-105b` to Vertex is a 404 at dial time on a live
+    phone line. So a Vertex leg carries `GEMINI_DEFAULT_LLM` and the column is
+    deliberately ignored — the endpoint and the model are ONE decision and cannot be
+    configured apart. The rejected alternative was honouring the column and letting the
+    404 teach the operator; it teaches them during a client's call.
+
+    Returns a dict rather than a `ModelConfig` because the caller is building one with the
+    speech legs alongside, and two `ModelConfig`s merged is a second place for the LLM
+    fields to be decided.
+    """
+    settings = get_settings()
+    project = (settings.gcp_project_id or "").strip()
+    can_mint = bool((settings.gcp_service_account_json or "").strip())
+    if not VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE or not project or not can_mint:
+        return {"llm_model": configured_model}
+    return {
+        "llm_model": GEMINI_DEFAULT_LLM,
+        "llm_provider": "vertex_openai",
+        "llm_base_url": vertex_openai_base_url(project),
+    }
+
+
 def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
     settings = get_settings()
     return AgentConfig(
@@ -331,7 +389,9 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
         models=ModelConfig(
             stt_provider=agent["stt_provider"],
             stt_model=agent["stt_model"],
-            llm_model=agent["llm_model"],
+            # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
+            # and the model identifier cannot be configured apart (D-400).
+            **in_call_llm(agent["llm_model"]),
             tts_provider=agent["tts_provider"],
             tts_voice=agent["tts_voice"],
         ),
