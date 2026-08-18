@@ -60,6 +60,28 @@ That is the finding; the rest of this document is its consequences.
 | `toolchain: {execution: parallel, pipelines: [[transcriber, llm, synthesizer]]}` | `Toolchain` (required on `TasksConfigV2`) — D-260's fix confirmed |
 | No `voicemail` STATUS exists (D-260's open question) | `AgentExecution.status` enum; voicemail is the boolean `answered_by_voice_mail` |
 
+## The field enumeration, done exhaustively rather than opportunistically
+
+D-359 (`direction`) and D-361 (`ended_at`) were both found the same way and the second was
+found deliberately: after one invented field turns up, the move is not to fix that field
+but to enumerate EVERY key the adapter reads off a vendor payload and check the whole set.
+Done, and recorded here so the next reader inherits the result instead of redoing it.
+
+Every key `apps/api/engine/bolna.py` reads from an execution payload, against the pinned
+OAS and `references/execution-payload.md`:
+
+| Key | Status |
+|---|---|
+| `id`, `agent_id`, `status`, `total_cost`, `cost_breakdown`, `conversation_duration`, `duration`, `transcript`, `extracted_data`, `created_at`, `updated_at`, `telephony_data`, `execution_id`, `has_more`, `data` | declared — VERIFIED-OAS |
+| `telephony_data.{call_type, from_number, to_number, recording_url}` | declared — VERIFIED-OAS |
+| `started_at`, `ended_at`, `completed_at` | **in neither document.** D-361: harmless because the real field is the other operand of each `or`, now documented and tested rather than lucky |
+| `direction` | **in neither document.** D-359: the live defect. Retained only as an inert fallback behind `telephony_data.call_type` |
+| `cost_currency`, `currency` | **in neither document, and read ON PURPOSE.** `_cost` looks for any currency field so `currency_stated` can become true the day one appears; the whole point is that our assumed currency must be falsifiable from the payload rather than read back from ourselves |
+| `executions` | **in neither document, tolerated spelling** beside the declared `data` envelope key. Costs nothing and is documented at `_listing_rows` |
+
+**No unaccounted-for reads remain.** Every key is either declared by the vendor or is a
+deliberately-documented tolerated/absent spelling with a named reason.
+
 ## STILL UNVERIFIED, and exactly why
 
 Egress to `api.bolna.ai` is refused by this environment's proxy with a gateway 403 on
