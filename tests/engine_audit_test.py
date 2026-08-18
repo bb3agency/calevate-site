@@ -1336,22 +1336,43 @@ _VENDOR_ONLY_KEYS = frozenset(
         "total_cost",
         "transcriber",
         "user_data",
-        # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced).
+        # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
+        # `docs/vendor/cartesia/` carries the citations since D-270).
         "agent_call_id",
         "document_ids",
         "duration_seconds",
         "from_number_id",
         "has_more",
+        # Their pagination cursor parameter, read at source in their generated client.
+        # Nothing of ours is called this. (`summaries`, the envelope `GET /agents` answers
+        # with, is NOT here — see `_SHARED_PAYLOAD_KEYS`.)
+        "starting_after",
+        # `telephony_params` is Cartesia's noun for the same thing Bolna calls
+        # `telephony_data`, which is already banned two lines up — the pair is the
+        # clearest example in this list of why the ban is per vendor noun rather than per
+        # concept.
+        "telephony_params",
         # Cartesia's spelling of the same greeting field. VENDOR-ONLY rather than shared
         # despite being an ordinary English word: nothing of ours is called an
         # `introduction` — `AgentSnapshot` calls it `greeting` — so the word appearing
         # outside the adapter is a vendor shape that escaped, which is what the scan is
         # for.
         "introduction",
-        "next_page",
         "outbound_calls",
+        # `start_time`/`end_time` are Cartesia's names for the two instants everything
+        # else in this repo calls `started_at`/`ended_at` — `ExecutionSnapshot`,
+        # `CallEvent` and the `calls` columns all use the `_at` spelling, so the bare form
+        # appearing in shipped code outside the adapter is a vendor shape that escaped.
+        # Ordinary-looking English words, banned for `introduction`'s reason.
+        "start_time",
+        "end_time",
     }
 )
+# `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
+# model carries no `has_more`/`next_page` at all, it cursors on the last row's id. It was
+# removed rather than kept "just in case", because
+# `test_every_banned_key_is_still_a_word_some_adapter_speaks` is what stops this list
+# accumulating words that describe nothing.
 
 #: Keys an adapter reads that are ALSO ours. Being here is not permission to read a vendor
 #: payload — it is an admission that this word carries no evidence either way, so the
@@ -1401,6 +1422,12 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "speaker",
         "started_at",
         "status",
+        # Cartesia's `GET /agents` envelope key — and also OURS: `apps/workers/retention.py`
+        # counts the call `summaries` it sweeps under exactly this name. Which is the
+        # whole point of this set: the word carries no evidence either way, so the
+        # repo-wide scan may not use it. Banning it turned a real retention counter into
+        # a hard-rule-2 violation, which is how a guard that cries wolf gets switched off.
+        "summaries",
         "stt",
         "system_prompt",
         "text",

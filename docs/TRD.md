@@ -1047,9 +1047,10 @@ why the engine port is where the work belongs:
 | BYOK TTS | yes (Bulbul) | **no** (Sonic) | agent voice picker becomes a lie unless capability-driven |
 | Engine-side campaigns | yes (unverified, TRD §5) | no | we already dispatch in our layer — no loss |
 | Built-in KB | yes, `rag_id` (D-33) | **yes** — CORRECTED, see below | no forced loss; the shapes differ, the capability does not |
-| Webhook auth | unsigned → IP allowlist + execution-id dedupe | signed | receiver must not hard-code one model |
+| Webhook auth | unsigned → IP allowlist + execution-id dedupe | authenticated by an UNSOURCED scheme — see correction 2 | receiver must not hard-code one model |
 | Indian DID / DLT 140/160 | yes | **no** | **the blocker** — see below |
 | Concurrency | no tier cap | 1/3/5/10 by tier | a business constraint, not a code one |
+| **Agent hosting** | agent object we POST a config into | **the agent IS a deployed git repository** — see correction 2 | **the port does not survive it** |
 
 > ⚠ **CORRECTION (recorded the day it was found).** This table first said Cartesia Line
 > has **no** built-in knowledge base, and concluded that T0 retrieval would need our own
@@ -1059,6 +1060,42 @@ why the engine port is where the work belongs:
 > shape differs. The wrong version is left visible rather than silently edited, because it
 > was reasoned from an absence of evidence — the failure mode `RESEARCH-DISCIPLINE.md`
 > exists to catch.
+
+> ⚠ **CORRECTION 2 (D-270) — and this one answers the question this section opened with.**
+> §10.5 says: *"What has never been tested is whether that contract is vendor-NEUTRAL or
+> merely Bolna-shaped — and those look identical while only one vendor exists."* Reading
+> Cartesia's **generated** clients (`cartesia-ai/cartesia-python` and `cartesia-js`, both
+> emitted from their OpenAPI spec) settles it. **The contract is Bolna-shaped**, and the
+> evidence is in `docs/vendor/cartesia/`:
+>
+> * **There is no `POST /agents`.** Their `AgentsResource` has `retrieve`, `update`,
+>   `list`, `delete`, `list_phone_numbers`, `list_templates` and no `create`. An agent is
+>   created by deploying a git repository through the `cartesia` CLI.
+> * **The agent object holds no prompt, no greeting and no model.** `AgentSummary` carries
+>   `git_repository`/`git_deploy_branch` where a hosted platform would carry a script, and
+>   `PATCH /agents/{id}` accepts exactly `{description, name, tts_language, tts_voice}`.
+>   The prompt is per-CALL data (`CallRequest.agent.system_prompt`) or deployed code.
+> * **The calls listing is per-agent and has no time filter.** `GET /agents/calls` requires
+>   `agent_id`, pages on `limit`/`starting_after`, and needs `expand=transcript`.
+> * **There is no per-call cost.** Usage is an account-level daily credit meter
+>   (`GET /usage/credits`, grouped by capability/model/voice/api_key).
+> * **The webhook scheme is not published anywhere we can reach.** The table row above used
+>   to say "signed"; no Cartesia SDK carries a signing helper, and the only description of
+>   one is a search snippet naming an `x-webhook-secret` SHARED SECRET header — which is
+>   not an HMAC. `WEBHOOK_AUTH_BY_ENGINE["cartesia"]` stays `"hmac"` because it is the only
+>   value in that Literal that fails CLOSED, and the comment there says so.
+>
+> **What this costs, stated plainly.** `VoiceEngine.create_agent` and the
+> prompt/greeting/model half of `get_agent` describe a platform Cartesia does not run, so
+> `apps/api/agents/verification.py` would score every publish `unreadable` and hard rule 5
+> could not be enforced from this repository at all — on Cartesia the disclosure lives in
+> the deployed agent program. The port needs a way to say *"this engine does not host an
+> agent of ours"*, which `EngineCapabilities` cannot express today. **That is the real
+> content of "build for the switch", and it is now a named piece of work rather than a
+> reassurance** (OPERATIONS §2 gate 16(a)). The adapter is relabelled, not rewritten: the
+> parts that DO survive — read an agent, rename it, delete it, read a call, list calls —
+> are now verified rather than assumed, and the parts that do not are marked CONTRADICTED
+> at the line.
 
 **The blocker is telephony, and it is the only one that is not ours to fix in code.** Our
 entire compliance spine — PE/TM registration, DLT headers and templates, the
