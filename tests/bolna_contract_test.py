@@ -30,13 +30,16 @@ egress to that host is blocked from this environment (OPERATIONS §2 gate 2).
 
 from __future__ import annotations
 
+import ast
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 from apps.api.core.errors import ProblemError
+from apps.api.engine import bolna as bolna_module
 from apps.api.engine.bolna import BASE_URL, BOLNA_CAPABILITIES, BolnaEngine, _agent_models
 from calevate_shared.engine import AgentConfig, CallContext, KBSourceRef, ModelConfig
 
@@ -319,3 +322,154 @@ def test_the_base_url_is_the_host_the_vendor_still_serves() -> None:
     it for new work." The OAS declares exactly one server."""
     assert BASE_URL == "https://api.bolna.ai"
     assert datetime.now(UTC).tzinfo is UTC  # the module's time handling is UTC end to end
+
+
+# --- the whole route surface, not one route at a time -------------------------
+
+
+#: Every path in the vendor's pinned OpenAPI document, path parameters normalized to `{}`.
+#:
+#: TRANSCRIBED FROM `bolna-ai/skills@28b24aa references/openapi.yml` (the `paths:` keys;
+#: md5 `5597f7da080d47564696bc05c12e9112`), and the complete inventory with its provenance
+#: lives in `docs/vendor/bolna/hosted-oas.md`. Committed as a literal rather than fetched:
+#: this suite must not depend on network egress, and a pinned checksum is what makes a
+#: transcription auditable. Re-fetch and re-derive with the command in that document.
+#:
+#: NOT PRUNED TO WHAT WE CALL. The whole point is that a route we do NOT call is a
+#: different thing from a route that does not EXIST, and `end_call`'s wrong path survived
+#: precisely because nobody could tell those apart.
+_VENDOR_PATHS: frozenset[str] = frozenset(
+    {
+        "/agent",
+        "/agent/all",
+        "/agent/{}",
+        "/agent/{}/executions",
+        "/agent/{}/execution/{}",
+        "/v2/agent",
+        "/v2/agent/all",
+        "/v2/agent/{}",
+        "/v2/agent/{}/stop",
+        "/v2/agent/{}/executions",
+        "/v2/agent/{}/dispositions/test",
+        "/executions/{}",
+        "/executions/{}/log",
+        "/batches",
+        "/batches/{}/all",
+        "/batches/{}",
+        "/batches/{}/executions",
+        "/batches/{}/stop",
+        "/batches/{}/schedule",
+        "/call",
+        "/call/{}/stop",
+        "/providers",
+        "/providers/{}",
+        "/inbound/setup",
+        "/inbound/unlink",
+        "/me/voices",
+        "/user/model/custom",
+        "/user/me",
+        "/sip-trunks/trunks",
+        "/sip-trunks/trunks/{}",
+        "/sip-trunks/trunks/{}/numbers",
+        "/sip-trunks/trunks/{}/numbers/{}",
+        "/knowledgebase",
+        "/knowledgebase/all",
+        "/knowledgebase/{}",
+        "/extractions",
+        "/extractions/{}",
+        "/phone-numbers/all",
+        "/phone-numbers/search",
+        "/phone-numbers/buy",
+        "/phone-numbers/{}",
+        "/sub-accounts/create",
+        "/sub-accounts/{}",
+        "/sub-accounts/all",
+        "/sub-accounts/{}/usage",
+        "/sub-accounts/all/usage",
+        "/violations/list",
+        "/violations/submit",
+        "/dispositions/",
+        "/dispositions/bulk",
+        "/dispositions/{}",
+    }
+)
+
+
+def _adapter_routes() -> set[str]:
+    """Every path literal the adapter hands to `_request`, normalized like `_VENDOR_PATHS`.
+
+    Read out of the SOURCE rather than by driving the methods, because the defect this
+    guards is a route on a path nobody exercised: `end_call` had no test at all while it
+    pointed at `/executions/{id}/stop`, which is exactly how it stayed wrong.
+    """
+    tree = ast.parse(Path(bolna_module.__file__).read_text(encoding="utf-8"))
+    routes: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not (isinstance(func, ast.Attribute) and func.attr == "_request"):
+            continue
+        # `_request(method, path, ...)` — the path is the second positional argument.
+        if len(node.args) < 2:
+            continue
+        path = node.args[1]
+        if isinstance(path, ast.Constant) and isinstance(path.value, str):
+            routes.add(path.value)
+        elif isinstance(path, ast.JoinedStr):
+            # An f-string: keep the literal segments, collapse each interpolation to `{}`.
+            routes.add(
+                "".join(
+                    part.value if isinstance(part, ast.Constant) else "{}" for part in path.values
+                )
+            )
+    return routes
+
+
+def test_every_route_this_adapter_calls_is_a_route_the_vendor_publishes() -> None:
+    """THE GUARD THAT WOULD HAVE CAUGHT D-353 ON THE DAY IT WAS WRITTEN.
+
+    Two routes reached production-shaped code without existing: `GET /executions` (the
+    guarantee of record, so every reconciliation tick would have 404'd forever while the
+    console blamed the engine) and `POST /executions/{id}/stop` (the campaign halt). Both
+    were plausible, both had passing tests, and both were wrong — because the stub was
+    built from the same guess as the adapter, so the suite confirmed the guess.
+
+    A per-route test cannot close that: it proves the adapter calls what the test expects,
+    which is a statement about our agreement with ourselves. This compares the adapter
+    against the VENDOR'S OWN path list, so the failure reads "you invented a URL" rather
+    than "you disagreed with a fixture we also wrote".
+
+    Deliberately ONE-DIRECTIONAL: the vendor has many routes we do not call, and that is
+    normal — batches, phone numbers and SIP trunks are declined by design, see
+    `BOLNA_CAPABILITIES`. Only the reverse direction is ever a defect.
+    """
+    called = _adapter_routes()
+    assert called, "the AST scan found no routes at all — it has stopped scanning anything"
+
+    invented = sorted(called - _VENDOR_PATHS)
+    assert not invented, (
+        f"the adapter calls {invented}, which the vendor's pinned OpenAPI document does "
+        "not publish. A route that does not exist 404s on the first live call, and "
+        "`vendor_request` reports that as a dependency failure — an engine fault on the "
+        "console, for a URL we made up. Check the path against "
+        "`docs/vendor/bolna/hosted-oas.md`; if the vendor has ADDED it, re-fetch the spec "
+        "at a new pin and update `_VENDOR_PATHS` and the checksum in the same change."
+    )
+
+
+def test_the_adapter_is_fully_migrated_off_the_deprecated_v1_agent_surface() -> None:
+    """v1 and v2 both exist on this vendor, which is what made a PARTIAL migration possible.
+
+    Agent CRUD moved to `/v2/agent` and the executions and stop paths did not, and nothing
+    could see the difference, because "the adapter targets v2" was true of the part anyone
+    looked at. Pinned here: no route we call may be a v1 agent route.
+    """
+    v1_agent_routes = {
+        route for route in _adapter_routes() if route == "/agent" or route.startswith("/agent/")
+    }
+    assert not v1_agent_routes, (
+        f"the adapter calls the deprecated v1 agent surface: {sorted(v1_agent_routes)}. "
+        "TRD §3 says never to call the legacy unversioned agent paths; the v2 equivalents "
+        "are `/v2/agent`, `/v2/agent/all`, `/v2/agent/{id}` and `/v2/agent/{id}/executions`."
+    )
