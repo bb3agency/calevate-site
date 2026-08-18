@@ -266,7 +266,14 @@ class TestDecisionReferences:
         )
         failures = guard.dangling_decisions(roots=(root,))
         assert any(absent in f and "docs/X.md:1" in f for f in failures), failures
-        assert not any("D-31" in f for f in failures), failures
+        # WHOLE-TOKEN, not a substring — and no literal decision number in this comment,
+        # for the reason `_absent_decision` states. `absent` is derived from the live log,
+        # so as soon as the log grew past three hundred and eight the derived number began
+        # with the same three characters as the real decision cited above it, and a
+        # substring test failed on a control that was working perfectly. What this
+        # negative control asserts is that the REAL citation was not reported, which is a
+        # statement about a citation rather than about a run of characters.
+        assert not any(re.search(r"\bD-31\b", f) for f in failures), failures
 
     def test_catches_a_dangling_reference_in_code(self, tmp_path: Path) -> None:
         """A decision cited in a migration or a module docstring is exactly as unfollowable

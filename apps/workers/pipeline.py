@@ -59,6 +59,7 @@ from apps.api.billing.rates import (
     prepaid_billed_inr,
 )
 from apps.api.billing.service import charge_for_call, month_increment, plan_tier_of
+from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
 from apps.api.compliance.optout import (
     DETECTED_POST_CALL,
@@ -1014,6 +1015,27 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
             # never owed a fan-out.
             if written:
                 await _mark_crm_notified(session, call_id)
+
+        # STEP 9 — the DPDP obligation this run may have just broken (D-310).
+        #
+        # Everything above wrote personal data for this call. If a data principal's
+        # erasure COMPLETED while this call was already under way, the certificate their
+        # client handed on is now false: the transcript, the extraction, the summary, the
+        # recording, the archived vendor document and the `leads` row are all back. The
+        # erasure could not have reached forward, and nothing else in this pipeline knows
+        # the request exists — so the check belongs here, after the last write rather
+        # than before the first, because only a run that is finished can say what it left
+        # behind.
+        #
+        # It re-FILES rather than erasing inline: `compliance/deletion.py` argues why (one
+        # erase mechanism, and a second certificate is what the person is owed). In this
+        # transaction so the row and its outbox job commit with the pipeline's own work.
+        await refile_erasure_for_late_records(
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            phones=(snapshot.from_e164, snapshot.to_e164),
+        )
 
     lag = time.perf_counter() - started
     record_pipeline_lag(lag, stage="post_call")

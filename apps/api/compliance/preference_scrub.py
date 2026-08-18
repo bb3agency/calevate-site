@@ -180,9 +180,11 @@ class ScrubState:
     scrubbed_at: datetime | None = None
     expires_at: datetime | None = None
     #: How many contacts were pending when the run was recorded — the size of the list
-    #: the provider's verdict actually covers. Compared against the live pending count
-    #: by `national_dnd_blocker`, which is what stops a scrub of three numbers standing
-    #: in for a list of five thousand.
+    #: the provider's verdict actually covers. `national_dnd_blocker` compares the live
+    #: pending count against it as a BACKSTOP; the rule it enforces is "was any contact
+    #: created after `scrubbed_at`", because this count is taken before the run's own
+    #: suppressions are applied and therefore leaves room for exactly `suppressed_count`
+    #: unscrubbed additions on its own (D-313).
     submitted_count: int = 0
     suppressed_count: int | None = None
 
@@ -269,13 +271,24 @@ async def national_dnd_blocker(
     # A scrub covers the list that was SUBMITTED, and contacts can be uploaded to a
     # draft after one is recorded — scrub three numbers, add five thousand, launch. That
     # sequence needs no bad intent (a client finishes their upload while we are on the
-    # portal) and it would let unscrubbed numbers through a gate reporting itself green,
-    # so a list that has GROWN since the run is refused by name.
+    # portal) and it would let unscrubbed numbers through a gate reporting itself green.
     #
-    # Only growth. A pending count BELOW `submitted_count` is the ordinary state of a
-    # running campaign — the scrub itself marks contacts `dnc_blocked`, and every dial
-    # consumes one — so refusing on any inequality would block every campaign the moment
-    # it started working.
+    # ASKED AS "WAS ANYTHING ADDED AFTER THE RUN", NOT AS A COUNT COMPARISON (D-313).
+    # This used to refuse when the live pending count EXCEEDED `submitted_count`, which
+    # is a proxy, and the proxy has headroom exactly the size of the scrub's own result:
+    # `submitted_count` is measured BEFORE the provider's blocked numbers are marked
+    # `dnc_blocked`, so a run that suppressed twelve leaves pending twelve below the
+    # number it is compared against — and twelve brand-new, never-scrubbed contacts can
+    # be uploaded into that gap with the gate still reporting green. Measured: a scrub
+    # over ten contacts that suppressed three admitted three unscrubbed additions and
+    # answered `None` (`tests/national_dnd_test.py`). Every other way pending falls —
+    # a dial consuming one, the launch DNC pass, an erasure — widens the same gap.
+    #
+    # The row's own timestamp settles it with no arithmetic: a contact created after the
+    # instant the provider fixed the list is a contact the provider never saw, whatever
+    # happened to the totals. `scrubbed_at` rather than `recorded_at` because that is
+    # the instant the provider's verdict describes; a contact added while we were still
+    # typing the reference into the console is one the register never scored.
     pending = int(
         (
             await session.execute(
@@ -288,10 +301,29 @@ async def national_dnd_blocker(
         ).scalar()
         or 0
     )
-    if pending > state.submitted_count:
+    late = int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM campaign_contacts "
+                    "WHERE campaign_id = :cid AND status = 'pending' AND created_at > :scrubbed"
+                ),
+                {"cid": campaign_id, "scrubbed": state.scrubbed_at},
+            )
+        ).scalar()
+        or 0
+    )
+    # The count comparison is KEPT as a backstop rather than replaced, and it is one
+    # rule with two witnesses rather than two rules: `created_at` is `now()`, i.e.
+    # TRANSACTION-start time, so an upload whose transaction opened before the provider
+    # fixed the list and committed after it back-dates itself past the timestamp — a
+    # window of seconds that no timestamp comparison can close. Growth past the
+    # submitted size catches that case, costs one indexed count, and can only ever
+    # refuse a list that is bigger than the one the provider scored.
+    if late or pending > state.submitted_count:
         return (
             "national_dnd_scrub_incomplete",
-            national_dnd_scrub_incomplete_reason(pending - state.submitted_count),
+            national_dnd_scrub_incomplete_reason(max(late, pending - state.submitted_count)),
         )
     return None
 

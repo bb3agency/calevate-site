@@ -223,6 +223,23 @@ def _entry_hash(prev_hash: str, entry: dict[str, Any], key: bytes) -> str:
     return hmac.new(key, (prev_hash + canonical).encode(), hashlib.sha256).hexdigest()
 
 
+def _without_ip(entry: dict[str, Any]) -> dict[str, Any]:
+    """The pre-D-312 payload shape: everything except `ip`.
+
+    Entries written before `ip` joined the hash are signed over this shape and must keep
+    verifying — an append-only ledger cannot be re-signed (hard rule 4), and a change
+    that turned the whole existing log red would be indistinguishable from tampering on
+    the day it deployed.
+
+    IT IS NOT A DOWNGRADE PATH. Accepting the old shape lets an attacker keep a row that
+    OMITS the ip from the hash; it does not let them produce one, because producing
+    either shape needs the secret. The forgery this file already guards — generation 0's
+    public key — is bounded by `floor` and is unaffected: both shapes are tried under the
+    same admissible keys.
+    """
+    return {key: value for key, value in entry.items() if key != "ip"}
+
+
 def _matching_generation(
     ring: tuple[_ChainKey, ...],
     prev_hash: str,
@@ -244,14 +261,17 @@ def _matching_generation(
     un-forged. Expressed as a bound on which keys are TRIED rather than as a separate
     check, so there is one place a key becomes admissible.
     """
+    shapes = (entry, _without_ip(entry))
     for key in reversed(ring):
         if key.generation < floor:
             return None
-        # `compare_digest` because this is a MAC comparison and the repo should not have
-        # two idioms for that. No timing-attack claim is being made — the caller is an
-        # operator-triggered walk, not an oracle — it is simply the correct primitive.
-        if hmac.compare_digest(_entry_hash(prev_hash, entry, key.material), recorded):
-            return key.generation
+        for shape in shapes:
+            # `compare_digest` because this is a MAC comparison and the repo should not
+            # have two idioms for that. No timing-attack claim is being made — the caller
+            # is an operator-triggered walk, not an oracle — it is simply the correct
+            # primitive.
+            if hmac.compare_digest(_entry_hash(prev_hash, shape, key.material), recorded):
+                return key.generation
     return None
 
 
@@ -320,6 +340,22 @@ async def write_audit(
         "action": action,
         "object_type": object_type,
         "object_id": object_id,
+        # IN THE HASH SINCE D-312. SEC-COMP §5 asks each row for "actor, tenant, at, ip",
+        # and `scripts/check_audit_ip.py` exists because the fourth field is the one that
+        # answers WHERE an act came from — the question an impersonation dispute or a
+        # breach timeline turns on. It was the only one of the four the chain did not
+        # cover, so an insider with write access to this table could rewrite an
+        # operator's source address and every hash still verified: tamper-EVIDENCE with a
+        # hole exactly at the field somebody would want to change.
+        #
+        # `at` is deliberately still outside, and that is a constraint rather than an
+        # oversight: it is stamped by `clock_timestamp()` inside the lock (see below),
+        # so it does not exist until the INSERT, and computing it in Python to hash it
+        # would move the chain's ordering off the database clock and onto whichever app
+        # instance happened to serve the request. A reordering is what `verify_chain`'s
+        # `link` break detects; an edited `at` therefore still shows up there, out of
+        # order, which is not true of an edited `ip`.
+        "ip": ip,
     }
     if summary:
         # Depth-capped, length-capped, key-pattern-redacted before it leaves the
@@ -522,7 +558,7 @@ async def verify_chain(session: AsyncSession, *, limit: int | None = None) -> Ch
             await session.execute(
                 text(
                     "SELECT id, actor_type, actor_id, tenant_id, action, object_type, "
-                    "object_id, prev_hash, entry_hash, at FROM audit_log "
+                    "object_id, prev_hash, entry_hash, at, ip FROM audit_log "
                     + ("WHERE (at, id) > (:after_at, :after_id) " if cursor else "")
                     + "ORDER BY at ASC, id ASC LIMIT :limit"
                 ),
@@ -539,6 +575,10 @@ async def verify_chain(session: AsyncSession, *, limit: int | None = None) -> Ch
                 "action": row[4],
                 "object_type": row[5],
                 "object_id": row[6],
+                # `str()` because the column is `inet`-free TEXT but the driver may hand
+                # back a non-str for a NULL-adjacent value; the writer hashed a plain
+                # string or None, so the shapes must match exactly (D-312).
+                "ip": str(row[10]) if row[10] is not None else None,
             }
             row_prev = str(row[7]) if row[7] is not None else ""
             # `""` for a NULL hash rather than `str(None)`: it can never equal a hex

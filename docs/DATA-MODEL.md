@@ -120,9 +120,19 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   callback_of_call_id NULL → calls ON DELETE RESTRICT,   -- D-21 M2: the call this one
     -- follows up. Naming the parent is what BOUNDS the callback chain, and an unbounded
     -- chain is a compliance problem (repeat dialling), not a UX one.
-  engine_payload_ref TEXT)             -- object-storage key of raw vendor payload (debug only;
+  engine_payload_ref TEXT,             -- object-storage key of raw vendor payload (debug only;
                                        -- engine-payloads/{tenant}/{call}/…, so a DPDP erasure can
                                        -- enumerate it — D-126. Write the ref BEFORE the object.)
+  erased_subject_ref TEXT)             -- the one-way handle a DPDP erasure leaves when it clears
+                                       -- from_e164/to_e164 (D-310, migration c1e9a4f7d302). Those
+                                       -- two columns are what the erasure LOCATES a subject's
+                                       -- calls by, so without this an erased call is orphaned from
+                                       -- its subject and records that arrive for it afterwards —
+                                       -- a call still in flight when the erasure ran — can never
+                                       -- be reached. Same construction as deletion_requests.
+                                       -- subject_ref; written and read only by the erasure.
+--   INDEX ix_calls_erased_subject_ref (tenant_id, erased_subject_ref) WHERE erased_subject_ref
+--   IS NOT NULL — partial because the population is: only erased calls carry a value.
 -- INDEX ix_calls_tenant_started (tenant_id, started_at DESC NULLS LAST, id DESC)
 --   (migration c9e2a7b41d63). The calls list and the polled dashboard tiles order by exactly
 --   this key; without it page 1 was a top-N heapsort of every call the tenant has
