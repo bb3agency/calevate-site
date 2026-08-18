@@ -80,6 +80,15 @@ def _settings(**overrides: Any) -> Settings:
         # key reported from anywhere else would be noise these assertions cannot tell
         # apart from the thing they measure.
         "platform_kek": base64.b64encode(b"k" * 32).decode(),
+        # EMAIL joined the readiness list with D-392, for a reason that has nothing
+        # to do with the engine: the admin realm's second factor is an emailed OTP,
+        # so a deployment with no transport locks every operator out of the console.
+        # Satisfied here on the same terms as every secret above — a key reported
+        # from outside the engine clause is noise this file cannot tell apart from
+        # what it measures. `alerts_email` is the recipient half of the same fact.
+        "email_provider": "resend",
+        "resend_api_key": "re_test",
+        "alerts_email": "ops@example.invalid",
     }
     base.update(overrides)
     return Settings(_env_file=None, **base)  # type: ignore[arg-type]

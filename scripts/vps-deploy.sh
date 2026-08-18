@@ -265,11 +265,14 @@ preflight() {
   # PLATFORM_KEK, by NAME, for the same reason and by the same means. It is the key that
   # opens the credential store: every console-managed secret is ciphertext until it
   # unwraps them. It is deliberately NOT in `BOOTSTRAP_REQUIRED` (a worker must boot
-  # tolerantly), and it is not in `runtime_config_missing_keys` either — so a deployment
-  # that never had it boots clean, answers /healthz, answers /healthz/ready `ready`, and
-  # fails at the first read of the first vendor credential, which is the first outbound
-  # call. Losing it later is worse and is not recoverable by any means: every stored
-  # credential becomes permanently undecryptable. Both cases were guarded by prose only.
+  # tolerantly), so a deployment that never had it boots clean and answers /healthz.
+  # `runtime_config_missing_keys` DOES name it — this comment claimed otherwise in three
+  # places and was wrong in all three — so /healthz/ready goes 503 `config_missing` with
+  # PLATFORM_KEK in `fields[]`. That is a red probe on a container already swapped into
+  # rotation, which is why the refusal belongs HERE as well: this one catches the deploy,
+  # readiness catches the host somebody edited afterwards, and neither covers the other.
+  # Losing it later is worse and is not recoverable by any means: every stored credential
+  # becomes permanently undecryptable, and no probe can report that at all.
   #
   # PRESENCE, never the value or its length: `apps/api/core/envelope.py` owns the
   # encoding and the length rule and refuses on a short key at read time, and a second

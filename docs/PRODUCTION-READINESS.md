@@ -1252,9 +1252,13 @@ carries the literal `calevate_app:calevate_app` outside `local`.
 ### P5.15 — Four irrecoverable-data points, and only two are guarded · SERIOUS · OURS
 
 1. **Losing `PLATFORM_KEK`** — every console-stored credential becomes permanently
-   undecryptable. Guarded **only by prose**; it is not in `BOOTSTRAP_REQUIRED` and not in
-   `runtime_config_missing_keys`, so a deploy that never had it looks healthy. **Unguarded in
-   code.**
+   undecryptable. The ABSENCE of the key is guarded twice, and this entry said it was
+   guarded by prose because it also said the key is "not in `runtime_config_missing_keys`",
+   which has not been true for as long as the sentence has been here (D-393): readiness
+   reports it, and `scripts/vps-deploy.sh` refuses the deploy by name before the swap.
+   **What is genuinely unguarded is LOSING it** — no probe can tell a deployment that never
+   had a KEK from one whose KEK is gone, and only the second is irrecoverable. That is what
+   keeps this entry on the list.
 2. **Losing the `age` identity** — every offsite dump unreadable. Guarded by a quarterly drill
    that has never run.
 3. **`docker compose down -v` in the deploy directory** — P5.7. **Unguarded.**

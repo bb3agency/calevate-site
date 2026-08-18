@@ -325,6 +325,71 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     assert sites == 16, f"found {sites} step-up call sites, expected 16; the census went stale"
 
 
+#: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
+#:
+#: One entry, and its asymmetry is the argument the route's own docstring makes: every
+#: other write on that router changes what the platform authenticates with, and this one
+#: STORES NOTHING — it is a read against a vendor with a value the caller already holds.
+#: Demanding a typed confirmation to run a check is how operators learn to skip the check.
+_OPS_WRITES_WITHOUT_STEP_UP = {
+    ("apps/api/ops/secret_routes.py", "test_secret"): (
+        "probes a candidate credential against the vendor and stores nothing"
+    ),
+}
+
+
+def test_no_ops_console_write_can_ship_without_the_gate() -> None:
+    """THE OTHER DIRECTION, which the census above cannot see.
+
+    `sites == 16` catches a route that STOPS taking the gate — the count shrinks. It
+    cannot catch a route that never took it: a new `POST /v1/ops/...` with no `step_up`
+    parameter adds no call site, so the count stays 16 and the census stays green while
+    an unconfirmed lever ships on the incident surface. That is the half of scope this
+    file's title promises and did not cover.
+
+    Scoped to `apps/api/ops/` rather than to the whole app on purpose. Step-up is not the
+    right control for every mutation — a client adding a number to their OWN DNC list is
+    a tenant-scoped write in the safe direction, and gating it would be theatre. What
+    makes `ops/` different is that everything on it is platform-wide and operator-only:
+    the big red switch, load-shed, config, secrets, the KEK re-wrap, outbox replay. An
+    exemption there has to be argued in `_OPS_WRITES_WITHOUT_STEP_UP` rather than
+    remembered, and adding one is a visible diff on this file.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    mutating = {"post", "put", "patch", "delete"}
+    ungated: list[str] = []
+    seen = 0
+    for path in sorted((root / "apps" / "api" / "ops").rglob("*.py")):
+        rel = str(path.relative_to(root))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            decorators = [
+                dec.func if isinstance(dec, ast.Call) else dec for dec in node.decorator_list
+            ]
+            if not any(
+                isinstance(dec, ast.Attribute) and dec.attr in mutating for dec in decorators
+            ):
+                continue
+            seen += 1
+            if "StepUpGate" in ast.unparse(node.args):
+                continue
+            if (rel, node.name) in _OPS_WRITES_WITHOUT_STEP_UP:
+                continue
+            ungated.append(f"{rel}::{node.name}")
+    # Refuses on an empty scan for `check_wiring`'s reason: a walk that stopped matching
+    # would otherwise report a clean sweep of nothing, which is how a guard dies quietly.
+    assert seen, "found no mutating handlers under apps/api/ops — this walk sees nothing"
+    assert not ungated, (
+        "these operator-console writes take no step-up gate, so an admin session alone "
+        f"can throw them: {ungated}. Add the gate, or argue the exemption in "
+        "_OPS_WRITES_WITHOUT_STEP_UP with the reason."
+    )
+
+
 # ═══════════════ the flow that clears the refusal ═══════════════
 
 

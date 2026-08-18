@@ -187,7 +187,10 @@ async def test_an_ops_manage_caller_is_told_exactly_what_is_missing(
     body = response.json()
     assert set(body) == {"status", "service"} | READY_DETAIL
     assert body["degradation_mode"] == "config_missing"
-    assert body["checks"] == {"db": True, "redis": True}
+    # `/healthz/ready` reports the schema revision too; `/healthz` deliberately does not
+    # (it is the container healthcheck, and a schema behind the code is not a reason to
+    # kill a container — see `_check_schema_current`).
+    assert body["checks"] == {"db": True, "schema": True, "redis": True}
     assert body["queue"] == {"depth": 0, "oldest_waiting_s": None}
     assert [field["field"] for field in body["fields"]] == [SENTINEL_KEY]
 

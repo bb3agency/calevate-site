@@ -18,7 +18,16 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import get_args
 
-from calevate_shared.config import Environment, Settings
+from calevate_shared.config import (
+    EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON,
+    NO_EMAIL_PROVIDER_REASON,
+    NO_RESEND_API_KEY_REASON,
+    NO_SENDER_ADDRESS_REASON,
+    NO_SMTP_HOST_REASON,
+    Environment,
+    Settings,
+    email_transport_reason,
+)
 from dotenv import dotenv_values
 
 from apps.api.core.errors import ProblemError
@@ -518,6 +527,28 @@ def resolve_hmac_key(
     return local_fallback.encode()
 
 
+#: What an operator must SET, per reason `email_transport_reason` can return.
+#:
+#: The resolver answers in authored REASON codes because its other two callers log them;
+#: `/healthz/ready` renders `fields[]`, whose contract is env-var names an operator can
+#: act on (`{"field": KEY, "rule": "required_for_readiness"}`). This is the translation,
+#: and it is a mapping rather than an `if` ladder so that a reason added to the resolver
+#: shows up here as a missing entry rather than as a silently correct-looking default —
+#: `tests/health_email_readiness_test.py` asserts every constant in
+#: `calevate_shared.config`'s reason set is a key of this dict.
+#:
+#: `provider_not_implemented` arrives as `provider_not_implemented:<name>` and is matched
+#: on the part before the colon; the name is the operator's next question but not a key
+#: they can set, and `EMAIL_PROVIDER` is what they must correct.
+_EMAIL_KEY_FOR_REASON: dict[str, str] = {
+    NO_EMAIL_PROVIDER_REASON: "EMAIL_PROVIDER",
+    EMAIL_PROVIDER_NOT_IMPLEMENTED_REASON: "EMAIL_PROVIDER",
+    NO_SENDER_ADDRESS_REASON: "NOTIFICATIONS_FROM",
+    NO_RESEND_API_KEY_REASON: "RESEND_API_KEY",
+    NO_SMTP_HOST_REASON: "SMTP_HOST",
+}
+
+
 def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
     """Keys that are optional at BOOT but required to actually serve traffic.
 
@@ -637,6 +668,40 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
             for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY")
             if not os.environ.get(name)
         )
+        # EMAIL, AND IT IS NOT A NOTIFICATION FEATURE — it is the admin console's second
+        # factor. `authn/service.sign_in` sets `needs_second_factor = realm in
+        # MFA_REQUIRED_REALMS`, that set is `{"admin"}` unconditionally, and the only way
+        # to answer the challenge is the OTP mailed by `deliver_auth_email`. A deployment
+        # with no transport therefore locks EVERY operator out of the console, with no
+        # in-product way back: `RESEND_API_KEY` is in `ENV_ONLY_KEYS`, so the credential
+        # that would fix it can only be installed by editing `.env` on the host — and the
+        # console is where D-95 says credentials get installed. Client invitations,
+        # password resets and every one of the 120 codes in `runbooks/alarm-index.md`
+        # ride the same transport, so "alerts reach nobody" is the same outage.
+        #
+        # `email_transport_reason` rather than a field test, because it is THE resolver
+        # (`calevate_shared.config`) that `get_transport()` and `init_observability` both
+        # call, and a fourth reading of `email_provider`/`resend_api_key`/`smtp_host` here
+        # is the second answer this repo has already paid for once. Its `local` branch is
+        # the console sink, which is why this sits inside the non-local block.
+        #
+        # WHY THIS IS NOT THE "ABSENT OPTIONAL FEATURE" THE GOOGLE COMMENT DECLINES TO
+        # REPORT. That test is whether the deployment still does its job without the key.
+        # Without `GCP_SERVICE_ACCOUNT_JSON` the assistant is off and calls still land;
+        # without a transport nobody can sign in to watch them. Until now the only thing
+        # that said so was `alert_delivery_has_no_transport`, a WARNING written at boot —
+        # and that line's own comment concedes the point: "it refuses at 3am, and this
+        # refuses at boot". A boot log is not a gate; `/healthz/ready` is (OPERATIONS §2).
+        transport_gap = email_transport_reason(cfg)
+        if transport_gap is not None:
+            missing.append(_EMAIL_KEY_FOR_REASON.get(transport_gap.split(":")[0], "EMAIL_PROVIDER"))
+        # A working transport addressed to nobody is the same silence one step along, and
+        # it is the half an operator is likeliest to leave until later: `alerts_email` has
+        # no other consumer than `configure_alerts`, so nothing else in the product
+        # degrades to reveal it. `init_observability` already logs
+        # `alert_delivery_unconfigured` here — same reasoning as above, same promotion.
+        if not cfg.alerts_email:
+            missing.append(env_var_for("alerts_email"))
     return missing
 
 

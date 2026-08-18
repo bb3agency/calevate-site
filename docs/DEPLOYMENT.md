@@ -454,10 +454,11 @@ Sequence, with the Calevate substitutions (uv/alembic for npm/prisma):
 
 1. **Preflight, all refusals**: `.env` present (deploy scripts NEVER write secrets; abort
    if missing, warn if not mode 600), the two object-store credentials **and `PLATFORM_KEK`**
-   present in it — by name, never by value; the KEK is in neither `BOOTSTRAP_REQUIRED` nor
-   `runtime_config_missing_keys`, so without this a deployment that never had the key
-   boots clean, answers both health routes, and fails at the first vendor credential it
-   tries to unwrap — compose file and Dockerfile present, docker compose v2 present, the dev
+   present in it — by name, never by value; the KEK is not in `BOOTSTRAP_REQUIRED`, so without this a
+   deployment that never had the key boots clean and answers `/healthz`;
+   `runtime_config_missing_keys` does name it, so `/healthz/ready` goes 503
+   `config_missing` — but only once the container is already swapped in, which is why the
+   refusal belongs here and not only there — compose file and Dockerfile present, docker compose v2 present, the dev
    `docker-compose.yml` carrying a project name that is not the production one (§2's ufw
    caveat is why that matters), **checkout clean** (a deploy from an edited tree ships code
    CI never saw), and the Cloudflare IP list not older than 180 days (§5.3). Free disk is
