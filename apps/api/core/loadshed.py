@@ -251,8 +251,31 @@ async def set_platform_status(
     return await get_platform_status(force_refresh=True)
 
 
+def is_always_allowed(path: str) -> bool:
+    """Is this path exempt from shedding no matter what the platform status is?
+
+    SPLIT OUT SO IT CAN BE ASKED BEFORE THE STATUS IS FETCHED (D-195). `is_shed` still
+    asks it — the answer is part of what shedding means — but the middleware now asks it
+    FIRST, and that ordering is the whole point.
+
+    `get_platform_status` reads Redis and falls through to `_read_durable`, which is a
+    database read and is NOT wrapped in a try. So with both dependencies unreachable the
+    middleware raised before `is_shed` could exempt anything, and every request 500'd —
+    including `/healthz/live`, whose entire contract is that it touches no dependency so
+    that a blip cannot get the container killed. `compose.prod.yml` polls exactly that
+    endpoint, so the failure mode was: dependency wobble, liveness 500, orchestrator
+    restarts the container, repeat. A restart loop caused by the check that exists to
+    prevent one.
+
+    Asking first is also strictly cheaper: an allowlisted path's answer never depended on
+    the status, so the round trip was always wasted work on the busiest-polled routes in
+    the deployment.
+    """
+    return any(path.startswith(prefix) for prefix in ALWAYS_ALLOWED_PREFIXES)
+
+
 def is_shed(status: PlatformStatus, *, path: str, method: str) -> bool:
-    if any(path.startswith(prefix) for prefix in ALWAYS_ALLOWED_PREFIXES):
+    if is_always_allowed(path):
         return False
     if status.mode in _SHED_READS:
         return True
@@ -264,6 +287,7 @@ __all__ = [
     "LoadShedMode",
     "PlatformStatus",
     "get_platform_status",
+    "is_always_allowed",
     "is_shed",
     "set_platform_status",
 ]

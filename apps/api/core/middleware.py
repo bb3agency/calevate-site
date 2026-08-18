@@ -43,7 +43,7 @@ from apps.api.core.context import (
     principal_var,
 )
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ProblemError
-from apps.api.core.loadshed import get_platform_status, is_shed
+from apps.api.core.loadshed import get_platform_status, is_always_allowed, is_shed
 from apps.api.core.logging import get_logger
 from apps.api.core.ratelimit import (
     bucket_subject,
@@ -305,6 +305,15 @@ class LoadShedMiddleware:
             return
         path = str(scope.get("path", ""))
         method = str(scope.get("method", "GET"))
+        # THE EXEMPTION IS CHECKED BEFORE THE LOOKUP (D-195), not inside `is_shed` after
+        # it. `get_platform_status` reads Redis and falls back to a database read that can
+        # raise, so asking it first meant a dependency outage 500'd every request —
+        # including `/healthz/live`, which promises to touch nothing precisely so that
+        # `compose.prod.yml`'s liveness poll cannot restart a container over a blip. It
+        # could, and the loop was self-sustaining.
+        if is_always_allowed(path):
+            await self.app(scope, receive, send)
+            return
         status = await get_platform_status()
         if is_shed(status, path=path, method=method):
             problem = ProblemError(
