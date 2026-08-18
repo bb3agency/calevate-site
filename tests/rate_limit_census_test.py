@@ -112,14 +112,13 @@ def test_every_rule_names_a_profile_that_exists() -> None:
 @pytest.mark.parametrize(
     ("path", "method", "expected"),
     [
-        # The five `/hooks` routes shared ONE bucket, so a lead-intake flood 429'd the
-        # payment callback and the identity mirror. Three profiles now, and the census is
-        # what keeps them three.
+        # The `/hooks` routes shared ONE bucket, so a lead-intake flood 429'd the
+        # payment callback too. Two profiles now, and the census is what keeps them two —
+        # a third, `webhook_identity`, went with the Clerk mirror (D-177).
         ("/hooks/v1/ingest/{webhook_id}", "POST", "webhook_ingest"),
         ("/hooks/v1/ingest/meta/{webhook_id}", "POST", "webhook_ingest"),
         ("/hooks/v1/ingest/meta/{webhook_id}", "GET", "webhook_ingest"),
         ("/hooks/v1/razorpay", "POST", "webhook_payment"),
-        ("/hooks/v1/clerk", "POST", "webhook_identity"),
         # Cost weighting: the expensive route and its cheap neighbour under one prefix.
         ("/v1/leads/export.csv", "GET", "bulk_read"),
         ("/v1/leads/{lead_id}", "GET", "client_api"),

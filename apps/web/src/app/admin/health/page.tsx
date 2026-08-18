@@ -9,6 +9,7 @@ import {
   NOTICE_TONES,
   NoticeBox,
   ProblemNotice,
+  ScrollRegion,
   Skeleton,
   formatINR,
   formatIST,
@@ -134,7 +135,7 @@ export default function ClientHealthPage() {
             hint="No account is silent, blocked, near its cap, failing deliveries, or waiting on us to approve knowledge. This list fills up on its own."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Client health board">
             <table className="w-full min-w-[760px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
@@ -150,7 +151,7 @@ export default function ClientHealthPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )}
       </Card>
 

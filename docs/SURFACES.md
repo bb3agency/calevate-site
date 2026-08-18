@@ -554,7 +554,8 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
 
 1. **Verify**: per engine capability (TRD §5). Signed engines: HMAC over raw body,
    timestamp window, timing-safe compare. **Bolna (unsigned)**: source-IP allowlist
-   (13.203.39.153, via D-27 real_ip restoration) at nginx AND in-app; payloads are
+   (13.203.39.153, via D-27 real_ip restoration) in-app, and there only — the edge layer
+   is declined, not pending (SECURITY-COMPLIANCE §5); payloads are
    hints — truth comes from the authenticated Get Execution fetch. Unexpected
    source ⇒ 401 + alert (treat as attack until proven config drift — runbook).
 2. **Dedupe**: replay-cache on the event key (Redis SETNX, 24h TTL; for Bolna:

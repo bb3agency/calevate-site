@@ -35,7 +35,9 @@ from apps.api.core.queue import enqueue as real_enqueue
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import dispatcher
+from arq.jobs import SerializationError
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 
 RUN = uuid.uuid4().hex[:12]
 
@@ -129,6 +131,13 @@ async def test_one_poisoned_message_does_not_stop_the_rest_of_the_batch(
     sit behind it until somebody noticed. The failed message stays `pending` (it has
     attempts left) with the error recorded, which is what lets it walk to the DLQ
     instead of looping forever.
+
+    `SerializationError` rather than a bare `RuntimeError` because that is what a poison
+    payload ACTUALLY raises — arq wraps every serializer failure in it
+    (`arq/jobs.py:serialize_job`) — and because the handler is now scoped to the
+    exceptions a payload can produce (D-182). A test that simulated poison with an
+    exception no payload can raise was pinning the branch's width rather than its
+    subject.
     """
     poison_marker = f"outbox-poison-{RUN}"
     good_marker = f"outbox-after-poison-{RUN}"
@@ -139,7 +148,7 @@ async def test_one_poisoned_message_does_not_stop_the_rest_of_the_batch(
         job: str, *args: Any, job_id: str | None = None, **kwargs: Any
     ) -> str | None:
         if job_id and str(poisoned) in job_id:
-            raise RuntimeError("queue refused this payload")
+            raise SerializationError('unable to serialize job "cron:dispatch_outbox_probe"')
         return await real_enqueue(job, *args, job_id=job_id, **kwargs)
 
     monkeypatch.setattr(dispatcher, "enqueue", _refuse_the_poison)
@@ -150,9 +159,47 @@ async def test_one_poisoned_message_does_not_stop_the_rest_of_the_batch(
     after_status, after_job, _ = await _status(after)
     assert poison_status == "pending", "attempts left, so it is retried rather than dead-lettered"
     assert poison_job is None, "a message that never reached the queue has no job id"
-    assert poison_error is not None and poison_error.startswith("RuntimeError:"), poison_error
+    assert poison_error is not None and poison_error.startswith("SerializationError:"), poison_error
     assert after_status == "published", "the message behind the poison one still went out"
     assert after_job
+
+
+async def test_a_database_fault_ends_the_tick_instead_of_being_recorded_as_poison(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R-8: the failure report was the second casualty of the fault it exists to report.
+
+    `mark_outbox_published` writes through the CALLER's session, inside the same `try` as
+    the publish, and the handler that used to catch everything answers by issuing another
+    statement on that same session. So a `DBAPIError` from the status write landed in the
+    poison branch, `mark_outbox_failed` met a failed transaction, and the tick aborted
+    anyway — with the batch's status writes rolled back and up to fifty messages charged
+    an attempt each pass until `_dead_letter_exhausted_claims` retired them as poison they
+    never were.
+
+    What must happen instead: the database error ESCAPES. arq's retry is the right
+    response to "the database is gone", and the row must not be labelled `failed` with a
+    `DBAPIError` in `last_error` as though its payload were at fault.
+    """
+    marker = f"outbox-dbfault-{RUN}"
+    message_id = await _outbox_row("cron:dispatch_outbox_probe", marker)
+
+    async def _database_is_gone(*args: Any, **kwargs: Any) -> None:
+        raise OperationalError("UPDATE outbox_messages ...", {}, Exception("server closed"))
+
+    monkeypatch.setattr(dispatcher, "mark_outbox_published", _database_is_gone)
+
+    with pytest.raises(OperationalError):
+        await dispatcher.dispatch_outbox({})
+
+    status, job_id, last_error = await _status(message_id)
+    assert status == "pending", (
+        "a message the database could not be told about is still owed, not dead-lettered"
+    )
+    assert last_error is None, (
+        "a database fault was recorded against the message as if its payload were poison"
+    )
+    assert job_id is None
 
 
 # ------------------------------------------------------------------- sweep_expired

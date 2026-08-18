@@ -1,3 +1,4 @@
+import { QueryClient } from "@tanstack/react-query";
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -176,6 +177,83 @@ describe("the call detail screen", () => {
     // look must know before they look, not learn it from a compliance review.
     expect(container.textContent).toContain("recorded in your account's audit log");
     expect(container.textContent).not.toContain("are hidden in this view");
+  });
+
+  /**
+   * ONE OPENING, ONE REQUEST, ONE AUDIT ROW — the compliance invariant behind this
+   * screen, not a caching preference.
+   *
+   * `/v1/calls/{id}/transcript/raw` writes an `audit_log` row in the same transaction as
+   * the read, and hard rule 5 / SURFACES §3.1 exist so that "who opened this transcript"
+   * is answerable. The read used to be a `useQuery` with `staleTime: Infinity`, which
+   * made the SECOND opening free: the unredacted text came back out of the cache with no
+   * network call, so the trail recorded the first read and under-reported every one
+   * after it. That is the exact question a DPDP enquiry asks.
+   *
+   * These two tests count REQUESTS at the network seam — the only place the audit row is
+   * observable from the browser — rather than asserting the hook's shape. They fail
+   * against the `useQuery` version and pass against the mutation, which is what makes
+   * them a guard rather than a restatement.
+   */
+  it("mints a second request, and so a second audit row, on a second opening", async () => {
+    const raw = detail({
+      transcript: [
+        { idx: 0, speaker: "caller", text: `My number is ${RAW_NUMBER}.`, redacted: false },
+      ],
+    });
+    const { calls } = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }));
+
+    const button = await screen.findByRole("button", { name: /show full transcript/i });
+    fireEvent.click(button);
+    expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
+    expect(calls.filter((c) => c.path === RAW_PATH).length).toBe(1);
+
+    // Hide. The unredacted turns must LEAVE, not be parked where the next press can
+    // read them back without asking the server.
+    fireEvent.click(await screen.findByRole("button", { name: /hide full transcript/i }));
+    expect(screen.queryByText(`My number is ${RAW_NUMBER}.`)).toBeNull();
+
+    // Show again — a deliberate re-open, which is a read of personal data and must be
+    // recorded as one.
+    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
+    expect(calls.filter((c) => c.path === RAW_PATH).length).toBe(2);
+  });
+
+  it("asks again after leaving the call and coming back", async () => {
+    // The same defect through the other door: a query entry survives an unmount for
+    // `gcTime` (5 minutes by default), so returning to a call inside that window replayed
+    // the unredacted transcript with no request and no row.
+    //
+    // ONE `QueryClient` ACROSS BOTH MOUNTS is what makes this test able to fail. The app
+    // has exactly one per shell mount and navigating between calls keeps it; a second
+    // `renderClientPage` with its own client has no cache to restore from, so the same
+    // assertions would pass against the broken version and prove nothing.
+    const raw = detail({
+      transcript: [
+        { idx: 0, speaker: "caller", text: `My number is ${RAW_NUMBER}.`, redacted: false },
+      ],
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+
+    const first = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }), "acme", client);
+    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
+    expect(first.calls.filter((c) => c.path === RAW_PATH).length).toBe(1);
+
+    first.unmount();
+
+    const second = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }), "acme", client);
+    // Nothing unredacted is on screen, and nothing was asked for, before the reader asks.
+    await screen.findByText("My number is [redacted].");
+    expect(screen.queryByText(`My number is ${RAW_NUMBER}.`)).toBeNull();
+    expect(second.calls.filter((c) => c.path === RAW_PATH).length).toBe(0);
+
+    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
+    expect(second.calls.filter((c) => c.path === RAW_PATH).length).toBe(1);
   });
 
   it("does not offer a recording this call does not have, and never links the engine's copy", async () => {

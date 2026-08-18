@@ -49,6 +49,29 @@ def test_the_written_value_has_exactly_one_source() -> None:
     assert "OUTBOX_FLEET" in source
 
 
+def test_a_reader_meets_the_warning_where_they_meet_the_column() -> None:
+    """The deferral has to be legible AT THE DECLARATION, not only beside the constant.
+
+    D-162 is a real decision and the audit agrees with it (R-7), so the fix is not a
+    router — it is that nobody reaches `outbox_messages.queue` believing it routes. The
+    argument used to live only on `OUTBOX_FLEET` in `service.py`, which a reader browsing
+    the model never opens; the column declaration and the claimed row that carries it now
+    both name D-162 and both name what closes it. Asserted rather than trusted, because a
+    comment is exactly the thing a later edit removes without noticing.
+    """
+    models_source = Path(reliability.__file__).with_name("models.py").read_text(encoding="utf-8")
+    declaration = models_source.split("queue: Mapped[str]")[0]
+    preamble = declaration[-1800:]
+    assert "D-162" in preamble, "the column declaration does not name the decision that defers it"
+    assert "ROUTES NOTHING" in preamble, "and does not say the one thing a reader must know"
+
+    row_doc = inspect.getsource(reliability.OutboxMessageRow)
+    assert "D-162" in row_doc and "READ BY NOTHING" in row_doc, (
+        "`claim_outbox_batch` selects the column into this field and nothing branches on "
+        "it; a reader meeting `row.queue` must not have to infer that"
+    )
+
+
 def test_no_call_site_still_passes_a_queue() -> None:
     """The sweep, because the signature only stops the callers that are recompiled.
 

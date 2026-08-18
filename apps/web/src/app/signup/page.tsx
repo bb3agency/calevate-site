@@ -16,13 +16,8 @@ import {
   SECONDARY_BUTTON,
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
-import {
-  CLIENT_SIGN_IN_PATH,
-  CLIENT_SIGN_UP_PATH,
-  ClientRealmClerkProvider,
-  ClientRealmSignedIn,
-  ClientRealmSignedOut,
-} from "@/lib/auth/clientRealm";
+import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
+import { ClientSessionProvider, useClientSessionRow } from "@/lib/authn/clientSession";
 import { lookup } from "@/lib/lookup";
 import {
   SIGNUP_CONTACT_EMAIL,
@@ -54,10 +49,13 @@ import {
  * This used to end "and there is no sign-in route in this app — no ClerkProvider, no
  * `/sign-in`, nothing to link to", which was true and was the hole: a stranger who
  * followed the landing page's one call to action arrived at a form they could not
- * submit, and the only exit was an email address. Both routes exist now (`/sign-up`
- * creates the Clerk account, `/sign-in` returns to an existing one), this page mounts
- * the CLIENT Clerk application, and a stranger gets sent to the first of them instead of
- * being told what they lack. The two steps stay separate because they are separate:
+ * submit, and the only exit was an email address. `/auth/sign-in` exists now and this
+ * page mounts the client realm's own session provider. **The account-CREATION half is
+ * honestly absent again since D-177**: Clerk's hosted `/sign-up` is gone, and the
+ * first-party public intake is named as unbuilt in AUTH-MIGRATION §11 (C-11). So the
+ * stranger's panel below says how an account is actually obtained today — an invitation,
+ * or an operator — rather than linking to a door that is not there. The two steps stay
+ * separate because they are separate:
  * Clerk owns the identity, our Postgres owns the workspace (D-37).
  *
  * **A closed deployment says it is closed BEFORE the form, not after it.** The kill
@@ -137,11 +135,12 @@ function fieldMessage(fields: ProblemField[], name: string): string | undefined 
 
 export default function SignupPage() {
   return (
-    // The CLIENT Clerk application, mounted here because this route is outside the
-    // `/c/<slug>` shell that mounts it for the console. In a local build it mounts
-    // nothing at all and the identity gates below fall through, which is what keeps
-    // this screen's test suite rendering the form.
-    <ClientRealmClerkProvider>
+    // The CLIENT realm's session provider, mounted here because this route is outside
+    // the `/c/<slug>` shell that mounts it for the console. The PROVIDER and not the
+    // GATE: a stranger with no session belongs on this page, reading the panel that says
+    // what they need — `ClientSessionGate` would replace the whole screen with a
+    // sign-in prompt, which is the demand-with-no-context this page exists to avoid.
+    <ClientSessionProvider>
       <Providers>
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app">
           <header className="border-b border-line bg-surface">
@@ -166,30 +165,41 @@ export default function SignupPage() {
             {!SIGNUP_OPEN ? (
               <SignupClosed deferred={false} />
             ) : (
-              <>
-                <ClientRealmSignedIn>
-                  <SignupForm />
-                </ClientRealmSignedIn>
-                <ClientRealmSignedOut>
-                  <NeedsAnAccount />
-                </ClientRealmSignedOut>
-              </>
+              <SignupOrInvitation />
             )}
           </main>
         </div>
       </Providers>
-    </ClientRealmClerkProvider>
+    </ClientSessionProvider>
   );
 }
 
 /**
- * The stranger's panel — the one that used to be a sentence saying what they lacked.
+ * The form for somebody who has an account, the explanation for somebody who does not.
  *
- * `POST /v1/auth/signup` resolves the caller from their token alone
+ * Read off the RESTORED session row rather than off a provider's opinion: the row is the
+ * server's answer to `GET /v1/auth/client/session`, so a stale cookie renders the panel
+ * rather than a form whose every submit would 401.
+ */
+function SignupOrInvitation() {
+  return useClientSessionRow() !== null ? <SignupForm /> : <NeedsAnAccount />;
+}
+
+/**
+ * The stranger's panel, and it says the true thing rather than the tidy one.
+ *
+ * `POST /v1/auth/signup` resolves the caller from their session alone
  * (`core/auth.py::current_identity`), so an account is a hard prerequisite and not a
- * nicety. What changed is that there is now somewhere to send them: the account door is
- * a route in this app, and after it Clerk returns them here — `fallbackRedirectUrl` on
- * `/sign-up` names this page — so the two steps read as one journey.
+ * nicety. **There is no public account-creation door in this product today** — Clerk's
+ * hosted `/sign-up` went with Clerk (D-177) and the first-party public intake is listed
+ * as unbuilt in AUTH-MIGRATION §11 (C-11). The two ways an account actually comes into
+ * existence are an invitation redeemed at `/auth/accept-invitation` and an operator
+ * creating the workspace by hand.
+ *
+ * Linking to a sign-up route that does not exist would be the worse failure this page
+ * already has a history of: a stranger sent one screen further into a door that is shut.
+ * So the panel names the two real paths and the contact address, and the day the intake
+ * ships, this is the one place that changes.
  */
 function NeedsAnAccount() {
   return (
@@ -203,13 +213,15 @@ function NeedsAnAccount() {
             Setting up a workspace takes two steps: a Calevate account first, then the
             workspace itself. Nothing calls anyone at either step.
           </p>
+          <p>
+            Accounts are created by invitation — if a colleague has invited you, the link
+            in that email creates your account and adds you to their workspace in one go.
+            Otherwise write to us and we will set the first one up with you.
+          </p>
           <div className="flex flex-wrap gap-2">
-            <Link href={CLIENT_SIGN_UP_PATH} className={PRIMARY_BUTTON}>
-              Create an account
+            <Link href={CLIENT_SIGN_IN_PATH} className={PRIMARY_BUTTON}>
+              I already have an account
               <ArrowRight aria-hidden className="h-4 w-4" />
-            </Link>
-            <Link href={CLIENT_SIGN_IN_PATH} className={SECONDARY_BUTTON}>
-              I already have one
             </Link>
           </div>
           {SIGNUP_CONTACT_EMAIL && (

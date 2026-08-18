@@ -98,7 +98,7 @@ BLAST RADIUS AND THE TWO KEYS
 This is the most destructive operation in the product, so it is gated like the other
 irreversible ones rather than more gently. `tenant_erasure_routes.py` applies the shape
 `admin/routes.py::record_commercial_terms` established for loosening a spend ceiling —
-the ROLE check first (`ops:manage`, i.e. superadmin), then `require_step_up` bound to
+the ROLE check first (`ops:manage`, i.e. superadmin), then `StepUp.require` bound to
 this tenant's id — because a step-up header is a confirmation, not an authorisation. A
 confirm dialog in the browser is not a guard: it is absent from curl.
 
@@ -196,10 +196,12 @@ TENANT_ERASURE_LIMITATIONS: tuple[str, ...] = (
     "not claim a deletion it cannot show. Confirm the engine-side erasure in writing "
     "before telling the client their data is gone everywhere.",
     "The knowledge base this client's agents answered from is not erased — the sources "
-    "they uploaded, every published version of them, and the copies held by the managed "
-    "retrieval service. Nothing in this system deletes a knowledge document today and "
-    "no retention period expires one; the per-subject erasure register says the same "
-    "thing about the same store. Removing it is manual work on both copies.",
+    "they uploaded, the version currently live, and the copies held by the managed "
+    "retrieval service. This erasure has no subject to search that content FOR, so "
+    "unlike a single person's request it does not look. What does reach it is the "
+    "account's own knowledge-base retention period, which deletes versions this client "
+    "replaced or had rejected once they pass it. Removing the live content is manual "
+    "work on both copies.",
     "The people at this client — their user accounts, their memberships and who did "
     "what in the console — are retained. Their access ends the moment this erasure "
     "completes, because every membership resolution and every dial gate refuses an "
@@ -297,18 +299,21 @@ TENANT_ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         keyword="knowledge base",
         outcome="not_searched",
         why=(
-            "The sources this client uploaded, every published version of them, and the "
-            "copies held by the managed retrieval service are neither read nor changed "
-            "by this erasure. Nothing in this system deletes a knowledge document and "
-            "no retention period expires one. If caller details were put into that "
-            "content, finding and removing them is manual work on both copies."
+            "The sources this client uploaded, the live version of each and the copies "
+            "held by the managed retrieval service are neither read nor changed by this "
+            "erasure — it ends an engagement rather than answering one person, so there "
+            "is no number to search the content for. Versions the client replaced or had "
+            "rejected are deleted once they pass this account's knowledge-base retention "
+            "period. If caller details were put into the live content, finding and "
+            "removing them is manual work on both copies."
         ),
         authority=(
             "SECURITY-COMPLIANCE §4 enumerates the erasure scope as calls, transcript "
-            "turns, extracted fields, leads and recordings; DATA-MODEL §9's retention "
-            "categories do not cover knowledge content. The same gap is stated in the "
-            "per-subject register (`deletion.KB_OUTCOME`) and pinned by "
-            "`tests/kb_retention_gap_test.py`; one gap, one statement, not two."
+            "turns, extracted fields, leads and recordings. DATA-MODEL §9's retention "
+            "categories now include `kb` (D-179), which is what expires the superseded "
+            "versions; the per-subject register (`deletion.KB_OUTCOME`) states the "
+            "narrower thing an erasure with a subject can do. One store, two statements "
+            "that agree, pinned by `tests/kb_retention_test.py`."
         ),
     ),
     ErasureLimitation(

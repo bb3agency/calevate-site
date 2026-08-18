@@ -47,6 +47,21 @@ class OutboxMessage(PKMixin, Base):
         Index("ix_outbox_pending", "status", "created_at"),
     )
 
+    # **THIS COLUMN ROUTES NOTHING, AND IT NEVER HAS.** Read that before you believe the
+    # name: `service.OUTBOX_FLEET` is its only writer and writes one constant, and no
+    # reader anywhere branches on it — `dispatch_outbox` publishes without it and
+    # `WorkerSettings` sets no `queue_name`, so every job lands on arq's single default
+    # queue whatever this says. Believing otherwise is the expensive mistake (an operator
+    # assuming notifications are isolated from CRM deliveries when they share one
+    # worker's ten slots), which is why the warning sits on the column rather than only
+    # beside the constant.
+    #
+    # It is kept, not dropped, and D-162 is the record: it closes EITHER by dropping the
+    # column in hard rule 8's two steps OR by a second worker fleet with
+    # `WorkerSettings.queue_name` filtering on it. Honouring it today means a second
+    # deployable for a platform with no clients (ROADMAP §6), and passing arq
+    # `_queue_name` with no worker consuming that queue would silently stop every
+    # notification. `service.OUTBOX_FLEET` carries the full argument.
     queue: Mapped[str] = mapped_column(Text, nullable=False)
     job: Mapped[str] = mapped_column(Text, nullable=False)
     payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)

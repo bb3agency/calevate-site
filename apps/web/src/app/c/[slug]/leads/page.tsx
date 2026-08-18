@@ -18,6 +18,7 @@ import {
   FilterChip,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   StatusBadge,
   formatCount,
@@ -35,7 +36,7 @@ import {
   useLeadsUnderLens,
   useMembers,
   useSavedViews,
-  lensQuery,
+  lensKey,
   type Lead,
   type LeadBulkResult,
   type LeadColumn,
@@ -109,6 +110,32 @@ type ViewMode = "list" | "board";
  *  tables. `p-2` on the card body plus `px-3` here is the design's 20px edge inset. */
 const HEAD_CELL = "px-3 py-2.5 font-semibold";
 const BODY_CELL = "px-3 py-2.5";
+
+/**
+ * The two controls a client touches most — move a lead's stage, reassign its owner — at
+ * a size a thumb can hit.
+ *
+ * They were `px-1 py-0.5 text-xs`: 12px text in a 16px line box plus 2px each side, so
+ * about a 20px-tall target, inside a table that scrolls sideways on a phone. That is
+ * under WCAG 2.2 SC 2.5.8 Target Size (Minimum), which is 24×24 at Level AA. Both are
+ * WRITES — a mis-tap on the status select changes a lead's stage, and `RowFailure` only
+ * speaks after a FAILED write, never after a wrong one — so the cost of a near-miss here
+ * is a lead in the wrong column that nobody knows moved.
+ *
+ * `touch:min-h-11` (44px on a coarse pointer) rather than the 24px the AA minimum would
+ * accept, and rather than a flat `min-h-11`. Both halves of that are the repo's own
+ * answer rather than a new one: 44px is the size every other tap target here uses, and
+ * the `touch:` variant is `globals.css`'s `@media (pointer: coarse)` — a tap target is a
+ * fact about the FINGER, not the viewport, so a mouse-driven console keeps its density
+ * and a tablet gets the target. A second, flat spelling would have quietly restyled the
+ * densest table in the product for every operator on a desktop.
+ *
+ * The visual compactness the small padding was buying is preserved by the transparent
+ * border and background the class already carries — the control still reads as text until
+ * it is hovered. `tests/responsive.test.ts` pins it.
+ */
+const INLINE_EDIT =
+  "touch:min-h-11 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink";
 
 /**
  * Rows per request, named because the bulk bar has to talk about it.
@@ -265,11 +292,11 @@ export default function LeadsPage() {
    * under — so it does not. `lensKey` is the same string the query is keyed by, which
    * means "the lens moved" here and "refetch" there are the same event by construction.
    */
-  const lensKey = lensQuery(lens, { limit: PAGE_SIZE });
+  const currentLens = lensKey(lens, { limit: PAGE_SIZE });
   useEffect(() => {
     setSelection(EMPTY_SELECTION);
     setBulkResult(null);
-  }, [lensKey]);
+  }, [currentLens]);
 
   /**
    * The columns to render — the SERVER's resolved answer, not our own selection.
@@ -455,13 +482,13 @@ export default function LeadsPage() {
             label={`Status for ${lead.name ?? lead.phone_masked}`}
             disabled={rows.pendingFor(lead.id) || readOnly}
             onChange={(next) => rows.edit(lead.id, { status: next })}
-            className="rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs capitalize text-ink hover:border-line"
+            className={`${INLINE_EDIT} capitalize hover:border-line`}
           />
         );
       case "owner":
         return ownerCell(
           lead,
-          "rounded-md border border-transparent bg-transparent px-1 py-0.5 text-xs text-ink hover:border-line",
+          `${INLINE_EDIT} hover:border-line`,
         );
       case "source":
         return lead.source;
@@ -819,7 +846,7 @@ export default function LeadsPage() {
       ) : !showRows ? null : view === "list" ? (
         <Card bodyClassName="p-2">
           {items.length ? (
-            <div className="overflow-x-auto">
+            <ScrollRegion label="Leads">
               <table className="w-full text-sm">
                 <thead>
                   {/* THE HEADER IS THE SERVER'S COLUMN LIST, in the server's order — the
@@ -888,7 +915,7 @@ export default function LeadsPage() {
                   ))}
                 </tbody>
               </table>
-            </div>
+            </ScrollRegion>
           ) : (
             /* "No leads yet" only where the server said so — never on a failed fetch,
                which is why that case never reaches this Card at all. With a filter on,
@@ -908,7 +935,7 @@ export default function LeadsPage() {
            count in each header is the SERVER's figure for that stage, so a column can
            legitimately show more than it holds — and says so underneath rather than
            letting the header be read as "this is all of them". */
-        <div className="overflow-x-auto pb-2">
+        <ScrollRegion label="Leads by stage" className="pb-2">
           <div className="grid min-w-[960px] grid-cols-6 gap-3">
             {STATUSES.map((s) => {
               const columnLeads = items.filter((l) => l.status === s);
@@ -948,7 +975,7 @@ export default function LeadsPage() {
                           label={`Status for ${lead.name ?? lead.phone_masked}`}
                           disabled={rows.pendingFor(lead.id) || readOnly}
                           onChange={(next) => rows.edit(lead.id, { status: next })}
-                          className="mt-1.5 w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs capitalize text-ink"
+                          className={`mt-1.5 w-full ${INLINE_EDIT} border-line capitalize`}
                         />
                         {/* Same control as the table, for the reason the dispatch
                             button below states: the board is where someone works the
@@ -957,7 +984,7 @@ export default function LeadsPage() {
                         <div className="mt-1.5">
                           {ownerCell(
                             lead,
-                            "w-full rounded-md border border-line bg-transparent px-1 py-0.5 text-xs text-ink",
+                            `w-full ${INLINE_EDIT} border-line`,
                           )}
                         </div>
                         {/* The failure lands on the CARD for the same reason it lands on
@@ -988,7 +1015,7 @@ export default function LeadsPage() {
               );
             })}
           </div>
-        </div>
+        </ScrollRegion>
       )}
 
       {/* The stage tally, from `status_counts_matching_search` — the server's numbers

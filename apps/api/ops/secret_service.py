@@ -144,7 +144,7 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
         await session.execute(
             text(
                 "SELECT DISTINCT ON (s.key) s.key, s.version, s.last_four, s.kek_version, "
-                "s.created_at, a.name, a.clerk_user_id, "
+                "s.created_at, a.name, a.id, "
                 "(SELECT count(*) FROM platform_secrets c WHERE c.key = s.key) AS versions "
                 "FROM platform_secrets s "
                 "LEFT JOIN admin_users a ON a.id = s.created_by "
@@ -160,7 +160,7 @@ async def read_secrets(session: AsyncSession) -> list[SecretRecord]:
             last_four=str(r[2]),
             kek_id=int(r[3]),
             created_at=r[4].isoformat(),
-            created_by=r[5] or r[6],
+            created_by=r[5] or (str(r[6]) if r[6] is not None else None),
             shadowed_by_env=env_declares(str(r[0])),
             versions=int(r[7]),
             applies=applies_rule(str(r[0])).applies,

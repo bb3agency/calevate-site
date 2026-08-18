@@ -181,9 +181,13 @@ async def bootstrap_first_admin(
             admin_id, created = uuid7(), True
             await session.execute(
                 text(
-                    "INSERT INTO admin_users (id, clerk_user_id, email, name, role, "
+                    # `clerk_user_id` is not named at all (D-177). It was written as an
+                    # explicit NULL while the column still had a writer elsewhere; nothing
+                    # writes it now, the column is nullable, and naming it here would be a
+                    # statement that this INSERT has an opinion about it.
+                    "INSERT INTO admin_users (id, email, name, role, "
                     "created_at, updated_at) "
-                    "VALUES (:id, NULL, :email, :name, :role, :now, :now)"
+                    "VALUES (:id, :email, :name, :role, :now, :now)"
                 ),
                 {
                     "id": admin_id,

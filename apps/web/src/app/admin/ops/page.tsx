@@ -32,6 +32,7 @@ import {
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
+  ScrollRegion,
   Skeleton,
   formatCount,
   formatIST,
@@ -113,7 +114,7 @@ import { hasKey, lookup } from "@/lib/lookup";
  *    and takes a typed confirmation — echoed to the API as a step-up header, on every one
  *    of them (`platformConfirmation`, `spendCapConfirmation`,
  *    `OUTBOX_REPLAY_CONFIRMATION`). It is not the second factor: admin-realm MFA is
- *    enforced by the API on every admin token (`core/auth.py::verify_token`, Clerk's
+ *    enforced by the API on every admin session (`core/auth.py::verify_token`, the
  *    `fva` claim), so this whole screen is already behind it. The confirmation is the
  *    other half — MFA says WHO holds the session, for the next twelve hours; the typed
  *    word says WHICH act they meant, on this click. A fully verified operator is exactly
@@ -1617,7 +1618,7 @@ function OutboxReplayPanel({
                 three columns (a job name, a count, an IST timestamp) do not fit 320px,
                 and inside the shell's `overflow-hidden` the excess was CLIPPED rather
                 than scrollable — the "Oldest" column was simply unreachable. */}
-            <div className="mt-3 overflow-x-auto">
+            <ScrollRegion label="Dead-lettered jobs" className="mt-3">
             <table className="w-full text-left text-xs">
               <thead className="text-ink-faint">
                 <tr>
@@ -1638,7 +1639,7 @@ function OutboxReplayPanel({
                 ))}
               </tbody>
             </table>
-            </div>
+            </ScrollRegion>
           </NoticeBox>
         )}
 

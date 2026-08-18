@@ -47,6 +47,16 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 # be the same outage as an unhandled 500 with no alert of its own.
 _POOL_TIMEOUT_S = 5.0
 
+#: The most pooled connections ONE task may hold at the same time (D-182).
+#:
+#: Two, and every one of the two is a deliberate design: a request's session plus the
+#: short global read something inside it makes (`loadshed._read_durable` behind
+#: `check_dispatch`), or the outbox dispatcher's session plus the claim that must commit
+#: on its own connection. `get_engine` turns this into `max_overflow` and
+#: `scripts/check_session_nesting.py` refuses a third level, so the pool's capacity and
+#: the code's shape cannot drift apart the way they had.
+MAX_NESTED_CONNECTIONS = 2
+
 
 def get_engine(settings: Settings | None = None) -> AsyncEngine:
     """The process-wide engine.
@@ -72,7 +82,8 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
     full access; only the *rendered* string drops them. Alembic builds its own engine
     (`alembic/env.py`) and is unaffected, so migration review keeps its parameter echo.
 
-    THE POOL IS SIZED, NOT DEFAULTED, AND IT HAS NO OVERFLOW — measured, not assumed.
+    THE POOL IS SIZED, NOT DEFAULTED, AND ITS OVERFLOW IS EXACTLY ONE — measured, not
+    assumed, and the one is the depth of the deepest task in this tree minus one.
 
     SQLAlchemy's defaults are `pool_size=5, max_overflow=10`, and the overflow is the
     expensive half: connections above `pool_size` are SINGLE USE — the pool closes them
@@ -89,18 +100,42 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
     has was being spent re-authenticating connections it had just thrown away, on the
     service whose entire budget is 500ms (hard rule 3).
 
-    `max_overflow=0` therefore, and the persistent pool carries the whole ceiling. The
-    ceiling is unchanged at first (16 ≈ the old 5+10), so nothing loses capacity; what
-    a caller past the ceiling now meets is a QUEUE — an `asyncio.Queue` inside the pool,
-    which yields the event loop — instead of a connection storm. That queue is bounded
-    by `pool_timeout`: waiting 30 seconds (the default) for a connection is not a slow
-    request, it is a request that should already have failed, and on the receiver it
-    would sit inside `_DURABLE_DEADLINE_S` anyway.
+    The persistent pool therefore carries essentially the whole ceiling (16 ≈ the old
+    5+10, so nothing loses capacity), and what a caller past it meets is a QUEUE — an
+    `asyncio.Queue` inside the pool, which yields the event loop — instead of a
+    connection storm. That queue is bounded by `pool_timeout`: waiting 30 seconds (the
+    default) for a connection is not a slow request, it is a request that should already
+    have failed, and on the receiver it would sit inside `_DURABLE_DEADLINE_S` anyway.
 
-    Overflow is safe to remove only because no code path here holds two sessions at
-    once: every `async with *_session()` block closes before the next opens (checked
-    across apps/api and apps/workers), so a pool at its ceiling cannot deadlock against
-    itself.
+    WHY THE OVERFLOW IS 1 AND NOT 0 (D-182). This read `max_overflow=0`, justified by
+    "no code path here holds two sessions at once: every `async with *_session()` block
+    closes before the next opens (checked across apps/api and apps/workers)". That
+    invariant was not true when it was written and is not true now — 50 functions hold
+    two, and they are not accidents:
+
+      - EVERY route handler. FastAPI's `Depends(deps.db)` opens the request's session
+        before the handler runs and closes it after, so anything the handler calls that
+        reads a global table (`compliance.check_dispatch` → `loadshed.get_platform_status`
+        → `_read_durable`, on a cold 5s memo) is a second connection held inside the
+        first. The admin realm does it structurally: `Depends(admin_db)` for the
+        directory, a `tenant_session` inside for the client's own rows.
+      - `dispatcher.dispatch_outbox` → `reliability.claim_outbox_batch`, which takes a
+        second connection ON PURPOSE, because the claim must commit independently of the
+        dispatcher's transaction (its docstring argues why at length).
+
+    With no overflow, a pool at its ceiling holding only depth-2 tasks is a genuine
+    self-deadlock: all 16 connections are held by tasks that each need a 17th, every one
+    of them waits `_POOL_TIMEOUT_S` and every one of them fails. One overflow slot ends
+    that — one waiter always gets it, does its short inner read, and releases — so the
+    worst case degrades to a queue again instead of a mutual wait. It is a burst valve
+    used only at saturation, which is what the docs describe overflow AS; the treadmill
+    measured above needs sustained checkouts above `pool_size`, and one slot cannot
+    sustain anything (at most one single-use connection in flight, versus the 186 that
+    reproduced the storm).
+
+    IT IS NOT A NUMBER TO NUDGE. `scripts/check_session_nesting.py` walks the tree for
+    the deepest simultaneous holding and fails CI above 2 — `max_overflow + 1`. A third
+    nesting is a change to this line, not a change to that file.
 
     `pool_pre_ping` stays. It costs one round trip per checkout — measured at ~0.5ms of
     the ~3.5ms of CPU this process spends per webhook, i.e. ~12% of its throughput
@@ -115,7 +150,9 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
         _engine = create_async_engine(
             cfg.database_url,
             pool_size=cfg.db_pool_size,
-            max_overflow=0,
+            # ONE, and `scripts/check_session_nesting.py` is the other half of the pair:
+            # it fails CI if any task can hold more than `max_overflow + 1` connections.
+            max_overflow=MAX_NESTED_CONNECTIONS - 1,
             pool_timeout=_POOL_TIMEOUT_S,
             pool_pre_ping=True,
             hide_parameters=True,

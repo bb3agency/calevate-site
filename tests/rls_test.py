@@ -176,10 +176,10 @@ async def _make_user_with_membership(tenant_id: uuid.UUID, role: str = "owner") 
     async with untenanted_session() as s:
         await s.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": f"u_{user_id.hex[:12]}", "email": f"{user_id.hex[:8]}@x.test"},
+            {"id": user_id, "email": f"{user_id.hex[:8]}@x.test"},
         )
     async with tenant_session(tenant_id) as s:
         await s.execute(

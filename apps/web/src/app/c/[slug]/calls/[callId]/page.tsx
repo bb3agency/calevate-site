@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, useCallback, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import {
   ArrowLeft,
   AudioLines,
@@ -101,8 +101,26 @@ export default function CallDetailPage({
 
   const rawAccess = useRawTranscriptAccess(session);
   const [showRaw, setShowRaw] = useState(false);
-  const raw = useRawTranscript(session, callId, showRaw && rawAccess.allowed);
+  const raw = useRawTranscript(session, callId);
   const recording = useRecordingLink(session, callId);
+  /**
+   * One press, one request, one audit row — in BOTH directions.
+   *
+   * Opening always mints a request even if the same transcript was open a moment ago;
+   * closing throws the answer away rather than parking it. The access check is repeated
+   * here and not only on the disabled button: fail closed, and a control that is disabled
+   * for a reason should also be inert for that reason.
+   */
+  const toggleRaw = () => {
+    if (showRaw) {
+      setShowRaw(false);
+      raw.reset();
+      return;
+    }
+    if (!rawAccess.allowed) return;
+    setShowRaw(true);
+    raw.mutate();
+  };
   // Shared between the two panels: the player publishes where it is, the transcript
   // reads it to highlight the turn being spoken and writes back when a turn is clicked.
   const playerRef = useRef<CallAudioPlayerHandle>(null);
@@ -322,8 +340,8 @@ export default function CallDetailPage({
           <RawTranscriptControl
             access={rawAccess}
             showRaw={showRaw}
-            pending={showRaw && raw.isFetching && !raw.data}
-            onToggle={() => setShowRaw((on) => !on)}
+            pending={raw.isPending}
+            onToggle={toggleRaw}
           />
         }
       >
@@ -346,7 +364,7 @@ export default function CallDetailPage({
           {/* The raw request failing must not take the redacted transcript with it. The
               refusal is stated and the turns below stay exactly as they were. */}
           {showRaw && raw.error && (
-            <ProblemNotice error={raw.error} onRetry={() => void raw.refetch()} />
+            <ProblemNotice error={raw.error} onRetry={() => raw.mutate()} />
           )}
 
           {turns.length ? (
@@ -698,26 +716,40 @@ function useRawTranscriptAccess(session: Session): RawTranscriptAccess {
 }
 
 /**
- * The unredacted transcript — a GET WITH A SIDE EFFECT, and treated as one.
+ * The unredacted transcript — a GET WITH A SIDE EFFECT, and therefore a MUTATION.
  *
  * `/v1/calls/{id}/transcript/raw` writes an `audit_log` row in the same transaction as
- * the read (crm/routes.py), so every automatic refetch would both re-expose personal
- * data and forge an audit entry naming a person who did not ask for it. All of the
- * library's implicit refetching is therefore off and the answer never goes stale: this
- * request happens when someone presses the button, and at no other moment.
+ * the read (crm/routes.py). Hard rule 5 and SURFACES §3.1 are explicit about what that
+ * row is for: "who opened this transcript" has to be answerable, and it is a question a
+ * DPDP enquiry asks about EVERY opening, not the first one.
  *
- * `retry: false` for the same reason — a 403 must surface once, not three times.
+ * This was a `useQuery` with `staleTime: Infinity` and all three implicit refetches off.
+ * Those options were the right answer to the wrong half of the problem — they correctly
+ * stopped the library re-exposing personal data on a window focus or a reconnect, and
+ * they also stopped a DELIBERATE second opening from being a request. Press "Show", press
+ * "Hide", press "Show": the unredacted text came back out of the cache with no network
+ * call and no second audit row. Same for navigating to another call and back inside
+ * `gcTime`. The audit trail recorded the first read of a raw transcript and under-reported
+ * every one after it.
+ *
+ * A mutation is not a workaround for the cache, it is the accurate description: this
+ * request CHANGES SERVER STATE, so it has no business in a cache keyed by what it reads.
+ * `useMutation` gives exactly the semantics the options above were approximating — never
+ * deduplicated, never refetched on its own, never restored from cache — and it is already
+ * how the sibling audited read on this same screen works (`useRecordingLink` below). One
+ * rule, one mechanism.
+ *
+ * The second thing it buys: `reset()` on "Hide" actually DROPS the unredacted turns.
+ * `enabled: false` kept the observer subscribed, so the personal data stayed in the JS
+ * heap for the life of the page after the reader had said they were done with it.
+ *
+ * No `retry` for the reason the query gave: a 403 must surface once, not three times.
+ * TanStack Query v5 defaults mutations to `retry: 0`, so this is the default rather than
+ * an override (https://tanstack.com/query/v5/docs/framework/react/guides/mutations).
  */
-function useRawTranscript(session: Session, callId: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["call-transcript-raw", session.orgSlug, callId],
-    queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}/transcript/raw`),
-    enabled,
-    staleTime: Infinity,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
-    retry: false,
+function useRawTranscript(session: Session, callId: string) {
+  return useMutation({
+    mutationFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}/transcript/raw`),
   });
 }
 
