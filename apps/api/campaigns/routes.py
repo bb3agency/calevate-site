@@ -21,7 +21,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -92,11 +92,36 @@ class CreateCampaignOut(Strict):
     status: str
 
 
+#: How much per-contact variable text one row may carry, and why there is a number
+#: at all (D-302).
+#:
+#: `custom` is stored as `campaign_contacts.custom` jsonb AND rendered into the agent's
+#: prompt as engine `user_data`. Both halves were bounded only by the 2 MiB body cap, so
+#: one `POST` of 5,000 contacts could durably store — and later speak from — megabytes of
+#: caller-authored text. Storage growth decided by a caller is the same defect the list
+#: ceilings above answer, seen from the write side; text that reaches a PROMPT is the
+#: worse half, because an unbounded value is the most useful shape an injection can take.
+#:
+#: The numbers follow the house precedent for the other caller-supplied map in this repo
+#: (`ingest.service.MAX_MAPPING_ENTRIES` / `MAX_MAPPING_FIELD_LEN`), sized for what these
+#: variables ARE: "appointment_time", "doctor_name", "property_address". Ten of them, a
+#: name no longer than a mapping field, and a value that is a phrase rather than a
+#: paragraph. Expressed on the MODEL rather than in the service so the ceilings reach the
+#: OpenAPI schema and the generated client, where a form can refuse before sending.
+MAX_CONTACT_CUSTOM_FIELDS = 10
+MAX_CONTACT_CUSTOM_KEY_LEN = 128
+MAX_CONTACT_CUSTOM_VALUE_LEN = 200
+
+
 class ContactIn(Strict):
     phone: str = Field(min_length=8, max_length=20)
     name: str | None = Field(default=None, max_length=120)
-    # Extra per-contact variables rendered into the agent prompt (Bolna user_data).
-    custom: dict[str, str] = Field(default_factory=dict)
+    # Extra per-contact variables rendered into the agent prompt (Bolna user_data),
+    # bounded in all three dimensions — see the constants above.
+    custom: dict[
+        Annotated[str, StringConstraints(max_length=MAX_CONTACT_CUSTOM_KEY_LEN)],
+        Annotated[str, StringConstraints(max_length=MAX_CONTACT_CUSTOM_VALUE_LEN)],
+    ] = Field(default_factory=dict, max_length=MAX_CONTACT_CUSTOM_FIELDS)
 
 
 class AddContactsIn(Strict):

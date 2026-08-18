@@ -36,6 +36,7 @@ from apps.workers.campaign_dispatch import (
     dispatch_campaign_tick,
     resolve_campaign_contact,
 )
+from pydantic import ValidationError
 from sqlalchemy import text
 from tests.national_dnd_test import record_test_scrub
 
@@ -1236,3 +1237,45 @@ async def test_a_backwards_or_malformed_window_is_rejected() -> None:
                 )
             assert excinfo.value.code == "campaign_window_invalid", window
             assert excinfo.value.kind == "validation"
+
+
+# --- per-contact variables are bounded in all three dimensions (D-302) -----------------
+
+
+def test_a_campaign_contacts_custom_variables_are_bounded() -> None:
+    """`custom` is stored as jsonb AND spoken by the agent as engine `user_data`.
+
+    Both halves were bounded only by the 2 MiB body cap, so one POST of 5,000 contacts
+    could durably store — and later speak from — megabytes of caller-authored text.
+    Storage a caller decides the size of is the write-side twin of an unbounded list; text
+    that reaches a PROMPT is the worse half, because an unbounded value is the most useful
+    shape an injection can take.
+
+    Asserted at the MODEL, which is where the ceiling is declared, so the same refusal
+    reaches the OpenAPI schema and the generated client rather than only the server.
+    """
+    from apps.api.campaigns.routes import (
+        MAX_CONTACT_CUSTOM_FIELDS,
+        MAX_CONTACT_CUSTOM_KEY_LEN,
+        MAX_CONTACT_CUSTOM_VALUE_LEN,
+        ContactIn,
+    )
+
+    # The control: a realistic contact still validates, so the bounds refuse abuse rather
+    # than the product.
+    ok = ContactIn(
+        phone="+919876500000",
+        name="Radhika",
+        custom={"appointment_time": "10:30", "doctor_name": "Dr Rao"},
+    )
+    assert ok.custom["doctor_name"] == "Dr Rao"
+
+    with pytest.raises(ValidationError):
+        ContactIn(
+            phone="+919876500000",
+            custom={f"k{i}": "v" for i in range(MAX_CONTACT_CUSTOM_FIELDS + 1)},
+        )
+    with pytest.raises(ValidationError):
+        ContactIn(phone="+919876500000", custom={"k": "v" * (MAX_CONTACT_CUSTOM_VALUE_LEN + 1)})
+    with pytest.raises(ValidationError):
+        ContactIn(phone="+919876500000", custom={"k" * (MAX_CONTACT_CUSTOM_KEY_LEN + 1): "v"})

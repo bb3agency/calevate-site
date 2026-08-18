@@ -1256,7 +1256,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Agent */
+        /**
+         * Get Agent
+         * @description ONE row, by id, under the caller's own RLS session — so a neighbour's agent id and
+         *     an id nobody minted are the same 404 (hard rule 1).
+         */
         get: operations["get_agent_v1_agents__agent_id__get"];
         put?: never;
         post?: never;

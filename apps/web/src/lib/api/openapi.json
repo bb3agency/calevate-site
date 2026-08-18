@@ -2619,7 +2619,12 @@
         "properties": {
           "custom": {
             "additionalProperties": {
+              "maxLength": 200,
               "type": "string"
+            },
+            "maxProperties": 10,
+            "propertyNames": {
+              "maxLength": 128
             },
             "title": "Custom",
             "type": "object"
@@ -17390,6 +17395,7 @@
     },
     "/v1/agents/{agent_id}": {
       "get": {
+        "description": "ONE row, by id, under the caller's own RLS session \u2014 so a neighbour's agent id and\nan id nobody minted are the same 404 (hard rule 1).",
         "operationId": "get_agent_v1_agents__agent_id__get",
         "parameters": [
           {
