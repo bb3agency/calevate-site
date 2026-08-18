@@ -30,13 +30,19 @@ why the log lines below are the whole evidence trail.
 
 ## 1. Which arm failed — read the `detail:` line
 
-Six arms raise one code, deliberately (they differ in cause, not in consequence, and the
-first three steps are the same for all six). The alert body names the arm. Then find the
-matching log line from the same tick:
+Every paging arm raises the SAME code, deliberately: they differ in cause, not in
+consequence — each ends with the engine holding a credential nobody refreshed — and the
+first three steps are identical for all of them. The alert body names the arm; the table
+below is the map. (No count is written here on purpose: an arm added later would make a
+number wrong and nothing would notice. `grep -c '_page(' apps/workers/vertex_credential.py`
+is the answer that cannot go stale.) Find the matching log line from the same tick:
 
 ```
-journalctl -u calevate-worker --since '5 hours ago' | grep vertex_
+docker compose -p calevate -f compose.prod.yml logs --since 5h workers | grep vertex_
 ```
+
+**`-p calevate -f compose.prod.yml`, always** — `runbooks/deploy-failed.md` §1 explains
+why a bare `docker compose` in that directory reads the DEV file instead.
 
 | Log line | What it means | Fix |
 | --- | --- | --- |

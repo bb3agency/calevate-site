@@ -399,12 +399,14 @@ async def refresh_in_call_llm_credential(ctx: dict[str, Any]) -> str:
 def _page(detail: str, *, project: str) -> None:
     """The one alarm this module raises, so every arm above pages identically.
 
-    ONE CODE FOR SIX FAILURE ARMS, deliberately. They differ in cause and not in
-    consequence — every one of them ends with the engine holding a credential nobody
-    refreshed — and the operator's first three steps are the same in all six. The `detail`
-    line is what tells them which arm it was; splitting it into six codes would split the
-    noise-suppression budget six ways on an alarm whose whole value is that it fires early
-    and keeps firing (`core/alerting.py` bounds one page per `stage:code` per 15 minutes).
+    ONE CODE FOR EVERY FAILURE ARM, deliberately, and the count is NOT written down here —
+    a number in prose goes stale the first time an arm is added and nothing notices (the
+    defect class D-103/D-105 exist for). They differ in cause and not in consequence: every
+    one ends with the engine holding a credential nobody refreshed, and the operator's
+    first three steps are identical. The `detail` line is what tells them which arm it was;
+    splitting it per arm would divide the noise-suppression budget across codes on an alarm
+    whose whole value is that it fires early and keeps firing (`core/alerting.py` bounds
+    one page per `stage:code` per 15 minutes).
 
     `WORKER_STALL` rather than `WORKER_TERMINAL`: the next tick will try again by itself,
     and nothing has been lost yet. What is running out is TIME.
