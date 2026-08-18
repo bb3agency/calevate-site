@@ -261,6 +261,29 @@ taken. Nothing in this pass narrows the certificate's limitations text or moves
 
 ---
 
+## Named, not taken: an in-call opt-out does not withdraw MESSAGING consent
+
+**REASONED, and deliberately not fixed here — it is a founder's call, not an engineering
+gap.** `record_call_optout` writes a `dnc_list` suppression (which is what actually stops
+the dial) and a `consent_ledger` row under `purpose='marketing'`. The WhatsApp path reads
+`purpose='messaging'` and the dial gate reads `purpose='callback'`, so a caller who says
+*"naa number teeseyandi"* on a call is un-dialable immediately and, if they had previously
+opted in to messaging, still receives the campaign follow-up.
+
+The repo's own doctrine says this is correct: SEC-COMP §4 and `compliance/consent.py`
+argue at length that messaging consent "is its own permission and is never inferred", that
+DPDP §6 binds consent to the purpose it was given for, and that "a person may accept a
+call and refuse a message, and both answers are theirs". The mechanism to do otherwise
+exists — `WITHDRAWAL_ONLY_CONSENT_SOURCES` is there precisely so a withdrawal can be
+recorded on a customer's behalf — so this is one line, not a project.
+
+What stops it being taken here: writing a `messaging` withdrawal the caller did not utter
+puts words in their mouth in an APPEND-ONLY legal register (hard rule 4) that can never be
+corrected, only compensated. "Stop calling me" and "stop contacting me" are different
+sentences and the phrase list cannot reliably tell them apart. Both readings are
+defensible; the choice is a commitment about how this product interprets a consumer, which
+is the founder's, and it is recorded here rather than decided.
+
 ## Still open, and what closes each
 
 * **Whether the engine honours a deletion.** `engine_deletion` stays
