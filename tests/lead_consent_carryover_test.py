@@ -371,16 +371,15 @@ async def _owner_session(tenant_id: uuid.UUID) -> tuple[str, str]:
     in one built by the Meta fixture, so the membership is added here instead.
     """
     user_id = uuid.uuid4()
-    clerk_id = f"user_{uuid.uuid4().hex[:12]}"
     from apps.api.db.session import untenanted_session
 
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO users (id, clerk_user_id, email, created_at, updated_at) "
-                "VALUES (:id, :cid, :email, now(), now())"
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
             ),
-            {"id": user_id, "cid": clerk_id, "email": f"{clerk_id}@example.com"},
+            {"id": user_id, "email": f"{user_id}@example.com"},
         )
     async with tenant_session(tenant_id) as session:
         # Inside the TENANT session, not the untenanted one: `organizations` is RLS'd,
@@ -400,7 +399,7 @@ async def _owner_session(tenant_id: uuid.UUID) -> tuple[str, str]:
             ),
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": user_id},
         )
-    return f"dev:client:{clerk_id}", str(slug)
+    return f"dev:client:{user_id}", str(slug)
 
 
 __all__: list[Any] = []

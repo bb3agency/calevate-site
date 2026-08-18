@@ -471,16 +471,16 @@ async def _slug_of(tenant_id: uuid.UUID) -> str:
 
 
 async def _make_admin_token() -> str:
-    clerk_id = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:id, :cid, 'Ops', 'superadmin', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Ops', 'superadmin', now(), now())"
             ),
-            {"id": uuid.uuid4(), "cid": clerk_id},
+            {"id": admin_id},
         )
-    return f"dev:admin:{clerk_id}"
+    return f"dev:admin:{admin_id}"
 
 
 async def test_two_people_submitting_one_source_name_at_once_get_two_versions() -> None:

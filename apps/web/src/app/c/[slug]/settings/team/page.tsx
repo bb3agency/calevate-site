@@ -334,7 +334,10 @@ function IssuedLink({ invitation }: { invitation: CreatedInvitation }) {
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <code
-            className="max-w-full overflow-x-auto rounded-md border border-line bg-surface px-2 py-1 font-mono text-xs text-ink"
+            className=// WRAPS rather than scrolls. A one-line box a keyboard cannot scroll is a link
+            // whose end nobody can read; wrapping shows the whole thing and leaves no
+            // scroll container to make focusable (see `ScrollRegion`).
+            "max-w-full break-all rounded-md border border-line bg-surface px-2 py-1 font-mono text-xs text-ink"
             data-testid="invite-link"
           >
             {link}

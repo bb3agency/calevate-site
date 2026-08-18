@@ -594,21 +594,21 @@ async def test_a_read_only_impersonating_admin_cannot_run_a_bulk_action() -> Non
     this without the route needing to know about impersonation at all."""
     tenant_id, slug, _token = await _make_tenant()
     ids = [str(i) for i in await _seed_leads(tenant_id, 1)]
-    admin_clerk = f"admin_{uuid.uuid4().hex[:12]}"
+    admin_id = uuid.uuid4()
     async with untenanted_session() as session:
         await session.execute(
             text(
-                "INSERT INTO admin_users (id, clerk_user_id, name, role, created_at, updated_at) "
-                "VALUES (:i, :c, 'Ops', 'operator', now(), now())"
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:i, 'Ops', 'operator', now(), now())"
             ),
-            {"i": uuid.uuid4(), "c": admin_clerk},
+            {"i": admin_id},
         )
 
     async with _client() as http:
         response = await http.post(
             "/v1/leads/bulk",
             headers=await view_as_headers(
-                http, f"dev:admin:{admin_clerk}", slug, **{"X-Org-Slug": slug}
+                http, f"dev:admin:{admin_id}", slug, **{"X-Org-Slug": slug}
             ),
             json={"scope": "ids", "ids": ids, "action": "status", "status": "won"},
         )

@@ -219,7 +219,14 @@ export function useCallLead(session: Session) {
  */
 export function useCallbackEligibility(session: Session, callId: string) {
   return useQuery({
-    queryKey: ["callback-check", callId],
+    // Keyed by org slug, like every other client-realm query. The id is a uuid_v7 so two
+    // tenants cannot collide TODAY — but that makes the isolation a property of the id
+    // generator rather than of the cache, in a `QueryClient` that genuinely holds more
+    // than one tenant's data at a time: a D-22 operator following "View as client" into
+    // tenant A, back out, and into tenant B does all of it inside one client instance
+    // (`app/providers.tsx` creates it once per shell mount). `tests/queryKeys.test.ts`
+    // enforces this across the whole client realm rather than trusting the next author.
+    queryKey: ["callback-check", session.orgSlug, callId],
     queryFn: () =>
       apiRequest<components["schemas"]["CallbackEligibilityOut"]>(
         session,
@@ -237,7 +244,7 @@ export function useCallBack(session: Session, callId: string) {
         method: "POST",
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["callback-check", callId] });
+      void client.invalidateQueries({ queryKey: ["callback-check", session.orgSlug, callId] });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
     },
   });

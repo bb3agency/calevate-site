@@ -28,6 +28,7 @@ from apps.api.core import platform_config as pc
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
+from apps.api.core.stepup import StepUp
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from apps.api.ops.config_routes import (
@@ -504,9 +505,7 @@ def _anonymous_operator() -> Principal:
     guard is what turns it into a sentence instead of a NOT NULL violation rendered as a
     500 by the global handler.
     """
-    return Principal(
-        realm="admin", user_id=None, clerk_user_id="user_no_mirror_row", tenant_id=None, role=None
-    )
+    return Principal(realm="admin", user_id=None, tenant_id=None, role=None)
 
 
 async def test_a_set_by_a_session_with_no_admin_identity_is_refused_and_stores_nothing() -> None:
@@ -527,6 +526,10 @@ async def test_a_set_by_a_session_with_no_admin_identity_is_refused_and_stores_n
                 BackgroundTasks(),
                 _anonymous_operator(),
                 KEY,
+                # The gate a request resolves through `Depends(step_up_gate)`; called
+                # directly, the test supplies it. `present=False` is the shape a
+                # caller with no first-party admin cookie has (D-178).
+                StepUp(present=False, verified_at=None),
                 x_confirm_action=config_confirmation(KEY),
                 if_match='"0"',
             )
@@ -559,6 +562,10 @@ async def test_a_revert_by_a_session_with_no_admin_identity_is_refused_too() -> 
                 BackgroundTasks(),
                 _anonymous_operator(),
                 KEY,
+                # The gate a request resolves through `Depends(step_up_gate)`; called
+                # directly, the test supplies it. `present=False` is the shape a
+                # caller with no first-party admin cookie has (D-178).
+                StepUp(present=False, verified_at=None),
                 x_confirm_action=revert_confirmation(KEY),
                 if_match=await _etag(),
             )

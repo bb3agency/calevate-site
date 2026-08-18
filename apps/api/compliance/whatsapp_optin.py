@@ -213,7 +213,7 @@ async def record_alert_optin(
     """Append one row. Never updates, never deletes (hard rule 4).
 
     The number is taken as already-normalised E.164 — it comes from `users.phone`, which
-    the Clerk mirror writes, not from a form field. That is deliberate and it is the
+    the invitation flow writes, not from a form field. That is deliberate and it is the
     other half of why this ledger needs no separate `notify_whatsapp_e164`: the opt-in is
     recorded against the number the alert would actually be sent to, read from the same
     row `resolve_destination` reads, so the consent key and the delivery key cannot

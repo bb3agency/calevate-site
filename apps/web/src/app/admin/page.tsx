@@ -10,6 +10,7 @@ import {
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
+  ScrollRegion,
   Skeleton,
   formatCount,
   formatIST,
@@ -160,7 +161,7 @@ export default function AdminClientsPage() {
             hint="Create the first one and it appears here with its onboarding gates."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Client directory">
             <table className="w-full min-w-[880px] text-sm">
               <thead>
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
@@ -249,7 +250,7 @@ export default function AdminClientsPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )}
       </Card>
     </div>

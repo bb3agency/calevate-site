@@ -7,14 +7,16 @@ atomically (org + retention policies + agent with a non-null disclosure line +
 extraction schema), and a second implementation would be a second thing to keep in
 step with SEC-COMP §1. What is different is only the CALLER:
 
-- **Who.** FLOWS §2 step 1: Clerk creates the user, our webhook mirrors it into
-  `users`, and THEN the org-create step runs. So the caller is a verified client-realm
-  identity with no membership yet — the same state the invitation-accept route handles
-  (`core.auth.current_identity`), and for the same reason: the membership is what this
-  call creates. (The brief for this work described the endpoint as unauthenticated;
-  FLOWS §2 says otherwise and the docs win. It also matters practically — an owner
-  membership needs a user to point at, and Clerk's own bot mitigation and email
-  verification are the cheapest abuse control we will ever get.)
+- **Who.** FLOWS §2 step 1: an account exists first, and THEN the org-create step runs.
+  So the caller is a verified client-realm identity with no membership yet
+  (`core.auth.current_identity`), and the membership is what this call creates. (The brief
+  for this work described the endpoint as unauthenticated; FLOWS §2 says otherwise and the
+  docs win. It also matters practically — an owner membership needs a user to point at.)
+  **WHAT D-177 COST HERE, stated rather than left to be discovered:** the account used to
+  be minted by Clerk, whose bot mitigation and email verification were free abuse control
+  on the way in. First-party signup has neither yet — AUTH-MIGRATION §1 C-23/C-24 carry
+  that as accepted risk, and `assert_signup_quota` below is what stands in for it
+  meanwhile.
 - **What tier.** `self_serve` or `trial`, never `managed`: the managed tier is the one
   with no wallet gate in front of it (compliance/service.py §2b), so it is not
   self-assignable.
@@ -79,7 +81,7 @@ SelfServeTier = Literal["self_serve", "trial"]
 #
 # Per identity: a real business creates one tenant. Five an hour leaves room for a
 # fumbled slug and a retry; a hundred does not look like a business at all.
-# Per address: the per-identity window is defeated by making more Clerk accounts, which
+# Per address: the per-identity window is defeated by making more accounts, which
 # is the cheap half of the attack — this is the other half. Loose enough that an office
 # behind one NAT can onboard several sites in an afternoon.
 SIGNUPS_PER_USER_PER_HOUR: int = 5
@@ -211,7 +213,7 @@ async def _consume(scope: str, subject: str, limit: int) -> None:
     )
 
 
-async def assert_signup_quota(*, clerk_user_id: str, ip: str | None) -> None:
+async def assert_signup_quota(*, user_id: UUID, ip: str | None) -> None:
     """Consumed on every ATTEMPT, not on every success.
 
     A caller who burns their window on refused slugs has still made us do the work of
@@ -231,7 +233,7 @@ async def assert_signup_quota(*, clerk_user_id: str, ip: str | None) -> None:
     signup is still bounded rather than blocked, and `signup_quota_exceeded` on the `ip`
     scope with `ip_established=false` in the log is the operator's signal.
     """
-    await _consume("user", clerk_user_id, SIGNUPS_PER_USER_PER_HOUR)
+    await _consume("user", str(user_id), SIGNUPS_PER_USER_PER_HOUR)
     if ip is None:
         log.warning("signup_ip_unresolved")
     await _consume("ip", ip or "unknown", SIGNUPS_PER_IP_PER_HOUR)

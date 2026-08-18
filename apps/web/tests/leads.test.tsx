@@ -6,7 +6,13 @@ import type { Agent } from "@/lib/api/agents";
 import type { CallLeadResult, Me } from "@/lib/api/client";
 import type { Lead, LeadList, Member } from "@/lib/api/leads";
 
-import { expectTextCount, problem, renderClientPage } from "./harness";
+import {
+  expectTextCount,
+  lensOf,
+  problem,
+  renderClientPage,
+  type ApiCall,
+} from "./harness";
 
 /**
  * The leads table — the client's own customer list, and the screen where a wrong number
@@ -147,7 +153,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": ME,
     "/v1/agents": [DIALER],
     "/v1/members": MEMBERS,
-    "/v1/leads?limit=100": leadList([]),
+    "POST /v1/leads/search": leadList([]),
     // The facet rail and the saved-view picker are part of this screen now. An unrouted
     // request THROWS in this harness rather than 404ing, which is the point: a screen
     // that quietly grew a call nobody expected should say so.
@@ -223,7 +229,7 @@ describe("what the screen says when it could not read the leads", () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": problem(503, {
+        "POST /v1/leads/search": problem(503, {
           title: "Service unavailable",
           detail: "We could not read your leads.",
         }),
@@ -244,7 +250,7 @@ describe("what the screen says when it could not read the leads", () => {
     // pipeline drawn from a request that never landed.
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": problem(503, { title: "Service unavailable" }) }),
+      routes({ "POST /v1/leads/search": problem(503, { title: "Service unavailable" }) }),
     );
 
     await screen.findByRole("alert");
@@ -260,7 +266,7 @@ describe("the number on the row", () => {
     const { container, calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": leadList([lead()], {
+        "POST /v1/leads/search": leadList([lead()], {
           status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
         }),
       }),
@@ -281,7 +287,7 @@ describe("the number on the row", () => {
   it("says a lead has no name rather than inventing one", async () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": leadList([lead({ name: null })]) }),
+      routes({ "POST /v1/leads/search": leadList([lead({ name: null })]) }),
     );
 
     await screen.findByText(MASKED_A);
@@ -312,7 +318,7 @@ describe("the D-21 dispatch verdict, per lead", () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": TWO_LEADS,
+        "POST /v1/leads/search": TWO_LEADS,
         "/v1/leads/lead-a/call": BLOCKED,
         "/v1/leads/lead-b/call": QUEUED,
       }),
@@ -346,7 +352,7 @@ describe("the D-21 dispatch verdict, per lead", () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": leadList([lead()]),
+        "POST /v1/leads/search": leadList([lead()]),
         "/v1/leads/lead-a/call": BLOCKED,
       }),
     );
@@ -386,10 +392,13 @@ describe("the counts come from the server or are not shown", () => {
     const rendered = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": leadList([]),
-        "/v1/leads?status=hot&limit=100": HOT_PAGE,
+        // ONE path, two lenses. The lens is in the BODY now (hard rule 6 — the search
+        // term matches a phone number), so the route answers from what it was asked
+        // rather than from a query string it no longer has.
+        "POST /v1/leads/search": (call: ApiCall) =>
+          lensOf(call).status === "hot" ? HOT_PAGE : leadList([]),
         // The facet rail follows the same status chip, because it describes the same
-        // table — one query string, three surfaces (`lib/api/leads.ts::lensQuery`).
+        // table — one lens, three surfaces (`lib/api/leads.ts::lensBody`).
         "/v1/leads/facets?status=hot": { facets: [], omitted_field_count: 0 },
       }),
     );
@@ -404,14 +413,23 @@ describe("the counts come from the server or are not shown", () => {
     // Awaited for the reason the search case is: a positive assertion about a REQUEST
     // cannot be read synchronously off a list the request may not have reached yet.
     await vi.waitFor(() => {
-      expect(calls.some((c) => c.path === "/v1/leads?status=hot&limit=100")).toBe(true);
+      expect(calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).status === "hot")).toBe(
+        true,
+      );
     });
 
-    const tally = (await screen.findByText(/by stage/)).parentElement;
+    // AWAITED, for the same reason the request assertion above is: the tally re-renders
+    // when the filtered page lands, and reading it once can catch the paint before that.
+    // Under a loaded full-suite run this file's realm restore lands between the two, and
+    // a single read then asserts about the unfiltered render — a flake that only appears
+    // in CI, which is the worst place to diagnose one.
+    await vi.waitFor(() => {
+      expect(screen.getByText(/by stage/).parentElement?.textContent).toContain("new12");
+    });
+    const tally = screen.getByText(/by stage/).parentElement;
 
     // Pre-fix, every stage but `hot` was counted over a page the server had already
     // narrowed to `hot`, so this row read "new 0 · contacted 0 · interested 0 · won 0".
-    expect(tally?.textContent).toContain("new12");
     expect(tally?.textContent).toContain("contacted3");
     expect(tally?.textContent).toContain("interested4");
     expect(tally?.textContent).not.toContain("new0");
@@ -444,11 +462,62 @@ describe("the counts come from the server or are not shown", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
     const exportCall = await vi.waitFor(() => {
-      const found = calls.find((c) => c.path.startsWith("/v1/leads/export.csv"));
+      const found = calls.find((c) => c.path === "/v1/leads/export.csv");
       if (!found) throw new Error("the export was never requested");
       return found;
     });
-    expect(exportCall.path).toBe("/v1/leads/export.csv?status=hot");
+    // The mirroring, in the shape both now travel in: the file's lens IS the table's.
+    expect(lensOf(exportCall)).toEqual({ status: "hot" });
+  });
+
+  /**
+   * A CUSTOMER'S PHONE NUMBER NEVER REACHES A URL — the finding this screen carried, and
+   * hard rule 6's plainest reading.
+   *
+   * The box says "Name or last digits", and the server means it: `_lead_scope` matches
+   * the term against `leads.phone_e164` with a suffix `LIKE`, so a client who pastes a
+   * full E.164 number gets a hit. On a GET that number is in the request line, and nginx's
+   * `combined` format logs `$request` whole — as does every proxy and CDN in front of it.
+   * The console had already made this judgement twice (`POST /v1/dnc/check`,
+   * `POST /v1/compliance/messaging-consent/lookup`, both arguing it in their own files)
+   * and the busiest screen in the product was the one left out.
+   *
+   * The assertion sweeps EVERY request the screen made rather than the search request
+   * alone, because the leak was never only on the list: the same term went to the facet
+   * rail and, on a filter-scoped bulk action, to a write. A test that checked one route
+   * would go green while a second one still logged the number.
+   */
+  it("puts a full phone number in no request line, on any of its routes", async () => {
+    const NUMBER = "+919876543210";
+    const { calls } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "POST /v1/leads/search": leadList([lead()]) }),
+    );
+
+    await screen.findByText(/by stage/);
+    fireEvent.change(screen.getByLabelText("Search leads"), { target: { value: NUMBER } });
+
+    // The term reached the server — otherwise the sweep below passes on a screen that
+    // simply never searched, which is the vacuous form of this assertion.
+    await vi.waitFor(() => {
+      expect(
+        calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).search === NUMBER),
+      ).toBe(true);
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
+    await vi.waitFor(() => {
+      expect(calls.some((c) => c.path === "/v1/leads/export.csv")).toBe(true);
+    });
+
+    // Digits, not the formatted string: `+` and the country code survive encoding
+    // differently from the rest, and it is the ten digits that identify a person.
+    for (const call of calls) {
+      expect(call.url, `${call.method} ${call.path} carries the number`).not.toContain(
+        "9876543210",
+      );
+      expect(call.url).not.toContain("search=");
+    }
   });
 
   it("names no account total while a search is on, because the response holds none", async () => {
@@ -458,7 +527,7 @@ describe("the counts come from the server or are not shown", () => {
     const { container, calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?search=ram&limit=100": leadList([lead()], {
+        "POST /v1/leads/search": leadList([lead()], {
           total: 1,
           status_counts_matching_search: {
             new: 1,
@@ -485,7 +554,13 @@ describe("the counts come from the server or are not shown", () => {
     // idiom: "these tests assert on the REQUESTS, so the wait has to be explicit or they
     // pass by inspecting an empty list."
     await vi.waitFor(() => {
-      expect(calls.some((c) => c.path === "/v1/leads?search=ram&limit=100")).toBe(true);
+      // IN THE BODY, and the assertion says so: this is the one request on this screen
+      // that can carry a customer's phone number, and the whole point of the change is
+      // that it is no longer in the request line. `path` carrying no `search=` is
+      // asserted separately below, over every call the screen made.
+      expect(calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).search === "ram")).toBe(
+        true,
+      );
     });
     await screen.findByText(/matching your search/);
 
@@ -505,7 +580,7 @@ describe("the counts come from the server or are not shown", () => {
     const { container, calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?assigned_to=u1&limit=100": leadList([lead({ assigned_to: "u1" })], {
+        "POST /v1/leads/search": leadList([lead({ assigned_to: "u1" })], {
           total: 1,
           status_counts_matching_search: {
             new: 1,
@@ -526,7 +601,9 @@ describe("the counts come from the server or are not shown", () => {
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Showing 1 of 1 lead");
     });
-    expect(calls.some((c) => c.path === "/v1/leads?assigned_to=u1&limit=100")).toBe(true);
+    expect(
+      calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === "u1"),
+    ).toBe(true);
   });
 
   it("renders no page heading, because the shell already prints one", async () => {
@@ -554,7 +631,7 @@ describe("who owns a lead", () => {
   });
 
   it("offers the account's team, and shows the current owner as the selected one", async () => {
-    await renderClientPage(<LeadsPage />, routes({ "/v1/leads?limit=100": ASSIGNED }));
+    await renderClientPage(<LeadsPage />, routes({ "POST /v1/leads/search": ASSIGNED }));
 
     const select = await screen.findByLabelText("Owner of Ramesh Kumar");
     expect((select as HTMLSelectElement).value).toBe("u2");
@@ -566,7 +643,7 @@ describe("who owns a lead", () => {
     const { calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": leadList([lead()], {
+        "POST /v1/leads/search": leadList([lead()], {
           total: 1,
           status_counts_matching_search: {
             new: 1,
@@ -601,7 +678,7 @@ describe("who owns a lead", () => {
      */
     const { calls } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": ASSIGNED, "/v1/leads/lead-a": lead() }),
+      routes({ "POST /v1/leads/search": ASSIGNED, "/v1/leads/lead-a": lead() }),
     );
 
     fireEvent.change(await screen.findByLabelText("Owner of Ramesh Kumar"), {
@@ -626,7 +703,7 @@ describe("who owns a lead", () => {
     await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": leadList([lead({ assigned_to: "u9", assigned_to_name: null })], {
+        "POST /v1/leads/search": leadList([lead({ assigned_to: "u9", assigned_to_name: null })], {
           total: 1,
           status_counts_matching_search: {
             new: 1,
@@ -649,7 +726,7 @@ describe("who owns a lead", () => {
     const staff = { ...ME, role: "staff", permissions: ["leads:read", "calls:read"] };
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/me": staff, "/v1/leads?limit=100": ASSIGNED }),
+      routes({ "/v1/me": staff, "POST /v1/leads/search": ASSIGNED }),
     );
 
     const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
@@ -677,7 +754,7 @@ describe("who owns a lead", () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": ASSIGNED,
+        "POST /v1/leads/search": ASSIGNED,
         "/v1/members": problem(503, {
           title: "Service unavailable",
           detail: "We could not read your team.",
@@ -700,32 +777,39 @@ describe("who owns a lead", () => {
     const { calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100": leadList([lead(), lead({ id: "lead-b", name: "Priya's lead" })]),
-        "/v1/leads?assigned_to=u1&limit=100": leadList([lead({ assigned_to: "u1" })], {
-          total: 1,
-          status_counts_matching_search: {
-            new: 1,
-            contacted: 0,
-            interested: 0,
-            hot: 0,
-            won: 0,
-            lost: 0,
-          },
-        }),
+        // ONE path, two lenses, answered from the body — see `filterToHot` above.
+        "POST /v1/leads/search": (call: ApiCall) =>
+          lensOf(call).assigned_to === "u1"
+            ? leadList([lead({ assigned_to: "u1" })], {
+                total: 1,
+                status_counts_matching_search: {
+                  new: 1,
+                  contacted: 0,
+                  interested: 0,
+                  hot: 0,
+                  won: 0,
+                  lost: 0,
+                },
+              })
+            : leadList([lead(), lead({ id: "lead-b", name: "Priya's lead" })]),
       }),
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Assigned to me" }));
 
     await vi.waitFor(() => {
-      expect(calls.some((c) => c.path === "/v1/leads?assigned_to=u1&limit=100")).toBe(true);
+      expect(
+        calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === "u1"),
+      ).toBe(true);
     });
     // …and clicking it again clears the filter, rather than leaving the client stuck in
     // a view they cannot get out of without a reload.
     fireEvent.click(screen.getByRole("button", { name: "Assigned to me" }));
     await vi.waitFor(() => {
       expect(
-        calls.filter((c) => c.path === "/v1/leads?limit=100").length,
+        calls.filter(
+          (c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === undefined,
+        ).length,
         "the unfiltered list was asked for again",
       ).toBeGreaterThan(1);
     });
@@ -746,7 +830,7 @@ describe("who owns a lead", () => {
   it("links each lead to its own screen by id, never by number", async () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": leadList([lead()]) }),
+      routes({ "POST /v1/leads/search": leadList([lead()]) }),
     );
 
     const link = (await screen.findByRole("link", { name: /Ramesh Kumar/ })) as HTMLAnchorElement;
@@ -778,7 +862,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
       <LeadsPage />,
       routes({
         "/v1/agents": problem(503, { title: "Service unavailable", retryable: true }),
-        "/v1/leads?limit=100": leadList([lead()]),
+        "POST /v1/leads/search": leadList([lead()]),
       }),
     );
 
@@ -794,7 +878,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
       <LeadsPage />,
       routes({
         "/v1/me": problem(503, { title: "Service unavailable", retryable: true }),
-        "/v1/leads?limit=100": leadList([lead()]),
+        "POST /v1/leads/search": leadList([lead()]),
       }),
     );
 
@@ -812,7 +896,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
     // renders a call button at all.
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": leadList([lead()]) }),
+      routes({ "POST /v1/leads/search": leadList([lead()]) }),
     );
 
     expect(await screen.findByRole("button", { name: /Call with AI/ })).toBeDefined();
@@ -828,7 +912,7 @@ describe("dispatching a call from the table, when a read did not answer", () => 
       <LeadsPage />,
       routes({
         "/v1/me": problem(503, { title: "Service unavailable", retryable: true }),
-        "/v1/leads?limit=100": leadList([lead()]),
+        "POST /v1/leads/search": leadList([lead()]),
       }),
     );
 

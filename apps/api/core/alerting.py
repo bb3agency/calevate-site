@@ -65,7 +65,7 @@ the established shape rather than invented:
 
   Naming it is not a nicety. The bucket is one shared resource and the codes drawing on
   it are not equally important: `webhook_source_rejected` and
-  `clerk_webhook_bad_signature` fire from anywhere on the internet with no credential,
+  `razorpay_webhook_bad_signature` fire from anywhere on the internet with no credential,
   while `postcall_pipeline_stalled` is the alarm the whole system exists to raise. A
   stranger cannot silence the second — dedupe means their repeats are free, so they
   cost at most one token per code per window — but they CAN empty the burst at a moment
@@ -517,9 +517,32 @@ def _flush_on_exit() -> None:
 # --- Named metric recorders ---------------------------------------------------
 # One function per SLO-relevant quantity. Adding a recorder is how a new SLO gets
 # a vocabulary; ad-hoc counters are not accepted (§8).
+#
+# **EVERY RECORDER BELOW IS A STRUCTURED LOG LINE AND NOTHING ELSE. THERE IS NO
+# CONSUMER.** Said here, at the top of the section, because the shape reads like
+# telemetry: `_record` looks like a counter, the names read like series and the kwargs
+# read like labels. Nothing scrapes them. There is no `/metrics` endpoint, no Prometheus,
+# no collector and therefore no alerting rule can be written over any of these numbers —
+# `docs/DEPLOYMENT.md` §8 defers the metrics endpoint, and the blocker is a deploy
+# decision, not code missing from this file. What a recorder buys today is a greppable
+# line with a stable name and stable labels, which is the whole of its value and is worth
+# having: `journalctl`/`grep metric=pipeline_lag_seconds` answers the question, and the
+# NAMES are the vocabulary an exporter would export unchanged on the day one lands.
+#
+# THE CONSEQUENCE THAT MATTERS, AND IT IS A RULE: **no alarm may depend on a recorder.**
+# A threshold over a counter nobody reads is a promised alarm that cannot fire, which is
+# worse than an absent one. Every alarm in this repository therefore travels `alert()`
+# above — the email path (D-49), the same relay `scripts/backup/notify.sh` and
+# `scripts/host_alert` use from outside Python — and announces itself at the WRITE that
+# crosses the line rather than over a rate. `billing/ai_quota._announce_platform_headroom`
+# and `billing/caps.announce_cap_headroom` are both that shape, and they are the shape to
+# copy. If you find yourself wanting `if record_x() > threshold`, the answer is an
+# `alert()` at the producing write, not a consumer for this stream.
 
 
 def _record(name: str, value: float, **labels: str) -> None:
+    """One structured log line. Read the section comment above before adding a caller:
+    this reaches a log and no metrics pipeline, and no alarm may be built on it."""
     metrics_log.info("metric", extra={"metric": name, "value": value, **labels})
 
 

@@ -287,7 +287,6 @@ async def test_the_dry_run_reports_every_decision_and_does_nothing() -> None:
     principal = Principal(
         realm="client",
         user_id=uuid.uuid4(),
-        clerk_user_id="u",
         tenant_id=tenant_id,
         role="owner",
         impersonating=False,

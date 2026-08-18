@@ -242,17 +242,75 @@ export interface LeadLens {
 }
 
 /**
- * `LeadLens` → query string, in ONE function used by the list, the facets and the export.
+ * `LeadLens` → the request BODY the API's lens routes take.
  *
- * That is the whole "mirrored in CSV export" requirement on this side: the file cannot
- * disagree with the screen about the filters if there is only one place that spells them.
- * `paging` is separate because the export has none and the facets ignore it.
+ * **The search term is a phone number, and a phone number may not be in a URL.** The box
+ * it comes from says "Name or last digits", and the server matches it against
+ * `leads.phone_e164` with a suffix `LIKE` (`crm.service._lead_scope`) — so a client who
+ * pastes a full E.164 number gets a hit, and on a GET that number is in the request line:
+ * nginx's `combined` access log records `$request` whole, and so does every proxy and CDN
+ * in front of it (hard rule 6, SEC-COMP §4). This console already made that judgement
+ * twice — `POST /v1/dnc/check` and `POST /v1/compliance/messaging-consent/lookup` both
+ * take the number in a body and both say why in their own files — and the leads screen
+ * was the busiest surface left out of it.
+ *
+ * The API answers with `POST /v1/leads/search` and `POST /v1/leads/export.csv`
+ * (`crm.schemas.LeadLensIn`), which write nothing: they are POSTs *because the request
+ * carries personal data*, which is why they keep the `leads:read` gate and a D-22
+ * read-only session can still search.
+ *
+ * The field names are the query parameters' own names, including the two encoded ones
+ * (`columns` comma-separated, `f` as `key:value` entries), so one parser serves both
+ * shapes on the server and the lens does not change form when it moves into a body.
+ *
+ * `paging` is separate because the export has none.
  */
-export function lensQuery(lens: LeadLens, paging: { limit?: number; offset?: number } = {}): string {
-  const search = new URLSearchParams();
+export function lensBody(
+  lens: LeadLens,
+  paging: { limit?: number; offset?: number } = {},
+): Record<string, unknown> {
+  const body: Record<string, unknown> = {};
   const scalars: Record<string, string | number | undefined> = {
     status: lens.status,
     search: lens.search,
+    assigned_to: lens.assigned_to,
+    agent_id: lens.agent_id,
+    ...paging,
+  };
+  for (const [key, value] of Object.entries(scalars)) {
+    if (value !== undefined && value !== "") body[key] = value;
+  }
+  if (lens.columns?.length) body.columns = lens.columns.join(",");
+  const f: string[] = [];
+  for (const [key, values] of Object.entries(lens.fields ?? {})) {
+    for (const value of values) f.push(`${key}:${value}`);
+  }
+  if (f.length) body.f = f;
+  return body;
+}
+
+/**
+ * The same lens as a query string, for the ONE route that still reads it that way.
+ *
+ * `GET /v1/leads/facets` has no POST shape yet, so the facet rail is the last leg of this
+ * screen whose request line can carry a search term. It is NOT sent one: `useLeadFacets`
+ * below drops `search` before calling this, and says what that costs. This function
+ * therefore never receives a `search` and refuses to serialize one if it ever does —
+ * a guard rather than a comment, because the next caller will not read the comment.
+ *
+ * Also the cache-key builder for both hooks: a stable string over the same fields, so two
+ * lenses that mean the same thing are one entry.
+ */
+export function lensQuery(lens: LeadLens, paging: { limit?: number; offset?: number } = {}): string {
+  if (lens.search !== undefined && lens.search !== "") {
+    throw new Error(
+      "a lead search term may not go into a URL — it matches a phone number " +
+        "(hard rule 6). Use `lensBody` and a POST route.",
+    );
+  }
+  const search = new URLSearchParams();
+  const scalars: Record<string, string | number | undefined> = {
+    status: lens.status,
     assigned_to: lens.assigned_to,
     agent_id: lens.agent_id,
     ...paging,
@@ -268,16 +326,41 @@ export function lensQuery(lens: LeadLens, paging: { limit?: number; offset?: num
   return qs ? `?${qs}` : "";
 }
 
+/**
+ * The lens as a CACHE KEY — never as a URL.
+ *
+ * TanStack keys live in memory and are never transmitted, so the search term belongs in
+ * one: two different searches are two different results and must not share an entry.
+ * `JSON.stringify` over a normalized body rather than the query string, because the query
+ * string no longer carries `search` and would collide every search with every other.
+ *
+ * Exported because the leads screen clears its bulk selection on it: "the lens moved" on
+ * the screen and "refetch" in the cache have to be the same event, which they are only if
+ * both read the same string. That coupling is a contract with the server —
+ * `resolve_bulk_targets` acts on ticked ids WITHOUT re-applying the filter, which is safe
+ * only while a selection cannot outlive the filter it was made under.
+ */
+export function lensKey(lens: LeadLens, paging: { limit?: number; offset?: number } = {}): string {
+  return JSON.stringify(lensBody(lens, paging));
+}
+
 /** The leads list, under a lens. Replaces `useLeads`'s filter object one caller at a time. */
 export function useLeadsUnderLens(
   session: Session,
   lens: LeadLens,
   paging: { limit?: number; offset?: number } = {},
 ): UseQueryResult<LeadListWithColumns> {
-  const qs = lensQuery(lens, paging);
+  const body = lensBody(lens, paging);
   return useQuery({
-    queryKey: ["leads", session.orgSlug, qs],
-    queryFn: () => apiRequest<LeadListWithColumns>(session, `/v1/leads${qs}`),
+    // A POST that WRITES NOTHING, and therefore still a `useQuery` — the shape of the
+    // request changed for hard rule 6, the semantics did not. Keeping it a query is what
+    // preserves the polling, the keep-previous-data and the cache this table depends on;
+    // making it a mutation because the verb changed would be reading the verb rather than
+    // the meaning (compare `useRawTranscript` on the call screen, which IS a mutation
+    // because that GET has a side effect).
+    queryKey: ["leads", session.orgSlug, lensKey(lens, paging)],
+    queryFn: () =>
+      apiRequest<LeadListWithColumns>(session, "/v1/leads/search", { method: "POST", body }),
     refetchInterval: SLOW_INTERVAL_MS,
     refetchOnWindowFocus: true,
     placeholderData: keepPreviousData,
@@ -295,7 +378,22 @@ export function useLeadsUnderLens(
 export function useLeadFacets(session: Session, lens: LeadLens): UseQueryResult<LeadFacets> {
   // Columns do not change the counts, so they are stripped from the key — otherwise
   // opening the column chooser would refetch the whole rail.
-  const qs = lensQuery({ ...lens, columns: undefined });
+  //
+  // AND SO IS `search`, which is not a tidy-up: `GET /v1/leads/facets` is the one lens
+  // route with no POST shape, so a term sent here would land in nginx's access log by the
+  // route the rest of this screen was just moved off (hard rule 6). Dropping it is the
+  // only answer this file can give.
+  //
+  // WHAT THAT COSTS, said plainly rather than hidden: under an active search the rail
+  // counts the WIDER set — the table shows 1 hot lead matching "9876" and the rail may
+  // say 12. The screen states the narrowing beside the table (`scopeLabel`), so the
+  // reader is not told the rail is the search's own answer; and a rail that over-counts
+  // offers a filter that returns rows, whereas one that under-counts would hide leads a
+  // client is looking for. CLOSED BY: a `POST /v1/leads/facets` taking the same
+  // `LeadLensIn` the search and export routes already take — apps/api's to add, and the
+  // last leg of this finding.
+  const stripped = { ...lens, columns: undefined, search: undefined };
+  const qs = lensQuery(stripped);
   return useQuery({
     queryKey: ["lead-facets", session.orgSlug, qs],
     queryFn: () => apiRequest<LeadFacets>(session, `/v1/leads/facets${qs}`),
@@ -363,11 +461,22 @@ export type LeadBulkAction = LeadBulkBody["action"];
 /**
  * One action over many leads (SURFACES §2).
  *
- * The LENS goes in the query string and the ACTION goes in the body, which is not an
- * arbitrary split: `lensQuery` is the one place this app spells "which rows", shared with
- * the table, the facet counts and the CSV export, and a filter-scoped bulk action has to
- * mean the same set as the table it was launched from. A second spelling in the body
- * would be the drift that whole arrangement exists to prevent.
+ * The lens's predicates go in the query string and the ACTION goes in the body, which is
+ * not an arbitrary split: `lensQuery` is the one place this app spells "which rows",
+ * shared with the table and the CSV export, and a filter-scoped bulk action has to mean
+ * the same set as the table it was launched from. A second spelling would be the drift
+ * that whole arrangement exists to prevent.
+ *
+ * **`search` is the ONE field that crosses over**, and only it. It is the phone-number
+ * one, and a POST whose PII is in the query string is logged exactly as a GET's is — the
+ * request LINE is what nginx records, so the verb was never the protection. The server
+ * reads it from `LeadBulkIn.search` and refuses it as a query parameter.
+ *
+ * The rest of the lens deliberately stays in the URL rather than joining it, and the
+ * reason is a NAME COLLISION that would silently widen a write: `status` in the query is
+ * the FILTER ("act on the hot leads") while `status` in the body is the ACTION ("make them
+ * contacted"). Merging the two objects makes one of them win. The server's own route
+ * keeps the same split for the same reason.
  *
  * `columns` is stripped before serialising: which COLUMNS you were looking at cannot
  * narrow which ROWS an action touches, and sending them would put a meaningless
@@ -384,8 +493,16 @@ export function useBulkLeads(session: Session) {
     mutationFn: ({ lens, body }: { lens: LeadLens; body: LeadBulkBody }) =>
       apiRequest<LeadBulkResult>(
         session,
-        `/v1/leads/bulk${lensQuery({ ...lens, columns: undefined })}`,
-        { method: "POST", body },
+        // `search: undefined` before serialising, and `lensQuery` throws if it is not:
+        // the term rides in the body below, and the URL must not be able to carry it.
+        `/v1/leads/bulk${lensQuery({ ...lens, columns: undefined, search: undefined })}`,
+        {
+          method: "POST",
+          // `body` LAST: it carries the action and, for `scope: "ids"`, the ticked rows,
+          // and its `status` means something different from the lens's. Only `search`
+          // crosses over, and only when there is one.
+          body: lens.search ? { search: lens.search, ...body } : body,
+        },
       ),
     onSuccess: () => {
       // Every count on this screen — the total, the stage badges, the facet counts — is
@@ -435,8 +552,14 @@ const BOM = "\uFEFF";
 
 export function useExportLeads(session: Session) {
   return useMutation({
+    // POST to the SAME path as the GET — one route with two request shapes, not a second
+    // export — because the lens carries the search term and a search term is a phone
+    // number (see `lensBody`). The gate is unchanged: `calls:read_raw`, and audited.
     mutationFn: (lens: LeadLens) =>
-      apiRequest<string>(session, `/v1/leads/export.csv${lensQuery(lens)}`),
+      apiRequest<string>(session, "/v1/leads/export.csv", {
+        method: "POST",
+        body: lensBody(lens),
+      }),
     onSuccess: (csv) => {
       const url = URL.createObjectURL(new Blob([BOM, csv], { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");

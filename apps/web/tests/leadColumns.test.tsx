@@ -127,7 +127,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
     "/v1/members": [],
-    "/v1/leads?limit=100": leadList(),
+    "POST /v1/leads/search": leadList(),
     "/v1/leads/facets": FACETS,
     "/v1/leads/views": { items: [] },
     ...over,
@@ -141,6 +141,28 @@ async function lastCallTo(calls: ApiCall[], prefix: string): Promise<ApiCall> {
     if (!found) throw new Error(`nothing was requested from ${prefix}`);
     return found;
   });
+}
+
+/**
+ * The LENS a request carried, from wherever the route puts it.
+ *
+ * The list and the export take it in a BODY now, because it holds the search term and a
+ * search term is matched against a phone number — a number in a request line is in
+ * nginx's access log (hard rule 6, and the reason `POST /v1/dnc/check` has always been a
+ * POST). The facet rail is the one leg still on a GET, so it is still read off the query
+ * string. One helper, so the mirroring assertions below stay one comparison rather than
+ * growing a second shape.
+ */
+async function lensSentTo(calls: ApiCall[], prefix: string): Promise<Record<string, unknown>> {
+  const call = await lastCallTo(calls, prefix);
+  if (call.body !== null) return JSON.parse(call.body) as Record<string, unknown>;
+  const params = new URLSearchParams(call.path.split("?")[1] ?? "");
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of params) {
+    if (key === "f") ((out.f as string[] | undefined) ?? (out.f = [] as string[])).push(value);
+    else out[key] = value;
+  }
+  return out;
 }
 
 describe("the column chooser reaches the table AND the file", () => {
@@ -159,7 +181,7 @@ describe("the column chooser reaches the table AND the file", () => {
     const { calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100&columns=name%2Cphone": leadList({
+        "POST /v1/leads/search": leadList({
           columns: COLUMNS.slice(0, 2),
         }),
       }),
@@ -170,19 +192,20 @@ describe("the column chooser reaches the table AND the file", () => {
     fireEvent.click(await screen.findByLabelText("Budget band"));
     fireEvent.click(await screen.findByLabelText("Updated"));
 
-    const listCall = await lastCallTo(calls, "/v1/leads?");
-    expect(listCall.path).toBe("/v1/leads?limit=100&columns=name%2Cphone");
+    expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({
+      limit: 100,
+      columns: "name,phone",
+    });
 
     fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
-    const exportCall = await lastCallTo(calls, "/v1/leads/export.csv");
     // THE MIRRORING, at the seam: the file's columns are the table's columns.
-    expect(exportCall.path).toBe("/v1/leads/export.csv?columns=name%2Cphone");
+    expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({ columns: "name,phone" });
   });
 
   it("disables the chooser with a reason rather than showing an empty one when the list fails", async () => {
     await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": problem(503, { title: "Service unavailable" }) }),
+      routes({ "POST /v1/leads/search": problem(503, { title: "Service unavailable" }) }),
     );
     const button = (await screen.findByRole("button", { name: /Columns/ })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
@@ -212,24 +235,23 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
     const { calls } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?limit=100&f=budget_band%3Aover_50l": leadList(),
+        "POST /v1/leads/search": leadList(),
         "/v1/leads/facets?f=budget_band%3Aover_50l": FACETS,
       }),
     );
 
     fireEvent.click(await screen.findByLabelText(/over_50l/));
 
-    expect((await lastCallTo(calls, "/v1/leads?")).path).toBe(
-      "/v1/leads?limit=100&f=budget_band%3Aover_50l",
-    );
-    expect((await lastCallTo(calls, "/v1/leads/facets")).path).toBe(
-      "/v1/leads/facets?f=budget_band%3Aover_50l",
-    );
+    expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({
+      limit: 100,
+      f: ["budget_band:over_50l"],
+    });
+    expect(await lensSentTo(calls, "/v1/leads/facets")).toEqual({ f: ["budget_band:over_50l"] });
 
     fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
-    expect((await lastCallTo(calls, "/v1/leads/export.csv")).path).toBe(
-      "/v1/leads/export.csv?f=budget_band%3Aover_50l",
-    );
+    expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
+      f: ["budget_band:over_50l"],
+    });
   });
 
   it("REFUSES rather than rendering an empty rail when the facets cannot be read", async () => {
@@ -251,16 +273,18 @@ describe("saved views", () => {
       <LeadsPage />,
       routes({
         "/v1/leads/views": { items: [VIEW] },
-        "/v1/leads?status=hot&limit=100&columns=name%2Cbudget_band": leadList(),
+        "POST /v1/leads/search": leadList(),
         "/v1/leads/facets?status=hot": FACETS,
       }),
     );
 
     fireEvent.change(await screen.findByLabelText("Saved view"), { target: { value: "view-1" } });
 
-    expect((await lastCallTo(calls, "/v1/leads?")).path).toBe(
-      "/v1/leads?status=hot&limit=100&columns=name%2Cbudget_band",
-    );
+    expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({
+      status: "hot",
+      limit: 100,
+      columns: "name,budget_band",
+    });
   });
 
   it("saves the current lens under a name", async () => {
@@ -294,7 +318,7 @@ describe("saved views", () => {
         "/v1/leads/views": {
           items: [{ ...VIEW, stale_filter_keys: ["budget_band"], stale_column_keys: [] }],
         },
-        "/v1/leads?status=hot&limit=100&columns=name%2Cbudget_band": leadList(),
+        "POST /v1/leads/search": leadList(),
         "/v1/leads/facets?status=hot": FACETS,
       }),
     );

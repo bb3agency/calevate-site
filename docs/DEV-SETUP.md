@@ -84,7 +84,9 @@ Smoke test: `make smoke` (= `uv run pytest -m smoke`) — creates a tenant and a
 a completed-execution event to the real voice-runtime app at `/hooks/v1/engine/fake`,
 asserts the ack is under 500ms and that a Lead appears with extraction populated. **No
 HMAC is involved**: the local engine is `fake`, and Bolna does not sign at all (D-31) —
-the source-IP allowlist is exercised separately in `tests/webhook_receiver_test.py`.
+the source-IP allowlist is exercised separately in `tests/voice_runtime_security_test.py`,
+and the per-engine choice of authenticity method (allowlist vs HMAC, and the refusal to
+fall back from one to the other) in `tests/signing_engine_intake_security_test.py`.
 
 ## 3. Local engine strategy
 

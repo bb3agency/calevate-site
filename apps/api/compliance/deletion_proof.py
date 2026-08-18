@@ -66,6 +66,8 @@ from apps.api.compliance.deletion import (
     FLOOR_COUNT_KEY,
     FLOOR_OUTCOME,
     HOLD_UNTIL_KEY,
+    KB_MATCH_KEY,
+    KB_OUTCOME,
     RECORDING_FLOOR_DAYS,
     ErasureLimitation,
 )
@@ -90,6 +92,18 @@ _FLOOR_NONE = (
 _HOLD_UNSCHEDULED = (
     "This certificate does not state a destruction date for them; confirm their removal "
     "with the client in writing."
+)
+# The three states of the knowledge-base search, and none of them is either of the others.
+# A proof written before D-179 carries no count: the erasure that produced it did not look
+# at all, and saying "none mentioned this number" on its behalf would be inventing a
+# search. A recorded 0 IS the claim that the search ran and found nothing.
+_KB_UNSEARCHED = (
+    "This erasure ran before the knowledge base was searched at all, so this certificate "
+    "does not say whether any uploaded knowledge document mentions this number."
+)
+_KB_NO_MATCH = (
+    "The knowledge base was searched for this number and no uploaded knowledge document "
+    "mentions it."
 )
 
 
@@ -126,6 +140,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
     floor = _optional_count(scope.get(FLOOR_COUNT_KEY))
     destroyed = _optional_count(scope.get(DESTROYED_COUNT_KEY))
     hold_until = _optional_text(scope.get(HOLD_UNTIL_KEY))
+    kb_matched = _optional_count(scope.get(KB_MATCH_KEY))
 
     return {
         # Passed through, never recomputed: this module is not given the number, and the
@@ -141,6 +156,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             FLOOR_COUNT_KEY: floor,
             DESTROYED_COUNT_KEY: destroyed,
             HOLD_UNTIL_KEY: hold_until,
+            KB_MATCH_KEY: kb_matched,
         },
         "actions": _actions(stored.get("actions")),
         "engine_deletion": str(stored.get("engine_deletion") or ""),
@@ -151,7 +167,7 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             fields=extractions,
             recordings=destroyed,
         ),
-        "not_erased": _not_erased(floor, hold_until),
+        "not_erased": _not_erased(floor, hold_until, kb_matched),
         "limitations": list(ERASURE_LIMITATIONS),
         "limitations_version": notice_version(ERASURE_LIMITATIONS, ERASURE_EXCEPTIONS),
     }
@@ -208,26 +224,51 @@ def _erased(
 # --- what was not ------------------------------------------------------------
 
 
-def _not_erased(floor: int | None, hold_until: str | None) -> list[dict[str, Any]]:
-    """The register, with the floor count attached to the one entry it speaks for."""
+def _not_erased(
+    floor: int | None, hold_until: str | None, kb_matched: int | None
+) -> list[dict[str, Any]]:
+    """The register, with each count attached to the one entry it speaks for.
+
+    Matched on OUTCOME rather than on a list index, so reordering the register cannot
+    silently attach a number to the wrong statement — the same rule `FLOOR_OUTCOME`
+    established, now that there are two entries carrying a count.
+    """
+    counts: dict[str, int | None] = {FLOOR_OUTCOME: floor, KB_OUTCOME: kb_matched}
+    sentences = {
+        FLOOR_OUTCOME: _floor_sentence(floor, hold_until),
+        KB_OUTCOME: _kb_sentence(kb_matched),
+    }
     entries: list[dict[str, Any]] = []
     for exception in ERASURE_EXCEPTIONS:
-        carries_count = exception.outcome == FLOOR_OUTCOME
-        why = (
-            f"{exception.why} {_floor_sentence(floor, hold_until)}"
-            if carries_count
-            else exception.why
-        )
+        sentence = sentences.get(exception.outcome)
         entries.append(
             {
                 "what": exception.what,
                 "outcome": exception.outcome,
-                "why": why,
+                "why": f"{exception.why} {sentence}" if sentence else exception.why,
                 "authority": exception.authority,
-                "count": floor if carries_count else None,
+                "count": counts.get(exception.outcome),
             }
         )
     return entries
+
+
+def _kb_sentence(matched: int | None) -> str:
+    """What the knowledge-base search found, or that it did not happen.
+
+    The plural form is spelled out rather than run through `_plural`: this sentence tells
+    a client there is manual work outstanding, and it is the one place in the certificate
+    where the reader is being handed a task rather than a record.
+    """
+    if matched is None:
+        return _KB_UNSEARCHED
+    if matched == 0:
+        return _KB_NO_MATCH
+    return (
+        f"{_plural(matched, 'uploaded knowledge document')} mention this number. They "
+        "were not changed by this request: removing the person from them is a manual "
+        "step, in Calevate and on the voice platform's copy of the same source."
+    )
 
 
 def _floor_sentence(floor: int | None, hold_until: str | None) -> str:

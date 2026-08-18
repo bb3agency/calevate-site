@@ -115,7 +115,7 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
     "/v1/members": MEMBERS,
-    "/v1/leads?limit=100": leadList([LEAD_A, LEAD_B], 2),
+    "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 2),
     "/v1/leads/facets": FACETS,
     "/v1/leads/views": { items: [] },
     ...over,
@@ -153,7 +153,7 @@ describe("selection scope is never ambiguous", () => {
     // 2 rows on the page, 140 matching the filters — the Gmail escape hatch's premise.
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": leadList([LEAD_A, LEAD_B], 140) }),
+      routes({ "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140) }),
     );
     fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
 
@@ -209,7 +209,7 @@ describe("selection scope is never ambiguous", () => {
   it("sends scope 'filter' with the lens and the count the person confirmed", async () => {
     const { calls } = await renderClientPage(<LeadsPage />, {
       ...routes({
-        "/v1/leads?status=hot&limit=100": leadList([LEAD_A, LEAD_B], 140),
+        "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140),
         "/v1/leads/facets?status=hot": FACETS,
       }),
       "POST /v1/leads/bulk?status=hot": {
@@ -239,7 +239,8 @@ describe("selection scope is never ambiguous", () => {
     fireEvent.click(screen.getByRole("button", { name: /Apply to 140/ }));
 
     const posted = await lastCallTo(calls, "/v1/leads/bulk", "POST");
-    // THE LENS TRAVELS IN THE QUERY STRING, exactly as the table and the export send it.
+    // THE LENS TRAVELS IN THE QUERY STRING, exactly as the table sends its non-PII half.
+    // `search` is the one field that does not, and cannot: see `useBulkLeads`.
     expect(posted.path).toBe("/v1/leads/bulk?status=hot");
     expect(JSON.parse(posted.body ?? "{}")).toEqual({
       scope: "filter",
@@ -256,7 +257,7 @@ describe("selection scope is never ambiguous", () => {
     await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/leads?status=won&limit=100": leadList([LEAD_A], 1),
+        "POST /v1/leads/search": leadList([LEAD_A], 1),
         "/v1/leads/facets?status=won": FACETS,
       }),
     );
@@ -307,7 +308,7 @@ describe("the confirmation states the consequences before the click", () => {
   it("refuses to arm on a typed count that is not the real one", async () => {
     await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads?limit=100": leadList([LEAD_A, LEAD_B], 140) }),
+      routes({ "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140) }),
     );
     fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
     fireEvent.click(

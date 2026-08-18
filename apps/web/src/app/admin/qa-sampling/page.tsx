@@ -10,6 +10,7 @@ import {
   FilterChip,
   NoticeBox,
   ProblemNotice,
+  ScrollRegion,
   Skeleton,
   formatDuration,
   formatIST,
@@ -114,7 +115,7 @@ export default function QaSamplingPage() {
             }
           />
         ) : (
-          <div className="overflow-x-auto">
+          <ScrollRegion label="Calls drawn for the weekly QA spot-check">
             <table className="w-full min-w-[860px] text-sm">
               <caption className="sr-only">Calls drawn for the weekly QA spot-check</caption>
               <thead>
@@ -142,7 +143,7 @@ export default function QaSamplingPage() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollRegion>
         )}
       </Card>
 

@@ -23,11 +23,11 @@ needs no revocation of its own.
 
 ═══ THE REALM BOUNDARY, WHICH IS THE DANGEROUS PART ═══
 
-Today the two realms are two Clerk applications with two JWKS endpoints, so an admin
-token is not a weak client token — it is not a token at all (`core/auth.py::jwks_url`).
-When both realms are ours, that separation has to be rebuilt out of our own materials,
-and "a `realm` column we remember to filter on" is not good enough: it is one forgotten
-WHERE clause away from being nothing, and the forgotten clause would be silent.
+The two realms used to be two Clerk applications with two JWKS endpoints, so an admin
+token was not a weak client token — it was not a token at all. Both realms are ours since
+D-177, so that separation is rebuilt out of our own materials, and "a `realm` column we
+remember to filter on" is not good enough: it is one forgotten WHERE clause away from
+being nothing, and the forgotten clause would be silent.
 
 So the realm is INSIDE THE HASH. `token_fingerprint` domain-separates on it, which means
 the stored fingerprint of a client token computed under the admin realm is a different
@@ -356,9 +356,7 @@ async def verify_session(*, token: str, realm: str, now: datetime | None = None)
     replaying a token, so it would be a pool-exhaustion lever rather than a rare cost.
 
     What that buys, beyond correctness: the idle-window slide also stops depending on
-    whether the REQUEST succeeded. `resolve_mirrored_user` in `core/clerk_identity.py` is
-    the precedent — an authentication-time read that owns its own session for the same
-    reason.
+    whether the REQUEST succeeded.
 
     One statement finds the row (the fingerprint is unique and indexed); everything after
     it is a decision about that row, in the order that makes the reuse signal reachable:
