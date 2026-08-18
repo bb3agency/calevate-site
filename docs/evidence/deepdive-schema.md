@@ -199,13 +199,19 @@ than re-deriving it.
 be applied to the shared development database during this pass, and the reason is worth
 recording rather than working around. `pg_locks` showed **six sessions `idle in transaction`
 holding `AccessShareLock` on `organizations`, the oldest for thirteen minutes**, each parked
-after a `SELECT id, name, slug, status, vertical_template FROM organizations …`. Twenty-eight
-retries at a 5s `lock_timeout` never found a window. Every attempt failed cleanly and blocked
-nobody, which is the guard working — but a transaction held open for thirteen minutes around
-a plain SELECT is what makes DDL unschedulable, and it is the condition that turned the first
-attempt into an outage. The migration is verified on two scratch databases (up / down / up,
-plus round-trip fidelity against a pristine chain); the shared database is at
-`c7a1e93d40b8` and the next `alembic upgrade head` in a quiet moment carries it forward.
+after a `SELECT id, name, slug, status, vertical_template FROM organizations …`, and as the
+suites churned there was almost always at least one open transaction on the table. More than
+eighty retries at a 5s `lock_timeout` found no window. Every attempt failed cleanly and
+blocked nobody, which is the guard working — but a transaction held open for thirteen
+minutes around a plain SELECT is what makes DDL unschedulable, and it is the condition that
+turned the first attempt into an outage.
+
+That is not a reason to widen the timeout. A deploy runs migrations BEFORE the container
+swap with the old release still serving, and a clean abort is exactly the contract
+`run_migrations` in `scripts/vps-deploy.sh` already documents — abort with nothing applied,
+print the revision reached, `runbooks/deploy-failed.md` §3 owns the retry. The migration is
+verified on two scratch databases (up / down / up, plus round-trip fidelity against a
+pristine chain).
 
 **This is a repo-wide observation, not just this migration's:** no other migration in
 `alembic/versions/` sets `lock_timeout`, and several take `AccessExclusive` on `calls`,
