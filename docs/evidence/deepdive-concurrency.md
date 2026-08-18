@@ -318,20 +318,36 @@ docstring ("`_env_file=None` is not optional") and D-197 is the last time this c
 borrowing cost a deploy; this was the one caller not brought into line. Fixed by adding
 `_env_file=None`, with the argument in the docstring.
 
+**It fixes the STANDALONE failure and not the full-run one**, and that is the useful part
+of the result rather than a shortfall: with `_env_file=None` in place the test still fails
+inside a full suite run, which localises the remaining fault upstream of both files — see
+STILL OPEN §1.
+
 ## STILL OPEN
 
 Nothing here waits on engineering, and nothing waits on a vendor, a registration or a
 commercial term. Two things are handed on rather than fixed:
 
-1. **`tests/engine_readiness_credentials_test.py::test_bolna_still_answers_exactly_as_it_did`
-   fails in a long ordered run and passes alone.** Not mine, and proven so rather than
-   assumed: it reproduces with both of this pass's new test files excluded from the
-   ordering, and the value it returns is `[]` where it owes `["BOLNA_API_KEY"]` — i.e.
-   something earlier in the run makes a `Settings` built with `_env_file=None` see that
-   key anyway. That is D-197's defect class (`_env_file=None` not meaning no dotenv) and
-   `apps/api/core/settings.py`'s territory, not concurrency or time. F-4 above is the
-   same family and was inside reach; this one needs the culprit identified by bisecting
-   the ordered run, which is the settings/harness sibling's surface.
+1. **`_env_file=None` stops meaning "no dotenv" partway through a full suite run.** Two
+   tests fail on a full run and pass alone —
+   `engine_readiness_credentials_test.py::test_bolna_still_answers_exactly_as_it_did` and
+   `pilot_cli_test.py::test_preflight_names_the_gates_each_missing_item_blocks` — and they
+   share one root cause: both build a `Settings` with `_env_file=None` and both then see
+   `BOLNA_API_KEY`, which exists only in the repository's `.env`. The measured value is
+   `[]` where `["BOLNA_API_KEY"]` is owed.
+
+   Not this pass's, and proven so rather than assumed: it reproduces with both of this
+   pass's new test files excluded from the ordering, and F-4's fix — which makes the
+   `pilot_cli` case pass standalone — does NOT make it pass in the full run, which is
+   exactly what says the fault is upstream of both files rather than in either.
+
+   That is D-197's defect class (`_env_file=None` did not mean no dotenv, so a process
+   that disabled its `.env` read it anyway) reappearing, and its blast radius is the
+   reason D-197 was security-relevant: `APP_ENV` is the kind of key such a file carries,
+   and `app_env == 'local'` is one of the two facts under which a dev token is accepted.
+   It belongs to `apps/api/core/settings.py` / `calevate_shared.config` and needs the
+   culprit found by bisecting the ordered run — settings/harness work, not concurrency or
+   time, which is why it is handed on rather than half-fixed here.
 2. **The campaign-dispatch tests are not isolated from a second pytest process.** Eight of
    them failed in one of this pass's control runs (`assert 'pending' == 'dialing'`, "the
    open window lets the same campaign dial") purely because another worktree was running
