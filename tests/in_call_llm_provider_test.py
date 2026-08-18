@@ -17,13 +17,17 @@ connected to anything. A tripwire with no test that steps on it is a tripwire no
 evidence is wired up (`model_residency_guard_test` makes the same argument about its
 subject).
 
-WHAT THIS FILE DELIBERATELY DOES NOT ASSERT. That the leg is LIVE. It is not:
-`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, because a regional Vertex endpoint
-authenticates with a ~1-hour OAuth2 bearer and the engine stores static strings. Asserting
-a Gemini in-call agent works would be asserting a vendor behaviour nobody has observed —
-`api.bolna.ai` is refused by this environment's egress proxy. What is asserted is that
-the configuration is EXPRESSIBLE, that it renders to the vendor body their published
-schema and their own server accept, and that no other endpoint can be expressed at all.
+WHAT THIS FILE DELIBERATELY DOES NOT ASSERT, AND THE LINE HAS MOVED (D-404). It used to
+be "that the leg is LIVE", because `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE` was False and
+nothing could put a bearer where the engine would find one. That constant is now True and
+the rotation is built (`apps/workers/vertex_credential.py`,
+`tests/vertex_credential_test.py`), so what is left unasserted is smaller and sharper:
+**that a Gemini in-call agent placed a real phone call.** Asserting that would be
+asserting a vendor behaviour nobody has observed — `api.bolna.ai` is refused by this
+environment's egress proxy, and OPERATIONS §2 gate 16c is where the observation goes.
+What IS asserted here is that the configuration is EXPRESSIBLE, that it renders to the
+vendor body their published schema and their own server accept, and that no other
+endpoint can be expressed at all.
 """
 
 from __future__ import annotations
@@ -312,36 +316,67 @@ def test_the_llm_leg_costs_more_per_minute_on_a_longer_call() -> None:
         llm_cost_inr_per_minute(0)
 
 
-# --- the one switch, and what happens when it is flipped ------------------------------
+# --- the one switch, and every arm of it ----------------------------------------------
 #
-# `in_call_llm` is the single decision point between D-400 (the leg IS Gemini on Vertex)
-# and D-402 (it is not deliverable yet). Both sides of it are exercised here, because a
-# switch whose other arm nobody has run is a switch nobody knows the shape of — and the
-# day it flips is a day somebody publishes live agents with it.
+# `in_call_llm` is the single decision point for the whole leg, and since D-404 it has
+# THREE necessary conditions rather than two. Each is exercised alone, because a condition
+# whose failing arm nobody has run is a condition nobody knows the shape of — and each
+# names a different way the leg breaks at a different, worse moment.
+
+SERVICE_ACCOUNT_JSON = '{"client_email": "a@b.iam.gserviceaccount.com", "private_key": "x"}'
 
 
-def test_the_leg_stays_where_it_is_while_the_credential_route_is_unproven() -> None:
-    """The state of the tree today, and the one that must not change by accident:
-    `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, so the configured model is passed
-    through untouched and no endpoint is named."""
-    from apps.api.agents.service import in_call_llm
-
-    assert in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
-
-
-def test_a_deployment_with_no_gcp_project_stays_put_even_if_the_route_opens(
+def test_a_deployment_with_no_gcp_project_stays_put(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """BOTH conditions are necessary. A deployment that has the vendor route but no
-    project has no id to interpolate into the URL — local, CI and any staging without a
-    Google account are exactly this, and they must keep publishing."""
+    """No project means no id to interpolate into the URL, so there is no endpoint to
+    name. Local, CI and any staging without a Google account are exactly this, and they
+    must keep publishing."""
     from apps.api.agents import service
+    from apps.api.core.settings import get_settings
 
-    monkeypatch.setattr(service, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", True)
+    monkeypatch.setattr(get_settings(), "gcp_service_account_json", SERVICE_ACCOUNT_JSON)
     assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
 
 
-def test_flipping_the_constant_moves_the_endpoint_and_the_model_together(
+def test_a_deployment_that_cannot_mint_a_bearer_stays_put(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**THE D-404 CONDITION, AND THE ONE A REVIEWER WOULD DROP.** Every deployment
+    running D-127's dashboard AI already has `gcp_project_id` set. If the project alone
+    were enough, switching the dashboard assistant on would silently move every agent's
+    in-call LLM to a Vertex endpoint this deployment holds no service account for — and
+    that does not fail at publish time, where somebody would see it. It fails as a 401
+    from Vertex, mid-sentence, on a client's live phone call.
+
+    Deleting the `can_mint` clause from `in_call_llm` passes every other test in this
+    file."""
+    from apps.api.agents import service
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
+    monkeypatch.setattr(get_settings(), "gcp_service_account_json", None)
+    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
+
+
+def test_the_founders_switch_is_still_a_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE` is True today, and it must still be able to
+    turn the leg OFF for a fully configured deployment — that is what makes it a switch
+    rather than a comment. The same constant is read by the refresher, which stops writing
+    credentials when it is False, so the two halves cannot disagree about whether the leg
+    is on."""
+    from apps.api.agents import service
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(service, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", False)
+    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
+    monkeypatch.setattr(get_settings(), "gcp_service_account_json", SERVICE_ACCOUNT_JSON)
+    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
+
+
+def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The half a reviewer would wave through: `agents.llm_model` holds what an operator
@@ -350,8 +385,8 @@ def test_flipping_the_constant_moves_the_endpoint_and_the_model_together(
     from apps.api.agents import service
     from apps.api.core.settings import get_settings
 
-    monkeypatch.setattr(service, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", True)
     monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
+    monkeypatch.setattr(get_settings(), "gcp_service_account_json", SERVICE_ACCOUNT_JSON)
 
     leg = service.in_call_llm("sarvam-105b")
     assert leg == {
@@ -362,21 +397,3 @@ def test_flipping_the_constant_moves_the_endpoint_and_the_model_together(
     # And it must be a config `ModelConfig` will actually accept — the residency
     # validator runs on exactly this dict the moment `_to_config` builds one from it.
     assert ModelConfig(**leg).llm_base_url == vertex_openai_base_url(PROJECT)
-
-
-def test_a_deployment_with_a_gcp_project_stays_put_while_the_route_is_unproven(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """THE CASE A REAL DEPLOYMENT IS IN, and the one the other arm of this switch does
-    not cover. Any deployment running D-127's dashboard AI already has `gcp_project_id`
-    set — so if the project alone were enough, turning on the dashboard assistant would
-    silently move every agent's in-call LLM to an endpoint whose credential dies within
-    the hour (D-402). The vendor route is a separate, necessary condition, and this test
-    is what says so; removing it from `in_call_llm` passes every other test in this file.
-    """
-    from apps.api.agents import service
-    from apps.api.core.settings import get_settings
-
-    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
-    assert not service.VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE
-    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}

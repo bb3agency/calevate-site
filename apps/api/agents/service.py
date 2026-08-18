@@ -320,19 +320,31 @@ def in_call_llm(configured_model: object) -> dict[str, object]:
 
     THE WHOLE SWITCH LIVES HERE, and that is the reason this function exists rather than
     three expressions inline. D-400 makes the canonical in-call LLM Gemini on paid Vertex
-    AI; D-402 records that it is not deliverable yet, because a regional Vertex endpoint
-    authenticates with a ~1-hour OAuth2 bearer and the engine's credential store holds
-    static strings. Between a decision and its delivery there is always a temptation to
-    leave the decision as prose and the code as it was — and then nobody can say what
-    "when it lands, flip it" actually means. It means this function, and nothing else.
+    AI; D-404 delivers it, by ROTATING the bearer on a cron rather than proxying the
+    endpoint. Between a decision and its delivery there is always a temptation to leave
+    the decision as prose and the code as it was — and then nobody can say what "when it
+    lands, flip it" actually means. It means this function, and nothing else.
 
-    TWO CONDITIONS, AND BOTH ARE NECESSARY. The vendor route has to exist
-    (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`) and THIS deployment has to have a project to
-    bill (`gcp_project_id`). A deployment with the second and not the first would publish
-    agents against an endpoint whose credential dies within the hour; one with the first
-    and not the second has no project id to put in the URL. Falling back on the second is
-    also what keeps every existing environment — local, CI, a client's staging — working
-    unchanged rather than failing at publish time on a value nobody set.
+    THREE CONDITIONS, AND EVERY ONE IS NECESSARY. Each names a different way the leg
+    fails, and each fails at a different, worse moment:
+
+    1. **The route exists** (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`). A founder's switch.
+       While it is False nothing here changes, whatever else is configured.
+    2. **This deployment has a project to bill** (`gcp_project_id`). Without it there is
+       no id to interpolate into the URL, so there is no endpoint to name.
+    3. **This deployment can MINT A BEARER for that endpoint**
+       (`gcp_service_account_json`). **This condition is D-404's, and it is the one a
+       reviewer would drop.** Every deployment running D-127's dashboard AI already has a
+       project id — so without this third check, turning on the dashboard assistant would
+       silently move every agent's in-call LLM to an endpoint this deployment holds no
+       credential for. That does not fail at publish time, where somebody would see it. It
+       fails as a 401 from Vertex, mid-sentence, on a client's live phone call.
+
+    The key is checked for PRESENCE, not parsed. Parsing is
+    `apps/workers/vertex_credential.py`'s job and a present-but-malformed key is a paged
+    alarm there (`vertex_llm_credential_refresh_failed`); a publish path that did crypto
+    to answer a routing question would be a second place the credential is read, and this
+    module would then need the worker's imports to decide what an agent runs.
 
     THE MODEL IDENTIFIER MOVES WITH THE ENDPOINT, and this is the half a reviewer would
     wave through. `agents.llm_model` holds what an operator configured, which today is a
@@ -348,7 +360,8 @@ def in_call_llm(configured_model: object) -> dict[str, object]:
     """
     settings = get_settings()
     project = (settings.gcp_project_id or "").strip()
-    if not VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE or not project:
+    can_mint = bool((settings.gcp_service_account_json or "").strip())
+    if not VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE or not project or not can_mint:
         return {"llm_model": configured_model}
     return {
         "llm_model": GEMINI_DEFAULT_LLM,

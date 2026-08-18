@@ -60,10 +60,11 @@ most of this is real PSTN call spend). 5–7 working days alongside other work.
 Parallel ask to Sarvam (not a Bolna gate): **is the Sarvam LLM genuinely free per
 token** — permanent, promotional, or rate-limited? **D-400 has changed what turns on the
 answer.** It used to decide the LLM leg; the founder has since moved that leg to a paid
-Vertex AI account, so this now decides how good the FALLBACK is — and the fallback is
-what actually runs today, because `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`
-(D-402). A durable free tier is therefore still worth confirming and is no longer
-load-bearing on the margin. Sarvam continues to run the first extraction pass
+Vertex AI account, so this now decides how good the FALLBACK is. Since D-404 the Vertex
+leg is BUILT and `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, so what runs on a given
+deployment is decided by whether it holds a GCP project and service account rather than by
+whether the code exists. A durable free tier is therefore still worth confirming and is no
+longer load-bearing on the margin. Sarvam continues to run the first extraction pass
 permanently (`GEMINI_EXTRACTION_DEFAULT is False`), which no answer here changes. Also pin Bulbul V3's "beta pricing" (₹30/10k chars) — beta prices move.
 
 ### Running it — 1, 2, 6 run on credentials alone; 4, 7, 8, 13 run on an inputs file; 3, 5, 9-12 are human

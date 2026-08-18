@@ -105,16 +105,34 @@ Models (per-agent config, BYOK):
 - LLM: **Gemini 2.5 Flash on a PAID Vertex AI account, `asia-south1` — DEFAULT (D-400),
   superseding D-36's "Sarvam 105B, free per token" LLM leg outright.** One model, one
   region, one retirement date across every LLM surface this product has. Read the three
-  surfaces separately, because they are three decisions and two are not live:
-  - **In-call** (inside the engine, BYOK) — D-400's. **`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE
-    is False`**: a regional Vertex endpoint authenticates with a ~1-hour OAuth2 bearer and
-    Bolna's credential store (`POST /providers`) holds one static string, so no agent runs
-    this leg yet. What closes it is a vendor answer (gate 16b) or a founder decision on an
-    in-call proxy hop — D-402, both outside this repo. The configuration is shipped and
-    tested (`ModelConfig.llm_provider` / `llm_base_url`, `vertex_openai_base_url()`,
-    `engine/bolna.py::_llm_routing`); nothing sets it. **Bolna's own `provider: "google"`
-    is the AI Studio Developer API and is REFUSED, not missing** — global host, no region
-    anywhere in the URL (D-401).
+  surfaces separately, because they are three decisions at three stages:
+  - **In-call** (inside the engine, BYOK) — D-400's decision, delivered by **D-404:
+    ROTATION, NOT PROXYING**. **`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`.** The
+    blocker read "a regional Vertex endpoint authenticates with a ~1-hour OAuth2 bearer
+    and Bolna's credential store holds one static string"; both halves are true and the
+    conclusion was not, because a store that holds a string can hold one we REPLACE on a
+    schedule. The engine calls Vertex Mumbai **directly** on
+    `vertex_openai_base_url()` — zero added latency, no proxy, no new deployable — and
+    authenticates with a GCP OAuth2 access token minted at 12 hours
+    (`generateAccessToken`, `lifetime: "43200s"`, org policy
+    `constraints/iam.allowServiceAccountCredentialLifetimeExtension`) and replaced every
+    4 hours by `apps/workers/vertex_credential.py` through the new
+    `VoiceEngine.set_llm_credential` port. **The granted expiry is read back, never
+    assumed**: a deployment handed 1-hour tokens is refused by name rather than run into a
+    gap between ticks. A failed refresh is a total, silent LLM outage, so it pages
+    (`vertex_llm_credential_refresh_failed`, `runbooks/vertex-llm-credential.md`).
+    **An API key is not the easy version of this — it is a different region.** A key
+    forces Vertex's GLOBAL endpoint (`@google/genai` short-circuits on `apiKey ||
+    location === 'global'`; Vertex Express is global by construction), and Google's own
+    guidance is not to use the global endpoint where ML processing has residency
+    requirements. **Bolna's own `provider: "google"` is the AI Studio Developer API and
+    is REFUSED, not missing** — global host, no region anywhere in the URL (D-401), its
+    client being `genai.Client(api_key=…)` with no project, region or base URL
+    (VERIFIED-OSS, `bolna/llms/gemini_llm.py`). D-405..D-407 record the proxy, the two
+    key routes and the native provider as rejected, each with its reason.
+    ⚠ ONE LIVE UNKNOWN REMAINS: which credential-store name the hosted platform reads
+    `llm_key` from for a `provider: "custom"` leg —
+    `Settings.bolna_llm_credential_name` (default `CUSTOM`, `applies: live`), gate 16c.
   - **Dashboard AI** (user-triggered, over the REDACTED copy) — D-127, live in code, never
     the AI Studio Developer API.
   - **First post-call extraction** — **`GEMINI_EXTRACTION_DEFAULT is False` (D-127 G-7):
@@ -695,11 +713,13 @@ Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.
 > whose cost a longer call makes worse per minute rather than better**, which is a new
 > shape in this model and the reason the figure is a function rather than a literal.
 >
-> ⚠ It is also **not yet billed by anyone**, twice over:
-> `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False` so no agent runs the leg (D-402), and
-> even once one does, a BYOK leg means the ENGINE pays nothing and reports nothing — the
-> truth arrives on a GCP invoice, per project and not per tenant. A ~10% non-global
-> endpoint surcharge is REPORTED and deliberately not folded in (D-403, gate 14c).
+> ⚠ It is also **not billed by the engine, and will never be**. Since D-404
+> `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, so a deployment holding a GCP project
+> and service account runs this leg for real — but a BYOK leg means the ENGINE pays
+> nothing and reports nothing, and the truth arrives on a GCP invoice, per project and not
+> per tenant. That is a metering gap this rate card models and no vendor field can close.
+> A ~10% non-global endpoint surcharge is REPORTED and deliberately not folded in
+> (D-403, gate 14c).
 
 > ⚠ **The model legs above are §10.1's, not July's** — this paragraph is a summary and
 > **§10.1 is the rate card.** Two July readings that survived here after §10.1 corrected
@@ -770,7 +790,7 @@ the July figures and corrects two of our own doc errors — see the two ⚠ note
 
 | Sarvam API | Published rate |
 |---|---|
-| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400). Kept on the card because it is the fallback the in-call leg still runs on while `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, and because a rate we walked away from is worth being able to walk back to.* |
+| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400). Kept on the card because it is the fallback the in-call leg falls back to on any deployment holding no GCP project or service account — which since D-404 (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`) is what decides the leg, rather than the code. And because a rate we walked away from is worth being able to walk back to.* |
 | Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |
 | Text-to-Speech **Bulbul v2** | ⚠ **₹15 / 10,000 chars — still live, not discontinued** |
 | Speech-to-Text | ₹30 / hour |

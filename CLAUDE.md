@@ -14,15 +14,24 @@ Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Gemini 2.5 Fl
 PAID Google Cloud Vertex AI account, `asia-south1`, on all three LLM surfaces** — D-400
 supersedes D-36's "Sarvam 105B, free per token" LLM leg outright, D-127 already having
 taken the dashboard-AI surface. One model, one region, one retirement date. Read the
-three surfaces separately, because two of them are not live and say so in code:
+three surfaces separately, because they are at different stages and say so in code:
 
-1. **In-call** (inside the engine, BYOK) — D-400's decision, and
-   **`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`**: a regional Vertex endpoint takes
-   a ~1-hour OAuth2 bearer and Bolna stores static strings, so no agent runs it yet.
-   `agents/service.py::in_call_llm` is the one switch that reads the constant; D-402
-   evaluates the three integration routes and recommends one, all outside this repo. Bolna's own
-   `provider: "google"` is the AI Studio API — global host, D-127 disqualified it, and
-   D-401 records that the easy route is the refused one.
+1. **In-call** (inside the engine, BYOK) — D-400's decision, delivered by **D-404:
+   ROTATION, NOT PROXYING**. `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`. The engine
+   calls Vertex Mumbai DIRECTLY on an endpoint we construct
+   (`vertex_openai_base_url`), so there is no proxy, no added hop on a live call and no
+   new deployable; what it authenticates with is a GCP OAuth2 **access token**, minted at
+   12 hours (`generateAccessToken`, `lifetime: "43200s"`) and replaced every 4 by
+   `apps/workers/vertex_credential.py`. A failed refresh is a total LLM outage that is
+   silent until the next call, so it pages: `vertex_llm_credential_refresh_failed`,
+   `runbooks/vertex-llm-credential.md`. `agents/service.py::in_call_llm` is still the one
+   switch, and it now needs THREE things — the constant, a `gcp_project_id`, and a
+   resolvable service account. **An API key cannot be used here**: a key forces Vertex's
+   GLOBAL endpoint, which is a residency inversion, not a shortcut (D-405..D-407 record
+   the proxy, AI Studio, Vertex Express and Bolna's native Google provider as rejected,
+   each with its reason). ⚠ ONE THING IS STILL UNVERIFIED LIVE — which credential-store
+   name the hosted engine reads `llm_key` from (`Settings.bolna_llm_credential_name`,
+   OPERATIONS §2 gate 16c).
 2. **Dashboard AI** (user-triggered, over redacted data) — D-127, live in code, and
    **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`**: search points the right way but
    nobody has made the one call that settles it (OPERATIONS §2 gate 14).

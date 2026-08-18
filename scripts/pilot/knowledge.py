@@ -1050,9 +1050,10 @@ def probe_h1_history_handling(
         leg to a paid Vertex AI account, and `billing/rates.py::llm_cost_inr_per_minute`
         computes the curve this probe would MEASURE — ₹0.23/min at one minute, ₹0.51 at
         ten, on the assumption that the resend is total. So this probe now scores an
-        assumption the cost model rests on rather than a curiosity. (The in-call leg is
-        not live: `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, and a Gemini in-call
-        leg may still cost a new India-co-located deployable — D-402 route (B).)
+        assumption the cost model rests on rather than a curiosity. (The leg is now BUILT:
+        `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True` since D-404, which reached it by
+        ROTATING the bearer rather than proxying — so the India-co-located deployable
+        D-402 route (B) contemplated costs nothing, because it was not built.)
       * a plateau or a drop ⇒ truncation or summarisation. Which of the two is NOT
         distinguishable from token counts, and distinguishing them would mean reading
         the prompt the engine sent — caller utterances, hard rule 6. Say "one of the

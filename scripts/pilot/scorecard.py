@@ -600,20 +600,22 @@ def default_cost_model() -> tuple[CostLine, ...]:
         CostLine(leg="Platform fee (BYOK)", estimate="unpublished; target <= ~INR 1.5/min"),
         CostLine(leg="Sarvam Saaras V3 STT", estimate="INR 0.50/min"),
         CostLine(leg="Sarvam Bulbul V3 TTS", estimate="INR 0.90-1.40/min (beta pricing)"),
-        # GEMINI IS NOW THE DECISION AND NOT THE ALTERNATIVE (D-400): the founder moved
-        # the in-call LLM leg to a paid Vertex AI account, `asia-south1`. What this line
-        # RECORDS is still Sarvam, because that is still what a pilot agent would run —
-        # `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`, the blocker being that a
-        # regional Vertex endpoint takes a one-hour OAuth2 bearer and Bolna stores static
-        # strings (D-402). The paid band is no longer a hypothetical and is no longer
-        # 0.15-0.20: at 2.5 Flash's published $0.30/$2.50 it is 0.23/min on a one-minute
-        # call rising to 0.51 at ten, because TRD 6.1 resends the whole history every turn
-        # (`billing/rates.py::llm_cost_inr_per_minute`).
+        # GEMINI IS NOW THE DECISION AND NOT THE ALTERNATIVE (D-400), AND IT IS BUILT
+        # (D-404): `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, the one-hour-bearer
+        # blocker having been answered by rotating the credential rather than proxying it.
+        # WHICH LEG A PILOT ACTUALLY RUNS IS NOW A DEPLOYMENT FACT, not a code fact — it
+        # is Vertex where the pilot account holds a GCP project and service account, and
+        # Sarvam where it does not — so this line states BOTH bands rather than picking
+        # one. At 2.5 Flash's published $0.30/$2.50 the paid band is 0.23/min on a
+        # one-minute call rising to 0.51 at ten, because TRD 6.1 resends the whole history
+        # every turn (`billing/rates.py::llm_cost_inr_per_minute`). An operator filling
+        # this scorecard in knows which of the two their pilot ran.
         CostLine(
             leg="LLM",
             estimate=(
-                "INR 0.00 today (Sarvam 105B per D-36); D-400 target Gemini 2.5 Flash "
-                "on Vertex asia-south1 = 0.23 (1 min) - 0.51 (10 min)"
+                "INR 0.23 (1 min) - 0.51 (10 min) on Gemini 2.5 Flash / Vertex "
+                "asia-south1 (D-400/D-404, where GCP is configured); INR 0.00 on the "
+                "Sarvam 105B fallback (D-36)"
             ),
         ),
         CostLine(leg="Telephony", estimate="INR 0.35-0.50/min"),

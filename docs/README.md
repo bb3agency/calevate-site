@@ -107,10 +107,12 @@ Vertex AI account, `asia-south1`, for LANGUAGE** — **D-400 supersedes D-36's "
 free per token" LLM leg outright**, D-127 having already taken the dashboard surface. One
 model, one region, one retirement date; 2.5 because Mumbai is the only permitted region
 and no 3.x model is reported there, so BRD R-04's 16 Oct 2026 retirement is LIVE
-(`GEMINI_DEFAULT_LLM_RETIRES`). **Two of the three LLM surfaces are decided and not yet
-live, and say so in code**: `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False` (the in-call
-leg — a regional Vertex endpoint takes a one-hour OAuth2 bearer and the engine stores
-static strings; D-402) and `GEMINI_MODEL_CONFIRMED_IN_REGION is False` (nobody has made
+(`GEMINI_DEFAULT_LLM_RETIRES`). **The in-call leg is now BUILT, not merely decided**:
+`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True` — D-404 puts the engine on Vertex Mumbai
+directly (no proxy, no added hop on a live call, no new deployable) with a GCP OAuth2
+access token minted at 12 hours and rotated every 4 by `apps/workers/vertex_credential.py`,
+because a store that holds a static string can hold one we replace on a schedule.
+`GEMINI_MODEL_CONFIRMED_IN_REGION is False` remains (nobody has made
 the one call that verifies Mumbai serves the identifier — OPERATIONS §2 gate 14). The
 third, `GEMINI_EXTRACTION_DEFAULT is False`, is decided the OTHER way and permanently: the
 first post-call extraction stays on Sarvam because it reads the raw transcript, and D-400

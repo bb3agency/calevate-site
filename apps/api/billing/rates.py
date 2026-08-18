@@ -171,11 +171,12 @@ ROUNDING = ROUND_HALF_UP
 # comes from, in the same shape as the TTS card above: one statement of the vendor's
 # price, everything else derived, and the doc that quotes it checked against it.
 #
-# ⚠ **NOTHING IS BILLING THIS YET, AND THAT IS NOT AN OVERSIGHT.** Two facts, both
-# recorded rather than worked around. First, `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is
-# False` — no agent runs this leg, because a regional Vertex endpoint takes a one-hour
-# OAuth2 bearer and the engine stores static strings. Second, even once one does, WE
-# CANNOT SEE THE TOKENS: `CostBreakdown` carries a per-leg cost in the engine's currency
+# ⚠ **NOTHING IS BILLING THIS, AND THAT IS NOT AN OVERSIGHT — IT IS PERMANENT.** The
+# reason used to be two facts and is now one. The first is gone: since D-404
+# `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, so a deployment holding a GCP project
+# and service account runs this leg for real. The second does not go away, and it is the
+# one that matters — WE CANNOT SEE THE TOKENS: `CostBreakdown` carries a per-leg cost in
+# the engine's currency
 # and, on a BYOK leg, the engine pays nothing and reports nothing — which is exactly the
 # blindness `ENGINE_REPORTS_TTS_MODEL` documents one section up, arriving on a second
 # leg. The truth will be the GCP invoice, per project and not per tenant. So these
