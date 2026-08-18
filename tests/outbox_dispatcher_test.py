@@ -263,7 +263,7 @@ async def test_a_healthy_pipeline_raises_no_stall_alarm(monkeypatch: pytest.Monk
     the pipeline finished; if the alarm fired for it too, "postcall_pipeline_stalled"
     would page ops on every tick and stop meaning anything.
 
-    `_callable_tenants` is pinned to this test's own tenant because the probe is
+    `callable_tenants` is pinned to this test's own tenant because the probe is
     platform-wide by design and every other suite's data is in the same database — the
     enumeration itself is proved by `ops_resilience_test`, and what is measured here is
     the verdict for a tenant that is genuinely healthy.
@@ -305,7 +305,7 @@ async def test_a_healthy_pipeline_raises_no_stall_alarm(monkeypatch: pytest.Monk
     async def _only_this_tenant() -> list[UUID]:
         return [tenant_id]
 
-    monkeypatch.setattr(dispatcher, "_callable_tenants", _only_this_tenant)
+    monkeypatch.setattr(dispatcher, "callable_tenants", _only_this_tenant)
 
     result = await dispatcher.report_stalled_pipeline({})
 

@@ -218,7 +218,7 @@ def test_the_tenant_lists_are_ordered() -> None:
     question with no answer."""
     from apps.workers import dispatcher, retention
 
-    for module, name in ((retention, "_due_tenants"), (dispatcher, "_callable_tenants")):
+    for module, name in ((retention, "_due_tenants"), (dispatcher, "callable_tenants")):
         source = inspect.getsource(getattr(module, name))
         assert "ORDER BY tenant_id" in source, f"{name} enumerates tenants in planner order"
 

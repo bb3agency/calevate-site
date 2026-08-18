@@ -140,7 +140,7 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
-from apps.api.engine.health import record_engine_failure
+from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 log = get_logger(__name__)
 
@@ -183,8 +183,6 @@ API_VERSION: Final = "2026-08-14"
 AUTH_HEADER: Final = "Authorization"
 AUTH_SCHEME: Final = "Bearer"
 VERSION_HEADER: Final = "Cartesia-Version"
-
-REQUEST_TIMEOUT_S: Final = 10.0
 
 # READ AT SOURCE: `cartesia-python/src/cartesia/types/agents/call_list_params.py` — `limit`
 # is "(Pagination option) The number of calls to return per page, ranging between 1 and
@@ -462,48 +460,17 @@ class CartesiaEngine:
         """One round trip. `absent_is_success` is `delete_agent`'s and nothing else's —
         see `BolnaEngine._request`, which carries the argument for why it is opt-in per
         call site rather than a blanket 404 policy."""
-        try:
-            response = await self._http().request(method, path, **kwargs)
-        except httpx.HTTPError as exc:
-            # Same pairing as the Bolna adapter: an engine that answers nothing is the
-            # shape a total outage takes, and OPERATIONS §4's spike alarm must see it.
-            await record_engine_failure(self.name, kind="unreachable")
-            raise ProblemError(
-                kind="dependency",
-                code="engine_unreachable",
-                title="Voice platform is unreachable",
-                detail="The voice platform did not respond.",
-            ) from exc
-        if absent_is_success and response.status_code == 404:
-            # The declared postcondition, already satisfied. See `delete_agent`.
-            log.info("cartesia_delete_already_absent", extra={"method": method})
-            return {}
-        if response.status_code >= 400:
-            # The vendor's message is NOT forwarded (hard rule 2 upward, and a client
-            # cannot act on it). The status is logged; the code carries the meaning.
-            log.warning(
-                "cartesia_request_failed",
-                extra={"status": response.status_code, "method": method},
-            )
-            if response.status_code >= 500:
-                # 5xx only — a 4xx is our request being wrong. This adapter has no
-                # throttle ladder, so a 429 lands here; it is deliberately NOT counted,
-                # for the reason `engine/health.py` gives: rate limiting is the vendor
-                # working as designed.
-                await record_engine_failure(self.name, kind="server_error")
-            raise ProblemError(
-                kind="dependency",
-                code="engine_rejected",
-                title="Voice engine rejected the request",
-                detail="The voice platform refused the request.",
-            )
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {}
-        return payload if isinstance(payload, dict) else {"data": payload}
-
-    # --- agent lifecycle -----------------------------------------------------
+        # THE LADDER ITSELF LIVES IN `vendor_http.vendor_request` (D-240): it was two
+        # copies here that had drifted apart, and the divergence was invisible because
+        # no fixture ever made a vendor misbehave.
+        return await vendor_request(
+            self._http(),
+            method,
+            path,
+            engine=self.name,
+            absent_is_success=absent_is_success,
+            **kwargs,
+        )
 
     def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
         """Our `AgentConfig` → their agent object.

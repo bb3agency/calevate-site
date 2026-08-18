@@ -449,6 +449,75 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
     return handler
 
 
+#: A stub of ONE vendor route, written by the clause that needs it rather than by this
+#: file. The stubs above model a vendor BEHAVING; these model one misbehaving.
+VendorHandler = Callable[[httpx.Request], httpx.Response]
+
+#: How to point ONE HTTP-speaking adapter at a transport of the clause's choosing.
+#:
+#: Everything else in this file hands out adapters wired to a WELL-BEHAVED stub, so every
+#: clause in the suite measured a happy path plus the handful of 404s the stubs are
+#: stateful enough to produce. The failure paths an adapter meets in production — a
+#: throttle, a gateway error, a socket that never answers, a 200 carrying a WAF challenge
+#: — had no fixture at all, and that is how the two real adapters came to disagree about
+#: all of them (D-240): `bolna` retried a 429 and reported it `transient`, `cartesia`
+#: reported the same 429 as a flat rejection with no backoff; `bolna` refused a 2xx it
+#: could not parse, `cartesia` turned it into `{}` and built an `ExecutionSnapshot` out of
+#: nothing.
+#:
+#: A RECIPE PER ADAPTER rather than one generic builder, because the credential, the base
+#: URL and the version pin are exactly the per-vendor half `engine/vendor_http.py`
+#: deliberately does not hold. Each call builds a FRESH adapter, so a transport wired to
+#: answer 429 forever cannot leak into the next clause's subject.
+TRANSPORT_RECIPES: dict[str, Callable[[VendorHandler], VoiceEngine]] = {
+    "bolna": lambda handler: BolnaEngine(
+        api_key="test-key",
+        fx_rate=Decimal("88.00"),
+        client=httpx.AsyncClient(
+            base_url="https://api.bolna.ai", transport=httpx.MockTransport(handler)
+        ),
+    ),
+    "cartesia": lambda handler: CartesiaEngine(
+        api_key="test-key",
+        from_number_id="num_test",
+        client=httpx.AsyncClient(
+            base_url=cartesia_module.BASE_URL,
+            headers={
+                # `AUTH_HEADER`, not the old `API_KEY_HEADER`: D-271 moved the adapter
+                # to `Authorization: Bearer` after reading both generated clients.
+                cartesia_module.AUTH_HEADER: (f"{cartesia_module.AUTH_SCHEME} test-key"),
+                cartesia_module.VERSION_HEADER: cartesia_module.API_VERSION,
+            },
+            transport=httpx.MockTransport(handler),
+        ),
+    ),
+}
+
+
+@pytest.fixture(params=sorted(TRANSPORT_RECIPES))
+def ladder(request: pytest.FixtureRequest) -> Callable[[VendorHandler], VoiceEngine]:
+    """One HTTP-speaking adapter, over whatever transport the clause hands it."""
+    return TRANSPORT_RECIPES[str(request.param)]
+
+
+@pytest.fixture
+def transport_recipe_ids() -> frozenset[str]:
+    """Which adapters the transport-ladder clauses actually ran against."""
+    return frozenset(TRANSPORT_RECIPES)
+
+
+@pytest.fixture
+def http_speaking_engine_ids() -> frozenset[str]:
+    """Which adapters in the roster reach their vendor over HTTP.
+
+    Every real adapter does, by definition. `FakeEngine` is the one subject that does not,
+    because it IS the vendor — so it is identified by its TYPE rather than by its name,
+    and a third vendor added to `ENGINE_IDS` lands in this set automatically. That is what
+    makes the roster clause in `contract_test.py` bite rather than pass vacuously.
+    """
+    return frozenset(eid for eid in ENGINE_IDS if not isinstance(make_engine(eid), FakeEngine))
+
+
 def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
     if engine_id == "fake":
         return FakeEngine(listing_page_size=FULL_LISTING_PAGE)

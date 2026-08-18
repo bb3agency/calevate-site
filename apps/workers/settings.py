@@ -82,7 +82,12 @@ from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
-from apps.workers.pipeline import ingest_engine_event, reconcile_executions, run_post_call_pipeline
+from apps.workers.pipeline import (
+    ingest_engine_event,
+    reconcile_executions,
+    reconcile_outstanding_calls,
+    run_post_call_pipeline,
+)
 from apps.workers.qa_sampling import draw_qa_samples
 from apps.workers.retention import (
     apply_retention,
@@ -171,6 +176,29 @@ CRON_JOBS = [
     # that gives up on its first transient database error is silent for exactly as long
     # as the incident it exists to report. Half an hour of that is not free.
     cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see
+    # what `list_executions` returns, and that listing is filtered on when an execution
+    # was CREATED — so a call that runs longer than the 30-minute window has fallen out of
+    # it before its terminal transition ever happens, and one lost at-most-once webhook
+    # left it unrecoverable. This asks the engine directly about every call row still
+    # non-terminal past the stall window.
+    #
+    # HALF-HOURLY, AND OFFSET. It is O(tenants) — `calls` is FORCE-RLS'd, so the question
+    # can only be asked one tenant session at a time — which is why it is not a second
+    # phase of the 10-minute tick: the common case (a short call whose webhook was lost)
+    # is already covered there within ten minutes, and this population has been unfinished
+    # for longer than the stall window by definition. :15/:45 keeps it clear of the poller
+    # (:00/:10/...) and of `report_stalled_pipeline` (:05/:35), so the three fleet-wide
+    # fan-outs never run in the same minute.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own, so a sweep
+    # that met one transient database error would be finished for the half hour.
+    cron(
+        traced_job(reconcile_outstanding_calls),
+        minute={15, 45},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # The DPDP §12 equivalent of the line above, and the reason it exists is that there
     # WAS no equivalent: an erasure request whose job was lost to a deploy sat open
     # forever with nothing watching (P6.5). Hourly rather than half-hourly because

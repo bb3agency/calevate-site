@@ -45,7 +45,6 @@ throttle block below for what is and is not retried, and why.
 
 from __future__ import annotations
 
-import asyncio
 import random
 import re
 from collections.abc import Callable
@@ -87,13 +86,11 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
-from apps.api.engine.health import record_engine_failure
+from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
 
 log = get_logger(__name__)
 
 BASE_URL = "https://api.bolna.ai"
-REQUEST_TIMEOUT_S = 10.0
-
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
 # Bolna's rate limits are unpublished (pilot item), so 429 is a response we will meet
 # without warning. Three deliberate limits on what we do about it:
@@ -747,112 +744,17 @@ class BolnaEngine:
         unknown ref is a contract clause, and a path we got wrong 404s exactly the same
         way, which is how a wrong path gets FOUND (see `get_agent`'s note on gate 2).
         """
-        for attempt in range(THROTTLE_MAX_ATTEMPTS):
-            try:
-                response = await self._http().request(method, path, **kwargs)
-            except httpx.HTTPError as exc:
-                # Counted before it is raised: "the vendor did not answer" is half of
-                # OPERATIONS §4's engine-spike alarm, and it is the half a TOTAL outage
-                # produces — a platform that is entirely down refuses the connection
-                # rather than answering 502. `engine/health.py` argues the pairing.
-                await record_engine_failure(self.name, kind="unreachable")
-                raise ProblemError(
-                    kind="dependency",
-                    code="engine_unreachable",
-                    title="Voice engine unreachable",
-                    detail="The voice platform did not respond.",
-                    failure_stage="CORE_LOGIC",
-                ) from exc
-            if response.status_code != THROTTLE_STATUS:
-                break
-            retry_after = _retry_after_seconds(response)
-            last_attempt = attempt == THROTTLE_MAX_ATTEMPTS - 1
-            if last_attempt or (retry_after is not None and retry_after > THROTTLE_MAX_SLEEP_S):
-                break
-            log.warning("engine_throttled", extra={"route": path, "attempt": attempt + 1})
-            await asyncio.sleep(throttle_delay_s(attempt, retry_after))
-
-        if response.status_code == THROTTLE_STATUS:
-            # Distinct from `engine_rejected` on purpose. A throttle says nothing about
-            # the request — so on the campaign path it must not burn a contact's retry
-            # budget for a reason that has nothing to do with the contact. `transient`
-            # is the ladder rung that means "identical retry can work" (503, retryable).
-            log.warning("engine_throttle_exhausted", extra={"route": path})
-            raise ProblemError(
-                kind="transient",
-                code="engine_rate_limited",
-                title="Voice engine is rate limiting us",
-                detail="The voice platform is temporarily refusing new requests.",
-                remediation="This will be retried automatically.",
-                failure_stage="CORE_LOGIC",
-            )
-        if absent_is_success and response.status_code == 404:
-            # NOT a swallowed error: the caller declared that an absent object satisfies
-            # it. Logged at info so a compensation that found nothing to compensate is
-            # still legible in the record — `delete_agent`'s caller is an orphan
-            # reclaimer, and "there was no orphan" is a fact worth having.
-            log.info("engine_delete_already_absent", extra={"route": path})
-            return {}
-        if response.status_code >= 400:
-            # Never echo a vendor error body to a client — it is not user-safe and it
-            # is not our vocabulary.
-            log.warning("engine_error", extra={"status": response.status_code, "route": path})
-            if response.status_code >= 500:
-                # 5xx ONLY. A 4xx is OUR request being wrong and would drown the signal
-                # it is supposed to sharpen; 429 never reaches here at all, because the
-                # throttle ladder above breaks out with its own transient code.
-                await record_engine_failure(self.name, kind="server_error")
-            raise ProblemError(
-                kind="dependency",
-                code="engine_rejected",
-                title="Voice engine rejected the request",
-                detail="The voice platform could not complete this operation.",
-                failure_stage="CORE_LOGIC",
-            )
-        if not response.content:
-            # A successful DELETE may answer 204/empty. `response.json()` raises on an
-            # empty body, and a delete that "failed" only because the vendor said
-            # nothing is the worst possible lie on this particular path.
-            return {}
-        try:
-            payload = response.json()
-        except ValueError:
-            # A 2xx WITH A NON-JSON BODY (P2.2). The `>= 400` branch above raises first,
-            # so what reaches here is a success status carrying something that is not
-            # JSON: a WAF challenge, a proxy interstitial, a CDN maintenance page. Those
-            # are the ordinary failure modes of an API behind an edge, and they are
-            # indistinguishable from a real answer until the parse fails.
-            #
-            # `json.JSONDecodeError` is a `ValueError` — NOT a `ProblemError` and NOT an
-            # `httpx.HTTPError` — so it was caught by nothing. It surfaced as a raw 500
-            # with no code and no remediation on `create_agent`; it made
-            # `verify_publish`'s "never raises for a vendor-side failure" docstring
-            # false; and it DLQ'd the post-call pipeline and the reconciliation poller,
-            # which is D-31's guarantee of record.
-            #
-            # This repository had already solved it twice — `billing/payments.py` catches
-            # `ValueError` and `payment_order_test` pins it by name, and
-            # `engine/cartesia.py` has the guard. The adapter actually going to
-            # production is the one that missed it.
-            #
-            # RAISED rather than returning `{}` like Cartesia's, and the difference is
-            # deliberate: an empty dict here would flow on to callers that read fields
-            # out of it and fail somewhere further from the cause. The body is never
-            # echoed — it is not our vocabulary and it is not user-safe.
-            log.warning(
-                "engine_non_json_success",
-                extra={"status": response.status_code, "route": path},
-            )
-            raise ProblemError(
-                kind="dependency",
-                code="engine_bad_response",
-                title="Voice engine returned an unreadable response",
-                detail="The voice platform answered successfully with a body we could not read.",
-                failure_stage="CORE_LOGIC",
-            ) from None
-        return payload if isinstance(payload, dict) else {"data": payload}
-
-    # --- agent lifecycle -----------------------------------------------------
+        # THE LADDER ITSELF LIVES IN `vendor_http.vendor_request` (D-240): it was two
+        # copies here that had drifted apart, and the divergence was invisible because
+        # no fixture ever made a vendor misbehave.
+        return await vendor_request(
+            self._http(),
+            method,
+            path,
+            engine=self.name,
+            absent_is_success=absent_is_success,
+            **kwargs,
+        )
 
     def _agent_body(self, cfg: AgentConfig) -> dict[str, Any]:
         """Our AgentConfig → their agent object.
