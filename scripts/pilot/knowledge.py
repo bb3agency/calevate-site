@@ -4,7 +4,13 @@ Gate 8 is a SOFT gate that decides real architecture, so it is the one gate whos
 "inconclusive" answer costs as much as a red one. Four questions live here:
 
 1. **The two KB-lifecycle questions D-41's detach contract cannot answer from docs.**
-   Bolna publishes no OpenAPI spec, so every BODY on the `/knowledgebase` path is a
+   Bolna's spec was found and read (D-350), and the answer retired the capability
+   (D-354): `POST /knowledgebase` is multipart taking a PDF or a URL, the knowledge-base
+   object carries no agent, and `BOLNA_CAPABILITIES.knowledge_base` is now False with all
+   three methods refusing by name. This probe therefore exercises a path the primary
+   engine declines; it stays because the port is not Bolna's and an engine that CAN hold
+   a knowledge base must still be probed the same way. Historically:
+   every BODY on the `/knowledgebase` path was a
    hand-maintained claim (TRD §5, and the standing warning in `apps/api/engine/bolna.py`):
    (a) does `GET /knowledgebase/all` carry the AGENT LINKAGE `list_kb` filters on, and
    (b) does `DELETE /knowledgebase/{rag_id}` also clear the AGENT's reference to it?

@@ -35,8 +35,11 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   Ruff + mypy(strict) in CI. One backend language (voice/AI ecosystem is Python-first;
   phase-2 Pipecat runtime reuses everything).
 - **Frontend:** Next.js 15 + TypeScript, Tailwind + shadcn/ui, TanStack Query, Recharts/
-  Tremor. Typed API client generated from FastAPI OpenAPI. (Bolna publishes no OpenAPI
-  spec — adapter models are hand-maintained from docs + pilot-captured payloads, §5.)
+  Tremor. Typed API client generated from FastAPI OpenAPI. (Bolna DOES publish an
+  OpenAPI spec — this line said otherwise for the repository's whole life, D-350. It is
+  `references/openapi.yml` in `bolna-ai/skills`, their own GitHub org, pinned and
+  checksummed in `docs/vendor/bolna/hosted-oas.md`; the adapter's models are now read
+  from it rather than hand-maintained, §5.)
 - **DB:** Postgres 16 for all system-of-record data. Vector/RAG: a managed RAG/memory
   service via API (D-28 — supersedes the earlier in-Postgres pgvector plan and the "no
   external vector DB" rule; D-08's RTT physics now governs provider REGION choice and
@@ -358,12 +361,16 @@ scorecard — D-31]:
   exact API mechanics, pacing and limits unpublished (pilot). Built-in KB: rag_id CRUD
   API (POST /knowledgebase, GET /knowledgebase/all, GET|DELETE /knowledgebase/{rag_id}),
   multiple KBs per agent; multilingual mode
-  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. The ROUTES and the fact that
-  a KB is addressed by the vendor's `rag_id` are verified from published docs; every
-  BODY on this path is a hand-maintained claim (no OpenAPI spec), including the `rag_id`
-  field name and the list row shape — the two that decide whether D-41's detach works are
-  pilot gate 8 questions: does the list response carry the agent linkage `list_kb`
-  filters on, and does deleting a KB clear the agent's reference to it? Custom functions follow
+  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. **THE BUILT-IN KB IS NOT
+  DRIVABLE THROUGH OUR PORT AND THE ENGINE NOW DECLARES THE CAPABILITY ABSENT (D-354).**
+  `POST /knowledgebase` is `multipart/form-data` taking a PDF (max 20 MB) OR a `url` —
+  never raw text, which is all `KBSourceRef` carries — and the created object has NO
+  agent field: an agent references a knowledge base by `vector_id` inside
+  `llm_agent.llm_config.vector_store.provider_config.vector_ids`, not by the `rag_id`
+  this port returned and deleted by. Both of gate 8's questions are therefore answered
+  (the list carries no agent linkage, so `list_kb` reported every agent empty forever),
+  and in-call retrieval stays OURS — the D-28 managed vector service behind the RAG tool
+  endpoint, which is where every tier above T0 already lives. Custom functions follow
   the OpenAI function-calling schema (bearer/custom-header auth, pre_call_message
   filler line).
 - **BYOK key custody — where the keys actually live.** First, a terminology fix: in this

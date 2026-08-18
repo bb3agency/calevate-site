@@ -21,6 +21,7 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.engine import bolna as bolna_module
 from apps.api.engine import cartesia as cartesia_module
 from apps.api.engine.bolna import BolnaEngine
 from apps.api.engine.cartesia import CartesiaEngine
@@ -57,13 +58,20 @@ from calevate_shared.engine import VoiceEngine
 #: difference: a capability profile needs no vendor account and no imagined vendor JSON.
 ENGINE_IDS = ["fake", "fake-restricted", "fake-deployed", "bolna", "cartesia"]
 
-# A completed execution as Bolna documents it: USD-cent costs with a per-leg
-# breakdown, prefix-tagged transcript text, recording on their S3.
+# A completed execution in the shape the vendor's own OpenAPI document declares
+# (`AgentExecution`, D-350): cent-denominated costs with the five-key per-leg breakdown,
+# prefix-tagged transcript text, recording nested under `telephony_data`.
+#
+# `telephony_data.call_type` IS THE DIRECTION, and this fixture used to carry a top-level
+# `"direction": "inbound"` instead (D-359). No such field exists on `AgentExecution`; it
+# was invented here at the same time as the adapter's read of it, from the same guess, so
+# the stub and the adapter agreed and this suite confirmed the agreement while every real
+# inbound call would have normalized as outbound. The old key is deliberately NOT kept: a
+# fixture that carries both cannot tell which one the adapter read.
 BOLNA_COMPLETED: dict[str, Any] = {
     "id": "exec_abc123",
     "agent_id": "agent_xyz",
     "status": "completed",
-    "direction": "inbound",
     "created_at": "2026-08-10T09:15:00Z",
     "ended_at": "2026-08-10T09:16:35Z",
     "conversation_duration": 95,
@@ -76,6 +84,7 @@ BOLNA_COMPLETED: dict[str, Any] = {
         "transcriber": 0.6,
     },
     "telephony_data": {
+        "call_type": "inbound",
         "from_number": "+919876543210",
         "to_number": "+911140000000",
         "recording_url": "https://s3.us-east-1.amazonaws.com/bolna/exec_abc123.wav",
@@ -142,12 +151,17 @@ def _cartesia_completed(call_id: str = "cart_call_1") -> dict[str, Any]:
     }
 
 
-# How many executions a saturated `GET /executions` hands back in this suite. It is a
-# member of `bolna._LISTING_PAGE_SIZES` on purpose: the Bolna stub returns exactly this
-# many rows and NO pagination metadata, which is the worst case the adapter has to cope
-# with (Bolna publishes no pagination contract), and the fake engine's page size is set
-# to the same number so one contract test can saturate either adapter.
+# How many calls the FAKE engine is seeded with to saturate its listing. It is also that
+# engine's configured page size, so one more call than this is a truncated window.
 FULL_LISTING_PAGE = 10
+
+#: How many executions the Bolna stub holds when the suite wants a TRUNCATED listing.
+#: One more than the adapter can reach: it pages `_LISTING_PAGE_SIZE` rows at a time and
+#: stops at `_LISTING_MAX_PAGES`, so this is the smallest store it provably cannot finish.
+#: Derived from the adapter's own constants rather than typed, for `CARTESIA_FULL_PAGE`'s
+#: reason — a hand-copied number stops saturating the moment either constant moves, and a
+#: saturation fixture that no longer saturates fails nothing.
+BOLNA_SATURATION_ROWS = bolna_module._LISTING_PAGE_SIZE * bolna_module._LISTING_MAX_PAGES + 1
 
 
 def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
@@ -168,7 +182,6 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     the listing reflects it, and deleting an id the store does not hold 404s, which is
     what their `rag_id`-addressed CRUD API (TRD §5) does.
     """
-    knowledge_bases: dict[str, dict[str, Any]] = {}
     #: The numbers this stub has been asked to dial, so each dial gets its own execution
     #: id. See the `POST /call` branch.
     placed: list[str] = []
@@ -183,7 +196,12 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     # that) and distinct per agent (the read-back clause needs that) — and the GET
     # returns the stored object in the `{"agent_id": ..., "data": {...}}` envelope their
     # OSS server's `GET /all` is documented to use.
-    agents: dict[str, dict[str, Any]] = {}
+    #
+    # PRE-SEEDED with the agent `BOLNA_COMPLETED` names. The listing is now per agent and
+    # is discovered through `GET /v2/agent/all` (D-353), so an account with no agents lists
+    # nothing — which would make every listing clause pass vacuously on a stub that had not
+    # been asked to create one first.
+    agents: dict[str, dict[str, Any]] = {str(BOLNA_COMPLETED["agent_id"]): {}}
 
     def agent_id_for(body: dict[str, Any]) -> str:
         config = body.get("agent_config") or {}
@@ -203,6 +221,47 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                 return httpx.Response(404, json={"error": "unknown agent"})
             agents[agent_id] = json.loads(request.content or b"{}")
             return httpx.Response(200, json={"status": "ok"})
+        if path == "/v2/agent/all" and request.method == "GET":
+            # A BARE ARRAY, which is what `AgentListV2` is declared as in the vendor's
+            # pinned OAS (`type: array` of `AgentV2`), each row carrying a top-level `id`.
+            # The adapter's `_agent_refs` reads it through `_listing_rows`, which relies on
+            # `vendor_request` wrapping a top-level array as `{"data": [...]}` — so this
+            # shape is also what proves that wrapper is load-bearing rather than decorative.
+            return httpx.Response(200, json=[{"id": agent_id} for agent_id in agents])
+        if (
+            path.startswith("/v2/agent/")
+            and path.endswith("/executions")
+            and request.method == "GET"
+        ):
+            # The vendor's REAL listing: per agent, paginated by `page_number`/`page_size`
+            # with a `has_more` flag, filtered by `from`. Before D-353 the adapter called a
+            # global `GET /executions?created_after=` that does not exist, and this stub
+            # answered it — so the suite proved a route the vendor has never had.
+            agent_id = path.split("/")[3]
+            if agent_id not in agents:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            assert request.url.params.get("from"), "the listing must be time-filtered"
+            page_number = int(request.url.params.get("page_number", "1"))
+            page_size = int(request.url.params.get("page_size", "20"))
+            assert page_size <= 50, "the vendor's documented maximum page_size is 50"
+            start = (page_number - 1) * page_size
+            # Distinct ids: a listing whose rows all share one id would let an adapter that
+            # de-duplicates too eagerly look like one that read a short page.
+            rows = [
+                {**BOLNA_COMPLETED, "id": f"exec_list_{i}", "agent_id": agent_id}
+                for i in range(start, min(start + page_size, listing_rows))
+            ]
+            executions.update(str(row["id"]) for row in rows)
+            return httpx.Response(
+                200,
+                json={
+                    "page_number": page_number,
+                    "page_size": page_size,
+                    "total": listing_rows,
+                    "has_more": start + page_size < listing_rows,
+                    "data": rows,
+                },
+            )
         if path.startswith("/v2/agent/") and request.method == "GET":
             agent_id = path.rsplit("/", 1)[-1]
             stored = agents.get(agent_id)
@@ -235,47 +294,27 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             execution_id = f"exec_abc{len(placed):03d}"
             executions.add(execution_id)
             return httpx.Response(200, json={"execution_id": execution_id})
-        if path == "/knowledgebase" and request.method == "POST":
-            body = json.loads(request.content or b"{}")
-            rag_id = f"kb_{len(knowledge_bases) + 1}"
-            knowledge_bases[rag_id] = {
-                "rag_id": rag_id,
-                "agent_id": body.get("agent_id"),
-                "name": body.get("name"),
-            }
-            return httpx.Response(200, json={"rag_id": rag_id})
-        if path == "/knowledgebase/all" and request.method == "GET":
-            return httpx.Response(200, json={"data": list(knowledge_bases.values())})
-        if path.startswith("/knowledgebase/") and request.method == "DELETE":
-            rag_id = path.rsplit("/", 1)[-1]
-            if knowledge_bases.pop(rag_id, None) is None:
-                return httpx.Response(404, json={"error": "unknown rag_id"})
-            return httpx.Response(200, json={"status": "deleted"})
-        if path.startswith("/executions/") and path.endswith("/stop"):
+        if path.startswith("/call/") and path.endswith("/stop"):
+            # `POST /call/{execution_id}/stop` — the vendor's real stop route. Until D-353
+            # both the adapter and this stub used `/executions/{id}/stop`, which is not a
+            # path the vendor has, so the suite agreed with the adapter about a URL that
+            # would have 404'd on the first live call.
+            #
             # STATEFUL, for the reason the `GET /executions/{id}` branch below is (D-187).
             # This answered 200 for every id, so the `end_call` clause — "a call the
-            # engine does not hold is reported" — could only ever be failed by the stub,
-            # exactly the shape the KB stub's own docstring refuses ("a stub that answered
-            # every DELETE with 200 would let an adapter that never detaches anything sail
-            # through").
+            # engine does not hold is reported" — could only ever be failed by the stub.
             #
-            # MARKED ASSUMPTION, not a captured contract (D-31/D-32): nothing published
-            # says what `POST /executions/{id}/stop` returns for an execution the platform
-            # is not running, and 404 is the REST default their `GET /executions/{id}` is
-            # documented to give. What this fixture proves is OUR mapping — that the
-            # adapter surfaces a refusal rather than swallowing it. Whether the vendor
-            # refuses at all is pilot gate 2's question, alongside the repeat-`delete_agent`
-            # assumption it already carries.
-            execution_id = path.rsplit("/", 2)[-2]
+            # MARKED ASSUMPTION, not a captured contract (D-31/D-32): the OAS documents
+            # only 200 and 400 for this route and says nothing about an execution the
+            # platform is not running; 404 is the REST default its sibling GETs give. What
+            # this fixture proves is OUR mapping — that the adapter surfaces a refusal
+            # rather than swallowing it. Whether the vendor refuses at all is pilot gate
+            # 2's question, alongside the repeat-`delete_agent` assumption it already
+            # carries.
+            execution_id = path.split("/")[2]
             if execution_id not in executions:
                 return httpx.Response(404, json={"error": "unknown execution"})
-            return httpx.Response(200, json={"status": "stopped"})
-        if path == "/executions":
-            # Distinct ids: a listing whose rows all share one id would let an adapter
-            # that de-duplicates too eagerly look like one that read a short page.
-            rows = [{**BOLNA_COMPLETED, "id": f"exec_list_{i}"} for i in range(listing_rows)]
-            executions.update(str(row["id"]) for row in rows)
-            return httpx.Response(200, json={"data": rows})
+            return httpx.Response(200, json={"message": "done", "status": "stopped"})
         if path.startswith("/executions/"):
             # The id is ECHOED from the path. Answering with the fixture's own id for any
             # id asked about is the `get_agent` echo defect wearing a different route: it
@@ -621,7 +660,7 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
     if isinstance(engine, CartesiaEngine):
         return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
     assert isinstance(engine, BolnaEngine), f"no saturation recipe for {type(engine).__name__}"
-    return make_engine("bolna", listing_rows=FULL_LISTING_PAGE)
+    return make_engine("bolna", listing_rows=BOLNA_SATURATION_ROWS)
 
 
 @pytest.fixture(params=ENGINE_IDS)

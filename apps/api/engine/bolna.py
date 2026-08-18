@@ -1,33 +1,60 @@
 """Bolna adapter — the ONLY place in the codebase that knows Bolna's payload shapes.
 
 Adopted by D-31 (supersedes D-02's ThinnestAI pick), gated on the pilot scorecard.
-Everything here is hand-maintained from docs.bolna.ai + payloads captured during the
-pilot, because **Bolna publishes no OpenAPI spec** (TRD §5). Treat every field name as
-a claim that needs re-checking against a captured payload, not as a guarantee.
+
+**BOLNA PUBLISHES AN OPENAPI SPEC, AND THIS FILE SPENT ITS WHOLE LIFE SAYING THEY DO NOT
+(D-350).** That sentence — "Bolna publishes no OpenAPI spec" — was the premise under the
+pagination heuristic, the guessed KB body, the hand-maintained status list and half the
+"STILL UNVERIFIED" marks in this file, and it was false. The spec is
+`references/openapi.yml` in **`bolna-ai/skills`**, Bolna's own GitHub organisation,
+described there as a "mirror of https://www.bolna.ai/docs/api-reference/openapi.yml" with
+the instruction: *"Treat the YAML as the canonical schema if a SKILL.md and the spec
+disagree."* It is reachable from this environment (github.com is not on the egress
+proxy's deny list; `docs.bolna.ai`, `www.bolna.ai` and `api.bolna.ai` are). Pin,
+checksum and how to re-fetch it: `docs/vendor/bolna/hosted-oas.md`.
 
 Three properties of this vendor shape the whole design and are load-bearing:
 
-1. **Webhooks are unsigned and at-most-once** (verified in their docs AND their OSS
-   delivery code: a single aiohttp POST, no retry, no timeout, errors swallowed). So
-   authenticity = source-IP allowlist + execution-id dedupe, webhook payloads are
-   HINTS, and the List-Executions poller is the guarantee of record.
+1. **Webhooks are unsigned**, so authenticity = source-IP allowlist (a SINGLE documented
+   address, `13.203.39.153`) + `(execution_id, status)` dedupe, payloads are HINTS, and
+   the executions poller is the guarantee of record. **They are NOT at-most-once, which
+   is what this docstring claimed (D-352)**: the hosted platform "retries on non-2xx"
+   and fires one delivery per status transition, so the receiver must ack 2xx and dedupe
+   on the PAIR — never on the execution id alone, or the `completed` transition is
+   discarded as a duplicate of `queued`. The at-most-once reading came from the OSS
+   framework's `aiohttp` one-shot delivery, which is a different program from the hosted
+   deliverer. VERIFIED-VENDOR-REPO: `references/execution-payload.md` §"Webhook delivery"
+   and `setup-webhook/SKILL.md` §"Idempotency".
 2. **cost / recording_url / extracted_data populate only at `completed`**, roughly
    2-3 min after disconnect. The post-call pipeline therefore triggers on `completed`,
-   never on a disconnect event — `billable_ready` encodes exactly that.
+   never on a disconnect event — `billable_ready` encodes exactly that. VERIFIED-VENDOR-
+   REPO: `references/call-statuses.md` — "`completed` is the terminal status ... after
+   recordings, transcripts, and extractions have finished post-processing".
 3. **Costs arrive with a five-key per-leg breakdown** (`llm`, `network`, `platform`,
-   `synthesizer`, `transcriber` — REPORTED-DOCS, a search summary of their Get Execution
-   reference). The adapter converts to INR at capture and stamps the fx rate, so a
-   ledger row can always be re-derived (hard rule 7). **The UNIT is still an assumption
-   and the evidence now argues against it** — see `_ASSUMED_MINOR_UNITS_PER_MAJOR`, which
-   names it, and OPERATIONS §2 gate 7, which settles it with one call.
+   `synthesizer`, `transcriber`) **and the OAS states the unit outright: cents.** Both
+   `AgentExecution.total_cost` ("Total cost incurred by this execution in cents") and
+   `CostBreakdown` ("in cents" on all five members) say so, which retires the marked
+   assumption this paragraph used to carry — see `_ASSUMED_MINOR_UNITS_PER_MAJOR`. The
+   adapter converts to INR at capture and stamps the fx rate, so a ledger row can always
+   be re-derived (hard rule 7). WHICH currency's cents is still not stated anywhere
+   (OPERATIONS §2 gate 7).
 
 Where the evidence for each claim came from, and how much it is worth, is recorded once
-in `docs/vendor/bolna/` rather than re-argued here. Three classes are used throughout
-this file and they are not interchangeable: **VERIFIED-OSS** (read in `bolna-ai/bolna`,
-the self-hosted framework the hosted platform is built on — authoritative for how the
-engine BEHAVES, not for the hosted REST contract), **REPORTED-DOCS** (a WebSearch summary
-of docs pages this environment's egress proxy refuses — suggestive, never proof), and
-**STILL UNVERIFIED** (needs a live account; each one is a named gate in OPERATIONS §2).
+in `docs/vendor/bolna/` rather than re-argued here. FOUR classes are used throughout this
+file and they are not interchangeable:
+
+* **VERIFIED-OAS** — read in the vendor's own pinned OpenAPI document. The strongest
+  class available without an account: it is first-party, versioned and machine-checkable,
+  and it describes the HOSTED contract rather than the self-hosted framework.
+* **VERIFIED-VENDOR-REPO** — read in a prose file of `bolna-ai/skills` (the SKILL.md set
+  and `references/`). First-party and current, but prose: where it and the OAS disagree
+  the repo's own README says the OAS wins.
+* **VERIFIED-OSS** — read in `bolna-ai/bolna`, the self-hosted framework. Authoritative
+  for how the ENGINE behaves, and — as property 1 above shows — actively misleading about
+  the hosted REST contract. Ranks BELOW the two above, never above them.
+* **STILL UNVERIFIED** — needs a live account; each one is a named gate in OPERATIONS §2.
+  `REPORTED-DOCS` (a WebSearch summary) is retired as a class: everything it used to
+  carry is now readable first-hand in the two repos above.
 
 Per-turn timings are NOT mapped here, and there is no call-latency column to map them
 into any more (migration f1a7c39d5be2 dropped it). Their docs now describe a
@@ -93,8 +120,19 @@ log = get_logger(__name__)
 
 BASE_URL = "https://api.bolna.ai"
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
-# Bolna's rate limits are unpublished (pilot item), so 429 is a response we will meet
-# without warning. Three deliberate limits on what we do about it:
+# Bolna's rate limits ARE published, and this said they were not (D-350).
+# VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa references/bolna-core.md` §"Rate limits",
+# per organization (or per user when you belong to none):
+#     GET /v2/agent/{agent_id}              500/min
+#     GET /v2/agent/{agent_id}/executions   500/min
+#     POST /call                            500/min
+#     everything else                      1000/min
+# Nothing here changes as a result, and that is worth saying rather than leaving as an
+# omission: the ladder below is not a budget we could spend down to, it is what to do when
+# a limit we do not track is hit, and 500/min is far above anything one process generates.
+# What the numbers DO settle is that the reconciliation poller's fan-out — one listing
+# request per agent per tick, see `list_executions` — is nowhere near a ceiling. Three
+# deliberate limits on what we do about a 429:
 #
 # 1. **429 ONLY.** A 429 means the request was refused, not performed — the one status
 #    where retrying `POST /call` cannot dial a person twice. A 502/503/504 on the same
@@ -152,28 +190,64 @@ def throttle_delay_s(
 # Their status values → our 8. Anything unmapped becomes `failed`, which is the safe
 # direction: a call we cannot classify must not look successful.
 #
-# **THE KEYS ARE STILL A HAND-MAINTAINED LIST AND THE COUNT WAS A FICTION.** This said
-# "their 15-value status enum" as though someone had read one; nobody has, and the OSS
-# framework does not contain a call-status enum at all (its enums are `HangupReason`,
-# `LogComponent`, provider lists — `bolna/enums.py`, bolna-ai/bolna@cd2e192). The hosted
-# platform publishes the list on a docs page this environment's proxy refuses.
-# REPORTED-DOCS confirms only the happy path — `scheduled → queued → in-progress →
-# completed` — plus that `completed` is the FINAL state of every conversation, after which
-# recordings and extraction are done. That last clause is what `billable_ready` encodes.
+# **THE LIST IS NO LONGER HAND-MAINTAINED — IT IS THE VENDOR'S ENUM, AND ONE MEMBER WAS
+# MISSING (D-351).** This comment used to say nobody had read a status enum, which was
+# true of the OSS framework (its enums are `HangupReason`, `LogComponent`, provider lists
+# — `bolna/enums.py`, bolna-ai/bolna@cd2e192) and false of the hosted platform. VERIFIED-
+# OAS: `AgentExecution.status` in the pinned spec enumerates exactly fifteen values, and
+# the same fifteen appear as the `status` query filter on
+# `GET /v2/agent/{agent_id}/executions`:
 #
-# MARKED ASSUMPTION — `voicemail` as a STATUS (D-260). We map a `"voicemail"` status value
-# and `CallStatus` has a `voicemail` member, but nothing sourced says that string is ever
-# a status. What IS reported is a separate boolean field on Get Execution,
-# `answered_by_voice_mail`, and the OSS engine detects voicemail as a HANGUP REASON
-# (`HangupReason.VOICEMAIL_DETECTED`) under `ConversationConfig.voicemail` — both of which
-# are facts ABOUT a call whose status is plain `completed`. If that is how the hosted
-# platform reports it, then our `voicemail` status is unreachable and every voicemail
-# currently reads as a normal completed call. Left as-is rather than rewired on inference:
-# reading `answered_by_voice_mail` into the status would change what a client's screen says
-# about calls we have never seen. SETTLED BY: OPERATIONS §2 gate 17.
+#     scheduled  queued  rescheduled  initiated  ringing  in-progress  call-disconnected
+#     completed  balance-low  busy  no-answer  canceled  failed  stopped  error
+#
+# `_VENDOR_STATUSES` below is that enum, and `tests/bolna_snapshot_test.py` asserts every
+# member of it is mapped — so a status the vendor adds cannot quietly become `failed`.
+#
+# **`rescheduled` WAS THE MISSING ONE AND IT MATTERED.** Bolna auto-reschedules a call
+# placed outside an agent's `calling_guardrails` window to the next allowed window
+# (`references/call-statuses.md`: "Outside calling guardrails — auto-rescheduled to the
+# next allowed window"), which is the NORMAL outcome for an Indian outbound campaign that
+# hits the 9am boundary. Unmapped, it fell through to the `failed` default: a call that is
+# alive and waiting read as a dead one on the client's screen, and the campaign's failure
+# rate counted a success as a loss. It maps to `queued` for the same reason `scheduled`
+# does — the vendor is holding it and will dial it.
+#
+# `call-connected`, `cancelled` and `voicemail` are NOT in the vendor's enum. The first two
+# are tolerated spellings and cost nothing. `voicemail` is different and is now ANSWERED
+# rather than assumed (D-260 asked; VERIFIED-OAS says): there is no `voicemail` status, so
+# that key is dead and `CallStatus.voicemail` is unreachable from this engine. Voicemail is
+# reported as the boolean `answered_by_voice_mail` on an execution whose status is plain
+# `completed`. The key stays mapped — removing it would change nothing except to make a
+# hypothetical future spelling read as `failed` — and the FACT is recorded here so nobody
+# re-derives it. Surfacing `answered_by_voice_mail` as a status is a product decision about
+# what a client's screen says, not an adapter fix: OPERATIONS §2 gate 17 keeps it.
+#: The vendor's own `status` enum, verbatim from the pinned OAS. Not iterated at runtime —
+#: it exists so a test can prove `_STATUS_MAP` covers it.
+_VENDOR_STATUSES: frozenset[str] = frozenset(
+    {
+        "scheduled",
+        "queued",
+        "rescheduled",
+        "initiated",
+        "ringing",
+        "in-progress",
+        "call-disconnected",
+        "completed",
+        "balance-low",
+        "busy",
+        "no-answer",
+        "canceled",
+        "failed",
+        "stopped",
+        "error",
+    }
+)
+
 _STATUS_MAP: dict[str, CallStatus] = {
     "scheduled": "queued",
     "queued": "queued",
+    "rescheduled": "queued",
     "initiated": "ringing",
     "ringing": "ringing",
     "in-progress": "in_progress",
@@ -256,25 +330,27 @@ _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 #: How many of the vendor's cost UNITS make one unit of `_ASSUMED_CURRENCY`. 100 = the
 #: numbers are minor units (cents); 1 = they are major units (dollars).
 #:
-#: **A MARKED ASSUMPTION ON THE MONEY PATH (hard rule 7), AND THE EVIDENCE NOW POINTS THE
-#: OTHER WAY (D-261).** It was a bare `/ 100` inside `_to_inr` under a docstring that
-#: called the input "USD cents" — unnamed, so nothing could disagree with it and no gate
-#: could score it.
+#: **NO LONGER AN ASSUMPTION: THE VENDOR'S OWN OAS SAYS "cents" (D-350, supersedes the
+#: D-261 note that used to sit here).** VERIFIED-OAS, `bolna-ai/skills@28b24aa
+#: references/openapi.yml`:
 #:
-#: ASSUMED: the hosted `total_cost` / `cost_breakdown` values are USD CENTS.
-#: EVIDENCE AGAINST (VERIFIED-OSS, bolna-ai/bolna@cd2e192): their own cost function,
-#: `calculate_total_cost_of_llm_from_transcript` in `bolna/helpers/analytics_helpers.py`,
-#: multiplies token counts by PER-TOKEN DOLLAR rates and returns `round(total_cost, 5)` —
-#: a major-unit figure carried to five decimals, which is a shape that only makes sense
-#: for dollars. EVIDENCE AGAINST (REPORTED-DOCS): every published Bolna price is quoted in
-#: dollars per minute ($0.02 platform fee, ~$0.06/min all-in), never in cents.
-#: WHY IT IS STILL 100: the hosted billing figure is not that OSS function — it adds
-#: telephony and the platform fee and is computed by a service we cannot read. Changing a
-#: money constant on inference would be a 100x error in the OTHER direction, and this is
-#: the file whose whole subject is not doing that.
-#: SETTLED BY: OPERATIONS §2 gate 7 — one completed call, `total_cost` from Get Execution
-#: beside the same call's charge on their dashboard. One observation, two orders of
-#: magnitude apart, impossible to misread.
+#:   AgentExecution.total_cost   — "Total cost incurred by this execution **in cents**"
+#:   AgentExecution.cost_breakdown — "Breakdown of the costs **in cents**"
+#:   CostBreakdown.{llm,network,platform,synthesizer,transcriber} — "... **in cents**",
+#:   with examples 4.2 / 1.2 / 2.0 / 6.8 / 0.7 (fractional cents, so the values are not
+#:   integers and `_to_inr`'s `Decimal(str(...))` matters).
+#:
+#: The previous note argued the evidence pointed the other way, off the OSS framework's
+#: `calculate_total_cost_of_llm_from_transcript` returning `round(dollars, 5)` and off
+#: published per-minute dollar pricing. Both readings were about a program that is not the
+#: hosted biller. The hosted contract states its own unit, and it agrees with the constant
+#: that was already here — the value never changes, but it stops being a guess, which is
+#: the part gate 7 was scoring.
+#:
+#: STILL UNVERIFIED, and NOT closed by the above: **cents of WHICH currency.** The OAS says
+#: "cents" everywhere and names no currency, and no execution payload we hold carries one.
+#: `_ASSUMED_CURRENCY` remains the house guess and `CostBreakdown.currency_stated` carries
+#: the difference into every row. OPERATIONS §2 gate 7 is now that one question alone.
 #: WHAT A WRONG VALUE COSTS: every `usage_event` under-values the call by 100x, so no
 #: spend cap ever arms and every margin panel reads near zero.
 _ASSUMED_MINOR_UNITS_PER_MAJOR = Decimal(100)
@@ -309,74 +385,71 @@ def _parse_dt(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-# --- List-Executions completeness (D-31: this poller IS the guarantee of record) ------
+# --- Listing executions (D-31: this poller IS the guarantee of record) ----------------
 #
-# Bolna documents no pagination for GET /executions and publishes no OpenAPI spec, so we
-# do not know whether it paginates, what the page size is, or what a continuation looks
-# like. What we refuse to do is GUESS a parameter name and loop on it: a `?page=` the
-# vendor ignores returns page one forever, which is a silent truncation wearing the
-# costume of a fix (the same class of silent premise D-31/D-32 exist to prevent).
+# **THE ENDPOINT THIS USED TO CALL DOES NOT EXIST (D-353).** It issued
+# `GET /executions?created_after=<iso>` — a global, time-filtered listing — and the pinned
+# OAS has no `/executions` collection at all. Its execution routes are exactly two:
+# `GET /executions/{execution_id}` and `GET /executions/{execution_id}/log`, both
+# single-item. So the mechanism D-31 appointed the guarantee of record, the ONLY thing
+# that recovers a call whose webhook was lost, would have returned 404 on its first live
+# tick — and `vendor_request` turns that into a raised dependency error, which
+# `reconcile_executions` catches and reports as `reconciliation_fetch_failed`. Ten minutes
+# later, again. Every ten minutes, forever, with the console showing an engine fault
+# rather than a wrong URL. Neither `created_after` nor any parameter like it exists either.
 #
-# So: follow a continuation ONLY if the payload hands us one (`_next_link`), and
-# otherwise report whether the answer might have been cut short.
+# WHAT THE VENDOR ACTUALLY OFFERS (VERIFIED-OAS, `bolna-ai/skills@28b24aa
+# references/openapi.yml`, path `/v2/agent/{agent_id}/executions`): a PER-AGENT listing,
+# "sorted by last run", with a real published pagination and filter contract —
 #
-# `_LISTING_PAGE_SIZES` is the heuristic that makes "might have been cut short"
-# answerable with no metadata at all. A truncated listing returns EXACTLY the server's
-# limit; an untruncated one returns however many executions the window happened to hold.
-# Landing exactly on a conventional limit is therefore weak evidence of truncation, and
-# it is the only evidence available. The failure modes are asymmetric and that is the
-# whole argument: a false positive (a window that really held exactly 100 calls) costs
-# one alert an operator can dismiss in ten seconds; a false negative is a call nobody
-# ever hears about again. Rejected alternative: comparing counts across ticks — it needs
-# state, it is confounded by traffic, and it still cannot tell page one from a quiet
-# hour. Delete this heuristic once the pilot records the real page size (OPERATIONS §2
-# gate 6); until then it is the only thing standing between us and a silent gap.
-_LISTING_PAGE_SIZES = frozenset({10, 20, 25, 50, 100, 200, 250, 500, 1000})
-# A bound on continuation-following. 20 pages at any plausible page size covers far more
-# than a 30-minute reconciliation window, and a bound is what keeps a malformed `next`
-# from turning the poller into an infinite request loop against the vendor.
+#     page_number  integer, default 1, minimum 1
+#     page_size    integer, default 20, minimum 1, "Maximum allowed is 50"
+#     from         date-time, "created_at ... greater than or equal to this UTC datetime"
+#     to           date-time, "created_at ... less than or equal to"
+#     status / call_type / provider / batch_id / answered_by_voice_mail
+#
+# and the envelope `AgentExecutionV2List` = `{page_number, page_size, total, has_more,
+# data[]}`. `references/bolna-core.md` adds the operating instruction: *"Loop until
+# `has_more == false`. Don't try to compute pages from `total` — use the flag."*
+#
+# So the whole "we refuse to guess a pagination parameter, therefore we infer truncation
+# from the row count landing on a conventional page size" apparatus is deleted, not
+# repaired. It was the right call under a false premise and it is simply wrong under the
+# true one: `_LISTING_PAGE_SIZES` would have reported `full_page_suspected` on every tick
+# that happened to return 20 or 50 rows, which is what a healthy page of this endpoint
+# looks like. `_next_link` is deleted for the same reason — this vendor hands out no
+# continuation URL, it hands out a page number.
+#
+# THE COST OF THE CORRECT SHAPE is that the listing is now a FAN-OUT: one walk per agent
+# on the account, discovered through `GET /v2/agent/all`. `references/bolna-core.md` puts
+# `GET /v2/agent/{agent_id}/executions` at 500/min per organisation, so a fleet of a few
+# hundred agents on a ten-minute tick is two orders of magnitude inside the limit. This is
+# the same shape `CartesiaEngine.list_executions` already has for the same reason (its
+# `agent_id` is required too) — one way per problem.
+
+#: What we ask for per page. The vendor's stated maximum, because the fan-out cost is one
+#: request per agent per page and a bigger page is strictly fewer requests.
+_LISTING_PAGE_SIZE = 50
+# A bound on paging, PER AGENT. 20 pages of 50 is 1000 executions for a single agent
+# inside one reconciliation window; a bound is what keeps a vendor whose `has_more` sticks
+# on True from turning the poller into an unbounded request loop.
 _LISTING_MAX_PAGES = 20
 
 
 def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
-    """The execution rows in one List-Executions response, whatever they are wrapped in.
+    """The execution rows in one listing response.
 
-    Both key names are claims from their docs; `_request` also wraps a bare top-level
-    JSON array as `{"data": [...]}`, which is the third shape this has to survive.
+    `data` is the documented envelope key (`AgentExecutionV2List.data`). `executions` is a
+    tolerated spelling that costs nothing, and `_request` wraps a bare top-level JSON array
+    as `{"data": [...]}`, which is the third shape this has to survive — `GET
+    /knowledgebase/all` and `GET /v2/agent/all` really do return bare arrays, so the
+    wrapper is not hypothetical.
     """
     data = payload.get("data")
     rows = data if isinstance(data, list) else payload.get("executions")
     if not isinstance(rows, list):
         return []
     return [row for row in rows if isinstance(row, dict)]
-
-
-def _claims_more(payload: dict[str, Any], row_count: int) -> bool:
-    """Does the response ITSELF say the window holds more than it returned?
-
-    Every key here is a hypothesis about a payload nobody has captured yet, so this is
-    written to be inert when absent and correct when present: an unknown shape simply
-    never matches, and the page-size heuristic remains the backstop. A `total` that is
-    not larger than what we got is not a claim of more — that is the normal, complete
-    answer, and treating it as truncation would alert on every healthy tick.
-    """
-    for key in ("has_more", "has_next", "more"):
-        value = payload.get(key)
-        if isinstance(value, bool) and value:
-            return True
-    for key in ("total", "total_count", "count", "total_results"):
-        value = payload.get(key)
-        if isinstance(value, int) and not isinstance(value, bool) and value > row_count:
-            return True
-    # A cursor we cannot turn into a request (`_next_link` rejected it as off-origin, or
-    # it is an opaque token whose parameter name we would have to guess) is still the
-    # vendor telling us there is another page. This runs only after `_next_link` has
-    # declined, so a followable link never lands here.
-    for key in ("next_cursor", "next_page_token", "cursor", "next", "next_page_url", "next_url"):
-        value = payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return True
-    return False
 
 
 # --- reading an agent back (see `BolnaEngine.get_agent` for the evidence) ------
@@ -455,8 +528,14 @@ def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
 
     `agent_welcome_message` is the key `_agent_body` SENDS (read at source in their OSS
     server's agent object), so this is hand-maintained from our own request shape for
-    `_agent_system_prompt`'s reason — Bolna publishes no OpenAPI spec. If their read path
-    spells it differently the honest outcome is `readable=False`, which the judge reports
+    `_agent_system_prompt`'s reason: `AgentV2`, the spec's own read-back schema, does NOT
+    declare `agent_welcome_message` at all (it declares `id`, `agent_name`, `agent_type`,
+    `agent_status`, `created_at`, `updated_at`, `tasks`, `ingest_source_config`,
+    `agent_prompts`). Either the schema is incomplete — likely, since the vendor's PATCH
+    example writes the field and the spec's provider enums are demonstrably not exhaustive
+    — or the greeting genuinely cannot be read back, in which case the judge can never
+    verify it and OPERATIONS §2 gate 2 is the only thing that will say so. If their read
+    path spells it differently the honest outcome is `readable=False`, which the judge reports
     as `unreadable` rather than as a missing disclosure: an adapter that cannot find the
     field must not be able to fail a publish on a compliance ground (P3.3).
 
@@ -491,9 +570,11 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     reporting the first as the second would let a publish that never applied read as an
     agent deliberately left on the engine's default.
 
-    SAME STANDING AS `_agent_system_prompt`: hand-maintained from the shape we POST,
-    because Bolna publishes no OpenAPI spec. If their read path names these fields
-    differently the honest outcome is `readable=False`, not a wrong answer.
+    NOW VERIFIED-OAS RATHER THAN HAND-MAINTAINED: `AgentV2.tasks` is a `TasksConfigV2`
+    array whose `tools_config` is `ToolsConfigV2`, so `synthesizer.provider`,
+    `synthesizer.provider_config.voice`, `transcriber.provider`/`model` and
+    `llm_agent.llm_config.model` are the spec's own names. If a live account names them
+    differently the honest outcome is still `readable=False`, not a wrong answer.
     """
     # `agent_config` when the read-back echoes our request envelope, ROOT otherwise —
     # the same two-place lookup `_agent_name` and `_agent_greeting` already do, and it
@@ -523,11 +604,24 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
             node = node.get(key)
         return node if isinstance(node, str) and node else None
 
+    # `llm_agent.llm_config.model` is where the v2 object keeps it (`LlmAgentV2` nests
+    # `SimpleLlmAgent` under `llm_config`), and this read the FLAT v1 spelling — so on a
+    # v2 agent, the one this adapter now creates, `llm_model` came back `None` while
+    # `readable` said True (D-355). That is the worst combination the function can
+    # produce and the docstring above says so: `readable=False` means "we could not find
+    # the block", and a confident `None` instead means "this agent runs no configured
+    # model", which is what the drift judge would have scored.
+    #
+    # BOTH SPELLINGS, v2 first. An account may still hold agents created through the v1
+    # path (this adapter's own history, or the dashboard), and their read-back is flat.
+    # Falling back costs one dict lookup and the alternative is calling a real, readable
+    # agent unreadable.
+    llm_model = leaf("llm_agent", "llm_config", "model") or leaf("llm_agent", "model")
     return (
         ModelConfig(
             stt_provider=leaf("transcriber", "provider"),
             stt_model=leaf("transcriber", "model"),
-            llm_model=leaf("llm_agent", "model"),
+            llm_model=llm_model,
             tts_provider=leaf("synthesizer", "provider"),
             tts_voice=leaf("synthesizer", "provider_config", "voice"),
         ),
@@ -638,11 +732,40 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 # failing, which is why screens could offer controls this engine refuses.
 #
 # WHAT IS GROUNDED: BYOK on all three legs is D-31/D-36 and is what `_agent_body` above
-# actually sends (`llm_agent.model`, `synthesizer.provider`, `transcriber.provider` all
-# carry OUR strings). The built-in knowledge base is the `rag_id` CRUD API this adapter
-# calls. `webhook_auth="source_ip"` is D-31's finding that Bolna signs nothing.
+# actually sends (`llm_agent.llm_config.model`, `synthesizer.provider`,
+# `transcriber.provider` all carry OUR strings). `webhook_auth="source_ip"` is D-31's
+# finding that Bolna signs nothing, and the vendor names the one address it delivers from.
 #
 # WHAT IS A DELIBERATE *NO* RATHER THAN AN UNKNOWN:
+# * `knowledge_base=False`. **THIS WAS `True` AND THE IMPLEMENTATION BEHIND IT COULD NEVER
+#   HAVE WORKED (D-354).** Bolna has a knowledge base and this adapter called it — with a
+#   JSON body of `{agent_id, name, text}`. VERIFIED-OAS: `POST /knowledgebase` is
+#   `multipart/form-data` taking `file` (a PDF, max 20 MB) or `url`, "Provide either
+#   `file` or `url`, not both", and it accepts NO agent id and NO raw text. Two separate
+#   walls, and the second is the one that decides the flag:
+#     (a) our `KBSourceRef` carries `text` — parsed, chunked, approved prose. There is no
+#         field on this endpoint that takes prose. Rendering it to a PDF inside the
+#         adapter to squeeze it through would be inventing a document format on the money-
+#         adjacent side of a compliance feature, on a route nobody has ever called live.
+#     (b) `Knowledgebase` has no `agent_id`, so a created KB is attached to NOTHING. The
+#         link is made on the AGENT: `llm_agent.agent_type = "knowledgebase_agent"` plus
+#         `llm_config.vector_store.provider_config.vector_ids = [...]`, keyed by the
+#         knowledge base's `vector_id` — a DIFFERENT identifier from the `rag_id` this
+#         adapter returned and deleted by. So `attach_kb` returning 2xx would have meant
+#         "a document exists in the account", never "this agent can retrieve it", and
+#         `list_kb`'s filter on a non-existent `row["agent_id"]` returned `[]` for every
+#         agent forever — which `kb/reconciliation` reads as "the engine holds nothing",
+#         i.e. permanent silent drift.
+#   `False` is therefore the honest descriptor and the refusals below are the honest
+#   behaviour: an absent capability produces a NAMED refusal, never a silent no-op, and
+#   `require_capability` refuses at the KB publish path (`kb/service.py`) before a single
+#   request goes out. WHAT WOULD REVERSE IT is ours, not the vendor's: `KBSourceRef` would
+#   have to carry a PDF or a public URL instead of prose, and `attach_kb` would have to
+#   PATCH the agent's `vector_ids` as its second half. That is a change to the KB tier
+#   design (T0-T4, TRD §6) and to what `kb_sources` stores, so it is a decision and not a
+#   flag flip — D-354 names it. In-call retrieval meanwhile is OURS (D-28's managed vector
+#   service behind the RAG tool endpoint), which is where every KB tier above T0 already
+#   lives, so nothing a client sees today depended on the engine built-in.
 # * `campaigns=False`. Bolna HAS campaign objects; TRD §5 records them and CLAUDE.md
 #   prefers configuring engine built-ins over rebuilding them. We do not use them — every
 #   campaign in this system is dispatched by `apps/api/campaigns` + `apps/workers`,
@@ -684,7 +807,7 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     llm="ours",
     agent_hosting="control_plane",
     campaigns=False,
-    knowledge_base=True,
+    knowledge_base=False,
     number_series=frozenset(),
     transfer=False,
     webhook_auth="source_ip",
@@ -830,86 +953,127 @@ class BolnaEngine:
                             "pipelines": [["transcriber", "llm", "synthesizer"]],
                         },
                         "tools_config": {
-                            # MARKED ASSUMPTION — `family` vs `provider` (D-260).
-                            # This flat block is their LEGACY `SimpleLlmAgent` shape and
-                            # it DOES validate (their `ToolsConfig.llm_agent` is a union
-                            # of `LlmAgent` and `SimpleLlmAgent`; ours lacks the
-                            # `agent_type`/`llm_config` pair the first requires, so it
-                            # binds to the second). What does NOT hold is the field we
-                            # use to choose the model's vendor:
+                            # **THIS BLOCK WAS THE V1 SHAPE POSTED AT THE V2 ENDPOINT
+                            # (D-355).** `POST /v2/agent` binds `tools_config` to
+                            # `ToolsConfigV2`, whose `llm_agent` is `LlmAgentV2` —
+                            # `{agent_type, agent_flow_type, routes, llm_config}` — with the
+                            # model settings NESTED under `llm_config`. What we sent was the
+                            # flat legacy `SimpleLlmAgent` body, which is what `ToolsConfig`
+                            # (v1) accepts. VERIFIED-OAS plus the vendor's own
+                            # `create-agent/SKILL.md`, whose worked Indian-language example
+                            # is exactly the nesting written below.
                             #
-                            # ASSUMED: `family` selects which LLM client runs our model.
-                            # CONTRADICTED BY: in bolna-ai/bolna@cd2e192 `family` is
-                            # declared on `Llm` and READ BY NOTHING, while the client is
-                            # chosen by `llm_config["provider"]` against
-                            # `SUPPORTED_LLM_PROVIDERS` (`bolna/providers.py`). Their
-                            # `Llm.provider` defaults to `"openai"`, so a config that
-                            # names no provider routes to OpenAI whatever `model` says.
-                            # `LLMProvider` has no `sarvam` member at all, so D-36's
-                            # Sarvam 105B leg has no obvious value here — which is why
-                            # this is NOT silently "fixed" by guessing one: a wrong
-                            # `provider` is a 400 or a mis-routed call, and our
-                            # `ModelConfig` has no `llm_provider` to carry the right one.
-                            # SETTLED BY: OPERATIONS §2 gate 16 — create an agent, read it
-                            # back, and see which of `family`/`provider` the hosted
-                            # platform stores and honours. The answer decides whether
-                            # `ModelConfig` grows an `llm_provider` field.
+                            # `agent_type` is what selects the union arm: `simple_llm_agent`
+                            # (this) or `knowledgebase_agent` (the arm that adds
+                            # `vector_store` — see `BOLNA_CAPABILITIES.knowledge_base` for
+                            # why we do not send it).
+                            #
+                            # MARKED ASSUMPTION RETAINED, AND NARROWED — `family` vs
+                            # `provider` (D-260). Both fields exist on `SimpleLlmAgent` and
+                            # both default to `"openai"`. VERIFIED-OSS says `family` is read
+                            # by nothing and `provider` chooses the client
+                            # (bolna-ai/bolna@cd2e192, `bolna/providers.py`), so both are
+                            # sent, spelling the same thing, which is the only combination
+                            # that cannot route somewhere we did not name.
+                            # **AND THE SARVAM QUESTION IS NOW ANSWERED, NOT OPEN**
+                            # (VERIFIED-VENDOR-REPO, `references/providers-matrix.md`):
+                            # Bolna's LLM providers are OpenAI, Azure OpenAI, OpenRouter,
+                            # Google Gemini, and "Custom (LiteLLM-compatible)" — there is no
+                            # `sarvam` LLM provider. D-36's Sarvam 105B leg is reachable
+                            # only as a CUSTOM model: register it with
+                            # `POST /user/model/custom` (an OpenAI-style `base_url` + key)
+                            # and then send `provider: "custom"`. That is a real change with
+                            # a real prerequisite — `ModelConfig` grows an `llm_provider`,
+                            # and somebody registers the model on the account — so it is
+                            # D-356, not a literal edited here. Until it is done this agent
+                            # runs on whatever OpenAI-compatible model `cfg.models.llm_model`
+                            # names, which is what it already did.
                             "llm_agent": {
+                                "agent_type": "simple_llm_agent",
                                 "agent_flow_type": "streaming",
-                                "family": "openai",
-                                "model": cfg.models.llm_model,
-                                # SENT EXPLICITLY, and the reason is that NOT sending them
-                                # was a decision nobody had taken (D-283).
-                                #
-                                # READ AT SOURCE, bolna-ai/bolna@cd2e192, `bolna/models.py`:
-                                # `Llm.max_tokens` defaults to **100** and
-                                # `Llm.temperature` to **0.1**, and
-                                # `task_manager.__setup_llm` reads both with bare
-                                # subscripts off `llm_agent_config`. Our body omitted
-                                # them, so the stored `agent_config.model_dump()` filled
-                                # the vendor's defaults and every agent on the platform
-                                # ran with a 100-token ceiling on each reply — a real
-                                # product knob, silently inherited.
-                                #
-                                # WHY 400 AND NOT 100. A cap is a SAFETY VALVE against a
-                                # runaway generation, not a style control: brevity is the
-                                # script's job, and a ceiling that bites mid-sentence does
-                                # not shorten a reply, it truncates one — the TTS then
-                                # speaks a fragment and hangs. 100 is close enough to a
-                                # normal turn to bite, and it is worse in OUR language than
-                                # the number suggests: token fertility (tokens per word) is
-                                # ~2.1-2.3 for Telugu against ~1.2-1.4 for English on
-                                # general tokenizers, and Sarvam's own reaches 1.4-2.1 for
-                                # Indic — so 100 tokens is roughly 45 Telugu words, and a
-                                # receptionist reading back three appointment slots passes
-                                # that. 400 clears every legitimate turn while still
-                                # bounding a monologue a caller would have to sit through.
-                                # (Fertility figures: FLORES-200 tokenizer comparisons,
-                                # searched 18 Aug 2026 — arxiv.org/pdf/2605.29379 and the
-                                # IndicSuperTokenizer report. REPORTED, NOT READ against
-                                # Sarvam's own tokenizer, and it does not need to be: the
-                                # decision is "leave headroom", and the direction is not in
-                                # doubt.) The LLM leg is Sarvam 105B, FREE PER TOKEN
-                                # (D-35/D-36, TRD §10), so the headroom costs nothing on the
-                                # money path — the only cost of a higher cap is a longer
-                                # worst-case utterance, which `max_call_duration_s` already
-                                # bounds from the other side.
-                                #
-                                # WHY 0.1 — THE VENDOR'S DEFAULT IS RIGHT, AND IS SENT
-                                # ANYWAY. This agent reads a client's script and carries
-                                # `TRUTHFUL_ANSWER_DIRECTIVE` underneath it; the failure we
-                                # care about is the model paraphrasing away a compliance
-                                # sentence or improvising a price, and low temperature is
-                                # the setting that makes that rarest. Raising it buys
-                                # "sounds more natural", which is a prompt-and-voice problem
-                                # on a phone call rather than a sampling one. It is written
-                                # here rather than inherited because a vendor default is
-                                # somebody else's release note: a compliance-bearing prompt
-                                # is not a thing to leave on a number that can change
-                                # without our deploying.
-                                "max_tokens": 400,
-                                "temperature": 0.1,
+                                "llm_config": {
+                                    "agent_flow_type": "streaming",
+                                    "provider": "openai",
+                                    "family": "openai",
+                                    "model": cfg.models.llm_model,
+                                    # SENT EXPLICITLY, and the reason is that NOT sending them
+                                    # was a decision nobody had taken (D-283).
+                                    #
+                                    # READ AT SOURCE, bolna-ai/bolna@cd2e192, `bolna/models.py`:
+                                    # `Llm.max_tokens` defaults to **100** and
+                                    # `Llm.temperature` to **0.1**, and
+                                    # `task_manager.__setup_llm` reads both with bare
+                                    # subscripts off `llm_agent_config`. Our body omitted
+                                    # them, so the stored `agent_config.model_dump()` filled
+                                    # the vendor's defaults and every agent on the platform
+                                    # ran with a 100-token ceiling on each reply — a real
+                                    # product knob, silently inherited.
+                                    #
+                                    # WHY 400 AND NOT 100. A cap is a SAFETY VALVE against a
+                                    # runaway generation, not a style control: brevity is the
+                                    # script's job, and a ceiling that bites mid-sentence does
+                                    # not shorten a reply, it truncates one — the TTS then
+                                    # speaks a fragment and hangs. 100 is close enough to a
+                                    # normal turn to bite, and it is worse in OUR language than
+                                    # the number suggests: token fertility (tokens per word) is
+                                    # ~2.1-2.3 for Telugu against ~1.2-1.4 for English on
+                                    # general tokenizers, and Sarvam's own reaches 1.4-2.1 for
+                                    # Indic — so 100 tokens is roughly 45 Telugu words, and a
+                                    # receptionist reading back three appointment slots passes
+                                    # that. 400 clears every legitimate turn while still
+                                    # bounding a monologue a caller would have to sit through.
+                                    # (Fertility figures: FLORES-200 tokenizer comparisons,
+                                    # searched 18 Aug 2026 — arxiv.org/pdf/2605.29379 and the
+                                    # IndicSuperTokenizer report. REPORTED, NOT READ against
+                                    # Sarvam's own tokenizer, and it does not need to be: the
+                                    # decision is "leave headroom", and the direction is not in
+                                    # doubt.) The LLM leg is Sarvam 105B, FREE PER TOKEN
+                                    # (D-35/D-36, TRD §10), so the headroom costs nothing on the
+                                    # money path — the only cost of a higher cap is a longer
+                                    # worst-case utterance, which `max_call_duration_s` already
+                                    # bounds from the other side.
+                                    #
+                                    # WHY 0.1 — THE VENDOR'S DEFAULT IS RIGHT, AND IS SENT
+                                    # ANYWAY. This agent reads a client's script and carries
+                                    # `TRUTHFUL_ANSWER_DIRECTIVE` underneath it; the failure we
+                                    # care about is the model paraphrasing away a compliance
+                                    # sentence or improvising a price, and low temperature is
+                                    # the setting that makes that rarest. Raising it buys
+                                    # "sounds more natural", which is a prompt-and-voice problem
+                                    # on a phone call rather than a sampling one. It is written
+                                    # here rather than inherited because a vendor default is
+                                    # somebody else's release note: a compliance-bearing prompt
+                                    # is not a thing to leave on a number that can change
+                                    # without our deploying.
+                                    "max_tokens": 400,
+                                    "temperature": 0.1,
+                                },
                             },
+                            # MARKED ASSUMPTION, AND THE EVIDENCE IS AGAINST IT (D-358).
+                            # `cfg.models.tts_voice` holds a MODEL string — `bulbul:v3` or
+                            # `bulbul:v2`, per `agents/voices.py`, which says outright that
+                            # it "offers a choice of MODEL ... and offers no named speakers"
+                            # because no Sarvam speaker list was known. It is sent in the
+                            # `voice` key.
+                            #
+                            # The vendor's own Sarvam example puts those in DIFFERENT keys:
+                            # `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh",
+                            # "voice_id": "ashutosh"}` (VERIFIED-VENDOR-REPO,
+                            # `create-agent/SKILL.md`), and `GET /me/voices` exists to list
+                            # the speakers once a TTS provider is configured. So we are
+                            # very likely naming a model where a speaker belongs, and
+                            # naming no model at all.
+                            #
+                            # NOT "FIXED" HERE, and the restraint is the point: moving the
+                            # string to `model` leaves `voice` unset and the engine picks
+                            # whichever speaker it likes, which changes what every client's
+                            # caller HEARS on the strength of one example in a prose file.
+                            # Splitting it properly needs `ModelConfig` to carry a
+                            # `tts_model` beside `tts_voice`, and the voice catalog to carry
+                            # real speaker ids — which come from `GET /me/voices` on a live
+                            # account. Both halves are named in D-358; the second is the
+                            # external blocker (an account), and OPERATIONS §2 gate 3
+                            # already owns the question.
                             "synthesizer": {
                                 "provider": cfg.models.tts_provider,
                                 "provider_config": {"voice": cfg.models.tts_voice},
@@ -921,6 +1085,32 @@ class BolnaEngine:
                                 "language": cfg.language_primary,
                                 "stream": True,
                             },
+                            # **REQUIRED, AND WE WERE NOT SENDING THEM (D-355).**
+                            # VERIFIED-OAS: `ToolsConfigV2.required` is
+                            # `[llm_agent, synthesizer, transcriber, input, output]`, and
+                            # `InputOutput` itself requires both `provider` and `format`.
+                            # A create that omits them is a 400 — the agent never exists,
+                            # so nothing downstream of publish can be right either.
+                            #
+                            # WHY `plivo`, WHICH IS THE VENDOR'S OWN DEFAULT
+                            # (`InputOutput.provider.default: plivo`). These two blocks say
+                            # which telephony leg carries the audio, and D-05 puts our
+                            # Indian numbers on Plivo/Exotel/Vobiz rather than on Bolna's
+                            # hosted pool — with Plivo the 160-series (transactional)
+                            # carrier, which is the series every agent we publish today
+                            # runs on. Naming it rather than inheriting it is the same
+                            # argument `temperature` makes above: a vendor default is
+                            # somebody else's release note.
+                            #
+                            # NOT DERIVED FROM `cfg`, and that is a gap named rather than
+                            # papered over: `AgentConfig` carries no telephony provider,
+                            # because until now nothing sent one. A 140-series promotional
+                            # agent belongs on Vobiz and would need this to vary — which is
+                            # a column, a UI control and a DLT-series decision, i.e. D-357,
+                            # not a literal edited here. `format: "wav"` is the only value
+                            # `InputOutput.format` enumerates.
+                            "input": {"provider": "plivo", "format": "wav"},
+                            "output": {"provider": "plivo", "format": "wav"},
                         },
                         "task_config": {
                             "hangup_after_silence": 10,
@@ -1111,7 +1301,22 @@ class BolnaEngine:
         return handle
 
     async def end_call(self, call_id: str) -> None:
-        await self._request("POST", f"/executions/{call_id}/stop")
+        """`POST /call/{execution_id}/stop`.
+
+        **THE PATH WAS WRONG (D-353).** This was `POST /executions/{id}/stop`, which is not
+        a route the vendor has: the pinned OAS's only `/executions/...` entries are the two
+        single-item GETs, and the stop route lives under `/call`. VERIFIED-OAS,
+        `/call/{execution_id}/stop`: "Stop a queued or scheduled call".
+
+        WHAT IT CANNOT DO, in the vendor's own words: *"This cannot stop a call already in
+        progress"* (`make-call/SKILL.md`). So this method ends a call that has not started;
+        it does not hang up on a live caller, and no route in the spec does. Nothing in
+        this tree relies on the second meaning — `end_call` is the campaign path's way to
+        pull a queued dial back after a DNC addition or the big red switch, which is
+        exactly the queued/scheduled case. Recorded here rather than assumed, because the
+        method's NAME suggests the stronger promise and the next reader will believe it.
+        """
+        await self._request("POST", f"/call/{call_id}/stop")
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
         # NOT "unverified" any more — see `BOLNA_CAPABILITIES.transfer` for what was read
@@ -1142,77 +1347,41 @@ class BolnaEngine:
 
     # --- knowledge base ------------------------------------------------------
     #
-    # Their surface, and how far each part of it is actually verified (TRD §5 records
-    # it as "rag_id CRUD API (POST/GET/DELETE /knowledgebase)", and their published API
-    # reference indexes POST /knowledgebase, GET /knowledgebase/all,
-    # GET /knowledgebase/{rag_id}, DELETE /knowledgebase/{rag_id}):
+    # ALL THREE METHODS REFUSE. See `BOLNA_CAPABILITIES.knowledge_base` for the two walls
+    # that decide it (D-354): the vendor's `POST /knowledgebase` takes a PDF or a URL over
+    # multipart and cannot ingest our `KBSourceRef.text`, and a created knowledge base
+    # carries no agent linkage — the link lives on the AGENT's `vector_ids`, keyed by a
+    # `vector_id` this adapter never read.
     #
-    # * VERIFIED from published docs — the ROUTES and the fact that a knowledge base is
-    #   addressed by the vendor's own `rag_id`. Note what that rules out: our
-    #   `kb_sources.id` is not a key on their side, so `DELETE /knowledgebase/<our uuid>`
-    #   would 404 forever while looking like a working detach. The id we delete by must
-    #   be the one POST handed back, which is why `attach_kb` now returns it.
-    # * UNVERIFIED until the pilot — every BODY on this path. Bolna publishes no OpenAPI
-    #   spec, so the create payload here, the `rag_id` field name in its response, and
-    #   the row shape of the list are hand-maintained claims (the module docstring's
-    #   standing warning). Two specifically to settle at gate 8:
-    #     (a) does the list response carry the agent linkage this filters on? Our account
-    #         holds every tenant's agents, so `list_kb` filters STRICTLY — a row that
-    #         does not name this agent is not attributed to it.
-    #     (b) does deleting the knowledge base also drop the agent's reference to it, or
-    #         does the agent config keep a dangling `rag_id`? If the latter, detach grows
-    #         a second call (an agent update) — it does NOT become optional.
+    # THE REFUSAL IS `require_capability`, NOT A BESPOKE `raise`, and that is the point: it
+    # is the same code a caller gets from asking the descriptor BEFORE calling, so a screen
+    # and these methods cannot disagree, and widening the flag without writing the client
+    # makes them fail loudly here rather than fall off the end returning None.
+    #
+    # `list_kb` RETURNING `[]` WOULD HAVE BEEN THE WORST OF THE THREE and is why this is a
+    # refusal rather than a stub: `kb/reconciliation` reads an empty list as "the engine
+    # holds no documents for this agent", which is a positive claim about the engine, and
+    # a refusal is the only answer that is not a lie about a system we cannot read.
 
     async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
-        """Built-in KB (`rag_id`). Under BYOK the KB is NOT a model slot (D-33): this
-        is a document push, and multilingual mode is IMMUTABLE at KB creation — Telugu
-        retrieval quality is pilot gate 8.
-
-        The returned handle is the ONLY way this document can ever be removed again, so
-        a response we cannot read a handle out of is a failure, not a success: treating
-        it as one would attach text nobody can retract.
-        """
         require_capability("knowledge_base", engine=self)
-        data = await self._request(
-            "POST",
-            "/knowledgebase",
-            json={"agent_id": ref, "name": source.title, "text": source.text},
+        # Unreachable while the descriptor says False, and kept as a real refusal rather
+        # than an `assert` for `provision_number`'s reason: the way this line gets reached
+        # is somebody flipping the flag without writing the multipart upload and the agent
+        # `vector_ids` patch, and that must fail loudly rather than return None.
+        raise ProblemError(
+            kind="dependency",
+            code="engine_capability_unverified",
+            title="This voice platform cannot hold this knowledge base",
+            detail="The voice platform's knowledge base accepts documents, not text.",
         )
-        rag_id = data.get("rag_id") or data.get("id")
-        if not isinstance(rag_id, str) or not rag_id:
-            raise ProblemError(
-                kind="dependency",
-                code="engine_bad_response",
-                title="Voice engine returned an unusable response",
-                detail="The voice platform did not return a knowledge base id.",
-            )
-        return rag_id
 
     async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
-        """`DELETE /knowledgebase/{rag_id}`.
-
-        No swallowing of the vendor's 404: an id we cannot delete is an id we cannot
-        prove is gone, and the caller's next act is to publish a replacement.
-        """
         require_capability("knowledge_base", engine=self)
-        await self._request("DELETE", f"/knowledgebase/{kb}")
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         require_capability("knowledge_base", engine=self)
-        data = await self._request("GET", "/knowledgebase/all")
-        rows = data.get("data")
-        if not isinstance(rows, list):
-            rows = data.get("knowledgebases")
-        if not isinstance(rows, list):
-            return []
-        handles: list[EngineKBRef] = []
-        for row in rows:
-            if not isinstance(row, dict) or str(row.get("agent_id") or "") != ref:
-                continue
-            rag_id = row.get("rag_id") or row.get("id")
-            if isinstance(rag_id, str) and rag_id:
-                handles.append(rag_id)
-        return handles
+        return []
 
     # --- reading the truth ---------------------------------------------------
 
@@ -1227,10 +1396,18 @@ class BolnaEngine:
         duration = payload.get("conversation_duration") or payload.get("duration")
         telephony = payload.get("telephony_data") or {}
         agent_ref = payload.get("agent_id")
+        # **THE VENDOR HAS NO TOP-LEVEL `direction` AND THIS READ ONE (D-359).** It said
+        # `payload.get("direction") == "inbound"`, and `AgentExecution` declares no such
+        # field; the direction lives on `telephony_data.call_type`, enum
+        # `["outbound", "inbound"]` (VERIFIED-OAS). So the test was never true and every
+        # execution — inbound receptionist calls included — was normalized as `outbound`.
+        # `telephony_data` first, the old spelling kept as a fallback because it costs
+        # nothing and an unknown payload shape should degrade rather than flip.
+        raw_direction = telephony.get("call_type") or payload.get("direction")
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=str(agent_ref) if agent_ref else None,
-            direction="inbound" if payload.get("direction") == "inbound" else "outbound",
+            direction="inbound" if raw_direction == "inbound" else "outbound",
             status=status,
             raw_status=raw_status,
             terminal=raw_status in _TERMINAL_RAW,
@@ -1260,10 +1437,12 @@ class BolnaEngine:
         )
 
     def _cost(self, payload: dict[str, Any]) -> CostBreakdown | None:
-        """USD cents -> INR, and an honest account of whether "USD cents" is a FACT.
+        """Vendor cents -> INR, and an honest account of which currency's cents.
 
-        Bolna publishes no OpenAPI spec, so "costs arrive in USD cents" is a claim read
-        off their docs, not a guarantee — and it is worth 83x. This used to write
+        The UNIT is a fact: the vendor's OAS says "in cents" on `total_cost` and on all
+        five `cost_breakdown` members (D-350, see `_ASSUMED_MINOR_UNITS_PER_MAJOR`). The
+        CURRENCY is not — the spec names none, and getting it wrong is worth 83x. This
+        used to write
         `source_currency="USD"` as a literal, which made the assumption unfalsifiable
         from inside: pilot gate 7's currency criterion read our own guess back and
         agreed with it (OPERATIONS §2). Three behaviours now, in order:
@@ -1282,10 +1461,10 @@ class BolnaEngine:
         """
         total = payload.get("total_cost")
         if total is None:
-            # SILENT UNTIL P1.2. `total_cost` is a HAND-MAINTAINED CLAIM about a vendor
-            # that publishes no OpenAPI spec (TRD §5, pilot gate 7), so "the key is not
-            # there" and "the key is spelled differently on the live account" are the same
-            # observation from here — and the second one means every completed call meters
+            # SILENT UNTIL P1.2. `total_cost` is now VERIFIED-OAS (`AgentExecution.
+            # total_cost`), so a missing key is no longer plausibly a spelling we guessed
+            # — but "the key is not there" and "this execution carries no cost yet" are
+            # still the same observation from here, and the second one means a call meters
             # nothing, every usage panel reads ₹0.00, no cap ever arms and no wallet is
             # ever debited. Refusing to fabricate a cost is right; refusing to COUNT the
             # refusals is what made it undetectable. The pipeline turns this into an alert
@@ -1343,95 +1522,116 @@ class BolnaEngine:
             update={"raw_document": engine_document(payload, engine=self.name)}
         )
 
-    async def list_executions(self, *, since: datetime) -> ExecutionListing:
-        """The guarantee of record (D-31) — and an honest account of what it covered.
+    async def _agent_refs(self) -> list[str]:
+        """Every agent id on this Bolna account. `GET /v2/agent/all` -> a bare JSON array
+        of `AgentV2` objects, each with a top-level `id` (VERIFIED-OAS: `AgentListV2` is
+        declared `type: array` of `AgentV2`, and `AgentV2.id` is the uuid).
 
-        See `_LISTING_PAGE_SIZES` for why completeness is inferred rather than known,
-        and `_next_link` for the one continuation form this will follow.
+        `_request` wraps a bare array as `{"data": [...]}`, which is why this reads
+        `_listing_rows` rather than the payload directly. `agent_id` is accepted beside
+        `id` because the v1 `GET /all` rows spell it that way and an account may still be
+        answered by that shape; a row with neither is skipped rather than guessed at.
 
-        Three ways the LISTING can end, in order of how much we know:
-
-        * a continuation link ran out -> `complete=True`, `pages_fetched` says how many;
-        * the payload said there is more and named no link we can GET -> `explicit_more`;
-        * no metadata at all and the row count looks like a page size ->
-          `full_page_suspected`.
-
-        And four ways the WALK itself can stop, kept apart because each sends an
-        operator somewhere different (they were once one label, `next_link_loop`, which
-        described only the first of them):
-
-        * the continuation repeats a URL we already fetched -> `next_link_loop`;
-        * a new continuation returns only executions we already had ->
-          `next_link_no_progress`;
-        * the page carried no executions at all and still offered a continuation ->
-          `empty_page_with_next` (`pages_fetched == 1` = the first page was empty);
-        * our own page bound stopped a walk that was still producing -> `page_cap_reached`.
-
-        Rows are de-duplicated by execution id across pages: a vendor whose window
-        shifts under us (executions keep arriving while we page) can legitimately repeat
-        one, and re-driving the same execution twice is wasted engine load.
+        THE ACCOUNT, NOT THE TENANT. One Bolna account holds every tenant's agents, so this
+        is deliberately global — the poller's job is to find executions nobody told us
+        about, and scoping it to agents we currently know about would hide exactly the call
+        placed by an agent our routing table has lost.
         """
-        listing = await self._request(
-            "GET", "/executions", params={"created_after": since.isoformat()}
-        )
+        payload = await self._request("GET", "/v2/agent/all")
+        refs: list[str] = []
+        for row in _listing_rows(payload):
+            for key in ("id", "agent_id"):
+                value = row.get(key)
+                if isinstance(value, str) and value.strip():
+                    refs.append(value.strip())
+                    break
+        return refs
+
+    async def list_executions(self, *, since: datetime) -> ExecutionListing:
+        """The guarantee of record (D-31) — rewritten from the vendor's real contract.
+
+        Read the block above `_LISTING_PAGE_SIZE` first: the endpoint this method used to
+        call does not exist, and the completeness heuristic it used to run was built on the
+        premise that Bolna publishes no pagination contract. It publishes one.
+
+        WHAT THIS DOES NOW. `GET /v2/agent/all` for the account's agents, then for each
+        agent `GET /v2/agent/{ref}/executions?from=<since>&page_number=n&page_size=50`,
+        looping while `has_more` is True. `from` is the vendor's own `created_at >=` filter
+        (sent as UTC ISO 8601 with an explicit offset — `references/bolna-core.md` warns
+        that a datetime without one "is rejected or silently runs in UTC").
+
+        HOW COMPLETENESS IS DECIDED, and `complete=True` stays a POSITIVE claim:
+
+        * every agent's walk ended on a response that said `has_more: false`
+          -> `complete=True`;
+        * a response carried NO `has_more` at all and returned a full page
+          -> `full_page_suspected`. The flag is documented, so its absence means we are
+          not talking to the endpoint we think we are, and a full page under that
+          uncertainty is the one shape that could be hiding rows;
+        * our own per-agent bound stopped a walk that still said `has_more`
+          -> `page_cap_reached`;
+        * `has_more` stayed True but the page produced no execution we had not already
+          seen -> `next_link_no_progress`. Without this a stuck flag burns the full cap
+          on identical pages and then reports the wrong reason.
+
+        THE FIRST REASON FOUND WINS AND THE WALK CONTINUES TO THE NEXT AGENT. A listing
+        that is incomplete for one agent is still worth every row it can get for the
+        others — the poller alerts once and repairs what it has, which is what
+        `reconcile_executions` is written to do with a `complete=False` answer.
+
+        Rows are de-duplicated by execution id across pages and across agents: the vendor's
+        window shifts under a walk (executions keep arriving while we page), so a repeat is
+        legitimate and re-driving one call twice is wasted engine load.
+        """
+        cutoff = since.astimezone(UTC)
         snapshots: list[ExecutionSnapshot] = []
         seen_ids: set[str] = set()
-        seen_links: set[str] = set()
-        pages = 0
+        # The `GET /v2/agent/all` response IS a response we read, so it counts:
+        # `pages_fetched` is "how many responses were read", and understating it would make
+        # a fan-out look like a single-page vendor in the one metric that shows the walk ran.
+        pages = 1
         reason: ListingIncompleteReason | None = None
 
-        while True:
-            pages += 1
-            rows = _listing_rows(listing)
-            new_rows = 0
-            for row in rows:
-                snapshot = self._snapshot(row)
-                if snapshot.engine_call_id in seen_ids:
-                    continue
-                seen_ids.add(snapshot.engine_call_id)
-                snapshots.append(snapshot)
-                new_rows += 1
+        for agent_ref in await self._agent_refs():
+            page_number = 1
+            while True:
+                payload = await self._request(
+                    "GET",
+                    f"/v2/agent/{agent_ref}/executions",
+                    params={
+                        "from": cutoff.isoformat(),
+                        "page_number": page_number,
+                        "page_size": _LISTING_PAGE_SIZE,
+                    },
+                )
+                pages += 1
+                rows = _listing_rows(payload)
+                new_rows = 0
+                for row in rows:
+                    snapshot = self._snapshot(row)
+                    if snapshot.engine_call_id in seen_ids:
+                        continue
+                    seen_ids.add(snapshot.engine_call_id)
+                    snapshots.append(snapshot)
+                    new_rows += 1
 
-            link = self._next_link(listing)
-            if link is None:
-                # No link. Either the payload claims more (and we cannot fetch it), or
-                # the count itself is the only evidence we will ever get.
-                if _claims_more(listing, len(rows)):
-                    reason = "explicit_more"
-                elif len(rows) in _LISTING_PAGE_SIZES:
-                    reason = "full_page_suspected"
-                break
-            if link in seen_links:
-                # The continuation points back at a page we already fetched: walking on
-                # re-reads it forever, the one failure mode where "follow the link"
-                # becomes an outage against the vendor.
-                reason = "next_link_loop"
-                break
-            if not rows:
-                # No rows AND a continuation. This used to be reported as a loop, which
-                # sent an operator hunting a pagination bug that is not there: nothing
-                # repeated, the page was simply empty — most often the FIRST page of an
-                # empty window, which `pages_fetched == 1` says outright.
-                # We still stop. Following a continuation that produced nothing is a
-                # guess that burns the page cap on empty responses; stopping with a
-                # reason the operator can act on is the honest end (rejected
-                # alternative: keep walking until the cap, which turns one quiet tick
-                # into twenty requests and reports `page_cap_reached` — a WORSE label,
-                # since it implies we found rows all the way to our bound).
-                reason = "empty_page_with_next"
-                break
-            if new_rows == 0:
-                # Rows came back, but every one was an execution we already had, under a
-                # link we had not seen. Distinct from a loop (the URLs differ) and from
-                # an empty page (rows exist): the vendor is re-serving content, so the
-                # walk has stopped covering new window.
-                reason = "next_link_no_progress"
-                break
-            if pages >= _LISTING_MAX_PAGES:
-                reason = "page_cap_reached"
-                break
-            seen_links.add(link)
-            listing = await self._request("GET", link)
+                has_more = payload.get("has_more")
+                if not isinstance(has_more, bool):
+                    # The documented flag is missing. Believe the page instead: a SHORT page
+                    # cannot be hiding anything (the vendor returned fewer rows than we
+                    # asked for), a full one might be.
+                    if len(rows) >= _LISTING_PAGE_SIZE:
+                        reason = reason or "full_page_suspected"
+                    break
+                if not has_more:
+                    break
+                if new_rows == 0:
+                    reason = reason or "next_link_no_progress"
+                    break
+                if page_number >= _LISTING_MAX_PAGES:
+                    reason = reason or "page_cap_reached"
+                    break
+                page_number += 1
 
         if reason is not None:
             # ids and counts only (hard rule 6) — and the reason is our word, not theirs.
@@ -1450,67 +1650,6 @@ class BolnaEngine:
             incomplete_reason=reason,
             pages_fetched=pages,
         )
-
-    def _next_link(self, payload: dict[str, Any]) -> str | None:
-        """The ONE continuation form this adapter follows: a link it can GET as given.
-
-        WHY NOT A CURSOR PARAMETER. Bolna publishes no OpenAPI spec, so `?page=`,
-        `?offset=`, `?cursor=` are all guesses. A guessed parameter is ignored by the
-        vendor, which yields the same page forever (an infinite loop, or with our cap, a
-        listing that claims to have paged and did not) — the original defect wearing a
-        fix. A link the payload itself hands us is self-describing: we invent no name and
-        assume no encoding, and if the key is absent we simply do not page.
-
-        SAME-ORIGIN ONLY. A `next` is vendor-controlled input that this code would turn
-        into an outbound request carrying our `Authorization` header, which is the
-        textbook SSRF/credential-leak shape (OWASP SSRF cheat sheet: validate the
-        destination against an allowlist, never the input against a denylist). So a
-        relative path is used as-is, an absolute URL is accepted only when its scheme is
-        https and its host matches the configured API host, and anything else is dropped
-        — dropping degrades to `explicit_more`, which is loud, rather than to a request
-        at an attacker's host.
-        """
-        for key in ("next", "next_page_url", "next_url", "links"):
-            value = payload.get(key)
-            if isinstance(value, dict):
-                value = value.get("next")
-            if not isinstance(value, str) or not value.strip():
-                continue
-            candidate = value.strip()
-            if candidate.startswith("/"):
-                return candidate
-            try:
-                parsed = httpx.URL(candidate)
-            except httpx.InvalidURL:
-                # A VENDOR-SUPPLIED STRING THAT IS NOT A URL AT ALL (P2.3), and the
-                # docstring three lines above already promised this outcome: "anything
-                # else is dropped — dropping degrades to `explicit_more`, which is loud".
-                # It was not true, because `httpx.URL()` raises before any of the checks
-                # below run.
-                #
-                # MEASURED, not assumed: `httpx.InvalidURL`'s MRO does NOT include
-                # `httpx.HTTPError`, so `_request`'s handler would not have caught it even
-                # if this call were inside one — and it is not. A zero-width space in a
-                # host (`http://a​.com`) is enough to raise.
-                #
-                # `list_executions`' only caller is `reconcile_executions`, which under
-                # D-31 IS the guarantee of record. An exception there retries three times
-                # and DLQs, and every execution whose webhook was lost stops being
-                # recoverable until somebody reads a dead-letter queue. Dropping the link
-                # costs one page and reports `explicit_more`, which is exactly what the
-                # poller is built to see.
-                log.warning(
-                    "engine_listing_next_link_rejected",
-                    extra={"engine": "bolna", "reason": "unparseable"},
-                )
-                continue
-            if parsed.scheme == "https" and parsed.host == httpx.URL(self._base_url).host:
-                return candidate
-            log.warning(
-                "engine_listing_next_link_rejected",
-                extra={"engine": "bolna", "reason": "off_origin"},
-            )
-        return None
 
     # --- webhooks ------------------------------------------------------------
 
@@ -1551,15 +1690,19 @@ class BolnaEngine:
         parser and drops to the event fields."""
         snapshot = self._snapshot(payload)
         agent_ref = payload.get("agent_id")
-        # Their payload marks inbound explicitly; everything else on this platform is a
-        # call WE placed. Defaulting to outbound is the compliance-safe direction —
-        # outbound is the side that carries DNC/calling-hours obligations, so a
-        # misclassified call is over-regulated rather than under-regulated.
-        direction = "inbound" if payload.get("direction") == "inbound" else "outbound"
+        # DIRECTION COMES FROM THE SNAPSHOT, and this was a SECOND COPY of the same wrong
+        # read (D-359): `payload.get("direction")`, a field `AgentExecution` does not
+        # declare. The vendor puts it on `telephony_data.call_type`, `_snapshot` reads it
+        # there, and one way per problem means this line asks that answer rather than
+        # re-deriving it — two spellings of one rule is where the drift starts, and this
+        # is the pair that proves it. The DEFAULT is unchanged and deliberate: everything
+        # we cannot classify is treated as a call WE placed, which is the compliance-safe
+        # direction, because outbound is the side carrying DNC and calling-hours
+        # obligations and a misclassified call is then over-regulated, never under.
         return CallEvent(
             call_id=snapshot.engine_call_id,
             engine_agent_ref=str(agent_ref) if agent_ref else None,
-            direction=direction,
+            direction=snapshot.direction,
             status=snapshot.status,
             raw_status=snapshot.raw_status,
             started_at=snapshot.started_at,

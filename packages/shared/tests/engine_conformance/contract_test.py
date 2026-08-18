@@ -806,16 +806,19 @@ async def test_a_full_listing_page_tells_the_caller_it_may_be_truncated(
 ) -> None:
     """THE CLAUSE THE POLLER'S ENTIRE GUARANTEE RESTS ON (D-31).
 
-    Bolna's webhooks are at-most-once and unsigned, so the List-Executions poller is not
-    a safety net — it is the mechanism by which a lost call is EVER discovered. If the
-    listing paginates and an adapter reads page one, the executions past that page have
-    no webhook, no repair, and nothing anywhere that says they existed: they are simply
-    gone, and the gap grows exactly when traffic does.
+    Bolna's webhooks are unsigned and lossy, so the executions poller is not a safety net
+    — it is the mechanism by which a lost call is EVER discovered. If the listing
+    paginates and an adapter reads page one, the executions past that page have no
+    webhook, no repair, and nothing anywhere that says they existed: they are simply gone,
+    and the gap grows exactly when traffic does.
 
     So an adapter may not return a page-shaped answer as if it were the whole window. It
-    does not have to know it was truncated — Bolna publishes no pagination contract and
-    the honest answer is often "cannot rule it out" — it has to SAY so, in
-    `ExecutionListing.complete`, with a reason the poller can put in an alert.
+    does not have to know it was truncated — some vendors publish no pagination contract
+    and the honest answer is then "cannot rule it out" — it has to SAY so, in
+    `ExecutionListing.complete`, with a reason the poller can put in an alert. (Bolna DOES
+    publish one, `page_number`/`page_size`/`has_more`, which is why its saturated stub is
+    now a store the adapter walks to its own page cap rather than a single opaque full
+    page — D-350/D-353.)
 
     Note what is NOT asserted: any cursor, page number or link. Those are the adapter's
     business (hard rule 2); what crosses the boundary is the verdict and the rows.

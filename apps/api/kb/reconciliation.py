@@ -112,12 +112,15 @@ def classify_kb_drift(
     2. the vendor's listing does not attribute rows to agents at all, so the adapter's
        per-agent filter matches nothing and EVERY agent lists empty.
 
-    World 2 is not hypothetical. The primary engine's adapter implements `list_kb` by
-    reading an ACCOUNT-WIDE listing and keeping the rows whose agent linkage equals the
-    ref — and whether that linkage field exists at all is pilot gate 8's
-    `kb_list_carries_agent_linkage`, still open, because the vendor publishes no OpenAPI
-    spec and every body on that path is a hand-maintained claim
-    (`scripts/pilot/knowledge.py`). The adapter is named in `apps/api/engine/`, not here:
+    World 2 is not hypothetical — it is what the primary engine actually did, for its whole
+    life (D-354). That adapter implemented `list_kb` by reading an ACCOUNT-WIDE listing and
+    keeping the rows whose agent linkage equalled the ref, and the vendor's knowledge-base
+    object has no agent linkage of any kind: every agent listed empty, on every sweep,
+    forever. Pilot gate 8's `kb_list_carries_agent_linkage` was the right question and the
+    answer was readable in the vendor's published schema the whole time. That engine now
+    declares the capability absent and its three KB methods refuse by name, so this
+    function's positive control is what stands between a REAL listing and the same silent
+    verdict on any engine that grows one. The adapter is named in `apps/api/engine/`, not here:
     hard rule 2 is a rule about this file's VOCABULARY as much as its imports, and
     `tests/kb_boundaries_test.py` scans this directory as text for exactly that reason.
     `_reconcile_engine_state` already

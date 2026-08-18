@@ -1497,10 +1497,12 @@ async def test_a_long_retry_after_fails_fast_instead_of_holding_the_request_open
 #: are a vendor's nouns; `status` and `duration` are everybody's.
 _VENDOR_ONLY_KEYS = frozenset(
     {
-        # Bolna (docs.bolna.ai, hand-maintained — they publish no OpenAPI spec).
+        # Bolna, read in their own pinned OpenAPI document (D-350,
+        # `docs/vendor/bolna/hosted-oas.md`) rather than hand-maintained from prose.
         "agent_config",
         "agent_name",
         "agent_prompts",
+        "agent_type",
         # The greeting field — Bolna's own noun for it. Read since P3.3, because the
         # disclosure verdict has to be scored against the field that SPEAKS.
         "agent_welcome_message",
@@ -1509,7 +1511,11 @@ _VENDOR_ONLY_KEYS = frozenset(
         "cost_currency",
         "executions",
         "extracted_data",
-        "knowledgebases",
+        # `knowledgebases` left with `list_kb`'s account-wide listing (D-354): the vendor's
+        # knowledge base carries no agent, so that listing could never answer the question
+        # this port asks, and the capability is now declared absent.
+        "has_more",
+        "llm_config",
         "rag_id",
         "recipient_phone_number",
         "synthesizer",
@@ -1894,20 +1900,23 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal listings
         path = request.url.path
-        if path == "/executions":
+        if path == "/v2/agent/all":
             listings += 1
-        if path == "/executions" and listings > 1:
-            # A second listing request: throttled forever, so the ladder logs
-            # `engine_throttled` and then `engine_throttle_exhausted`.
-            return httpx.Response(429, json={"error": "slow down"})
-        if path == "/executions":
-            # A full page, no metadata, and an OFF-ORIGIN continuation the adapter must
-            # refuse (`engine_listing_next_link_rejected`) — then report incomplete.
+            if listings > 1:
+                # The second `list_executions` call: throttled forever from its very first
+                # request, so the ladder logs `engine_throttled` and then
+                # `engine_throttle_exhausted` — both with a vendor body full of PII.
+                return httpx.Response(429, json={"error": f"slow down, {_PII_NUMBER}"})
+            return httpx.Response(200, json=[{"id": "agent_pii_listed"}])
+        if path.endswith("/executions") and path.startswith("/v2/agent/"):
+            # `has_more: true` on a page that re-serves what we already hold, so the walk
+            # stops with `next_link_no_progress` and `engine_listing_incomplete` is logged
+            # for a window whose every row carries a number and a transcript.
             return httpx.Response(
                 200,
                 json={
+                    "has_more": True,
                     "data": [_pii_execution(f"exec_pii_{i}") for i in range(10)],
-                    "next": f"https://attacker.example.invalid/steal?n={_PII_NUMBER}",
                 },
             )
         if path.startswith("/executions/"):

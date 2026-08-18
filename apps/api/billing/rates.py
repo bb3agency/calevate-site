@@ -12,10 +12,21 @@ WHAT WE CAN AND CANNOT KNOW — read this before trusting a tier
 **The engine does not report which voice actually synthesized a call.**
 `ExecutionSnapshot` (packages/shared/src/calevate_shared/engine.py) carries no TTS model
 and no character count; `CostBreakdown` carries a synthesizer LEG COST in rupees and
-nothing else, and the Bolna adapter parses no model field out of the execution payload
-because none is documented (TRD §5: Bolna publishes no OpenAPI spec). A leg cost alone
-cannot identify a rung either — the two rates differ 2:1 but the character count that
-would divide them out is exactly what is missing.
+nothing else, and the Bolna adapter parses no model field out of the execution payload.
+A leg cost alone cannot identify a rung either — the two rates differ 2:1 but the
+character count that would divide them out is exactly what is missing.
+
+**AND THE VENDOR DOES PUBLISH BOTH (D-358).** This paragraph used to end "because none is
+documented (TRD §5: Bolna publishes no OpenAPI spec)", which was wrong twice over: they
+publish a spec, and it declares `ExecutionUsageBreakdown.synthesizer_model` and
+`.synthesizer_characters` — the model that spoke and the characters it spoke — beside
+`transcriber_model`, `transcriber_duration`, `llm_tokens` and a per-model token map
+(VERIFIED-OAS; `references/execution-payload.md` shows a populated example). So the hole
+below is OURS, not the vendor's: `ExecutionSnapshot` has no field to carry them and the
+adapter reads none. Turning the tier from an assumption about intent into a MEASUREMENT is
+a change to the normalized model, the adapter and this module together — D-358 — and it is
+gated on one captured payload confirming the block is actually populated on a live account
+(OPERATIONS §2 gate 7), because a spec is what the vendor says the server does.
 
 So the tier on a usage row is **the voice the agent was CONFIGURED with when the call was
 metered**. That is an assumption about intent, not a measurement of what spoke, and every

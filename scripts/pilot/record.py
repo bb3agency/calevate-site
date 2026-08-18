@@ -5,7 +5,11 @@
 
 OPERATIONS §2 asks gates 1, 2, 4, 7 and 8 to "capture the payload as an adapter
 fixture", and that is where a pilot's value outlives the pilot week: the Bolna adapter
-is hand-maintained from docs because **Bolna publishes no OpenAPI spec** (TRD §5), so
+was hand-maintained from docs because this repository believed **Bolna publishes no
+OpenAPI spec** — they publish one and it has now been read (D-350, `docs/vendor/bolna/
+hosted-oas.md`). Captured payloads matter MORE rather than less: a spec is what the vendor
+says the server does, and every defect D-350 uncovered was of the form "we called
+something plausible and nothing could disagree". So
 every field name in it is a claim. A committed real payload turns those claims into a
 test. Without this step the pilot ends and the adapter is still guesswork.
 

@@ -42,10 +42,19 @@ WHAT IS PROVISIONAL (read this before quoting the catalog at anyone)
    catalog deliberately offers a choice of MODEL (v3 vs v2), which the docs do support,
    and offers no named speakers, which they do not. No speaker id in this file is
    invented, because no speaker id is in this file.
-2. **Whether `bulbul:v3` is the literal string Bolna accepts is UNVERIFIED.** TRD §5
-   says Bolna publishes no OpenAPI spec and the adapter's models are hand-maintained
-   from docs + pilot payloads. OPERATIONS.md:33 (pilot gate 3) carries the open item in
-   as many words: "Confirm **Bulbul V3 (not v2) is selectable**".
+2. **`bulbul:v3` IS the literal string, and named speakers DO exist (D-358).** Bolna's
+   own `create-agent/SKILL.md` posts `"provider": "sarvam"` with
+   `"provider_config": {"model": "bulbul:v3", "voice": "Ashutosh", "voice_id":
+   "ashutosh"}`, and `GET /me/voices` lists the speakers once a TTS provider is
+   configured (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`). So point 1 above is now
+   only half true: the model strings are confirmed, and "no Sarvam voice list exists" was
+   a statement about what we could reach, not about what the vendor has. **What this
+   catalog offers is still MODELS in the `voice` slot, which is the wrong slot** — the
+   adapter sends it as `provider_config.voice` where the vendor wants
+   `provider_config.model`. Fixing it means `ModelConfig` grows a `tts_model` and this
+   catalog grows real speaker ids read from `GET /me/voices`, which needs the account:
+   D-358, and OPERATIONS §2 gate 3 still owns "Confirm **Bulbul V3 (not v2) is
+   selectable**".
 3. **Which of v3/v2 actually sounds better in Telugu is an EAR TEST, not a spec fact**
    (docs/BRD.md:242 R-10, docs/TRD.md:478, the D-35 scorecard item at
    docs/evidence/bolna-pilot-scorecard.md:64). `is_default` below encodes D-36's
