@@ -272,6 +272,15 @@ async def accept_with_password(
 async def _find_or_create_user(*, email: str, name: str | None, at: datetime) -> tuple[UUID, bool]:
     """The `users` row for this address, creating it if this is a new person.
 
+    UNDERSCORED, AND IT STAYS UNDERSCORED. It has two callers outside this module —
+    `tests/authn_email_uniqueness_test.py` and `scripts/seed_dev.py` — and neither is a
+    reason to drop the prefix, because the prefix is not hiding the function from them.
+    What it marks is the SECOND return value: `created` answers "was this address already
+    an account", which is precisely the enumeration oracle the `subjects.py` docstring
+    exists to argue must not be reachable from any endpoint. The underscore is the signal
+    to whoever next reaches for this from a route handler. A test and a local-only seed
+    script import it deliberately; a request handler must not.
+
     `clerk_user_id` is not written, which migration `b3d9f6a2c815` made possible and D-177
     made permanent: nothing anywhere writes that column any more, and the column itself
     survives one more release under hard rule 8's two-step (recorded in

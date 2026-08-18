@@ -46,8 +46,41 @@ make up                               # = docker compose up -d: postgres:16+pgve
 uv sync
 uv run alembic upgrade head
 uv run python -m scripts.seed         # reserved slugs, vertical templates, retention defaults
+uv run python -m scripts.seed_dev     # LOCAL ONLY: demo accounts + a tenant with calls in it
 pnpm install
 ```
+
+### Signing in to the two panels
+
+`scripts/seed.py` deliberately creates no account: on a real host the first operator
+arrives through `scripts/bootstrap_admin.py` (which mails a single-use link and refuses to
+run twice) and the first client through the onboarding wizard. That is correct for a
+deployment and useless for looking at a screen, so `scripts/seed_dev.py` is the other
+motion — `make seed-dev`, or the command above.
+
+It creates a superadmin, a client owner, a client staff member, an ACTIVE tenant
+(`Sunrise Dental Care`, `sunrise-dental`) with a LIVE agent, and six completed calls with
+transcripts, extractions, leads and usage rows behind them — so the calls list, the CRM,
+the needs-attention queue, the funnel and the usage panel all have something in them. It
+prints the credentials when it finishes. Re-running it is safe and is the supported way
+back to a known state: the demo rows are keyed and are not duplicated, and the three
+passwords are re-set on every run.
+
+**It refuses to run unless `APP_ENV=local`, and there is no override** — the passwords are
+published in its own source, so the gate is the same equality `core/auth.py` requires
+before it will accept a `dev:` bearer token. `tests/seed_dev_guard_test.py` pins that, and
+the pin is sabotage-verified.
+
+Two things about it that are honest rather than convenient:
+
+- **The admin realm still wants a second factor** (TRD §2, and MFA there is mandatory, not
+  a setting). The code is emailed; with no mail provider configured locally
+  `ConsoleTransport` prints the message in the API server's log, so read it from there.
+- **The agent is published through `agents.service.publish_agent`**, the same call the
+  console makes — on `ENGINE=fake` it really reaches `live`. If publishing fails, the seed
+  finishes anyway and prints the failure: an agent left in `draft` is an honest screen,
+  and one set to `live` by an UPDATE would be a lie the compliance drift sweep would later
+  have to catch.
 
 **Host ports are NOT the defaults**: compose publishes postgres on **5433** and redis on
 **6380** (5432/6379 are taken by another project on the build machine). `.env.example`

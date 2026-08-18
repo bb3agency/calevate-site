@@ -24,6 +24,7 @@ help:  ## List targets
 	@echo '  make check       - lint-check, mypy, pytest+ratchet, guardrails, eval, web [CI gate]'
 	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
+	@echo '  make seed-dev    - LOCAL ONLY: demo tenant + login credentials for both panels'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
 	@echo '  make qa-report CLIENT=slug VERTICAL=clinic - client-facing QA report'
 	@echo '  make qa-report-publish CLIENT=slug VERTICAL=clinic - same, stored for their Quality screen'
@@ -136,6 +137,14 @@ db-reset:
 	uv run python -m scripts.db_reset
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
+
+# NOT part of `db-reset`, and not part of `check`. A developer who wants a populated
+# database asks for one; a developer who wants a clean one must not have three accounts
+# and six calls appear in it because a reset happened to imply them. The script refuses
+# any APP_ENV but `local` on its own (tests/seed_dev_guard_test.py), so this target
+# cannot be the thing that seeds a deployed host either.
+seed-dev:  ## LOCAL ONLY: demo tenant, demo calls, and the login credentials for both panels
+	uv run python -m scripts.seed_dev
 
 # Expanded only when the `eval` recipe actually runs, so `make help` stays quiet.
 # Without it `make eval` ran `--client=` and exited 0 — a harness reporting success
