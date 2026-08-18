@@ -206,12 +206,18 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # executed. It is never selectable as `ENGINE=` (`config.EngineName` does not include
     # it), so it can reach no deployment.
     "fake-restricted": "hmac",
-    # Cartesia Line signs its webhooks (TRD §10.5). The SCHEME is not sourced — their docs
-    # are egress-blocked — so `CartesiaEngine.verify_webhook` fails CLOSED rather than
-    # guessing a header and a digest, and the receiver refuses `hmac` deliveries until a
-    # real verifier exists. Declared here anyway because the declaration is what the
-    # receiver reads, and "signed, and we cannot check it yet" must not be recorded as
-    # "unsigned, so an IP allowlist will do".
+    # Cartesia Line's webhooks are AUTHENTICATED BY SOMETHING WE CANNOT CHECK YET, and
+    # `hmac` is this Literal's only value that fails CLOSED. What is read at source is
+    # that webhooks exist at all (`AgentSummary.webhook_id` in their generated client);
+    # no Cartesia SDK carries a signing scheme, and the only description of one is a
+    # search snippet naming an `x-webhook-secret` SHARED SECRET header — which is not an
+    # HMAC (D-270, `docs/vendor/cartesia/webhooks-cost-and-kb.md`). So
+    # `CartesiaEngine.verify_webhook` fails CLOSED rather than guessing a header and a
+    # digest, and the receiver refuses `hmac` deliveries until a real verifier exists.
+    # Declared here anyway because the declaration is what the receiver reads, and
+    # "authenticated, and we cannot check it yet" must not be recorded as "unsigned, so
+    # an IP allowlist will do". If the scheme turns out to be a shared secret, a
+    # `shared_secret` member lands in `WebhookAuthMethod` and in both halves together.
     "cartesia": "hmac",
 }
 

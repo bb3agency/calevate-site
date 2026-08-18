@@ -15,6 +15,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -77,26 +78,56 @@ BOLNA_COMPLETED: dict[str, Any] = {
 }
 
 
-# A completed Line call, in the shapes `cartesia.py` documents — role-based transcript
-# entries, ISO timestamps, and NO cost object, because the adapter deliberately reports
-# no cost for this vendor (nothing sourced says what currency Line quotes, and a stamped
-# guess is worse than no number at all).
-CARTESIA_COMPLETED: dict[str, Any] = {
-    "agent_call_id": "cart_call_1",
-    "agent_id": "agent_xyz",
-    "status": "completed",
-    "direction": "inbound",
-    "started_at": "2026-08-10T09:15:00Z",
-    "ended_at": "2026-08-10T09:16:35Z",
-    "duration_seconds": 95,
-    "from_number": "+919876543210",
-    "to_number": "+911140000000",
-    "recording_url": "https://storage.cartesia.ai/recordings/cart_call_1.wav",
-    "transcript": [
-        {"role": "assistant", "content": "Namaskaram, idi Sunrise Clinic AI assistant."},
-        {"role": "user", "content": "Naaku appointment kavali."},
-    ],
-}
+# A completed Line call in the shape Cartesia's OWN GENERATED CLIENT declares (D-270).
+# Every key below is read at source in `cartesia-python/src/cartesia/types/agents/
+# agent_call.py` and `.../agent_transcript.py`, so unlike the rest of this file's Cartesia
+# fixtures it is not our inference reflected back at us — it is a machine translation of
+# their OpenAPI spec. `docs/vendor/cartesia/calls-and-transcripts.md` carries the citation.
+#
+# What is ABSENT is as load-bearing as what is present, and each absence is a fact:
+#   * no cost/currency of any kind — usage is an account-level daily credit meter, so the
+#     adapter reports no cost and that is the answer rather than a deferral;
+#   * no duration field — the adapter derives it from the two instants;
+#   * no recording URL — audio is an authenticated download at `/agents/calls/{id}/audio`;
+#   * no `direction` — there is nothing to read, so the adapter's default stands.
+#
+# `start_time` is minted RELATIVE TO NOW because the vendor offers no server-side time
+# filter, so `list_executions` must apply `since` itself; a fixture frozen in the past
+# would put every row outside every window and make the listing clauses pass vacuously.
+def _cartesia_completed(call_id: str = "cart_call_1") -> dict[str, Any]:
+    started = datetime.now(UTC) - timedelta(minutes=5)
+    return {
+        "id": call_id,
+        "agent_id": "agent_xyz",
+        "status": "completed",
+        "start_time": started.isoformat().replace("+00:00", "Z"),
+        "end_time": (started + timedelta(seconds=95)).isoformat().replace("+00:00", "Z"),
+        "summary": "Caller asked for an appointment.",
+        "telephony_params": {"from": "+919876543210", "to": "+911140000000"},
+        "transcript": [
+            {
+                "role": "assistant",
+                "text": "Namaskaram, idi Sunrise Clinic AI assistant.",
+                "start_timestamp": 0.0,
+                "end_timestamp": 3.2,
+            },
+            {
+                "role": "user",
+                "text": "Naaku appointment kavali.",
+                "start_timestamp": 3.9,
+                "end_timestamp": 5.4,
+            },
+            # A `system` row is a LOG entry, not speech — their own field documentation
+            # says so. It is here because without it nothing proves the adapter refuses to
+            # file instrumentation into a client's transcript as a caller utterance.
+            {
+                "role": "system",
+                "start_timestamp": 5.5,
+                "end_timestamp": 5.5,
+                "log_event": {"event": "kb_lookup", "metadata": {}, "timestamp": 5.5},
+            },
+        ],
+    }
 
 
 # How many executions a saturated `GET /executions` hands back in this suite. It is a
@@ -253,11 +284,11 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     return handler
 
 
-#: How many calls a saturated Cartesia listing returns. Equal to the adapter's
-#: `_LISTING_PAGE_SUSPECT` on purpose: that constant IS the adapter's truncation
-#: heuristic, so restating the number here would let the two drift and quietly stop
-#: exercising the branch.
-CARTESIA_FULL_PAGE = cartesia_module._LISTING_PAGE_SUSPECT
+#: How many calls a saturated Cartesia listing returns per page. Equal to the adapter's
+#: `_LISTING_PAGE_SIZE` on purpose: that constant is the `limit` the adapter asks for, and
+#: a page that comes back FULL is the only thing that makes it ask for another one, so
+#: restating the number here would let the two drift and quietly stop exercising the walk.
+CARTESIA_FULL_PAGE = cartesia_module._LISTING_PAGE_SIZE
 
 
 def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
@@ -277,7 +308,13 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
     and one that answered every DELETE with 200 would let a `detach_kb` that removes
     nothing sail through.
     """
-    agents: dict[str, dict[str, Any]] = {}
+    #: SEEDED WITH ONE AGENT, which the Bolna stub does not need and this one does.
+    #: `GET /agents/calls` requires an `agent_id`, so `list_executions` fans out over
+    #: `GET /agents` — and on this platform an account HAS agents whether or not our API
+    #: client made them (they are deployed from git repositories). An empty account would
+    #: make every listing clause pass vacuously with zero rows, which is the shape of stub
+    #: this suite refuses everywhere else.
+    agents: dict[str, dict[str, Any]] = {"agent_deployed": {"name": "deployed-from-repo"}}
     documents: dict[str, dict[str, dict[str, Any]]] = {}
     placed: list[str] = []
     #: The Bolna stub's `executions`, same reasoning — see its `GET /executions/{id}`.
@@ -295,9 +332,12 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
 
         # The version pin is not decoration: assert it is sent on EVERY request, so a
         # future edit that drops the header fails here rather than on a vendor's next
-        # breaking release.
+        # breaking release. The auth header is asserted in the form their generated
+        # clients actually send (`Authorization: Bearer …`), not merely as "present".
         assert request.headers.get("Cartesia-Version") == cartesia_module.API_VERSION
-        assert request.headers.get("X-API-Key")
+        assert (request.headers.get("Authorization") or "").startswith(
+            f"{cartesia_module.AUTH_SCHEME} "
+        )
 
         # THE CALL ROUTES COME FIRST. `/agents/calls` has the same shape as
         # `/agents/{id}`, so a generic agent match placed above would swallow it and
@@ -312,9 +352,39 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             calls_placed.add(call_id)
             return httpx.Response(200, json={"outbound_calls": [{"agent_call_id": call_id}]})
         if path == "/agents/calls" and method == "GET":
-            rows = [{**CARTESIA_COMPLETED, "agent_call_id": f"c_{i}"} for i in range(listing_rows)]
-            calls_placed.update(str(row["agent_call_id"]) for row in rows)
-            return httpx.Response(200, json={"calls": rows})
+            # THE PUBLISHED LISTING CONTRACT, asserted rather than tolerated (D-270).
+            # `agent_id` is `Required[str]` in their params type, so a listing without one
+            # is a 4xx at the vendor and must be a failure here — the previous stub
+            # answered a global, unfiltered listing that the real API cannot serve, which
+            # is how the adapter came to send an invented `start_time` for months.
+            query = request.url.params
+            agent_id = query.get("agent_id")
+            assert agent_id, "`agent_id` is required on GET /agents/calls"
+            assert query.get("expand") == "transcript", (
+                "without `expand=transcript` the vendor returns no transcript, and the "
+                "poller is the path with no webhook behind it to supply one"
+            )
+            limit = int(query.get("limit") or 0)
+            assert 1 <= limit <= 100, "`limit` ranges between 1 and 100"
+            # Cursor by call id, their `starting_after`. Ids carry an ordinal so the stub
+            # can continue a walk; a stub that ignored the cursor and re-served page one
+            # would make the no-progress branch unreachable.
+            after = query.get("starting_after")
+            first = int(after.rsplit("_", 1)[-1]) + 1 if after else 0
+            rows = [
+                _cartesia_completed(f"{agent_id}_c_{i}") for i in range(first, first + listing_rows)
+            ]
+            calls_placed.update(str(row["id"]) for row in rows)
+            # `{"data": [...]}` and NO `has_more`: their page model derives the next cursor
+            # from the last row's id, so shortness is the only end-of-window signal.
+            return httpx.Response(200, json={"data": rows})
+        if path == "/agents" and method == "GET":
+            # `{"summaries": [...]}` — read at source in `types/agent_list_response.py`.
+            # This is what makes the per-agent listing reachable at all.
+            return httpx.Response(
+                200,
+                json={"summaries": [{**stored, "id": ref} for ref, stored in agents.items()]},
+            )
         if path.startswith("/agents/calls/") and path.endswith("/end"):
             # STATEFUL for the Bolna stub's `/stop` reason, and a marked assumption for
             # the same reason (D-187): nothing sourced says what Line answers for a call
@@ -330,7 +400,7 @@ def _cartesia_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], htt
             call_id = path.rsplit("/", 1)[-1]
             if call_id not in calls_placed:
                 return httpx.Response(404, json={"error": "unknown call"})
-            return httpx.Response(200, json={**CARTESIA_COMPLETED, "agent_call_id": call_id})
+            return httpx.Response(200, json=_cartesia_completed(call_id))
         if path == "/agents" and method == "POST":
             agent_id = agent_id_for(body)
             agents[agent_id] = body
@@ -401,7 +471,7 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
             client=httpx.AsyncClient(
                 base_url=cartesia_module.BASE_URL,
                 headers={
-                    cartesia_module.API_KEY_HEADER: "test-key",
+                    cartesia_module.AUTH_HEADER: f"{cartesia_module.AUTH_SCHEME} test-key",
                     cartesia_module.VERSION_HEADER: cartesia_module.API_VERSION,
                 },
                 transport=httpx.MockTransport(_cartesia_handler(listing_rows=listing_rows)),
