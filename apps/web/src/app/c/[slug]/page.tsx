@@ -98,11 +98,16 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
           icon={<PhoneCall className="h-5 w-5" />}
           hint={`${formatCount(data.calls_7d)} in the last 7 days`}
         />
+        {/* THE WINDOW IS PART OF THE NUMBER. This hint read "Completed calls only" over
+            an average of every call the account had EVER made — a different statistic
+            from the seven-day ones on either side of it, rendered identically to them.
+            The API bounded it to seven days and renamed the field to say so (D-215); the
+            hint is the half a client actually reads. */}
         <StatTile
           label="Average call length"
-          value={formatDuration(data.avg_duration_s)}
+          value={formatDuration(data.avg_duration_s_7d)}
           icon={<Clock className="h-5 w-5" />}
-          hint="Completed calls only"
+          hint="Completed calls, last 7 days"
         />
         <StatTile
           label="New leads (7 days)"
