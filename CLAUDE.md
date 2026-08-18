@@ -9,18 +9,29 @@ mirrors this manual for other coding agents.
 ## What this system is (30 seconds)
 
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
-voice engine (Bolna primary per D-31) with BYOK models — **canonical stack per D-36**:
-Sarvam Saaras STT · **Sarvam 105B LLM (free per token, all-India residency)** · Sarvam
-Bulbul v3 TTS (v2 = value tier). **Gemini 2.5 Flash** runs the USER-TRIGGERED dashboard
-AI through Vertex AI `asia-south1` (D-127 supersedes D-36's LLM leg for that surface
-only) — 2.5 rather than 3.x because Mumbai is the only region D-127 permits and no 3.x
-model is reported there, which is a founder's decision that buys a **live 16 Oct 2026
-retirement** (BRD R-04, `GEMINI_DEFAULT_LLM_RETIRES`, OPERATIONS §2 gate 14). And
-**`GEMINI_MODEL_CONFIRMED_IN_REGION is False`, so that sentence is still a decision and
-not yet an observation**: search now points the right way, but nobody has made the one
-call that settles it (OPERATIONS §2 gate 14). The first post-call
-extraction stays on Sarvam permanently because it reads the raw
-transcript — `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`. Our
+voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Saaras STT ·
+Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Gemini 2.5 Flash on a
+PAID Google Cloud Vertex AI account, `asia-south1`, on all three LLM surfaces** — D-400
+supersedes D-36's "Sarvam 105B, free per token" LLM leg outright, D-127 already having
+taken the dashboard-AI surface. One model, one region, one retirement date. Read the
+three surfaces separately, because two of them are not live and say so in code:
+
+1. **In-call** (inside the engine, BYOK) — D-400's decision, and
+   **`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False`**: a regional Vertex endpoint takes
+   a ~1-hour OAuth2 bearer and Bolna stores static strings, so no agent runs it yet
+   (D-402 names the two things that close it, both outside this repo). Bolna's own
+   `provider: "google"` is the AI Studio API — global host, D-127 disqualified it, and
+   D-401 records that the easy route is the refused one.
+2. **Dashboard AI** (user-triggered, over redacted data) — D-127, live in code, and
+   **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`**: search points the right way but
+   nobody has made the one call that settles it (OPERATIONS §2 gate 14).
+3. **First post-call extraction** — stays on **Sarvam, permanently**, because it reads
+   the RAW transcript; `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`
+   and D-400 does not move it.
+
+2.5 rather than 3.x because Mumbai is the only region D-127 permits and no 3.x model is
+reported there — a founder's decision that buys a **live 16 Oct 2026 retirement** (BRD
+R-04, `GEMINI_DEFAULT_LLM_RETIRES`, OPERATIONS §2 gate 14). Our
 code = admin console, client dashboards,
 schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance
 (TRAI/DLT/DPDP). Latency-critical voice path is isolated in `apps/voice-runtime`.

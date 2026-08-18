@@ -7,16 +7,20 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 ## Project
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
-D-31) + BYOK models — canonical stack per D-36: Sarvam Saaras STT, **Sarvam 105B LLM
-(free, all-India)**, Sarvam Bulbul v3 TTS (v2 = value tier); **Gemini 2.5 Flash** serves
-the user-triggered dashboard AI through Vertex AI `asia-south1` (D-127) — 2.5 because no
-3.x model is reported in Mumbai and the region does not move, which makes BRD R-04's
-**16 Oct 2026 retirement live for this leg** (`GEMINI_DEFAULT_LLM_RETIRES`, and the build
-goes red 30 days out) —
-`GEMINI_MODEL_CONFIRMED_IN_REGION is False`, so that is still a decision and not an
-observation (OPERATIONS §2 gate 14) — and `GEMINI_EXTRACTION_DEFAULT is False`: the first
-post-call extraction stays on
-Sarvam because it reads raw transcript text. Our code: admin console,
+D-31) + BYOK models. Speech is Sarvam (Saaras STT, Bulbul v3 TTS, v2 = value tier —
+D-36, unchanged). Language is **Gemini 2.5 Flash on a PAID Vertex AI account,
+`asia-south1`** — **D-400 supersedes D-36's "Sarvam 105B, free per token" LLM leg
+outright**, D-127 having already taken the dashboard surface. Three LLM surfaces, two of
+them not live and saying so in code: **in-call** is D-400's and
+`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is False` (a regional Vertex endpoint takes a
+~1-hour OAuth2 bearer, Bolna stores static strings — D-402); **dashboard AI** is D-127's
+and `GEMINI_MODEL_CONFIRMED_IN_REGION is False` (OPERATIONS §2 gate 14); **the first
+post-call extraction stays on Sarvam permanently** because it reads raw transcript text
+(`GEMINI_EXTRACTION_DEFAULT is False`, and D-400 does not move it). 2.5 because no 3.x
+model is reported in Mumbai and the region does not move, which makes BRD R-04's
+**16 Oct 2026 retirement live** (`GEMINI_DEFAULT_LLM_RETIRES`, and the build goes red 30
+days out). Bolna's own `provider: "google"` is the AI Studio API and is refused, not
+missing (D-401). Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
 Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, first-party auth
