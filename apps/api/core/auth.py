@@ -308,6 +308,12 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
     """
     user_id = await _live_subject(verified)
 
+    # Set inside the session below when the resolution came back empty BECAUSE the
+    # account is closed; stays None on every other path. Declared here rather than
+    # relied on to exist, so the refusal below reads as one decision instead of two
+    # branches that happen to be in step.
+    closed: object | None = None
+
     # Now, and only now, a session that can see THIS user's memberships.
     async with user_session(user_id) as session:
         params: dict[str, object] = {"uid": user_id}

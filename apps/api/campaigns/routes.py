@@ -419,7 +419,7 @@ async def create_campaign(
     "/{campaign_id}/consent-provenance",
     status_code=204,
     openapi_extra=permission_meta("leads:dispatch"),
-    summary="Where this list's consent came from (SEC-COMP §3) — draft campaigns only",
+    summary="Where this list's consent came from (SEC-COMP §3) — before the campaign starts",
 )
 async def declare_consent_provenance(
     campaign_id: UUID,

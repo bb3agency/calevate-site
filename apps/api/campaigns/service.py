@@ -650,9 +650,17 @@ async def declare_consent_provenance(
     schedule, its template — launches. Recreating a five-thousand-row list to record a
     date would be a data-loss workaround dressed up as a compliance control.
 
-    DRAFT ONLY, and that is the whole integrity of the mechanism. If provenance could
-    be edited on a `running` campaign, the sequence "dial first, pick a lawful-sounding
-    source afterwards" would be available, and the declaration would document nothing.
+    BEFORE THE CAMPAIGN STARTS, and that is the whole integrity of the mechanism. If
+    provenance could be edited on a `running` campaign, the sequence "dial first, pick a
+    lawful-sounding source afterwards" would be available, and the declaration would
+    document nothing.
+
+    `scheduled` is inside the window and `draft` is not the only word for it — a client
+    who set a Monday start on Friday has dialled nobody, and the gate that reads this
+    column runs when the schedule FIRES (`campaigns/scheduling.py` decision 3). The
+    statement has always accepted both; the docstring, the route summary and the refusal
+    said "draft", which sent a client with a scheduled campaign to cancel a start they
+    did not need to cancel (D-189).
     """
     source, collected_at = _validated_provenance(consent_source, consent_collected_at)
     if source is None or collected_at is None:  # pragma: no cover - guarded above
@@ -681,7 +689,12 @@ async def declare_consent_provenance(
             raise ProblemError.not_found("Campaign")
         raise ProblemError.business_rule(
             "campaign_not_draft",
-            "Consent provenance can only be recorded while the campaign is a draft.",
+            "Consent provenance can only be recorded before the campaign starts dialling.",
+            remediation=(
+                "A draft or a scheduled campaign can still record it; one that has "
+                "started cannot, because a source chosen after the calls went out "
+                "documents nothing."
+            ),
         )
 
 
