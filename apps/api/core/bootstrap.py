@@ -36,6 +36,7 @@ from apps.api.core.observability import (
     shutdown_tracing,
     tracing_enabled,
 )
+from apps.api.core.queue import close_queue
 from apps.api.core.redis import close_redis
 from apps.api.core.settings import get_settings, settings_scope, validate_bootstrap_env
 
@@ -273,7 +274,35 @@ def create_app(
             yield
         finally:
             log.info("service_stop", extra={"service": service})
-            await close_redis()
+            # EVERY connection this process opened, not just the one. `close_redis` was
+            # the whole teardown, so the ARQ enqueue pool (`core/queue._pool`, built on
+            # the first `enqueue` a request makes) and the alert-admission client
+            # (`core/alert_admission._client`, built on the first alert) survived the
+            # drain and were left to the OS at exit — while `close_admission`'s own
+            # docstring said it was "called from the same shutdown path as `close_redis`",
+            # which nothing had ever made true. Under `--reload` and in tests each
+            # restart leaked another pool against the same Redis.
+            #
+            # Independently, in this order, and none may stop the next: a drain that
+            # abandoned the tracing flush because a socket was already gone would lose
+            # exactly the spans somebody is shutting the service down to read. `suppress`
+            # rather than a log line for the same reason `close_admission` uses one —
+            # a closed socket is the commonest way any of these is reached.
+            with suppress(Exception):
+                await close_redis()
+            with suppress(Exception):
+                await close_queue()
+            with suppress(Exception):
+                # IMPORTED HERE, not at module scope, and that is the one thing in this
+                # block that is not stylistic. `core.bootstrap` is on voice-runtime's
+                # PINNED import surface (hard rule 3,
+                # `tests/voice_runtime_import_surface_test.py`), and a module-level import
+                # grew it by `apps.api.core.alert_admission` — a module whose next change
+                # would then be able to break a live-call service at boot. `core.alerting`
+                # reaches this same module the same way and for the same reason.
+                from apps.api.core.alert_admission import close_admission
+
+                close_admission()
             # Flush before the process goes: an un-exported span is a span that never
             # happened, and a drain is exactly when the interesting ones are in flight.
             shutdown_tracing()

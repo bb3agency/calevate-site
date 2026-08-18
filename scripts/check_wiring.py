@@ -26,9 +26,12 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   machine — decorator-registered handlers, ORM attributes and response-model fields are
   all "unreferenced" and all alive. This file asks four narrow, framework-aware
   questions instead, each with a live registry to compare against.
-* Not "written but never read". Distinguishing a write from a read would need a SQL
-  parser (most of this repo's column access is raw `text()` SQL, per BACKEND-PATTERNS),
-  so a column with a writer and no reader is NOT caught here. (This used to cite
+* Not "written but never read" — **`scripts/check_half_wired.py` is where that lives now**
+  (D-235), along with the settings/exports/stubs/swallows/markers sweep. It stays a
+  separate file because it judges POSITION and BODY rather than registry membership, so
+  it needs baselines and this one does not. Distinguishing a write from a read needs a
+  SQL parser (most of this repo's column access is raw `text()` SQL, per
+  BACKEND-PATTERNS), so a column with a writer and no reader is NOT caught here. (This used to cite
   `agents.business_hours` as the live example; it has readers now — `business_hours.py`,
   the dashboard's `after_hours_basis` and the T0 compiler — so the example was fixed while
   the BLIND SPOT it illustrates remains exactly as described.)

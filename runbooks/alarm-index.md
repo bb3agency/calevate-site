@@ -203,6 +203,8 @@ lines (DEPLOYMENT §8), so "read the metric" means searching them.
 | --- | --- | --- |
 | `webhook_ack_ms` | The engine-webhook receiver's ack latency, against hard rule 3's 500ms budget. | `webhook_ack_slow` fired, or after a campaign burst. |
 | `tool_ack_ms` | The in-call tool endpoint's ack latency, against TRD §6.2's 100ms budget. | `tool_ack_slow` fired. Deliberately a separate series from the above so neither dilutes the other. |
+| `inbox_handling_ms` | How long one inbound webhook event sat between being recorded and being handled — the receiver's own half of the reliability triad. | Leads or call records are late and `pipeline_lag_seconds` looks healthy: the delay is upstream of the pipeline, in the inbox. |
+| `inbox_lag_seconds` | The age of the OLDEST unhandled inbox event at each dispatch tick. A rising floor means the drain is behind, not that one event was slow. | Read it beside `inbox_handling_ms`: handling fast + lag rising is a throughput problem, both rising is a dependency. |
 | `pipeline_lag_seconds` | Hangup → lead visible, per stage. The 2-minute SLO. | `postcall_pipeline_stalled` fired, or a client says leads are late. |
 | `speed_to_lead_seconds` | Web form submitted → outbound dial placed. FLOWS §4 targets < 60s. | A client says the instant callback is not instant. |
 | `outbox_lag_seconds` | How long a side effect waited in the outbox before dispatch. | Anything downstream looks slow. |

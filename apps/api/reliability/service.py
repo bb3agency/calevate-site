@@ -27,7 +27,13 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
-from apps.api.core.alerting import alert, record_outbox_dlq_depth, record_outbox_lag
+from apps.api.core.alerting import (
+    alert,
+    record_inbox_handling_ms,
+    record_inbox_lag,
+    record_outbox_dlq_depth,
+    record_outbox_lag,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings, resolve_hmac_key
@@ -815,6 +821,20 @@ async def record_outbox_metrics(session: AsyncSession) -> None:
     # The metric reads the SAME aggregate the ops console does — see
     # `read_dead_letter_queue` on why this is not a local `count(*)` any more.
     record_outbox_dlq_depth((await read_dead_letter_queue(session)).depth)
+    # THE OTHER HALF OF THE RELIABILITY TRIAD, on the same tick and for the same reason.
+    # An inbox row parked at `enqueued` is a webhook whose arq job never reported back;
+    # the reconciliation poller (D-31) then repairs the call silently, so nothing else in
+    # this system would ever say the ingest job had stopped finishing. `enqueued_at` is
+    # the only record of when that wait started and had no reader at all before this.
+    stuck = (
+        await session.execute(
+            text(
+                "SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(enqueued_at))), 0) "
+                "FROM webhook_inbox_events WHERE status = 'enqueued'"
+            )
+        )
+    ).first()
+    record_inbox_lag(float(stuck[0]) if stuck else 0.0)
 
 
 async def replay_dead_letters(
@@ -990,13 +1010,31 @@ async def mark_inbox_enqueued(session: AsyncSession, *, row_id: UUID) -> None:
 
 
 async def mark_inbox_processed(session: AsyncSession, *, row_id: UUID) -> None:
-    await session.execute(
-        text(
-            "UPDATE webhook_inbox_events SET status = 'processed', processed_at = now(), "
-            "updated_at = now() WHERE id = :id"
-        ),
-        {"id": row_id},
-    )
+    """Close the inbox row, and record how long the deferred half actually took.
+
+    `processed_at` was written here and read by nothing — a timestamp on the one row
+    that knows when a webhook arrived and when its work finished, in a system whose
+    only latency number was the 500ms ACK the caller sees (hard rule 3). A fast ack over
+    a slow pipeline is exactly the shape that looks healthy from outside, so the two are
+    now measured separately and by name (BACKEND-PATTERNS §8's named recorders).
+
+    RETURNING rather than a second SELECT: the value is computed by the statement that
+    writes it, so there is no window in which another writer changes the answer and no
+    extra round trip on the post-call path.
+    """
+    row = (
+        await session.execute(
+            text(
+                "UPDATE webhook_inbox_events SET status = 'processed', processed_at = now(), "
+                "updated_at = now() WHERE id = :id "
+                "RETURNING provider, "
+                "  EXTRACT(EPOCH FROM (processed_at - created_at)) * 1000 AS handling_ms"
+            ),
+            {"id": row_id},
+        )
+    ).first()
+    if row is not None:
+        record_inbox_handling_ms(float(row[1]), provider=str(row[0]))
 
 
 async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) -> None:

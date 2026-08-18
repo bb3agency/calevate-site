@@ -380,7 +380,6 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # live: the next assist misses the cache and signs with the new key. The one residue
     # is a key file with no `private_key_id`, which Google does not produce.
     "gcp_service_account_json": AppliesRule(LIVE),
-    "cohere_api_key": AppliesRule(LIVE),
     "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write
     "audit_chain_secret_retired": AppliesRule(LIVE),
     "idempotency_scope_secret": AppliesRule(LIVE),

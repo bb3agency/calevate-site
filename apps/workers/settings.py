@@ -50,10 +50,12 @@ copies and metering too, which is a far worse failure than degraded extraction.
 """
 
 import logging
+from contextlib import suppress
 from typing import Any
 
 from arq import cron
 
+from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
 from apps.api.core.logging import configure_logging, get_logger
 from apps.api.core.observability import (
@@ -62,7 +64,8 @@ from apps.api.core.observability import (
     traced_job,
     tracing_enabled,
 )
-from apps.api.core.queue import WORKER_MAX_TRIES, redis_settings
+from apps.api.core.queue import WORKER_MAX_TRIES, close_queue, redis_settings
+from apps.api.core.redis import close_redis
 from apps.api.core.settings import (
     runtime_config_missing_keys,
     settings_scope,
@@ -497,6 +500,23 @@ async def on_job_end(ctx: dict[str, Any]) -> None:
 
 async def shutdown(ctx: dict[str, Any]) -> None:
     log.info("worker_stop")
+    # THE POOL TEARDOWN THE `job_completion_wait` COMMENT BELOW ALREADY BUDGETS FOR.
+    # It said fifteen seconds of headroom "covers the `on_shutdown` hook, the tracing
+    # flush and the pool teardown that all run AFTER the drain" while this hook tore
+    # down nothing: arq closes its OWN worker pool, but the three clients a JOB opens
+    # are ours — `core/queue._pool` (a job enqueueing another job), `core/redis._client`
+    # (load-shed, dedupe, rate limits) and `core/alert_admission._client` (the shared
+    # suppression window). All three outlived every drain.
+    #
+    # Independently and best-effort, in the API's order, for the API's reason: a socket
+    # that is already gone is the commonest way each is reached, and none of them may
+    # cost the tracing flush that follows.
+    with suppress(Exception):
+        await close_redis()
+    with suppress(Exception):
+        await close_queue()
+    with suppress(Exception):
+        close_admission()
     # Drain the batch processor: a worker stopping mid-pipeline is exactly the trace
     # someone will go looking for.
     shutdown_tracing()

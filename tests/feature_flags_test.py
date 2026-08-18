@@ -607,6 +607,23 @@ async def test_setting_an_undeclared_flag_is_refused_and_clearing_one_is_not() -
     assert cleared.json()["changed"] is True
 
 
+def _assert_wellformed_against(registry: dict[str, Any]) -> None:
+    """Run the BOOT assertion over a substituted registry.
+
+    Monkeypatching the module global rather than passing an argument, because the
+    production call site takes none — a function with a test-only parameter would be a
+    second code path, and the thing under test is the one `main.py` runs at import.
+    """
+    from apps.api.flags import registry as registry_module
+
+    original = registry_module.FLAGS
+    registry_module.FLAGS = registry  # type: ignore[misc]
+    try:
+        assert_flag_registry_wellformed()
+    finally:
+        registry_module.FLAGS = original  # type: ignore[misc]
+
+
 async def test_a_malformed_flag_name_never_reaches_the_database() -> None:
     """The path segment is validated against the same pattern the DB CHECK enforces, so a
     junk name is a 422 naming the rule rather than a constraint violation as a 500."""
@@ -636,6 +653,50 @@ def test_the_declared_flag_set_is_pinned() -> None:
     This is the line a reviewer sees when somebody adds one.
     """
     assert sorted(FLAGS) == ["call_timing_breakdown"]
+
+
+def test_an_unconsumed_flag_must_say_what_would_consume_it() -> None:
+    """A switch an operator can flip that does nothing, with no statement of what would
+    change that, is a leftover wearing a mechanism.
+
+    `consumed_by: None` is legal and stays legal — landing a flag before the feature it
+    gates is deliberate. What is not legal is landing it with no closer named: CLAUDE.md
+    says a deferral is a statement of what closes it or it is not a deferral, and the one
+    flag this repo declares sat unconsumed with its description promising numbers that a
+    migration had already dropped.
+    """
+    from dataclasses import replace
+
+    from apps.api.flags.registry import FlagRegistryError
+
+    for name, spec in FLAGS.items():
+        if spec.consumed_by is None:
+            assert spec.blocked_by and len(spec.blocked_by.strip()) >= 20, (
+                f"flag {name!r} is read by nothing and does not say what would change that"
+            )
+
+    stripped = {name: replace(spec, blocked_by=None) for name, spec in FLAGS.items()}
+    if any(spec.consumed_by is None for spec in FLAGS.values()):
+        with pytest.raises(FlagRegistryError, match="does not"):
+            _assert_wellformed_against(stripped)
+
+
+def test_a_flag_may_not_claim_a_consumer_and_a_blocker_at_once() -> None:
+    """A blocker is what stands between the flag and a consumer. Once one exists the
+    sentence is stale, and a stale blocker is how an operator concludes a live switch
+    does nothing."""
+    from dataclasses import replace
+
+    from apps.api.flags.registry import FlagRegistryError
+
+    contradictory = {
+        name: replace(
+            spec, consumed_by="apps.api.flags.service", blocked_by="something outstanding"
+        )
+        for name, spec in FLAGS.items()
+    }
+    with pytest.raises(FlagRegistryError, match="both a consumer"):
+        _assert_wellformed_against(contradictory)
 
 
 def test_no_declared_flag_claims_a_consumer_it_does_not_have() -> None:

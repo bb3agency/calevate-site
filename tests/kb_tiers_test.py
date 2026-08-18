@@ -37,6 +37,7 @@ import uuid
 from pathlib import Path
 
 from apps.api.admin import intake
+from apps.api.agents import t0
 from apps.api.db.session import tenant_session
 from apps.api.kb import service as kb_service
 from sqlalchemy import text
@@ -73,7 +74,7 @@ async def test_t0_context_is_compiled_from_the_clients_own_facts_and_stored() ->
         )
     versions = await _prompt_versions(agent_id, tenant_id)
     compiled = dict(versions)[int(result["prompt_version"])]
-    assert compiled.startswith(intake.T0_HEADER)
+    assert compiled.startswith(t0.T0_HEADER)
     assert "Root canal" in compiled, "a fact the client typed reached the compiled block"
 
 

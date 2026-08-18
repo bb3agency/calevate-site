@@ -397,9 +397,14 @@ class Settings(BaseSettings):
     # is a coherent deployment, and a readiness probe that goes red for an absent optional
     # feature is a probe operators learn to ignore.
     gcp_service_account_json: str | None = None
-    # Embeddings are provider-managed if the D-28 RAG service bundles them;
-    # Cohere is only needed if the bake-off selects a store that does not.
-    cohere_api_key: str | None = None
+    # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
+    # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
+    # therefore offered to an operator on the ops console as a key they could install —
+    # and NOTHING in this repository ever read it. D-28 makes retrieval a managed API
+    # service that owns its own embeddings, so no code path has ever needed one. A knob
+    # that does nothing is worse than no knob: an operator who installs it believes the
+    # embeddings leg is configured. If a future retrieval provider requires us to embed,
+    # the field comes back in the same change as the code that reads it.
 
     # THE SIX `CLERK_*` FIELDS THAT WERE HERE ARE GONE (D-177). Two publishable keys, two
     # secret keys, a frontend-API hostname and a Svix webhook secret — the whole vendor

@@ -632,6 +632,30 @@ def record_outbox_dlq_depth(depth: int) -> None:
     _record("outbox_dlq_depth", depth)
 
 
+def record_inbox_lag(seconds: float) -> None:
+    """The outbox's mirror image, on the side D-31 says is only a HINT.
+
+    An inbox row sits at `enqueued` from the moment the receiver hands the work to arq
+    until the job reports back. A rising oldest-`enqueued_at` therefore means the ingest
+    job is not finishing — the exact failure the reconciliation poller exists to survive,
+    and the one that is otherwise invisible because the poller quietly does the work and
+    the inbox row is simply never revisited. `webhook_inbox_events.enqueued_at` was
+    written and read by nothing at all before this recorder.
+    """
+    _record("inbox_lag_seconds", seconds)
+
+
+def record_inbox_handling_ms(ms: float, *, provider: str) -> None:
+    """End to end for ONE webhook: arrival (`created_at`) to `processed_at`.
+
+    `record_webhook_ack_ms` measures what the CALLER waited for, which hard rule 3 caps
+    at 500ms precisely because the real work is deferred. This measures the deferred
+    half, so the two together say whether a fast ack is buying a fast pipeline or hiding
+    a slow one.
+    """
+    _record("inbox_handling_ms", ms, provider=provider)
+
+
 def record_extraction_failure(*, reason: str) -> None:
     _record("extraction_failures", 1, reason=reason)
 
@@ -672,6 +696,8 @@ __all__ = [
     "record_compliance_block",
     "record_dispatch_tick",
     "record_extraction_failure",
+    "record_inbox_handling_ms",
+    "record_inbox_lag",
     "record_outbox_dlq_depth",
     "record_outbox_lag",
     "record_pipeline_lag",

@@ -270,13 +270,6 @@ async def find_sample(session: AsyncSession, sample_id: UUID) -> SampledCall | N
     return None if row is None else _row(row)
 
 
-async def get_sample(session: AsyncSession, sample_id: UUID) -> SampledCall:
-    sample = await find_sample(session, sample_id)
-    if sample is None:
-        raise ProblemError.not_found("QA sample")
-    return sample
-
-
 _REVIEW_SQL = (
     "UPDATE qa_call_samples SET verdict = :verdict, reviewed_at = now(), "
     "  reviewed_by_admin_id = :admin_id, updated_at = now() "
@@ -336,7 +329,6 @@ __all__ = [
     "WeekDraw",
     "draw_week_sample",
     "find_sample",
-    "get_sample",
     "ist_week_start",
     "list_samples",
     "record_review",

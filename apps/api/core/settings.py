@@ -10,7 +10,6 @@ optional model key.
 from __future__ import annotations
 
 import os
-import sys
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -641,12 +640,6 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
     return missing
 
 
-def fail_fast(message: str) -> None:
-    """Unhandled-startup path: alert THEN exit, never swallow (§2 step 7)."""
-    print(f"FATAL: {message}", file=sys.stderr, flush=True)
-    raise SystemExit(1)
-
-
 __all__ = [
     "BOOTSTRAP_REASONS",
     "BOOTSTRAP_REQUIRED",
@@ -660,7 +653,6 @@ __all__ = [
     "effective_env",
     "env_declares",
     "env_var_for",
-    "fail_fast",
     "get_settings",
     "platform_overrides",
     "resolve_hmac_key",
