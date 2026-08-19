@@ -20,6 +20,7 @@ _alerts` fails against it with the same, because it never got to a last attempt.
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,11 @@ from apps.workers import auth_email, transport
 from arq import Retry
 
 pytestmark = pytest.mark.asyncio
+
+#: Read at IMPORT, in a synchronous context. `Path.read_text()` inside an `async def` is
+#: a blocking call on the event loop and ruff (ASYNC240) refuses it — correctly, even for
+#: a test — so the one file this suite inspects as TEXT is loaded once, here.
+_OTP_SOURCE = (Path(__file__).resolve().parents[1] / "apps/api/authn/otp.py").read_text()
 
 #: Stand-in so a missing constant fails on the ASSERTION below with a sentence a
 #: reader can act on, rather than on `None.group` at import.
@@ -192,3 +198,130 @@ async def test_the_invitation_link_names_the_page_the_web_app_serves() -> None:
         f"the invitation email points somewhere other than {WEB_ACCEPT_INVITE_PATH}, which "
         "is the page the web app actually serves"
     )
+
+
+# --- the dev sink actually delivers (D-409) -------------------------------------------
+#
+# Admin sign-in is password + an emailed six-digit code (D-170). The code is stored only
+# as a keyed hash, so the plaintext lives in exactly one place: the message body. The
+# console sink logged the recipient's domain, the subject and a CHARACTER COUNT — so on a
+# laptop the one thing a developer needed was the one thing discarded, and a correctly
+# working second factor presented as a broken one.
+#
+# WHAT THESE TESTS ARE REALLY GUARDING is the shape of the fix rather than the fix: the
+# tempting repair is a flag that skips the OTP check on local, which would leave
+# `authn/otp.py` unexercised on every laptop and sit one env var away from doing the same
+# in production. `test_no_app_env_branch_can_skip_the_second_factor` is the one that says
+# so in code.
+
+
+async def test_the_dev_sink_delivers_the_code_a_developer_needs(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A sink that reports success while discarding the content did not deliver anything.
+
+    Asserted on a realistic OTP body, because the six digits are the payload: this test
+    fails against the old transport, which logged `chars=...` and nothing else.
+    """
+    from apps.api.core.settings import get_settings
+
+    assert get_settings().app_env == "local", "the suite is not on the branch under test"
+    body = "Your Calevate sign-in code is 481920. It is good for ten minutes."
+
+    with caplog.at_level(logging.DEBUG):
+        assert transport.ConsoleTransport().send(
+            to="ops@calevate.example.com", subject="Your sign-in code", body=body
+        )
+
+    delivered = [r for r in caplog.records if r.getMessage() == "email_console"]
+    assert delivered, "the console sink logged nothing at all"
+    assert any("481920" in str(getattr(r, "dev_message", "")) for r in delivered), (
+        "the console sink did not carry the code, so a local admin sign-in cannot be completed"
+    )
+
+
+async def test_the_dev_sink_prints_no_body_outside_local(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Defence in depth, and the half whose failure is a real customer's message in an
+    aggregated log.
+
+    `get_transport` should never reach this class outside APP_ENV=local — the resolver in
+    `config.email_transport_reason` decides that first. This asserts the transport does
+    not RELY on that: two reads of one fact eventually disagree, and the cost of this
+    particular disagreement is disclosure rather than an error.
+    """
+    from apps.api.core.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "app_env", "prod")
+    body = "Your Calevate sign-in code is 481920. It is good for ten minutes."
+
+    with caplog.at_level(logging.DEBUG):
+        assert transport.ConsoleTransport().send(
+            to="ops@calevate.example.com", subject="Your sign-in code", body=body
+        )
+
+    for record in caplog.records:
+        assert "481920" not in str(getattr(record, "dev_message", "")), (
+            "the console sink printed a message body outside APP_ENV=local"
+        )
+        assert not hasattr(record, "dev_message"), "the dev-only field escaped local"
+
+
+async def test_the_body_is_still_redacted_on_the_way_out(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Hard rule 6 does not get a local exemption, and it does not need one.
+
+    The body rides in an EXTRA, so `JsonFormatter` sends it through `redact_mapping` —
+    a caller's number in a hot-lead alert is masked while a six-digit OTP survives
+    (`_PHONE_RE` needs nine-plus digits). That is the whole reason the field is an extra
+    rather than an f-string in the message, and it is why the key name matters below.
+    """
+    from apps.api.core.logging import redact_mapping
+
+    body = "Code 481920. Lead Padma Rao, +919812345678, asked about implants."
+    rendered = redact_mapping({"dev_message": body})["dev_message"]
+
+    assert "481920" in rendered, "redaction ate the OTP, which is the payload"
+    assert "+919812345678" not in rendered, "a caller's number reached a log line"
+    assert "[phone]" in rendered
+
+
+async def test_the_dev_message_key_stays_out_of_the_redact_list() -> None:
+    """The fix is one word from being silently undone.
+
+    `body`, `text` and `recipient` are all in `REDACT_KEYS`, so the OBVIOUS names for this
+    field would render `[redacted]` and restore the exact bug — a sink that logs a
+    placeholder where the code should be, with every test above still passing on the
+    presence of the field. Adding `dev_message` (or `message`, or `dev`) to that tuple
+    later would do the same, so the incompatibility is pinned here rather than discovered
+    by the next person who cannot sign in.
+    """
+    from apps.api.core.logging import REDACT_KEYS
+
+    assert not any(marker in "dev_message" for marker in REDACT_KEYS), (
+        "`dev_message` now matches a REDACT_KEYS marker, so the console sink logs "
+        "'[redacted]' instead of the code and local admin sign-in is broken again"
+    )
+
+
+async def test_no_app_env_branch_can_skip_the_second_factor() -> None:
+    """**THIS IS A DELIVERY FIX, NOT AN MFA BYPASS, and this test is what keeps it one.**
+
+    The cheap way to make a local sign-in easy is `if app_env == "local": return True`
+    somewhere in the OTP path. It would work, and it would be wrong twice: the code path
+    most worth exercising would go unexercised on every developer's machine, and the
+    branch would sit one misconfigured environment variable away from accepting any code
+    in production (CLAUDE.md: never add a bypass "for testing").
+
+    So `authn/otp.py` must not read the environment at all. Asserted as TEXT because the
+    edit that would break it is one line long and reads, in isolation, like a convenience.
+    """
+    source = _OTP_SOURCE
+
+    for smell in ("app_env", "APP_ENV", "is_local", "DEBUG"):
+        assert smell not in source, (
+            f"{smell!r} appears in authn/otp.py — the second factor must not know which "
+            "environment it is running in, or 'local' becomes a value someone can set"
+        )
