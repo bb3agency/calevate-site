@@ -68,18 +68,38 @@ from sqlalchemy import text
 
 # ── the accounts this script owns ──────────────────────────────────────────────
 #
-# `.local` rather than `example.com`: RFC 6761 reserves `.local` for link-local names that
-# resolve nowhere, so a stray notification job cannot deliver one of these anywhere. It also
-# makes a seeded address unmistakable in a mailbox screenshot.
-ADMIN_EMAIL = "ops@calevate.local"
+# `example.com` rather than `.local`, AND THE FIRST VERSION OF THIS GOT IT WRONG in a way
+# worth recording, because the reasoning was right and the conclusion was not.
+#
+# The goal has not changed: a seeded address must be undeliverable, so that a stray
+# notification job cannot mail a real human, and it must be obviously fake in a screenshot.
+# `.local` satisfies both — RFC 6762 reserves it for link-local names that resolve nowhere.
+# **But it is REFUSED BY OUR OWN LOGIN.** `EmailStr` (pydantic → `email-validator`) rejects
+# special-use names, so every account this script created was one no one could sign in to:
+# the seed succeeded, the row existed, and the sign-in form answered "the part after the
+# @-sign is a special-use or reserved name". A credential that cannot be used is not a
+# credential, and the whole point of this file is credentials a developer can use.
+#
+# `example.com` (RFC 2606 §3) is reserved for documentation and CANNOT BE REGISTERED BY
+# ANYONE, so it carries the same guarantee — there is no mailbox at the other end, ever —
+# while passing validation. **`.test` is NOT the fix**: it is reserved by the same RFC 2606
+# and rejected by `email-validator` for exactly the reason `.local` is, so it would have
+# reproduced this bug under a different name. A real TLD like `.dev` validates but is
+# registrable — `sunrise-dental.dev` may belong to somebody — which trades a login bug for
+# a mail-a-stranger bug.
+#
+# `test_every_seeded_login_is_one_the_api_would_accept` pins this against the same validator
+# the sign-in route uses, so the next person cannot reintroduce it by picking a TLD that
+# reads as safe.
+ADMIN_EMAIL = "ops@calevate.example.com"
 ADMIN_NAME = "Dev Operator"
 ADMIN_PASSWORD = "CalevateDev!2026"
 
-OWNER_EMAIL = "owner@sunrise-dental.local"
+OWNER_EMAIL = "owner@sunrise-dental.example.com"
 OWNER_NAME = "Padma Rao"
 OWNER_PASSWORD = "CalevateDev!2026"
 
-STAFF_EMAIL = "staff@sunrise-dental.local"
+STAFF_EMAIL = "staff@sunrise-dental.example.com"
 STAFF_NAME = "Kiran Kumar"
 STAFF_PASSWORD = "CalevateDev!2026"
 
