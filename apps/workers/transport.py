@@ -416,15 +416,54 @@ class SmtpTransport:
 
 class ConsoleTransport:
     """Local dev. Reports success honestly — the message really did get delivered,
-    to a terminal."""
+    to a terminal.
+
+    **IT PRINTS THE BODY, and until D-409 it did not — which made a local stack
+    unsignable-into.** Admin sign-in is password + an emailed six-digit code (D-170),
+    the code is stored only as a keyed hash (`authn/codes.py`), and the plaintext exists
+    in exactly one place: the message body. This transport logged the recipient's domain,
+    the subject and a CHARACTER COUNT, so the one thing a developer needed was the one
+    thing thrown away. `scripts/seed_dev.py` handed out working passwords to accounts
+    nobody could finish signing in as, and the second factor looked broken when it was
+    working perfectly.
+
+    **THIS IS NOT AN MFA BYPASS AND MUST NEVER BECOME ONE.** Nothing in `authn/` changes:
+    the challenge is issued, the code is hashed, attempts are counted, the rate limit and
+    the ten-minute expiry apply, and a wrong code is refused. A developer reads the code
+    they were actually sent and types it in — the same round trip a real operator makes,
+    which is the point. A flag that skipped the check would leave `apps/api/authn/otp.py`
+    unexercised on every laptop in exactly the code path most worth exercising, and would
+    be one misconfigured env var from doing the same in production (CLAUDE.md: never add
+    a bypass "for testing").
+
+    **THE BODY IS GATED ON `app_env == "local"`, structurally, and that is defence in
+    depth rather than the primary control.** The primary control is selection:
+    `get_transport` only reaches this class when the resolver has already established
+    APP_ENV=local with no provider named (`config.email_transport_reason`). The check
+    below is here because the cost of the two disagreeing is a real customer's message
+    printed into an aggregated log, and a second read is cheap next to that.
+
+    **IT GOES IN AN EXTRA RATHER THAN THE MESSAGE**, which is what keeps it redacted.
+    `JsonFormatter` sends every extra through `redact_mapping`, so `dev_message` is
+    phone-masked on the way out — a six-digit OTP survives (`_PHONE_RE` needs nine-plus
+    digits) while a hot-lead alert's caller number does not. The key must stay OUT of
+    `REDACT_KEYS`: `body`, `text` and `recipient` are all in it, so the obvious names
+    would print `[redacted]` and reintroduce this bug wearing a fix's clothes.
+    """
 
     name = "console"
 
     def send(self, *, to: str, subject: str, body: str) -> bool:
-        log.info(
-            "email_console",
-            extra={"recipient_domain": _domain(to), "subject": subject, "chars": len(body)},
-        )
+        extra: dict[str, Any] = {
+            "recipient_domain": _domain(to),
+            "subject": subject,
+            "chars": len(body),
+        }
+        if get_settings().app_env == "local":
+            # The delivery itself. A sink that reports success while discarding the
+            # content did not deliver anything.
+            extra["dev_message"] = body
+        log.info("email_console", extra=extra)
         return True
 
 
