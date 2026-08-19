@@ -422,11 +422,33 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
 
     If this test ever fails, the honest fix is to say so here rather than to delete the
     exemption: the subject may have moved, and the machinery is still right.
+
+    **IT FAILED, AND THIS IS THAT SENTENCE (D-400).** The subject grew from one file to
+    two. `calevate_shared/engine.py` now names the Vertex host twice in SHIPPED CODE
+    rather than in prose: `vertex_openai_base_url()` builds the OpenAI-compatible endpoint
+    the voice engine is handed, and `ModelConfig`'s residency validator builds the prefix
+    it checks a configured base URL against. Both are f-strings over `VERTEX_LOCATION`, so
+    both are judged by checks 2 and 4 exactly like `extraction.py`'s — nothing was
+    exempted to make this list shorter, and the assertion is widened rather than loosened
+    (it is still an equality on an exact list, so a THIRD file appearing still fails here
+    and still has to be explained).
+
+    WHY THE LIST IS PINNED AT ALL, restated because it now costs a maintenance step: every
+    file naming a Google model host is a place a residency posture can be lost, and the
+    set of such places should be small enough that a person can hold it in their head.
+    Two is still that. If this list ever reaches a size where updating it feels like
+    paperwork, the tree has spread model endpoints around and THAT is the finding.
     """
     subjects = [
         reference.path for reference in guard.url_references() if reference.path != guard.SELF
     ]
-    assert subjects == ["apps/workers/extraction.py"], subjects
+    assert subjects == [
+        "apps/workers/extraction.py",
+        # `vertex_openai_base_url()` — the endpoint handed to the voice engine (D-400).
+        "packages/shared/src/calevate_shared/engine.py",
+        # `ModelConfig._llm_endpoint_is_coherent`'s expected host prefix (D-400).
+        "packages/shared/src/calevate_shared/engine.py",
+    ], subjects
 
     original = guard._docstrings
     try:
@@ -436,13 +458,28 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
     finally:
         guard._docstrings = original  # type: ignore[assignment]
 
-    # Two subjects now, and the SHIPPED one is the point. The guard's own prose is the
-    # second — it explains both bans at length — and it only shows up here because the
-    # self-exemption stopped being a whole-file skip; before that narrowing this list
-    # would have held the client alone.
+    # FOUR SUBJECTS NOW, AND THE GROWTH IS THE POINT RATHER THAN AN INCONVENIENCE (D-400).
+    # Every file here names a banned host in PROSE — a docstring explaining why that host
+    # is refused — and every one of them would be reported as the offence if the exemption
+    # were removed. That is the exemption's whole justification, and it is now made by four
+    # files instead of two:
+    #
+    #   extraction.py            why the AI Studio API is disqualified for extraction
+    #   check_model_residency.py the guard's own explanation of both bans
+    #   engine/bolna.py          why `provider: "google"` is a REFUSED branch (D-401)
+    #   calevate_shared/engine.py why the easy in-call route is the disqualified one
+    #
+    # The two new ones arrived with D-400 for exactly the reason the exemption exists: the
+    # decision to REFUSE the AI Studio host is worthless if nobody can write down why, and
+    # a guard that punished the writing-down would get the explanations deleted instead.
     offenders = {failure.split(":", 1)[0] for failure in failures}
     assert "apps/workers/extraction.py" in offenders, failures
-    assert offenders == {"apps/workers/extraction.py", guard.SELF}, offenders
+    assert offenders == {
+        "apps/workers/extraction.py",
+        "apps/api/engine/bolna.py",
+        "packages/shared/src/calevate_shared/engine.py",
+        guard.SELF,
+    }, offenders
     assert any(guard.AI_STUDIO_HOST in failure for failure in failures)
 
     # And with the exemption restored, the same tree is clean — otherwise the assertion

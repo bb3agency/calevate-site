@@ -521,6 +521,219 @@ GEMINI_RETIRED_LLMS: Final = frozenset(
 )
 
 
+#: THE PUBLISHED LIST PRICE of `GEMINI_DEFAULT_LLM`, in **USD per MILLION tokens** —
+#: input and output — and the ONE place this repository states it (D-400).
+#:
+#: WHY IT IS HERE AND IN USD, when every rupee figure in this codebase is INR (hard rule
+#: 7). Two readers now need this number and they need it at different exchange rates:
+#: `billing/ai_quota.py` prices the dashboard assist, and TRD §10 prices the IN-CALL LLM
+#: leg that D-400 just made non-free. It shipped as two INR literals in `ai_quota.py`
+#: with the fx already folded in, which was right while there was one reader and is the
+#: D-103 / D-105 defect the moment there are two: the vendor publishes dollars,
+#: `usd_inr_rate` is a live console value, and a constant that has already multiplied
+#: them cannot be re-derived when either moves. So the VENDOR'S fact lives here in the
+#: vendor's unit, beside the model identifier it is a price OF, and every rupee
+#: conversion happens at a named rate in `billing/`, which is where hard rule 7 says
+#: money arithmetic belongs.
+#:
+#: ⚠ **A LIST PRICE IS A VENDOR CLAIM**, and this one's standing is unusually good:
+#: **READ, not summarised** — LiteLLM's `model_prices_and_context_window.json` fetched
+#: from `raw.githubusercontent.com` and parsed locally on 16 Aug 2026, where
+#: `gemini-2.5-flash` under `vertex_ai-language-models` gives `input_cost_per_token`
+#: 3e-07 and `output_cost_per_token` 2.5e-06. Corroborated 18 Aug 2026 by two independent
+#: search summaries of Vertex pricing pages ("$0.30 input / $2.50 output per million
+#: tokens, no long-context surcharge across the full 1M window").
+#: `docs.cloud.google.com` is refused by this environment's egress proxy, so the vendor's
+#: own page has never been fetched from this repository.
+#:
+#: ⚠ **A NON-GLOBAL ENDPOINT SURCHARGE IS REPORTED AND WOULD LAND ON US.** Two
+#: independent search summaries (18 Aug 2026) say Vertex charges roughly 10% more on
+#: regional endpoints than on the global one from 1 July 2026 — precisely the premium a
+#: residency posture buys. ONE of the two adds that it applies to "the generally
+#: available Gemini 3 and later families", which would exempt this model. It is NOT
+#: folded into these numbers: a 10% factor nobody has seen on an invoice would make every
+#: derived figure unfalsifiable in the expensive direction. It is carried as OPERATIONS
+#: §2 gate 14c instead, settled by the first GCP invoice.
+#:
+#: ⚠ **TWO MOVES ARE ALREADY DATED**: `GEMINI_DEFAULT_LLM_RETIRES` (16 Oct 2026) and the
+#: end of the Flash tier's introductory pricing (1 Jan 2027).
+GEMINI_LIST_PRICE_USD_PER_MTOK: Final[dict[str, Decimal]] = {
+    "in": Decimal("0.30"),
+    "out": Decimal("2.50"),
+}
+
+
+def vertex_openai_base_url(project: str) -> str:
+    """Vertex AI's **OpenAI-compatible** base URL for one project, pinned to Mumbai.
+
+    THE SECOND VERTEX DOOR, and it is a different door from `vertex_generate_url`
+    (`apps/workers/extraction.py`) rather than a second spelling of the same one. That
+    one is `…/publishers/google/models/{model}:generateContent` and OUR OWN client calls
+    it. This one is `…/endpoints/openapi`, an OpenAI Chat Completions surface, and its
+    whole purpose is to be handed to a THIRD PARTY — the voice engine, which speaks
+    OpenAI and does not speak `generateContent` (D-400). Two URLs, two callers, two API
+    shapes; what they share is the only thing that must not drift, `VERTEX_LOCATION`, and
+    both interpolate that one `Final` into both the host and the `locations/` segment so
+    `scripts/check_model_residency.py` can prove it from the AST.
+
+    WHY IT LIVES IN THE PORTABILITY CONTRACT rather than in the Bolna adapter. It is not
+    a vendor payload shape (hard rule 2) — it is OUR endpoint, the one we would hand to
+    any engine that can take a base URL, and `ModelConfig.llm_base_url` is where it
+    lands. An adapter that built it would be an adapter deciding where our models run.
+
+    ⚠ **THE URL IS NOT THE HARD PART; THE CREDENTIAL IS.** See
+    `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE` — a regional Vertex endpoint takes a ~1-hour
+    OAuth2 bearer and nothing else, and no engine in this repository has anywhere to put
+    a credential that expires.
+
+    EVIDENCE STANDING for the path shape: **REPORTED, NOT READ** (searched 18 Aug 2026;
+    `docs.cloud.google.com` is refused by this environment's proxy). Multiple independent
+    search summaries of Google's own "OpenAI compatibility" page agree on
+    `https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi`
+    as the OpenAI client's `base_url`, with `/chat/completions` appended by the client.
+    A wrong path fails LOUD (a 404 from a host that does serve our project), which is the
+    safe direction.
+    """
+    return (
+        f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/{project}"
+        f"/locations/{VERTEX_LOCATION}/endpoints/openapi"
+    )
+
+
+#: Can the in-call LLM leg actually BE Gemini-on-Vertex yet? No — and the blocker is the
+#: credential, not the model, the region, the price or the URL (D-400, D-402).
+#:
+#: A greppable boolean rather than a paragraph, for `GEMINI_MODEL_CONFIRMED_IN_REGION`'s
+#: reason: the founder has decided the LLM leg is Gemini on paid Vertex, that decision is
+#: now written into eight documents, and until it names a constant `check_docs_drift`
+#: cannot tell an intention from a running system.
+#:
+#: WHAT IS SETTLED, and each of these was read rather than assumed:
+#:
+#: * **Bolna's `llm_agent.provider` is an OPEN string with a sibling `base_url`.** READ AT
+#:   SOURCE in their published OpenAPI (`bolna-ai/skills@28b24aa`,
+#:   `references/openapi.yml`, md5 5597f7da080d47564696bc05c12e9112): `LlmAgent.provider`
+#:   and `SimpleLlmAgent.provider` are `type: string, default "openai"` with NO `enum`,
+#:   beside `base_url` (`example "https://api.openai.com/v1"`) — while `agent_flow_type`
+#:   in the very same block DOES carry `enum: [streaming, preprocessed]` and the telephony
+#:   `provider` carries `enum: [twilio, plivo]`. The author uses `enum` when they mean
+#:   closed. An arbitrary OpenAI-compatible endpoint is the DESIGNED extension.
+#: * **`provider` selects the client; `family` is read by nothing.** READ AT SOURCE in
+#:   `bolna-ai/bolna` (`bolna/providers.py::SUPPORTED_LLM_PROVIDERS`,
+#:   `bolna/enums.py::LLMProvider`): `"custom"` maps to `OpenAiLLM`, which constructs
+#:   `AsyncOpenAI(base_url=…, api_key=llm_key)` (`bolna/llms/openai_llm.py`). This settles
+#:   the D-260 marked assumption in `engine/bolna.py::_agent_body` in the direction that
+#:   assumption feared.
+#: * **Bolna's OWN "Google Gemini" provider is the AI STUDIO API, which D-127
+#:   disqualified.** Their provider matrix (`bolna-ai/skills@28b24aa`,
+#:   `references/providers-matrix.md`) lists it needing one key named `GOOGLE`; their
+#:   server maps `provider: "google"` to `GeminiLLM`, which is `genai.Client(api_key=…)`
+#:   against `generativelanguage.googleapis.com` (`bolna/llms/gemini_llm.py`) — a GLOBAL
+#:   host with no region anywhere in the URL. **So the easy route is the disqualified
+#:   one**, and that tension is the finding rather than a detail: "Gemini is supported"
+#:   and "Gemini is supported in a way that keeps caller audio in India" are different
+#:   sentences.
+#:
+#: WHAT WAS NOT SETTLED, AND NOW IS — **ROTATION, NOT PROXYING** (D-404). The blocker
+#: read: "a regional Vertex endpoint authenticates with a Google OAuth2 access token that
+#: expires in about an hour, and Bolna stores static strings." Both halves were true and
+#: the conclusion drawn from them was not. A store that holds a string can hold a string
+#: we REPLACE on a schedule, and this repository already owns every part of doing that:
+#: the RS256 service-account handshake (`apps/workers/google_oauth.py`), the secrets
+#: manager reference for the key (`gcp_service_account_json`, never in the DB or a
+#: committed file), and a cron registry with a retry ladder. Two facts turned "static
+#: strings" from a wall into a schedule:
+#:
+#: * **The token can last 12 hours, not one.** `generateAccessToken` accepts
+#:   `lifetime: "43200s"` for a service account named in the org policy
+#:   `constraints/iam.allowServiceAccountCredentialLifetimeExtension` (Google IAM docs,
+#:   read 18 Aug 2026). Default is 3600s, and the response ALWAYS carries `expireTime`
+#:   (`google/iam/credentials/v1/common.proto`), so what we were GRANTED is read back
+#:   rather than assumed — see `apps/workers/vertex_credential.py`.
+#: * **`provider: "custom"` sends a plain bearer.** VERIFIED-OSS at `bolna-ai/bolna`
+#:   master, `bolna/llms/openai_llm.py`: `AsyncOpenAI(base_url=…, api_key=llm_key, …)`,
+#:   and `AsyncOpenAI` sends `Authorization: Bearer <api_key>` — which is exactly what
+#:   Vertex's OpenAI-compatible surface accepts. The engine never needs to know the string
+#:   is an OAuth2 token rather than an API key.
+#:
+#: An API key remains no alternative, and that is the reason the rotation is worth its
+#: cost: Vertex API keys work only in express mode, whose endpoints are the GLOBAL
+#: `aiplatform.googleapis.com` with no `projects` or `locations` segment, and the
+#: `@google/genai` client short-circuits to the global endpoint the moment an API key is
+#: present, ignoring the configured location entirely (google-gemini/gemini-cli#27984,
+#: READ 18 Aug 2026 — a reporter watching requests go to the global host while the UI
+#: displayed their region). Google's own guidance is blunter still: "Don't use the global
+#: endpoint if you have ML processing requirements, because you can't control or know
+#: which region your ML processing requests are sent to." **A key is not the convenient
+#: version of this leg; it is a different leg, in a different country.**
+#:
+#: THE THREE REJECTED ROUTES, kept in full because the next reader will otherwise
+#: re-propose the easy ones (each is a decision row of its own: D-405..D-407):
+#:
+#: * **(A) A Google AI Studio key** (`provider: "google"` — a long-lived static string that
+#:   fits Bolna's credential store exactly, and the only route that is a five-minute
+#:   change). **CLOSED, and on ONE ground rather than D-401's two.** Paying removes the
+#:   training-and-human-review objection: Google states it does not train on paid Developer
+#:   API data. The residency objection SURVIVES it — the Developer API has no region pinning
+#:   at all, the host carries no region, and there is no field in which to ask for one.
+#:   Taking it would be abandoning D-127's posture on the leg that carries the caller's
+#:   actual voice: a DPDP position change and a founder's call, not a shortcut. No code path
+#:   can reach it, and `_llm_routing` refuses `provider: "google"` by test.
+#: * **(B) A token-broker proxy WE run in-region** — holds the service-account key, mints
+#:   and refreshes the bearer, forwards to `asia-south1`, registered with Bolna as a custom
+#:   model URL. **REJECTED IN FAVOUR OF ROTATION**, and the three costs that decided it are
+#:   the ones that made rotation worth finding: it sits IN the turn-latency path (so it
+#:   belongs beside `apps/voice-runtime`, not in `apps/api`) and adds a hop to every model
+#:   token on a live phone call; it is a NEW DEPLOYABLE needing its own ROADMAP §6 entry;
+#:   and **`POST /user/model/custom` carries NO credential field, so an unauthenticated
+#:   OpenAI-compatible endpoint on the public internet would be an OPEN RELAY FOR OUR VERTEX
+#:   SPEND** — an unguessable path is not authentication. Rotation costs zero added
+#:   latency, no new deployable and no new attack surface, because the bearer travels
+#:   engine-to-Google on a connection we are not in.
+#: * **(C) Ask Bolna.** Still worth one email, and it is now an OPTIMISATION rather than a
+#:   blocker: if they will accept a credential-refresh hook the rotation gets simpler, and
+#:   if they will not, nothing here changes. `api.bolna.ai`, `docs.bolna.ai` and
+#:   `www.bolna.ai` are refused by this environment's egress proxy, so it cannot be asked
+#:   from here; OPERATIONS §2 gate 16b carries the test.
+#:
+#: WHAT THIS CONSTANT ACTUALLY GATES, because it is not a note: `apps/api/agents/service
+#: .py::in_call_llm` reads it, and it is the ONE decision point for the whole leg. It is
+#: now True, and it is still not sufficient on its own — `in_call_llm` requires a
+#: `gcp_project_id` AND a resolvable service account, because publishing a Vertex endpoint
+#: into a deployment that can mint no bearer for it is a 401 at dial time on a live phone
+#: line. The endpoint and the model identifier move TOGETHER for the same class of reason:
+#: sending a Sarvam identifier to Vertex is a 404 on that same call. Every arm is covered
+#: by `tests/in_call_llm_provider_test.py`.
+#:
+#: ⚠ WHAT IS STILL UNVERIFIED AGAINST THE LIVE PLATFORM, and it is one thing rather than
+#: the four it used to be: **which `provider_name` the hosted platform reads `llm_key`
+#: from for a `provider: "custom"` leg.** VERIFIED-OSS proves the framework passes
+#: `llm_key` straight to `AsyncOpenAI`; nothing published says which credential-store
+#: entry the HOSTED platform injects it from. `Settings.bolna_llm_credential_name` carries
+#: our default so an operator who learns the answer sets it from the ops console without a
+#: deploy, and OPERATIONS §2 gate 16c is the one call that settles it.
+VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = True
+
+
+#: WHERE an LLM leg runs, in OUR vocabulary — never the engine's (hard rule 2).
+#:
+#: `"vertex_openai"` is D-400's leg: Gemini on paid Vertex AI, reached through the
+#: OpenAI-compatible surface at `vertex_openai_base_url()`, region-pinned to Mumbai.
+#:
+#: ONE MEMBER, AND THAT IS THE HONEST COUNT rather than a stub. `None` — "whatever the
+#: engine's own default is" — is what every agent in this repository still resolves to,
+#: because D-260/gate 16 has never been answered: nobody knows whether the hosted Bolna
+#: platform honours `provider` and `base_url` at all, and naming D-36's Sarvam leg here
+#: would mean CHANGING the wire body of every live agent on the strength of that
+#: unanswered question. So the vocabulary names the leg somebody has argued a residency
+#: posture for, and nothing else. A second member arrives with a decision-log entry.
+#:
+#: CLOSED WHERE THE ENGINE'S IS OPEN, deliberately. Bolna's `provider` is an open string
+#: because Bolna does not care where a model runs; ours is closed because we do, and
+#: `ModelConfig`'s validator is what makes that more than a naming convention.
+LlmProvider = Literal["vertex_openai"]
+
+
 #: THE ONE SENTENCE A SCRIPT MAY NOT CONTRADICT, and the string every read-back is
 #: scored on (`AgentSnapshot.carries_prompt_marker`).
 #:
@@ -595,13 +808,74 @@ def carries_truthful_answer_floor(prompt: str | None) -> bool:
 
 class ModelConfig(BaseModel):
     """BYOK model selection — plain config strings (D-04/D-20/D-36), so changing a
-    model is a config edit + regression run, never a code change."""
+    model is a config edit + regression run, never a code change.
+
+    THE LLM LEG NOW CARRIES THREE FIELDS WHERE IT CARRIED ONE (D-400), and the two new
+    ones are not symmetry with the speech legs. `stt_provider` and `tts_provider` are
+    vendor NAMES an engine looks up in its own table; `llm_provider` is OUR closed
+    vocabulary (`LlmProvider`) and `llm_base_url` is an ENDPOINT — the place a third
+    party will send a client's caller's words. Naming the second thing is what makes
+    "the LLM leg runs in India" a checkable property of a value instead of a claim about
+    a vendor, which is the whole of D-127's replacement argument and now applies to the
+    in-call leg too.
+
+    The D-260 marked assumption in `engine/bolna.py::_agent_body` said this field would
+    arrive if `provider` turned out to be the field that routes. It is (READ AT SOURCE,
+    `bolna/providers.py::SUPPORTED_LLM_PROVIDERS` — `family` is declared and read by
+    nothing), so it has.
+    """
 
     stt_provider: str | None = None
     stt_model: str | None = None
     llm_model: str | None = None
+    #: WHERE the LLM leg runs. `None` means "the engine's own default", which is what
+    #: every config in this repository meant before D-400 and is still what the fake
+    #: engine and the conformance suite exercise.
+    llm_provider: LlmProvider | None = None
+    #: The OpenAI-compatible endpoint for a `vertex_openai` leg — always the output of
+    #: `vertex_openai_base_url()`, never typed by hand and never a tenant's to choose.
+    llm_base_url: str | None = None
     tts_provider: str | None = None
     tts_voice: str | None = None
+
+    @model_validator(mode="after")
+    def _llm_endpoint_is_coherent(self) -> ModelConfig:
+        """A `vertex_openai` leg has a Mumbai-pinned base URL, and nothing else has one.
+
+        WHY A VALIDATOR AND NOT A REVIEW. `scripts/check_model_residency.py` proves that
+        every Google model URL *written in this tree* names `asia-south1`; it says so
+        itself under "what this check cannot see" — a URL assembled at runtime or read
+        from a store is invisible to it. This object is exactly that blind spot's shape:
+        a URL travelling from our configuration into a third party's agent object. So the
+        static check covers the literal and this covers the value, and between them there
+        is no path by which an engine is handed a model endpoint outside India.
+
+        REFUSING A BASE URL WITHOUT A PROVIDER is the half worth stating: it is the shape
+        a future caller reaches for when it wants "just point the LLM somewhere", and it
+        would route to the engine's default client against our endpoint — a mismatch that
+        fails as a confusing 4xx from a vendor rather than as a sentence about what is
+        wrong.
+        """
+        if self.llm_provider == "vertex_openai":
+            if not self.llm_base_url:
+                raise ValueError("llm_provider 'vertex_openai' requires llm_base_url")
+            # The host AND the `locations/` segment — a host pinned to Mumbai with
+            # `locations/global` in the path is the global endpoint wearing a regional
+            # host, which is the exact substitution `check_model_residency` exists for.
+            expected = (
+                f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/",
+                f"/locations/{VERTEX_LOCATION}/",
+            )
+            if (
+                not self.llm_base_url.startswith(expected[0])
+                or expected[1] not in self.llm_base_url
+            ):
+                raise ValueError(
+                    f"llm_base_url must be a Vertex AI {VERTEX_LOCATION} endpoint (D-127)"
+                )
+        elif self.llm_base_url:
+            raise ValueError("llm_base_url is only meaningful with llm_provider 'vertex_openai'")
+        return self
 
 
 class AgentConfig(BaseModel):
@@ -1044,21 +1318,32 @@ ListingIncompleteReason = Literal[
     "full_page_suspected",
     # We followed continuations until our own bound stopped us. There is more.
     "page_cap_reached",
-    # A continuation pointed back at a page we had ALREADY fetched. The URLs repeat, so
-    # walking on would re-read the same page forever; we stopped and the window is not
-    # fully covered. Kept narrow on purpose: an operator reading this goes looking for
-    # two identical continuation URLs and must find them.
-    "next_link_loop",
-    # A continuation we had never seen before came back carrying only executions we had
-    # already collected. Not a loop — the URLs differ — but the walk stopped making
-    # progress, so it is a vendor repeating content rather than a broken link.
+    # A page we had never fetched came back carrying only executions we had already
+    # collected. The walk stopped making progress, so it is a vendor repeating content:
+    # continuing would burn the page cap on identical pages and then report the wrong
+    # reason. Named for the link era and kept, because the CONDITION is the same whether
+    # the next page is named by a cursor (Cartesia) or by a page number (Bolna).
     "next_link_no_progress",
-    # The response held NO executions at all and still offered a continuation. Nothing was
-    # re-served and nothing looped: either the window is genuinely empty and the vendor
-    # hands out a `next` regardless, or it pages in a shape we do not understand.
-    # `pages_fetched` says which page it was — 1 means the FIRST page came back empty.
-    "empty_page_with_next",
 ]
+# `next_link_loop` AND `empty_page_with_next` USED TO BE MEMBERS AND ARE GONE (D-365).
+#
+# Both were reachable only through a continuation URL the vendor handed us and we GET as
+# given: the first meant that URL repeated, the second meant a page carried no rows and
+# still offered one. `BolnaEngine._next_link` was the only code that could produce either,
+# and D-353 deleted it — Bolna publishes `page_number`/`page_size`/`has_more`, so the
+# adapter builds its own page URLs and there is no vendor-supplied link to loop or to
+# trail an empty page. Cartesia pages on its own `starting_after` cursor and emits neither.
+#
+# REMOVED RATHER THAN LEFT AS SPARE VOCABULARY. This Literal is the alphabet an operator
+# reads off an alert, and `docs/OPERATIONS.md` documents each value as something they may
+# see. A value no adapter can emit is a runbook entry for an event that cannot happen —
+# the "column nobody reads" defect, in a type rather than a table. Nothing persists these
+# (they reach a log line and an alert string, never a DB column), so narrowing the Literal
+# costs no migration; mypy is what would catch an adapter still trying to emit one.
+#
+# An adapter whose vendor DOES hand out continuation links may need them back. Adding a
+# member is a one-line change plus a runbook line — and it should come WITH the adapter
+# that emits it, which is the only state in which either label means anything.
 
 
 class ExecutionListing(BaseModel):
@@ -1133,6 +1418,45 @@ class WebhookVerdict(BaseModel):
     ok: bool
     method: Literal["hmac", "source_ip", "none"]
     reason: str | None = None
+
+
+class LlmCredentialPlacement(BaseModel):
+    """What the engine ACTUALLY did with a rotated LLM credential (D-404).
+
+    `set_llm_credential` cannot be fire-and-forget, and the reason is a vendor semantic
+    nobody has read back: a credential store may REPLACE the entry under a name or it may
+    APPEND a second one. Under append semantics a rotation that reported success would
+    leave the engine holding both the new bearer and every expired one before it, and
+    which of them a call authenticates with is the vendor's choice — so a leg could keep
+    working for hours after a rotation and then fail on a token nobody knew was still
+    installed. That failure is indistinguishable from "the refresher stopped running",
+    which is the one thing the alarm is supposed to tell an operator apart.
+
+    So the adapter reports what it observed, in OUR terms, and the caller logs it. No
+    vendor id, name or payload crosses this boundary (hard rule 2) — two counts and a
+    verdict, which is the whole of what an operator can act on.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: True when the engine ended up holding exactly ONE credential under our name
+    #: without anything having to be deleted — replace-in-place semantics.
+    replaced_in_place: bool
+    #: How many SUPERSEDED copies this call removed. Non-zero proves append semantics,
+    #: which is a fact about the vendor worth having in the log the first time it happens.
+    superseded_removed: int = Field(default=0, ge=0)
+
+    @model_validator(mode="after")
+    def _verdict_and_count_agree(self) -> LlmCredentialPlacement:
+        """A replace-in-place install cannot also have had superseded copies to remove —
+        the two are the two arms of one observation, and an adapter reporting both has
+        not looked, it has guessed."""
+        if self.replaced_in_place and self.superseded_removed:
+            raise ValueError(
+                "replaced_in_place with superseded_removed>0 is contradictory: "
+                "the store either replaced the entry or it appended beside it"
+            )
+        return self
 
 
 @runtime_checkable
@@ -1346,6 +1670,40 @@ class VoiceEngine(Protocol):
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber: ...
 
+    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Install the secret the configured LLM endpoint authenticates with, replacing
+        whatever this engine was holding for that purpose (D-404).
+
+        **THIS IS THE METHOD A ROTATING CREDENTIAL NEEDS, and no other method on this
+        Protocol could be it.** `create_agent`/`update_agent` carry an agent's CONFIG;
+        a bearer that expires is not configuration, it is a moving fact about the
+        deployment, and pushing it through the agent path would mean re-publishing every
+        agent in the fleet every few hours — a compliance-gated write (hard rule 5, the
+        prompt is re-verified on every publish) driven by a clock.
+
+        **ONLY MEANINGFUL WHERE `capabilities.is_ours("llm")` IS TRUE**, and that is the
+        same gate rather than a new capability flag on purpose: an engine that DICTATES
+        its LLM leg has no credential of ours to hold, so "can we install one" and "is the
+        LLM ours" are one question. Where the leg is dictated this must REFUSE BY NAME —
+        never no-op, because a silent success here is a refresher that reports green
+        forever while the leg it exists to keep alive is somebody else's.
+
+        WHAT `secret` IS deliberately unstated: a static API key for one engine, a
+        12-hour Google OAuth2 bearer for another. The Protocol's job is that the value
+        arrives and supersedes; how long it lives is the CALLER's problem, and
+        `apps/workers/vertex_credential.py` is the caller that owns it for D-404's leg.
+
+        NOT IDEMPOTENT IN THE `delete_agent` SENSE, and the difference matters: calling
+        it twice with the same secret must leave the engine holding that secret once, but
+        each call is a real write — this is the operation whose whole purpose is to
+        replace something that still works with something that will work longer.
+
+        Raises rather than returning a failure, because every caller's response to "the
+        credential did not land" is the same page (`vertex_llm_credential_refresh_failed`)
+        and a returned `False` is a thing a caller can forget to read.
+        """
+        ...
+
     async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
         """Push an approved source and return the engine's handle for it.
 
@@ -1407,6 +1765,23 @@ class VoiceEngine(Protocol):
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """Backs the reconciliation poller (D-31: guarantee of record, not a safety net).
 
+        **`since` IS ANCHORED ON WHEN THE EXECUTION STARTED, NOT ON WHEN IT FINISHED**,
+        and saying so is D-367. Every adapter in this tree already behaves that way —
+        Bolna sends `created_after`, Cartesia sends `start_time`, the in-memory engine
+        filters on `started_at` — because a creation anchor is the only one a vendor
+        listing reliably offers. The contract was SILENT on it, which is how a caller
+        comes to read the window as "executions that finished recently": under that
+        reading a listing of width W would cover every call that ended in the last W,
+        and under the real one it drops any call whose own duration exceeds W. D-242 is
+        what that cost when it was believed, and `pipeline.reconcile_outstanding_calls`
+        is the mechanism that exists because this anchor cannot be changed from our side.
+
+        An adapter whose vendor CAN filter on completion must still honour this reading
+        — widen its request rather than narrow it — because a caller that sized its
+        window against a creation anchor would otherwise get a narrower window from that
+        adapter than from every other one, which is the failure mode a port exists to
+        make impossible.
+
         MUST report completeness, not just rows. This returned a bare list, so an
         adapter that read page one of a paginated listing was indistinguishable from one
         that read a quiet window — and the calls in the gap are exactly the ones whose
@@ -1445,6 +1820,8 @@ __all__ = [
     "ExecutionSnapshot",
     "KBSourceRef",
     "ListingIncompleteReason",
+    "LlmCredentialPlacement",
+    "LlmProvider",
     "ModelConfig",
     "NumberSeries",
     "NumberSpec",

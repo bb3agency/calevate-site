@@ -925,16 +925,19 @@ def _listing_completeness_findings(ctx: GateContext, listing: ExecutionListing) 
     expected = _executions_in_window(ctx)
     if not listing.complete or (expected is not None and expected > rows):
         return [
-            "PAGINATION IS REAL OR CANNOT BE RULED OUT, AND THE POLLER IS THE GUARANTEE "
-            "OF RECORD. Capture one raw `GET /executions` body as a fixture (`scripts/"
-            "pilot/record.py --gate 6`), and record three things from it: the number of "
-            "rows a saturated request returns (the page size), whether the body carries "
-            "any of `next`/`next_page_url`/`has_more`/`total`, and — if it carries a "
-            "cursor rather than a link — the exact parameter name that consumes it. "
-            "`BolnaEngine._next_link` already follows a self-describing link; a cursor "
-            "whose parameter name we would have to guess is deliberately NOT followed, "
-            "because a guessed parameter is ignored by the vendor and re-reads page one "
-            "forever."
+            "THE LISTING DID NOT COVER ITS WINDOW, AND THIS POLLER IS THE GUARANTEE OF "
+            "RECORD. The vendor's pagination is no longer in doubt (D-350): "
+            "`GET /v2/agent/{agent_id}/executions` pages on `page_number`/`page_size` "
+            "(max 50) and says `has_more`, and the adapter walks it per agent. So a "
+            "listing that still could not vouch for its window means one of three "
+            "concrete things, and `incomplete_reason` says which: `full_page_suspected` "
+            "= a response carried no `has_more` at all, i.e. we are not talking to the "
+            "endpoint we think we are; `page_cap_reached` = one agent held more than "
+            "`_LISTING_MAX_PAGES * _LISTING_PAGE_SIZE` executions in the window, so the "
+            "bound needs raising or the window narrowing; `next_link_no_progress` = the "
+            "vendor kept saying `has_more` while re-serving rows. Capture the raw body "
+            "(`scripts/pilot/record.py --gate 6`) and compare its envelope with "
+            "`AgentExecutionV2List` in the pinned spec."
         ]
     if expected is None:
         return [
@@ -942,16 +945,16 @@ def _listing_completeness_findings(ctx: GateContext, listing: ExecutionListing) 
             "adapter no longer returns a page as if it were a window: it returns "
             "`ExecutionListing.complete`, and `reconcile_executions` alerts "
             "(`reconciliation_listing_incomplete`) and meters every tick it cannot vouch "
-            "for. What is still unverified is the vendor's behaviour itself — Bolna "
-            "publishes no OpenAPI spec and no pagination contract, and a pilot window "
-            "holds too few executions to reach any page size, so `complete=True` here "
-            "means 'nothing in the response suggested otherwise', not 'we saw the whole "
-            "window'. Settling it needs exactly one thing this harness cannot fabricate: "
-            "the account's own execution count for the same window, from the dashboard, "
-            "via --attest gate6.executions_in_window=<n>. Until a saturated listing has "
-            "been captured, the page-size heuristic in `bolna._LISTING_PAGE_SIZES` is "
-            "the only thing standing between us and a silent gap, and it is a guess about "
-            "round numbers, not knowledge."
+            "for. What is still unverified is the vendor's behaviour itself. The "
+            "CONTRACT is now known — `page_number`/`page_size`/`has_more`, read in "
+            "Bolna's own pinned OpenAPI document (D-350) — so `complete=True` here means "
+            "'the vendor said `has_more: false`', which is a real statement rather than "
+            "the old heuristic's shrug about round numbers. What a specification cannot "
+            "tell us is whether the server honours it: a `has_more` that lies, or a "
+            "`from` filter that silently ignores the offset, both look like a clean tick "
+            "from in here. Settling that needs exactly one thing this harness cannot "
+            "fabricate: the account's own execution count for the same window, from the "
+            "dashboard, via --attest gate6.executions_in_window=<n>."
         ]
     return []
 
@@ -963,9 +966,13 @@ async def run_gate_6(ctx: GateContext) -> GateRun:
 
     * the call surviving a dead receiver is a HUMAN observation (nothing in-process can
       see it), so it is an attestation and is labelled as one;
-    * whether a retry arrives is also human-observed, but its EXPECTED value is written
-      down in TRD §5 ('no retry, no timeout, errors swallowed', verified in their OSS
-      code), so an observed retry contradicts a documented claim and must be loud;
+    * whether a retry arrives is also human-observed, and **the expected value flipped
+      (D-352)**: this said 'no retry, no timeout, errors swallowed, verified in their OSS
+      code', which describes the SELF-HOSTED framework. The hosted platform documents
+      that it 'retries on non-2xx' and fires one delivery per status transition, so a
+      retry is now the EXPECTED observation and its ABSENCE is the surprise. Either way
+      it is recorded rather than assumed, and either way the poller stays the guarantee
+      of record — a receiver that was down gets no delivery to retry;
     * poller recovery is MEASURED here, through `list_executions`, because it is the
       guarantee of record for the entire product and an attestation is not good enough
       for that;

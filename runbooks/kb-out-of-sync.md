@@ -105,18 +105,30 @@ knowledge base.
    SELECT id, name, status, engine_agent_ref FROM agents WHERE id = :agent_id;
    ```
 
-   Then read the engine's own listing for that agent. In our adapter that is
-   `GET /knowledgebase/all`, filtered strictly to rows whose `agent_id` equals the
-   agent's `engine_agent_ref` (`apps/api/engine/bolna.py`, `list_kb`).
+   Then read the engine's own listing for that agent — **IF THE ENGINE HAS ONE. ON BOLNA
+   IT DOES NOT, AND THIS STEP IS NOT AVAILABLE (D-354).**
 
-   **Two caveats, both material.** The vendor publishes no OpenAPI spec, so the row shape
-   is a hand-maintained claim, and whether that listing carries the agent linkage at all
-   is an open pilot gate (OPERATIONS §2, gate 8a). Our single account holds every
-   tenant's agents, so the adapter attributes strictly: a row that does not name the
-   agent is not counted. If the linkage field is absent, the listing degrades to empty and
-   **you cannot use it to decide anything.** In that case stop and do the identification
-   from the vendor console instead, matching on the document title — `attach_kb` sends
-   `name = source.title`, which is `kb_sources.name`.
+   This runbook used to send you to `GET /knowledgebase/all` filtered to rows whose
+   `agent_id` equals the agent's `engine_agent_ref`. **That procedure could never have
+   worked and would have told you the engine holds nothing, for every agent, always.** A
+   Bolna knowledge base object carries no agent field of any kind: an agent references a
+   knowledge base through its OWN config (`llm_agent.llm_config.vector_store.
+   provider_config.vector_ids`, keyed by `vector_id` — a different identifier from the
+   `rag_id` the listing returns). The filter therefore matched nothing, and "no rows" reads
+   identically to "this agent has no documents". That is the worst possible answer for
+   THIS runbook, whose entire job is deciding whether the engine and our records disagree.
+
+   `BOLNA_CAPABILITIES.knowledge_base` is now `False` and `list_kb` REFUSES by name rather
+   than returning `[]`, precisely so this step fails loudly instead of lying to you.
+
+   **What to do instead, on Bolna:** identify from the vendor console, matching on the
+   document title — historically `attach_kb` sent `name = source.title`, which is
+   `kb_sources.name`. In-call retrieval is OURS regardless (the D-28 managed vector service
+   behind the RAG tool endpoint), so a Bolna-side knowledge base is not what a caller is
+   actually retrieving from — check `kb_sources` and the vector service first.
+
+   **On an engine that DOES list:** our single account holds every tenant's agents, so the
+   adapter attributes strictly — a row that does not name the agent is not counted.
 
 2. **Match, and be sure.** The stale copy is the one whose title is this source's `name`
    and whose content is the version our tables show as live. Read the document on the

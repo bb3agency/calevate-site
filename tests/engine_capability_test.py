@@ -713,7 +713,7 @@ async def test_bolna_sends_the_reply_ceiling_and_the_sampling_it_chose() -> None
         )
     )
 
-    llm = seen["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]
+    llm = seen["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]["llm_config"]
     assert llm["max_tokens"] == 400, (
         "the reply ceiling is not sent, so the vendor's 100-token default applies and "
         "every agent reply is truncated mid-sentence at roughly 45 Telugu words"

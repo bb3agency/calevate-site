@@ -22,6 +22,14 @@ a test that drops the schema out from under four concurrently running suites is 
 defect than the one it checks. What IS driven is the GUARD, which is the part with a
 decision in it, plus the shape of the recipe, because a script nothing invokes is the
 half-wired change this repo names by name.
+
+THAT PROMISE IS NOW STRUCTURAL, AND IT USED TO BE AN ACCIDENT. `db_reset` read
+`os.environ` alone, so `monkeypatch.delenv("ALEMBIC_DATABASE_URL")` genuinely left it
+with no database to drop. The moment the script started reading `.env` too — which it had
+to, because `make db-reset` could not otherwise run at all (D-394) — that deletion stopped
+neutralising anything and the refusal test dropped the developer's schema instead of
+asserting a refusal. `_hermetic_env` below is what makes the promise hold on purpose: no
+test in this file can see a DSN it did not write down.
 """
 
 from __future__ import annotations
@@ -29,40 +37,56 @@ from __future__ import annotations
 import pathlib
 
 import pytest
+from scripts import db_reset
 from scripts.db_reset import reset_schema
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 
-def test_it_refuses_outside_a_local_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("APP_ENV", "prod")
-    monkeypatch.setenv(
-        "ALEMBIC_DATABASE_URL", "postgresql+psycopg://calevate:calevate@localhost:5433/anything"
+@pytest.fixture(autouse=True)
+def _hermetic_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    """Every read `db_reset` makes, answered from a dict this file owns.
+
+    AUTOUSE AND EMPTY BY DEFAULT, so the failure mode is a refusal rather than a drop: a
+    test that forgets to declare a DSN gets "ALEMBIC_DATABASE_URL is not set", which is
+    the safe direction and also the assertion one of them wants. `monkeypatch.setenv`
+    cannot serve here — the point is precisely that `db_reset` no longer reads only the
+    process environment, and a test that pretended otherwise would be testing the
+    accident this fixture replaces.
+    """
+    declared: dict[str, str] = {}
+    monkeypatch.setattr(db_reset, "_env", lambda: declared)
+    return declared
+
+
+def test_it_refuses_outside_a_local_environment(_hermetic_env: dict[str, str]) -> None:
+    _hermetic_env["APP_ENV"] = "prod"
+    _hermetic_env["ALEMBIC_DATABASE_URL"] = (
+        "postgresql+psycopg://calevate:calevate@localhost:5433/anything"
     )
     with pytest.raises(SystemExit) as refused:
         reset_schema()
     assert "APP_ENV" in str(refused.value)
 
 
-def test_it_refuses_a_dsn_that_is_not_loopback(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_it_refuses_a_dsn_that_is_not_loopback(_hermetic_env: dict[str, str]) -> None:
     """The second, independent fact. A copied `.env` keeps `APP_ENV=local` while pointing
     somewhere real, which is one mistake — this guard needs two."""
-    monkeypatch.setenv("APP_ENV", "local")
-    monkeypatch.setenv(
-        "ALEMBIC_DATABASE_URL", "postgresql+psycopg://calevate:calevate@db.example.com:5432/prod"
+    _hermetic_env["APP_ENV"] = "local"
+    _hermetic_env["ALEMBIC_DATABASE_URL"] = (
+        "postgresql+psycopg://calevate:calevate@db.example.com:5432/prod"
     )
     with pytest.raises(SystemExit) as refused:
         reset_schema()
     assert "loopback" in str(refused.value)
 
 
-def test_it_refuses_without_the_owner_dsn(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_it_refuses_without_the_owner_dsn(_hermetic_env: dict[str, str]) -> None:
     """The app role is `NOSUPERUSER NOBYPASSRLS` and cannot drop a schema it does not own,
     so falling back to `DATABASE_URL` would fail halfway through with a permission error
     naming whichever object needed the privilege first — the same argument `alembic/env.py`
     makes about never falling back."""
-    monkeypatch.delenv("ALEMBIC_DATABASE_URL", raising=False)
-    monkeypatch.setenv("APP_ENV", "local")
+    _hermetic_env["APP_ENV"] = "local"
     with pytest.raises(SystemExit) as refused:
         reset_schema()
     assert "ALEMBIC_DATABASE_URL" in str(refused.value)

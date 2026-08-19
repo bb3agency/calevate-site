@@ -806,16 +806,19 @@ async def test_a_full_listing_page_tells_the_caller_it_may_be_truncated(
 ) -> None:
     """THE CLAUSE THE POLLER'S ENTIRE GUARANTEE RESTS ON (D-31).
 
-    Bolna's webhooks are at-most-once and unsigned, so the List-Executions poller is not
-    a safety net — it is the mechanism by which a lost call is EVER discovered. If the
-    listing paginates and an adapter reads page one, the executions past that page have
-    no webhook, no repair, and nothing anywhere that says they existed: they are simply
-    gone, and the gap grows exactly when traffic does.
+    Bolna's webhooks are unsigned and lossy, so the executions poller is not a safety net
+    — it is the mechanism by which a lost call is EVER discovered. If the listing
+    paginates and an adapter reads page one, the executions past that page have no
+    webhook, no repair, and nothing anywhere that says they existed: they are simply gone,
+    and the gap grows exactly when traffic does.
 
     So an adapter may not return a page-shaped answer as if it were the whole window. It
-    does not have to know it was truncated — Bolna publishes no pagination contract and
-    the honest answer is often "cannot rule it out" — it has to SAY so, in
-    `ExecutionListing.complete`, with a reason the poller can put in an alert.
+    does not have to know it was truncated — some vendors publish no pagination contract
+    and the honest answer is then "cannot rule it out" — it has to SAY so, in
+    `ExecutionListing.complete`, with a reason the poller can put in an alert. (Bolna DOES
+    publish one, `page_number`/`page_size`/`has_more`, which is why its saturated stub is
+    now a store the adapter walks to its own page cap rather than a single opaque full
+    page — D-350/D-353.)
 
     Note what is NOT asserted: any cursor, page number or link. Those are the adapter's
     business (hard rule 2); what crosses the boundary is the verdict and the rows.
@@ -1225,6 +1228,55 @@ async def test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods(
             f"`{label}` refused without naming the capability, so an operator cannot "
             "tell an absent knowledge base from a knowledge base that is down"
         )
+
+
+async def test_the_llm_credential_seam_matches_the_declaration_either_way(
+    engine: VoiceEngine,
+) -> None:
+    """`set_llm_credential` installs where the LLM is OURS, and refuses by name where it
+    is not (D-404).
+
+    BOTH DIRECTIONS, for `transfer`'s reason and with a sharper failure behind it. The
+    caller is a cron whose whole job is to keep a credential from expiring, and the
+    consequence of a silent success is not a missing feature — it is a refresher reporting
+    green, every four hours, against an engine that has nowhere to put a bearer. Nothing
+    else in the system notices until in-call model turns start 401ing on live phone calls,
+    at which point the symptom is a caller hearing silence.
+
+    The gate is `is_ours("llm")` rather than a capability flag of its own: an engine that
+    DICTATES its language model has no credential of ours to hold, so "can we install one"
+    and "is the LLM ours" are one question, and inventing a second flag would let the two
+    answers drift apart.
+    """
+    if not engine.capabilities.is_ours("llm"):
+        refusal: Exception | None = None
+        try:
+            await engine.set_llm_credential("ya29.rotated")
+        except Exception as exc:
+            refusal = exc
+        assert refusal is not None, (
+            "`set_llm_credential` succeeded on an engine that chooses its own language "
+            "model — the refresher would report a healthy rotation forever against a "
+            "credential store that does not exist"
+        )
+        assert getattr(refusal, "capability", None) == "llm", (
+            "`set_llm_credential` refused without naming the capability, so an operator "
+            "cannot tell 'this engine holds no LLM credential of ours' from 'the vendor "
+            "rejected our credential'"
+        )
+        return
+
+    placement = await engine.set_llm_credential("ya29.rotated")
+    # The write must REPLACE. A store that appended would leave the engine holding the
+    # fresh bearer beside expired ones and choosing between them itself, which takes the
+    # leg's health out of our hands — `LlmCredentialPlacement` exists to say which
+    # happened, and an adapter that cannot tell must not claim the good one.
+    assert placement.replaced_in_place is True
+    assert placement.superseded_removed == 0
+    # Rotation is the operation whose purpose is to replace something that still works, so
+    # a second call with a second value must leave ONE credential rather than two.
+    again = await engine.set_llm_credential("ya29.rotated-2")
+    assert again.replaced_in_place is True
 
 
 async def test_transfer_matches_the_declaration_either_way(engine: VoiceEngine) -> None:

@@ -38,6 +38,16 @@ greppable form of that sentence so `check_docs_drift` §5 can catch the next doc
 that says otherwise. G-7 is not a compromise reached on cost or quality: it is the only
 split under which both halves of D-127 are true at once.
 
+**D-400 MOVED THE IN-CALL LLM LEG TO GEMINI AND DID NOT MOVE THIS ONE**, and the reason
+is the paragraph above rather than an omission. The founder's sentence — "we will setup
+gemini gcp vertex paid account … so LLM thing is solved" — reads as covering every model
+call this product makes, exactly as D-127's "Gemini for everything outside the live call"
+did, and the same line of `pipeline.py` answers it the same way: this pass is the only
+one in the system that reads `turn.text`. Both other Gemini surfaces see redacted or
+tenant-authored text. Moving this one is a decision about WHOSE DATA a second processor
+sees, not about which model is better or cheaper, so it stays raised rather than taken:
+`GEMINI_EXTRACTION_DEFAULT` remains False and D-400 says so in its own first line.
+
 --------------------------------------------------------------------------------------
 AVAILABILITY IS DECIDED ONCE (D-127 G-6, PLAN Part 15)
 --------------------------------------------------------------------------------------

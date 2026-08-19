@@ -1540,7 +1540,11 @@ def _unit_price(leg_inr: Decimal | None, qty: Decimal) -> Decimal | None:
     doctrine `billing.service.to_paise` states in full ("passed EXPLICITLY, never
     inherited"). Reachable, not theoretical: a ₹0.0180 telephony leg over a 360-second
     call is exactly ₹0.00005/second, which half-even stored as ₹0.0000 — the whole leg
-    rounded out of the margin panel and out of a closed month's `spend_used`.
+    rounded out of the margin panel. (This sentence used to add "and out of a closed
+    month's `spend_used`". That reader retired at P1.3: the CLIENT's closed-month figure
+    is `calling_revenue_inr`, priced off MINUTES at their own rate, and never touches
+    `unit_cost_paid`. The affected surfaces are `margin_for_tenant` and `tier_usage` —
+    ours, not theirs.)
     """
     if leg_inr is None:
         return None
@@ -2565,9 +2569,13 @@ async def _pipeline_settled(engine_name: str, snapshot: ExecutionSnapshot) -> Re
         # `reconcile_executions` — this function's one production caller — passes rows
         # from `list_executions`, and nothing promises those carry the cost and the
         # transcript `get_execution` does: the contract calls them summaries
-        # (`VoiceEngine.get_execution`), Bolna publishes no OpenAPI spec, and whether
-        # their `GET /executions` rows are as rich as `GET /executions/{id}` is a vendor
-        # behaviour NOBODY HAS VERIFIED (D-31/D-32, OPERATIONS §2 gate 6). Both adapters
+        # (`VoiceEngine.get_execution`). For Bolna the spec now says they ARE the same
+        # shape — `GET /v2/agent/{id}/executions` returns `data[]` of `AgentExecution`,
+        # the very schema `GET /executions/{id}` returns (VERIFIED-OAS, D-350) — which
+        # makes this belt-and-braces for that engine rather than load-bearing. It stays,
+        # for two reasons: a schema is what the vendor SAYS the server returns and no
+        # captured payload has confirmed it (OPERATIONS §2 gate 6), and this function is
+        # engine-agnostic — Cartesia's listing genuinely is a summary. Both adapters
         # happen to build listing rows with the same code as fetches, and the Bolna stub
         # returns whole execution documents, so the conformance suite cannot fail on the
         # assumption either — which is exactly why it survived as a silent premise.
@@ -2646,13 +2654,16 @@ async def callable_tenants() -> list[UUID]:
 
 # --- the half of the guarantee the LISTING cannot cover (D-242) ---------------
 #
-# `list_executions` asks the vendor for `created_after=<now - 30 minutes>` — a filter on
-# when the execution was CREATED. The poller's promise is about when a call FINISHED, and
-# those are the same instant only for calls shorter than the window. For a call that ran
-# 40 minutes, `completed` lands ~43 minutes after creation and every listing from then on
-# excludes it: the execution falls out of the window before its terminal transition ever
-# happens. Bolna's webhook is at-most-once with errors swallowed (D-31, verified in their
-# OSS delivery code), so ONE lost delivery on a long call left it never transcribed, never
+# `list_executions` asks the vendor for executions whose `created_at` is at or after
+# `now - 30 minutes` — a filter on when the execution was CREATED (Bolna spells the
+# parameter `from`; D-353 corrected the adapter, which until then sent a `created_after`
+# that does not exist to an endpoint that does not exist). The poller's promise is about
+# when a call FINISHED, and those are the same instant only for calls shorter than the
+# window. For a call that ran 40 minutes, `completed` lands ~43 minutes after creation and
+# every listing from then on excludes it: the execution falls out of the window before its
+# terminal transition ever happens. Bolna's webhook is unsigned and lossy — the hosted
+# platform retries on non-2xx (D-352), but a receiver that was DOWN gets no delivery at
+# all — so ONE lost delivery on a long call left it never transcribed, never
 # metered, never invoiced — and invisible to everything else: `report_stalled_pipeline`
 # asks `EXTRACTION_OWED_SQL`, which only sees calls already recorded `completed`, and the
 # row a lost terminal webhook leaves behind is stuck at `in_progress`.
@@ -2668,12 +2679,13 @@ async def callable_tenants() -> list[UUID]:
 # ignore the one alarm that says calls are unrecoverable. It also does nothing at all for
 # a call that never completes.
 #
-# WHY NOT AN `updated_after` FILTER. Because it would be a GUESS. `_next_link` refuses to
-# invent a pagination parameter for exactly this reason — "a `?page=` the vendor ignores
-# returns page one forever, which is a silent truncation wearing the costume of a fix" —
-# and inventing a freshness parameter has the identical failure mode. Bolna publishes no
-# OpenAPI spec; whether `GET /executions` accepts any such filter is OPERATIONS §2 gate 6,
-# and if it turns out to, this job gets cheaper rather than unnecessary.
+# WHY NOT AN `updated_after` FILTER. Because the vendor has none. Its executions listing
+# publishes exactly two time filters, `from` and `to`, and both are documented against
+# `created_at` (VERIFIED-OAS, `bolna-ai/skills@28b24aa references/openapi.yml`). This used
+# to say the parameter would be a GUESS because "Bolna publishes no OpenAPI spec"; they
+# publish one, it has been read, and the answer it gives is that no freshness filter
+# exists. So this job is not a stopgap awaiting a gate — it is the only mechanism that
+# covers a call longer than the window, permanently.
 #
 # WHAT THIS DOES INSTEAD is ask the engine about the executions WE ALREADY KNOW ARE
 # OUTSTANDING. A call row exists from its first transition (`_ingest_stages` upserts on

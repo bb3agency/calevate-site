@@ -658,3 +658,60 @@ def test_gate_reports_no_free_text_beyond_ids_and_counts() -> None:
     for check in out.checks:
         for key, value in check.measurements.items():
             assert not isinstance(value, str) or len(value) <= 40, key
+
+
+# --- an engine that DECLINES is not an engine that FAILED (D-354) --------------
+
+
+class CapabilityRefusingEngine:
+    """Every KB method refuses the way `require_capability` does — which is what the
+    primary engine now does on all three, since `BOLNA_CAPABILITIES.knowledge_base`
+    became False.
+    """
+
+    async def attach_kb(self, ref: str, source: object) -> str:
+        raise ProblemError(
+            kind="dependency",
+            code="engine_capability_unverified",
+            title="This voice platform cannot hold this knowledge base",
+            detail="The voice platform's knowledge base accepts documents, not text.",
+        )
+
+    async def detach_kb(self, ref: str, kb: str) -> None:
+        await self.attach_kb(ref, None)
+
+    async def list_kb(self, ref: str) -> list[str]:
+        await self.attach_kb(ref, None)
+        return []
+
+
+async def test_a_declined_capability_does_not_tell_the_operator_to_re_run() -> None:
+    """THE ADVICE WAS AN INFINITE LOOP. Gate 8 answered every `attach_kb` failure with
+    "Re-run after gate 2 passes" — correct for a transient failure, and against the
+    primary engine an instruction to retry forever: the adapter declines the capability
+    before a request goes out, so gate 2 passing changes nothing.
+
+    A refusal and a failure need different words because they need different ACTIONS from
+    the human holding the phone on pilot day.
+    """
+    out = await probe_kb_agent_linkage(
+        CapabilityRefusingEngine(), _agent("agent_a", "kb1"), _agent("agent_b", "kb2")
+    )
+    check = _check(out.checks, "kb_list_carries_agent_linkage")
+
+    assert check.status == "not_run"
+    assert "Re-run after gate 2" not in check.detail, (
+        "a declined capability must not be reported as something a re-run could fix"
+    )
+    assert "DECLINES" in check.detail and "ANSWERED" in check.detail
+    assert "D-354" in check.detail, "the operator needs the decision that explains it"
+
+
+async def test_a_transient_failure_still_says_re_run() -> None:
+    """Non-vacuity, and the half that must NOT change: an ordinary failure is still
+    reported as retryable, so the new branch cannot swallow real breakage."""
+    out = await probe_kb_agent_linkage(
+        PhantomAttachEngine(), _agent("agent_a", "kb1"), _agent("agent_b", "kb2")
+    )
+    detail = _check(out.checks, "kb_list_carries_agent_linkage").detail
+    assert "DECLINES" not in detail

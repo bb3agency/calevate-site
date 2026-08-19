@@ -1497,19 +1497,39 @@ async def test_a_long_retry_after_fails_fast_instead_of_holding_the_request_open
 #: are a vendor's nouns; `status` and `duration` are everybody's.
 _VENDOR_ONLY_KEYS = frozenset(
     {
-        # Bolna (docs.bolna.ai, hand-maintained — they publish no OpenAPI spec).
+        # Bolna, read in their own pinned OpenAPI document (D-350,
+        # `docs/vendor/bolna/hosted-oas.md`) rather than hand-maintained from prose.
         "agent_config",
         "agent_name",
         "agent_prompts",
+        "agent_type",
         # The greeting field — Bolna's own noun for it. Read since P3.3, because the
         # disclosure verdict has to be scored against the field that SPEAKS.
         "agent_welcome_message",
+        # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
+        # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
+        # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly
+        # what makes this a vendor-only noun rather than a shared one: the concept is
+        # ours, the spelling is theirs, and `direction` appearing outside the adapter is
+        # normal while `call_type` appearing there would be a vendor shape that escaped.
+        "call_type",
         "conversation_duration",
         "cost_breakdown",
         "cost_currency",
         "executions",
         "extracted_data",
-        "knowledgebases",
+        # `knowledgebases` left with `list_kb`'s account-wide listing (D-354): the vendor's
+        # knowledge base carries no agent, so that listing could never answer the question
+        # this port asks, and the capability is now declared absent.
+        #
+        # `has_more` IS LISTED ONCE FOR BOTH VENDORS, and it is the only entry that has to
+        # be. Bolna's `AgentExecutionV2List.has_more` (VERIFIED-OAS, D-353) and Cartesia's
+        # pagination flag are the same word, so a second entry down in the Cartesia block
+        # was a duplicate a frozenset silently absorbed — ruff's B033 caught it. It stays
+        # HERE rather than there because this is the first block: the set is a ban list,
+        # not a per-vendor inventory, and a word only has to be banned once.
+        "has_more",
+        "llm_config",
         "rag_id",
         "recipient_phone_number",
         "synthesizer",
@@ -1525,7 +1545,7 @@ _VENDOR_ONLY_KEYS = frozenset(
         "agent_call_id",
         "duration_seconds",
         "from_number_id",
-        "has_more",
+        # (`has_more` is Cartesia's too — listed once, up in the Bolna block.)
         # Their pagination cursor parameter, read at source in their generated client.
         # Nothing of ours is called this. (`summaries`, the envelope `GET /agents` answers
         # with, is NOT here — see `_SHARED_PAYLOAD_KEYS`.)
@@ -1552,6 +1572,23 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Ordinary-looking English words, banned for `introduction`'s reason.
         "start_time",
         "end_time",
+        # THE LLM ENDPOINT, IN THE VENDOR'S SPELLING (D-400/D-404), and it is `call_type`'s
+        # case exactly: the concept is ours and the spelling is theirs. OUR word is
+        # `llm_base_url` — on `ModelConfig`, built by `vertex_openai_base_url()` and
+        # validated for Mumbai there — while bare `base_url` is the key inside Bolna's
+        # `SimpleLlmAgent`. That distinction is load-bearing rather than tidy: this field
+        # carries the RESIDENCY guarantee, so a shipped module outside the adapter reading
+        # a raw `base_url` off a payload is reading an unvalidated endpoint, which is the
+        # one shape `ModelConfig`'s validator exists to make impossible.
+        "base_url",
+        # Bolna's credential store (D-404). `provider_id` is how `set_llm_credential`
+        # tells a superseded entry from the one it just wrote — the store MASKS
+        # `provider_value`, so identity is the only thing it will answer honestly about.
+        # Both are their nouns and neither has a Calevate counterpart: our vocabulary for
+        # this has no id at all, because the credential is minted per rotation and stored
+        # nowhere of ours.
+        "provider_id",
+        "provider_name",
     }
 )
 # `next_page` was here and is gone with the Cartesia listing rewrite (D-270): their page
@@ -1894,20 +1931,23 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal listings
         path = request.url.path
-        if path == "/executions":
+        if path == "/v2/agent/all":
             listings += 1
-        if path == "/executions" and listings > 1:
-            # A second listing request: throttled forever, so the ladder logs
-            # `engine_throttled` and then `engine_throttle_exhausted`.
-            return httpx.Response(429, json={"error": "slow down"})
-        if path == "/executions":
-            # A full page, no metadata, and an OFF-ORIGIN continuation the adapter must
-            # refuse (`engine_listing_next_link_rejected`) — then report incomplete.
+            if listings > 1:
+                # The second `list_executions` call: throttled forever from its very first
+                # request, so the ladder logs `engine_throttled` and then
+                # `engine_throttle_exhausted` — both with a vendor body full of PII.
+                return httpx.Response(429, json={"error": f"slow down, {_PII_NUMBER}"})
+            return httpx.Response(200, json=[{"id": "agent_pii_listed"}])
+        if path.endswith("/executions") and path.startswith("/v2/agent/"):
+            # `has_more: true` on a page that re-serves what we already hold, so the walk
+            # stops with `next_link_no_progress` and `engine_listing_incomplete` is logged
+            # for a window whose every row carries a number and a transcript.
             return httpx.Response(
                 200,
                 json={
+                    "has_more": True,
                     "data": [_pii_execution(f"exec_pii_{i}") for i in range(10)],
-                    "next": f"https://attacker.example.invalid/steal?n={_PII_NUMBER}",
                 },
             )
         if path.startswith("/executions/"):

@@ -39,7 +39,7 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import prompts, publishing
+from apps.api.agents import experiments, prompts, publishing
 from apps.api.agents.service import publish_agent, publish_variant
 from apps.api.agents.verification import judge
 from apps.api.core.errors import ProblemError
@@ -60,6 +60,9 @@ from sqlalchemy import text
 SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointment."
 NEXT_SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then quote the new price list."
 VOICE = "bulbul:v3:anushka"
+#: An arm's own AI-disclosure sentence. Non-empty because the column is NOT NULL and
+#: non-blank (hard rule 5): an arm without one cannot be written, let alone published.
+ARM_DISCLOSURE = "Namaskaram, idi Sunrise Clinic AI assistant."
 
 
 # --- engines that fail the way a vendor fails --------------------------------
@@ -1186,3 +1189,94 @@ async def test_a_reclaim_the_vendor_refuses_falls_back_to_the_operator_log(
     # The ref an operator has to go and delete by hand is IN the record.
     assert getattr(orphaned[0], "engine_agent_ref", None) in engine._agents
     assert not [r for r in caplog.records if r.getMessage() == "engine_agent_orphan_reclaimed"]
+
+
+# --- 9. the arm a SIBLING's failure leaves behind (D-382) -----------------------------
+
+
+async def test_an_arm_created_before_a_siblings_failure_is_reclaimed_too() -> None:
+    """Both arms are published in ONE transaction; only one of them can fail.
+
+    `experiments.start` writes both variant rows and publishes both arms inside a single
+    transaction, and `publish_variant` mints a vendor agent object per arm. When arm B
+    failed, `publish_variant` reclaimed its OWN half-created object and re-raised — and
+    arm A's object, already created and read back green, stayed at the vendor while the
+    rollback took its `engine_agent_ref` and its `engine_agent_routes` row with it.
+
+    Nothing of ours then named that object: not the variant row, not the routing table,
+    and therefore NOT THE DRIFT SWEEP, which claims routes. It was a billed vendor agent
+    invisible to every instrument in this repository, and the operator's next attempt
+    created another one beside it.
+
+    The assertion is on the ENGINE's own inventory, not on our rows: our rows roll back
+    either way, so a test that read them would pass with the leak still there.
+    """
+
+    class SecondArmDroppingEngine(FreshRefEngine):
+        """Applies arm A faithfully and silently drops arm B's script.
+
+        The realistic shape of a partial failure: nothing refuses, nothing times out, and
+        the vendor's second write lands on a task it no longer recognises.
+
+        `creates` counts and the test ZEROES IT after the agent's own publish, so "the
+        second create" means the second ARM rather than the second create of the fixture.
+        Counting from the top would drop arm A instead — which `publish_variant` already
+        reclaims on its own, and the test would then pass with the leak untouched.
+        """
+
+        def __init__(self, **kw: Any) -> None:
+            super().__init__(**kw)
+            self.creates = 0
+
+        async def create_agent(self, cfg: AgentConfig) -> EngineAgentRef:
+            ref = await super().create_agent(cfg)
+            self.creates += 1
+            if self.creates == 2:
+                self._agents[ref] = cfg.model_copy(
+                    update={"system_prompt": "Whatever this agent had before."}
+                )
+            return ref
+
+    tenant_id, agent_id = await _publishable_agent()
+    async with tenant_session(tenant_id) as session:
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body=f"{SCRIPT} And we are open on Sundays.",
+            notes="challenger",
+            created_by=None,
+        )
+        # Only outbound agents split traffic into arms (`experiments.start`; inbound is
+        # answered by the agent's own line, D-60), so the fixture's default direction
+        # would refuse this before a single vendor object was created.
+        await session.execute(
+            text("UPDATE agents SET direction = 'outbound' WHERE id = :a"), {"a": agent_id}
+        )
+
+    with _engine(SecondArmDroppingEngine()) as engine:
+        async with tenant_session(tenant_id) as session:
+            await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+        assert isinstance(engine, SecondArmDroppingEngine)
+        engine.creates = 0
+        held_before = set(engine._agents)
+        with pytest.raises(ProblemError) as exc:
+            await experiments.start(
+                tenant_id=tenant_id,
+                agent_id=agent_id,
+                name="Sunday hours",
+                control_version=1,
+                challenger_version=2,
+                split_bp=5000,
+                conversion_metric="call_outcome_resolved",
+                control_disclosure=ARM_DISCLOSURE,
+                challenger_disclosure=ARM_DISCLOSURE,
+            )
+        assert exc.value.code == "engine_publish_not_applied"
+        leaked = set(engine._agents) - held_before
+
+    assert leaked == set(), (
+        f"{len(leaked)} arm object(s) were left at the vendor by a sibling's failure; "
+        "no row of ours names them and the drift sweep claims routes, so nothing can "
+        "ever find them again"
+    )

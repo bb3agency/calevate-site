@@ -397,6 +397,33 @@ class Settings(BaseSettings):
     # is a coherent deployment, and a readiness probe that goes red for an absent optional
     # feature is a probe operators learn to ignore.
     gcp_service_account_json: str | None = None
+    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE IN-CALL LLM BEARER (D-404).
+    #
+    # A SETTING RATHER THAN A CONSTANT, and the reason is that nobody knows the right
+    # value yet. VERIFIED-OSS proves the framework hands `llm_key` straight to
+    # `AsyncOpenAI` for a `provider: "custom"` leg (`bolna/llms/openai_llm.py`); nothing
+    # the vendor publishes says which credential-store entry the HOSTED platform injects
+    # it FROM. Their other providers use shouty names (`OPENAI`, `GOOGLE`, `SARVAM`), and
+    # their provider matrix says a custom model's key is "registered via
+    # `POST /user/model/custom`" — an endpoint whose published schema has no credential
+    # field at all, so that sentence cannot be taken literally.
+    #
+    # `CUSTOM` is therefore a DEFAULT, not a fact. It is console-managed (`applies: live`)
+    # precisely so the operator who gets the answer from OPERATIONS §2 gate 16c types it
+    # into a screen instead of waiting for a deploy — which is the difference between a
+    # five-minute fix and an outage that lasts until the next release.
+    #
+    # NOT a credential itself: it is the NAME of one, it is not secret, and it must stay
+    # out of `platform_secrets` (whose sealing is keyed on `_json`/`_key` style names) so
+    # an operator can actually SEE what is currently configured. The value it names is
+    # never stored here or anywhere else of ours — it is minted per refresh and pushed
+    # straight to the engine.
+    #
+    # Bounded to the shape a credential-store key can take: their examples are
+    # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores.
+    bolna_llm_credential_name: str = Field(
+        default="CUSTOM", min_length=2, max_length=64, pattern=r"^[A-Z][A-Z0-9_]{1,63}$"
+    )
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
     # therefore offered to an operator on the ops console as a key they could install —
@@ -561,6 +588,36 @@ class Settings(BaseSettings):
     # that SAYS SO once rather than passing silently — a "configured" heartbeat that
     # reaches nobody is the exact defect this closes.
     backup_heartbeat_url: str | None = None
+
+    # THE SECOND DEAD MAN (D-408), watching the in-call LLM bearer's rotation loop.
+    #
+    # WHY A SECOND ONE RATHER THAN A BRANCH OF THE FIRST. `vertex_credential.py` already
+    # pages on every way rotation can FAIL — but that alarm is raised BY the job, so the
+    # one failure it cannot report is the job not running at all: a stopped ARQ worker, a
+    # container that never came back, a Redis the worker cannot reach. Nothing rotates,
+    # nothing pages, and the in-call LLM leg goes dark within twelve hours on live calls
+    # for every client at once. That is the highest-consequence silent failure in this
+    # system, and only an observer OUTSIDE the worker can turn its silence into a page.
+    #
+    # PERIOD 4h (`REFRESH_INTERVAL_HOURS`), GRACE 2h, configured vendor-side — the
+    # arithmetic is on `TOKEN_LIFETIME_S`: a bearer is replaced while it still has 8
+    # hours left, so a page after 6 hours of silence still leaves at least 6 hours of
+    # working service to fix it in. `runbooks/vertex-llm-credential.md` §8.3 has the
+    # vendor-side setup.
+    #
+    # ONLY A COMPLETED ROTATION PINGS IT. Not a skip, not a failure — see
+    # `vertex_credential.refresh_in_call_llm_credential`. A caller that pings on any
+    # other path has removed this alarm rather than extended it, because what is being
+    # watched for is silence.
+    #
+    # IT IS A CREDENTIAL, for `backup_heartbeat_url`'s reason: holding it is enough to
+    # silence the alarm. The `heartbeat` fragment in `platform_config` seals it out of
+    # the plaintext table by name.
+    #
+    # UNSET is correct locally, in CI, and on any deployment not running the Vertex leg;
+    # it means no dead man is armed, and the worker says so once per tick rather than
+    # passing silently.
+    in_call_llm_heartbeat_url: str | None = None
 
     # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
     # stay off until the human checklist in workers/whatsapp.py is done: WABA + business

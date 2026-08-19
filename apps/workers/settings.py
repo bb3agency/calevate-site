@@ -99,6 +99,10 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.tls_expiry import check_tls_expiry
+from apps.workers.vertex_credential import (
+    REFRESH_INTERVAL_HOURS,
+    refresh_in_call_llm_credential,
+)
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -268,6 +272,34 @@ CRON_JOBS = [
     # This job is idempotent to the point of being read-only — one TLS handshake — so a
     # retried attempt costs nothing and a lost one costs a day of not knowing.
     cron(traced_job(check_tls_expiry), hour={4}, minute={5}, max_tries=WORKER_MAX_TRIES),
+    # THE IN-CALL LLM BEARER (D-404). Vertex Mumbai authenticates with an OAuth2 access
+    # token, so the credential in the engine's store is a WASTING ASSET — the only cron
+    # here whose job is to keep something from expiring rather than to make something
+    # happen.
+    #
+    # THE HOURS ARE DERIVED, NOT TYPED. `REFRESH_INTERVAL_HOURS` is 4 and the argument for
+    # that number lives on the constant: a 12-hour token replaced every 4 hours always has
+    # ≥8 hours left, so TWO consecutive total failures still leave 4 hours of working
+    # service and the alarm has a third of a day of human lead time. Writing `{1, 5, 9,
+    # 13, 17, 21}` by hand here would be a second place the cadence is stated, and the
+    # arithmetic below is what stops the two drifting.
+    #
+    # OFF THE HOUR (minute 20) for the reason the neighbours schedule around 03:00-04:10:
+    # this fires six times a day and must not land on top of the retention sweep or the
+    # billing runs. Nothing waits on it, so any minute will do — it just must be a minute
+    # somebody chose.
+    #
+    # `max_tries` EXPLICIT, and it matters more here than on `check_tls_expiry`: `cron()`
+    # defaults it to 1, and a job that gives up on a transient Google 503 leaves the leg
+    # four hours closer to a total outage. The work is idempotent by construction — every
+    # tick mints a fresh bearer and overwrites, so a retry is never a duplicate and never
+    # needs to know whether the previous attempt got partway.
+    cron(
+        traced_job(refresh_in_call_llm_credential),
+        hour=set(range(1, 24, REFRESH_INTERVAL_HOURS)),
+        minute={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     #
@@ -570,9 +602,17 @@ class WorkerSettings:
     #
     # WHY NOT `job_timeout` (300). A job that has run for five minutes is not going to
     # finish in the grace window either, and sizing the drain to the slowest possible job
-    # would mean every deploy waits for SIGKILL. The nine `FUNCTIONS` jobs are idempotent
-    # and re-queue; what this window is actually FOR is the six `max_tries=1` crons,
-    # which do not — a cancelled `apply_retention` requeues, fails its pickup with
-    # `job_try=2 > 1`, and is gone until tomorrow, which is a legal obligation skipped in
-    # silence because a deploy happened at 03:40 UTC.
+    # would mean every deploy waits for SIGKILL. The `FUNCTIONS` jobs are idempotent and
+    # re-queue; what this window is actually FOR is the crons, which do not — a cancelled
+    # `apply_retention` requeues, fails its pickup with `job_try > max_tries`, and is gone
+    # until tomorrow, which is a legal obligation skipped in silence because a deploy
+    # happened at 03:40 UTC.
+    #
+    # NO COUNT HERE, DELIBERATELY. This said "the nine `FUNCTIONS` jobs" and "the six
+    # `max_tries=1` crons"; there are ten of the first and two of the second, and
+    # `apply_retention` — the example the sentence was BUILT on — has carried a ladder
+    # since P6.2. A count in prose is the defect class hard rule 4 names, and the two
+    # populations are enumerated where they are declared. Which crons legitimately run
+    # with one attempt, and why the next tick is a sufficient retry for each, is asserted
+    # rather than counted: `tests/job_registration_test.NO_LADDER_NEEDED` (D-366).
     job_completion_wait = 45

@@ -10,8 +10,11 @@ image. Two things followed:
   every other money rounding in the repo, which is ROUND_HALF_UP;
 * it was reachable, not theoretical. A ₹0.0180 telephony leg over a 360-second call is
   exactly ₹0.00005 per second. Half-even stores ₹0.0000 and `qty * unit_cost_paid`
-  contributes nothing — the whole leg rounded out of the margin panel and out of a closed
-  month's `spend_used`, which reads `_tier_totals` rather than the live counter.
+  contributes nothing — the whole leg rounded out of the admin margin panel and out of
+  `tier_usage`, the two surfaces that read `_tier_totals`' cost half. (This used to name
+  a closed month's client-facing `spend_used` as a third. That reader retired at P1.3:
+  it is `calling_revenue_inr` now, priced off MINUTES at the client's own rate, and it
+  never touches `unit_cost_paid`.)
 
 `billing/service.py` had already written the argument out in full ("passed EXPLICITLY,
 never inherited … a rupee that changes because someone else changed a global is not an

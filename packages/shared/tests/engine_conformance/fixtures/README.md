@@ -7,10 +7,16 @@ thing in more detail.
 
 ## Why these files matter more than they look
 
-The Bolna adapter is hand-maintained from the vendor's documentation because **Bolna
-publishes no OpenAPI spec** (TRD §5). Every field name in `apps/api/engine/bolna.py` is
-therefore a *claim*. A captured payload turns claims into tests, which is how a pilot
-week's value survives the pilot week.
+Bolna publishes an OpenAPI spec and this repository said otherwise for its whole life
+(D-350) — see `docs/vendor/bolna/hosted-oas.md`. So the field names in
+`apps/api/engine/bolna.py` are no longer guesses; they are read from the vendor's own
+schema. **That raises the value of these files rather than lowering it.** A specification
+is what the vendor says the server does, and the four defects D-350 uncovered were all of
+the form "we called something plausible and nothing could disagree" — a captured payload
+is the only artefact that can disagree with the SERVER. It is also the only way to settle
+the things the spec is silent on: which currency's cents `total_cost` is, whether
+`agent_welcome_message` comes back on a read, and whether `usage_breakdown` is populated
+in practice.
 
 ## How a file gets here
 

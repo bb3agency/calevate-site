@@ -4,7 +4,13 @@ Gate 8 is a SOFT gate that decides real architecture, so it is the one gate whos
 "inconclusive" answer costs as much as a red one. Four questions live here:
 
 1. **The two KB-lifecycle questions D-41's detach contract cannot answer from docs.**
-   Bolna publishes no OpenAPI spec, so every BODY on the `/knowledgebase` path is a
+   Bolna's spec was found and read (D-350), and the answer retired the capability
+   (D-354): `POST /knowledgebase` is multipart taking a PDF or a URL, the knowledge-base
+   object carries no agent, and `BOLNA_CAPABILITIES.knowledge_base` is now False with all
+   three methods refusing by name. This probe therefore exercises a path the primary
+   engine declines; it stays because the port is not Bolna's and an engine that CAN hold
+   a knowledge base must still be probed the same way. Historically:
+   every BODY on the `/knowledgebase` path was a
    hand-maintained claim (TRD §5, and the standing warning in `apps/api/engine/bolna.py`):
    (a) does `GET /knowledgebase/all` carry the AGENT LINKAGE `list_kb` filters on, and
    (b) does `DELETE /knowledgebase/{rag_id}` also clear the AGENT's reference to it?
@@ -129,6 +135,42 @@ class KbEngine(Protocol):
     async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None: ...
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]: ...
+
+
+#: The refusal code an adapter raises when the ENGINE does not hold this capability at all
+#: (`apps/api/engine.require_capability`). Matched by string rather than by importing
+#: `ProblemError`, deliberately: `KbEngine` above is a narrow Protocol so these probes can
+#: run against a KB-only stub, and importing from `apps/api` to catch one exception would
+#: undo that for no gain. Duck-typing on `.code` costs nothing and a stub can raise it too.
+_CAPABILITY_REFUSED = "engine_capability_unverified"
+
+
+def _is_capability_refusal(exc: BaseException) -> bool:
+    """Is this "the engine cannot do this", as opposed to "the attempt failed"?
+
+    THE DIFFERENCE IS WHAT THE OPERATOR DOES NEXT, WHICH IS WHY IT IS WORTH A FUNCTION.
+    A transient failure means run it again; a capability refusal means the question is
+    ANSWERED and re-running will produce the identical refusal forever. Gate 8 told a
+    human "Re-run after gate 2 passes" in both cases, which against the primary engine is
+    advice to loop indefinitely: `BOLNA_CAPABILITIES.knowledge_base` is False since D-354,
+    so `attach_kb` refuses by name before a single request goes out and no amount of
+    gate 2 will change it.
+    """
+    return getattr(exc, "code", None) == _CAPABILITY_REFUSED
+
+
+#: What to tell a human when the engine has declined rather than failed. Written once
+#: because all three KB probes hit the same wall in the same way.
+_CAPABILITY_REFUSED_DETAIL = (
+    "the engine DECLINES this capability rather than failing at it, so this gate is "
+    "ANSWERED and re-running changes nothing. On the primary engine that is D-354: "
+    "Bolna's `POST /knowledgebase` is multipart and takes a PDF or a URL, never the "
+    "prose `KBSourceRef` carries, and a Bolna knowledge base has no agent field at all — "
+    "so the built-in could not be driven through this port even if it answered. In-call "
+    "retrieval is OURS regardless (D-28's managed vector service behind the RAG tool "
+    "endpoint), which is where every KB tier above T0 already lives. Re-point this probe "
+    "at an engine whose descriptor reports `knowledge_base=True` to exercise it."
+)
 
 
 #: Reads back the KB handles the AGENT's own configuration references — NOT the account
@@ -292,12 +334,16 @@ async def probe_kb_agent_linkage(
         primary_handle = await engine.attach_kb(primary.ref, primary.source)
         control_handle = await engine.attach_kb(control.ref, control.source)
     except Exception as exc:
+        detail = (
+            _CAPABILITY_REFUSED_DETAIL
+            if _is_capability_refusal(exc)
+            else f"{type(exc).__name__}. Re-run after gate 2 passes."
+        )
         return ProbeOutput(
             checks=(
                 inconclusive(
                     "kb_list_carries_agent_linkage",
-                    "attach_kb failed, so there was nothing to list: "
-                    f"{type(exc).__name__}. Re-run after gate 2 passes.",
+                    f"attach_kb did not produce anything to list: {detail}",
                 ),
             )
         )
@@ -481,12 +527,14 @@ async def probe_kb_delete_clears_agent_reference(
         handle = await engine.attach_kb(agent.ref, agent.source)
         await engine.detach_kb(agent.ref, handle)
     except Exception as exc:
+        cause = _CAPABILITY_REFUSED_DETAIL if _is_capability_refusal(exc) else type(exc).__name__
         return ProbeOutput(
             checks=(
                 inconclusive(
                     "kb_delete_clears_agent_reference",
                     "The attach/delete round trip itself failed "
-                    f"({type(exc).__name__}), so nothing can be said about what the "
+                    f"({cause}"
+                    "), so nothing can be said about what the "
                     "agent references afterwards.",
                 ),
             )
@@ -987,17 +1035,25 @@ def probe_h1_history_handling(
     three change the cost model in different directions.
 
     The instrument is per-turn INPUT TOKENS, not cost, and the reason is worth stating
-    because the obvious approach is broken: under D-36 the default LLM is Sarvam 105B at
-    ₹0.00 per token, so the LLM leg of `cost_breakdown` is zero on every call however
-    the history is handled. A cost-based probe here would produce a tidy column of zeros
-    and conclude nothing while looking like a measurement.
+    because the obvious approach is broken: the LLM leg of `cost_breakdown` is zero on
+    every call however the history is handled. It was zero under D-36 because Sarvam 105B
+    is free per token; **under D-400 it is zero for a stronger reason** — the leg is BYOK,
+    so the engine pays nothing and reports nothing, and the Vertex spend lands on a GCP
+    invoice the engine has never seen. A cost-based probe here would produce a tidy column
+    of zeros and conclude nothing while looking like a measurement, and that stays true
+    after the leg is paid for.
 
     What the shape tells us:
       * strictly rising input tokens ⇒ full resend, no truncation. The blended average
-        needs a long-call correction and any PRICED in-call LLM is understated. (Not
-        Gemini: D-127 puts Gemini on Vertex `asia-south1` for the POST-call assistant
-        only, and a Gemini in-call leg would cost a new India-co-located deployable —
-        PLAN Part 17, pilot-gated rather than planned.)
+        needs a long-call correction and any PRICED in-call LLM is understated. **That
+        correction is no longer hypothetical (D-400)**: the founder moved the in-call LLM
+        leg to a paid Vertex AI account, and `billing/rates.py::llm_cost_inr_per_minute`
+        computes the curve this probe would MEASURE — ₹0.23/min at one minute, ₹0.51 at
+        ten, on the assumption that the resend is total. So this probe now scores an
+        assumption the cost model rests on rather than a curiosity. (The leg is now BUILT:
+        `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True` since D-404, which reached it by
+        ROTATING the bearer rather than proxying — so the India-co-located deployable
+        D-402 route (B) contemplated costs nothing, because it was not built.)
       * a plateau or a drop ⇒ truncation or summarisation. Which of the two is NOT
         distinguishable from token counts, and distinguishing them would mean reading
         the prompt the engine sent — caller utterances, hard rule 6. Say "one of the
@@ -1102,9 +1158,12 @@ def probe_h1_history_handling(
                 "h1_provider_context_caching",
                 "Cached-token counts were reported and are zero on every turn: the "
                 "engine does not enable provider context caching on our BYOK key. "
-                "CONSEQUENCE: the full history is re-billed every turn on any priced "
-                "LLM, so a paid in-call LLM would cost more than the blended figure "
-                "suggests.",
+                "CONSEQUENCE: the full history is re-billed every turn, and since "
+                "D-400 the in-call LLM leg IS priced, so this is a live cost finding "
+                "rather than a hypothetical: `llm_cost_inr_per_minute` assumes exactly "
+                "this (no caching, total resend) and is therefore the CEILING that a "
+                "pass here would lower. Gemini bills cached input reads at about a "
+                "tenth of the input rate, so the lever is real.",
                 turns_with_cached_tokens=0,
             )
         )

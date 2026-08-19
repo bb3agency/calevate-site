@@ -116,18 +116,28 @@ These are not defects. They are marked assumptions (D-31/D-32's doctrine: a vend
 behaviour is a gate or a marked assumption, never a silent premise). Listing them together
 because a reader should know how much of the adapter rests on a claim.
 
-**Bolna publishes no OpenAPI spec, so every payload shape in the adapter is a
-hand-maintained claim.** Specifically:
+**THIS LIST USED TO OPEN "Bolna publishes no OpenAPI spec, so every payload shape in the
+adapter is a hand-maintained claim." That premise was false and it is retired (D-350):**
+the vendor publishes an OpenAPI 3.1 document in its own GitHub organisation, the adapter's
+shapes are read from it, and `docs/vendor/bolna/hosted-oas.md` holds the pin and checksum.
+Four of the six entries this list carried were answered by simply reading it, and are
+struck rather than restated — a marked assumption that has been settled is no longer one:
 
-- **Listing page size** — `bolna._LISTING_PAGE_SIZES` guesses from round numbers (gate 6b).
-- **Pagination shape** — the adapter follows only a continuation the payload hands it, and
-  never a guessed `?page=`. Where it cannot rule out a further page it returns
-  `complete=False` and the poller alerts. (gate 6c)
-- **Repeat `delete_agent`** — assumed 404, folded into idempotent success. (gate 2)
-- **`list_kb` agent linkage** — assumed present. If absent, the D-158 sweep reports
-  `unreadable` rather than a fleet-wide false alarm. (gate 8a)
-- **`DELETE /knowledgebase/{rag_id}`** — whether it also clears the agent's reference, or
-  leaves a dangling `rag_id`. (gate 8b)
+- ~~**Listing page size**~~ — published: `page_size` defaults 20, maximum 50.
+  `_LISTING_PAGE_SIZES`, the round-number heuristic, is DELETED (D-353).
+- ~~**Pagination shape**~~ — published: `page_number`/`page_size`/`has_more`, on a PER-AGENT
+  route. The old global `GET /executions` the adapter called does not exist (D-353).
+- ~~**`list_kb` agent linkage**~~ — answered, and the answer was no: a Bolna knowledge base
+  carries no agent field at all, so that filter matched nothing and every agent listed
+  empty forever. The capability is now declared absent and the methods refuse (D-354).
+- ~~**`DELETE /knowledgebase/{rag_id}`**~~ — moot for the same reason.
+- **Repeat `delete_agent`** — STILL an assumption: assumed 404, folded into idempotent
+  success. The spec documents 200 and 400 for that route and says nothing about an agent
+  that is already gone. (gate 2)
+- **The cost UNIT** — a NEW marked assumption this list did not have, and the vendor
+  contradicts itself: the OAS says `total_cost` is "in cents", `execution-payload.md` says
+  "account currency". Their own precedence rule picks cents, which is what the adapter
+  already does — but that is two documents reconciled, not a server observed. (gate 7)
 - **Cartesia `DELETE /agents/{id}`** — INFERRED; Cartesia publishes no agent-delete
   reference at all.
 
@@ -243,8 +253,10 @@ None`, so the reconciliation poller — D-31's *guarantee of record* — classif
 The blast radius is the entire billing surface, because every client-facing figure derives
 from `usage_events` and not from `calls` (`service.py:992` counts
 `COUNT(DISTINCT call_id) FROM usage_events`). `total_cost` and `cost_breakdown.*` are
-**hand-maintained claims from a vendor with no OpenAPI spec** (gate 7). If the live account
-spells that key differently: every usage panel reads 0 calls / 0 minutes / ₹0.00, every
+**read from the vendor's published OpenAPI document rather than hand-maintained** since
+D-350 — so a MISSPELLED key is no longer the live risk; the unresolved one is the UNIT,
+where the vendor's spec ("in cents") and the vendor's prose ("account currency") disagree
+by 100x (gate 7). If the live account spells that key differently anyway: every usage panel reads 0 calls / 0 minutes / ₹0.00, every
 invoice renders empty, no spend cap ever arms, no wallet is ever debited — **and nothing
 anywhere goes red.**
 
@@ -293,6 +305,30 @@ marked; this one is not — the exact shape D-31/D-32 forbid.
 **FIX:** name the minor-unit assumption in a constant beside `_ASSUMED_CURRENCY` and add it
 to gate 7, or refuse the INR branch until the gate answers.
 
+**HALF DONE (D-261), AND THE REMAINING HALF IS THE ONE THIS ENTRY IS ACTUALLY ABOUT.** The
+divisor is now `bolna._ASSUMED_MINOR_UNITS_PER_MAJOR` — named, argued, and carrying real
+evidence AGAINST itself (their OSS `calculate_total_cost_of_llm_from_transcript` returns a
+rounded *dollar* float; every published price is quoted in dollars per minute) — and gate 7
+was raised from S to H to settle it. That closes "name the assumption" and "add it to gate
+7" **for the USD branch**.
+
+The INR branch is still on a silent premise, and the constant's own docstring is why: it
+defines itself as "how many of the vendor's cost UNITS make one unit of
+`_ASSUMED_CURRENCY`", and `_ASSUMED_CURRENCY` is USD. `_cost` nevertheless applies it to a
+payload that STATES `INR` at `rate = 1`. Verified against this tree rather than read:
+`_cost({"total_cost": 450, "currency": "INR"})` returns `total_inr = 4.5000` with
+`currency_stated=True` — so if Bolna bills an Indian account in RUPEES, every INR call
+meters at 1/100th of true cost on a row that looks *more* trustworthy than a guessed one,
+not less. Nothing has ever observed Bolna quoting INR, which is exactly why the divisor was
+inherited there rather than decided.
+
+Gate 7's row in OPERATIONS §2 now names that branch separately and says what to compare.
+**STILL EXTERNAL:** a funded Bolna account placing one real call. **NOT changed on
+inference** — refusing the INR branch would meter NOTHING for a vendor that turns out to
+bill us correctly in INR, and an absent cost is a bigger hole than a marked assumption;
+flipping the divisor for INR alone would be a second guess dressed as a fix, in the file
+whose whole subject is not doing that.
+
 ### P1.6 — The ledger-correction path has no production entrypoint · SERIOUS · OURS
 
 `billing/service.py:1241` defines `record_tier_correction`; its only callers are in
@@ -305,6 +341,28 @@ table.
 **FIX:** one audited ops action, or a `scripts/` entry point in the family of
 `reconcile_credit_ledger.py`. It needs a `chars` input only a Sarvam usage export supplies —
 name that in the runbook.
+
+**DONE (D-374).** `scripts/correct_tts_tier.py`, the second of the two shapes: dry run by
+default, `--from-csv` for a vendor export, `--ref` as the idempotency key. It reads
+`billed_tier` OFF THE LEDGER rather than taking the operator's word for it — restating it
+from memory is how a correction writes the delta between two rungs the call was never on —
+and it refuses a malformed line instead of skipping it, because a batch that corrects some
+of its file and reports success is the half-applied state hard rule 4 exists to keep out.
+`tests/tts_tier_correction_script_test.py` exercises it. The console button was weighed and
+rejected in the module docstring: the input is a file an operator downloads from a vendor,
+so a button needs an upload, a parser and a review screen for a correction needed zero times
+so far.
+
+**WHERE THE `chars` REQUIREMENT IS NAMED, since this entry asked for a runbook and there is
+not one.** It is in the script's module docstring and in `--help` on `--chars` ("characters
+synthesized, from the vendor export"), which is where an operator holding the problem
+actually looks. No `runbooks/` page was added: a tier correction pages nobody — it is
+reached by reading a Sarvam usage export, not by an alarm — so it has no row in the derived
+`alarm-index.md` and a standalone page for a procedure with no trigger and no occurrences
+would be the same "progress that looks like progress" the console button was rejected for.
+The day one is needed, `runbooks/topup-payments.md` is its neighbour. **The correction it invokes was also WRONG IN BOTH DIRECTIONS until this audit** —
+it never repriced the client's bill (D-372) and it moved a prepaid wallet by our supplier
+cost (D-373).
 
 ### P1.7 — `tts_tier_source` is written on every row and read by nothing; the register was wrong about why · SERIOUS · OURS
 
@@ -1194,9 +1252,13 @@ carries the literal `calevate_app:calevate_app` outside `local`.
 ### P5.15 — Four irrecoverable-data points, and only two are guarded · SERIOUS · OURS
 
 1. **Losing `PLATFORM_KEK`** — every console-stored credential becomes permanently
-   undecryptable. Guarded **only by prose**; it is not in `BOOTSTRAP_REQUIRED` and not in
-   `runtime_config_missing_keys`, so a deploy that never had it looks healthy. **Unguarded in
-   code.**
+   undecryptable. The ABSENCE of the key is guarded twice, and this entry said it was
+   guarded by prose because it also said the key is "not in `runtime_config_missing_keys`",
+   which has not been true for as long as the sentence has been here (D-393): readiness
+   reports it, and `scripts/vps-deploy.sh` refuses the deploy by name before the swap.
+   **What is genuinely unguarded is LOSING it** — no probe can tell a deployment that never
+   had a KEK from one whose KEK is gone, and only the second is irrecoverable. That is what
+   keeps this entry on the list.
 2. **Losing the `age` identity** — every offsite dump unreadable. Guarded by a quarterly drill
    that has never run.
 3. **`docker compose down -v` in the deploy directory** — P5.7. **Unguarded.**

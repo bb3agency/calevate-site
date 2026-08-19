@@ -53,10 +53,11 @@ the guard nobody has.
 
 from __future__ import annotations
 
-import os
 import sys
+from collections.abc import Mapping
 from urllib.parse import urlsplit
 
+from apps.api.core.settings import effective_env
 from sqlalchemy import create_engine, text
 
 #: Hosts a development database may live on. Names rather than a resolved address: the
@@ -70,8 +71,28 @@ LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", ""})
 APP_ROLE_DEFAULT = "calevate_app"
 
 
+def _env() -> Mapping[str, str]:
+    """The environment this reset ACTUALLY runs against — `.env` under the process
+    environment, which is the same merged view `Settings` resolves through and the same
+    one `alembic/env.py` gets from its `load_dotenv` at import.
+
+    THE READS BELOW USED TO BE `os.environ` ALONE, and `make db-reset` therefore could
+    not run at all from a normal checkout: it exited "ALEMBIC_DATABASE_URL is not set.
+    ... Copy .env.example to .env" at a developer who had done exactly that, because
+    nothing in this process ever read the file. `alembic upgrade head` — the very next
+    line of the same make target — reads it and works, which is what made the failure
+    read like a broken `.env` rather than like a missing `load_dotenv`.
+
+    Through `core.settings` rather than a second `load_dotenv` here: that module is the
+    one place this repo answers 'what will the app see', it merges rather than mutating
+    `os.environ`, and a third spelling of the same question is how the two that already
+    existed came to disagree.
+    """
+    return effective_env()
+
+
 def _owner_url() -> str:
-    url = os.environ.get("ALEMBIC_DATABASE_URL")
+    url = _env().get("ALEMBIC_DATABASE_URL")
     if not url:
         raise SystemExit(
             "ALEMBIC_DATABASE_URL is not set. A reset drops and rebuilds the schema, which "
@@ -84,13 +105,13 @@ def _owner_url() -> str:
 def _app_role() -> str:
     """The role to re-grant, read off `DATABASE_URL` rather than assumed, so a developer
     who renamed it in `dev_bootstrap.sh` does not get a schema their app cannot use."""
-    dsn = os.environ.get("DATABASE_URL", "")
+    dsn = _env().get("DATABASE_URL", "")
     user = urlsplit(dsn.replace("+psycopg", "").replace("+asyncpg", "")).username
     return user or APP_ROLE_DEFAULT
 
 
 def _refuse_unless_local(owner_url: str) -> None:
-    app_env = os.environ.get("APP_ENV", "")
+    app_env = _env().get("APP_ENV", "")
     host = (urlsplit(owner_url.replace("+psycopg", "").replace("+asyncpg", "")).hostname) or ""
     if app_env != "local":
         raise SystemExit(

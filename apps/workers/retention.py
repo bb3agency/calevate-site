@@ -327,9 +327,39 @@ async def _due_tenants() -> list[UUID]:
       set", for every lead source: webhook leads by that refusal, call-sourced leads by
       construction.
 
-    Said the way a compliance reviewer would: NO PERSONAL DATA ENTERS THE PLATFORM THAT
-    THE RETENTION SWEEP CANNOT LATER EXPIRE. `tests/schema_hardening_3_test.py` is that
-    sentence as executable tests.
+    Said the way a compliance reviewer would: no personal data reaching this platform
+    THROUGH A CALL OR A LEAD enters it without the retention sweep being able to expire
+    it later. `tests/schema_hardening_3_test.py` is that sentence as executable tests.
+
+    **AND THAT SENTENCE USED TO BE WRITTEN WITHOUT ITS FIRST CLAUSE, WHICH MADE IT
+    FALSE (D-368).** It was true of every category that existed when it was written;
+    D-179 then added `kb`, and a knowledge source is the one expirable artefact a
+    tenant can hold WITHOUT ever publishing an agent. `kb/service.reject_source` moves
+    a source `pending_approval → rejected` with no engine involvement at all, so a
+    tenant that uploads a document, has it refused, and never publishes has:
+
+        * six `retention_policies` rows, `kb` among them at 365 days, written by
+          `admin/service._create_tenant_root` in the transaction that mints the org;
+        * a `kb_sources` row that `_KB_EXPIRABLE` matches exactly; and
+        * NO `engine_agent_routes` row, so it is not in this list and its nightly
+          sweep never runs.
+
+    Measured, not reasoned: `sweep_tenant()` called directly on such a tenant returns
+    `{'kb_versions': 1}` and removes both the source and its chunks, so the sweep ARM is
+    correct and only the WORKLIST cannot reach it. The population is bounded to
+    `rejected` — `archived` is only ever produced by `_detach_superseded`, i.e. by a
+    publish, which mints the route — but "bounded" is not "empty", and a `kb_documents`
+    row holds whatever the client uploaded.
+
+    NOT CLOSED HERE, and the reason is that every way of closing it is a tenancy
+    decision rather than a sweep change. Reading `kb_sources.tenant_id` across tenants
+    needs a THIRD entry in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` — on a table that
+    holds client content, where the two existing entries hold routing keys and a hash
+    chain — and walking `organizations` under `admin_session` (the shape
+    `qa_sampling.draw_qa_samples` uses) reinstates exactly the per-tenant fan-out D-57
+    and P6.2 removed from this job. D-368 records both with their costs. Until one is
+    taken, this docstring says which data the sentence covers instead of implying all
+    of it.
 
     What enforcement cannot do is reach BACKWARD. Rows written under the old ordering
     are still outside this set, and this worker cannot even count them: it holds no

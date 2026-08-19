@@ -474,3 +474,58 @@ async def test_two_publishers_of_different_sources_on_one_agent_both_succeed() -
     assert "costs 500" in body and "Parking is free" in body, (
         "the second recompile did not see the first publish's facts"
     )
+
+
+# --------------------------------------------------------------------------------
+# 4. The source deleted underneath a publish in flight (D-380)
+# --------------------------------------------------------------------------------
+
+
+async def test_a_source_deleted_mid_publish_is_refused_and_the_attach_is_undone() -> None:
+    """The nightly retention sweep and FLOWS §7's rollback want the same rows.
+
+    `workers/retention._KB_EXPIRE_SQL` DELETEs `is_active = false AND status IN
+    ('archived','rejected')` versions past the tenant's `kb` TTL, from its own
+    transaction, taking no part in `_lock_agent_publishes`. FLOWS §7's rollback is
+    `publish_source` on an ARCHIVED row — the same population, and one that qualifies:
+    `_KB_EXPIRABLE` excludes only versions still holding an `engine_kb_ref`. The
+    interleaving below is that collision at its narrowest: the DELETE commits after this
+    publish has read the row and after the engine has taken the attach.
+
+    Before D-380 the activation UPDATE matched zero rows, nothing looked, and the function
+    RETURNED THE VERSION NUMBER — a reported success for a publish that changed no row of
+    ours while the vendor kept the document, unaddressable and unbillable. The assertions
+    are the halves of the fix: the caller is told, the engine is put back the way it was
+    found, and the version that really is live stays live.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    live = await _publish_new_version(tenant_id, agent_id, "Fees", "A consultation costs 500.")
+    doomed = await _submit_and_approve(tenant_id, agent_id, "Fees", "It costs 400.")
+
+    engine = get_engine()
+    engine_ref = await _engine_ref(tenant_id, agent_id)
+    real_attach = engine.attach_kb
+
+    async def attach_then_delete(ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+        """The vendor takes the document; the sweep's transaction commits a moment later.
+
+        A separate session is what makes this the real race rather than a self-delete:
+        under READ COMMITTED the publisher's next statement sees the committed DELETE.
+        """
+        handle = await real_attach(ref, source)
+        async with tenant_session(tenant_id) as sweeper:
+            await sweeper.execute(text("DELETE FROM kb_sources WHERE id = :sid"), {"sid": doomed})
+        return handle
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(engine, "attach_kb", attach_then_delete)
+        with pytest.raises(ProblemError) as raised:
+            await _publish(tenant_id, doomed)
+    assert raised.value.code == "kb_source_vanished"
+
+    # The engine holds exactly what it held before: the version that was live, restored
+    # by the same compensation a failed attach uses. No orphan, no second copy.
+    attached = await engine.list_kb(engine_ref)
+    assert len(attached) == 1, f"the engine was left holding {len(attached)} copies"
+    assert await _recorded_handle(tenant_id, live) is not None
+    assert await _live_versions(tenant_id, agent_id, "Fees") == [1]

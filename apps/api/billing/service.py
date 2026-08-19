@@ -932,6 +932,67 @@ def overage_rungs(
 #: premium rate (SURFACES §2b).
 _RUNGS: Final = ("premium", "value", "")
 
+#: The `meta.kind` a TTS-tier correction row carries. Named here as well as written by
+#: `record_tier_correction`, because the READER below has to recognise one: a correction
+#: is `unit_type = 'other'` (the metering index forbids a second `telephony_s` row for a
+#: call), so the only way a corrected call's MINUTES can move to the rung that actually
+#: ran is for the reader to see the correction and re-attribute them.
+TIER_CORRECTION_META_KIND: Final = "tts_tier_correction"
+
+# --- THE cost expression, and the rung a row's money is counted on ----------------
+#
+# **WHY A ZERO-`qty` ROW IS A WHOLE-LEG ROW (D-370).** `unit_cost_paid` is a price PER
+# UNIT OF `qty` and every reader multiplies the two. `pipeline._unit_price` cannot divide
+# by a zero duration, so for a call the engine reports as zero-length it keeps the LEG
+# COST whole on the row — and `qty * unit_cost_paid` then evaluates that leg at ₹0.00.
+# Measured on a zero-duration call the engine charged ₹1.0000 for (₹0.20 network,
+# ₹0.50 platform, ₹0.30 synthesizer): `margin_for_tenant` reported our cost as ₹0.30 —
+# 70% light — while `spend_state.spend_used`, which takes `cost.total_inr` from the
+# adapter and never touches these rows, recorded the full rupee. Two accounts of one
+# call, which is the one thing two readers of the same money may never be. (The CLIENT's
+# closed-month `spend_used` is NOT among the affected readers and has not been since
+# P1.3: `calling_revenue_inr` prices it off MINUTES at the client's own rate, not off
+# `unit_cost_paid`. The blast radius is the admin margin card and `tier_usage`, which is
+# where our supplier cost is published and nowhere else.) `_unit_price`'s own
+# docstring named this and named the fix ("the closable half is a reader that treats a
+# zero-qty row as a whole-leg row, and that lives in `apps/api/billing`"); this is that
+# reader. Writing `qty = 1` instead would bill the client a second that never happened.
+#
+# A NEGATIVE `qty` cannot reach here — `pipeline._billable_seconds` floors a duration at
+# zero — so `qty = 0` is the only case the branch has to name.
+#
+# Spelled ONCE, here, because two readers of one money fact is the D-103 shape this
+# module has already paid for twice.
+_ROW_COST_SQL: Final = (
+    "CASE WHEN qty = 0 THEN COALESCE(unit_cost_paid, 0) ELSE qty * COALESCE(unit_cost_paid, 0) END"
+)
+
+# **THE RUNG A CALL IS COUNTED ON IS THE CORRECTED ONE (D-372).** `record_tier_correction`
+# appends a row asserting the tier that RAN; before this expression existed the reader
+# grouped on each row's own `meta.tts_tier`, so the original `telephony_s` row kept the
+# rung it was MIS-metered on for ever. For a managed tenant that is the client-facing
+# half of the error — `priced_overage` charges those minutes at `overage_rate` when they
+# belonged on `overage_rate_value` — and it survived the very function written to fix it.
+#
+# `max(ARRAY[id::text, tier])` picks the tier of the LATEST correction on the call, not
+# the lexicographic maximum of the tiers: ids are uuid7, whose canonical text sorts in
+# creation order, and Postgres compares arrays element-wise. Corrections are all stamped
+# at the call's own `occurred_at` (see `record_tier_correction`), so `id` is the only
+# ordering there is. A window function rather than a lateral join: it is one extra sort
+# over the rows already being scanned, where a correlated lookup would be one index probe
+# per usage row on the hottest money query in the product.
+#
+# `PARTITION BY call_id` groups every row with a NULL `call_id` together — `number_rental`
+# today. No correction row has a NULL `call_id`, so that partition's FILTER is empty and
+# those rows keep their own attribution.
+_CORRECTED_TIER_SQL: Final = (
+    "COALESCE("
+    f"  (max(ARRAY[id::text, meta->>'tts_tier']) FILTER (WHERE meta->>'kind' = "
+    f"    '{TIER_CORRECTION_META_KIND}') OVER (PARTITION BY call_id))[2], "
+    "  COALESCE(meta->>'tts_tier', '')"
+    ")"
+)
+
 
 async def rung_seconds(
     session: AsyncSession, *, tenant_id: UUID, month: str
@@ -946,18 +1007,27 @@ async def rung_seconds(
     reproduce the state the previous call priced against — `allocate_paise` distributes
     a remainder across the whole set, so it is not linear in any one bucket — and the
     increments would stop telescoping to the month's own total.
+
+    Two things are decided by expressions above rather than inline, and both are money
+    fixes rather than tidying: `_ROW_COST_SQL` (a zero-`qty` row carries its WHOLE leg
+    cost, D-370) and `_CORRECTED_TIER_SQL` (a corrected call's seconds count on the rung
+    that RAN, D-372). The subquery exists because a window function cannot appear in a
+    `GROUP BY` — it is the same single scan of the same rows, with one sort added, and
+    the month predicate stays INSIDE it so the range still drives
+    `ix_usage_events_tenant_occurred`.
     """
     rows = (
         await session.execute(
             # NUMERIC end to end — a SUM of NUMERIC columns and a SUM of their products.
             # Nothing on this path becomes a float (hard rule 7).
             text(
-                "SELECT COALESCE(meta->>'tts_tier', ''), "
-                "  COALESCE(SUM(qty) FILTER (WHERE unit_type = 'telephony_s'), 0), "
-                "  COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0) "
-                f"FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
-                f"AND {_NOT_AI_UNITS} "
-                "GROUP BY 1"
+                "SELECT tier, COALESCE(SUM(secs), 0), COALESCE(SUM(cost), 0) FROM ("
+                f"  SELECT {_CORRECTED_TIER_SQL} AS tier, "
+                "    CASE WHEN unit_type = 'telephony_s' THEN qty ELSE 0 END AS secs, "
+                f"   {_ROW_COST_SQL} AS cost "
+                f"  FROM usage_events WHERE tenant_id = :tid AND {_IST_MONTH_WINDOW} "
+                f"  AND {_NOT_AI_UNITS}"
+                ") attributed GROUP BY tier"
             ),
             {"tid": tenant_id, **_month_bounds(month)},
         )
@@ -1021,12 +1091,19 @@ async def _tier_totals(
     IT IS ABOUT CALLS, and `_NOT_AI_UNITS` is what keeps it that way. `usage_events` grew
     a second kind of row with D-127: a dashboard assist, which has no call, no TTS rung
     and — per G-3 — no bearing on what the CLIENT pays, because Calevate absorbs it. Left
-    unfiltered those rows would land in the `""` bucket and do three wrong things at
-    once: inflate `tier_usage.cost_unattributed_inr`, which an operator reads as "calls
-    we could not attribute a voice to"; put our absorbed AI cost into a closed month's
-    `spend_used_inr` on the CLIENT's panel (`_spend_used` sums this map); and add it to
+    unfiltered those rows would land in the `""` bucket and do two wrong things at once:
+    inflate `tier_usage.cost_unattributed_inr`, which an operator reads as "calls we
+    could not attribute a voice to"; and add our absorbed AI cost to
     `margin_for_tenant`'s cost side without the matching revenue. The AI ledger has its
     own reader (`billing/ai_quota.py::read_ai_quota`) and this one stays about minutes.
+
+    A THIRD consequence used to be listed here and is no longer reachable: our absorbed
+    cost landing in a closed month's `spend_used_inr` on the CLIENT's panel, "because
+    `_spend_used` sums this map". It did, until P1.3 — the closed branch is now
+    `calling_revenue_inr`, priced off MINUTES at the client's own rate, and never reads
+    the cost half of this map at all. The filter is still required for the two above; the
+    sentence is corrected rather than deleted because a reader who finds the old claim
+    elsewhere should be able to see it was retired and why.
     """
     seconds, cost = await rung_seconds(session, tenant_id=tenant_id, month=month)
     return rung_minutes(seconds), cost
@@ -1607,6 +1684,25 @@ async def tier_usage(
     parse_billing_month(period)
     minutes, cost = await _tier_totals(session, tenant_id=tenant_id, month=period)
 
+    # THE THREE COSTS ARE ALLOCATED, NOT ROUNDED SEPARATELY (D-371) — the same fix the
+    # MINUTES beside them already had, on the column nobody had applied it to.
+    #
+    # `GET /v1/admin/tenants/{id}/margin` nests these under the margin card's `cost_inr`
+    # and its docstring promises they "add up to `cost_inr` exactly — they are a
+    # partition of it, not a parallel estimate". `to_paise` on each bucket does not keep
+    # that promise: `unit_cost_paid` is NUMERIC(12,4) and `qty` NUMERIC(14,4), so a
+    # bucket's sum of products routinely carries four decimals. Measured on two calls of
+    # 601 s and 401 s at ₹0.0125/s — ₹7.5125 and ₹5.0125 — the rungs published ₹7.51 and
+    # ₹5.01, adding to ₹12.52 beside a `cost_inr` of ₹12.53. `allocate_paise` is the one
+    # function in this module for exactly this (largest remainder), and passing it
+    # `cost_inr`'s own figure — `to_paise` of the same sum `margin_for_tenant` takes — is
+    # what makes the partition true by construction rather than by two roundings
+    # happening to agree.
+    cost_premium, cost_value, cost_unattributed = allocate_paise(
+        [cost["premium"], cost["value"], cost[""]],
+        to_paise(sum(cost.values(), Decimal("0"))),
+    )
+
     return {
         "month": period,
         "minutes_premium": minutes["premium"],
@@ -1615,9 +1711,9 @@ async def tier_usage(
         # What a bill may charge at each rung: unproven never reaches the premium side.
         "minutes_billable_premium": minutes["premium"],
         "minutes_billable_value": minutes["value"] + minutes[""],
-        "cost_premium_inr": to_paise(cost["premium"]),
-        "cost_value_inr": to_paise(cost["value"]),
-        "cost_unattributed_inr": to_paise(cost[""]),
+        "cost_premium_inr": cost_premium,
+        "cost_value_inr": cost_value,
+        "cost_unattributed_inr": cost_unattributed,
     }
 
 
@@ -1639,6 +1735,23 @@ async def record_tier_correction(
     `qty * unit_cost_paid`, so a `qty` of 1 priced at the delta corrects the month by
     construction, with no reader needing to know a correction happened.
 
+    **WHAT A CORRECTION MOVES, precisely, because this used to be inverted (D-372/D-373).**
+    Two things, and only two:
+
+    * **OUR cost** — the appended row, below;
+    * **the RUNG the call's minutes are priced on**, which is the CLIENT-facing half and
+      which nothing here moved for the first four waves of this function's life. A
+      correction cannot append a second `telephony_s` row
+      (`ux_usage_events_tenant_call_unit` forbids one, deliberately), so the original row
+      keeps the tier it was mis-metered on for ever and `priced_overage` kept charging a
+      MANAGED client `overage_rate` for minutes that belonged on `overage_rate_value`.
+      The reader is what closes it: `_CORRECTED_TIER_SQL` attributes a corrected call's
+      rows to the tier this row asserts, so the invoice, the client panel and the margin
+      panel all reprice from the same append.
+
+    A PREPAID wallet is deliberately NOT one of them — see the block at the end of this
+    function for the ₹15-refund-on-a-₹12-call this cost.
+
     It is stamped at the ORIGINAL call's `occurred_at`, not at now(): a July call that
     was billed at the wrong rate was wrong in July, and dropping the fix into August
     would leave both months lying. The moment the correction was issued is recorded in
@@ -1650,22 +1763,27 @@ async def record_tier_correction(
     synthesized (today: from the model vendor's own usage export).
 
     Returns the delta written, or None when there was nothing to correct — the tiers
-    agreed, or this `ref` has already been applied to THIS call. Idempotent under a
-    per-tenant advisory lock, because a replayed ops script must not credit twice.
+    agreed, or this `ref` has already been applied to THIS call. Idempotent on
+    `(tenant, call, correction_ref)` under the per-tenant advisory lock, because a
+    replayed ops script must not correct twice. One ops reference may legitimately cover
+    a BATCH of calls, which is why the call id is in the key and not just the reference.
 
-    BOTH LEDGERS ARE KEYED ON (tenant, call, ref). One ops reference may legitimately
-    cover a batch of calls, so keying the wallet entry on the reference alone made the
-    second and every later call in a batch a correction that was recorded and never
-    refunded — the client's cost ledger said "put right" while their balance did not
-    move. A correction that only half-happens is worse than one that fails, because
-    nothing reads as wrong afterwards.
+    **THERE IS NOW ONE LEDGER TO KEEP IN STEP, WHICH IS THE POINT.** This function used
+    to write to two — the cost ledger and a prepaid wallet — and the half-applied state
+    (corrected on paper, never refunded) was a real defect that had to be closed by
+    making two keys agree. Removing the second write removes the class: a correction is
+    one INSERT, so "half-applied" is not a state the transaction can end in.
     """
     delta = tier_correction_inr(chars=chars, billed_tier=billed_tier, actual_tier=actual_tier)
     if delta == 0:
         return None
 
-    # Same lock the credit ledger uses, so the usage correction and the wallet
-    # adjustment below are decided inside ONE critical section per tenant.
+    # THE LOCK STAYS THOUGH THE WALLET WRITE IS GONE (D-373), because what it serializes
+    # is the check-then-write above it, not the second ledger below it: two concurrent
+    # runs of the same ops file both read "no correction for this ref yet" and both
+    # append, and `usage_events` has no unique index on `meta->>'correction_ref'` to
+    # catch the second one. Same lock the credit ledger uses, so a correction and a
+    # concurrent top-up for one tenant still order against each other.
     await lock_tenant_credits(session, tenant_id)
     already = (
         await session.execute(
@@ -1690,7 +1808,12 @@ async def record_tier_correction(
     ).scalar()
 
     meta = {
-        "kind": "tts_tier_correction",
+        # THE CONSTANT, not the literal, and this is the whole reason it is named. The
+        # READER (`_CORRECTED_TIER_SQL`) recognises a correction row by this exact string
+        # in order to re-attribute the call's minutes; a writer that spelled it separately
+        # would let a rename move the reader and leave the writer behind, and the symptom
+        # would be silent — corrections that write fine and reprice nothing.
+        "kind": TIER_CORRECTION_META_KIND,
         "correction_ref": ref,
         "billed_tier": billed_tier,
         "actual_tier": actual_tier,
@@ -1718,44 +1841,37 @@ async def record_tier_correction(
         },
     )
 
-    # For a self-serve client the wallet IS the bill (D-39): the call was debited at
-    # metered cost, so a corrected cost has to move the balance too — as a new entry.
-    # Managed clients are invoiced against a retainer and their wallet is not part of
-    # the charge, so nothing is written for them.
-    if await plan_tier_of(session, tenant_id) in PREPAID_TIERS:
-        # KEYED ON THE CALL AS WELL AS THE REF, and this is a fix rather than a detail.
-        # The cost-ledger dedupe above is `(tenant, call_id, correction_ref)` while this
-        # one used the ref alone, so a single ops reference covering a BATCH of calls
-        # produced one cost correction per call and exactly ONE wallet refund — every
-        # call after the first was corrected on paper and never refunded. The two keys
-        # now agree, which is the property that makes "corrected" and "refunded" the
-        # same set. (`ux_credit_ledger_tenant_reason_ref` is the second line of defence:
-        # a duplicate is a UniqueViolation rather than a double credit — a 500 instead
-        # of a wrong balance, which is the safe direction but not an answer.)
-        wallet_ref = f"tier-correction:{call_id}:{ref}"
-        # NO SECOND REPLAY CHECK HERE, and its removal is part of the same fix. This
-        # block used to re-ask "has this wallet ref been used?" because its key differed
-        # from the cost ledger's; now that both are (tenant, call, ref), the `already`
-        # guard at the top of this function returns before control can reach here on a
-        # replay, so the check could never fire. A reader's `if` that cannot fire is not
-        # defence in depth, it is a second way to answer one question — and the real
-        # enforcement was never the SELECT anyway: `ux_credit_ledger_tenant_reason_ref`
-        # makes a duplicate a UniqueViolation rather than a double credit (D-63: the
-        # index is the guarantee, not the reader).
-        await record_entry(
-            session,
-            tenant_id=tenant_id,
-            # The ledger's sign convention is the wallet's, not the cost ledger's:
-            # a NEGATIVE cost correction (we overbilled) is a POSITIVE credit back.
-            delta=-delta,
-            reason="adjustment",
-            ref=wallet_ref,
-            meta={"call_id": str(call_id), "billed_tier": billed_tier, "actual": actual_tier},
-            # The call already happened; a correction that refuses to record is a
-            # correction that leaves the client overcharged.
-            allow_negative=True,
-        )
-
+    # THE PREPAID WALLET DOES NOT MOVE, AND THAT IS THE FIX (D-373).
+    #
+    # This block used to refund a self-serve client `-delta` — OUR supplier cost
+    # difference between the two rungs — on the stated grounds that "the call was
+    # debited at metered cost". That sentence stopped being true at P1.1/P1.3.
+    # `charge_for_call` is now given `rates.prepaid_billed_inr(minutes, self_serve_rate)`:
+    # a prepaid client is charged the LIST PRICE PER MINUTE (`self_serve_inr_per_min`,
+    # ₹6.00) and the TTS rung is not an input to it — `config.py` says so in as many
+    # words, "one number for the whole motion until per-tier pricing ships".
+    #
+    # So the refund was money the client had never been charged. Measured on the fixture
+    # this module's tests use: a 120-second call debits ₹12.00, and a premium→value
+    # correction over 10,000 characters credited ₹15.00 back — the client ending a
+    # mis-tiered call ₹3.00 RICHER than if it had never been placed. The other direction
+    # is worse: a value→premium correction DEBITS a client for a rate they were never on.
+    #
+    # A tier correction therefore moves exactly two things, and neither is a prepaid
+    # wallet: OUR cost ledger (the row appended above), and — through
+    # `_CORRECTED_TIER_SQL` — the rung a MANAGED client's minutes are priced on, which is
+    # where the client-facing error actually lives, because `priced_overage` charges
+    # `overage_rate` and `overage_rate_value` by rung. Correcting a prepaid client's
+    # wallet from a supplier cost was the same "one variable doing two jobs" defect
+    # `prepaid_billed_inr` exists to end, arriving one function later.
+    #
+    # It also removes the half-applied state this function used to have to defend
+    # against: with one ledger to write, "corrected on paper, never refunded" is not a
+    # state the transaction can end in.
+    #
+    # If per-tier prepaid pricing ever ships, the correction owed is
+    # `(rate(actual) - rate(billed)) x minutes` off the CLIENT's card — never `delta`,
+    # which is ours.
     log.info(
         "tts_tier_correction",
         extra={

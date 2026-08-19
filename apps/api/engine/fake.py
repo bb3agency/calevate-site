@@ -35,6 +35,7 @@ from calevate_shared.engine import (
     ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
+    LlmCredentialPlacement,
     ModelConfig,
     NumberSpec,
     ProvisionedNumber,
@@ -82,7 +83,15 @@ _COST_PER_MIN = {
     "platform": Decimal("1.7500"),
     "network": Decimal("0.6000"),
     "stt": Decimal("0.5000"),
-    "llm": Decimal("0.0000"),  # Sarvam 105B is free per token (D-35)
+    # STILL ZERO, AND NOW FOR A DIFFERENT REASON (D-400). It was zero because the LLM
+    # leg WAS free — Sarvam 105B, free per token (D-35). The founder has moved that leg
+    # to paid Vertex AI, so "free" is no longer the reason; what keeps this at zero is
+    # that on a BYOK leg the ENGINE pays nothing and therefore reports nothing, and this
+    # dict is the engine's own cost breakdown. The Vertex spend lands on a GCP invoice
+    # the engine has never seen (`billing/rates.py::llm_cost_inr_per_minute` is where
+    # that side is modelled). A non-zero figure here would be this adapter inventing a
+    # vendor charge that no vendor makes.
+    "llm": Decimal("0.0000"),
     "tts": Decimal("1.2000"),
 }
 
@@ -239,6 +248,15 @@ class FakeEngine:
         self._agents: dict[str, AgentConfig] = {}
         self._calls: dict[str, dict[str, Any]] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
+        #: The rotating LLM credential (D-404), modelled as REPLACE-IN-PLACE — one slot,
+        #: last write wins. That is the semantics the real store is hoped to have and the
+        #: one a caller may rely on; the append case is a vendor defect the Bolna adapter
+        #: raises on, so there is nothing here for a fake to imitate.
+        #:
+        #: HELD, not discarded, because the conformance clause has to be able to ask what
+        #: the engine ENDED UP with — an adapter that accepted the write and kept nothing
+        #: would pass a "did it raise" test while proving nothing about the rotation.
+        self._llm_credential: str | None = None
 
     def holds_credentials(self) -> bool:
         """Always True: this adapter IS its own vendor, so there is nothing to configure.
@@ -485,6 +503,31 @@ class FakeEngine:
             )
         call["transferred_to"] = to
         call["transfer_warm"] = warm
+
+    async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Hold the in-call LLM bearer, replacing whatever was there (D-404).
+
+        REFUSES ON A DICTATED LLM LEG, and that arm is the reason this is not a one-liner.
+        `EXTERNAL_DEPLOYMENT_CAPABILITIES` declares `llm="engine"`, so the conformance
+        suite drives a real engine shape whose model is not ours to credential — and the
+        failure this catches is a refresher that reports success forever against an engine
+        that never wanted a credential, which is silent by construction.
+
+        The EMPTY-SECRET refusal is here rather than only in the caller for the reason
+        `require_speech_leg` gives about dropping a value: an adapter that accepted `""`
+        would let a minting bug install a blank bearer, and the leg would fail on the next
+        call with a vendor 401 that names nothing on our side.
+        """
+        require_capability("llm", engine=self)
+        if not secret:
+            raise ProblemError(
+                kind="validation",
+                code="engine_credential_empty",
+                title="No credential to install",
+                detail="An empty credential was offered to the voice platform.",
+            )
+        self._llm_credential = secret
+        return LlmCredentialPlacement(replaced_in_place=True)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:
         # Per SERIES, not per capability: an engine may sell an ordinary number and have

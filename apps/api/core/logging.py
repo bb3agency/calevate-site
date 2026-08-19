@@ -328,6 +328,10 @@ def configure_logging(level: str = "INFO") -> None:
     # (D-23 — those routinely embed a token in the query string, e.g. Zapier and Make
     # catch hooks), a Google spreadsheet id, which is the capability that names a
     # client's document, and an object-storage presigned URL, which IS the credential.
+    # Since D-408 they also carry a dead-man's-switch ping URL, which is a bearer secret
+    # in the purest form this repo has: the whole URL is the credential, anyone holding
+    # it can silence an alarm by pinging it on our behalf, and it is fetched on a cron
+    # six times a day rather than once in a while.
     # None of that is redactable after the fact by `redact_mapping`, because it arrives
     # as prose inside `msg` rather than as an extra.
     #
