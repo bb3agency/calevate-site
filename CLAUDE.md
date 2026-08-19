@@ -29,9 +29,16 @@ three surfaces separately, because they are at different stages and say so in co
    resolvable service account. **An API key cannot be used here**: a key forces Vertex's
    GLOBAL endpoint, which is a residency inversion, not a shortcut (D-405..D-407 record
    the proxy, AI Studio, Vertex Express and Bolna's native Google provider as rejected,
-   each with its reason). ⚠ ONE THING IS STILL UNVERIFIED LIVE — which credential-store
-   name the hosted engine reads `llm_key` from (`Settings.bolna_llm_credential_name`,
-   OPERATIONS §2 gate 16c).
+   each with its reason). ⚠⚠ ONE THING IS STILL UNVERIFIED LIVE AND IT IS NOW IN DOUBT —
+   which credential-store name the hosted engine reads `llm_key` from
+   (`Settings.bolna_llm_credential_name`, OPERATIONS §2 gate 16c). A read-only browser
+   sweep of 19 Aug 2026 found NO Provider Keys page in the current dashboard and NO
+   `custom` entry in the agent LLM provider dropdown — neither of which our code uses
+   (it calls the API, and `POST /providers` is in the OpenAPI spec verified by checksum),
+   so this contradicts nothing yet. **But do not treat the leg as delivered.** If the
+   platform stores no credential for a custom model, `llm_key` is None, Vertex 401s every
+   turn, and the fallback is D-405's proxy. **The next Bolna work is one API call**:
+   `GET /providers`, then `POST /providers`, then `GET` again — see gate 16c.
 2. **Dashboard AI** (user-triggered, over redacted data) — D-127, live in code, and
    **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`**: search points the right way but
    nobody has made the one call that settles it (OPERATIONS §2 gate 14).

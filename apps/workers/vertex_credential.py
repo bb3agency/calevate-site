@@ -39,12 +39,28 @@ WHAT IS VERIFIED AND WHAT IS NOT — the distinction this repo is strict about
   is `genai.Client(api_key=api_key)` — no project, no region, no base URL, i.e. the AI
   Studio global host. `provider: "custom"` with an explicit regional URL is the ONLY route
   that honours residency, and that is WHY it is the one chosen (D-407).
-* **REPORTED, NOT READ: the 12-hour lifetime.** `generateAccessToken` accepts
-  `lifetime: "43200s"` for a service account named in the org policy
-  `constraints/iam.allowServiceAccountCredentialLifetimeExtension`; the default cap is
-  3600s. Read through the search index 18 Aug 2026 (`docs.cloud.google.com` is refused by
-  this environment's proxy). **Nothing here depends on that being true**, and that is the
-  design's most important property: the response's `expireTime` is ALWAYS set
+* **VERIFIED-VENDOR-DOCS: the 12-hour lifetime, and 12 hours is a CEILING.**
+  `generateAccessToken` accepts `lifetime: "43200s"` for a service account named in the
+  org policy `constraints/iam.allowServiceAccountCredentialLifetimeExtension`; the
+  default cap is 3600s. Google's own words, `iam/docs/create-short-lived-credentials-
+  direct`: "By default, the maximum token lifetime is 1 hour (3,600 seconds). To extend
+  the maximum lifetime for these tokens to 12 hours (43,200 seconds), add the service
+  account to an organization policy that includes the
+  constraints/iam.allowServiceAccountCredentialLifetimeExtension list constraint."
+  Corroborated by `sdk/gcloud/reference/auth/print-access-token`. Read from the pages
+  themselves 19 Aug 2026 (this environment's proxy refuses `docs.cloud.google.com`; the
+  founder's browser does not), upgrading what shipped here as REPORTED-DOCS.
+
+  **THERE IS NO LONGER-LIVED ACCESS TOKEN, and the question is worth recording because
+  it is the first one a reader asks**: no org policy, API parameter or product option
+  raises a service-account access token past 43200s, and none makes one non-expiring.
+  The long-lived credential in this design is the service-account KEY, which is what
+  mints tokens and is exactly what `vertex_credentials()` holds — so "rotate it until I
+  say otherwise" is already the shape of the thing an operator installs once. That is
+  why the cadence below is a machine's job and never a human's.
+
+  **Nothing here depends on the 12 hours being granted**, and that is the design's most
+  important property: the response's `expireTime` is ALWAYS set
   (`google/iam/credentials/v1/common.proto`, `GenerateAccessTokenResponse.expire_time`,
   "The expiration time is always set"), so what we were GRANTED is read back rather than
   assumed. A deployment whose org policy is not set gets 1-hour tokens and is REFUSED by
