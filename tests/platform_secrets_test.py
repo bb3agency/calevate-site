@@ -150,7 +150,12 @@ async def _purge(*keys: str) -> None:
 @pytest.fixture(autouse=True)
 async def _clean() -> AsyncIterator[None]:
     yield
-    await _purge(KEY, SHADOWED_KEY, "razorpay_webhook_secret")
+    # Every key any test in this file writes. `azure_openai_api_key` is here because the
+    # validation pair below writes it and this table is GLOBAL: a row left behind is
+    # counted by `rewrap_all` and by `resolve_secrets`, so three unrelated tests start
+    # failing with a number one higher than they expect — a shared-state failure that
+    # reads like a defect in the rewrap.
+    await _purge(KEY, SHADOWED_KEY, "razorpay_webhook_secret", "azure_openai_api_key")
     pc.reset_for_test()
     await pc.refresh(force=True)
 
@@ -590,6 +595,50 @@ async def test_an_empty_credential_is_refused_rather_than_installed() -> None:
         with pytest.raises(ProblemError) as raised:
             await set_secret(session, key=KEY, value="   ", actor_id=await _admin_id())
     assert raised.value.code == "secret_value_empty"
+
+
+async def test_a_credential_is_validated_against_its_own_field_not_just_for_emptiness() -> None:
+    """A CONSTRAINT A SIBLING WRITE PATH BYPASSES IS WORSE THAN NO CONSTRAINT.
+
+    `azure_openai_api_key` declares `max_length=512`, and this path used to check
+    emptiness and nothing else — so the console would seal a value the model refuses,
+    while `core/settings._current_settings` installs the override layer with
+    `model_copy(update=...)` (no re-validation) on the documented ground that everything
+    in the layer "was validated against THIS model's own field definition before it was
+    stored". True for `config_service.set_value`, false here.
+
+    The length is the instance; the CLASS is what this pins. The next `pattern=` added to
+    a credential field — the shape that already caught `bolna_llm_credential_name` — would
+    silently do nothing without this, and nothing anywhere would go red.
+    """
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await set_secret(
+                session,
+                key="azure_openai_api_key",
+                value="k" * 513,
+                actor_id=await _admin_id(),
+            )
+    assert raised.value.code == "config_value_invalid"
+    # Hard rule 6's shape, applied to a credential: the refusal names the field and the
+    # rule, never the value. `ValidationError.errors()` carries an `input` key and the
+    # converter deliberately does not read it.
+    rendered = repr(raised.value.__dict__)
+    assert "k" * 20 not in rendered, "the rejected credential must not ride in the refusal"
+
+
+async def test_a_credential_its_field_accepts_is_still_installed() -> None:
+    """The control on the test above: validation must refuse the malformed and nothing
+    else. A check that rejected ordinary credentials would be found by an operator at
+    3am, which is the direction this must not fail in."""
+    async with untenanted_session() as session:
+        record = await set_secret(
+            session,
+            key="azure_openai_api_key",
+            value="k" * 512,
+            actor_id=await _admin_id(),
+        )
+    assert record.version >= 1
 
 
 # --- /test ------------------------------------------------------------------------

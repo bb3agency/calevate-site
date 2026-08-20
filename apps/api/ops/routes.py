@@ -29,8 +29,12 @@ so every route in this file is already behind MFA before its dependency runs. Th
 header was written as an explicit stopgap for that; the stopgap's occasion has passed
 and the header STAYS anyway, because it answers a different question:
 
-* MFA answers **who is holding this session** — proved once, at sign-in, for the next
-  twelve hours (SEC-COMP §5).
+* MFA answers **who is holding this session** — proved once, at sign-in, and good for
+  the whole life of that session (`authn/sessions.REALM_TIMEOUTS`, SEC-COMP §5). THE
+  CONSTANT, NOT A NUMBER: this said "for the next twelve hours", which is not the admin
+  realm's window in either half — admin is 30 min idle / 8 h absolute, and twelve hours
+  is the CLIENT realm's IDLE window. A restated lifetime on a security surface is the
+  count-in-prose defect with a blast radius, and it cited §5 for a figure §5 contradicts.
 * the confirmation answers **which act they meant, on which target** — proved per
   request, and unforgeable by anything that merely replays a live session: a tab left
   open on an unlocked laptop, a CSRF-shaped cross-origin POST, an operator one row off

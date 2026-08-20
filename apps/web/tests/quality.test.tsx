@@ -138,6 +138,45 @@ describe("the client's quality report", () => {
   });
 
   /**
+   * THE MONTH LABEL, IN A BROWSER THAT IS NOT IN INDIA.
+   *
+   * `monthLabel` built a `Date` from the API's `YYYY-MM-DD` and formatted it in the
+   * browser's zone. `new Date("2026-09-01")` is midnight UTC, which is 31 August in every
+   * zone west of it — so an operator or a client on a laptop still set to a US timezone
+   * read "August 2026" over September's report, on the one document this product sends a
+   * client every month to prove the agent was tested.
+   *
+   * The timezone is moved for real rather than mocked: Node re-reads `process.env.TZ` on
+   * assignment, so this is the same code path a browser in New York takes. `as_of` is the
+   * FIRST of a month because that is the value that separates the two implementations —
+   * a month-end date happens to survive the bug, which is why the suite did not catch it.
+   */
+  it("names the month the report is for, in a browser outside India", async () => {
+    const original = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // TWO reports, because the month picker only renders when there is a choice —
+      // and the picker is where `monthLabel` is read.
+      const { container } = await renderClientPage(<QualityPage />, {
+        "/v1/me": ME,
+        "/v1/quality/reports": [
+          report({ as_of: "2026-09-01" }),
+          report({ as_of: "2026-08-01", defects: 2 }),
+        ],
+      });
+      await screen.findByText("No defects found across 58 scenarios");
+      expect(screen.getByRole("button", { name: "September 2026" })).toBeTruthy();
+      // The report's own line names the same month, in words rather than as a wire
+      // format — and the same UTC-anchored day, not the one the browser's zone lands on.
+      expect(container.textContent).toContain("For the month ending 1 September 2026");
+      expect(container.textContent).not.toContain("2026-09-01");
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
+  /**
    * THE PAUSED QUERY — the state that is neither loading nor failed.
    *
    * TanStack does not start a fetch it believes cannot succeed: with the default

@@ -29,6 +29,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
+from typing import ClassVar
 
 from pytest import MonkeyPatch
 from scripts import check_docs_drift as guard
@@ -479,6 +480,84 @@ class TestBlindSpots:
 
     def test_a_rate_zone_table_that_moved_yields_nothing(self) -> None:
         assert guard.doc_rate_zones("## 5. nginx\nno table here\n") == {}
+
+
+# ============================================================================
+# section 7 — an assumption the pilot has ANSWERED (D-413)
+# ============================================================================
+
+
+class TestAnsweredAssumptions:
+    """The direction nothing watched: a gate goes green and the prose keeps guessing."""
+
+    ROSTER: ClassVar[set[str]] = {"6", "8", "12"}
+
+    def _doc(self, tmp_path: Path, body: str) -> Path:
+        path = tmp_path / "PRODUCTION-READINESS.md"
+        path.write_text(body, encoding="utf-8")
+        return path
+
+    def test_an_assumption_whose_gate_has_passed_is_caught(self, tmp_path: Path) -> None:
+        doc = self._doc(tmp_path, "- `list_kb` agent linkage is assumed present. (gate 8a)\n")
+        offenders = guard.answered_assumptions(
+            roster=self.ROSTER, verdicts={"8": "**PASS**"}, files=[doc]
+        )
+        assert len(offenders) == 1, offenders
+        assert "gate 8a" in offenders[0] and "**PASS**" in offenders[0]
+
+    def test_a_gate_answered_red_is_caught_too(self, tmp_path: Path) -> None:
+        """A refuted premise reading as "assumed" is the more expensive direction: the
+        adapter is then wrong AND the doc says nobody has looked."""
+        doc = self._doc(tmp_path, "Repeat `delete_agent` is assumed to 404 (gate 6b).\n")
+        offenders = guard.answered_assumptions(
+            roster=self.ROSTER, verdicts={"6": "**FAIL**"}, files=[doc]
+        )
+        assert len(offenders) == 1 and "**FAIL**" in offenders[0]
+
+    def test_an_unrun_gate_is_left_alone(self, tmp_path: Path) -> None:
+        doc = self._doc(tmp_path, "- page size is a guess (gate 6b).\n")
+        assert guard.answered_assumptions(roster=self.ROSTER, verdicts={}, files=[doc]) == []
+
+    def test_a_sentence_that_merely_describes_a_gate_is_not_a_claim(self, tmp_path: Path) -> None:
+        """The narrowing that keeps this usable: OPERATIONS and the runbooks are full of
+        sentences about what a gate MEASURES, and none of them can go stale."""
+        doc = self._doc(tmp_path, "gate 8 measures Telugu retrieval quality on-call.\n")
+        assert (
+            guard.answered_assumptions(roster=self.ROSTER, verdicts={"8": "**PASS**"}, files=[doc])
+            == []
+        )
+
+    def test_a_citation_to_a_gate_that_does_not_exist_is_caught(self, tmp_path: Path) -> None:
+        doc = self._doc(tmp_path, "unverified until the pilot runs (gate 21).\n")
+        offenders = guard.answered_assumptions(roster=self.ROSTER, verdicts={}, files=[doc])
+        assert len(offenders) == 1 and "no gate 21" in offenders[0]
+
+    def test_the_live_roster_and_scorecard_agree_with_the_live_docs(self) -> None:
+        assert guard.answered_assumptions() == []
+
+    def test_the_roster_is_read_from_operations(self) -> None:
+        """A blind section passes on everything, so the subject is asserted present."""
+        roster = guard.gate_roster()
+        assert {"1", "6", "8", "12", "14b"} <= roster, roster
+
+    def test_a_gate_whose_priority_marker_is_emphasised_is_still_on_the_roster(self) -> None:
+        """THE DEFECT THIS PORT FOUND ON ITS FIRST RUN, pinned so it cannot come back.
+
+        Gate 7 is spelled `| 7 **H** *(was S — raised by D-261)* |` because D-261 raised
+        its priority, and a pattern demanding a bare `H` drops that row silently. The
+        roster then came back one gate short and eight live citations of gate 7 — in
+        `engine/bolna.py`, `runbooks/alarm-index.md` and three decision rows — were
+        reported as citing a gate that does not exist. A roster that loses a row is this
+        section's own failure mode, one level down.
+        """
+        assert "7" in guard.gate_roster()
+
+    def test_the_roster_covers_every_gate_the_scorecard_scores(self) -> None:
+        """The blind-spot floor that a COUNT could not provide: losing one row out of
+        twenty-eight passes any threshold. The scorecard is a second reading of the same
+        roster, so it is what holds the first one honest. Asserted one-way on purpose —
+        the roster carries gates the Bolna scorecard has no row for."""
+        assert guard._scorecard_gate_ids() <= guard.gate_roster()
 
 
 # ============================================================================

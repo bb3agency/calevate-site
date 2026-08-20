@@ -58,13 +58,17 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *   posture as something to be pinned in a CONTRACT that does not exist yet; Clerk,
  *   Resend and Sentry were all outside India (Clerk has since gone, D-177); and no deploy has ever run, so the hosting
  *   region is genuinely undecided rather than merely unwritten — a founder's decision
- *   this page must not pre-empt. What survives is the one narrow claim that is
- *   ENFORCED: model endpoints are pinned to an Indian region, and
- *   `scripts/check_model_residency.py` fails the build on anything else. A softer verb
- *   over the same implication ("your data lives in India") is the same
- *   misrepresentation, so `publicLanding.test.tsx` bans the shape rather than trusting
- *   the next writer to remember why. Certifications (SOC 2, ISO 27001, HIPAA) are
- *   likewise absent because the company holds none.
+ *   this page must not pre-empt. What survives is the one narrow claim about MODEL
+ *   ENDPOINTS, and D-410 made even that one weaker: `scripts/check_model_residency.py`
+ *   proves that our code has a single endpoint builder which cannot emit a non-India
+ *   region and that no setting can carry one, but an Azure OpenAI hostname names no
+ *   region, so where the resource actually SITS is attested by a person in the console
+ *   (OPERATIONS gates 20 and 20c) and not by the build. The section below says exactly
+ *   that and no more. A softer verb over the wider implication ("your data lives in
+ *   India"), or a firmer one over this narrow claim ("a check guarantees it"), are the
+ *   same misrepresentation, so `publicLanding.test.tsx` bans both shapes rather than
+ *   trusting the next writer to remember why. Certifications (SOC 2, ISO 27001, HIPAA)
+ *   are likewise absent because the company holds none.
  *
  * ## What the redesign added, and why each section is defensible
  *
@@ -170,10 +174,32 @@ const COMPLIANCE: { icon: typeof Clock; title: string; body: string }[] = [
   },
   {
     icon: BadgeCheck,
-    title: "Every call says it is an AI",
+    /*
+     * NARROWED TO WHAT IS ACTUALLY UNSWITCHABLE (D-163), and the old wording is the
+     * second instance of the residency defect's shape on this page: a claim that was
+     * true when it was written and was inverted underneath by a later decision.
+     *
+     * It said "Every call says it is an AI … There is no configuration that turns it
+     * off". D-163 made the OPENING ANNOUNCEMENT a per-agent toggle — the client's own
+     * agents screen ships the switch, labelled "Say it is an AI assistant", with the
+     * off-note "Callers are not told at the start of the call". So the page was
+     * promising a buyer the exact thing the product hands their staff a switch for.
+     *
+     * What survives is stronger for being narrower and is enforced rather than
+     * documented: `agents.ai_disclosure_line` is NOT NULL and non-blank, the dial gate
+     * refuses an agent without one, and `compose_engine_prompt` appends the truthful
+     * answer above the client's script on every publish and every drift sweep — no
+     * column, config row or client-authored script can withdraw it (hard rule 5). The
+     * wording follows `compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`, which is the
+     * sentence the API serves to the client's own screen, so the marketing page and the
+     * console cannot drift into promising different things.
+     */
+    title: "It never denies being an AI",
     body:
-      "The disclosure is part of the agent and cannot be left empty. There is no " +
-      "configuration that turns it off.",
+      "Every agent has an AI disclosure line and cannot go live without one. Whether " +
+      "it volunteers that line at the start of a call is your setting; that it answers " +
+      "honestly when a caller asks — \u201cI am an AI assistant\u201d — is not, and no " +
+      "script can override it.",
   },
   {
     icon: Database,
@@ -337,9 +363,15 @@ export default function Home() {
                 {
                   step: "02",
                   title: "It takes the call",
+                  // "by default" is not hedging — it is D-163. Whether the agent
+                  // VOLUNTEERS the AI line at the start is a per-agent toggle that ships
+                  // ON (`ai_disclosure_enabled` DEFAULT true), so this describes what a
+                  // new agent does rather than a guarantee. The guarantee is in the
+                  // compliance section below and is about the ANSWER, not the opening.
                   body:
                     "Someone rings, or the agent works through a list you uploaded. It " +
-                    "opens by saying it is an AI, and answers from what you approved.",
+                    "opens by saying it is an AI by default, and answers from what you " +
+                    "approved.",
                 },
                 {
                   step: "03",
@@ -532,23 +564,54 @@ export default function Home() {
                 {[
                   {
                     /*
-                     * NARROWED, because the sentence it replaces was not true (see the
-                     * residency note in this file's header). What the repository
-                     * actually enforces is a fact about MODEL ENDPOINTS —
-                     * SECURITY-COMPLIANCE §4's own words, "every model endpoint this
-                     * repository can reach is pinned to an Indian region" — and
-                     * `scripts/check_model_residency.py` fails the build on a host, a
-                     * `locations/…` segment or a console-editable region that says
-                     * otherwise. Nothing here is said about where the database, the
-                     * object store or the recordings sit, because that is undecided
-                     * (DEPLOYMENT §0) and is the founder's call to make.
+                     * NARROWED TWICE. The sentence this replaced ("It stays in India")
+                     * was not true at all — see the residency note in this file's
+                     * header. What replaced it was true under Vertex and is NOT true
+                     * under Azure (D-410), and the difference is the whole reason this
+                     * comment is long:
+                     *
+                     * It said the endpoint was "pinned to MUMBAI by a check that fails
+                     * our build if a line of code ever points somewhere else". Both
+                     * halves have to go. Mumbai was `asia-south1`, Vertex's region;
+                     * Azure OpenAI runs in SOUTH INDIA, which is a different place. And
+                     * Vertex put its region in the hostname AND the path, so
+                     * `scripts/check_model_residency.py` could prove residency from the
+                     * source. Azure's host carries the RESOURCE name and NO region — the
+                     * region is a property of that resource — so the same guard now proves
+                     * something strictly weaker: one spelling of the region, no
+                     * `Settings` field able to carry one, no endpoint constructible
+                     * outside `azure_openai_base_url()`, and a builder that cannot emit
+                     * a non-India region. That the resource IS in South India, and that
+                     * its deployment is Regional rather than Azure's worldwide-by-default
+                     * Global kind, are attested by a person in the provider's console
+                     * (OPERATIONS §2 gates 20 and 20c).
+                     *
+                     * So this says what the build does — nothing in our code or our
+                     * settings can move it — and says the region itself is checked by
+                     * hand. A marketing page claiming a build PROVES where processing
+                     * happens is the same misrepresentation as the sentence it replaced,
+                     * one degree quieter, and the DPA had to drop the identical claim.
+                     * Nothing here is said about where the database, the object store or
+                     * the recordings sit: that is undecided (DEPLOYMENT §0) and is the
+                     * founder's call to make.
+                     *
+                     * AND DO NOT SPELL THE AZURE HOSTNAME IN THIS COMMENT. `check_model_
+                     * residency` has no AST for TypeScript, so it line-scans, and a `//`
+                     * comment naming the watched host is indistinguishable from an
+                     * endpoint built by hand — its docstring accepts that false positive
+                     * deliberately ("a tripwire, not a workhorse"). The first draft of
+                     * this paragraph wrote the host out and turned the guardrail red.
+                     * Describing it ("Azure's host carries the resource name") says the
+                     * same thing to a reader and nothing to the scanner.
                      */
                     term: "The AI runs on Indian endpoints",
                     detail:
-                      "Speech, language and the reading of your transcripts are Indian " +
-                      "services. The one model endpoint that is not is pinned to " +
-                      "Mumbai by a check that fails our build if a line of code ever " +
-                      "points somewhere else.",
+                      "Speech and the first reading of your transcript are Indian " +
+                      "services. The language model runs on a Microsoft Azure OpenAI " +
+                      "account configured for South India: no part of our code can " +
+                      "send it anywhere else without editing one frozen constant, and " +
+                      "the account's own region is checked by a person against " +
+                      "Microsoft's console and filed — checked, not proved by a build.",
                   },
                   {
                     term: "One business cannot see another",

@@ -15,12 +15,14 @@
  *
  * ## What this page is NOT
  *
- * It is not the operator console. `/admin` still authenticates through Clerk because
- * `apps/api/core/auth.py` does not yet accept the first-party session cookie (C-19/C-22 in
- * AUTH-MIGRATION §1 are both TODO, and they are backend work this slice does not own). So
- * a first-party admin session signs in, holds, extends and ends here — and the day the
- * verifier reads the cookie, this provider moves up into `app/admin/layout.tsx` and this
- * page becomes the session-management screen it already is.
+ * It is not the operator console — that is `/admin`, which authenticates with the SAME
+ * session this page manages: `core/auth.py` reads the realm's `__Host-` cookie through
+ * `authn/cookies.read_token`, and D-177 left no identity vendor behind it. This note
+ * used to say `/admin` "still authenticates through Clerk because `apps/api/core/auth.py`
+ * does not yet accept the first-party session cookie", which was the migration state and
+ * has not been true since that verifier landed. What is left here is the half a console
+ * shell has no business carrying: ending a session on a device the operator no longer
+ * holds, and verifying the address the six-digit code is sent to.
  */
 
 import { useCallback } from "react";

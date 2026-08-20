@@ -122,9 +122,30 @@ def _no_ambient_credentials() -> Iterator[None]:
     #
     # DERIVED from the adapters (`engine.all_credential_env_keys`), not retyped: a fourth
     # engine's key is stripped by the code that already exists.
+    #
+    # AND FROM THE MANAGED SECRET SET, which is the wider door and the one D-410 walked
+    # through. `all_credential_env_keys()` covers the ENGINE adapters only — today
+    # `BOLNA_API_KEY` and `CARTESIA_API_KEY` — so every non-engine vendor credential was
+    # still borrowable from a developer's `.env`. That went unnoticed while the model
+    # vendor's credential was a service-account JSON nobody exported; D-410 replaced it
+    # with three ordinary strings (`AZURE_OPENAI_RESOURCE`, `AZURE_OPENAI_DEPLOYMENT`,
+    # `AZURE_OPENAI_API_KEY`) that a developer MUST set locally to work gates 16f and 20b.
+    # With all three present — any two is not enough — `eval_provider_test`'s two
+    # refusal tests assert an offline-only provider list and get `['azure', 'offline']`.
+    # Green in CI, red on the one machine that is actually doing the vendor work.
+    #
+    # `manageable_secret_keys()` is the right source rather than a third list: it is
+    # already the answer to "which Settings fields are credentials", it is what the ops
+    # console seals, and a vendor added tomorrow is stripped by the code that exists.
+    from apps.api.core.settings import env_var_for
     from apps.api.engine import all_credential_env_keys
+    from apps.api.ops.secret_service import manageable_secret_keys
 
-    stripped = (*AMBIENT_CREDENTIALS, *all_credential_env_keys())
+    stripped = (
+        *AMBIENT_CREDENTIALS,
+        *all_credential_env_keys(),
+        *(env_var_for(key) for key in manageable_secret_keys()),
+    )
     saved = {name: os.environ.pop(name, None) for name in stripped}
     saved_home = os.environ.get("HOME")
     empty_home = tempfile.mkdtemp(prefix="calevate-no-aws-")

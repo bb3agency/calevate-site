@@ -1509,7 +1509,10 @@ def _probe_redis() -> tuple[dict[str, Any], dict[str, Any]]:
             "`core/loadshed.py:get_platform_status` queries Postgres only on a MISS, so "
             "on a Redis that has served earlier suites that query never runs at all"
         ),
-        "remedy": "`make down && make up` (or `redis-cli -n <db> flushdb`) empties it",
+        # `make redis-reset`, NOT a bare `redis-cli flushdb`: the flush leaves `dump.rdb`
+        # holding the keys, and the next `redis-server` start from the repo root reloads
+        # them — which lands the developer back here reading a remedy they already ran.
+        "remedy": "`make redis-reset` empties it AND rewrites the snapshot",
         "detail": "",
     }
     if not url:

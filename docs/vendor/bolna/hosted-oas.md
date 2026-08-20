@@ -191,6 +191,22 @@ reading holds, the currency is the ACCOUNT's, which for an Indian account may be
 rather than `_ASSUMED_CURRENCY`'s USD. OPERATIONS §2 gate 7 therefore scores BOTH the unit
 and the currency, from one completed call read beside its charge on the dashboard.
 
+**WHAT THE CODE DOES WITH THAT HYPOTHESIS NOW (D-411), because it used to act on it
+silently.** The adapter applied the "cents" divisor to a payload that STATES
+`currency: INR` — i.e. it treated the hypothesis above as settled for a currency the OAS
+sentence does not speak about, and an account Bolna bills in RUPEES would have metered
+every call at one hundredth of cost, on rows stamped `currency_stated=True`. It no longer
+does. The divisor is keyed by currency (`engine/bolna.py::_MINOR_UNITS_PER_MAJOR`), USD is
+its only entry, and a convertible currency with no entry is REFUSED — the adapter logs
+`engine_cost_unit_unknown` and returns no cost, which `pipeline._meter` turns into
+`call_billable_without_cost`. The tiebreak that rescues "cents" cannot reach an INR-billed
+account: its subject is a denomination rupees do not have, and the only first-party
+sentence that generalises says MAJOR units, so on that branch the two readings are 100x
+apart with no vendor rule between them. The cost of refusing is stated plainly rather than
+hidden — an INR-billed account meters nothing until the gate settles it. When it does, the
+answer is one line in that table, and the rows metered before it are restated by
+`scripts/correct_cost_unit.py`: append-only, idempotent, our cost only.
+
 Two smaller self-inconsistencies, neither load-bearing, recorded so nobody re-derives them:
 `AgentExecution.id` is a uuid in the OAS and "integer" in `execution-payload.md` (we
 `str()` it either way), and the OAS's `cost_breakdown` is absent from the prose's

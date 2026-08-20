@@ -91,7 +91,7 @@ human must do before any of it is real — `terraform validate` has never been r
 uv sync                          # install python deps (never pip install directly)
 uv run pytest                    # all tests; -k rls for tenancy tests
 uv run ruff check --fix . && uv run ruff format .
-uv run mypy .                    # strict; must pass
+uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below
 uv run alembic upgrade head      # migrations (autogenerate + hand-review diff)
 pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test)
 docker compose up -d             # local pg16+pgvector, redis, minio
@@ -184,10 +184,17 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
     a stale one silently moves the number:
 
     ```
-    make db-reset                        # drop, migrate, seed
-    redis-cli -p 6380 -n <db> flushdb    # or: make down && make up
+    make db-reset       # drop, migrate, seed
+    make redis-reset    # flush AND rewrite the snapshot — see below
     make coverage-ratchet
     ```
+
+    **`redis-cli flushdb` IS NOT `make redis-reset`, and this line used to say it was.**
+    `FLUSHDB` empties the live dataset and leaves `dump.rdb` sitting in the repo root
+    holding every key it just removed; `redis-server` loads that file from its working
+    directory at boot, so "flush, restart redis, run the gate" silently restores the
+    contamination and the ratchet refuses to score, naming a cause you believe you already
+    fixed. It cost exactly that, twice. `scripts/redis_reset.py` flushes and then `SAVE`s.
 
     Read the refusal literally. **"REFUSED TO SCORE" is not a coverage problem** — it names
     a failing test, and the fix is that test, never the baseline. Three things make it

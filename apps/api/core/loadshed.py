@@ -18,18 +18,28 @@ engine webhooks, the ops/admin surface and the schema/doc endpoints are never sh
 land** — a dropped engine webhook is a call whose lead never appears.
 
 It listed `/v1/auth` too, "so signing in survives maintenance", and that exemption was
-aimed at a route this API did not have while Clerk owned sessions (TRD §11). D-177
-brought them in-house, and `/v1/auth/**` is now real; nothing under
-`/v1/auth` mints one. The ONE route the prefix actually covered was
-`POST /v1/auth/signup` — a multi-table write that creates an organization, an agent, an
-extraction schema and a set of retention policies — so the exemption's only effect was
-to let the platform keep manufacturing tenants while it was too degraded to serve the
-ones it had. Removed rather than narrowed: an exemption naming a surface that does not
-exist cannot be narrowed to anything, and if a session route is ever added here it
-should be exempted BY NAME, with the reason, on the day it exists. Its sibling
+aimed at a route this API did not have while Clerk owned sessions (TRD §11). At the time,
+the ONE route the prefix actually covered was `POST /v1/auth/signup` — a multi-table
+write that creates an organization, an agent, an extraction schema and a set of retention
+policies — so the exemption's only effect was to let the platform keep manufacturing
+tenants while it was too degraded to serve the ones it had. Removed rather than narrowed:
+an exemption naming a surface that does not exist cannot be narrowed to anything, and the
+removal said that if a session route were ever added here it should be exempted BY NAME,
+with the reason, on the day it exists.
+
+**IT WAS ADDED, AND THE DAY WAS D-177, AND NOBODY CAME BACK.** `apps/api/authn` mints
+sessions now, and for as long as nothing was exempted the shed was an OPERATOR LOCKOUT:
+`POST /v1/auth/{realm}/login` and `POST /v1/auth/{realm}/login/otp` are mutating routes,
+so under `reduced`, `emergency` AND `maintenance` a human who was not already holding a
+live cookie could not sign in — including to sign in and turn the shed off. `/v1/ops` was
+exempt so the off switch was reachable, by nobody. That is worst in `emergency`, which is
+precisely the mode where nobody is already signed in at 3am. `ALWAYS_ALLOWED_PATHS` below
+is that exemption, BY NAME, with the reason, per the instruction this docstring left.
+
 `POST /v1/invitations/accept` — the other write reachable by a caller with no
-organization yet — was never exempt and is shed like any other write, which is the
-consistency this restores. `tests/loadshed_exemption_test.py` asserts the census.
+organization yet — is not exempt and is shed like any other write, which is the
+consistency this keeps. `tests/loadshed_exemption_test.py` asserts the census, in both
+directions and for both kinds of entry.
 """
 
 from __future__ import annotations
@@ -62,6 +72,60 @@ ALWAYS_ALLOWED_PREFIXES: tuple[str, ...] = (
     "/v1/admin",
     "/openapi.json",
     "/docs",
+)
+
+# EXACT PATHS, and the difference from the tuple above is the whole point. A prefix names
+# a path SPACE and hands the exemption to whatever lands in it next; these four routes are
+# exempt because of what THEY do, and `/v1/auth/**` contains four other writes that must
+# stay shed. Matched by equality, so a route added beside them inherits nothing.
+#
+# THE DOOR — a fourth admissible reason, and it exists because the other three assumed
+# somebody was already inside. `/v1/ops` is exempt so the switch that ends a shed stays
+# reachable; that is worth nothing to an operator whose session expired, because the
+# credential-minting route was shed and there is no other way in. An exemption for the
+# off switch, with the door to it locked, is an outage nobody can end.
+#
+# WHY THESE TWO STEPS AND NOT ONE. The emailed code is this product's whole second factor
+# (D-170), so `login` alone mints a session that has proved a password and can do nothing
+# — half a sign-in is the same lockout in a subtler form.
+#
+# WHY BOTH REALMS. The admin pair is the load-bearing half and is the one an incident
+# turns on. The client pair is here because `reduced` is DEFINED as "every read keeps
+# working", and a signed-out client who cannot sign in reads nothing at all — shedding
+# the door falsifies the mode's own contract rather than trimming its cost.
+#
+# WHAT IS DELIBERATELY NOT HERE, because an exemption list is only as good as its edges:
+#
+#   * `login/otp/resend` — a convenience on top of an exempt path. `service.sign_in`
+#     mints a FRESH challenge on every call, so an operator whose code did not arrive
+#     re-posts `login`, which is exempt. Exempting the resend would widen the
+#     unauthenticated write surface to buy a round trip.
+#   * `password/reset/request` and `password/reset/confirm` — a reset is a one-hour
+#     emailed token (`authn/tokens.TOKEN_LIFETIMES`), which is not the path out of an
+#     incident measured in minutes. An operator who has forgotten their password during a
+#     shed has a problem the shed did not cause and cannot fix.
+#   * `session/refresh` — not needed. `sessions.verify_session` extends `idle_expires_at`
+#     on any authenticated request, and `/v1/ops` and `/v1/admin` are exempt, so an
+#     operator already working the incident keeps their session alive by working it.
+#   * `signup` and `invitations/accept` — the expensive writes this exemption was removed
+#     for in the first place. Creating an account is not reaching a door.
+#
+# THE PROTECTION ON THESE ROUTES IS NOW LOAD-BEARING RATHER THAN BELT-AND-BRACES, because
+# these become the last open unauthenticated writes in a shed platform. Three layers were
+# already there and none of them is shed: nginx's `auth` zone at 20r/m
+# (`infra/nginx/rate-zones.conf.template`), the in-app twin (`ratelimit.Rule("/v1/auth/**",
+# "auth")` — the tightest profile in the table), and `authn/throttle`'s per-account decaying
+# budgets (10 passwords / 15 min, 5 codes / 10 min, plus the per-challenge
+# `OTP_MAX_ATTEMPTS` ceiling on the row). The rate limiter is middleware and runs on every
+# request regardless of this list, so exempting a path from shedding does not exempt it
+# from being counted.
+ALWAYS_ALLOWED_PATHS: frozenset[str] = frozenset(
+    {
+        "/v1/auth/admin/login",
+        "/v1/auth/admin/login/otp",
+        "/v1/auth/client/login",
+        "/v1/auth/client/login/otp",
+    }
 )
 
 # What each mode sheds. `reduced` keeps every read working and stops the expensive
@@ -254,6 +318,12 @@ async def set_platform_status(
 def is_always_allowed(path: str) -> bool:
     """Is this path exempt from shedding no matter what the platform status is?
 
+    TWO REGISTRIES, ASKED IN THE ORDER THAT MAKES THE NARROW ONE UNMISSABLE.
+    `ALWAYS_ALLOWED_PATHS` is exact equality; `ALWAYS_ALLOWED_PREFIXES` is a path space.
+    A named path is checked first because it is the entry a reader is most likely to
+    look for and least likely to expect, and because equality can never be satisfied by
+    a route somebody adds next door.
+
     SPLIT OUT SO IT CAN BE ASKED BEFORE THE STATUS IS FETCHED (D-195). `is_shed` still
     asks it — the answer is part of what shedding means — but the middleware now asks it
     FIRST, and that ordering is the whole point.
@@ -271,7 +341,9 @@ def is_always_allowed(path: str) -> bool:
     the status, so the round trip was always wasted work on the busiest-polled routes in
     the deployment.
     """
-    return any(path.startswith(prefix) for prefix in ALWAYS_ALLOWED_PREFIXES)
+    return path in ALWAYS_ALLOWED_PATHS or any(
+        path.startswith(prefix) for prefix in ALWAYS_ALLOWED_PREFIXES
+    )
 
 
 def is_shed(status: PlatformStatus, *, path: str, method: str) -> bool:
@@ -283,6 +355,7 @@ def is_shed(status: PlatformStatus, *, path: str, method: str) -> bool:
 
 
 __all__ = [
+    "ALWAYS_ALLOWED_PATHS",
     "ALWAYS_ALLOWED_PREFIXES",
     "LoadShedMode",
     "PlatformStatus",

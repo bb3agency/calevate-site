@@ -146,6 +146,27 @@ async def sweep() -> AsyncIterator[Sweep]:
         created_by=None,
     )
 
+    # ONE KNOWLEDGE SOURCE EACH, AND IT IS NOT DECORATION.
+    #
+    # `retention_worklist` (D-368) is written by an AFTER INSERT trigger on `kb_sources`,
+    # and it is the only table in this tree that deliberately answers an UNTENANTED
+    # session with rows. Without this the sweep's orgs hold no kb_sources row, so
+    # retention_worklist never enters `seeded`, and the ops-read branch of
+    # `test_untenanted_session_sees_no_tenant_rows_anywhere` is never executed — the
+    # branch that exists precisely to keep that table honest would be dead code that
+    # rots. Worse, the ONLY reason the pre-derivation form of that test passed was that
+    # nothing here uploaded a document; it would have gone red on CORRECT behaviour the
+    # first time a fixture did. Seeding it makes what was luck into a property.
+    for org, agent in ((a["id"], a["agent_id"]), (b["id"], b["agent_id"])):
+        async with tenant_session(org) as s:
+            await s.execute(
+                text(
+                    "INSERT INTO kb_sources (id, tenant_id, agent_id, kind, name) "
+                    "VALUES (:id, :tid, :aid, 'text', 'sweep fixture source')"
+                ),
+                {"id": uuid.uuid4(), "tid": org, "aid": agent},
+            )
+
     owner_url = Settings().alembic_database_url
     assert owner_url, "ALEMBIC_DATABASE_URL required: ground-truth counts bypass RLS"
     owner = create_async_engine(owner_url)
@@ -266,19 +287,123 @@ async def test_every_tenant_table_yields_zero_rows_cross_tenant(sweep: Sweep) ->
     assert visible == 0, "organizations: tenant B can see tenant A's org row"
 
 
+async def _ops_readable_tables() -> frozenset[str]:
+    """Tables carrying a policy that DELIBERATELY admits an untenanted session.
+
+    DERIVED FROM `pg_policy`, NEVER A LIST HERE, and that is the whole point. The
+    obvious way to stop `retention_worklist` failing the test below was to name it in a
+    skip-list, which is the smuggling shape hard rule 1 warns about: the next table
+    joins the list, the list becomes the thing nobody re-reads, and the sweep quietly
+    stops covering the tables most worth covering. Reading the catalogue instead means a
+    new ops-readable table is classified by the DDL that made it ops-readable, in the
+    same migration, with no second place to remember.
+
+    The shape recognised is the one `retention_worklist` ships: a permissive `FOR
+    SELECT` policy whose qualifier is satisfied precisely when the GUC is unset. It is
+    matched on the `current_setting(...) IS NULL` text rather than by policy NAME,
+    because a name is a convention and a qualifier is the mechanism.
+
+    Being ops-readable buys a table nothing except a DIFFERENT expected answer below —
+    it still has to prove tenant isolation, and it still has to refuse an untenanted
+    write. Those are asserted, not waived.
+    """
+    sql = """
+        SELECT c.relname
+        FROM pg_policy p
+        JOIN pg_class c ON c.oid = p.polrelid
+        WHERE p.polcmd = 'r'
+          AND p.polpermissive
+          AND pg_get_expr(p.polqual, p.polrelid) LIKE '%current_setting%IS NULL%'
+    """
+    async with untenanted_session() as s:
+        rows = (await s.execute(text(sql))).scalars().all()
+    return frozenset(str(r) for r in rows)
+
+
 async def test_untenanted_session_sees_no_tenant_rows_anywhere(sweep: Sweep) -> None:
     """No GUC ⇒ zero rows, on every table proven non-empty by the ground truth.
 
     Restricting to seeded tables keeps the assertion honest: 0 on an empty table
     proves nothing, 0 on a table that demonstrably holds rows proves fail-closed.
+
+    ⚠ THE OPS-READ CATEGORY, AND WHY IT IS ASSERTED RATHER THAN SKIPPED. `retention_
+    worklist` (D-368's closure) deliberately answers an UNTENANTED session with rows —
+    the retention sweep runs without a tenant GUC and must see every tenant that is due.
+    Its `tenant_isolation` policy is unchanged, so no tenant session can read another's
+    row; what it adds is one `FOR SELECT` policy that fires only when the GUC is unset.
+    Under the old form of this test that table would have gone RED ON CORRECT BEHAVIOUR
+    the first time a fixture uploaded a knowledge source — it passed only because the
+    sweep's orgs happen never to create one, which is luck rather than a property.
+
+    So the expected answer is derived per table (`_ops_readable_tables`) instead of
+    assumed, and the ops-read tables are held to a STRICTER standard than the rest: they
+    must actually be readable untenanted (a policy that grants nothing is a policy
+    somebody will delete), they must still isolate tenant sessions, and they must still
+    refuse an untenanted write. `dnc_list` set this precedent — the file's own words,
+    "the one exception and it is asserted, not skipped".
     """
     assert sweep.seeded, "nothing seeded — this test would pass vacuously"
+    ops_readable = await _ops_readable_tables()
     for table in sweep.seeded:
         async with untenanted_session() as s:
             n = (await s.execute(text(f"SELECT count(*) FROM {_ident(table)}"))).scalar_one()
-        assert n == 0, (
-            f"{table}: untenanted session sees {n} rows (ground truth has at least "
-            f"{sweep.ground_a[table]}) — missing GUC must fail CLOSED, never open"
+
+        if table not in ops_readable:
+            assert n == 0, (
+                f"{table}: untenanted session sees {n} rows (ground truth has at least "
+                f"{sweep.ground_a[table]}) — missing GUC must fail CLOSED, never open"
+            )
+            continue
+
+        # The ops-read half, and it is three assertions rather than a waiver.
+        #
+        # (1) It must really grant the read. `>=` rather than `==` because an untenanted
+        # session sees the WHOLE table, which holds other suites' orgs too; the two the
+        # ground truth knows about are the floor, and a floor of >0 is what distinguishes
+        # a policy that works from one that matches nothing and gets deleted as dead.
+        floor = sweep.ground_a[table] + sweep.ground_b[table]
+        assert n >= floor, (
+            f"{table} carries an ops-read policy, so an untenanted session must see "
+            f"every tenant's rows (at least {floor} between the two sweep orgs); it saw "
+            f"{n}. A policy that grants less than it claims is one somebody deletes."
+        )
+        # (2) Tenant sessions are UNAFFECTED — exactly own rows, no more. This is the
+        # assertion the ops-read grant could plausibly have broken, so it is exact.
+        for org, expected in (
+            (sweep.org_a, sweep.ground_a[table]),
+            (sweep.org_b, sweep.ground_b[table]),
+        ):
+            async with tenant_session(org) as s:
+                seen = (await s.execute(text(f"SELECT count(*) FROM {_ident(table)}"))).scalar_one()
+            assert seen == expected, (
+                f"{table}: a tenant session saw {seen} rows, its ground truth is "
+                f"{expected} — the ops-read policy widened a TENANT's view. The "
+                "untenanted read is the exception; tenant isolation is not."
+            )
+        # (3) The grant is READ ONLY. `tenant_isolation` is FOR ALL, so its USING clause
+        # doubles as the WITH CHECK, and with no GUC that clause is NULL — an untenanted
+        # INSERT must be refused by RLS (42501), never by a downstream NOT NULL. If a
+        # future migration writes the ops-read grant as FOR ALL instead of FOR SELECT it
+        # would also be invisible to `_ops_readable_tables`, so this table would fail the
+        # `n == 0` branch above loudly rather than pass here quietly — the safe direction.
+        columns = (
+            "(id, tenant_id) VALUES (:rid, :tid)"
+            if table in sweep.has_id
+            else "(tenant_id) VALUES (:tid)"
+        )
+        async with untenanted_session() as s:
+            savepoint = await s.begin_nested()
+            with pytest.raises(DBAPIError) as caught:
+                await s.execute(
+                    text(f"INSERT INTO {_ident(table)} {columns}"),
+                    {"rid": uuid.uuid4(), "tid": sweep.org_a},
+                )
+            await savepoint.rollback()
+        state = str(getattr(caught.value.orig, "sqlstate", "") or "")
+        assert state == _RLS_VIOLATION, (
+            f"{table}: an untenanted INSERT was stopped by sqlstate {state}, not RLS "
+            f"({_RLS_VIOLATION}). Ops-read buys a READ; a write path that survives only "
+            "because some column is NOT NULL today is not a policy."
         )
 
 

@@ -154,8 +154,10 @@ log = get_logger(__name__)
 # `ai_quota_inr` would be editable from a web form the day it is declared — and what it
 # governs is how much of OUR money a bug can spend. That is the doctrine
 # `check_bootstrap_keys` applies to `APP_ENV` (D-95 §4) and `check_model_residency`
-# applies to the Vertex region (D-127), applied to the third value whose change is a
-# commercial event wearing a config diff. Moving one is a code change with a review.
+# applies to `AZURE_LOCATION` (D-410 — this named "the Vertex region (D-127)", which is
+# the leg D-410 superseded; the guard's subject moved with it and this cross-reference
+# did not), applied to the third value whose change is a commercial event wearing a
+# config diff. Moving one is a code change with a review.
 
 #: Included dashboard-AI allowance per tenant per IST billing month, in rupees, by plan
 #: tier. Managed clients get the most because they pay the most; a trial gets enough to

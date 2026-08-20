@@ -41,12 +41,13 @@ from uuid import UUID
 import httpx
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.billing import payment_routes, payments
+from apps.api.billing import payment_routes
 from apps.api.billing.payment_routes import TopUpIntentIn, create_topup_intent
 from apps.api.billing.payments import (
     API_VERSION_PATH,
     BASE_URL,
     INTENT_REPLAY_WINDOW,
+    NO_API_SECRET_REASON,
     NOTES_TENANT_KEY,
     ORDER_TIMEOUT_S,
     ORDERS_PATH,
@@ -57,6 +58,7 @@ from apps.api.billing.payments import (
     inr_to_paise,
     paise_to_inr,
     payment_capability,
+    razorpay_api_secret,
     razorpay_orders,
     topup_receipt,
 )
@@ -79,18 +81,19 @@ _Responder = Callable[[httpx.Request], httpx.Response]
 def _payments_configured(monkeypatch: pytest.MonkeyPatch) -> None:
     """A deployment that can take payments AND create orders.
 
-    The API secret is patched through `payments.razorpay_api_secret` rather than set on
-    `Settings`, because **the `razorpay_key_secret` field does not exist on `Settings`
-    yet** — it has been requested from the owner of `calevate_shared.config`. That
-    accessor is the module's one read of it (`API_SECRET_SETTING`), so patching it is
-    patching the seam rather than working around it. When the field lands, this helper is
-    the one place that changes.
+    ALL FOUR VALUES ARE SET ON `Settings`, including the API secret. This helper used to
+    monkeypatch `payments.razorpay_api_secret` itself, on the stated grounds that "the
+    `razorpay_key_secret` field does not exist on `Settings` yet" — it did, from the same
+    commit that wrote the sentence. Patching the accessor rather than the field meant the
+    accessor's own body was never executed by any test that needed a secret, so the one
+    line that turns configuration into a credential was untested: an accessor returning
+    the wrong field, or returning `""` rather than None, would have passed this file.
     """
     settings = get_settings()
     monkeypatch.setattr(settings, "payment_provider", PROVIDER)
     monkeypatch.setattr(settings, "razorpay_key_id", TEST_KEY_ID)
     monkeypatch.setattr(settings, "razorpay_webhook_secret", "whsec_orderslice")
-    monkeypatch.setattr(payments, "razorpay_api_secret", lambda: TEST_KEY_SECRET)
+    monkeypatch.setattr(settings, "razorpay_key_secret", TEST_KEY_SECRET)
 
 
 async def _prepaid_tenant() -> tuple[UUID, Principal]:
@@ -578,6 +581,33 @@ async def test_the_adapter_is_built_with_the_secret_as_the_password_not_the_key_
     assert TEST_KEY_SECRET not in str(watcher.requests[0].url), "the secret rides in the header"
 
 
+async def test_a_blank_secret_is_an_unset_secret_not_a_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`RAZORPAY_KEY_SECRET=""` is an operator who meant to unset it — a half-finished
+    edit, a templated env file with an empty placeholder — and `razorpay_api_secret()`
+    collapses it to None for that reason.
+
+    What breaks without the collapse: the empty string is truthy enough for the
+    capability's `is not None` check, so `creates_orders` reports True, the adapter is
+    built, and `Basic base64(key_id:)` goes to a live payment provider. The answer comes
+    back as an opaque 401 that reads like a vendor outage rather than like the
+    configuration mistake it is. This pins the one line that turns configuration into a
+    credential; it was previously unexercised, because the tests patched the accessor
+    itself rather than the field it reads.
+    """
+    _payments_configured(monkeypatch)
+    monkeypatch.setattr(get_settings(), "razorpay_key_secret", "")
+
+    assert razorpay_api_secret() is None
+    capability = payment_capability()
+    assert capability.available is True, "a webhook can still credit a wallet"
+    assert capability.creates_orders is False
+    assert capability.orders_reason == NO_API_SECRET_REASON
+    with pytest.raises(AssertionError):
+        razorpay_orders()
+
+
 @pytest.mark.parametrize("missing", ["key_id", "secret"])
 async def test_building_the_adapter_without_the_capabilitys_credentials_never_yields_a_caller(
     monkeypatch: pytest.MonkeyPatch, missing: str
@@ -595,7 +625,7 @@ async def test_building_the_adapter_without_the_capabilitys_credentials_never_yi
     if missing == "key_id":
         monkeypatch.setattr(get_settings(), "razorpay_key_id", None)
     else:
-        monkeypatch.setattr(payments, "razorpay_api_secret", lambda: None)
+        monkeypatch.setattr(get_settings(), "razorpay_key_secret", None)
 
     assert payment_capability().creates_orders is False, "the seam already said no"
     with pytest.raises(AssertionError):
@@ -741,7 +771,7 @@ async def test_without_the_api_secret_no_order_is_attempted_at_all(
     never contacted — a deployment with no credential must not discover that at the
     vendor boundary."""
     _payments_configured(monkeypatch)
-    monkeypatch.setattr(payments, "razorpay_api_secret", lambda: None)
+    monkeypatch.setattr(get_settings(), "razorpay_key_secret", None)
     _tenant_id, principal = await _prepaid_tenant()
 
     def never(_request: httpx.Request) -> httpx.Response:
@@ -774,7 +804,7 @@ async def test_the_capability_route_answers_from_the_same_selector(
     assert with_secret.online_payments_available is True
     assert with_secret.provider_orders_available is True
 
-    monkeypatch.setattr(payments, "razorpay_api_secret", lambda: None)
+    monkeypatch.setattr(get_settings(), "razorpay_key_secret", None)
     without = await payment_routes.read_topup_capability(principal)
     assert without.online_payments_available is True, "a webhook can still credit a wallet"
     assert without.provider_orders_available is False

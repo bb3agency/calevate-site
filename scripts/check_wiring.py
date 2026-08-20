@@ -37,11 +37,16 @@ WHAT THIS DOES NOT DO, AND WHY (see also the research note at the bottom of this
   the BLIND SPOT it illustrates remains exactly as described.)
   Named honestly rather than half-implemented: what is caught is the stronger and
   commoner form, a column no code touches at all.
-* No enum/`Literal`-member reachability check. An enum member is legitimately produced
-  by a DB row, an engine payload or client input, so "no code path produces it" is not
-  statically decidable here and a check that guessed would train people to add
+* No GENERAL enum/`Literal`-member reachability check. An enum member is legitimately
+  produced by a DB row, an engine payload or client input, so "no code path produces it"
+  is not statically decidable here and a check that guessed would train people to add
   exemptions. Those values are constrained where they can be: CHECK constraints in the
-  migration, and the engine conformance suite.
+  migration, and the engine conformance suite. **`FailureStage` is the one vocabulary
+  where that argument does not apply**, and section 5 below does it: nothing outside this
+  repository can produce a stage — no vendor sends one, no client types one, no column
+  holds one — so a member with no emitter is not "unreached yet", it is an alarm
+  published to operators in BACKEND-PATTERNS §8 that cannot fire. `QUEUE_ENQUEUE` was
+  exactly that (D-412).
 * No ARQ check of any kind, and that is a DIVISION OF LABOUR now rather than a gap.
   `scripts/check_job_wiring.py` (D-199) owns the background fleet: it asks the three-way
   question — defined, registered, enqueued — off the same kind of live registry this file
@@ -420,6 +425,123 @@ def unwired_columns(
     )
 
 
+# --- 5. alarm stages nothing can emit -----------------------------------------------
+#
+# D-412, recovered from an abandoned branch. The docstring at the top of this file refuses
+# a GENERAL enum-reachability check and that refusal still stands: an enum member is
+# legitimately produced by a DB row, a vendor payload or client input, so "nothing
+# produces it" is not statically decidable for `KB_STATUSES` or `Vertical`.
+#
+# `FailureStage` is the exception, and it is decidable because of a property of the
+# VOCABULARY rather than a heuristic: NOTHING OUTSIDE THIS REPOSITORY CAN PRODUCE A STAGE.
+# It is an argument WE pass; no vendor sends one, no client types one, no column holds
+# one. So a member with no emitter is not "unreached yet" — it is an alarm that cannot
+# fire, published in BACKEND-PATTERNS §8 as one an operator can expect. That is worse than
+# a missing alarm: it is a promise, and the operator who reads the taxonomy at 3am
+# concludes from the silence that the pipeline leg it names is healthy. `QUEUE_ENQUEUE`
+# sat in the type and in the docs table with no emitter anywhere.
+#
+# TWO EMITTER SHAPES, and missing the second is how this check would become a
+# false-positive generator. A stage reaches `alert()` either as its first positional
+# argument, or as `ProblemError(failure_stage=...)` — `core/errors.py`'s handler alerts
+# with `exc.failure_stage`, so a `raise ProblemError(failure_stage="CORE_LOGIC")` IS an
+# emitter and a scan that only read `alert(...)` would call a live stage dead the day its
+# last direct call site moved behind a raise.
+#
+# Non-Python emitters are real and are NOT exempted by hand: `HOST_BACKUP` is sent by
+# `scripts/backup/notify.sh` from outside Python entirely, so the scan reads shell scripts
+# too and FINDS it there. An exemption list would have covered the next dead stage as
+# happily as it covered that live one.
+_STAGE_EMITTER_GLOBS = ("*.py", "*.sh")
+#: The keyword through which a stage reaches `alert()` indirectly. `stage` is `alert`'s own
+#: parameter name; `failure_stage` is `ProblemError`'s and the log record's.
+_STAGE_KEYWORDS = frozenset({"stage", "failure_stage"})
+
+
+def _alert_call_stages(tree: ast.AST) -> set[str]:
+    """Every stage value one module can pass, by either emitter shape."""
+    stages: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
+        if name == "alert" and node.args:
+            first = node.args[0]
+            if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                stages.add(first.value)
+        for keyword in node.keywords:
+            if (
+                keyword.arg in _STAGE_KEYWORDS
+                and isinstance(keyword.value, ast.Constant)
+                and isinstance(keyword.value.value, str)
+            ):
+                stages.add(keyword.value.value)
+    return stages
+
+
+def declared_alarm_stages() -> tuple[str, ...]:
+    from typing import get_args
+
+    from apps.api.core.alerting import FailureStage
+
+    return tuple(str(stage) for stage in get_args(FailureStage))
+
+
+def emitted_alarm_stages(
+    *, roots: Iterable[Path] | None = None, stages: Iterable[str] | None = None
+) -> set[str]:
+    """Which stage values anything in this repo can actually send.
+
+    `roots`/`stages` are injectable for the reason `unwired_columns` takes them: the thing
+    under test is A SCAN OVER A TREE, and a test that monkeypatched the live tree would be
+    testing the monkeypatch.
+    """
+    scan_roots = tuple(roots) if roots is not None else (*SCAN_ROOTS, REPO_ROOT / "scripts")
+    vocabulary = tuple(stages) if stages is not None else declared_alarm_stages()
+    emitted: set[str] = set()
+    shell_text: list[str] = []
+    for root in scan_roots:
+        for pattern in _STAGE_EMITTER_GLOBS:
+            for path in root.rglob(pattern):
+                if path.suffix == ".py":
+                    # A test passing a stage proves the alerter ACCEPTS it, never that
+                    # anything SENDS it — which is the whole question here.
+                    if path.name.endswith("_test.py"):
+                        continue
+                    try:
+                        emitted |= _alert_call_stages(ast.parse(path.read_text()))
+                    except SyntaxError:
+                        continue
+                else:
+                    shell_text.append(path.read_text())
+    joined = "\n".join(shell_text)
+    emitted |= {stage for stage in vocabulary if stage in joined}
+    return emitted
+
+
+def unemittable_alarm_stages(
+    *, roots: Iterable[Path] | None = None, stages: Iterable[str] | None = None
+) -> list[str]:
+    declared = tuple(stages) if stages is not None else declared_alarm_stages()
+    if not declared:
+        # This section's own blind spot, and it belongs HERE rather than in
+        # `blind_spots()`: the subject is imported rather than scanned off the tree, so an
+        # empty `FailureStage` is the one way it can go quiet, and the check that notices
+        # is one line away from the import that would have failed.
+        return ["FailureStage is empty — this section can no longer see its own subject"]
+    emitted = emitted_alarm_stages(roots=roots, stages=declared)
+    return [
+        f"FailureStage member {stage!r} is emitted by nothing — no `alert({stage!r}, ...)`, "
+        f"no `failure_stage={stage!r}` and no host-side emitter names it. "
+        "BACKEND-PATTERNS §8 publishes these stages to operators, so a member with no "
+        "emitter is an alarm somebody will wait for and never receive. Wire it or delete "
+        "it (and its row in the docs table)."
+        for stage in declared
+        if stage not in emitted
+    ]
+
+
 def blind_spots() -> list[str]:
     """Has the tree moved out from under this check? (D-176)
 
@@ -553,6 +675,7 @@ def main() -> int:
         ("migrations no head reaches", unreachable_migrations()),
         ("columns no code touches", unwired_columns()),
         ("baseline entries that no longer hold", stale_baseline()),
+        ("alarm stages nothing can emit", unemittable_alarm_stages()),
     )
     failed = False
     for title, offenders in sections:
@@ -571,7 +694,8 @@ def main() -> int:
 
     print(
         f"WIRING: OK ({len(declared_routers())} routers all mounted, "
-        f"1 migration head, {len(UNWIRED_BASELINE)} deferred columns recorded)"
+        f"1 migration head, {len(UNWIRED_BASELINE)} deferred columns recorded, "
+        f"{len(declared_alarm_stages())} alarm stages all emittable)"
     )
     return 0
 

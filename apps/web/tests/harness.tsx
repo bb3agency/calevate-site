@@ -105,6 +105,30 @@ export function stillLoading(): NeverAnswers {
 }
 
 /**
+ * A never-answering route, as `fetch` produces one — abortable.
+ *
+ * The promise still never RESOLVES, which is the whole point of `stillLoading()`. What it
+ * now also does is reject when the request is aborted, because that is what `fetch` does
+ * and because a stub that silently ignores `init.signal` cannot exercise cancellation at
+ * all — including the request deadline in `lib/api/client.ts`, whose only observable
+ * behaviour is that a hung request eventually stops being hung.
+ *
+ * It rejects with the signal's own `reason` for the same fidelity: that is the error a
+ * browser hands back, and it is what lets the transport tell its own deadline apart from
+ * a caller's cancellation.
+ */
+function neverAnswers(signal: AbortSignal | null | undefined): Promise<Response> {
+  return new Promise<Response>((_resolve, reject) => {
+    if (!signal) return;
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  });
+}
+
+/**
  * The THIRD state §52 did not name: a query TanStack never started.
  *
  * `stillLoading()` above closed the in-flight gap and left this one, and the two are not
@@ -232,7 +256,7 @@ export function stubApi(routes: Routes): ApiCall[] {
       // relying on call ORDER, which is what a queue of responses would have meant.
       const route = routes[key];
       const answer = typeof route === "function" ? (route as RouteAnswer)(calls[calls.length - 1]) : route;
-      if (answer instanceof NeverAnswers) return new Promise<Response>(() => {});
+      if (answer instanceof NeverAnswers) return neverAnswers(init?.signal);
       if (answer instanceof ProblemResponse) {
         return new Response(JSON.stringify(answer.body), {
           status: answer.status,

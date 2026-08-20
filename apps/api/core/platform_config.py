@@ -165,6 +165,66 @@ _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
     )
 )
 
+#: Fields that NAME a credential and hold none. Exact names, never fragments, and the
+#: only escape from the rule above.
+#:
+#: WHY IT HAD TO EXIST. The `credential` fragment was added for "the naming a future
+#: field is likely to use", and the future field arrived: `bolna_llm_credential_name`
+#: holds which ENTRY in the engine's credential store our LLM key was written to —
+#: `AZURE` — which is a pointer, not a secret. It matched, so it was sealed into
+#: `platform_secrets`, and `calevate_shared.config` asserted the opposite in a comment
+#: (it believed the sealing keyed on `_json`/`_key` shapes). Two concrete harms, neither
+#: visible from either file alone:
+#:
+#:   1. A sealed value is write-only — the console shows `last_four` and nothing else.
+#:      OPERATIONS §2 gate 16f is an operator TRYING VALUES against a broken LLM leg
+#:      because the vendor's docs are egress-blocked, so "what is it set to right now"
+#:      is the whole question they have, and it had no answer.
+#:   2. `set_secret` validates only that the value is non-empty, and
+#:      `apply_platform_overrides` installs the layer with `model_copy(update=...)`,
+#:      which does not re-validate. Every genuine credential is an opaque `str | None`,
+#:      so that costs nothing — but this field carries `pattern=^[A-Z][A-Z0-9_]{1,63}$`
+#:      precisely because a human is typing guesses into it, and sealing it routed that
+#:      constraint around its only enforcement point.
+#:
+#: THE ASYMMETRY IS UNCHANGED AND THIS SET IS WHY IT SURVIVES. A false negative puts a
+#: credential in a plaintext table, so the escape is not a fragment, not a heuristic and
+#: not a shape: it is an exact field name, added one at a time by someone who has read
+#: this paragraph. `_assert_holds_no_secret` below refuses at import to let a member be
+#: anything a credential could be.
+_CREDENTIAL_REFERENCE_KEYS: frozenset[str] = frozenset({"bolna_llm_credential_name"})
+
+
+def _assert_holds_no_secret(names: frozenset[str]) -> frozenset[str]:
+    """Refuse, at import, an exemption that could be hiding a real credential.
+
+    The tell is the DEFAULT. Every credential this system has is `X | None` with no
+    default, because a credential with a shipped default is a credential shipped in the
+    source — so a field carrying a usable default is structurally not one. That is a
+    property of the model rather than a list to maintain, and it fails the process rather
+    than a test, because the failure mode being guarded is a plaintext credential and a
+    deployment that reached it should not start.
+    """
+    for name in sorted(names):
+        field = Settings.model_fields.get(name)
+        if field is None:
+            raise RuntimeError(
+                f"_CREDENTIAL_REFERENCE_KEYS names {name!r}, which is not a Settings "
+                "field. Remove it, or the exemption outlives the field it was written "
+                "for and silently applies to nothing."
+            )
+        if field.is_required() or field.get_default(call_default_factory=True) is None:
+            raise RuntimeError(
+                f"_CREDENTIAL_REFERENCE_KEYS names {name!r}, which has no default. Every "
+                "credential in this model is defaulted `None` because a defaulted "
+                "credential would be one committed to the source; a field with no usable "
+                "default is not safely exemptible from `platform_secrets`."
+            )
+    return names
+
+
+_CREDENTIAL_REFERENCE_KEYS = _assert_holds_no_secret(_CREDENTIAL_REFERENCE_KEYS)
+
 # --- WHEN A CHANGE ACTUALLY TAKES EFFECT --------------------------------------
 #
 # `applies` is the most dangerous field the console publishes. A key reported `live`
@@ -308,6 +368,23 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "whatsapp_provider": AppliesRule(LIVE),
     "whatsapp_template_hot_lead": AppliesRule(LIVE),
     "whatsapp_template_locale": AppliesRule(LIVE),
+    # D-91's Cloud API credentials. `LIVE` was CHECKED, not inherited from the family
+    # above, because the classification's whole job is to refuse an assumption: every
+    # read goes through `get_settings()` at the point of use — `whatsapp_delivery_status`
+    # and `_cloud_api_config` both call it per invocation, `get_whatsapp_transport()` is
+    # called inline at the two send sites rather than held anywhere, and
+    # `CloudApiWhatsAppTransport` caches nothing (a long-lived system-user token has no
+    # refresh flow to cache, unlike the Sheets adapter's hourly mint). So there is no
+    # constructed object anywhere that could outlive a change, which is the thing that
+    # would have made this `on_restart`.
+    #
+    # `whatsapp_cloud_access_token` is classified below with the other CREDENTIALS, not
+    # here: it seals by name, so it is a `platform_secrets` key rather than a
+    # `managed_fields()` one — but `check_config_applies.classified_keys()` is the UNION
+    # of both sets, because the Secrets panel makes the same "in force in seconds" promise
+    # the config panel does and one question may not have two answers.
+    "whatsapp_cloud_phone_number_id": AppliesRule(LIVE),
+    "whatsapp_cloud_graph_version": AppliesRule(LIVE),
     "google_sheets_provider": AppliesRule(LIVE),  # workers/sheets_sync, per delivery
     "meta_lead_retriever": AppliesRule(LIVE),  # ingest/meta, per retrieval
     "inbound_reserve_ratio": AppliesRule(
@@ -413,6 +490,16 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
     "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
+    # D-91's Meta token, and `live` here against `on_restart` for `bolna_api_key` twelve
+    # lines up is the distinction this table exists to make. Those two are `on_restart`
+    # because `get_engine()` CACHES the adapter for the life of the process, so the key is
+    # captured at construction. Nothing caches a WhatsApp transport:
+    # `get_whatsapp_transport()` is called inline at both send sites and builds a fresh
+    # `CloudApiWhatsAppTransport` per message, and that object holds no token cache of its
+    # own — Cloud API issues a long-lived system-user token, so there is no refresh flow
+    # to cache (the Sheets adapter mints hourly and caches; this one does not). Checked at
+    # the call sites rather than inferred from the neighbours.
+    "whatsapp_cloud_access_token": AppliesRule(LIVE),
     "backup_heartbeat_url": AppliesRule(LIVE),
     "google_sheets_service_account_json": AppliesRule(LIVE),
     "meta_page_access_tokens": AppliesRule(LIVE),
@@ -593,7 +680,13 @@ def is_secret_key(name: str) -> bool:
     maintains per field. A false POSITIVE here costs a key that has to be set in the
     environment (annoying); a false NEGATIVE puts an API key in a plaintext table
     (catastrophic). The asymmetry is why the patterns are deliberately broad.
+
+    The exact-name exemption is checked FIRST and is deliberately not a fragment — see
+    `_CREDENTIAL_REFERENCE_KEYS` for the one field that names a credential rather than
+    holding one, and for why a broad pattern could not have told the difference.
     """
+    if name in _CREDENTIAL_REFERENCE_KEYS:
+        return False
     lowered = name.lower()
     return any(fragment in lowered for fragment in _SECRET_NAME_FRAGMENTS)
 

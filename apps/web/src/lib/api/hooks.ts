@@ -21,6 +21,7 @@ import {
   useQueryClient,
   type UseQueryResult,
 } from "@tanstack/react-query";
+import { useRef } from "react";
 
 import type { components } from "./schema";
 
@@ -253,18 +254,53 @@ export function useCallBack(session: Session, callId: string) {
 /**
  * Ask the assistant to re-summarise one call (D-127 — the G-2/G-5/G-6 surface).
  *
- * **The `Idempotency-Key` is minted here, once per hook instance, and reused on retry.**
- * The server REQUIRES one (`crm/routes.assist_call`) because a repeat of this request is
- * a second silent payment to Google — and the value has to be stable across a retry of
- * the SAME attempt while being fresh for a new one, which is exactly what a value bound
- * to a mutation's lifetime is not. So it is minted per SUBMISSION: `mutationFn` takes no
- * argument and generates the key at call time, so the two clicks a person makes a minute
- * apart are two attempts and the framework's own retry of one click is one.
+ * **ONE `Idempotency-Key` PER LOGICAL ATTEMPT, HELD ACROSS THAT ATTEMPT'S RETRIES.** The
+ * server REQUIRES the header (`crm/routes.assist_call`) because a repeat of this request
+ * is a second silent payment to the assistant model — Azure OpenAI since D-410, Gemini
+ * before it, and the vendor is not the point: the point is that the money leaves before
+ * the answer comes back. The key only buys anything if it is REUSED; a key minted per
+ * `mutate()` call is a header that satisfies the server's validation and protects nobody,
+ * which is what this hook used to send.
  *
- * `retry: false` is the app-wide mutation default (`app/providers.tsx`) and is right
- * here for its own reason: the failures worth surfacing are refusals with a remediation
- * (`ai_quota_exceeded` opens the wallet dialog), and retrying one three times shows the
- * person the same refusal three times.
+ * The event it now prevents is a LOST RESPONSE. `AssistCard`'s `ProblemNotice` offers
+ * "Try again" after a failure, and a failure whose cause was a 504 or a dropped
+ * connection on a run the server COMPLETED is one the client has already been charged
+ * for. With the key reused, that retry is answered `replay` from the stored response
+ * (`claim.state == "replay"`) instead of paying a second time.
+ *
+ * ## The lifecycle, which is the whole of the correctness
+ *
+ * The key lives in a ref beside the call it belongs to, and each of the three transitions
+ * is a rule the server can see the other side of:
+ *
+ * - **A retry of a failed attempt keeps it.** That is the case above, and it is only safe
+ *   because the server now RELEASES a claim it took on a refusal raised before the
+ *   provider was paid: `assist_call`'s `try` opens at `load_assist_source` and its
+ *   `except` calls `fail_idempotency`, and `claim_idempotency` re-claims a `failed` record
+ *   as `fresh`. Until that arm covered the two pre-payment refusals, reusing a key traded
+ *   a rare double charge for a constant `idempotent_request_in_flight` on ordinary paths —
+ *   which is why this hook deliberately did NOT reuse keys before, and why the change had
+ *   to wait for the server rather than being an oversight.
+ * - **Success clears it**, because the next press is a person asking for a SECOND reading
+ *   and expecting to pay for one. Keeping it would answer them from the stored response
+ *   forever — a button that silently stops working, which is worse than the charge.
+ * - **`reset()` clears it**, which is the same rule seen from the other side: the card
+ *   resets after the wallet top-up (`onBought`), and what follows a purchase is a new
+ *   attempt, not a retry of the one that was refused.
+ *
+ * The call id is held WITH the key rather than assumed, because the two must not come
+ * apart: the server hashes `{"call_id": ...}` into `request_hash`, so the same key on a
+ * different call is refused outright as `idempotency_key_reused`. A hook re-rendered with
+ * a new `callId` mints a new key from that fact rather than from an effect that might not
+ * have run yet.
+ *
+ * `retry: false` remains the app-wide mutation default (`app/providers.tsx`) and is now
+ * held for its own reason rather than for this one. TanStack retries a mutation by
+ * re-invoking `mutationFn`, so a framework retry would once have minted a new key and
+ * paid again; with the ref it would reuse the key and be safe. It stays off because the
+ * failures worth surfacing here are refusals with a remediation (`ai_quota_exceeded`
+ * opens the wallet dialog), and retrying one three times shows the person the same
+ * refusal three times.
  *
  * On success the AI allowance is invalidated rather than patched: the assist moved
  * `used_inr` by an amount only the server knows, and a browser that guessed it would be
@@ -272,16 +308,40 @@ export function useCallBack(session: Session, callId: string) {
  */
 export function useCallAssist(session: Session, callId: string) {
   const client = useQueryClient();
-  return useMutation({
-    mutationFn: () =>
-      apiRequest<components["schemas"]["CallAssistOut"]>(session, `/v1/calls/${callId}/assist`, {
-        method: "POST",
-        idempotencyKey: crypto.randomUUID(),
-      }),
+  // A ref rather than state: nothing on screen reads the key, and re-rendering the card
+  // to store it would be a render caused by a header.
+  const attempt = useRef<{ callId: string; key: string } | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      const held = attempt.current;
+      const key = held !== null && held.callId === callId ? held.key : crypto.randomUUID();
+      attempt.current = { callId, key };
+      return apiRequest<components["schemas"]["CallAssistOut"]>(
+        session,
+        `/v1/calls/${callId}/assist`,
+        { method: "POST", idempotencyKey: key },
+      );
+    },
     onSuccess: () => {
+      // BEFORE the invalidation, and unconditionally: this attempt is over, and the next
+      // press must be able to buy a second reading.
+      attempt.current = null;
       void client.invalidateQueries({ queryKey: aiQuotaKey(session.orgSlug) });
     },
   });
+
+  // `reset()` is WRAPPED rather than re-exported, so a caller cannot clear the mutation's
+  // error and leave the key that belonged to it behind. Spreading the result is what
+  // `useMutation` itself returns (`{ ...result, mutate, mutateAsync }`), so nothing here
+  // is reaching past the library's own shape.
+  return {
+    ...mutation,
+    reset: () => {
+      attempt.current = null;
+      mutation.reset();
+    },
+  };
 }
 
 /**

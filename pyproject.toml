@@ -120,7 +120,19 @@ src = ["apps", "packages"]
 extend-exclude = ["alembic/versions"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC"]
+# `W` was added after a defect it would have caught escaped every gate this repo has.
+# A docstring quoted a regex in a NON-RAW string, so `\.` became `SyntaxWarning: invalid
+# escape sequence` on every import of a worker module — noise on a real operator's
+# console, from a file whose whole subject is being read by an operator. ruff was silent
+# because W605 lives in `W` and `W` was not selected; mypy does not look at string
+# contents; the tests passed because a warning is not an error. It was caught by a human
+# noticing the warning scroll past, which is the least reliable instrument here.
+#
+# IT COST NOTHING TO TURN ON — `ruff check --select W --statistics .` reported ZERO
+# violations across the tree at the moment it was added, so this bought a whole class of
+# future defect for no cleanup. That is also the argument for doing it NOW rather than
+# "when we have time": the price of enabling a ruleset only ever goes up.
+select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "W"]
 
 [tool.ruff.lint.per-file-ignores]
 # `from sqlalchemy.dialects.postgresql import UUID as PgUUID` is the idiomatic alias.

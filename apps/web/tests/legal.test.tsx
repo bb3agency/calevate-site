@@ -35,6 +35,21 @@ import { expectNoA11yViolations } from "./a11y";
  * invisible in a single-document scan.
  */
 
+/**
+ * The first column of every table row in a document — the VENDOR NAMES on the
+ * sub-processor register, as rows rather than as prose.
+ *
+ * `textOf` cannot answer this question: the register legitimately mentions a departed
+ * vendor in the prose that records its departure ("until 19 August 2026 this row named
+ * …"), and a substring search over the page cannot tell that from a live row. The rows
+ * are structured data (`LegalBlock` kind `table`), so the structure is what gets asked.
+ */
+function vendorRowNames(doc: LegalDocument): string[] {
+  return blocksOf(doc).flatMap((block) =>
+    block.kind === "table" ? block.rows.map((row) => row[0] ?? "") : [],
+  );
+}
+
 /** Render one document the way its route does, with `params` already resolved. */
 async function renderDocument(slug: string): Promise<HTMLElement> {
   let container!: HTMLElement;
@@ -295,20 +310,49 @@ describe("what each document must contain", () => {
   });
 
   it("keeps the sub-processor register as the only copy of the vendor list", () => {
-    // The DPA's Annex C must LINK rather than restate: two vendor lists is the drift the
-    // change-notification clause cannot survive.
+    /*
+     * The DPA's Annex C must LINK rather than restate: two vendor lists is the drift the
+     * change-notification clause cannot survive.
+     *
+     * THE EXCLUSION LIST NAMES VENDORS THAT ARE ON THE REGISTER, which is the change
+     * here. It used to lead with "Clerk", and once Clerk left the register (D-177, and
+     * the client-facing removal that followed) that assertion became vacuously true —
+     * it proved the DPA does not name a company we have nothing to do with. The rule is
+     * about the vendors somebody editing Annex C would plausibly paste IN, so the list
+     * is drawn from the LIVE register and moves with it.
+     */
     const dpa = textOf(bySlug("dpa"));
-    for (const vendor of ["Clerk", "Resend", "Cartesia", "Cohere", "Razorpay"]) {
+    for (const vendor of ["Bolna", "Sarvam", "Microsoft", "Resend", "Cartesia", "Razorpay"]) {
       expect(
         dpa.includes(vendor),
         `the DPA names ${vendor} — vendor names belong on the sub-processor page only, ` +
           `or the two lists will disagree`,
       ).toBe(false);
     }
+    /*
+     * And the register must NAME them. `Microsoft` replaces `Clerk` rather than merely
+     * dropping it: an assertion list that only ever shrinks stops being a test that the
+     * register is COMPLETE, and Microsoft is the entry D-410 created — Azure OpenAI in
+     * South India now carries BOTH language legs, so it is the sub-processor a client
+     * reading this page is most likely to be looking for and the one whose absence would
+     * be the real defect.
+     */
     const register = textOf(bySlug("subprocessors"));
-    for (const vendor of ["Bolna", "Sarvam", "Clerk", "Cloudflare", "Resend", "Razorpay"]) {
+    for (const vendor of ["Bolna", "Sarvam", "Microsoft", "Cloudflare", "Resend", "Razorpay"]) {
       expect(register, "sub-processor register").toContain(vendor);
     }
+    // Clerk left the product at D-177 and must not come back as a live row: it was
+    // listed as a Core sub-processor receiving authentication factors and session state
+    // in the United States, which is a declared cross-border transfer of auth data to a
+    // vendor this product does not use. A HISTORICAL mention ("until <date> this row
+    // named …") is legitimate and is why this checks the CORE rows rather than the page.
+    const rows = vendorRowNames(bySlug("subprocessors"));
+    // A `not.toContain` over an empty list passes for the wrong reason, which is the
+    // shape `tests/a11y.ts::assertScreenRendered` exists to refuse. The register is a
+    // table of vendors; if it stops being one, this assertion has stopped meaning
+    // anything and should fail rather than go quiet.
+    expect(rows, "the register has no vendor rows to check").toContain("Bolna");
+    expect(rows, "a sub-processor table row still names Clerk").not.toContain("Clerk");
   });
 
   it("states a refund timeline, which an Indian payment gateway requires", () => {

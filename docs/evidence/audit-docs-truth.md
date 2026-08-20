@@ -69,7 +69,16 @@ or not the website repeats it.
 
 **What would fix it:** narrow the parenthetical to the claim the build enforces — model
 endpoints pinned to an Indian region, checkable by `check_model_residency.py` — and add the
-same "the hosting region is undecided" sentence the landing-page comment carries. The
+same "the hosting region is undecided" sentence the landing-page comment carries.
+*(⚠ **Do not act on that sentence as written.** It was correct on 17 Aug, when a Vertex URL
+carried `asia-south1` in the host AND the path and the guard could read the region off the
+AST. **D-410 moved both LLM legs to Azure OpenAI, whose `<resource>.openai.azure.com` names
+no region at all**, so "endpoints pinned to an Indian region, checkable by the build" is no
+longer available as a claim. What the guard still proves is that no endpoint is
+constructible outside `azure_openai_base_url()` and that the builder cannot emit a non-India
+region; WHERE the traffic goes is attested by a human at OPERATIONS §2 gates 20 and 20c.
+LEGAL-SURFACE §4 and F-1 carry the current wording. This note is added rather than the
+paragraph rewritten, because this file is a dated record of what was true on its date.)* The
 competitor half of the row (their data may leave India) is sourced and can stand; it is our
 half that overclaims.
 

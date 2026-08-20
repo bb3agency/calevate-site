@@ -246,31 +246,31 @@ NO_API_SECRET_REASON: Final = "no_api_secret"
 # everywhere today. Flipping this one was never a config change and still is not.
 PROVIDER_CREATES_ORDERS: Final = True
 
-# The `Settings` field carrying the Razorpay API SECRET (the private half of the key
-# pair; `razorpay_key_id` is the public half the browser may see).
-#
-# **THIS FIELD DOES NOT EXIST ON `Settings` YET.** It is read through `getattr` on
-# purpose rather than as an attribute, because `calevate_shared.config` is owned
-# elsewhere and the key (`RAZORPAY_KEY_SECRET`) has been requested there. The
-# consequence is stated rather than hidden: until it lands, `razorpay_api_secret()`
-# returns None on every deployment, the capability reports `no_api_secret`, and no order
-# is ever created. That is the same answer a deployment with no Razorpay account should
-# give anyway — which is why this is a visible waiting state and not a silent one.
-#
-# A bare `getattr(settings, "razorpay_key_secret", None)` scattered at call sites would
-# hide a typo for ever; naming the field once and reading it in one function means a
-# rename breaks in exactly one place.
-API_SECRET_SETTING: Final = "razorpay_key_secret"
-
 
 def razorpay_api_secret() -> str | None:
-    """The private key half, or None. THE only read of it (see `API_SECRET_SETTING`).
+    """The private key half of the Razorpay pair, or None. THE only read of it.
+
+    `razorpay_key_id` is the public half the browser may see; this one never leaves the
+    server, which is why the two are separate `Settings` fields and why this accessor
+    exists rather than every caller reading the field.
+
+    A PLAIN ATTRIBUTE READ, AND IT USED TO BE A `getattr` WITH A DEFAULT. The comment
+    above it said, in bold, "THIS FIELD DOES NOT EXIST ON `Settings` YET" and drew the
+    consequence: that `razorpay_api_secret()` returns None on every deployment and no
+    order can ever be created. `razorpay_key_secret` was declared in
+    `calevate_shared.config` IN THE SAME COMMIT that wrote that sentence, so the module
+    has been describing a blocker that was already closed — while the `getattr` silently
+    turned any future rename or typo of the field name into "no payment provider
+    configured" rather than into a red type check. What IS still true is operational and
+    lives where operational facts belong: no Razorpay account is provisioned, so
+    `RAZORPAY_KEY_SECRET` is unset everywhere and `creates_orders` is False everywhere —
+    `PaymentCapability` reports that, and `runbooks/topup-payments.md` documents it.
 
     Empty string collapses to None: an env var set to `""` is an operator who meant to
     unset it, and treating it as a credential would send `Basic <id>:` to a payment
     provider and get an opaque 401 back.
     """
-    return getattr(get_settings(), API_SECRET_SETTING, None) or None
+    return get_settings().razorpay_key_secret or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -855,7 +855,6 @@ async def credit_captured_payment(
 
 
 __all__ = [
-    "API_SECRET_SETTING",
     "API_VERSION_PATH",
     "BASE_URL",
     "CAPTURED_EVENT",

@@ -2,10 +2,14 @@
 
     GET /v1/admin/client-health
 
-`apps/api/admin/health.py` argues the whole design — which five signals earned a place,
-which candidates were rejected and why, why the call trend carries a `basis` rather than
-a bare ratio, and why the cross-tenant read widens no RLS policy. This module is the
-surface only.
+`apps/api/admin/health.py` argues the whole design — which signals earned a place, which
+candidates were rejected and why, why the call trend carries a `basis` rather than a bare
+ratio, and why the cross-tenant read widens no RLS policy. This module is the surface only.
+
+NO COUNT HERE, DELIBERATELY. This said "which five signals earned a place"; there are six
+— `calls_unmetered` joined them with the stage-2 money cluster and this sentence did not
+move. A count in prose is the defect class D-103/D-105 exist for, and the population is
+enumerated where it is declared, one file over.
 
 **`org:read`, not `admin:tenants`**, for the reason `holds_routes.py` states: D-22
 forbids gating a GET on a permission read-only impersonation refuses, and `admin:tenants`

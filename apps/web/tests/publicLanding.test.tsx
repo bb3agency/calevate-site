@@ -86,6 +86,65 @@ describe("the landing page's claims", () => {
     // to the thing that enforces it rather than drifting into a claim about our storage.
     expect(text).toContain("The AI runs on Indian endpoints");
     expect(text).not.toMatch(/(recordings?|transcripts?|database|servers?)[^.]{0,40}\bin india\b/i);
+
+    /*
+     * AND IT MUST NOT CLAIM THE BUILD PROVES IT — the over-claim in the other
+     * direction, which this page was making until D-410 was read against it.
+     *
+     * Vertex put `asia-south1` in the hostname and the path, so
+     * `scripts/check_model_residency.py` really could prove residency from the source,
+     * and the page said so: "pinned to Mumbai by a check that fails our build if a line
+     * of code ever points somewhere else". `<resource>.openai.azure.com` names no
+     * region. The guard now proves that our code cannot ADDRESS anywhere else — one
+     * builder, one spelling of the region, no setting able to carry one — and where the
+     * resource sits is attested by a person in the provider's console (OPERATIONS gates
+     * 20 and 20c). The DPA had to drop the identical warranty; a marketing page may not
+     * keep it, and Mumbai is not even the right city for South India.
+     */
+    // Mumbai was `asia-south1`, Google's region. Naming it at all is now a factual error
+    // as well as a residency claim, which makes it the cheapest thing to ban outright.
+    expect(text).not.toMatch(/mumbai/i);
+    // The affirmative shape only. A broad "build … proves" pattern fires on the sentence
+    // that DENIES the claim ("checked, not proved by a build"), which is the trap
+    // `legal.test.tsx::claimsOutsideDenial` exists for — so this names the construction
+    // the page actually had rather than the vocabulary around it.
+    expect(text).not.toMatch(/\b(fails?|breaks?) (our|the) build\b/i);
+    expect(text).not.toMatch(/\b(our|the) build (fails|proves|guarantees|ensures)\b/i);
+    expect(text).not.toMatch(/\b(guarantee[sd]?|guaranteed|certified)\b[^.]{0,40}\bindia/i);
+    // And the correction is PINNED, not merely un-banned: the sentence has to keep
+    // saying which half is machine-checked and which half a person confirms, because
+    // deleting that clause is how the over-claim comes back looking like a tidy-up.
+    // `docs/LEGAL-SURFACE.md` F-1 is where the wording comes from.
+    expect(text).toContain("checked, not proved by a build");
+  });
+
+  /**
+   * THE AI DISCLOSURE, PROMISED NO WIDER THAN THE PLATFORM ENFORCES IT.
+   *
+   * The page said "Every call says it is an AI … There is no configuration that turns it
+   * off" — written before D-163 split the two obligations and made the OPENING
+   * announcement a per-agent toggle. The client's own agents screen ships that switch
+   * ("Say it is an AI assistant", off-note "Callers are not told at the start of the
+   * call"), so the marketing page was promising a buyer the opposite of a control their
+   * staff can operate. `/legal/privacy` already scopes the same sentence correctly — to
+   * the truthful ANSWER, not to the opening — which is what made the mismatch a
+   * misrepresentation rather than a wording preference.
+   *
+   * What is unswitchable is the answer when a caller ASKS
+   * (`compliance/disclosure.TRUTHFUL_ANSWER_PROMISE`, appended above the client's script
+   * by `compose_engine_prompt` on every publish). The page must claim that and not the
+   * announcement.
+   */
+  it("promises the AI disclosure no wider than D-163 leaves it", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/every call says it is an ai/i);
+    // "no configuration/setting turns it off" is only true of the ANSWER. Banned in the
+    // unqualified form the page had; the surviving sentence says what cannot be
+    // overridden and names the thing it is about.
+    expect(text).not.toMatch(/no (configuration|setting) that turns it off/i);
+    expect(text).toContain("It never denies being an AI");
+    expect(text).toMatch(/whether it volunteers that line[^.]*is your setting/i);
   });
 
   it("does not advertise a self-serve door the deployment has switched off", () => {

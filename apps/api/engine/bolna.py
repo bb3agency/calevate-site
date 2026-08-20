@@ -111,6 +111,7 @@ from calevate_shared.engine import (
 from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
 from pydantic import ValidationError
 
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -473,13 +474,63 @@ _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 #: sits on top of that, in the same direction.
 _ASSUMED_MINOR_UNITS_PER_MAJOR = Decimal(100)
 
+#: The divisor PER CURRENCY, and the reason it has to be per currency rather than one
+#: number (D-411).
+#:
+#: **THE UNIT AND THE CURRENCY COME FROM THE SAME DOCUMENT AND MUST BE READ TOGETHER.**
+#: Everything argued above `_ASSUMED_MINOR_UNITS_PER_MAJOR` is argued in USD: the OAS
+#: sentence that carries the divisor says "in **cents**", and a cent is USD's minor unit.
+#: That OAS names no currency at all, which is exactly why `_ASSUMED_CURRENCY` is a house
+#: assumption sitting beside it. The OTHER first-party document — `references/execution-
+#: payload.md`, "Bolna cost in **account currency**" — is the ONLY one that lets the
+#: currency vary, and in the same breath it says MAJOR units. So the two readings are:
+#:
+#:     OAS         : no currency named  ->  USD (assumed) , minor units , divisor 100
+#:     payload.md  : account currency   ->  whatever it is, MAJOR units , divisor 1
+#:
+#: `_cost` used to take the currency from the second document and the divisor from the
+#: first. A payload STATING `currency: INR` was converted at `rate = 1` (right, and the
+#: reason that branch exists) and then divided by 100 anyway — so an account Bolna bills
+#: in RUPEES metered every call at one hundredth of its cost, on rows stamped
+#: `currency_stated=True`, i.e. the rows that look MORE trustworthy than the assumed ones.
+#: Every spend cap then arms at 100x the real spend and every margin panel reads as though
+#: the engine were free.
+#:
+#: **WHY INR HAS NO ENTRY, rather than an entry of 1 or of 100.** The vendor's own
+#: tiebreak — `references/bolna-core.md`, *"Treat the YAML as the canonical schema if a
+#: SKILL.md and the spec disagree"* — is what rescues the USD reading, and it does not
+#: reach INR: the YAML's word is "cents", which is not a denomination an INR-billed
+#: account has. Applying it to rupees is extrapolation from a sentence about dollars, and
+#: the only sentence that speaks generally says major units. Nothing has ever observed
+#: Bolna quoting INR at all.
+#:
+#: **A MISSING ENTRY MEANS REFUSE**, and `_cost` refuses. That is the rule this file
+#: already applies one axis over (`_CONVERTIBLE_CURRENCIES`, "an absent cost is a visible
+#: gap; a wrong one is not") and the two are deliberately separate constants because they
+#: answer different questions: "can we price it in INR at all" (a rate) and "what unit is
+#: their number in" (a denomination). A refusal costs one unpriced call and pages
+#: `call_billable_without_cost` from `pipeline._meter`; a confident 1/100th reaches the
+#: margin panel and every invoice with nothing downstream able to tell.
+#:
+#: THE DAY GATE 7 READS AN INR-BILLED EXECUTION this table gets one entry, which is a
+#: one-line change HERE — beside `_ASSUMED_CURRENCY` and `_CONVERTIBLE_CURRENCIES`, which
+#: are module constants for the same reason. A `Settings` field for this one and not for
+#: those two would be a second way to state one class of assumption. Rows metered before
+#: that flip are restated by `scripts/correct_cost_unit.py`, which is why the change is
+#: safe to make: it is recoverable by append (hard rule 4), not by edit.
+_MINOR_UNITS_PER_MAJOR: dict[str, Decimal] = {
+    _ASSUMED_CURRENCY: _ASSUMED_MINOR_UNITS_PER_MAJOR,
+}
 
-def _to_inr(amount: Any, fx_rate: Decimal) -> Decimal | None:
+
+def _to_inr(amount: Any, fx_rate: Decimal, *, minor_units_per_major: Decimal) -> Decimal | None:
     """One vendor cost figure → INR, quantized to the ledger's NUMERIC(12,4).
 
-    The vendor's figure is divided by `_ASSUMED_MINOR_UNITS_PER_MAJOR` first — read that
-    constant before trusting the number this returns. Floats never touch money: the
-    vendor value is stringified before it becomes a Decimal.
+    `minor_units_per_major` is KEYWORD-ONLY AND UNDEFAULTED on purpose: the divisor is a
+    property of the currency the figure is quoted in (`_MINOR_UNITS_PER_MAJOR`), and a
+    default here is precisely how a divisor argued in USD reached a rupee figure. Every
+    call site now has to say which unit story it is applying. Floats never touch money:
+    the vendor value is stringified before it becomes a Decimal.
     """
     if amount is None:
         return None
@@ -487,8 +538,96 @@ def _to_inr(amount: Any, fx_rate: Decimal) -> Decimal | None:
         units = Decimal(str(amount))
     except (ArithmeticError, ValueError):
         return None
-    major = units / _ASSUMED_MINOR_UNITS_PER_MAJOR
+    major = units / minor_units_per_major
     return (major * fx_rate).quantize(_PAISE, rounding=ROUND_HALF_UP)
+
+
+# --- is this number the right SIZE? (the alarm the unit assumptions needed) ------------
+#
+# Everything above decides the unit and the currency from documents. Both are still
+# assumptions, and the way an assumption of this shape fails is not by a few percent — it
+# fails by 100x (the divisor) or by 83-96x (the fx rate applied to a figure already in
+# rupees). Neither shows up as an exception, a 4xx or a failing test: a call meters, a row
+# lands, and every panel downstream is quietly wrong in the direction that flatters us.
+# `CostBreakdown.currency_stated` records WHICH assumptions were used; nothing recorded
+# whether the number they produced was the right SIZE.
+#
+# So the adapter now scores its own output against what a minute of a phone call costs
+# this business, and pages when it is orders of magnitude out. This is a smoke detector,
+# not a price check — the band is deliberately three orders of magnitude wide.
+#
+# WHERE THE BAND COMES FROM. BRD §"Unit economics": all-in variable cost ₹3.0-3.6/min on
+# the launch stack, falling to ₹1.7-2.3/min in phase 2; telephony alone ₹0.4-0.9/min
+# inbound and ₹0.6-1.8/min outbound; the competitor platform fees surveyed in the same
+# section run ₹1.5-6/min. `cost.total_inr` is the ENGINE's charge to us, a subset of the
+# all-in figure, so the honest expectation is roughly ₹0.5-6/min.
+#
+# The floor is ~5x below the cheapest plausible minute and the ceiling ~15x above the
+# dearest. A tenfold vendor price rise still passes; a hundredfold unit error cannot. That
+# asymmetry is the design — this alarm must never cry wolf about a re-pricing, because an
+# alarm an operator learns to ignore is worse than no alarm, and it must never miss the
+# one failure mode that motivated it.
+_PLAUSIBLE_INR_PER_MIN_FLOOR = Decimal("0.10")
+_PLAUSIBLE_INR_PER_MIN_CEILING = Decimal("100")
+
+#: Below this, an implied per-minute rate is not a measurement of anything. A call that
+#: rang, connected and dropped inside a few seconds is routinely billed at ZERO or at
+#: whatever the vendor rounds a fraction of a second to — so its ₹/min lands far below the
+#: floor while nothing is wrong, and this alarm would page on the noisiest, most common
+#: call shape there is. An alarm that pages on healthy calls gets muted, and a muted alarm
+#: is how the 100x error it exists for would go past.
+#:
+#: 30 s rather than 5 or 10 because the floor has to hold with room to spare: at half a
+#: minute even a vendor minimum charge implies a rate inside the band, so what is excluded
+#: is only the shapes where the charge is a stub rather than a price. The cost of the
+#: exclusion is stated rather than hidden — a fleet metered 100x wrong on nothing but
+#: sub-30-second calls would not page — and it is acceptable because such a fleet is not a
+#: thing: the same divisor prices every call, and any call at all over 30 s pages.
+_PLAUSIBILITY_MIN_DURATION_S = 30
+
+
+def _implied_inr_per_minute(total_inr: Decimal, duration_s: int) -> Decimal:
+    """What one minute of this call cost us, per the figure we just derived.
+
+    `Decimal(60)` inline rather than a named constant: `billing/service.py` already owns a
+    `_SECONDS_PER_MINUTE` for the money path, and a second module-level one here would be
+    a name a reader has to check for divergence. This is arithmetic on a diagnostic, not a
+    figure any ledger stores.
+    """
+    return total_inr * Decimal(60) / Decimal(duration_s)
+
+
+def _check_cost_plausibility(
+    cost: CostBreakdown | None, duration_s: int | None, *, engine_call_id: str
+) -> None:
+    """Page when a per-call cost is orders of magnitude away from what a minute costs.
+
+    Silent on the three cases it cannot judge rather than guessing at them: no cost (that
+    is `call_billable_without_cost`'s alarm, raised by `pipeline._meter` where
+    `billable_ready` is known and this function's caller does not decide), no duration,
+    and a call too short for the implied rate to mean anything. A zero total on a real
+    call IS judged — it is the 100x error's limit case once quantization eats the rest.
+
+    Ids only in the alert, never the payload (hard rule 6). The implied rate and the
+    duration are OUR derived numbers, not client data.
+    """
+    if cost is None or duration_s is None or duration_s < _PLAUSIBILITY_MIN_DURATION_S:
+        return
+    per_min = _implied_inr_per_minute(cost.total_inr, duration_s)
+    if _PLAUSIBLE_INR_PER_MIN_FLOOR <= per_min <= _PLAUSIBLE_INR_PER_MIN_CEILING:
+        return
+    alert(
+        "CORE_LOGIC",
+        "engine_cost_implausible",
+        detail=(
+            f"one call metered at INR {per_min} per minute over {duration_s}s, outside the "
+            f"plausible band {_PLAUSIBLE_INR_PER_MIN_FLOOR}-{_PLAUSIBLE_INR_PER_MIN_CEILING}. "
+            f"The adapter read the vendor figure as {cost.source_currency} "
+            f"(stated by the payload: {cost.currency_stated}) at fx {cost.fx_rate}. "
+            "A ratio near 100 is the minor-unit assumption; near 90 is the currency one."
+        ),
+        engine_call_id=engine_call_id,
+    )
 
 
 def _parse_dt(value: Any) -> datetime | None:
@@ -1760,6 +1899,14 @@ class BolnaEngine:
         # `telephony_data` first, the old spelling kept as a fallback because it costs
         # nothing and an unknown payload shape should degrade rather than flip.
         raw_direction = telephony.get("call_type") or payload.get("direction")
+        duration_s = int(duration) if isinstance(duration, int | float) else None
+        # SCORED HERE RATHER THAN INSIDE `_cost`, because the judgement needs the call's
+        # LENGTH and `_cost` sees only the cost keys. Every path that produces a snapshot
+        # runs it — the poller's listing as well as `get_execution` — which is what makes
+        # it an alarm rather than a check somebody has to remember to call. Repeats are
+        # bounded by `alerting`'s per-fingerprint suppression, so a fleet metering wrong
+        # pages once per 15 minutes with the count riding along, not once per call.
+        _check_cost_plausibility(cost, duration_s, engine_call_id=call_id)
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=str(agent_ref) if agent_ref else None,
@@ -1772,7 +1919,7 @@ class BolnaEngine:
             billable_ready=raw_status == "completed",
             started_at=started,
             ended_at=ended,
-            duration_s=int(duration) if isinstance(duration, int | float) else None,
+            duration_s=duration_s,
             from_e164=telephony.get("from_number") or payload.get("from_number"),
             to_e164=telephony.get("to_number") or payload.get("to_number"),
             recording_url=telephony.get("recording_url") or payload.get("recording_url"),
@@ -1812,18 +1959,26 @@ class BolnaEngine:
         write
         `source_currency="USD"` as a literal, which made the assumption unfalsifiable
         from inside: pilot gate 7's currency criterion read our own guess back and
-        agreed with it (OPERATIONS §2). Three behaviours now, in order:
+        agreed with it (OPERATIONS §2). Four behaviours now, in order:
 
-        * the payload NAMES a currency we can convert -> use it, `currency_stated=True`,
-          and the gate has a fact to score;
+        * the payload NAMES a currency we can convert AND whose UNIT we have evidence for
+          -> use it, `currency_stated=True`, and the gate has a fact to score;
         * the payload names a currency we have no rate for -> refuse. Returning a number
           converted at the USD rate would be a fabricated cost basis flowing into the
           margin panel and every invoice. An absent cost is a visible gap; a wrong one
           is not;
+        * the payload names a currency we can convert and whose UNIT nothing tells us —
+          today that is `INR`, and it is a live hole rather than a hypothetical one
+          (D-411) -> refuse, for the same reason one line up. This branch used to convert
+          at `rate = 1` (right, and why the branch exists) and then divide by
+          `_ASSUMED_MINOR_UNITS_PER_MAJOR` anyway — a constant argued end to end in USD —
+          so an account billed in RUPEES metered every call at 1/100th of cost.
+          `_MINOR_UNITS_PER_MAJOR` carries why the vendor's own tiebreak does not reach
+          here;
         * the payload names nothing -> convert on the house assumption, exactly as
           before, but stamp `currency_stated=False` so the row says which it is.
 
-        The refusal logs at WARNING with the currency and the execution id — ids only,
+        Both refusals log at WARNING with the currency and the execution id — ids only,
         never the payload (hard rule 6).
         """
         total = payload.get("total_cost")
@@ -1860,20 +2015,51 @@ class BolnaEngine:
         # INR needs no conversion, and multiplying it by the USD rate is precisely the
         # 83x error this branch exists to prevent.
         rate = Decimal(1) if currency == "INR" else self._fx_rate
+        divisor = _MINOR_UNITS_PER_MAJOR.get(currency)
+        if divisor is None:
+            # THE UNIT IS NOT KNOWN FOR THIS CURRENCY, so there is no honest number to
+            # return (D-411). The alternative weighed and rejected was "meter at the more
+            # likely divisor and correct it later": on this branch there is no more-likely
+            # divisor — the vendor's own tiebreak says "cents", which is not a
+            # denomination rupees have — so it would be a coin flip wearing a cost basis,
+            # on rows stamped `currency_stated=True`. Refusing costs the row and pages
+            # `call_billable_without_cost` from `pipeline._meter` on the first such call;
+            # a confident 1/100th costs every margin panel and every spend cap with
+            # nothing downstream able to tell.
+            log.warning(
+                "engine_cost_unit_unknown",
+                extra={
+                    "engine": "bolna",
+                    "currency": currency,
+                    "engine_call_id": str(payload.get("id") or payload.get("execution_id") or ""),
+                },
+            )
+            return None
         breakdown = payload.get("cost_breakdown") or {}
-        total_inr = _to_inr(total, rate)
+        total_inr = _to_inr(total, rate, minor_units_per_major=divisor)
         if total_inr is None:
             return None
+
+        def leg(key: str) -> Decimal | None:
+            """Every leg on the SAME currency's unit story and the same rate — a breakdown
+            mixing two is a row whose parts do not sum to its whole."""
+            return _to_inr(breakdown.get(key), rate, minor_units_per_major=divisor)
+
         return CostBreakdown(
             total_inr=total_inr,
-            platform_inr=_to_inr(breakdown.get("platform"), rate),
-            network_inr=_to_inr(breakdown.get("network"), rate),
-            llm_inr=_to_inr(breakdown.get("llm"), rate),
-            tts_inr=_to_inr(breakdown.get("synthesizer"), rate),
-            stt_inr=_to_inr(breakdown.get("transcriber"), rate),
+            platform_inr=leg("platform"),
+            network_inr=leg("network"),
+            llm_inr=leg("llm"),
+            tts_inr=leg("synthesizer"),
+            stt_inr=leg("transcriber"),
             source_currency=currency,
             currency_stated=stated is not None,
-            source_amount=Decimal(str(total)) / _ASSUMED_MINOR_UNITS_PER_MAJOR,
+            # THE SAME DIVISOR AS THE LEGS, and it used to be
+            # `_ASSUMED_MINOR_UNITS_PER_MAJOR` spelled a second time. That is what makes
+            # this field re-derivable: `usage_events.meta.source_amount` times
+            # `meta.fx_rate` must reproduce the row's rupees, and it could not when the
+            # two halves used different divisors.
+            source_amount=Decimal(str(total)) / divisor,
             fx_rate=rate,
         )
 

@@ -176,8 +176,13 @@ export interface RealmAuthn {
   /** `POST /login/otp/resend`. A new code retires the previous one. */
   resendSecondFactor(): Promise<void>;
 
-  /** `GET /session` — the bootstrap read. Does not rotate. */
-  readSession(): Promise<AuthnSession>;
+  /**
+   * `GET /session` — the bootstrap read. Does not rotate.
+   *
+   * The optional `signal` is what lets `restore`'s deadline CANCEL this read rather than
+   * abandon it; see `runRestoreWithDeadline`.
+   */
+  readSession(signal?: AbortSignal): Promise<AuthnSession>;
   /** `POST /session/refresh`, single-flighted and cached. The ONLY rotation caller. */
   rotateSession(): Promise<AuthnSession>;
 
@@ -290,36 +295,46 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
   }
 
   /**
-   * One restore attempt, raced against the deadline — with the timer cleared every way out.
+   * One restore attempt, raced against the deadline — with the timer cleared and the
+   * LOSER CANCELLED every way out.
    *
    * §5.7 defect 1, stated as code: `clearTimeout` runs in a `finally`, so a restore that
    * WINS the race leaves nothing behind that can fire fifteen seconds later. The reference
    * left the timer running and had it reset the refresh cache when it fired, which is how
    * a completed restore came to be able to break a later, unrelated rotation.
    *
-   * `Promise.race` settles on the first outcome and the loser keeps running — that is
-   * unavoidable and harmless here, because the loser is a `fetch` whose result is simply
-   * dropped. What must not keep running is the TIMER, because unlike the fetch it has a
-   * side effect.
+   * `Promise.race` settles on the first outcome and the loser keeps running. This used to
+   * say that was "unavoidable and harmless"; it is neither any more, and the second half is
+   * why the first changed. `lib/api/client.ts` now puts every request under a deadline of
+   * its own, so an abandoned `fetch` is not an inert promise — it holds a `setTimeout` until
+   * `REQUEST_TIMEOUT_MS`, which is exactly the class of leftover timer §5.7 defect 1 is
+   * about, and `tests/authnSession.test.ts` fails on the count. Aborting the loser settles
+   * that request, which clears that timer, and frees a socket nobody is reading. The abort
+   * is a no-op when the READ won, because there is nothing left in flight to cancel.
+   *
+   * It cannot resolve the race the wrong way: the cancelled read is the promise that
+   * already lost, `readSessionOutcome` never rejects, and its value is dropped.
    */
   async function runRestoreWithDeadline(): Promise<RestoreOutcome> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const abandoned = new AbortController();
     try {
       return await Promise.race<RestoreOutcome>([
-        readSessionOutcome(),
+        readSessionOutcome(abandoned.signal),
         new Promise<RestoreOutcome>((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, reason: "timeout" }), RESTORE_DEADLINE_MS);
         }),
       ]);
     } finally {
       clearTimeout(timer);
+      abandoned.abort();
     }
   }
 
   /** `GET /session`, classified. The only place a refusal becomes a restore outcome. */
-  async function readSessionOutcome(): Promise<RestoreOutcome> {
+  async function readSessionOutcome(signal?: AbortSignal): Promise<RestoreOutcome> {
     try {
-      return { ok: true, session: await readSession() };
+      return { ok: true, session: await readSession(signal) };
     } catch (error) {
       if (needsSecondFactor(error)) return { ok: false, reason: "partial" };
       if (isSessionGone(error)) return { ok: false, reason: "signed_out" };
@@ -348,8 +363,8 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
     return runtime.inFlight;
   }
 
-  async function readSession(): Promise<AuthnSession> {
-    return await request<AuthnSession>("/session");
+  async function readSession(signal?: AbortSignal): Promise<AuthnSession> {
+    return await request<AuthnSession>("/session", { signal });
   }
 
   return {

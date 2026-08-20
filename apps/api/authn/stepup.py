@@ -32,11 +32,21 @@ A REQUEST CARRYING NO FIRST-PARTY ADMIN SESSION IS NOT REFUSED HERE, and that ne
 plainly rather than being discovered. It is not "the check passes when the header is
 absent" (the argument that killed the CSRF token's server half): freshness is a property OF
 A CREDENTIAL, and a request that presents no first-party session presented some other
-credential, which has its own gates — today `core/auth.py`'s Clerk `fva[1] >= 0`, plus the
-`X-Confirm-Action` echo that applies to both. Once AUTH-MIGRATION §5 step 6 deletes Clerk
-there IS no other credential, so this gate becomes universal with no further edit, which is
-the direction a transitional check has to point. `tests/authn_stepup_test.py` pins the
-refusal on the branch that exists today rather than trusting that sentence.
+credential, which has its own gates.
+
+**THE TRANSITION IS OVER AND THIS PARAGRAPH USED TO SAY IT WAS NOT.** It named
+"`core/auth.py`'s Clerk `fva[1] >= 0`" as the other credential's gate and said that "once
+AUTH-MIGRATION §5 step 6 deletes Clerk there IS no other credential". Step 6 ran — that is
+D-177 — and this module, which gates the platform's most dangerous mutations, went on
+telling its next reader that a second credential path was still live. What is actually left
+after D-177 is ONE alternative and it is not a vendor: `core/auth._verify_dev_token`'s
+`dev:<realm>:<uuid>`, which `Settings.app_env == "local"` AND an unset `PLATFORM_KEK` both
+have to allow, and which is gated by `_require_second_factor` on the way in rather than
+here. So on any deployment that holds a KEK — which is every deployment that is not a
+laptop — a request with no first-party admin session has no credential at all and is
+refused before this gate is reached. The `X-Confirm-Action` echo (`core/stepup.py`) applies
+either way. `tests/authn_stepup_test.py` pins the refusal on the branch that exists rather
+than trusting this paragraph.
 
 ═══ FIVE MINUTES ═══
 

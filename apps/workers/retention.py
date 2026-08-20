@@ -351,22 +351,42 @@ async def _due_tenants() -> list[UUID]:
     publish, which mints the route — but "bounded" is not "empty", and a `kb_documents`
     row holds whatever the client uploaded.
 
-    NOT CLOSED HERE, and the reason is that every way of closing it is a tenancy
-    decision rather than a sweep change. Reading `kb_sources.tenant_id` across tenants
-    needs a THIRD entry in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` — on a table that
-    holds client content, where the two existing entries hold routing keys and a hash
-    chain — and walking `organizations` under `admin_session` (the shape
-    `qa_sampling.draw_qa_samples` uses) reinstates exactly the per-tenant fan-out D-57
-    and P6.2 removed from this job. D-368 records both with their costs. Until one is
-    taken, this docstring says which data the sentence covers instead of implying all
-    of it.
+    **CLOSED, BY A THIRD ROUTE NEITHER OF THE TWO THIS DOCSTRING WEIGHED (migration
+    b2e6f10c94d7).** Both of those were rejected on their costs and both rejections
+    stand: reading `kb_sources.tenant_id` across tenants needs an RLS exemption on a
+    table that holds CLIENT CONTENT, where the existing tenant-carrying entries hold
+    routing keys and a hash chain; and walking `organizations` under `admin_session`
+    (the shape `qa_sampling.draw_qa_samples` uses) reinstates exactly the per-tenant
+    fan-out D-57 and P6.2 removed from this job.
 
-    What enforcement cannot do is reach BACKWARD. Rows written under the old ordering
-    are still outside this set, and this worker cannot even count them: it holds no
-    admin role, and an `untenanted_session` reading `leads` is fail-closed and returns
-    zero rows — so "how much residue is there?" is not a question the sweep can answer
-    about itself, and a self-check here would be a comforting no-op. It is one query in
-    the admin realm, where a cross-tenant read is audited and belongs:
+    The third route is to store the FACT rather than derive it: `retention_worklist`
+    holds one row per (tenant, reason) — a tenant id, a reason from a closed CHECK,
+    and a timestamp. `kb_sources` keeps its FORCEd policy untouched, and the new table
+    costs NO entry in `RLS_EXEMPT_TENANT_COLUMNS`: its `tenant_isolation` policy is the
+    strict own-tenant form, and a second `FOR SELECT` policy widens reads to sessions
+    with no tenant GUC — which is this function and nothing else. Both consult the GUC,
+    so hard rule 1's guardrail judges it by the ordinary rule.
+
+    A DATABASE TRIGGER writes it, on INSERT into `kb_sources`, which is what answers
+    this docstring's own objection to a presence table — "a second bridge to keep in
+    step with the first". There is nothing to keep in step: the sentence *a tenant that
+    holds a knowledge source is in the retention worklist* is enforced for every writer
+    of that table, present and future, the way hard rule 4's ledgers are enforced. The
+    trigger is deliberately not conditioned on `status`, because the failure directions
+    are not symmetric — registering a tenant with nothing expired costs one cheap probe
+    a night, and missing one costs a DPDP obligation.
+
+    What enforcement cannot do is reach BACKWARD — and that is why the KB half was
+    closed by a migration rather than by a code change: `b2e6f10c94d7` backfills
+    `retention_worklist` from every existing `kb_sources` row, as the owner role, in the
+    same transaction that installs the trigger. The LEADS half has no equivalent, because
+    its closure was an ingest-time refusal and a refusal cannot un-write a row. Leads
+    written under the old ordering are still outside this set, and this worker cannot
+    even count them: it holds no admin role, and an `untenanted_session` reading `leads`
+    is fail-closed and returns zero rows — so "how much residue is there?" is not a
+    question the sweep can answer about itself, and a self-check here would be a
+    comforting no-op. It is one query in the admin realm, where a cross-tenant read is
+    audited and belongs:
 
         SELECT count(*) FROM leads l WHERE NOT EXISTS (
           SELECT 1 FROM engine_agent_routes r WHERE r.tenant_id = l.tenant_id);
@@ -378,13 +398,26 @@ async def _due_tenants() -> list[UUID]:
         rows = (
             (
                 await session.execute(
+                    # TWO GLOBAL TABLES, UNIONed, and neither read needs an admin role:
+                    # `engine_agent_routes` covers everything a CALL can produce (a call
+                    # row only exists for a published agent) and `retention_worklist`
+                    # covers what a tenant can hold without ever publishing — today, a
+                    # knowledge source (D-368, migration b2e6f10c94d7). `UNION` rather
+                    # than `UNION ALL` because a tenant in both is one tenant; the sweep
+                    # is idempotent per tenant, but a doubled worklist would double the
+                    # tick's cost and make the "tenants swept" figure lie.
+                    #
                     # ORDER BY, and it is not cosmetic (P6.2). Without it the order is
                     # planner-dependent, so WHICH tenants a sweep reaches before it hits
                     # its row budget — or, before the isolation below existed, before an
                     # error aborted the rest — varied night to night for reasons nobody
                     # could reproduce. A stable order makes "tenant X was not swept" a
                     # question with an answer.
-                    text("SELECT DISTINCT tenant_id FROM engine_agent_routes ORDER BY tenant_id")
+                    text(
+                        "SELECT tenant_id FROM engine_agent_routes "
+                        "UNION SELECT tenant_id FROM retention_worklist "
+                        "ORDER BY tenant_id"
+                    )
                 )
             )
             .scalars()

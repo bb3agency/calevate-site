@@ -46,16 +46,36 @@ crm, analytics, billing, kb, integrations, compliance, audit.
   keeps v1 in-call retrieval on the engine's built-in KB — TRD §6).
 - **Queue:** Redis + ARQ. Promote only campaign orchestration to Temporal if/when retry
   semantics outgrow ARQ. Not before.
-- **Auth:** Clerk (Organizations) — admin realm and client realm are separate applications
-  with separate session cookies. **MFA mandatory on admin realm, enforced by the API**:
-  `core/auth.py::verify_token` refuses any admin-realm token whose Clerk session did not
-  complete a second factor, read from the `fva` (factor-verification-age) session claim —
-  `fva[1] == -1` is "no second factor", an absent claim fails closed. The gate is in the
-  verifier, not on the routes, so there is no admin identity that skipped it; the client
-  realm is unaffected. Two halves are NOT code and are pre-launch operator steps in
-  OPERATIONS §8: turning on "Require MFA" in the admin Clerk application, and leaving
-  that application on the default session-token claims (a custom JWT template that drops
-  `fva` locks the console out with `mfa_claim_missing`).
+- **Auth: OURS, end to end. There is no identity vendor.** This bullet named Clerk for most
+  of the repository's life; D-165 designed the replacement, D-170 mounted it and **D-177
+  deleted the vendor from the tree** — settings, routes, dependency and code. `apps/api/authn/`
+  is the only thing that mints a credential, and the credential is an opaque token in an
+  `HttpOnly` `__Host-` cookie (`authn/cookies.COOKIE_NAMES`:
+  `__Host-calevate_admin_session`, `__Host-calevate_client_session`). Full design and the
+  26-endpoint surface: `docs/AUTH-MIGRATION.md` (§3 the realm boundary, §10.5 the routes,
+  §11 what is still not built).
+  - **Two realms, four independent separations**, because a `realm` column queries must
+    remember to filter on is one forgotten `WHERE` from being nothing: the realm is inside
+    the stored session hash (`sessions.token_fingerprint(token, realm)`, so a client token
+    looked up as admin matches no row), the `realm` column is in the `WHERE` clause anyway,
+    the two cookie NAMES differ, and `Origin` is enforced per realm because `admin.` and
+    `app.` are same-site and `SameSite` therefore does not separate them.
+  - **MFA mandatory on the admin realm, enforced by the API**: `core/auth.py::verify_token`
+    refuses any admin principal whose session has a NULL `auth_sessions.mfa_verified_at`.
+    The gate is in the verifier, not on the routes, so there is no admin identity that
+    skipped it; the client realm is unaffected. `authn/service.MFA_REQUIRED_REALMS` is a
+    frozen `{"admin"}` with no setting behind it — **there is nothing to switch on and
+    nothing that can switch it off**, which is why OPERATIONS §8's old two-step operator
+    task is retired rather than restated. One refusal code,
+    `401 second_factor_required`; the Clerk-era pair (`mfa_required` /
+    `mfa_claim_missing`) collapsed into it because a NULL column, unlike a droppable JWT
+    claim, has no "we cannot tell" state.
+  - **The second factor is a six-digit code emailed to the address on file** — no
+    authenticator app, no shared secret, no recovery codes (D-170; the trade is in
+    AUTH-MIGRATION §2.3 and §7). Passwords are Argon2id with a KEK-derived pepper.
+  - **Session lifetimes are enforced on the ROW, per realm** (`authn/sessions.REALM_TIMEOUTS`):
+    admin 30 min idle / 8 h absolute, client 12 h idle / 14 d absolute. The cookie carries
+    no `max_age` — the row is the authority, so a revoke bites immediately.
 - **Storage:** R2/Spaces, SSE encryption, presigned URLs (5 min for everything except a
   call recording, whose link is sized to the recording per D-153 and capped at
   `RECORDING_LINK_CEILING_S` — the widest credential window this platform opens, so it
@@ -105,9 +125,26 @@ Models (per-agent config, BYOK):
 - LLM: **Azure OpenAI in South India — `AZURE_LOCATION` (`southindia`), default
   `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) — on BOTH LLM surfaces (D-410,
   superseding D-400/D-404 on the in-call leg and D-127 on the dashboard leg).** One
-  region, one allow-list, one price table, one builder. `gpt-4.1-mini` is a LIVE CONFIG
-  SWITCH through `azure_openai_model`, not a second shipped default, because its
-  availability in Indian regions is not confirmed while `gpt-4o-mini`'s in South India is.
+  region, one allow-list, one price table, one builder. `gpt-4.1-mini` is a CONFIG SWITCH
+  through `azure_openai_model`, not a second shipped default, because its availability in
+  Indian regions is not confirmed while `gpt-4o-mini`'s in South India is.
+
+  ⚠ **"SWITCH" IS TWO EDITS AND A REPUBLISH, NOT ONE TOGGLE, AND GETTING THAT WRONG IS
+  SILENT.** Of the four Azure settings only `azure_openai_model` is `applies: live`, and it
+  is live precisely because **nothing sends it to anybody** — it names which model the
+  deployment was made from, and `billing/` reads it to price the leg.
+  `azure_openai_resource` and `azure_openai_deployment` are **`needs_republish`**: they
+  become `ModelConfig.llm_base_url` and `ModelConfig.llm_model` inside each PUBLISHED agent
+  record, so a live agent keeps calling what it was published against no matter how often
+  the console is edited. `azure_openai_api_key` is `needs_republish` too — the dashboard leg
+  re-reads it per request, but the in-call copy sits in the engine's credential store until
+  `VoiceEngine.set_llm_credential` re-installs it. **So flipping the model alone changes the
+  INVOICE and not a single call**: every agent goes on running `gpt-4o-mini` while every
+  usage event is priced at 2.67x. That is a wrong invoice rather than an outage, which is
+  why it hides longest. Move `azure_openai_deployment` to a deployment that actually runs
+  the new model, move `azure_openai_model` with it, and republish the agents.
+  `apps/api/core/platform_config.py` carries each answer beside its reason and
+  `scripts/check_config_applies.py` binds it to the reader that justifies it.
   Read the three surfaces separately, because one of them deliberately did not move:
   - **In-call** (inside the engine, BYOK). The engine calls our Azure deployment directly
     on `azure_openai_base_url(resource)` — `https://{resource}.openai.azure.com/openai/v1`
@@ -710,9 +747,16 @@ Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.
 · **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI South India — the band is the one- to
 ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
 On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
-· telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.3–3.9 (launch)
-→ 1.7–2.6 (phase 2)** — both bands are D-400's 3.5–4.1 and 1.9–2.8 moved down by the
-₹0.20/min the LLM leg gave back at the five-minute reference (₹0.36 → ₹0.16).
+· telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.3–3.8 (launch)
+→ 1.9–2.6 (phase 2)** — derived rather than adjusted, because adjusting is how the two
+bands drifted apart in the first place. Launch is **D-36's ≈₹3.1–3.6 plus the shipped LLM
+leg at the five-minute reference (₹0.16)** = 3.26–3.76. Phase 2 is that minus the ₹1.50
+platform fee plus §10.1's ₹0.15–0.30 compute = 1.91–2.56. *(This line read "3.3–3.9 →
+1.7–2.6" and `docs/README.md` read "3.3–3.8 → 1.9–2.5" — the same decision, subtracted
+twice by two different routes, because D-400 rounded 3.46–3.96 UP to "3.5–4.1" and every
+later re-derivation inherited the extra 0.14. Both now quote this derivation; neither is
+re-rounded independently.)* These are blended mid-ladder estimates, not the min–max — that
+is §10.1's **₹2.89–4.28**.
 
 > ⚠ **THE LLM LEG IS NOT FREE AND IS NOT A FLAT PER-MINUTE RATE (D-400, repriced by D-410).**
 > D-36 priced it at ₹0.00 because Sarvam 105B is free per token; it is now `gpt-4o-mini` on
@@ -763,8 +807,14 @@ On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
 
 Actual per-call cost comes from Get Call's
 cost.breakdown (platform_fee/stt/tts/llm/telephony, INR) recorded into usage_events.
-Fixed monthly: DO stack ~$75–125 (web/api droplet, worker droplet, managed PG, Redis,
-storage) ≈ ₹7–10k; platform/model minimums + numbers ≈ ₹3k.
+Fixed monthly: **priced against a DigitalOcean stack that is no longer the plan** —
+~$75–125 (web/api droplet, worker droplet, managed PG, Redis, storage) ≈ ₹7–10k; plus
+platform/model minimums + numbers ≈ ₹3k. **D-25/D-26 moved hosting to a single
+general-purpose VPS with self-hosted Postgres and Redis**, which is fewer billed
+components, so ₹7–10k is a CEILING rather than an estimate and the real figure is likely
+lower. It is left standing because no host is chosen and nothing is provisioned
+(LEGAL-SURFACE F-1), so there is no invoice to replace it with — re-measure at deploy.
+§10.2 carries the same caveat where the number is actually used.
 
 **Normalized platform comparison (D-32 method: BYOK legs removed, since they are
 identical on every platform).** The BYOK stack is a CONSTANT — STT ₹0.50 + TTS
@@ -861,7 +911,34 @@ Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt
 |---|---|---|
 | Telephony (Exotel/Vobiz class) | ₹0.35–0.50 *(estimate)* | **UNVERIFIED** |
 | Engine platform fee (Bolna BYOK) | target ≤₹1.50 | **UNVERIFIED — pilot gate 12** |
-| **All-in, rented engine** | **₹1.89–4.28** | v2+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. **The floor did not move** — its combination has a free LLM leg, so nothing in D-410 touches it. The CEILING fell ₹0.20, from D-400's ₹4.48. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** — above where the Gemini leg left it |
+| **All-in, rented engine** | **₹2.89–4.28** | v2+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. **The floor did not move at D-410** — its combination has a free LLM leg — but it was WRONG, by ₹1.00, from the first commit of this document until 20 Aug 2026: it read **₹1.89**. See the ⚠ below. The CEILING fell ₹0.20, from D-400's ₹4.48. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** — above where the Gemini leg left it |
+
+> ⚠ **THE FLOOR SAID ₹1.89 AND THAT WAS ARITHMETIC, NOT A DIFFERENT ASSUMPTION.** Both ends
+> of this row add the same three things: a BYOK model subtotal from the table above, a
+> telephony estimate from the row above, and the engine platform fee. Written out:
+>
+> ```
+> floor    = 1.04 (Bulbul v2 + Sarvam LLM, low end)  + 0.35 (telephony, low)  + 1.50 (fee) = 2.89
+> ceiling  = 2.28 (Bulbul v3 + gpt-4o-mini, high, 5m) + 0.50 (telephony, high) + 1.50 (fee) = 4.28
+> ceiling@10m = 2.36 + 0.50 + 1.50 = 4.36      gpt-4.1-mini: 2.56/2.77 + 0.50 + 1.50 = 4.56 / 4.77
+> ```
+>
+> **₹1.89 implied a platform fee of ₹0.50 on the floor and ₹1.50 on the ceiling — one row
+> of one table, two different fees — while the row directly above states one target,
+> ≤₹1.50.** Nothing in the document ever asserted ₹0.50; it is the ceiling's arithmetic run
+> once correctly and once with a dropped rupee. Three independent places already carried the
+> right number and were never reconciled against this cell: `docs/README.md` ("floor
+> **₹2.9** on Bulbul v2 + Sarvam LLM"), ROADMAP §6 D-36 ("verified floor ₹2.9 on v2+Sarvam"),
+> and §10.2, which quoted "the ₹2.98–4.32 above" — a digit transposition of the same ₹2.89,
+> propagated into every row of its effective-cost table and corrected there too.
+> **The fee target is right and the floor was wrong**, and it is corrected here rather than
+> left as two numbers that cannot both be true.
+>
+> What the floor is NOT: it is not a price we have been quoted. The platform fee is
+> **UNVERIFIED** (pilot gate 12) and the dashboard reading of ~₹1.76/min in
+> `docs/PRODUCTION-READINESS.md` §A1 is a screen, not a commercial term — at ₹1.76 this
+> floor is ₹3.15 and the ceiling ₹4.54. The ladder is written against the TARGET because
+> that is the number the pricing decisions were made on; gate 12 is what replaces it.
 
 The quality/cost trade is now explicit and ours to choose per tier: **v2+Sarvam LLM is ~42% cheaper per minute than v3+`gpt-4o-mini`** (and ~49% cheaper than v3+`gpt-4.1-mini`) — and D-400 moved the DEFAULT to the expensive end of that ladder deliberately, so the ladder itself is the margin lever it was designed to be rather than a note about one. **D-410 narrowed the gap rather than closing it**: the spread was ~47% against the Gemini leg and is ~42% against `gpt-4o-mini`, because the premium rung got cheaper while the free rung did not move. **Flipping `azure_openai_model` widens it straight back to ~49%**, which is the honest way to read that switch — it is a quality bet costing 2.67x the default LLM leg, not a free upgrade. Bulbul v3 vs v2 Telugu quality is an **ear test at
 the pilot**, not a spec decision — and it is exactly the lever that lets us build a
@@ -871,7 +948,10 @@ value/premium ladder (see §10.3).
 fee, plus ~₹0.15–0.30/min compute (2 vCPU/4 GB node ≈ ₹2,112/mo, ~8–9 concurrent):
 **≈ ₹2.20–3.14/min** (re-derived at D-410 from the ₹1.70–2.34 BYOK constant above; it read
 ₹2.23–3.12 against the Gemini leg, so this one barely moved — the LLM change lands almost
-entirely inside the subtotal's own rounding). The delta is therefore still **≈ ₹0.9–1.5/min**,
+entirely inside the subtotal's own rounding). *(This is the **v3 premium rung across the
+whole 1–10 minute LLM curve**, which is why it sits above §10's blended phase-2 band of
+≈₹1.9–2.6: that one is mid-ladder, and the v2 rung takes ₹0.54–0.81 off the TTS line. Two
+different questions, both stated, neither an adjustment of the other.)* The delta is therefore still **≈ ₹0.9–1.5/min**,
 which is simply the platform fee: **both sides carry the identical BYOK leg, so a cheaper
 model moves the two totals together and the delta by nothing** — consistent with the
 ~2k min/month break-even already stated above.
@@ -941,9 +1021,15 @@ to reconcile — do not build on it without direct verification.)*
 
 ### 10.2 Effective cost per minute WITH fixed monthly costs amortized
 
-The ₹2.98–4.32 above is **variable cost only**. It is not what a minute actually costs us
+The ₹2.89–4.28 above is **variable cost only**. It is not what a minute actually costs us
 until the fixed base is carried. Applying the D-32 floor rule to ourselves (we applied it to
 LiveKit and to Outpero; it binds here too):
+
+*(This section's variable band read **₹2.98–4.32** from this document's first commit until
+20 Aug 2026 — the ₹2.89 floor with two digits transposed, and the pre-D-400 ₹4.32 ceiling.
+The effective column was internally consistent with those two numbers, so correcting the
+band moved every row by 5–10 paise; the conclusions below are unchanged and the break-even
+still lands near 5,000 platform-minutes.)*
 
 **Fixed monthly base ≈ ₹10–13k** — infra ₹7–10k + platform/model minimums and numbers ≈ ₹3k.
 *(This range predates D-25/D-26, which moved us to a general-purpose VPS with self-hosted
@@ -954,11 +1040,11 @@ minutes**, not one client's usage:
 
 | Total platform min/month | Fixed share | + variable | **Effective ₹/min** |
 |---|---|---|---|
-| 1,000 (client #1 only) | ₹10.0–13.0 | ₹2.98–4.32 | **₹13.0–17.3** |
-| 2,500 | ₹4.0–5.2 | ₹2.98–4.32 | **₹7.0–9.5** |
-| 5,000 | ₹2.0–2.6 | ₹2.98–4.32 | **₹5.0–6.9** |
-| 10,000 | ₹1.0–1.3 | ₹2.98–4.32 | **₹4.0–5.6** |
-| 20,000 | ₹0.5–0.65 | ₹2.98–4.32 | **₹3.5–5.0** |
+| 1,000 (client #1 only) | ₹10.0–13.0 | ₹2.89–4.28 | **₹12.9–17.3** |
+| 2,500 | ₹4.0–5.2 | ₹2.89–4.28 | **₹6.9–9.5** |
+| 5,000 | ₹2.0–2.6 | ₹2.89–4.28 | **₹4.9–6.9** |
+| 10,000 | ₹1.0–1.3 | ₹2.89–4.28 | **₹3.9–5.6** |
+| 20,000 | ₹0.5–0.65 | ₹2.89–4.28 | **₹3.4–4.9** |
 
 **Three consequences, and the first one is uncomfortable:**
 
@@ -1345,7 +1431,12 @@ Agents → Calls/Leads/KB. tenant_id on every row; **Postgres RLS on every tenan
 (policy: tenant_id = current_setting('app.tenant_id')); the API sets the GUC per request
 from the verified session; a missing GUC yields zero rows, never all rows.
 Admin realm (admin.calevate.tech) and client realm (app.calevate.tech/c/<slug>/…) are
-separate Clerk applications, separate cookies, separate deploys. Slugs are auto-generated,
+separate route trees, separate first-party session modules, separate `__Host-` cookies and
+separate deploys — and the boundary is the four mechanisms in §2's Auth bullet, not the
+two vendor applications this line named before D-177. The hostname half is enforced at the
+edge (`location ^~ /admin { return 404; }` on `app.`, `^~ /c/` on `admin.`), which stopped
+being "worth doing" and became load-bearing the moment a `__Host-` cookie set by the API
+started being sent from either hostname (AUTH-MIGRATION §3). Slugs are auto-generated,
 immutable, reserved-word-filtered. Client credentials/engine keys in a secrets manager,
 never in DB plaintext; recordings envelope-encrypted per tenant; append-only audit_log
 (who viewed which recording/lead, when); staging vs live agent config with promote action

@@ -3,8 +3,10 @@
 /**
  * Admin-realm client and hooks — a SEPARATE session from the client realm.
  *
- * TRD §11 and D-37: two Clerk applications, two session cookies, no shared session
- * logic. That separation is why this file exists at all rather than a `realm` flag on
+ * TRD §11 and D-37: two REALMS, two `__Host-` session cookies, no shared session
+ * logic. (It read "two Clerk applications" until D-177 removed the identity vendor;
+ * the separation is ours now and is enforced by `lib/authn/`, not by a vendor's
+ * account boundary.) That separation is why this file exists at all rather than a `realm` flag on
  * the client-realm session: a flag is one bad conditional away from an admin token
  * being used on a client surface, and vice versa.
  */

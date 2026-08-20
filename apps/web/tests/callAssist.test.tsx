@@ -1,12 +1,15 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
 import CallDetailPage from "@/app/c/[slug]/calls/[callId]/page";
 import type { AiQuota } from "@/lib/api/aiQuota";
 import type { Me } from "@/lib/api/client";
+import { useCallAssist } from "@/lib/api/hooks";
 
 import { expectNoA11yViolations } from "./a11y";
-import { problem, renderClientPage, stillLoading } from "./harness";
+import { type ApiCall, problem, renderClientPage, stillLoading, stubApi } from "./harness";
 
 /**
  * "Re-summarise this call" on the call detail screen (D-127 — the surface the metering,
@@ -330,11 +333,154 @@ describe("the gate", () => {
 
     const sent = calls.filter((c) => c.path === "/v1/calls/c1/assist");
     expect(sent).toHaveLength(2);
-    // The server REQUIRES the header (a repeat is a second payment to Google), and the
-    // key is per ATTEMPT: two deliberate presses are two attempts, so a key reused across
-    // them would answer the second ask with the first answer forever.
-    const keys = sent.map((c) => c.headers["idempotency-key"] ?? c.headers["Idempotency-Key"]);
-    expect(keys.every(Boolean)).toBe(true);
-    expect(new Set(keys).size).toBe(2);
+    // The server REQUIRES the header (a repeat is a second payment to the model
+    // provider), and a SUCCEEDED attempt is over: two deliberate presses are two readings
+    // a person is asking to pay for, so a key held across them would answer the second
+    // ask from the first answer forever — a button that silently stops working.
+    expect(new Set(keysOf(calls)).size).toBe(2);
   });
 });
+
+/**
+ * THE KEY'S LIFECYCLE — the half that makes the required header worth requiring.
+ *
+ * `crm/routes.assist_call` requires an `Idempotency-Key` because a repeat is a second
+ * silent payment, and it can only dedupe a key it SEES TWICE. A browser minting a fresh
+ * one per attempt sends a header that passes validation and protects nobody: the case it
+ * has to survive is a LOST RESPONSE — a 504, a dropped connection — on a run the server
+ * completed and charged for, and that arrives as a failure the person is invited to retry.
+ *
+ * So each test below pins one transition, and each is a rule the server can see the other
+ * side of. They are asserted on the WIRE rather than on the hook, because the header is
+ * the entire mechanism and a test of the ref would pass with the header unsent.
+ */
+describe("the assist idempotency key", () => {
+  it("is REUSED when the same failed attempt is retried", async () => {
+    // The lost response, as the browser experiences it: a run the server may have
+    // completed and billed, reported as a retryable failure with a "Try again" button.
+    let answers = 0;
+    const { calls } = await renderClientPage(page(), {
+      ...baseRoutes(),
+      "POST /v1/calls/c1/assist": () => {
+        answers += 1;
+        return answers === 1
+          ? problem(504, {
+              type: "https://calevate.tech/problems/gateway_timeout",
+              title: "Timed out",
+              detail: "The assistant did not answer in time.",
+              kind: "transient",
+              retryable: true,
+            })
+          : { summary: "Recovered.", disclosure: null, metered: true };
+      },
+    });
+
+    await pressAssist();
+    // `ProblemNotice`'s own retry, which is the control this is about — not a second press
+    // of the primary button, because that is the path a person takes when they believe the
+    // first attempt did not happen.
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /^Try again$/ }));
+    });
+
+    const keys = keysOf(calls);
+    expect(keys).toHaveLength(2);
+    // THE ASSERTION THE DOUBLE CHARGE TURNS ON. Same key ⇒ the server answers from the
+    // stored response (`claim.state == "replay"`) rather than paying the provider twice.
+    expect(keys[0]).toBe(keys[1]);
+  });
+
+  it("is fresh again after a success, so a second reading is a second attempt", async () => {
+    const { calls } = await renderClientPage(page(), {
+      ...baseRoutes(),
+      "POST /v1/calls/c1/assist": { summary: "First.", disclosure: null, metered: true },
+    });
+
+    await pressAssist();
+    await screen.findByText("First.");
+    await pressAssist();
+
+    const keys = keysOf(calls);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("is fresh again after reset(), which is what a wallet top-up does", async () => {
+    // The refusal at the ceiling costs nothing, so the server RELEASES the claim
+    // (`fail_idempotency`) and the key would be reusable. It is dropped anyway: what
+    // follows a purchase is a new attempt at the assistant, not a retry of the request
+    // that was refused before it reached one. `AssistCard`'s `onBought` calls `reset()`.
+    const { calls } = await renderClientPage(page(), {
+      ...baseRoutes(),
+      "POST /v1/calls/c1/assist": QUOTA_EXCEEDED,
+      "/v1/billing/ai-quota": AT_CEILING,
+      "POST /v1/billing/ai-quota/extra": {
+        ...AT_CEILING,
+        state: "within",
+        extra_purchased_inr: "500.00",
+      },
+    });
+
+    await pressAssist();
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /what more AI help costs/i }));
+    });
+    await act(async () => {
+      fireEvent.click(await screen.findByRole("button", { name: /^Add ₹500\.00$/ }));
+    });
+    await pressAssist();
+
+    const keys = keysOf(calls);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it("is not carried onto another call, which the server would refuse outright", async () => {
+    // `assist_call` hashes `{"call_id": ...}` into `request_hash`, so the same key on a
+    // different call is answered `idempotency_key_reused` — a 409 for a request that is
+    // genuinely new. The hook holds the call id WITH the key so a re-render onto another
+    // call mints from that fact rather than from an effect that may not have run.
+    const calls = stubApi({
+      "POST /v1/calls/c1/assist": stillLoading(),
+      "POST /v1/calls/c2/assist": { summary: "Read.", disclosure: null, metered: true },
+    });
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    const { result, rerender } = renderHook(
+      ({ callId }) => useCallAssist({ orgSlug: "acme" }, callId),
+      {
+        initialProps: { callId: "c1" },
+        wrapper: ({ children }: { children: ReactNode }) => (
+          <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        ),
+      },
+    );
+
+    // The first attempt is left IN FLIGHT on purpose: a settled one would have cleared the
+    // key on success, and then the second key would differ for the wrong reason — the test
+    // would pass with the call id dropped from the ref entirely.
+    await act(async () => {
+      result.current.mutate();
+    });
+    rerender({ callId: "c2" });
+    await act(async () => {
+      result.current.mutate();
+    });
+
+    // THE PREMISE, ASSERTED. Two requests to two DIFFERENT calls is the situation under
+    // test, and without this the key comparison below passes just as happily when the
+    // rerender never reached the hook and both requests went to the same call.
+    expect(calls.map((c) => c.path)).toEqual(["/v1/calls/c1/assist", "/v1/calls/c2/assist"]);
+    const keys = keysOf(calls);
+    expect(keys).toHaveLength(2);
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+});
+
+/** Every `Idempotency-Key` an assist request carried, in order. */
+function keysOf(calls: ApiCall[]): (string | undefined)[] {
+  return calls
+    .filter((c) => c.path.endsWith("/assist"))
+    .map((c) => c.headers["Idempotency-Key"] ?? c.headers["idempotency-key"]);
+}

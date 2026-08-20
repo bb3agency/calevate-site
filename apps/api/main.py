@@ -106,12 +106,20 @@ def _mount_routers(application: FastAPI) -> None:
 
     application.include_router(tenancy_router)
     # D-170's first-party authentication. Mounted unconditionally and gated per request by
-    # `Settings.first_party_auth_enabled` (default off) — a conditionally-mounted router
-    # would be invisible to `check_wiring`, absent from the OpenAPI contract, and would
-    # answer 404 during the one operation where "not switched on yet" and "wrong path" must
-    # be distinguishable. Three routers because the two realms are two route trees that
-    # share no session logic, and the invitation redemption creates an identity rather than
+    # `Settings.first_party_auth_enabled` — a conditionally-mounted router would be
+    # invisible to `check_wiring`, absent from the OpenAPI contract, and would answer 404
+    # during the one operation where "not switched on yet" and "wrong path" must be
+    # distinguishable. Three routers because the two realms are two route trees that share
+    # no session logic, and the invitation redemption creates an identity rather than
     # operating on one.
+    #
+    # NO DEFAULT RESTATED HERE, because the one that was restated was WRONG: this said
+    # "(default off)" while `calevate_shared.config` declares `= True` and
+    # `authn/routes.py`'s own header says True. It is a KILL SWITCH over the only
+    # authentication this product has, not a cutover gate — a deployment that came up with
+    # it off would have nobody able to sign in — so a reader who believed this line
+    # believed the opposite of the posture. The value lives on the field; `authn/routes.py`
+    # argues what it means.
     application.include_router(admin_auth_router)
     application.include_router(client_auth_router)
     application.include_router(invite_router)

@@ -498,10 +498,20 @@ class Settings(BaseSettings):
     # five-minute fix and an outage lasting until the next release.
     #
     # NOT a credential itself: it is the NAME of one, it is not secret, and it must stay
-    # out of `platform_secrets` (whose sealing is keyed on `_json`/`_key` style names) so
-    # an operator can actually SEE what is currently configured. The value it names is
-    # `azure_openai_api_key`, which is held encrypted and pushed to the engine, never
-    # echoed back.
+    # out of `platform_secrets` so an operator can actually SEE what is currently
+    # configured. The value it NAMES is `azure_openai_api_key`, which is held encrypted
+    # and pushed to the engine, never echoed back.
+    #
+    # ⚠ THAT DID NOT HOLD BY ITSELF, AND THE CORRECTION IS LOAD-BEARING FOR THE GATE
+    # ABOVE. This comment used to add "(whose sealing is keyed on `_json`/`_key` style
+    # names)", which is wrong: `platform_config._SECRET_NAME_FRAGMENTS` also carries the
+    # bare fragment `credential`, added for exactly the naming this field uses — so the
+    # field WAS sealed, write-only, `last_four` and nothing else. An operator working
+    # gate 16f is trying values against a leg that is down; "what is it set to right
+    # now" is the whole question they have. It also routed the `pattern` below around
+    # its only enforcement point, because the secrets write path validates non-emptiness
+    # and nothing else. The exemption is now explicit and checked at import:
+    # `platform_config._CREDENTIAL_REFERENCE_KEYS`.
     #
     # Bounded to the shape a credential-store key can take: their examples are
     # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores.
@@ -686,10 +696,16 @@ class Settings(BaseSettings):
 
     # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
     # stay off until the human checklist in workers/whatsapp.py is done: WABA + business
-    # verification, an APPROVED template, and a recorded per-tenant opt-in (which needs
-    # a column that does not exist yet). No BSP has been chosen in the decision log, so
-    # `whatsapp_provider` is a seam, not a switch: any name other than `console`
-    # resolves to `provider_not_implemented` and refuses to send, loudly.
+    # verification, an APPROVED template, and a recorded per-tenant opt-in.
+    #
+    # D-91 CHOSE META CLOUD API DIRECT, and this comment said the opposite for as long as
+    # the three keys below were missing: "No BSP has been chosen in the decision log, so
+    # `whatsapp_provider` is a seam, not a switch: any name other than `console` resolves
+    # to `provider_not_implemented`". A decision WAS taken (Cloud API over the Indian BSP
+    # layer, argued at length in `apps/workers/whatsapp_cloud.py`), the adapter was
+    # written, and `meta_cloud_api` selects it. What stayed true is the refusal for every
+    # OTHER name — naming a BSP we have not written still fails loudly rather than looking
+    # configured.
     whatsapp_enabled: bool = False
     whatsapp_provider: str | None = Field(default=None, max_length=64)
     # The approved template's name and language, as registered with the provider. Here
@@ -698,6 +714,74 @@ class Settings(BaseSettings):
     # neither is free text, and an EMPTY one would send a message naming no template.
     whatsapp_template_hot_lead: str = Field(default="calevate_hot_lead_v1", max_length=128)
     whatsapp_template_locale: str = Field(default="en", max_length=16)
+
+    # ---- Meta Cloud API credentials (D-91) ----------------------------------------
+    #
+    # THESE THREE ARE WHAT MADE `WHATSAPP_PROVIDER=meta_cloud_api` A DEAD CONFIGURATION.
+    # `apps/workers/whatsapp.py` carried a block headed "TEMPORARY SHIM — DELETE THE
+    # `getattr`s WHEN THE SETTINGS KEYS LAND", reading them through
+    # `getattr(settings, ..., "")` because this file was owned elsewhere. The keys never
+    # landed, and `Settings` is `extra="forbid"` — so no environment variable, no console
+    # row and no test could set them, `whatsapp_delivery_status()` returned
+    # `cloud_api_access_token_missing` on every deployment for ever, and
+    # `CloudApiWhatsAppTransport` was unreachable code with an operator being told to go
+    # and mint a token that had nowhere to go. A shim whose stated exit condition never
+    # happens is the half-wired feature the quality bar names.
+    #
+    # NONE OF THIS IS THE VENDOR'S HALF. The WABA, the business verification and the two
+    # approved templates are external and stay external — they are the operational gate on
+    # `whatsapp_cloud.CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA`, and `whatsapp_enabled` stays
+    # False until a person closes it. Declaring the keys is what makes that gate the only
+    # thing left, instead of the second of two.
+
+    # The Meta system-user access token. A CREDENTIAL, and it seals BY NAME rather than by
+    # anyone remembering to say so: `platform_config._SECRET_NAME_FRAGMENTS` carries the
+    # bare fragment `token`, so `is_secret_key` is True, it is excluded from
+    # `managed_fields()` and it lands in the encrypted `platform_secrets` path with
+    # `last_four` as the only thing the console ever renders back. Verified rather than
+    # assumed — the fragment list is a substring match and reading it is cheaper than
+    # discovering a plaintext credential later.
+    #
+    # LONG-LIVED, so there is nothing to refresh: Cloud API uses a system-user token
+    # rather than a refresh flow, which is why `CloudApiWhatsAppTransport` caches nothing
+    # (unlike `google_sheets.GoogleSheetsTransport`, which mints hourly). NO max_length:
+    # every genuine credential in this model is an opaque `str | None`, because a bound
+    # guessed at a vendor's token format is a bound that refuses a valid token one
+    # rotation from now.
+    whatsapp_cloud_access_token: str | None = None
+    # The sending number's id, from the Meta console — the `<phone-number-id>` path
+    # segment of `POST /{version}/{phone-number-id}/messages`.
+    #
+    # NOT A CREDENTIAL and deliberately not named as one, exactly like `razorpay_key_id`
+    # next to `razorpay_key_secret`: it identifies which number sends, it authenticates
+    # nothing, and an operator working the WABA checklist needs to SEE it to check it
+    # against the console. Meta's ids are numeric strings; the bound is generous because
+    # the failure it guards is a paste of the wrong thing entirely, not a length.
+    whatsapp_cloud_phone_number_id: str | None = Field(default=None, max_length=64)
+    # Which Graph API version to call. PINNED, never floating: Meta versions the Graph
+    # API, unversioned calls are not a supported form, and a floating version changes
+    # behaviour under us on their release schedule.
+    #
+    # CONFIG HERE, CODE IN `ingest/graph.py`, AND THE DIFFERENCE IS ARGUED RATHER THAN
+    # DRIFT. `GRAPH_API_VERSION` is a `Final` in the Lead Ads reader with a test saying
+    # raising it "is a code change with a test run, never an environment variable" — and
+    # that is right THERE, because the version decides the shape of the response that
+    # module PARSES, so a bump can silently change what a lead's answers mean. This one
+    # addresses a `POST` whose request body and error envelope we construct ourselves,
+    # and the event that forces a bump is Meta deprecating a version on their clock —
+    # the same kind of external operational event that put the template name and locale
+    # above in config rather than in code.
+    #
+    # THE PATTERN IS THE PIN. `v` and two numbers, so `latest`, `22.0`, an empty string
+    # and a pasted URL are all refused at the console boundary with the field's own
+    # message — `ops/config_service.validated_value` enforces it on the write path, which
+    # is the enforcement point a constraint on a console-settable field has to have. The
+    # rejected alternative was a bare `max_length`: it admits every one of those values,
+    # and each of them fails as an opaque 4xx from Meta mid-send instead of as a sentence
+    # while somebody is typing.
+    whatsapp_cloud_graph_version: str = Field(
+        default="v22.0", max_length=8, pattern=r"^v[0-9]{1,3}\.[0-9]{1,2}$"
+    )
 
     # Google Sheets delivery for outbound CRM sync (D-23, `outbound_webhooks.kind =
     # 'google_sheets'`). Same seam as `whatsapp_provider`: `console` is the local dev

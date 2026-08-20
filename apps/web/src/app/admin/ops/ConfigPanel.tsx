@@ -162,14 +162,37 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     prefixes: ["google_sheets_", "meta_", "payment_provider", "number_provider", "razorpay_"],
   },
   {
-    title: "Observability",
-    hint: "Tracing and release identity.",
-    prefixes: ["otel_", "release_version", "sentry_"],
+    // The value that decides WHICH MODEL answers, and it landed in "Other" — the bucket
+    // whose hint says this console has no group for it yet. D-410 moved both language
+    // surfaces onto Azure OpenAI and left three keys behind (`azure_openai_resource`,
+    // `_deployment`, `_model`), and `azure_openai_model` is a LIVE switch between two
+    // models that differ by 2.7x on price: flipping it moves every "about N assists" on
+    // a client's screen (`billing/ai_quota.assist_nominal_inr` derives the estimate per
+    // model) and every in-call token bill. A change with that blast radius filed under
+    // "no group yet" is the console under-stating what an operator is about to do.
+    //
+    // `bolna_llm_credential_name` deliberately stays under Voice engine: it names a
+    // credential in BOLNA's console, so an operator correcting it is working on the
+    // engine's side of the seam, not ours.
+    title: "Language model",
+    hint: "Which Azure OpenAI resource and deployment answer, in South India (D-410).",
+    prefixes: ["azure_openai_"],
   },
   {
-    // The `clerk_` prefix went with the vendor (D-177) — authentication has no
-    // console-managed setting at all now, and a prefix matching nothing would be a group
-    // that renders empty on a screen whose job is to say what is installed.
+    // NOT "authentication has no console-managed setting at all now", which is what
+    // stood here: the `clerk_` prefix did go with the vendor (D-177), and
+    // `first_party_auth_enabled` arrived in its place — a LIVE kill switch over the only
+    // authentication this product has. It was in "Other", which is the one bucket whose
+    // hint tells an operator the console has no opinion about a setting.
+    //
+    // The old note also gave a reason that was never true: a prefix matching nothing
+    // does NOT render an empty group, because `grouped()` filters to the titles that
+    // actually got fields.
+    title: "Sign-in",
+    hint: "The switch over first-party authentication. There is no identity vendor (D-177).",
+    prefixes: ["first_party_auth"],
+  },
+  {
     title: "Storage",
     hint: "Where recordings, transcripts and exports are kept.",
     prefixes: ["object_store_"],

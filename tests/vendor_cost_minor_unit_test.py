@@ -19,6 +19,17 @@ by 100x, so no spend cap ever arms and every margin panel reads near zero".
 The same pairing exists for the CURRENCY (`_ASSUMED_CURRENCY` / `ASSUMED_SOURCE_CURRENCY`)
 and is asserted here for the same reason.
 
+**AND SINCE D-411 THE DIVISOR IS A TABLE, WHICH IS HOW THIS FILE ALMOST STOPPED BITING.**
+The adapter's `_MINOR_UNITS_PER_MAJOR` is keyed by currency; the gate's restatement had to
+become one too. The two scalars above still agree — USD's value never moved — so a test
+that only compared them would have gone on passing while the gate lost the ability to say
+anything about an INR-billed account, the case the whole change was made for. A pin that
+survives the thing it was meant to catch is worse than no pin, because it is READ as
+coverage. So the VOCABULARIES are pinned in both directions as well: a currency the
+adapter learns and the gate does not is a gate scoring an account it cannot reason about,
+and a currency the gate claims and the adapter refuses is a gate verifying a premise
+nothing holds.
+
 Run: uv run pytest -q tests/vendor_cost_minor_unit_test.py
 """
 
@@ -42,3 +53,32 @@ def test_the_gate_and_the_adapter_assume_the_same_scale() -> None:
 def test_the_gate_and_the_adapter_assume_the_same_currency() -> None:
     """The other half of the same pair, and the one that is worth 83x rather than 100x."""
     assert fidelity.ASSUMED_SOURCE_CURRENCY == bolna._ASSUMED_CURRENCY
+
+
+def test_the_gate_and_the_adapter_know_the_same_currencies() -> None:
+    """THE PIN THAT THE SCALAR PAIR ABOVE CANNOT PROVIDE (D-411).
+
+    The divisor is per currency now. If the adapter gains an `INR: 1` entry the day gate 7
+    reads an INR-billed execution, and this file is not updated in the same change, the
+    gate goes on reporting `pass` for USD and treats every INR execution as an unpriced
+    refusal it can say nothing about — green, and blind to the currency that motivated the
+    fix. The reverse is the older defect: a currency the GATE thinks has a stated unit and
+    the adapter refuses is gate 7 verifying a premise nothing holds.
+
+    Key sets, not values: the divisor for a given currency is asserted one test up through
+    the scalar pair, and restating every value here would make the restatement itself the
+    thing that drifts.
+    """
+    assert set(fidelity.STATED_MINOR_UNITS_PER_MAJOR) == set(bolna._MINOR_UNITS_PER_MAJOR), (
+        "the adapter and gate 7 disagree about which currencies have a defensible unit; "
+        "whichever side is behind, the gate is scoring the wrong set of accounts"
+    )
+
+
+def test_the_divisor_for_every_shared_currency_agrees() -> None:
+    """And the values, for the whole vocabulary rather than for USD alone — the scalar pin
+    above covers `_ASSUMED_CURRENCY` and would not notice a second entry going wrong."""
+    for currency, divisor in bolna._MINOR_UNITS_PER_MAJOR.items():
+        assert fidelity.STATED_MINOR_UNITS_PER_MAJOR[currency] == divisor, (
+            f"gate 7 scores {currency} at a divisor the adapter does not use"
+        )

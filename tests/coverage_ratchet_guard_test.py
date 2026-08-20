@@ -1223,3 +1223,72 @@ class TestReportParsing:
                 "reader that falls back to the repo-root `.coverage` scores whatever "
                 "partial run last touched it"
             )
+
+
+class TestTheRecipeEveryReaderIsGiven:
+    """The instruction, not the implementation — because the instruction is what failed.
+
+    D-29's gate is careful about provenance and then hands its result to whoever read the
+    recipe last. Twice, that reader ran `uv run pytest ... -q` and then the checker, which
+    produces NO coverage data and does NOT load the `-p scripts.check_coverage_ratchet`
+    plugin that records which tests passed: the checker falls back to a stale `.coverage`
+    artifact and scores a run nobody did. CLAUDE.md hard rule 10 was rewritten to say so.
+    `docs/AGENTS.md` — which that rule's own header calls its mirror for other coding
+    agents — kept printing the broken pair for weeks afterwards, so every non-Claude agent
+    was still being handed the trap. A rule enforced by two prose files agreeing is
+    enforced by whoever edited one of them last, which is why this is a test.
+
+    It asserts the SHAPE of the recipe, deliberately not its wording: both files must name
+    `make coverage-ratchet`, and neither may present a bare pytest as the step before the
+    checker. `scripts/check_docs_drift.py` proves the commands RESOLVE — that the target
+    and the module exist — and cannot see that two resolvable commands are the wrong pair.
+    """
+
+    #: The files that TELL somebody how to run the gate. Both, always: the whole defect
+    #: was one being corrected and the other not.
+    RECIPE_DOCS = ("CLAUDE.md", "docs/AGENTS.md")
+
+    #: A pytest invocation is only wrong when it is standing in for the make target — the
+    #: prose that EXPLAINS the trap has to be able to quote it. `-p scripts.check_coverage
+    #: _ratchet` is the plugin flag that makes a hand-typed run legitimate.
+    _BARE_PYTEST = re.compile(r"^\s*(uv run )?(coverage run -m )?pytest\b(?!.*-p scripts\.)")
+
+    @pytest.mark.parametrize("doc", RECIPE_DOCS)
+    def test_it_names_the_make_target(self, doc: str) -> None:
+        text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+        assert "make coverage-ratchet" in text, (
+            f"{doc} does not name `make coverage-ratchet`. It is the ONLY invocation that "
+            "produces coverage data AND loads the plugin that vouches for the run"
+        )
+
+    @pytest.mark.parametrize("doc", RECIPE_DOCS)
+    def test_no_fenced_block_offers_a_bare_pytest_as_the_step_before_the_checker(
+        self, doc: str
+    ) -> None:
+        """Fenced blocks only: that is what a hurried reader copies, and prose about the
+        trap must stay writable. The pairing is the defect — a bare pytest ANYWHERE in the
+        same block as `check_coverage_ratchet` is the exact sequence that scored a run
+        nobody did."""
+        text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+        blocks = re.findall(r"```[a-z]*\n(.*?)```", text, re.DOTALL)
+        for block in blocks:
+            if "check_coverage_ratchet" not in block and "coverage-ratchet" not in block:
+                continue
+            for line in block.splitlines():
+                assert not self._BARE_PYTEST.match(line), (
+                    f"{doc} pairs a bare pytest with the ratchet: {line.strip()!r}. That "
+                    "run records no coverage and loads no manifest plugin, so the checker "
+                    "scores whatever stale `.coverage` is lying around. Use the make target."
+                )
+
+    @pytest.mark.parametrize("doc", RECIPE_DOCS)
+    def test_it_says_to_start_from_empty_stores(self, doc: str) -> None:
+        """The other half of a scorable run. What Postgres and Redis HOLD changes which
+        branches execute, and this gate is an equality — a stale store lands the
+        difference as a failure on somebody else's PR."""
+        text = (REPO_ROOT / doc).read_text(encoding="utf-8")
+        for target in ("make db-reset", "make redis-reset"):
+            assert target in text, (
+                f"{doc} does not tell the reader to run `{target}` first. A measurement "
+                "taken against a dirty store is not the measurement CI will take"
+            )

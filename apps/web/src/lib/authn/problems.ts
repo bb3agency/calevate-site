@@ -22,7 +22,7 @@
  * identical, character for character.
  */
 
-import { ApiProblem } from "@/lib/api/client";
+import { ApiProblem, TimeoutProblem } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -178,6 +178,13 @@ const SIGN_IN_COPY: Record<string, string> = {
  * mistake pointed at a form rather than at a gate.
  */
 export function signInMessage(error: unknown): string | null {
+  // A TIMEOUT IS `isUnreachable` TOO, AND MUST NOT BORROW ITS SENTENCE. The copy below
+  // ends "nothing was submitted", which is true of a connection that never opened and
+  // FALSE of a request we stopped waiting for: the server may have received it, created
+  // the session and answered into a socket nobody was reading. Falling through to
+  // `ProblemNotice` renders `TimeoutProblem`'s own two sentences, which claim only what
+  // this browser can actually vouch for (`lib/api/client.ts`).
+  if (error instanceof TimeoutProblem) return null;
   if (isUnreachable(error)) {
     return "We could not reach Calevate. Check your connection and try again — nothing was submitted.";
   }

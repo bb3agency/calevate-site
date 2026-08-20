@@ -151,12 +151,27 @@ businesses' customer data under Indian telecom and privacy law.
 
 ### The coverage ratchet gates every push (CLAUDE.md hard rule 10)
 
-Before pushing anything, in this order:
+Before pushing anything, from EMPTY STORES, in this order:
 
 ```
-uv run pytest tests packages -q          # 0 failed, 0 errored, 0 collection errors
-uv run python -m scripts.check_coverage_ratchet
+make db-reset          # drop, migrate, seed — `upgrade head` alone leaves reserved_slugs empty
+make redis-reset       # flush AND rewrite the snapshot
+make coverage-ratchet  # THE ONLY invocation
 ```
+
+**Run the make target, not a pytest you typed yourself.** This section used to print
+`uv run pytest tests packages -q` followed by the checker, and that pair is the trap, not
+the recipe: a plain pytest produces NO coverage data and does not load the
+`-p scripts.check_coverage_ratchet` plugin that records which tests passed. The checker
+then falls back to whatever `.coverage` artifact is lying around from an earlier run and
+scores THAT — reporting failures from a run you did not do, on code it never executed.
+CLAUDE.md hard rule 10 was corrected after this caught its own author twice; this mirror
+was not, until now.
+
+**Read the exit status of `make`, not of the line after it.** `make coverage-ratchet; echo
+"EXIT=$?"` reports the status of the ECHO, so a run killed at 7% by an OOM or a container
+restart surfaces as exit 0 and reads exactly like a pass. Output with no `COVERAGE
+RATCHET:` line in it is NOT RUN, never OK.
 
 It scores the run it is handed, so a suite that did not pass makes it **REFUSE TO SCORE**
 and exit 2 — CI goes red on work that may be entirely fine. "REFUSED TO SCORE" names a

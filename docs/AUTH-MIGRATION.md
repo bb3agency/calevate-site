@@ -36,12 +36,27 @@ hole it would have papered over. §11 is the inventory of what remains.
 
 Two drivers, both real, and only one of them is about money.
 
-**Residency.** D-25 already moved hosting to a general-purpose VPS with an India-resident
-data plane, and the founder is moving it again, to a **Hostinger India VPS**. The point of
-that move is the DPDP posture: SECURITY-COMPLIANCE §4 can say "everything the caller says
-is processed in India" because every model endpoint is pinned to an Indian region and a
-guardrail (`scripts/check_model_residency.py`) fails the build on anything else. Clerk is
-the hole in that sentence. It holds the identity data — email addresses, names, phone
+**Residency.** D-25 already moved hosting to a general-purpose VPS, and the founder is
+moving it again, to a **Hostinger India VPS**. The point of that move is the DPDP posture.
+
+> ⚠ **THIS PARAGRAPH'S PREMISE HAS WEAKENED TWICE SINCE IT WAS WRITTEN AND IS LEFT
+> STANDING ONLY WITH BOTH CORRECTIONS ATTACHED, because it is the argument the whole
+> migration was sold on.** As written on 17 Aug 2026 it said SECURITY-COMPLIANCE §4 could
+> say "everything the caller says is processed in India" because *every model endpoint is
+> pinned to an Indian region and a guardrail fails the build on anything else*.
+> **(1)** That was true of Vertex, whose URL carried `asia-south1` in the host and in the
+> path; **D-410 replaced it with Azure OpenAI, whose `<resource>.openai.azure.com` names no
+> region at all.** `scripts/check_model_residency.py` now proves only that no Azure endpoint
+> is constructible outside `azure_openai_base_url()` and that the builder cannot emit a
+> non-India region — WHERE the traffic goes is asserted by configuration and **attested by
+> a human** at OPERATIONS §2 gates 20 and 20c. **(2)** "India-resident data plane" was
+> struck from `docs/README.md` and root `CLAUDE.md` because `docs/DEPLOYMENT.md` §0 says
+> India co-location is NOT required for the tier that holds every transcript, and no host
+> is chosen (LEGAL-SURFACE F-1). **What survives is what actually justified this
+> migration**: the identity data was a residency question we could answer without either of
+> those, and answering it removed a sub-processor rather than re-describing one.
+
+Clerk was the hole in that sentence. It holds the identity data — email addresses, names, phone
 numbers, sign-in events, IP addresses and device metadata for every operator and every
 client user — on infrastructure outside India, and no amount of pinning our own endpoints
 changes that. The move to an Indian VPS with Clerk still in the stack buys a claim about
@@ -231,9 +246,15 @@ decided by the database rather than by arrival order.
 
 ## 3. The realm boundary — the most dangerous part of this migration
 
-Today the separation is a property of the *vendor*: two Clerk applications, two JWKS
-hosts, and `core/auth.py::jwks_url` verifying each realm against its own. An admin token
-is not a weak client token; it is not a token at all. `missing_realm_separation_keys`
+*(**Tense warning, because this section is the one people quote.** It is written from
+before the cutover and kept in that voice deliberately — it is the ARGUMENT, and the
+argument is what a reader needs. **The cutover has RUN (D-177): the four mechanisms below
+are what ships today, and the vendor described in the next sentence does not exist.** §5 is
+the sequence that ran; §11 is what is still not built.)*
+
+Before the cutover the separation was a property of the *vendor*: two Clerk applications,
+two JWKS hosts, and `core/auth.py::jwks_url` verifying each realm against its own. An admin
+token was not a weak client token; it was not a token at all. `missing_realm_separation_keys`
 exists because a deployment that set `CLERK_FRONTEND_API` and forgot the publishable keys
 collapsed both realms onto one host and reported `/healthz/ready` green — the exact failure
 that turns an authentication boundary into an authorization check.
@@ -584,9 +605,9 @@ dangerous mutations elsewhere in the API); `too_many_attempts` (429, with `Retry
 
 ## 11. What is NOT built
 
-Named so the next reader does not have to discover it. **Five entries that used to be here
-are gone — four built, one retired — and each says which, because a list that only ever
-grows is a list nobody reads.** Everything about REPLACING Clerk is gone from this list
+Named so the next reader does not have to discover it. **Six entries that used to be here
+are gone — four built, one retired, one corrected — and each says which, because a list
+that only ever grows is a list nobody reads.** Everything about REPLACING Clerk is gone from this list
 because Clerk is gone from the tree (D-177); what is left of it is one disclosure, last
 bullet, which is counsel's and not ours.
 
@@ -662,12 +683,24 @@ bullet, which is counsel's and not ours.
   The second click on a spent reset link is answered 422 rather than replayed, and that is
   correct rather than a wart: nothing here can distinguish the person who double-clicked
   from somebody replaying a leaked link, and the safe answer to both is the same.
-- **The legal copy.** `apps/web/src/lib/legal/{cookies,privacy,subprocessors}.ts` and the
-  published DPA still name Clerk as a sub-processor and as where passwords are held. Both
-  statements are now false. They are DISCLOSURES rather than code: removing a named
-  sub-processor from a client DPA is counsel's call, and the whole `/legal` set carries
-  `{{PENDING LEGAL REVIEW}}` for the same reason. **This is the one thing D-177 makes
-  untrue and does not fix**, and it is named here so it is a deferral with an owner.
+
+*(**"The legal copy" left this list on 20 Aug 2026, and the entry is kept struck because
+what it got WRONG is more useful than what it got right.**  It read: `apps/web/src/lib/
+legal/{cookies,privacy,subprocessors}.ts` and the published DPA still name Clerk as a
+sub-processor and as where passwords are held; both statements are now false; they are
+DISCLOSURES rather than code, so removing a named sub-processor from a client DPA is
+counsel's call — *"the one thing D-177 makes untrue and does not fix."* **The
+counsel's-call framing was the error.** Deleting a vendor that is not a sub-processor is
+not a disclosure decision; it is a correction. While it sat here waiting for counsel a
+SECOND vendor change (D-410) landed in the same files and inherited the same stall — so a
+client-facing document went on naming Clerk (United States) and Google Cloud — Vertex AI,
+and went on telling the reader that a build check proved the model region, days after
+LEGAL-SURFACE §4 had withdrawn exactly that claim. Both are corrected now, and there is no
+Clerk row anywhere in `apps/web/src/lib/legal/`. `{{PENDING LEGAL REVIEW}}` still governs
+the WORDING of those documents; it never governed the vendor INVENTORY, and treating the
+two as one bought three days of a false disclosure. The residue is that nothing
+mechanically ties the published inventory to this tree's actual vendors —
+LEGAL-SURFACE F-11 and FOLLOW-UP-8.)*
 
 ---
 

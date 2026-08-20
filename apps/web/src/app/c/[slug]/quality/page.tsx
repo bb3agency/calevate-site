@@ -177,7 +177,8 @@ function Report({ report }: { report: QaReport }) {
           </ul>
         </NoticeBox>
         <p className="mt-3 text-xs text-ink-faint">
-          For the month ending {report.as_of}. Measured with the {report.model} language model.
+          For the month ending {monthEndLabel(report.as_of)}. Measured with the {report.model}{" "}
+          language model.
         </p>
       </Card>
 
@@ -305,9 +306,61 @@ function Report({ report }: { report: QaReport }) {
   );
 }
 
-/** "August 2026" from an ISO month-end, in the reader's own words rather than a date. */
+/**
+ * The API's `as_of` as a `Date` that means the SAME CALENDAR DAY in every timezone, or
+ * null when the string is not one.
+ *
+ * `as_of` is a CALENDAR DATE (`format: date` — `scripts/qa_report.py` types it `date`),
+ * and the trap `c/[slug]/page.tsx::formatDayLabel` records applies to it: `new
+ * Date("2026-09-01")` parses as midnight UTC and then renders in the BROWSER's zone, so
+ * a reader west of UTC was shown "August 2026" over September's report. It is the month
+ * name on a document this product sends a client monthly to prove the agent was tested,
+ * and nothing else on the page would contradict it.
+ *
+ * So the instant is BUILT in UTC and READ back in UTC by both labels below: the two
+ * cancel, and the output is the day the string names wherever the reader is. `Intl` is
+ * still what names the month, because "August" is a translation and a hand-written table
+ * would be a second one.
+ *
+ * The parts are checked rather than the constructed instant: `Date.UTC` rolls a month of
+ * 13 forward into the next year instead of refusing it, so the "Invalid Date"
+ * fall-through a `new Date(string)` gives for free does not exist here.
+ */
+function calendarDay(asOf: string): Date | null {
+  const [year, month, day] = asOf.split("-");
+  const yearNumber = Number(year);
+  const monthIndex = Number(month) - 1;
+  const dayNumber = Number(day);
+  if (!Number.isInteger(yearNumber) || !Number.isInteger(monthIndex)) return null;
+  if (!Number.isInteger(dayNumber) || monthIndex < 0 || monthIndex > 11) return null;
+  if (dayNumber < 1 || dayNumber > 31) return null;
+  return new Date(Date.UTC(yearNumber, monthIndex, dayNumber));
+}
+
+/** "August 2026" — the month picker's label, in the reader's own words rather than a date. */
 function monthLabel(asOf: string): string {
-  const parsed = new Date(asOf);
-  if (Number.isNaN(parsed.getTime())) return asOf;
-  return parsed.toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+  const at = calendarDay(asOf);
+  if (at === null) return asOf;
+  return at.toLocaleDateString("en-IN", { timeZone: "UTC", month: "long", year: "numeric" });
+}
+
+/**
+ * "31 July 2026" — the day the report's month ends on.
+ *
+ * The line under the report used to interpolate `as_of` RAW, so the sentence a client
+ * reads to find out which month they are looking at said "For the month ending
+ * 2026-07-31" while the chip two inches above it said "July 2026". An ISO date is a wire
+ * format: an owner reading dates as DD-MM-YYYY has to stop and work out which end the
+ * year is on, and the two spellings of one fact on one screen is the drift that
+ * eventually has them disagreeing.
+ */
+function monthEndLabel(asOf: string): string {
+  const at = calendarDay(asOf);
+  if (at === null) return asOf;
+  return at.toLocaleDateString("en-IN", {
+    timeZone: "UTC",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
 }

@@ -15,6 +15,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  formatIST,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
@@ -288,8 +289,15 @@ function ErasurePanel({
     return (
       <Card title="Data erasure">
         <p className="text-sm text-ink-muted">
+          {/* `formatIST`, like every other instant in both consoles. A bare
+              `toLocaleString()` takes the BROWSER's zone AND the browser's locale, so
+              this line — the date on a DPDP erasure certificate, the one record that
+              answers "when was this destroyed" — read "8/19/2026, 8:00:00 PM" on an
+              operator's machine and named the previous day outside IST. Times are stored
+              UTC and shown IST at the edge (CLAUDE.md conventions); this was the one
+              place in the app that opted out. */}
           {existing.status === "completed"
-            ? `This client's data was erased on ${new Date(existing.completed_at ?? existing.requested_at).toLocaleString()}. The certificate below is the record.`
+            ? `This client's data was erased on ${formatIST(existing.completed_at ?? existing.requested_at)}. The certificate below is the record.`
             : "An erasure has been filed for this client and is running. It cannot be cancelled."}
         </p>
         <p className="mt-2 text-xs text-ink-muted">Reason recorded: {existing.reason}</p>
@@ -299,8 +307,12 @@ function ErasurePanel({
             <li>Leads anonymised: {existing.proof.scope.leads_erased ?? "not recorded"}</li>
             <li>
               Recordings destroyed: {existing.proof.scope.recordings_destroyed ?? "not recorded"}
+              {/* An ISO INSTANT (`compliance/deletion.py::HOLD_UNTIL_KEY`), not a
+                  calendar date, so it gets the same IST rendering as the line above —
+                  `toLocaleDateString()` dropped the time AND took the browser's zone,
+                  which can move a retention deadline by a day. */}
               {existing.proof.recording_hold_until
-                ? ` — the rest are destroyed by ${new Date(existing.proof.recording_hold_until).toLocaleDateString()}`
+                ? ` — the rest are destroyed by ${formatIST(existing.proof.recording_hold_until)}`
                 : ""}
             </li>
             <li>Engine-side copies: {existing.proof.engine_deletion}</li>

@@ -83,6 +83,46 @@ rejections (unapproved template, recipient not opted in, no provider) do not, an
 message that never went out ALERTS rather than returning quietly. Nobody being told
 about a hot lead is the exact failure this feature exists to prevent.
 
+**THE RESIDUAL, AND IT IS A CHOSEN TRADE RATHER THAN AN OVERSIGHT: THIS PATH IS
+AT-LEAST-ONCE.** The delivery record is written AFTER the vendor accepts (`_record_attempt`
+runs on the result of `get_whatsapp_transport().send(...)`, and `_already_delivered` is
+what the next attempt consults). A process that dies in the window between Meta accepting
+the message and that transaction committing therefore re-sends on the next attempt, and
+the client's owner gets the same hot-lead nudge twice. Nothing here is hiding that; it is
+the direction this module deliberately fails in.
+
+*Why this way round.* The alternative is a claim written BEFORE the send — the standard
+"derive a deterministic business key, claim it in a durable store under a uniqueness
+constraint, then open the HTTP connection" shape — which converts the same crash into a
+message that is never sent at all. For a hot-lead alert the two outcomes are not
+symmetric: a duplicated nudge is a client seeing one lead twice on a screen that shows the
+lead once, while a missed one is the exact failure this feature exists to prevent, inside
+a two-minute SLO, with no second mechanism behind it. FLOWS §6 buys the duplicate.
+
+*Why not simply use the vendor's idempotency key — because there is none.* Checked
+2026-08-20 rather than assumed (D-31/D-32: a vendor behaviour is a gate or a marked
+assumption, never a silent premise). Meta's Cloud API `POST /messages` accepts no
+`Idempotency-Key` header and no caller-supplied message id, and the one caller-supplied
+field it does carry — `biz_opaque_callback_data` — is an arbitrary string echoed back on
+the STATUS WEBHOOK for correlation, not a deduplication key: a second request carrying the
+same value is accepted and delivered like any other, so sending it would buy traceability
+and not idempotency. `developers.facebook.com` is blocked by this build environment's
+egress proxy (see the paragraph above), so this is documentation-and-search based and is
+worth exactly that — the corroborating point is that every third-party integration guide
+on the subject prescribes an APPLICATION-level claim before the send, which is only
+advice worth writing if the vendor offers nothing. If the Cloud API ever grows a real
+idempotency field, closing this window is a small change at the transport seam, and the
+trade above is the thing to revisit first rather than the mechanism.
+
+*What the duplicate costs, bounded.* One extra template message per crash inside that
+window — never a duplicate LEAD, never a second CRM row, never a second billing event:
+`_record_attempt` writes ONE timeline entry per (lead, call, channel) and updates it in
+place, and nothing downstream counts messages. The same window and the same trade apply to
+`escalate_campaign_contact` below, where the recipient is a consumer, and there it is
+tighter for a different reason: `check_dispatch` runs before the send on EVERY attempt, so
+a re-send is re-checked against DNC, the calling window and the big red switch rather than
+replayed past them.
+
 Hard rule 6: the destination number is never logged, not even masked and not even in a
 fingerprint. `transport.py` logs an email DOMAIN because a domain is shared, low-entropy
 and not a person; a phone number has no such component, so the logs here carry ids and
@@ -291,30 +331,24 @@ NO_PHONE_ID_REASON = "cloud_api_phone_number_id_missing"
 DEV_SINK_OUTSIDE_LOCAL_REASON = "dev_sink_refused_outside_local"
 PROVIDER_NOT_IMPLEMENTED_REASON = "provider_not_implemented"
 
-# The Graph API version to call when the deployment does not pin one. Meta versions the
-# Graph API and unversioned calls are not a supported form, so a default is required
-# rather than optional — and a STALE pinned version fails loudly at the vendor, which is
-# better than a floating one changing behaviour under us on Meta's release schedule.
-DEFAULT_GRAPH_VERSION = "v22.0"
 
-
-# ---------------------------------------------------------------------------------
-# TEMPORARY SHIM — DELETE THE `getattr`s WHEN THE SETTINGS KEYS LAND.
+# THE SHIM THAT USED TO BE HERE IS GONE, AND IT IS WORTH ONE PARAGRAPH BECAUSE OF HOW
+# LONG IT LASTED. This block was headed "TEMPORARY SHIM — DELETE THE `getattr`s WHEN THE
+# SETTINGS KEYS LAND", read all three values through `getattr(settings, "...", "")`
+# because `calevate_shared.config` was owned by another slice, and named the three fields
+# to declare verbatim. They were never declared — and `Settings` is `extra="forbid"`, so
+# no environment variable, no console row and no test could supply them. Every `getattr`
+# returned its default for ever: `whatsapp_delivery_status()` answered
+# `cloud_api_access_token_missing` on every deployment, `CloudApiWhatsAppTransport` was
+# unreachable, and the refusal sent an operator to mint a token with nowhere to put it.
 #
-# `Settings` is `extra="forbid"` (packages/shared/.../config.py), so these three keys
-# must be DECLARED there before they can be read at all — and this slice is not the
-# owner of that file. Until they are declared, this reads them defensively so the module
-# typechecks and behaves correctly (absent key == absent credential == a named refusal),
-# which is exactly what a deployment without them should do anyway.
-#
-# The keys to declare, verbatim:
-#     whatsapp_cloud_access_token: str | None = None
-#     whatsapp_cloud_phone_number_id: str | None = None
-#     whatsapp_cloud_graph_version: str = "v22.0"
-#
-# When they exist, each `getattr(settings, "x", None)` below becomes `settings.x` and
-# this comment goes with them. Nothing else in this module changes.
-# ---------------------------------------------------------------------------------
+# The lesson is about the SHAPE, not this feature. A defensive read is indistinguishable
+# from a working one at every level a test or a guardrail looks at — the module imported,
+# typechecked, and returned a correctly-named refusal — so nothing could go red, and the
+# marker's own exit condition ("when the settings keys land") was not something anything
+# checked. A plain attribute read cannot fail that way: a field that is not declared is a
+# `mypy` error and an `AttributeError`, which is why the fields being real is what makes
+# this code honest rather than the comment above it.
 @dataclass(frozen=True, slots=True)
 class _CloudApiConfig:
     access_token: str
@@ -323,13 +357,24 @@ class _CloudApiConfig:
 
 
 def _cloud_api_config() -> _CloudApiConfig:
+    r"""The three Cloud API values, as `whatsapp_delivery_status` and the factory need them.
+
+    `.strip()` on all three and `or ""` on the two optionals: a value pasted out of the
+    Meta console arrives with whitespace more often than not, and a credential that
+    differs from the real one by a trailing newline fails as an opaque 401.
+
+    `graph_version` needs no fallback and no `or`. It is `str` with a default and a
+    `pattern` on the field itself (`^v[0-9]{1,3}\.[0-9]{1,2}$`), so it cannot be absent,
+    cannot be blank and cannot be `latest` — enforced at the console write boundary by
+    `ops/config_service.validated_value`. That is why `DEFAULT_GRAPH_VERSION` is gone from
+    this module: a module-level fallback beside a field default is two answers to one
+    question, and the field's is the one an operator can actually change.
+    """
     settings = get_settings()
     return _CloudApiConfig(
-        access_token=str(getattr(settings, "whatsapp_cloud_access_token", "") or "").strip(),
-        phone_number_id=str(getattr(settings, "whatsapp_cloud_phone_number_id", "") or "").strip(),
-        graph_version=str(
-            getattr(settings, "whatsapp_cloud_graph_version", "") or DEFAULT_GRAPH_VERSION
-        ).strip(),
+        access_token=(settings.whatsapp_cloud_access_token or "").strip(),
+        phone_number_id=(settings.whatsapp_cloud_phone_number_id or "").strip(),
+        graph_version=settings.whatsapp_cloud_graph_version.strip(),
     )
 
 
@@ -367,6 +412,16 @@ def whatsapp_delivery_status() -> DeliveryStatus:
     template is approved, and whether the WABA exists are facts only a live send can
     establish, and `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA` records that none of them has
     been. `whatsapp_enabled` is a separate switch and stays off until they have.
+
+    **`available=True` UNDER `meta_cloud_api` IS NOW A REACHABLE ANSWER, WHICH IS NEW.**
+    Until the three `whatsapp_cloud_*` fields were declared it was not: they were read
+    through `getattr` defaults on a model that forbids extras, so this function returned
+    `cloud_api_access_token_missing` on every deployment that has ever run, and the two
+    refusals below were the only outcomes this branch had. That is why
+    `tests/whatsapp_cloud_test.py` asserts SELECTABILITY — that a deployment holding the
+    three values gets a `CloudApiWhatsAppTransport` out of the factory — rather than only
+    asserting the refusals: a refusal-only suite passes identically against a branch whose
+    success arm is unreachable, which is exactly how this survived.
     """
     settings = get_settings()
     provider = (settings.whatsapp_provider or "").strip().lower()

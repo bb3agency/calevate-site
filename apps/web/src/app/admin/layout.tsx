@@ -37,8 +37,9 @@ import {
 /**
  * Admin realm shell — `admin.calevate.tech`.
  *
- * A SEPARATE route group from `/c/[slug]` on purpose (TRD §11): different Clerk
- * application, different session, different navigation. Nothing here imports the client
+ * A SEPARATE route group from `/c/[slug]` on purpose (TRD §11): different realm,
+ * different `__Host-` session cookie, different navigation. ("Different Clerk
+ * application" until D-177; the boundary is ours to keep now.) Nothing here imports the client
  * realm's session helpers — no `ClientRealmProvider`, no `useClientRealm`, no
  * `devSession` — so an admin token and a client token cannot be confused by a shared
  * code path. The one thing the two shells share is the design language, which is in

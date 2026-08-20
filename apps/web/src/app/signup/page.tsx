@@ -42,9 +42,12 @@ import {
  * Three things this page is careful about.
  *
  * **It does not pretend to be a sign-up-from-scratch form.** The endpoint is NOT
- * unauthenticated: it needs a Clerk-verified user who has no organization yet, and the
- * membership is what the call creates. So the page says who it is for, rather than
- * silently 401-ing someone who arrived without an account.
+ * unauthenticated: `POST /v1/auth/signup` resolves the caller from their own session
+ * (`core/auth.py::current_identity`), so it needs a signed-in user who has no
+ * organization yet, and the membership is what the call creates. So the page says who it
+ * is for, rather than silently 401-ing someone who arrived without an account. (It read
+ * "a Clerk-verified user" until D-177; the identity is ours now — `apps/api/authn/` is
+ * the only thing that mints a session.)
  *
  * This used to end "and there is no sign-in route in this app — no ClerkProvider, no
  * `/sign-in`, nothing to link to", which was true and was the hole: a stranger who
@@ -55,8 +58,10 @@ import {
  * first-party public intake is named as unbuilt in AUTH-MIGRATION §11 (C-11). So the
  * stranger's panel below says how an account is actually obtained today — an invitation,
  * or an operator — rather than linking to a door that is not there. The two steps stay
- * separate because they are separate:
- * Clerk owns the identity, our Postgres owns the workspace (D-37).
+ * separate because they are separate: `apps/api/authn/` owns the identity, our Postgres
+ * owns the workspace (D-37). Both are ours since D-177 — the split is a data-model
+ * boundary now, not a vendor boundary, and it is the reason a person can hold an account
+ * and no workspace.
  *
  * **A closed deployment says it is closed BEFORE the form, not after it.** The kill
  * switch DEFAULTS OFF, so on most deployments every submission is refused with
@@ -157,8 +162,8 @@ export default function SignupPage() {
           <main className="mx-auto w-full max-w-xl flex-1 px-6 py-10">
             {/* The kill switch is checked FIRST, above both the form and the account
                 gate: on a deployment that opens no workspaces, sending a stranger off to
-                create a Clerk account would be walking them one screen further into a
-                door that is shut. The gate sits above the form component for the same
+                create an account would be walking them one screen further into a door
+                that is shut. The gate sits above the form component for the same
                 shape of reason — a closed deployment does not mount the form at all, so
                 no state and no mutation hook exist to reach an endpoint certain to
                 refuse them. */}

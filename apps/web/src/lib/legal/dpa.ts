@@ -297,12 +297,36 @@ export const DPA: LegalDocument = {
           text:
             "The sub-processor page states, for each vendor, where it processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech and language processing runs on Indian endpoints and this is " +
-            "enforced by a build check; object storage is Cloudflare R2, which selects " +
-            "location automatically and offers no India-only jurisdiction; the application " +
-            "host is at {{PRIMARY_HOSTING_LOCATION}}; the voice platform's own copies of " +
-            "recordings have been observed outside India; and sign-in, transactional email " +
-            "and error monitoring are operated from outside India.",
+            "notice: speech recognition and voice synthesis run on an Indian provider; " +
+            "the language model on both AI legs runs on a hyperscale provider's service " +
+            "configured for an Indian region, named on the sub-processor page, which our " +
+            "build constrains but cannot prove — see the paragraph below, which is part " +
+            "of this clause; object storage selects its location automatically and " +
+            "offers no India-only jurisdiction; the application host is at " +
+            "{{PRIMARY_HOSTING_LOCATION}}; the voice platform's own copies of recordings " +
+            "have been observed outside India; and transactional email and error " +
+            "monitoring are operated from outside India. Sign-in is ours and runs on the " +
+            "application host.",
+        },
+        {
+          kind: "callout",
+          tone: "warning",
+          title: "What we warrant about the language model, and what we do not",
+          text:
+            "We warrant that our software cannot send a language-model request anywhere " +
+            "but an Indian region without a change to our source code that fails our own " +
+            "build: one function constructs every model endpoint, it cannot emit a " +
+            "non-Indian region, the region is written once, and no configuration setting " +
+            "may carry a region or an endpoint. We do NOT warrant this as machine-proved " +
+            "at the provider, and we will not let a shorter sentence imply that we do. " +
+            "Our provider's endpoint address contains no region — the region belongs to " +
+            "the account resource — so that the resource is in South India, and that its " +
+            "model deployment is the regional kind rather than the provider's worldwide " +
+            "default, are confirmed by a named person against the provider's console, " +
+            "dated and retained as evidence, and available to you under clause 10. " +
+            "Before 19 August 2026 the language leg ran on a provider whose endpoint did " +
+            "name its region; the change of provider is what narrowed this warranty, and " +
+            "it is recorded rather than absorbed.",
         },
         {
           kind: "para",
@@ -431,7 +455,9 @@ export const DPA: LegalDocument = {
               kind: "list",
               items: [
                 "Two separate authentication realms — client and operator — with separate " +
-                  "applications, separate cookies and no shared session logic.",
+                  "session modules, separate cookies and no shared session logic. " +
+                  "Authentication is first-party: no identity vendor holds an account " +
+                  "identity or a credential for this system.",
                 "Multi-factor authentication is mandatory for operator accounts and is " +
                   "enforced in the token verifier on every request, including reads. A " +
                   "token that does not evidence a second factor is refused; so is one that " +

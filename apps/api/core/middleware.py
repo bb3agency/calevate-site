@@ -280,20 +280,26 @@ class BodyLimitMiddleware:
 class LoadShedMiddleware:
     """The big red switch's request-path face (BACKEND-PATTERNS §6).
 
-    WHAT IS NEVER SHED IS `loadshed.ALWAYS_ALLOWED_PREFIXES`, and this docstring
-    deliberately does not repeat the list. It used to, and it named `auth` among them
-    after that exemption had been removed — at the time nothing under `/v1/auth` minted a
-    session, because a vendor did (TRD §11), so the only route the prefix covered was
-    `POST /v1/auth/signup`: the platform kept manufacturing tenants while it was too
-    degraded to serve the ones it had. **`/v1/auth/**` DOES mint sessions now (D-177), and
-    the exemption is still deliberately absent** — an incident is not a reason to keep the
-    sign-in path open to everyone, and an operator's own way in is `/v1/ops`, which is on
-    the list. Whether sign-in should join it is a decision with a load-shedding argument on
-    both sides and is not one this docstring may make by omission.
+    WHAT IS NEVER SHED IS `loadshed.ALWAYS_ALLOWED_PREFIXES` and
+    `loadshed.ALWAYS_ALLOWED_PATHS`, and this docstring deliberately does not repeat
+    either list. It used to, and it named `auth` among them after that exemption had been
+    removed — at the time nothing under `/v1/auth` minted a session, because a vendor did
+    (TRD §11), so the only route the prefix covered was `POST /v1/auth/signup`: the
+    platform kept manufacturing tenants while it was too degraded to serve the ones it had.
+
+    **THE SIGN-IN QUESTION IS SETTLED NOW, AND THIS PARAGRAPH HAD IT WRONG.** It said the
+    exemption was "still deliberately absent" because "an operator's own way in is
+    `/v1/ops`, which is on the list" — which is true and does not follow: `/v1/ops` being
+    exempt is worth nothing to an operator with no session, and the route that would mint
+    one was shed. That is a lockout, worst in `emergency`, where nobody is signed in
+    already. The two sign-in steps of both realms are exempt BY EXACT NAME in
+    `ALWAYS_ALLOWED_PATHS`, with the reasoning and the four deliberate exclusions beside
+    them; the resend, the reset pair and the account-creating writes are still shed.
 
     A prose copy of a list is how the copy and the list part company;
-    `tests/loadshed_exemption_test.py` asserts the census against the constant, including
-    that each prefix still names a live route and records why it is exempt.
+    `tests/loadshed_exemption_test.py` asserts the census against both constants —
+    that each entry still names a live route, that each records why it is exempt, and
+    that a sign-in is actually reachable in every mode that sheds.
     """
 
     def __init__(self, app: ASGIApp) -> None:

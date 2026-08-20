@@ -884,6 +884,61 @@ def test_the_route_declares_a_mutating_permission_that_exists_and_is_granted() -
     assert route.methods == {"POST"}
 
 
+@pytest.mark.parametrize(
+    ("subject", "expected_code"),
+    [
+        pytest.param("no_transcript", "assist_no_transcript", id="no-transcript"),
+        pytest.param("at_ceiling", "ai_quota_exceeded", id="quota-exceeded"),
+    ],
+)
+async def test_a_refusal_before_the_provider_is_paid_frees_the_key_for_an_immediate_retry(
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch, subject: str, expected_code: str
+) -> None:
+    """THE OTHER DIRECTION, and it was open while its twin below was closed.
+
+    `claim_idempotency` commits in its own transaction and only the arm around
+    `run_assist` released it, so the two refusals that happen BEFORE the provider is
+    called — no readable transcript, and the quota ceiling — left the record `processing`
+    for the whole `CLAIM_LEASE`. A client who reused the key they had just been refused on
+    got `idempotent_request_in_flight` for a request that cost nothing.
+
+    WHY THAT WAS A MONEY BUG AND NOT AN ANNOYANCE. The browser's workaround is a FRESH key
+    per attempt, which makes the retry work and disables the dedupe: a key that is never
+    reused cannot answer a repeat, so a lost response — a 504, a dropped connection — on a
+    run the server COMPLETED pays a second time. That is precisely the event the required
+    `Idempotency-Key` exists to prevent, so working around this in the browser trades a
+    rare double charge for a common broken one.
+
+    Asserted as REUSE OF THE SAME KEY, twice, with the same answer both times: a second
+    422 rather than a 409. The test below is the control — after payment, the same key
+    must NOT free up — and the two together are the whole boundary.
+    """
+    tenant_id, slug, token = await _make_tenant()
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
+    if subject == "no_transcript":
+        call_id = await _empty_call(tenant_id)
+    else:
+        call_id = await _call_with_transcript(tenant_id)
+        await _at_the_ceiling(tenant_id, monkeypatch)
+    headers = _headers(token, slug, key=f"prepay-{uuid.uuid4().hex[:8]}")
+
+    async with _client() as http:
+        first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
+        second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
+
+    assert first.status_code == 422, first.text
+    assert first.json()["type"].endswith(f"/{expected_code}")
+    assert second.status_code == 422, (
+        f"the retry was answered {second.status_code} ({second.json().get('type')}) rather "
+        "than with the same refusal: the claim was left `processing` by a path that spent "
+        "nothing, so the client cannot reuse the key they were just refused on"
+    )
+    assert second.json()["type"].endswith(f"/{expected_code}")
+    assert azure.requests == [], "no provider call on either attempt"
+    assert await _usage_rows(tenant_id) == []
+
+
 async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_pay_again(
     azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -892,9 +947,10 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
     `claim_idempotency` INSERTed the `processing` record into the REQUEST's transaction.
     `core/deps.db` rolls that transaction back on any exception — so a raise anywhere
     after `run_assist` (the audit chain refusing to write, a statement timeout, a severed
-    connection) erased the claim, the usage rows and the audit row while **Google had
-    already been paid**, and the retry with the same key — which is what the key is for —
-    paid a second time.
+    connection) erased the claim, the usage rows and the audit row while **the model
+    provider had already been paid** (Azure OpenAI since D-410, Google when this failure
+    was found), and the retry with the same key — which is what the key is for — paid a
+    second time.
 
     Driven with the audit write raising, because that is the failure the audit report
     names and it sits between the payment and the response. What must be true afterwards
