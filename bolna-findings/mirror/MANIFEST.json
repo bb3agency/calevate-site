@@ -1,0 +1,3017 @@
+{
+  "https://www.bolna.ai/docs/agent-setup/agent-builder.md": {
+    "bytes": 7251,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\agent-builder.md",
+    "sha256": "44a68a27c2465aeaba3739c9b773732f07d008fa6b56afa3e717b4c3fb25c9af",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/agent-builder.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/agent-tab.md": {
+    "bytes": 12459,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\agent-tab.md",
+    "sha256": "111835b4be68f2265e62a11727f2e27a3a02570339aec01bbcdc554802e2e26d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/agent-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/analytics-tab.md": {
+    "bytes": 5982,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\analytics-tab.md",
+    "sha256": "234f1204737f3017bf184b4a3b58e63b4c7944c33f2bd16b423300f310d2b1a1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/analytics-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/audio-tab.md": {
+    "bytes": 15248,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\audio-tab.md",
+    "sha256": "83b46a7849b1230bc914de0a5d5eea8e18a960a28b9fc07cdbd5bc605c2c6c3f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/audio-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/call-history.md": {
+    "bytes": 8265,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\call-history.md",
+    "sha256": "6c0fca0e49da9121c7929016367df4ae018e9eee4194ada0b8b19be3707a3b47",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/call-history.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/call-tab.md": {
+    "bytes": 8813,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\call-tab.md",
+    "sha256": "3c3471ff484dff06eba3152308760999adcabfb8840d2ef05ccb08230d0b33f1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/call-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/copy-import-agent.md": {
+    "bytes": 1421,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\copy-import-agent.md",
+    "sha256": "dc647b251b60979d0bf24b86039c891f977c0ce66a203006fedcd96c75324d58",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/copy-import-agent.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/engine-tab.md": {
+    "bytes": 5818,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\engine-tab.md",
+    "sha256": "ec933c40d027c0137a9f4bd80cb2217d3997bb48ae72a83cfc7aae40e27553fa",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/engine-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/inbound-tab.md": {
+    "bytes": 7355,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\inbound-tab.md",
+    "sha256": "ad4f654bfa1a9ae3805677c26795d44772b7c838eb39aeb2e7ac68f52a943b4e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/inbound-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/llm-tab.md": {
+    "bytes": 5774,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\llm-tab.md",
+    "sha256": "1de346b864205ec8c3a0af8c2d9aa622e0d4cfa6c236e6c25f5cf62a0d443877",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/llm-tab.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/overview.md": {
+    "bytes": 8506,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\overview.md",
+    "sha256": "2155c385e3f2df656d80f58f5988d1e72c9b8569bda9a253e8888110ed9e2132",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/overview.md"
+  },
+  "https://www.bolna.ai/docs/agent-setup/tools-tab.md": {
+    "bytes": 8122,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agent-setup\\tools-tab.md",
+    "sha256": "d6de1d99c4f501a3bdfc2c38423c152217564e3844ecf145cc06dacf7b27241e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agent-setup/tools-tab.md"
+  },
+  "https://www.bolna.ai/docs/agents-library.md": {
+    "bytes": 10686,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\agents-library.md",
+    "sha256": "289804a4966a81d77806f6efa5e7a7c985df55efa79712e667a8a51a2aa96dde",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/agents-library.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/create.md": {
+    "bytes": 25428,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\create.md",
+    "sha256": "71efa50afe8b10ac5e475614baedba888b4bb3af9a02269f5aff4b37e3f26739",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/get.md": {
+    "bytes": 24796,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\get.md",
+    "sha256": "f87763664350cc3d851673bd9816ac813dfdb012e875f99274ae4ac3b4948e7c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/get.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/get_all.md": {
+    "bytes": 24739,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\get_all.md",
+    "sha256": "a07f27f3fbfc733e90a908f5782e69caefd8d8a65cde2320efdbe39ab1eca513",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/get_all.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/get_all_agent_executions.md": {
+    "bytes": 11852,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\get_all_agent_executions.md",
+    "sha256": "8fdc6fc78298a4f09baa5ad5bc0ba3be24fb338f3e1494d8a006d8aa4cdc50b4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/get_all_agent_executions.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/overview.md": {
+    "bytes": 1281,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\overview.md",
+    "sha256": "bdc8b8e42ddf424ab0dc936ea0ec3bd1d032f1aa1b7af09bde874b296d4f015f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/patch_update.md": {
+    "bytes": 9158,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\patch_update.md",
+    "sha256": "ea23a6cec5fce8a39b860939f8428a3d9ccf1f3757734c75feed04257e90b6ef",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/patch_update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/update.md": {
+    "bytes": 25583,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\update.md",
+    "sha256": "f752436ee240ac79d5ff44119dfdf72963dec51e251e1ca0542f3fd28ccb4b48",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/create.md": {
+    "bytes": 42306,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\create.md",
+    "sha256": "69e3dd768f1c2996d7814344917320d81cdb59c843be314151d35b4e7530d5d3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/delete.md": {
+    "bytes": 1742,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\delete.md",
+    "sha256": "cdd828b3d89309e2438760d0c10a69086759709bb5f128ac879abc064acca8ca",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/get.md": {
+    "bytes": 37288,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\get.md",
+    "sha256": "69138aaa945af209599d3bfd50f342eb1c0391371e597b7ae7f5c006ad5e05b0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/get.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/get_agent_execution.md": {
+    "bytes": 11940,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\get_agent_execution.md",
+    "sha256": "9b26cd67cd9edbc535e941442f36748ffc724230032dd02e046275c565fb8a01",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/get_agent_execution.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/get_all.md": {
+    "bytes": 37235,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\get_all.md",
+    "sha256": "3c5b63458c8f8a1893e607c2ec25da7a59a5a62ab4643f7b81693bcd2e1e6886",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/get_all.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/get_all_agent_executions.md": {
+    "bytes": 16431,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\get_all_agent_executions.md",
+    "sha256": "11cccce75bf968ab08371267d4a066f29c2ea59118f33b544b315f7e994d42af",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/get_all_agent_executions.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/overview.md": {
+    "bytes": 1117,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\overview.md",
+    "sha256": "ae19ac8558a413a09490841a342528e2ec6ca78ab542dbc8c8725f66ae183c25",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/patch_update.md": {
+    "bytes": 16504,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\patch_update.md",
+    "sha256": "80c12b7a27ead81be237aab307b5746ac6fe02351b2b42ca1e5ee265c452cba2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/patch_update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/stop.md": {
+    "bytes": 1956,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\stop.md",
+    "sha256": "b84cb56d4ba427e346d8c5e4d3585425c930c44017a1523672b86fc6afac0652",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/stop.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/agent/v2/update.md": {
+    "bytes": 38654,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\agent\\v2\\update.md",
+    "sha256": "2b28b2e3f06494960ce1548777f005998b12f7e489a0abee6fa04791265e60e6",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/agent/v2/update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/create.md": {
+    "bytes": 5634,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\create.md",
+    "sha256": "2e7b30ac90b66dd6bb1d24e2f3e1a47b48a30de9aaf4168236346228601c357f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/delete.md": {
+    "bytes": 1669,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\delete.md",
+    "sha256": "638441ba1aee34ce8c20c4b6fc0c1ef1134423376c7012635a54839a4f1005ac",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/executions.md": {
+    "bytes": 11904,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\executions.md",
+    "sha256": "adece9679c25b14225c03a637c44c4080c3a9b0e0c5a33428a236369d9a7aa0d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/executions.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/get_batch.md": {
+    "bytes": 4641,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\get_batch.md",
+    "sha256": "f1e129a3a367fed846e740ef61a93173e3b8e35da23847e2f0139c235c1fbedf",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/get_batch.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/get_batches.md": {
+    "bytes": 4806,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\get_batches.md",
+    "sha256": "2cee8a3ad3252c0966cb0a2a919d159afa02d3467426c37dff893d5c1888732b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/get_batches.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/overview.md": {
+    "bytes": 531,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\overview.md",
+    "sha256": "fc60d9e716bd6c4e471e672b1874619b4e1f0345f96b26f1794e0f37f165e59c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/schedule.md": {
+    "bytes": 2663,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\schedule.md",
+    "sha256": "f012b47e55f9b88055521b8e78784272e56c7601b89c435b6a3f38e1f577a0f6",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/schedule.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/batches/stop.md": {
+    "bytes": 1849,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\batches\\stop.md",
+    "sha256": "c74334211692a2a6a530b061d65b3f6b4340ff2694ac4d5e59a43a2cb6038ed9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/batches/stop.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/calls/make.md": {
+    "bytes": 8681,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\calls\\make.md",
+    "sha256": "5b0ccf18c0b967ebb0299d39585acbb383d312831465519b2b67e3513f7e4f35",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/calls/make.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/calls/overview.md": {
+    "bytes": 400,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\calls\\overview.md",
+    "sha256": "e1a845663e6c967c8d4ae4338a3338fdb00f851f8bd6a8129764c462b57d62aa",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/calls/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/calls/stop_call.md": {
+    "bytes": 1808,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\calls\\stop_call.md",
+    "sha256": "9ebe20e21bc7c7161543837da18a648016c14cc45ff80e04b1acdecb6b200e96",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/calls/stop_call.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/bulk-create.md": {
+    "bytes": 7320,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\bulk-create.md",
+    "sha256": "cd1b5265a575a3369d64b5b94c1c480668fab511a0440e70e6eb413e491963ad",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/bulk-create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/create.md": {
+    "bytes": 7335,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\create.md",
+    "sha256": "9b3d501acf25d40363416ef159ae7223e0c96f1f5efdbf5558af698d0a2c9777",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/delete.md": {
+    "bytes": 3377,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\delete.md",
+    "sha256": "bf7804509a7a02510e7d8a45789716c67b7e5406c8dfa10d486bcca8e9f1cfce",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/get.md": {
+    "bytes": 6925,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\get.md",
+    "sha256": "6c13217822209c2a1a66edda565ef4b8169b74f23135f0c2d18b02cd6b2b6fc1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/get.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/list.md": {
+    "bytes": 6641,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\list.md",
+    "sha256": "e71239db39825860a5e7a50c7e5168ade1ca0ff0891ce103ff107e8c1908d0d9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/list.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/overview.md": {
+    "bytes": 6675,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\overview.md",
+    "sha256": "5a64ac4b9341af294fe53cf14bc3a186b929791637cf674574632b7de9495eb6",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/test.md": {
+    "bytes": 4654,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\test.md",
+    "sha256": "1046f8139578e68b94e3a5751b2aa76c13198ee8cf4e147ab74daebaedbd496f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/test.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/dispositions/update.md": {
+    "bytes": 8491,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\dispositions\\update.md",
+    "sha256": "e788d121cdb3c9f06cbd69bb873c93c1a1c7550574cebda038fb314132441ad9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/dispositions/update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/errors.md": {
+    "bytes": 7672,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\errors.md",
+    "sha256": "3e8015029852bcac23e0b229bebe153b8992256c0e0a717edc7979dcf44365a3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/errors.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/executions/get_batch_executions.md": {
+    "bytes": 11945,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\executions\\get_batch_executions.md",
+    "sha256": "5543d1b4c308a17eaf2249b292513886515cbb3cccdcd37b5f1bb71acd2c0375",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/executions/get_batch_executions.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/executions/get_execution.md": {
+    "bytes": 15158,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\executions\\get_execution.md",
+    "sha256": "d8843c09f572034df402dd242019b56492d4d4c6d0341e1bc1fb300dabdba297",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/executions/get_execution.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/executions/get_execution_raw_logs.md": {
+    "bytes": 3612,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\executions\\get_execution_raw_logs.md",
+    "sha256": "401e6dee2a73ecebe931f5f00ed840312769a969b9c6c5e0dd19002ddfa2c8f3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/executions/get_execution_raw_logs.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/executions/get_executions.md": {
+    "bytes": 16464,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\executions\\get_executions.md",
+    "sha256": "92c8f85e4f77eaa60bdb01ccaff9fa138d49d0ef4789816a6b0fbd18d2eee9dc",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/executions/get_executions.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/executions/overview.md": {
+    "bytes": 523,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\executions\\overview.md",
+    "sha256": "f428d0773d1009811155023180c190c605d804e21a70829f3c4d0ee889d847f1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/executions/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/inbound/agent.md": {
+    "bytes": 5907,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\inbound\\agent.md",
+    "sha256": "62a4d7f296783d068e64f2c80c2d101ad2846092765894180d97dfb6f31d3359",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/inbound/agent.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/inbound/overview.md": {
+    "bytes": 406,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\inbound\\overview.md",
+    "sha256": "dee78b661d81ad076c12be395751cc00e41f686291bd5ae9dd9418ac47ca6702",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/inbound/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/inbound/unlink.md": {
+    "bytes": 2855,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\inbound\\unlink.md",
+    "sha256": "b80a038d9c8cedaa8c3a0f8fdda16959285ed0bb9bf0a46edfbf12177b416374",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/inbound/unlink.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/introduction.md": {
+    "bytes": 3236,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\introduction.md",
+    "sha256": "1fd67123b257b88892812142993b1f38eb6cd39f8016e402397cdca60f730a32",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/introduction.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/knowledgebase/create.md": {
+    "bytes": 4983,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\knowledgebase\\create.md",
+    "sha256": "0b0d6987b8128a4a3509d94fbb69c7382af467ad24912ce8f4501af09831b3ca",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/knowledgebase/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/knowledgebase/delete.md": {
+    "bytes": 1705,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\knowledgebase\\delete.md",
+    "sha256": "96ed8380a70f8c71af8caaae79c6d80c58474b875f922f5c0af068607e47f175",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/knowledgebase/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/knowledgebase/get_knowledgebase.md": {
+    "bytes": 3865,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\knowledgebase\\get_knowledgebase.md",
+    "sha256": "ba111b5eb2f03be2312f376775f5178c420d52436ee4e4b4cf211f855bc955af",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/knowledgebase/get_knowledgebase.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/knowledgebase/get_knowledgebases.md": {
+    "bytes": 3783,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\knowledgebase\\get_knowledgebases.md",
+    "sha256": "3a96541dd16b63b064583f30fba3332dbe68cdbc5b30ad3323f8fb3ed21a78ea",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/knowledgebase/get_knowledgebases.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/knowledgebase/overview.md": {
+    "bytes": 471,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\knowledgebase\\overview.md",
+    "sha256": "000626af71825d4fd70f6731e3ca694ecdcff0bb5adaa441842e4ac49a98b873",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/knowledgebase/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/limits.md": {
+    "bytes": 3193,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\limits.md",
+    "sha256": "c3f4837474133ed362484a47ff14e498654bc61383989cbd1bf586d72137afb3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/limits.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/openapi.yml": {
+    "bytes": 0,
+    "content_type": "",
+    "error": "HTTP 404",
+    "path": "",
+    "sha256": "",
+    "status": 404,
+    "url": "https://www.bolna.ai/docs/api-reference/openapi.yml"
+  },
+  "https://www.bolna.ai/docs/api-reference/pagination.md": {
+    "bytes": 1749,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\pagination.md",
+    "sha256": "e1603ca2fa38a2ab0f9d679c507a7ba4a48c242023f6910278be33b1a0b81a3f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/pagination.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/phone-numbers/buy.md": {
+    "bytes": 4633,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\phone-numbers\\buy.md",
+    "sha256": "e7df1b7427d70773faf9a4e856d2eff39ab8607479d90332e55e6a3a400997c7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/phone-numbers/buy.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/phone-numbers/delete.md": {
+    "bytes": 1768,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\phone-numbers\\delete.md",
+    "sha256": "d981d1a1e8e9adc46bcf7339d48acd718b948e789e4a64cf37b273aca5bccbc3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/phone-numbers/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/phone-numbers/get_all.md": {
+    "bytes": 3536,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\phone-numbers\\get_all.md",
+    "sha256": "b9ab38dc8f9b1a07e81a4603d3ae95ec29552f5b7ac8777d79c6e3eff03a3023",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/phone-numbers/get_all.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/phone-numbers/overview.md": {
+    "bytes": 501,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\phone-numbers\\overview.md",
+    "sha256": "26604cfc9f14893a65a798c1b4f410373b594522094e641028778c55b9f9e246",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/phone-numbers/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/phone-numbers/search.md": {
+    "bytes": 3613,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\phone-numbers\\search.md",
+    "sha256": "2e3133a1cc37e0431a457ad31d57e1f93dda404f692ecfb23ab54478d21636b2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/phone-numbers/search.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/providers/add.md": {
+    "bytes": 2456,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\providers\\add.md",
+    "sha256": "58ae4bf242d30e5f2285351ea3259ca11e0cdf706c2f2b2f14ebb57e73c0c276",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/providers/add.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/providers/get.md": {
+    "bytes": 2330,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\providers\\get.md",
+    "sha256": "57136c64685c2c7af6c19b2ddb566afa50bf5f47db04c6ccf17bba7a39ba5a4c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/providers/get.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/providers/overview.md": {
+    "bytes": 574,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\providers\\overview.md",
+    "sha256": "68774ab153482c8b1302c9a4703f8279178c857d73eac72a5573c6412efe670a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/providers/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/providers/remove.md": {
+    "bytes": 1950,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\providers\\remove.md",
+    "sha256": "ac4bdf22836745815b2afab71385a3e1646b6afa47f299ca54191355a7d211cc",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/providers/remove.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/rate-limiting.md": {
+    "bytes": 2235,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\rate-limiting.md",
+    "sha256": "2388edb530111bb590ab37ab14e8e36bc0788b392bc8a3d1d85414714ffa17b5",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/rate-limiting.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/add_number.md": {
+    "bytes": 3944,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\add_number.md",
+    "sha256": "5771a2b87762297224a1762ffdc29142c9d1e8f9047c4954638a0baabb045bca",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/add_number.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/create.md": {
+    "bytes": 12368,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\create.md",
+    "sha256": "a7659d825eca6f2921efd7e71ea65232cad7e71a7295df162aefac8345fc6384",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/delete.md": {
+    "bytes": 1772,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\delete.md",
+    "sha256": "69b6d52bab73c57e1aa587e0aad84b02907bf728f51bd6c8f3aff113e57dd6d2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/get.md": {
+    "bytes": 7056,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\get.md",
+    "sha256": "0e17cc60391bd2e4f758ac00dc4dea23f3af0094dd6888709c0f152f98695b8c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/get.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/get_all.md": {
+    "bytes": 7064,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\get_all.md",
+    "sha256": "0854d36c1a80b0abc7e692c1fdb8c06468ac3f4527593d23eae00532aa9f68cc",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/get_all.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/list_numbers.md": {
+    "bytes": 2859,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\list_numbers.md",
+    "sha256": "8a798fae17c04a435320925b568d86c12027c42f13762663a7918401f86fa9b5",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/list_numbers.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/overview.md": {
+    "bytes": 1952,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\overview.md",
+    "sha256": "7a9721a85196320a583269d5430617149872f440f372168ef898fdc461118213",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/remove_number.md": {
+    "bytes": 1987,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\remove_number.md",
+    "sha256": "ff985a8e8cd26f6bb1b42e8659d3ebb2f8923093f403925dc5cfcb70460dd2eb",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/remove_number.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sip-trunks/update.md": {
+    "bytes": 9831,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sip-trunks\\update.md",
+    "sha256": "0f28be9bd7313c30d4cffc54b884dd73ae7ab9313a4039a281b8c56a2d40e824",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sip-trunks/update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/all_usage.md": {
+    "bytes": 6744,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\all_usage.md",
+    "sha256": "1f28383b7d500d9d59862c994982baa58c431ee067c7826abb982e0b24426004",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/all_usage.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/create.md": {
+    "bytes": 8229,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\create.md",
+    "sha256": "acad62b96837930798cc8d2d06061b4f399994b5bab8f767aee54c5ae83a83cc",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/create.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/delete.md": {
+    "bytes": 1849,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\delete.md",
+    "sha256": "466dcf6d7ed9aa016cbd7523ed9820218bc90b3d594a26353bffecfee7f0b5a2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/delete.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/get_all.md": {
+    "bytes": 3133,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\get_all.md",
+    "sha256": "cc95cce07830fe0520d221376a3855dcc625db67e67dd18b6a988cb36df9a208",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/get_all.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/overview.md": {
+    "bytes": 615,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\overview.md",
+    "sha256": "4a59b0ca49f1afb445f0ed0d3a3b6704235255e730d4160465cf67a8a6083845",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/patch_update.md": {
+    "bytes": 4685,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\patch_update.md",
+    "sha256": "239e79fc90e6fdee7b2dc44b7fe73ce7a4a4c9ee12d2766a2db61d4f56367fd0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/patch_update.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/sub-accounts/usage.md": {
+    "bytes": 6106,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\sub-accounts\\usage.md",
+    "sha256": "06027f4cc67015850ead687239e7dc27f7e53d573adde7a052998dac263d3d5c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/sub-accounts/usage.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/user/add_model.md": {
+    "bytes": 2898,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\user\\add_model.md",
+    "sha256": "1e9272833692bd245ecd5a61fef0ed532d46dc50ed27fffb237bf17018326659",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/user/add_model.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/user/info.md": {
+    "bytes": 2867,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\user\\info.md",
+    "sha256": "f9727aecd6cb508e34f3ed32838bab2f222816ddc616c36f487a4d90cbe167e7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/user/info.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/user/overview.md": {
+    "bytes": 394,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\user\\overview.md",
+    "sha256": "68b85d5d98e57ce79ba955e1c825b0455c5fddfe45fa27cfce44975daa426b38",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/user/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/violations/list.md": {
+    "bytes": 5952,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\violations\\list.md",
+    "sha256": "fcfa0c723a57e8426d8fd856a4de1085b4f8fb65667388b2e642a66cb539c3c5",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/violations/list.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/violations/overview.md": {
+    "bytes": 422,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\violations\\overview.md",
+    "sha256": "c6e4e3af8639ad8ed87fffe89254a3ac4c45efcec22854cfb1542681af740f7e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/violations/overview.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/violations/submit.md": {
+    "bytes": 2282,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\violations\\submit.md",
+    "sha256": "1ed545597e934990d713f73d903e71bd9aa786c4ae3ebbdb38dafb336ec2bf40",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/violations/submit.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/voice/get_all.md": {
+    "bytes": 6096,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\voice\\get_all.md",
+    "sha256": "c0b9720bea4c9f62db42c091e2a457c5966f389c6402fb6ecef4ee70e79a9e50",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/voice/get_all.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/voice/get_providers.md": {
+    "bytes": 7002,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\voice\\get_providers.md",
+    "sha256": "ddfef7e8a73f2a664a817881607d6ed0dd201781d2c28548f33e72e2f4a041ba",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/voice/get_providers.md"
+  },
+  "https://www.bolna.ai/docs/api-reference/voice/overview.md": {
+    "bytes": 1134,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\api-reference\\voice\\overview.md",
+    "sha256": "0ca3ff177a31b20441f1f17ae25d8e4d84b1aec1f7bd3141cd18449bf8875e9f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/api-reference/voice/overview.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/agents-md.md": {
+    "bytes": 2751,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\agents-md.md",
+    "sha256": "12fc81d43c8756fde6c67d7bbc70deb8aac87bee90cfc6880e8e0ac43a2d82b6",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/agents-md.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/example-prompts.md": {
+    "bytes": 2266,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\example-prompts.md",
+    "sha256": "2f3cd51ae7661aa0caa2613aa4f01d6feae6750b07a749fcc8d2eb2673532981",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/example-prompts.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/installation.md": {
+    "bytes": 1450,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\installation.md",
+    "sha256": "e95c10fefa0a5663fd4eb1461a8bd8c6915741d0fa1cc5580d3b9436535fdaf7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/installation.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/llms-txt.md": {
+    "bytes": 1716,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\llms-txt.md",
+    "sha256": "ef039bae55f25f05da03ef445199ef835960ccbeaad8b1068a7dd09178bd3409",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/llms-txt.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/mcp-example-app.md": {
+    "bytes": 4845,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\mcp-example-app.md",
+    "sha256": "433d93d5466a7346a5ebc7812810a552c71ca3a859720695e1a50fbec7c31cd0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/mcp-example-app.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/mcp-prompts.md": {
+    "bytes": 13852,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\mcp-prompts.md",
+    "sha256": "97f0ea5b627581bb62b1d643956faa5a8546d63123d1e7b1e1a5ecad68684655",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/mcp-prompts.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/mcp-quickstart.md": {
+    "bytes": 5723,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\mcp-quickstart.md",
+    "sha256": "485333293a5a3936e7c380b5f2d37010a527eac5ffe5d78d5d21466058b57998",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/mcp-quickstart.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/mcp-tool-list.md": {
+    "bytes": 19205,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\mcp-tool-list.md",
+    "sha256": "5735a224926784e9c4db6f34c3524a7347e34b6316dd752ca3fa29b3c2a12666",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/mcp-tool-list.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/mcp.md": {
+    "bytes": 6866,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\mcp.md",
+    "sha256": "03f87af2be52f8bdb3f8225e54c80ef86fc2b2da61c10a2adeb83948f7303e0d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/mcp.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/overview.md": {
+    "bytes": 2344,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\overview.md",
+    "sha256": "5e5c531daa3980ca30b2803bc3eff59c984c5ea7cfa85057cdad5c247125a715",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/overview.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/setup.md": {
+    "bytes": 858,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\setup.md",
+    "sha256": "c9ce2642daf7ce0a6f92d269a6889487cd195be024b8c793ee67ef27eef71d86",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/setup.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/skills-reference.md": {
+    "bytes": 5018,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\skills-reference.md",
+    "sha256": "3387d3c9a4811346ead2dc52154e730013eb350de6f0e5d6d348459e0c0b9fa2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/skills-reference.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/skills.md": {
+    "bytes": 2365,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\skills.md",
+    "sha256": "7e2ef3817e3b9227634bb7b059d035131af06e674904ba13fb107442d5c8ea09",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/skills.md"
+  },
+  "https://www.bolna.ai/docs/build-with-ai/supported-assistants.md": {
+    "bytes": 1953,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\build-with-ai\\supported-assistants.md",
+    "sha256": "fd46d856e5ae9306ad69db30e357b6357c9cb58f67836ab6943a4545ee9abe5e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/build-with-ai/supported-assistants.md"
+  },
+  "https://www.bolna.ai/docs/changelog/april-2025.md": {
+    "bytes": 2316,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\april-2025.md",
+    "sha256": "381062a5fcc3eeb64bae4768182b60bb8309550c0f3b5f61ec2952905c453a9e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/april-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/april-2026.md": {
+    "bytes": 4947,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\april-2026.md",
+    "sha256": "597e7c17700633e57173738e8de7a3b5e3a24f8eedd8a7249604ca45ea7a41c8",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/april-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/august-2025.md": {
+    "bytes": 3115,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\august-2025.md",
+    "sha256": "87442410b3c20507af5e454a0702f8e4601af289b79a9c4c0761683695a6a927",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/august-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/august-2026.md": {
+    "bytes": 4881,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\august-2026.md",
+    "sha256": "2aaa30d11167b6a12597d1954774d5146a047d2f1e36602ac59742999fd3676e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/august-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/december-2024.md": {
+    "bytes": 2518,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\december-2024.md",
+    "sha256": "9fe8928157ebe4dc93d282ad946736be96877727994e0eecae97ab07a98a87d7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/december-2024.md"
+  },
+  "https://www.bolna.ai/docs/changelog/december-2025.md": {
+    "bytes": 2596,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\december-2025.md",
+    "sha256": "b7a1fd32c156b27557c644b9f13e7e13cf91a2c8eff21183a3c2b3606699d1d4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/december-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/february-2025.md": {
+    "bytes": 1694,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\february-2025.md",
+    "sha256": "e53696acfa914373c0901ac4fd12e4d7c9085fd08345860453450bfe9ac6504f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/february-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/february-2026.md": {
+    "bytes": 3149,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\february-2026.md",
+    "sha256": "f484dc7e3f7b5b5b04bc0944829713154c4a13227e72c5e52dff627856610536",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/february-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/january-2025.md": {
+    "bytes": 775,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\january-2025.md",
+    "sha256": "2055e4dbb0eb39588d9c7dccda4c5b2d493186a092877c4073807283b0d4ef9e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/january-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/january-2026.md": {
+    "bytes": 5106,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\january-2026.md",
+    "sha256": "616ce6004040f12ccfd35e9c027f9fd3ad2e92a03aa6b1b00da16f74dbbc3cde",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/january-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/july-2025.md": {
+    "bytes": 1297,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\july-2025.md",
+    "sha256": "5db658aee2217562cac6cab30b0277d23982c68291c6f6f59a96671a06404773",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/july-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/july-2026.md": {
+    "bytes": 9541,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\july-2026.md",
+    "sha256": "1f97441769439ef1698264add6a24b85cc97a47cfa9b72d3f04dfa1852223681",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/july-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/june-2025.md": {
+    "bytes": 2264,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\june-2025.md",
+    "sha256": "57a8c64b101035ff1b35a6abbb142a80b14aae156f16b2a7003446496f791269",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/june-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/june-2026.md": {
+    "bytes": 9458,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\june-2026.md",
+    "sha256": "9777202ec8c85bae64c9b1391ea7d946972f40913262b39bd6da4a312b293e8b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/june-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/march-2025.md": {
+    "bytes": 2124,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\march-2025.md",
+    "sha256": "4677ecee1e836cf8f5b68993eb638ac0e85ef47db14eb6815ac86ba358aac141",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/march-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/march-2026.md": {
+    "bytes": 7491,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\march-2026.md",
+    "sha256": "3c0a72230a8d23b7f09ee265ffce2d2b6af0a54acf12f31ba83dea3434cfe244",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/march-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/may-2025.md": {
+    "bytes": 4810,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\may-2025.md",
+    "sha256": "ef922647e39aebde74570dac69a0f2addac7fc6fc20fe68c60efdfac7062b1c4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/may-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/may-2026.md": {
+    "bytes": 11007,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\may-2026.md",
+    "sha256": "e6a5cdb852c549bae58b62178c60010aa9265b1fda88a42f67fbac1c17e243df",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/may-2026.md"
+  },
+  "https://www.bolna.ai/docs/changelog/november-2025.md": {
+    "bytes": 4051,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\november-2025.md",
+    "sha256": "f4f2bb1b7a87b0e94dd5d9c70b2c53b73826f127428ac3a6e361d8faaa89a851",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/november-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/october-2025.md": {
+    "bytes": 5170,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\october-2025.md",
+    "sha256": "6363496b5f800cba36087871e3233ba9a5497d76bb313230ad31226595fccd20",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/october-2025.md"
+  },
+  "https://www.bolna.ai/docs/changelog/september-2025.md": {
+    "bytes": 5344,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\changelog\\september-2025.md",
+    "sha256": "d75b6325b17cda3fd8c931ad5ffdbbccedd30f883bee9037a1cc117cb578da4d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/changelog/september-2025.md"
+  },
+  "https://www.bolna.ai/docs/cli/authentication.md": {
+    "bytes": 3524,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\authentication.md",
+    "sha256": "6b3a6b9f8180c90aa6e60b54d4e095ec9563d19e3ff42aa5662a3549a17c2601",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/authentication.md"
+  },
+  "https://www.bolna.ai/docs/cli/autocompletion.md": {
+    "bytes": 2913,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\autocompletion.md",
+    "sha256": "e2ca1a5c0977870fcde9df74bddf79425e72803d71594ad4d695b248532c46d2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/autocompletion.md"
+  },
+  "https://www.bolna.ai/docs/cli/changelog.md": {
+    "bytes": 1883,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\changelog.md",
+    "sha256": "d8977fcd1349d58bdf42918e602a256e5531e06c77ba1296b53e0ebfc0ce7704",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/changelog.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/agents-create.md": {
+    "bytes": 2345,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\agents-create.md",
+    "sha256": "1df1956f28bba7f645b2f3b3c22f8850fd744ccda8ab9d1f42d5603a6f4c699d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/agents-create.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/agents-delete.md": {
+    "bytes": 1393,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\agents-delete.md",
+    "sha256": "1c923404ae492cbea549c35177f3da6ca9d61ee1d47f0d36a065a53a86745a9a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/agents-delete.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/agents-list.md": {
+    "bytes": 1591,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\agents-list.md",
+    "sha256": "4b5d724f7878a632c433eb97428fd7fd6e85f4c7b65d350b6b9ef3148a3abde1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/agents-list.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/agents-overview.md": {
+    "bytes": 1774,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\agents-overview.md",
+    "sha256": "ea74e9a627035f5bef9c405ef826451f6672ece42629f72f4b7e6b09be39b667",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/agents-overview.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/agents-update.md": {
+    "bytes": 2270,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\agents-update.md",
+    "sha256": "75df2a670ed5e6410a58d858bb89c0408f00c525d12826f68df9a37989722af2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/agents-update.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/agents-view.md": {
+    "bytes": 1776,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\agents-view.md",
+    "sha256": "67936bd90256aa1e98d8c792afe1abc9d492328c8cc55a9d59330a7eee1ce321",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/agents-view.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/batches-list.md": {
+    "bytes": 1785,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\batches-list.md",
+    "sha256": "23523470d3e53288f5b6837bbfa642b076a97d910498fdce9c65b9a37b5ab087",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/batches-list.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/call-start.md": {
+    "bytes": 2175,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\call-start.md",
+    "sha256": "cc9e00b646483ccdfd3ca7eabf4c5f297657adb5049f688d610b8a6dd2106cae",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/call-start.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/calls-list.md": {
+    "bytes": 1811,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\calls-list.md",
+    "sha256": "ccdbdcc388d4dcd40c0087ead63f636132157f707dac72fb26df30dad7553c71",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/calls-list.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/calls-overview.md": {
+    "bytes": 1518,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\calls-overview.md",
+    "sha256": "4546b92f026cd51e65e3e1bdbcf7c4956fad7fff0ab1313733382ff87339c71b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/calls-overview.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/calls-view.md": {
+    "bytes": 1539,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\calls-view.md",
+    "sha256": "d658aceb4796fef1a1fa695f763ae4d788a0ca704b43209c5d4681f6b76de45c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/calls-view.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/docs-fetch.md": {
+    "bytes": 3031,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\docs-fetch.md",
+    "sha256": "2e963adfc11453f476da2b58ab4313f147d10d821f5cdf7c90122de5fad1d018",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/docs-fetch.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/docs-search.md": {
+    "bytes": 2859,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\docs-search.md",
+    "sha256": "c41eac625c2d584201b1a3ae8c6acb5cf62ca27f002e8340c9983ae469ffd3ec",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/docs-search.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/doctor.md": {
+    "bytes": 2061,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\doctor.md",
+    "sha256": "80cac0186b418cf38b4c4b393e3110a945e948d34e6a48f078e230850ad32301",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/doctor.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/login.md": {
+    "bytes": 1645,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\login.md",
+    "sha256": "7a0d29e4e83c5644b39077566cafa7516528e569d479923a4e7a4114335b8d72",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/login.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/logout.md": {
+    "bytes": 1020,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\logout.md",
+    "sha256": "ee625893e467175f44fabe993620944d6504464877f0a619967dc4917c1ed948",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/logout.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/numbers-list.md": {
+    "bytes": 1720,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\numbers-list.md",
+    "sha256": "a331f1d34cc29eefda88025dc18523d3e3a1dbc5dcf6300861015032d4dd5c78",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/numbers-list.md"
+  },
+  "https://www.bolna.ai/docs/cli/commands/whoami.md": {
+    "bytes": 1185,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\commands\\whoami.md",
+    "sha256": "7414de5beefda9cc9cb5058c410ce4bfcaa67a453b0a0f6ef8e41dee526e2ddf",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/commands/whoami.md"
+  },
+  "https://www.bolna.ai/docs/cli/dashboard/keybindings.md": {
+    "bytes": 3251,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\dashboard\\keybindings.md",
+    "sha256": "d8ff88bd2ca91839b3a4dc17863ff838189b2c5390986d664450bc881f8eb95a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/dashboard/keybindings.md"
+  },
+  "https://www.bolna.ai/docs/cli/dashboard/overview.md": {
+    "bytes": 4788,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\dashboard\\overview.md",
+    "sha256": "54554a0a9d82fb207c8bf95198740c92d0970b819684f5d3b3a82752d67e3751",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/dashboard/overview.md"
+  },
+  "https://www.bolna.ai/docs/cli/dashboard/starting-a-call.md": {
+    "bytes": 2364,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\dashboard\\starting-a-call.md",
+    "sha256": "b546cdc9fc350081303d054a72578daabbc812ef22e60ba6b51420ac82547395",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/dashboard/starting-a-call.md"
+  },
+  "https://www.bolna.ai/docs/cli/global-flags.md": {
+    "bytes": 2619,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\global-flags.md",
+    "sha256": "544f8530361fb8b3fcd2d6bc24b6fea2ef991b116196c2b3202d0ce230a4617d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/global-flags.md"
+  },
+  "https://www.bolna.ai/docs/cli/installation.md": {
+    "bytes": 2777,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\installation.md",
+    "sha256": "67a55e4741041345f59d87524601b1cb129153eb4554a01c3f8825af69c5d2b7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/installation.md"
+  },
+  "https://www.bolna.ai/docs/cli/introduction.md": {
+    "bytes": 6363,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\introduction.md",
+    "sha256": "02d9e5deab85fa6a735aaf5e395e1d412910a248d4590eea992257eec8250029",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/introduction.md"
+  },
+  "https://www.bolna.ai/docs/cli/quickstart.md": {
+    "bytes": 1660,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\quickstart.md",
+    "sha256": "aa6c64e4d7a9c8313615656e782be488171fe69996f33a177bf66d9e1401b8a3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/quickstart.md"
+  },
+  "https://www.bolna.ai/docs/cli/versioning.md": {
+    "bytes": 1910,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\cli\\versioning.md",
+    "sha256": "65c9ca40866ea1f5b6e5580e1a46327296d054709ab5036561c4bb6fd4c11313",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/cli/versioning.md"
+  },
+  "https://www.bolna.ai/docs/clone-voices.md": {
+    "bytes": 3783,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\clone-voices.md",
+    "sha256": "b29f24e9f40d52819803e6d311d080163689e4843f7ceededa310c364dfcc7a2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/clone-voices.md"
+  },
+  "https://www.bolna.ai/docs/compliance-application/how-to-submit-guide.md": {
+    "bytes": 5921,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\compliance-application\\how-to-submit-guide.md",
+    "sha256": "285ac16c046926647fca8b41e6a9a9e906c5d6e43d354e482ccd87ffc5520060",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/compliance-application/how-to-submit-guide.md"
+  },
+  "https://www.bolna.ai/docs/compliance-application/introduction.md": {
+    "bytes": 4661,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\compliance-application\\introduction.md",
+    "sha256": "3682f7dc7147ba8b7bfe6ed2a7e534773938a2f0afd19c69419894727167d640",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/compliance-application/introduction.md"
+  },
+  "https://www.bolna.ai/docs/concepts/agent-types.md": {
+    "bytes": 3303,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\agent-types.md",
+    "sha256": "a80870818e3a4a49f38804f6d7b31d34f2823457d5e33cbbe227ad6f5c5b0be0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/agent-types.md"
+  },
+  "https://www.bolna.ai/docs/concepts/call-flow.md": {
+    "bytes": 6046,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\call-flow.md",
+    "sha256": "9f1f366a30b88b49cee3bfa01338965a046045990e379cd09c102e35f40a18c1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/call-flow.md"
+  },
+  "https://www.bolna.ai/docs/concepts/call-latencies.md": {
+    "bytes": 7936,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\call-latencies.md",
+    "sha256": "28028245bf0ccc0a34fc1ef14680a8e88b38ea2d05e006420414a48c75420dae",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/call-latencies.md"
+  },
+  "https://www.bolna.ai/docs/concepts/choosing-providers.md": {
+    "bytes": 7907,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\choosing-providers.md",
+    "sha256": "8efe1100667fe69ba4a9a5a2f297925fdbe2769812a72ed0764479d33f5bf3d9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/choosing-providers.md"
+  },
+  "https://www.bolna.ai/docs/concepts/glossary.md": {
+    "bytes": 7132,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\glossary.md",
+    "sha256": "2a692ff8d8b0e6313e45017f7355e64b64c246e5b2de682fb7f77522122c206c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/glossary.md"
+  },
+  "https://www.bolna.ai/docs/concepts/latency.md": {
+    "bytes": 5424,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\latency.md",
+    "sha256": "72bfee9ca4382cce9cb0a2766a4f82bbcb07deaf76c8ed6172eb14f184cfc9ac",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/latency.md"
+  },
+  "https://www.bolna.ai/docs/concepts/security.md": {
+    "bytes": 4925,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\concepts\\security.md",
+    "sha256": "019f41cfd0effe230294c14f8f358c6418a693ff957802ddcf4e7304800df6fe",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/concepts/security.md"
+  },
+  "https://www.bolna.ai/docs/customizations/auto-switch-multilingual-messages.md": {
+    "bytes": 7537,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\customizations\\auto-switch-multilingual-messages.md",
+    "sha256": "06bcf24c36b1f5bd551da62737e93d8fe763228a3a2b123d7a7438b958ded0c4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/customizations/auto-switch-multilingual-messages.md"
+  },
+  "https://www.bolna.ai/docs/customizations/capturing-precise-transcripts.md": {
+    "bytes": 4443,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\customizations\\capturing-precise-transcripts.md",
+    "sha256": "319d8dd0e4570da1d82892ab6bde1c838b155994bb51b44283f622363ffd5793",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/customizations/capturing-precise-transcripts.md"
+  },
+  "https://www.bolna.ai/docs/customizations/identify-incoming-callers.md": {
+    "bytes": 5325,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\customizations\\identify-incoming-callers.md",
+    "sha256": "32658fde6743e9b6b05b5268e4bc61f012ad67f365eb7d998bbdf87e854c82b4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/customizations/identify-incoming-callers.md"
+  },
+  "https://www.bolna.ai/docs/customizations/multilingual-config-reference.md": {
+    "bytes": 10776,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\customizations\\multilingual-config-reference.md",
+    "sha256": "79cb04f7824123dcba568d3acd8a39101f3448c1f6c3bdf71f8c855ef66f4c39",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/customizations/multilingual-config-reference.md"
+  },
+  "https://www.bolna.ai/docs/customizations/multilingual-languages-support.md": {
+    "bytes": 9157,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\customizations\\multilingual-languages-support.md",
+    "sha256": "176ec6747144235079251f8c691ceb0a98c118482f7098f2142f493b98daa6f1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/customizations/multilingual-languages-support.md"
+  },
+  "https://www.bolna.ai/docs/customizations/using-custom-llm.md": {
+    "bytes": 3943,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\customizations\\using-custom-llm.md",
+    "sha256": "b97d23a4e23c6be4be4e0e531270d80eea0fe9927546cea16ed4d629d89351b0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/customizations/using-custom-llm.md"
+  },
+  "https://www.bolna.ai/docs/developer-resources/overview.md": {
+    "bytes": 2335,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\developer-resources\\overview.md",
+    "sha256": "550143b30cb7a0869624d84376efac81b3d5efb5461180fb2be063aab741d3bc",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/developer-resources/overview.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/concurrency-management.md": {
+    "bytes": 8123,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\concurrency-management.md",
+    "sha256": "1f2607b8d57dfec9234269e4556337e37cc0598b56a7ab923ae59a3c83ca0543",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/concurrency-management.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/data-residency.md": {
+    "bytes": 1817,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\data-residency.md",
+    "sha256": "496e92ac68c6c4e00ade5fc9f112b374269d5723dc1c988e4bad181f41c510c0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/data-residency.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/indian-server-configuration.md": {
+    "bytes": 3765,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\indian-server-configuration.md",
+    "sha256": "39f5671e94ec4eb5e5feadcd2641904c19decef89650ff7cf48d8f5d97e82a58",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/indian-server-configuration.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/on-premise-deployments.md": {
+    "bytes": 2074,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\on-premise-deployments.md",
+    "sha256": "69ed4fe90f3aada5a2d36ec9353cf3c4990ae1a29ef84ee8cdce56917f90e738",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/on-premise-deployments.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/on-premise-instructions.md": {
+    "bytes": 4898,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\on-premise-instructions.md",
+    "sha256": "4ad7e1b8f514cf479632f5f87288ca00f085cb9eb0ac819af2878ff61d1ccc55",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/on-premise-instructions.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/organization.md": {
+    "bytes": 4940,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\organization.md",
+    "sha256": "7c45f3f3adbdc395d6ae6fecd475394a85797dbe33fceaecb3bc1892d00660ab",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/organization.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/plan.md": {
+    "bytes": 2221,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\plan.md",
+    "sha256": "dbabf8fd724779588f93025ebf6032ebec242a4f76de31f496afd19749d6099e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/plan.md"
+  },
+  "https://www.bolna.ai/docs/enterprise/sub-accounts.md": {
+    "bytes": 6125,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\enterprise\\sub-accounts.md",
+    "sha256": "c22084fb595e0ffcccf379e94f387712ca23714a329aa4dd98860df8f9be4f8b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/enterprise/sub-accounts.md"
+  },
+  "https://www.bolna.ai/docs/frequently-asked-questions.md": {
+    "bytes": 7269,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\frequently-asked-questions.md",
+    "sha256": "3ab452c389c2f2e9b4d4bd850eeca3a819a26d50b1809db67daa3daeabcfdcdb",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/frequently-asked-questions.md"
+  },
+  "https://www.bolna.ai/docs/getting-help.md": {
+    "bytes": 5435,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\getting-help.md",
+    "sha256": "a2b1abbe363ec76ed9af10c6832bf4d343ad9fdcc8db354e7ef0b8571d8f4988",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/getting-help.md"
+  },
+  "https://www.bolna.ai/docs/getting-started/knowledge-base.md": {
+    "bytes": 8480,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\getting-started\\knowledge-base.md",
+    "sha256": "4844bd0dbaee061ffea2c9b49cd5318cd683289e618a7e199b9f7891039317ad",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/getting-started/knowledge-base.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/agent-setup.md": {
+    "bytes": 9302,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\agent-setup.md",
+    "sha256": "de9459609011d31a819eec7101fb2d5d497d6346de7d09d64e4bb5385d1a1559",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/agent-setup.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/debugging.md": {
+    "bytes": 5204,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\debugging.md",
+    "sha256": "0656c3042140bb08513dce3941a05a51319e03b88bd547bc916ee30d36a94f0a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/debugging.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/edges-and-routing.md": {
+    "bytes": 13063,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\edges-and-routing.md",
+    "sha256": "a82a49b7ff0ecd10920562a7b26746c4a28f033d8f4e4ef09135790877eb1aad",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/edges-and-routing.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/event-injection.md": {
+    "bytes": 8928,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\event-injection.md",
+    "sha256": "d959a1b1eebd6ff9001b121c9f0bd4e4f677764be0c6157ee19a7eaf1b703adf",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/event-injection.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/full-example.md": {
+    "bytes": 10002,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\full-example.md",
+    "sha256": "e410b26def7cf6ff0b1dac4fe63f41502d306e4b14af0018a96da42ccde1389f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/full-example.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/import-export.md": {
+    "bytes": 2911,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\import-export.md",
+    "sha256": "e04344f9c09b0e31b42a2a6f792191f4ff4366bdf8678ee9c8980e18309f6a53",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/import-export.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/introduction.md": {
+    "bytes": 11910,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\introduction.md",
+    "sha256": "70f479bc789fefb7e20cf3498dc2e9bead397a39842c99cde364805dfbf12dd2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/introduction.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/managing-nodes.md": {
+    "bytes": 7551,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\managing-nodes.md",
+    "sha256": "fe399e16966a6b7a7d01d2e1861babb0784d5765fad4b36b1f8414e81aa62c70",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/managing-nodes.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/managing-transitions.md": {
+    "bytes": 10458,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\managing-transitions.md",
+    "sha256": "983feba317f85175749628cb2040f77532fb15165da0190584ab36a2dc5cb4ec",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/managing-transitions.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/router-nodes.md": {
+    "bytes": 9795,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\router-nodes.md",
+    "sha256": "f84db78a8a8efbb6b70f957ccfff5853baac309085f0601b962260dbd0926236",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/router-nodes.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/static-nodes.md": {
+    "bytes": 8234,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\static-nodes.md",
+    "sha256": "ebb701509ad29677b95c18e6b013274233e3f6531d12dbeb60875e5692677f06",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/static-nodes.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/testing.md": {
+    "bytes": 3039,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\testing.md",
+    "sha256": "e7effd3728c341092b90645a8315bfe87ffafd9daf5061b597fc1e925f242867",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/testing.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/tools-and-rag.md": {
+    "bytes": 6680,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\tools-and-rag.md",
+    "sha256": "1dcf256a09ae861963a219d3feeef4e2dbac12d9effdec0e8b6d6c45b66e58c6",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/tools-and-rag.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/using-the-editor.md": {
+    "bytes": 7133,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\using-the-editor.md",
+    "sha256": "ae0beafaaf84a35d1a9a84336bbf535caf63aea2adf32e86a75b7edf7899960b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/using-the-editor.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/validation.md": {
+    "bytes": 5968,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\validation.md",
+    "sha256": "f8c5779fada5d5e24742a89b39a633317b56d4d04198d47e9d1a5715ff028d09",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/validation.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/variables.md": {
+    "bytes": 4995,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\variables.md",
+    "sha256": "c19659c18ab9fa29bcf07b5f12621b61d41df8094c11e6c0066820d4910585c1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/variables.md"
+  },
+  "https://www.bolna.ai/docs/graph-agent/version-history.md": {
+    "bytes": 2577,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\graph-agent\\version-history.md",
+    "sha256": "c1fb55af74e2dd8daffd524e855e128c49c8d260273a8a7e1002ff045c9fb21b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/graph-agent/version-history.md"
+  },
+  "https://www.bolna.ai/docs/guides/fetch-agent-executions.md": {
+    "bytes": 3746,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\fetch-agent-executions.md",
+    "sha256": "27da6f268462acb6440419deca32d8663beada95f0aad903f94d8201024bf6fa",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/fetch-agent-executions.md"
+  },
+  "https://www.bolna.ai/docs/guides/inbound/buying-phone-numbers.md": {
+    "bytes": 7598,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\inbound\\buying-phone-numbers.md",
+    "sha256": "7313e7fbfe4ead6b45b23b992a64b5577edbf4e191b05a3785fb9761d2758b24",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/inbound/buying-phone-numbers.md"
+  },
+  "https://www.bolna.ai/docs/guides/inbound/dtmf.md": {
+    "bytes": 3954,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\inbound\\dtmf.md",
+    "sha256": "667580ea7c5ffbcef1837ccea34b5f31ae06b4819b6e1b8db5c0a1a685e179cb",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/inbound/dtmf.md"
+  },
+  "https://www.bolna.ai/docs/guides/inbound/ivr-inbound-calls.md": {
+    "bytes": 11869,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\inbound\\ivr-inbound-calls.md",
+    "sha256": "007e60959375b38dc6beea097f97bda9082f3a931b187ad3c3c2e3ab4fe84f03",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/inbound/ivr-inbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/inbound/obtaining-regulated-phone-numbers.md": {
+    "bytes": 7297,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\inbound\\obtaining-regulated-phone-numbers.md",
+    "sha256": "2f4a3970a895b7fe9395c249886a642c26f7f45c39b9ce48dd8ef6b27efb8908",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/inbound/obtaining-regulated-phone-numbers.md"
+  },
+  "https://www.bolna.ai/docs/guides/inbound/receiving-incoming-calls.md": {
+    "bytes": 21028,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\inbound\\receiving-incoming-calls.md",
+    "sha256": "2885ed8e7cd8a2b9183c5700d926ef2db78ba932a6b26a61dde2afef561e0c67",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/inbound/receiving-incoming-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/inbound/truecaller-verification.md": {
+    "bytes": 13605,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\inbound\\truecaller-verification.md",
+    "sha256": "fe21c9e9b8ba1a53bb09bc617a8cebe043d165e29e38f9b827495f6119067c7d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/inbound/truecaller-verification.md"
+  },
+  "https://www.bolna.ai/docs/guides/outbound/auto-retry.md": {
+    "bytes": 4361,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\outbound\\auto-retry.md",
+    "sha256": "a3f5a6d987bcca3f16d451c46ed2e1b36ae0e018aa908bbc87c38867fc3a4521",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/outbound/auto-retry.md"
+  },
+  "https://www.bolna.ai/docs/guides/outbound/batch-calling.md": {
+    "bytes": 14575,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\outbound\\batch-calling.md",
+    "sha256": "aa0ff2f73a657067a829ce91d6eae0d6b424f77289a6c12f6df2d99958a19eae",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/outbound/batch-calling.md"
+  },
+  "https://www.bolna.ai/docs/guides/outbound/calling-guardrails.md": {
+    "bytes": 8365,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\outbound\\calling-guardrails.md",
+    "sha256": "776e262ee4d7a65eb74c431eaf137ad9cfacefc2f1ed69c33afbf7d2527b23b5",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/outbound/calling-guardrails.md"
+  },
+  "https://www.bolna.ai/docs/guides/outbound/disconnect-calls.md": {
+    "bytes": 3497,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\outbound\\disconnect-calls.md",
+    "sha256": "ca812f1cc3b2efa565d5d87de684dfea9f20942e149e57e5fc2732b6c1592417",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/outbound/disconnect-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/outbound/hangup-calls.md": {
+    "bytes": 5219,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\outbound\\hangup-calls.md",
+    "sha256": "9c9dafaf4449f725e666e8b5ccf66eebed266c7141fb5ae617c58307e61ac16e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/outbound/hangup-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/outbound/making-outgoing-calls.md": {
+    "bytes": 20397,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\outbound\\making-outgoing-calls.md",
+    "sha256": "2dceca53a24b8a62035b8bee2af5eb2a6e3d69b2edb27f4a845ec8839ecb5911",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/outbound/making-outgoing-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/post-call/list-phone-call-hangup-status.md": {
+    "bytes": 8105,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\post-call\\list-phone-call-hangup-status.md",
+    "sha256": "c86bb079502b8120ba754023ff8a3e6d3ebe8b25df143683653113f823140700",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/post-call/list-phone-call-hangup-status.md"
+  },
+  "https://www.bolna.ai/docs/guides/post-call/list-phone-call-status.md": {
+    "bytes": 7368,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\post-call\\list-phone-call-status.md",
+    "sha256": "4157533d606cd7c7cbbd7c9bc2e76786d4828349aa8f59b1d50e8c08998423b1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/post-call/list-phone-call-status.md"
+  },
+  "https://www.bolna.ai/docs/guides/post-call/polling-call-status-webhooks.md": {
+    "bytes": 4758,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\post-call\\polling-call-status-webhooks.md",
+    "sha256": "0ef563c0d6efbde4876cc1514e8ce92069ac407f6f01aff1fd6c0f34d17d0ddc",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/post-call/polling-call-status-webhooks.md"
+  },
+  "https://www.bolna.ai/docs/guides/prompting/prompting-guide.md": {
+    "bytes": 11675,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\prompting\\prompting-guide.md",
+    "sha256": "ebf56fc0fde61a1b1bfb87e9264f261dabda8bc210c26c2216b758b5e472b7ce",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/prompting/prompting-guide.md"
+  },
+  "https://www.bolna.ai/docs/guides/prompting/using-context.md": {
+    "bytes": 7968,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\prompting\\using-context.md",
+    "sha256": "76d611440317c9cd7d8a1349b6e97426bab20c9655f387203f73aa1713068726",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/prompting/using-context.md"
+  },
+  "https://www.bolna.ai/docs/guides/prompting/using-extractions.md": {
+    "bytes": 22919,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\prompting\\using-extractions.md",
+    "sha256": "6dc9e9100c5a544edb323cbc6b23759eb3f7b5454714240009ce69b631a0d72a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/prompting/using-extractions.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/exotel-connect-provider.md": {
+    "bytes": 4167,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\exotel-connect-provider.md",
+    "sha256": "2639852d85fe5faf964a6a69b1cba43818d2dbb41d6beefff306e94e1de208a3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/exotel-connect-provider.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/exotel-outbound-calls.md": {
+    "bytes": 4315,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\exotel-outbound-calls.md",
+    "sha256": "bd5886037c399a7bb55e0f60ffe285e4b13b882b12b1630bd5e3f95e2ce24fb5",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/exotel-outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/exotel.md": {
+    "bytes": 2536,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\exotel.md",
+    "sha256": "2a6ac19dbd670a2f38c2bb93591333f10fe185080b04d732ae64e7c2ea935712",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/exotel.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/integrations.md": {
+    "bytes": 31269,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\integrations.md",
+    "sha256": "80522d42ddae860019203f3824a57de7ddd1970688de169d6f83a48924a91c97",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/integrations.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/on-prem-twilio.md": {
+    "bytes": 2100,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\on-prem-twilio.md",
+    "sha256": "de62e208d42cd41b958baadf8287fe341c59a81658675b81ad62b3686547c006",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/on-prem-twilio.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/plivo-connect-provider.md": {
+    "bytes": 2758,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\plivo-connect-provider.md",
+    "sha256": "8452854273460ffe0985980762459b17fce1e96654c520780cdd973fbd01060a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/plivo-connect-provider.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/plivo-inbound-calls.md": {
+    "bytes": 3269,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\plivo-inbound-calls.md",
+    "sha256": "b72038a962a1dc2630952606d867a019914514678b2f76449802493783dc346e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/plivo-inbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/plivo-outbound-calls.md": {
+    "bytes": 3140,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\plivo-outbound-calls.md",
+    "sha256": "bc321f0c16a385ca00942750c6dde98296ffdcb13564b03d8eb155fc740d3d6e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/plivo-outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/plivo.md": {
+    "bytes": 2017,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\plivo.md",
+    "sha256": "45a56609bfd0e2b1f65595bb99664c482fa92be870f53a73775145f3856edfd2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/plivo.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/setup-exotel-app-for-inbound-calls.md": {
+    "bytes": 8187,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\setup-exotel-app-for-inbound-calls.md",
+    "sha256": "3753010205d9cfd19bedee6ef4c5dad6605d4e24685e6732e6d3a71e6f268a22",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/setup-exotel-app-for-inbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/setup-exotel-app-for-outbound-calls.md": {
+    "bytes": 7382,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\setup-exotel-app-for-outbound-calls.md",
+    "sha256": "e55a02458bb50888959aa159b138175966427ba8a18fc165997a8f73dac4a977",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/setup-exotel-app-for-outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/twilio-connect-provider.md": {
+    "bytes": 2883,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\twilio-connect-provider.md",
+    "sha256": "b3bf061163d11e5a4e57028b661609af06e55837e69eddc998a0c427d5cc4473",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/twilio-connect-provider.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/twilio-inbound-calls.md": {
+    "bytes": 3504,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\twilio-inbound-calls.md",
+    "sha256": "9289c7ad683f1056dd209595252eb01118e733f21fe6097f5676f54dc7fb18b4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/twilio-inbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/twilio-outbound-calls.md": {
+    "bytes": 3147,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\twilio-outbound-calls.md",
+    "sha256": "7b688a0fbf9452945c59bdcae1c1e68f39a6b885762e353debddc41ebfa4e963",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/twilio-outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/twilio.md": {
+    "bytes": 1959,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\twilio.md",
+    "sha256": "83896f8c985c2c2153d42d1e9ff7571ac971c216b9a70e3e5687231aff7c6e39",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/twilio.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/vobiz-connect-provider.md": {
+    "bytes": 2756,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\vobiz-connect-provider.md",
+    "sha256": "f3ad5c58c39d09b18a10058ad5f9087e24abefff4c775d8cc8c7d750f1299857",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/vobiz-connect-provider.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/vobiz-outbound-calls.md": {
+    "bytes": 3140,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\vobiz-outbound-calls.md",
+    "sha256": "775d289717166e39fb1ba9d3ff35dcf419ef711c3c03ebe61b9136667f0082e5",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/vobiz-outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/guides/telephony/vobiz.md": {
+    "bytes": 2017,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\telephony\\vobiz.md",
+    "sha256": "ea1a2bcda6c07b0f406b550ecfb910481e6cc48ba596a2794df520ceebec84e3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/telephony/vobiz.md"
+  },
+  "https://www.bolna.ai/docs/guides/writing-prompts-in-non-english-languages.md": {
+    "bytes": 5098,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\guides\\writing-prompts-in-non-english-languages.md",
+    "sha256": "bac976053500134758e49e57e20733591968a5efed4a128e922de9cfa7c8d847",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/guides/writing-prompts-in-non-english-languages.md"
+  },
+  "https://www.bolna.ai/docs/import-voices.md": {
+    "bytes": 3925,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\import-voices.md",
+    "sha256": "d968924a6a3cc1513944bf326d4bce55a887bcec19c79c0440a7f38a642305af",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/import-voices.md"
+  },
+  "https://www.bolna.ai/docs/index.md": {
+    "bytes": 3265,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\index.md",
+    "sha256": "7f671769cc0af26a2d66b88ed62b0693303512f3fd8c8729770c02ba72c07ae4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/index.md"
+  },
+  "https://www.bolna.ai/docs/introduction.md": {
+    "bytes": 2231,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\introduction.md",
+    "sha256": "66994f139e3e04bc11f5be816f05df42da1b2b66d79cb721c105c9b4710c654c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/introduction.md"
+  },
+  "https://www.bolna.ai/docs/platform-concepts.md": {
+    "bytes": 10976,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\platform-concepts.md",
+    "sha256": "c7b62f5a4a37c9bd55c4eb0eafe744dcdd7e6dd364a9bc02506d898e3111481c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/platform-concepts.md"
+  },
+  "https://www.bolna.ai/docs/pricing/call-pricing.md": {
+    "bytes": 5168,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\pricing\\call-pricing.md",
+    "sha256": "c4301dd34c0360ec2083fe8e147cbf63c7684580696e268a42ad666c145e7ffa",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/pricing/call-pricing.md"
+  },
+  "https://www.bolna.ai/docs/pricing/outbound-calling-concurrency.md": {
+    "bytes": 5878,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\pricing\\outbound-calling-concurrency.md",
+    "sha256": "e4c038e35608ce2bf35c1e6a94f99ca0ef8ba9d1c01bd4f15df1881b6f3210a2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/pricing/outbound-calling-concurrency.md"
+  },
+  "https://www.bolna.ai/docs/pricing/preferred-models.md": {
+    "bytes": 7096,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\pricing\\preferred-models.md",
+    "sha256": "d93c569af58c31004ac28fdf46f5e2d2762aa46ed086bce3ee7f76df5e566412",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/pricing/preferred-models.md"
+  },
+  "https://www.bolna.ai/docs/providers.md": {
+    "bytes": 6126,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers.md",
+    "sha256": "63231b2b7a0c5a338dd1d6342dc65ea4ac05546f7ddb6a28bc3c9a4ec24791b9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers.md"
+  },
+  "https://www.bolna.ai/docs/providers/llm-model/anthropic.md": {
+    "bytes": 5195,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\llm-model\\anthropic.md",
+    "sha256": "7cb98327261579292ee3a334a1afa23f2fabe6a87ab74cd5869716f882fc0bc0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/llm-model/anthropic.md"
+  },
+  "https://www.bolna.ai/docs/providers/llm-model/azure-openai.md": {
+    "bytes": 6707,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\llm-model\\azure-openai.md",
+    "sha256": "faeda3c225e378c77f4f8db558f5f8329eb691968610af0b2105ff9e96c63f30",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/llm-model/azure-openai.md"
+  },
+  "https://www.bolna.ai/docs/providers/llm-model/deepseek.md": {
+    "bytes": 4577,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\llm-model\\deepseek.md",
+    "sha256": "d9b6d5955fcd70a8ccfec822774a09464ba67eedf41b1e88cc399d87bc262029",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/llm-model/deepseek.md"
+  },
+  "https://www.bolna.ai/docs/providers/llm-model/gemini.md": {
+    "bytes": 4576,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\llm-model\\gemini.md",
+    "sha256": "780698114af9607e3d17f72aba0f6d2eefeb27eee51208ded348d970a6a08b09",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/llm-model/gemini.md"
+  },
+  "https://www.bolna.ai/docs/providers/llm-model/openai.md": {
+    "bytes": 10170,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\llm-model\\openai.md",
+    "sha256": "37564414f4b1decc6eab595dee5f280e0e51a42140003534f0105f221d74cd50",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/llm-model/openai.md"
+  },
+  "https://www.bolna.ai/docs/providers/llm-model/openrouter.md": {
+    "bytes": 4944,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\llm-model\\openrouter.md",
+    "sha256": "0c0844c898ff42a6daafa84dec9e29c7dddc2ca8e64e64112245eb6b04759233",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/llm-model/openrouter.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/assemblyai.md": {
+    "bytes": 3908,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\assemblyai.md",
+    "sha256": "52c78a54e210f3da467638c43e95ab867fd1feb7d86e47232d479c70364dec42",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/assemblyai.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/azure.md": {
+    "bytes": 3468,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\azure.md",
+    "sha256": "36aebd00b8e9fdc94b70674a642e852f98a51534cd45458ffd1b51f7fa8d4e48",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/azure.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/deepgram-flux.md": {
+    "bytes": 5104,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\deepgram-flux.md",
+    "sha256": "ea27d2d6054eb7a9be01d6265beb175ee3e32e83a192db194c62b553ac811ff7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/deepgram-flux.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/deepgram.md": {
+    "bytes": 5570,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\deepgram.md",
+    "sha256": "51ecea26a2c99da5f18eff25437a593e5866a7308fecc8458e37bbacd9da8969",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/deepgram.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/elevenlabs.md": {
+    "bytes": 5307,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\elevenlabs.md",
+    "sha256": "29f63f4983bc53318f8bde4e002ef4dc31d43fc40f280faaf631ed3cfe3b47a8",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/elevenlabs.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/gladia.md": {
+    "bytes": 5810,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\gladia.md",
+    "sha256": "bfa37915bb77a11488209fbcc0e4876badae3023d8058428e00d6356ee3e6c68",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/gladia.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/openai.md": {
+    "bytes": 3963,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\openai.md",
+    "sha256": "5a76a3c6c1c1d909093e4dc6fb89e6ce06bc483fe68d5f06338842dc03daca62",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/openai.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/pixa.md": {
+    "bytes": 4872,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\pixa.md",
+    "sha256": "baa3cca5d7ce12c7a85bf04de30fcb99a690d0bf9d5eb6d04b260ba14eab30d2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/pixa.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/sarvam.md": {
+    "bytes": 6242,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\sarvam.md",
+    "sha256": "aec63f22e72244547807ffc8e64027abe7c55404c6e7d1aeefe3835f0c06f85a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/sarvam.md"
+  },
+  "https://www.bolna.ai/docs/providers/transcriber/soniox.md": {
+    "bytes": 4213,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\transcriber\\soniox.md",
+    "sha256": "3cba1994ef7373c747d9ab02b6d906c6df1db3245f79d17088dedc8375d68379",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/transcriber/soniox.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/aws-polly.md": {
+    "bytes": 3667,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\aws-polly.md",
+    "sha256": "cf1bad63464ea0f2c61c2f9e91663689425cfb4ec15c38de1dec665609bd326b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/aws-polly.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/azure.md": {
+    "bytes": 4720,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\azure.md",
+    "sha256": "7bbc5598c791c38754706938f08e3340f1cf266132e441fe3dd26b9970ab49e2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/azure.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/cartesia.md": {
+    "bytes": 7564,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\cartesia.md",
+    "sha256": "ec19d7752af954b62e9507b9cce2b5884749efa0ec165f9d45a607f8bde589c2",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/cartesia.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/deepgram.md": {
+    "bytes": 4376,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\deepgram.md",
+    "sha256": "5acad1504340678e5348880aec06ba1d0420df6a0ad9d35bd161c52fbce30b89",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/deepgram.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/elevenlabs.md": {
+    "bytes": 7486,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\elevenlabs.md",
+    "sha256": "3769981a9d917127791835b8988c78f9c521bad35754b823f37e1d93bf0afc55",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/elevenlabs.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/maya.md": {
+    "bytes": 5963,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\maya.md",
+    "sha256": "80b6d4d4ec36a150b81eeeb3224f450c26d13d1413f602ed749f917f0bf47965",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/maya.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/rime.md": {
+    "bytes": 6010,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\rime.md",
+    "sha256": "5a6de15a07fcfc19030a8de24813cd0157841a47a78e97878e6424b284707522",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/rime.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/sarvam.md": {
+    "bytes": 3315,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\sarvam.md",
+    "sha256": "11864bafb11256da75e2d6223c463144cde217dba4610237cb336585b5bd6111",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/sarvam.md"
+  },
+  "https://www.bolna.ai/docs/providers/voice/smallest.md": {
+    "bytes": 3410,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\providers\\voice\\smallest.md",
+    "sha256": "52cfb799fa55b533e9e83bd6968f86a0dc215301b36b76fb6ec531bd4eb9f144",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/providers/voice/smallest.md"
+  },
+  "https://www.bolna.ai/docs/quickstarts/api.md": {
+    "bytes": 14145,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\quickstarts\\api.md",
+    "sha256": "ce6faf1338f6d7e5f9192aaae1cbc37f83e7b6b996382c6a7ea549e573875339",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/quickstarts/api.md"
+  },
+  "https://www.bolna.ai/docs/quickstarts/batch.md": {
+    "bytes": 8092,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\quickstarts\\batch.md",
+    "sha256": "29b47c0be6077191062fdbf31f0f4d7c4a2e6a40523230d75523a1eff0906623",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/quickstarts/batch.md"
+  },
+  "https://www.bolna.ai/docs/quickstarts/inbound.md": {
+    "bytes": 5497,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\quickstarts\\inbound.md",
+    "sha256": "4a77d69756d890a36dc992bf6c9acedc339bccda16d20ef9d75a95f7179cac17",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/quickstarts/inbound.md"
+  },
+  "https://www.bolna.ai/docs/sdks/web-call.md": {
+    "bytes": 23383,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\sdks\\web-call.md",
+    "sha256": "8ebae7d2214ab101d5f3ce4503cab67ca75c39e5df63bcd114acb06ffb4dd509",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/sdks/web-call.md"
+  },
+  "https://www.bolna.ai/docs/self_hosted_changelog/september-2025.md": {
+    "bytes": 1283,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\self_hosted_changelog\\september-2025.md",
+    "sha256": "4ff18defe5bf9d43cdb4de5938229bf764733488a30980b5a742de5be6f2ee84",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/self_hosted_changelog/september-2025.md"
+  },
+  "https://www.bolna.ai/docs/sip-trunking/byot-inbound-calls.md": {
+    "bytes": 4260,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\sip-trunking\\byot-inbound-calls.md",
+    "sha256": "71b66890d6153c2e8fdb55c8d3143b0a3d63af728faf1b325cd4e4fbb242e7af",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/sip-trunking/byot-inbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/sip-trunking/byot-inbound-headers.md": {
+    "bytes": 8160,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\sip-trunking\\byot-inbound-headers.md",
+    "sha256": "93e7d69333c0e5a9d03e14d3d2aece40bc09f4a153565b482afa31789945242e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/sip-trunking/byot-inbound-headers.md"
+  },
+  "https://www.bolna.ai/docs/sip-trunking/byot-outbound-calls.md": {
+    "bytes": 3800,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\sip-trunking\\byot-outbound-calls.md",
+    "sha256": "5e449c766f6a65747cb58b6cd2f890e8e5214cb58ee24b2ada00e72aa591dc10",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/sip-trunking/byot-outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/sip-trunking/byot-setup.md": {
+    "bytes": 18546,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\sip-trunking\\byot-setup.md",
+    "sha256": "c74955122bb9d0c7fa5fbcdb81e420d5edd922b5604831971ce69308837d3020",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/sip-trunking/byot-setup.md"
+  },
+  "https://www.bolna.ai/docs/sip-trunking/introduction.md": {
+    "bytes": 3265,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\sip-trunking\\introduction.md",
+    "sha256": "8b5773fceb3b0f4ec0c691c1dee73f405ca6cdd14ef44489a8657e36a828b15e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/sip-trunking/introduction.md"
+  },
+  "https://www.bolna.ai/docs/supported-telephony-providers.md": {
+    "bytes": 3216,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\supported-telephony-providers.md",
+    "sha256": "4b97fd7192f0a1b20a647c0ab5a714ab3f5c03661d0b95f46f85fde0f4e94de4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/supported-telephony-providers.md"
+  },
+  "https://www.bolna.ai/docs/tool-calling/book-calendar-slots.md": {
+    "bytes": 5352,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tool-calling\\book-calendar-slots.md",
+    "sha256": "fb0c582e69d727286a59ca7c52b77905f31add807a32030d3d728ec74be516a8",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tool-calling/book-calendar-slots.md"
+  },
+  "https://www.bolna.ai/docs/tool-calling/custom-function-calls.md": {
+    "bytes": 36012,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tool-calling\\custom-function-calls.md",
+    "sha256": "00b4765b7879320084c79c96fbd45c921723a2569a892ce7555a5c37d2504637",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tool-calling/custom-function-calls.md"
+  },
+  "https://www.bolna.ai/docs/tool-calling/fetch-calendar-slots.md": {
+    "bytes": 4884,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tool-calling\\fetch-calendar-slots.md",
+    "sha256": "490f08f9713fd6f3b634f4432f1a747ec53c695d1e12198a45045536143378fd",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tool-calling/fetch-calendar-slots.md"
+  },
+  "https://www.bolna.ai/docs/tool-calling/introduction.md": {
+    "bytes": 5119,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tool-calling\\introduction.md",
+    "sha256": "5a5a554d03db0c4c7ccef8a746ff649c5f844a77323e34ca6810bb821a6d3e74",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tool-calling/introduction.md"
+  },
+  "https://www.bolna.ai/docs/tool-calling/transfer-calls.md": {
+    "bytes": 11137,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tool-calling\\transfer-calls.md",
+    "sha256": "1dd006d920ef833dec5af7645aa4fec3a2ca107f0358004dbc7b47a7bdd82004",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tool-calling/transfer-calls.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/google-sheets/automate-calls-with-google-sheets.md": {
+    "bytes": 12788,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\google-sheets\\automate-calls-with-google-sheets.md",
+    "sha256": "432f07677b9078efab1edc4cc00749f937d7da0b70ab8806f408919193939d35",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/google-sheets/automate-calls-with-google-sheets.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/introduction.md": {
+    "bytes": 3137,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\introduction.md",
+    "sha256": "d55c2b9559776926c2e6faeb6b8e91a1ff2fb6e9741c400de2730053d16df544",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/introduction.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/make-com/create-bolna-api-connection.md": {
+    "bytes": 2745,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\make-com\\create-bolna-api-connection.md",
+    "sha256": "63c03c144d46b1f913a1140b789f5b4938a13444a6bd3672c92bc77dcebb65b1",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/make-com/create-bolna-api-connection.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/make-com/create-bolna-webhook-connection.md": {
+    "bytes": 3894,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\make-com\\create-bolna-webhook-connection.md",
+    "sha256": "d3ed652448d0a5fc8b9b369afd463a3c21875c7bdb5ae419748cb8ef4b6e97d3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/make-com/create-bolna-webhook-connection.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/make-com/overview.md": {
+    "bytes": 1999,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\make-com\\overview.md",
+    "sha256": "d96b77aaf86ec2c614a74c679e21f3bc21af74dbe47d6a48a3f1912fa70bfc24",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/make-com/overview.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/make-com/send-email-after-bolna-call.md": {
+    "bytes": 4332,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\make-com\\send-email-after-bolna-call.md",
+    "sha256": "78838e5e7ecfe97cb7dbb8ca96ed8b7d517a2c5d260644960e6cb14417ada35c",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/make-com/send-email-after-bolna-call.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/make-com/send-sms-after-bolna-call.md": {
+    "bytes": 4541,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\make-com\\send-sms-after-bolna-call.md",
+    "sha256": "895ee4698f49d484843418a3928940026ef0a25e01f00973c518b355f8351984",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/make-com/send-sms-after-bolna-call.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/make-com/send-whatsapp-after-bolna-call.md": {
+    "bytes": 4334,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\make-com\\send-whatsapp-after-bolna-call.md",
+    "sha256": "5beadec37966d6c62aa9d6809f54aed0e710a01f81ad2c1ace49c557e7d84bb9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/make-com/send-whatsapp-after-bolna-call.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/n8n/overview.md": {
+    "bytes": 1419,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\n8n\\overview.md",
+    "sha256": "675d1484651260f74748a538e46661f18997d4eaa327a754fdcc54f578eea6c4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/n8n/overview.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/n8n/send-email-after-bolna-call.md": {
+    "bytes": 3289,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\n8n\\send-email-after-bolna-call.md",
+    "sha256": "a897f135e0395d39a881726e6445f395c3cbb787fe258437d1f6b26ce9d38f08",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/n8n/send-email-after-bolna-call.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/sip-trunking/inbound-calls.md": {
+    "bytes": 8854,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\sip-trunking\\inbound-calls.md",
+    "sha256": "3d11111e481036a2516a7016d3e366065d6d13b6f1ba3729a3ccbc30caec8b5a",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/sip-trunking/inbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/sip-trunking/introduction.md": {
+    "bytes": 6997,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\sip-trunking\\introduction.md",
+    "sha256": "ca08989d3871c3f46809fe9ab3a46da662afca1fb3d9020af68186350315d418",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/sip-trunking/introduction.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/sip-trunking/outbound-calls.md": {
+    "bytes": 10371,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\sip-trunking\\outbound-calls.md",
+    "sha256": "e38baf11679bc8b5b986144f1482bb540eead65547cc33bfe6c0b319f032452f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/sip-trunking/outbound-calls.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/sip-trunking/plivo-trunk-setup.md": {
+    "bytes": 10748,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\sip-trunking\\plivo-trunk-setup.md",
+    "sha256": "79944104ebe961d4fbb2e2cb2afc06ac4af887b4dae7524cb0e4aa12b35e706b",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/sip-trunking/plivo-trunk-setup.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/sip-trunking/register-trunk-on-bolna.md": {
+    "bytes": 13036,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\sip-trunking\\register-trunk-on-bolna.md",
+    "sha256": "f093ce498846d957a7e6c2387bb063634d7a32c768bcffade7333cb9a146cbc3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/sip-trunking/register-trunk-on-bolna.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/sip-trunking/twilio-trunk-setup.md": {
+    "bytes": 13544,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\sip-trunking\\twilio-trunk-setup.md",
+    "sha256": "549027903c840678e21a9c372ed85a7e48c27496c616ec6b546cb57183f84c39",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/sip-trunking/twilio-trunk-setup.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/viasocket/create-bolna-api-connection.md": {
+    "bytes": 4678,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\viasocket\\create-bolna-api-connection.md",
+    "sha256": "dccd7c9ed600b065a7cac59d83fc2e5f8dd428c65d013429e936339cf86d0217",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/viasocket/create-bolna-api-connection.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/viasocket/overview.md": {
+    "bytes": 2193,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\viasocket\\overview.md",
+    "sha256": "f79133005ed7de23ea9a4c94f2144565d8282c310ffe4edb285ae2765cb0a05d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/viasocket/overview.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/zapier/create-bolna-api-connection.md": {
+    "bytes": 4370,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\zapier\\create-bolna-api-connection.md",
+    "sha256": "105d8bb7b0a1c64d27884fa7f64855f30d10ac412e8d4e540882ca5ca9d10a5e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/zapier/create-bolna-api-connection.md"
+  },
+  "https://www.bolna.ai/docs/tutorials/zapier/overview.md": {
+    "bytes": 808,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\tutorials\\zapier\\overview.md",
+    "sha256": "4837253cfe3ba74b1c8dac7e020d4b14dddf6c969f7857d13ceed9d2efe46d5e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/tutorials/zapier/overview.md"
+  },
+  "https://www.bolna.ai/docs/vercel.json": {
+    "bytes": 141,
+    "content_type": "application/json",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\vercel.json",
+    "sha256": "9adb3eb8c0e61bc4af147a3c5260993573d58b8a9d61e189e73a67899e4c01a6",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/vercel.json"
+  },
+  "https://www.bolna.ai/docs/voice-agents/announcements-agent.md": {
+    "bytes": 1239,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\announcements-agent.md",
+    "sha256": "ac5347915dc2f76e744d2a2b374aaf6eb0ee5725cd62326c7f0e3e981bb4d1e9",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/announcements-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/cart-abandonment-agent.md": {
+    "bytes": 1267,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\cart-abandonment-agent.md",
+    "sha256": "ab6faed113526be0eee5af6ee2a326f650217894e7255fa20ee54ad2c011876e",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/cart-abandonment-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/cod-confirmation-agent.md": {
+    "bytes": 1243,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\cod-confirmation-agent.md",
+    "sha256": "97960a64fb511a68f4ffa8be4a3fc5bb1d51c04b97cced143557875a8883b984",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/cod-confirmation-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/customer-support-agent.md": {
+    "bytes": 1214,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\customer-support-agent.md",
+    "sha256": "d8fc7168ba6051069027112f20cdf934e708db3cb08a00c9edebf8189056c101",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/customer-support-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/dentist-appointment-agent.md": {
+    "bytes": 1111,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\dentist-appointment-agent.md",
+    "sha256": "ab1f11a44b5a7a487cbd11799087c91f3eec7eed9154474cd52051741d401ed3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/dentist-appointment-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/front-desk-agent.md": {
+    "bytes": 1278,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\front-desk-agent.md",
+    "sha256": "b371832c53601405be434e1094c011b6aced320df8357e69e9b888311319db22",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/front-desk-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/lead-qualification-agent.md": {
+    "bytes": 1241,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\lead-qualification-agent.md",
+    "sha256": "647da1405f733a8fd8323e70ca67b76dd1cd9af1e037fbbccad3a644a1a6fd4f",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/lead-qualification-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/onboarding-agent.md": {
+    "bytes": 1208,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\onboarding-agent.md",
+    "sha256": "e09546e0e2663849aa02e7ab5a62e7e5f76971df0a3c42a0e289d288a25d8d0d",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/onboarding-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/property-tech-agent.md": {
+    "bytes": 1048,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\property-tech-agent.md",
+    "sha256": "02ed4e31c07f3202dafebef721476b547b606a8e1b899021ec6b8e242449aa78",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/property-tech-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/recruitment-agent.md": {
+    "bytes": 1262,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\recruitment-agent.md",
+    "sha256": "1115fc1b4796cdd6de9c55984c8fef7c74636dc8f1d7875786e160f5974c1e76",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/recruitment-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/reminders-agent.md": {
+    "bytes": 1220,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\reminders-agent.md",
+    "sha256": "8d520e845c967c9446f73bc13ab08e16507a0457781175cc88d0d25042505fe7",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/reminders-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/sales-credit-card-agent.md": {
+    "bytes": 1089,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\sales-credit-card-agent.md",
+    "sha256": "24107af789cf94283872268141c50b7a41d6bf5baa4a861e8dd60ad1903149c0",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/sales-credit-card-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/sales-loans-agent.md": {
+    "bytes": 1068,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\sales-loans-agent.md",
+    "sha256": "2c3076bff79c361a72e693365c649e64503f61192274bbb2feeb3690a88ed612",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/sales-loans-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/salon-booking-agent.md": {
+    "bytes": 1075,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\salon-booking-agent.md",
+    "sha256": "45db876ac48b5301a0e4862e0fead0530badb9785f3b1a5942f2c007638a5ba4",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/salon-booking-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/surveys-agent.md": {
+    "bytes": 1211,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\surveys-agent.md",
+    "sha256": "959837d8fb5e176174428686b518ff547b9d5bf043a0565bb237ea899b4d24f3",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/surveys-agent.md"
+  },
+  "https://www.bolna.ai/docs/voice-agents/weekend-planner-agent.md": {
+    "bytes": 1096,
+    "content_type": "text/markdown; charset=utf-8",
+    "error": "",
+    "path": "vendor\\bolna\\mirror\\pages\\voice-agents\\weekend-planner-agent.md",
+    "sha256": "157779422f5a92ebc64825cb861752be83e6874cba837b34cf01bd86ee1dc971",
+    "status": 200,
+    "url": "https://www.bolna.ai/docs/voice-agents/weekend-planner-agent.md"
+  }
+}
