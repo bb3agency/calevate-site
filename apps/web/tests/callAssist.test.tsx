@@ -71,13 +71,13 @@ const AT_CEILING: AiQuota = {
   allowance_inr: "100.00",
   remaining_inr: "0.00",
   requests_used: 214,
-  // 133, not 200: ₹100 included ÷ the ₹0.75 nominal. A fixture the server could
-  // not answer with is a wrong number carrying a fixture's authority.
-  requests_included: 133,
+  // 416: ₹100 included ÷ the ₹0.24 nominal (`gpt-4o-mini`, D-410). A fixture the
+  // server could not answer with is a wrong number carrying a fixture's authority.
+  requests_included: 416,
   requests_remaining: 0,
   extra_purchased_inr: null,
   extra_block_inr: "500.00",
-  extra_block_requests: 666,
+  extra_block_requests: 2083,
   extra_available: true,
   extra_unavailable_reason: null,
 };

@@ -82,7 +82,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Final, Literal
 
-from calevate_shared.engine import GEMINI_LIST_PRICE_USD_PER_MTOK
+from calevate_shared.engine import AZURE_LIST_PRICE_USD_PER_MTOK
 
 from apps.api.agents.voices import VoiceTier, get_voice
 from apps.api.billing.models import MONEY
@@ -162,26 +162,37 @@ MONEY_Q = Decimal(1).scaleb(-(MONEY.scale or 0))
 ROUNDING = ROUND_HALF_UP
 
 
-# --- the LLM leg, which stopped being free (D-400) -----------------------------------
+# --- the LLM leg, which stopped being free (D-400) and now has TWO prices (D-410) ----
 #
 # D-36 priced the in-call LLM leg at ₹0.00 because Sarvam 105B is free per token, and
-# TRD §10 has reasoned the whole margin from that zero since. The founder has moved the
-# leg to Gemini on a PAID Vertex AI account, so the zero is gone and there is nothing in
-# the cost model that survives it unexamined. This block is where the replacement number
-# comes from, in the same shape as the TTS card above: one statement of the vendor's
-# price, everything else derived, and the doc that quotes it checked against it.
+# TRD §10 has reasoned the whole margin from that zero since. D-400 ended the zero by
+# moving the leg to a paid account; D-410 moved it again, to Azure OpenAI in South India.
+# This block is where the replacement number comes from, in the same shape as the TTS
+# card above: one statement of the vendor's price, everything else derived, and the doc
+# that quotes it checked against it.
 #
-# ⚠ **NOTHING IS BILLING THIS, AND THAT IS NOT AN OVERSIGHT — IT IS PERMANENT.** The
-# reason used to be two facts and is now one. The first is gone: since D-404
-# `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, so a deployment holding a GCP project
-# and service account runs this leg for real. The second does not go away, and it is the
-# one that matters — WE CANNOT SEE THE TOKENS: `CostBreakdown` carries a per-leg cost in
-# the engine's currency
-# and, on a BYOK leg, the engine pays nothing and reports nothing — which is exactly the
-# blindness `ENGINE_REPORTS_TTS_MODEL` documents one section up, arriving on a second
-# leg. The truth will be the GCP invoice, per project and not per tenant. So these
+# **WHAT D-410 CHANGED HERE IS NOT THE PRICE, IT IS THE ARITY.** Until it, one model
+# shipped and one pair of numbers described the whole leg, so a cost function needed no
+# argument to know what it was pricing. Now `Settings.azure_openai_model` is a LIVE
+# console switch between `gpt-4o-mini` and `gpt-4.1-mini`, and `gpt-4.1-mini` costs 2.7x
+# the default on BOTH legs. So EVERY function below takes the model EXPLICITLY and none
+# of them has a default: a cost function that silently priced the shipped default while
+# the deployment ran the other model would under-report the leg by 63% on every call and
+# would look correct in every test that never flipped the switch. That is a metering
+# defect with no other detector, and the shape of it — one identifier changing under a
+# constant nobody re-derived — is D-103/D-105 arriving on the money axis for the third
+# time. `tests/llm_cost_model_test.py` is what keeps the defaults off.
+#
+# ⚠ **NOTHING IS BILLING THE IN-CALL LEG, AND THAT IS NOT AN OVERSIGHT — IT IS
+# PERMANENT.** WE CANNOT SEE THE TOKENS: `CostBreakdown` carries a per-leg cost in the
+# engine's currency and, on a BYOK leg, the engine pays nothing and reports nothing —
+# which is exactly the blindness `ENGINE_REPORTS_TTS_MODEL` documents one section up,
+# arriving on a second leg. The truth will be the AZURE invoice, per subscription and not
+# per tenant, and it will read HIGHER than these numbers by the regional-deployment
+# premium that `AZURE_LIST_PRICE_USD_PER_MTOK` deliberately does not fold in. So these
 # constants price the DECISION (TRD §10's unit economics, the margin a founder is
-# choosing) and deliberately do not pretend to meter a call.
+# choosing) and deliberately do not pretend to meter a call. The DASHBOARD leg is
+# different and is metered for real — `billing/ai_quota.py` prices it from this table.
 
 #: The USD/INR rate every published vendor list price in this repository is struck at.
 #: RBI reference, 16 Aug 2026.
@@ -195,24 +206,73 @@ ROUNDING = ROUND_HALF_UP
 #: of a number a person can plan around.
 LIST_PRICE_USD_INR: Final = Decimal("95.66")
 
-#: `GEMINI_DEFAULT_LLM`'s published price in rupees per THOUSAND tokens, derived from the
-#: one place the vendor's own figure is written down.
+#: Every model this deployment may run, priced in rupees per THOUSAND tokens, derived
+#: from the one place the vendor's own dollar figure is written down
+#: (`AZURE_LIST_PRICE_USD_PER_MTOK`) and the one exchange rate above.
+#:
+#: KEYED BY MODEL, and PRIVATE. The public way in is `llm_inr_per_ktok(model)`, which
+#: refuses an unpriced identifier with a message naming the ones it knows. A bare mapping
+#: exported under the old name (`LLM_INR_PER_KTOK`, a flat `{"in", "out"}` pair) would let
+#: `LLM_INR_PER_KTOK["in"]` keep parsing after the shape changed and fail at RUNTIME with
+#: a `KeyError` on a metering path; the rename is what turns every stale reader into an
+#: ImportError at collection time instead.
 #:
 #: FOUR DECIMALS because `unit_cost_paid` is NUMERIC(12,4) — a price this ledger cannot
 #: store is a price it cannot honour — and `ROUNDING` rather than the ambient decimal
 #: context for the reason stated at that constant.
-LLM_INR_PER_KTOK: Mapping[str, Decimal] = MappingProxyType(
+_LLM_INR_PER_KTOK: Final[Mapping[str, Mapping[str, Decimal]]] = MappingProxyType(
     {
-        leg: (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(MONEY_Q, rounding=ROUNDING)
-        for leg, usd in GEMINI_LIST_PRICE_USD_PER_MTOK.items()
+        model: MappingProxyType(
+            {
+                leg: (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(
+                    MONEY_Q, rounding=ROUNDING
+                )
+                for leg, usd in legs.items()
+            }
+        )
+        for model, legs in AZURE_LIST_PRICE_USD_PER_MTOK.items()
     }
 )
+
+#: The models this repository can put a rupee figure on, as a value.
+#:
+#: It must equal `AZURE_OPENAI_MODELS` and a test says so, in both directions. A model an
+#: operator can select but nobody priced is a `ValueError` on the first assist after they
+#: flip the switch; a price for a model nobody can select is a number that will rot
+#: unnoticed. Derived from the table rather than retyped, so the two cannot drift by an
+#: edit to one of them.
+PRICED_LLM_MODELS: Final[frozenset[str]] = frozenset(_LLM_INR_PER_KTOK)
+
+
+def llm_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
+    """`{"in": ₹, "out": ₹}` per 1,000 tokens for `model`. NO DEFAULT, deliberately.
+
+    THE ARGUMENT IS THE POINT (D-410). Which model a deployment runs is a live console
+    value, so the only correct price is the one for the model the caller actually used —
+    and the caller is the only one who knows it. Every reachable call site therefore
+    names it: the assist meter passes the model the request ran on, and the in-call cost
+    model is asked about one model at a time.
+
+    Refuses an unpriced identifier rather than falling back, because both fallbacks are
+    worse than the error: the default's price silently under-bills the dearer model, and
+    a zero makes a leg look free. A `ValueError` here is unreachable through
+    `Settings.azure_openai_model` (a closed `Literal`, refused at the config boundary) —
+    it is for the other way in, a model identifier read back off a historical
+    `usage_events` row whose price we no longer publish.
+    """
+    try:
+        return _LLM_INR_PER_KTOK[model]
+    except KeyError:
+        raise ValueError(
+            f"{model!r} has no published price; this repository prices {sorted(PRICED_LLM_MODELS)}"
+        ) from None
+
 
 #: THE REFERENCE CONVERSATION the §10 per-minute figure is computed from. Every number
 #: here is an ASSUMPTION and is named so it can be argued with, which is the whole reason
 #: the per-minute figure is a function rather than a literal: the old "₹0.15-0.20/min for
 #: a paid LLM" in TRD §10 had no inputs at all, so nobody could tell whether it had gone
-#: stale when the model, the price or the prompt changed. All three have.
+#: stale when the model, the price or the prompt changed. All three have, twice.
 #:
 #: `prompt_tokens` — the system prompt as `compose_engine_prompt` renders it: a client's
 #: script, the opening line, `TRUTHFUL_ANSWER_DIRECTIVE`, and whatever RAG snippet the
@@ -226,6 +286,10 @@ LLM_INR_PER_KTOK: Mapping[str, Decimal] = MappingProxyType(
 #:
 #: `output_tokens_per_turn` — well under the 400-token cap, which is a safety valve
 #: rather than a target.
+#:
+#: MODEL-INDEPENDENT ON PURPOSE: the conversation is the conversation whichever model
+#: answers it, so switching models moves the PRICE and not the shape. That is what makes
+#: the two published curves comparable at all.
 REFERENCE_CALL: Final[Mapping[str, int]] = MappingProxyType(
     {
         "prompt_tokens": 900,
@@ -236,8 +300,8 @@ REFERENCE_CALL: Final[Mapping[str, int]] = MappingProxyType(
 )
 
 
-def llm_cost_inr_per_minute(minutes: int) -> Decimal:
-    """What the Vertex LLM leg costs per minute on a call of this length, at list price.
+def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
+    """What the in-call LLM leg costs per minute on a call of this length, at list price.
 
     **IT IS NOT A CONSTANT PER MINUTE, AND THAT IS THE FINDING.** TRD §6.1 records that
     the full conversation is resent to the model on every turn, so input tokens grow
@@ -248,10 +312,18 @@ def llm_cost_inr_per_minute(minutes: int) -> Decimal:
     LLM makes the correction matter. Taking `minutes` as an argument is what stops the
     cost model quoting minute one and reasoning about minute ten.
 
+    **AND `model` IS KEYWORD-ONLY AND HAS NO DEFAULT** for the reason the section comment
+    gives: the two selectable models differ by 2.7x, the switch between them is live, and
+    a default here would make every caller's silence read as a claim about which one is
+    deployed. Callers that quote a figure must say which model it is a figure FOR — TRD
+    §10.1 publishes one row per model, and `scripts/check_docs_drift.py` scores each row
+    against this function called with that row's own model.
+
     Rounded ONCE, at the end. Quantizing per turn would round 6·N times and drift.
     """
     if minutes < 1:
         raise ValueError("a reference call is at least one minute")
+    price = llm_inr_per_ktok(model)
     turns = minutes * REFERENCE_CALL["turns_per_minute"]
     # Turn k carries the prompt plus everything said before it (k-1 exchanges), so the
     # sum over the call is `turns * prompt + turn_tokens * (0 + 1 + … + turns-1)`.
@@ -259,10 +331,9 @@ def llm_cost_inr_per_minute(minutes: int) -> Decimal:
         turns * (turns - 1) // 2
     )
     output_tokens = REFERENCE_CALL["output_tokens_per_turn"] * turns
-    total = (
-        Decimal(input_tokens) * LLM_INR_PER_KTOK["in"]
-        + Decimal(output_tokens) * LLM_INR_PER_KTOK["out"]
-    ) / Decimal("1000")
+    total = (Decimal(input_tokens) * price["in"] + Decimal(output_tokens) * price["out"]) / Decimal(
+        "1000"
+    )
     return (total / Decimal(minutes)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
@@ -372,14 +443,19 @@ def tier_correction_inr(*, chars: int, billed_tier: TtsTier, actual_tier: TtsTie
 __all__ = [
     "ENGINE_REPORTS_TTS_MODEL",
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
+    "LIST_PRICE_USD_INR",
     "MONEY_Q",
     "PREPAID_TIERS",
+    "PRICED_LLM_MODELS",
+    "REFERENCE_CALL",
     "ROUNDING",
     "TTS_INR_PER_10K_CHARS",
     "UNPROVEN_TIER",
     "TierSource",
     "TtsTier",
     "billable_tier",
+    "llm_cost_inr_per_minute",
+    "llm_inr_per_ktok",
     "prepaid_billed_inr",
     "tier_correction_inr",
     "tier_of_voice",

@@ -5,37 +5,45 @@ Version 1.0. From zero to a running local stack. Target machine: Linux/macOS/WSL
 ## 1. Prerequisites
 
 Docker + Compose v2 · Python 3.12 + `uv` · Node 20 + `pnpm` · `terraform` (infra work
-only) · accounts/keys: Bolna (API key, D-31), Sarvam (₹1,000 free credits), a **Google
-Cloud project with Vertex AI enabled in `asia-south1` and a service-account key**
-(`GCP_PROJECT_ID` + `GCP_SERVICE_ACCOUNT_JSON` — **not** a Google AI Studio API key, which
-D-127 disqualifies for having no data-residency guarantee), Clerk (two applications:
-calevate-admin, calevate-client), Cloudflare R2 or DO Spaces (local dev uses MinIO
-instead).
+only) · accounts/keys: Bolna (API key, D-31), Sarvam (₹1,000 free credits), an **Azure
+subscription with an Azure OpenAI resource created in South India and a `gpt-4o-mini`
+deployment** (`AZURE_OPENAI_RESOURCE` + `AZURE_OPENAI_API_KEY` + `AZURE_OPENAI_DEPLOYMENT`
+— D-410; **not** an OpenAI platform key, which is disqualified because OpenAI's India
+residency covers storage at rest only and inference runs in the US), Cloudflare R2 or DO
+Spaces (local dev uses MinIO instead). Authentication is first-party and needs no vendor
+account (D-165/D-170/D-177 — Clerk is deleted).
 
-> ⚠ **READ BEFORE YOU SPEND AN HOUR ON THE GCP CONSOLE.**
-> `GEMINI_MODEL_CONFIRMED_IN_REGION is False` — nobody has verified that `asia-south1`
-> serves `calevate_shared.engine.GEMINI_DEFAULT_LLM`, which is **`gemini-2.5-flash`**. As
-> of 16 Aug 2026 the public evidence points the RIGHT way for the first time (search
-> places the 2.5 class in Mumbai and no 3.x model there, which is why the model moved to
-> 2.5), but every page that would settle it is refused by this environment's egress proxy,
-> so the flag stays False. **The first `generateContent` you make is the test.** A 404 is
-> the answer "no", and the worker logs `vertex_model_not_served_in_region` naming the
-> region, the model and this flag rather than the bare word `HTTPStatusError`.
+> ⚠ **READ BEFORE YOU CREATE THE AZURE RESOURCE — TWO DROPDOWNS DECIDE THE RESIDENCY
+> POSTURE AND NEITHER IS VISIBLE AFTERWARDS FROM THE ENDPOINT.**
 >
-> ⏰ **AND IT HAS A DEADLINE.** `gemini-2.5-flash` retires **16 Oct 2026** (BRD R-04) —
-> the cost of picking the model Mumbai serves over the one with a longer life.
-> `GEMINI_DEFAULT_LLM_RETIRES` holds that date and CI goes red on 16 Sep 2026 asking for
-> the replacement. See OPERATIONS §2 gate 14b before you plan any work that assumes this
-> identifier is still answering.
+> **(1) Region.** Create the resource in **South India**. `AZURE_LOCATION` is
+> `southindia` and is the only spelling of the region in shipped code, but
+> `https://<resource>.openai.azure.com/openai/v1` — the URL `azure_openai_base_url()`
+> builds — **names no region at all**. Nothing in this repository can prove where your
+> resource lives; `scripts/check_model_residency.py` proves only that the code cannot
+> construct a non-India one. Confirming the resource itself is OPERATIONS §2 gate 20, and
+> it is a human reading the portal.
 >
-> When it is a 404, try `gemini-2.5-flash-lite` (the founder's stated fallback), then
-> whatever `asia-south1` does serve — and flip this flag when one answers 200.
-> **Do NOT widen the region and do NOT reach for `locations/global`** —
-> Google's own words on the global endpoint are that you cannot control or know which
-> region processes the request, which is the sentence D-127 disqualifies AI Studio over.
-> `scripts/check_model_residency.py` will refuse the commit either way.
-> Nothing is blocked meanwhile: `assist_capability()` answers `provider_unavailable` and
-> the disclosed Sarvam fallback carries the dashboard assistant (OPERATIONS §2).
+> **(2) Deployment type.** Choose **Regional Standard**, NOT Global. **Global is the
+> default and it processes requests worldwide.** A Global deployment inside a South India
+> resource passes every check in this tree and breaks the client DPA. It also costs
+> roughly 5–10% less, which is the wrong reason to pick it — that difference is the price
+> of the residency posture. This is OPERATIONS §2 gate 20c.
+>
+> **The deployment NAME is not the model name.** On Azure you deploy a model under an id
+> you choose and call THAT id, so `AZURE_OPENAI_DEPLOYMENT` and `AZURE_OPENAI_MODEL` are
+> separate settings and the deployment id can never be derived. `AZURE_OPENAI_MODEL`
+> defaults to `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) and accepts only what
+> `AZURE_OPENAI_MODELS` allows; `gpt-4.1-mini` is the live switch, and its availability in
+> Indian regions is **not confirmed** — check quota before switching (gate 20b).
+>
+> **The key is static.** No rotation cron, no service account, no org policy: the v1
+> surface takes the key in `Authorization: Bearer`. Put it in the secrets manager, never in
+> a committed file, and never log it.
+>
+> Nothing is blocked meanwhile: with no Azure credential, `assist_capability()` answers
+> `no_credential` and the disclosed Sarvam fallback carries the dashboard assistant, while
+> the in-call leg simply does not run (OPERATIONS §2).
 
 ## 2. Bootstrap
 
@@ -187,7 +195,7 @@ adding to `.env` rather than typing into a screen every reset.
 from the package directory, not from the repo root, so the file above configures the API,
 the workers and voice-runtime and reaches the browser never. Nothing to do for local work —
 every value in it is the local default — but `cp apps/web/.env.example apps/web/.env.local`
-is the starting point when you have real Clerk keys. Two things make it a different kind of
+is the starting point when you have real values for the browser-side keys. Two things make it a different kind of
 file from the one above: `next build` INLINES each `NEXT_PUBLIC_*` value, so changing one
 needs a rebuild rather than a restart and a missing one is the empty string rather than an
 error; and nothing prefixed `NEXT_PUBLIC_` is private, because it ships in the bundle to

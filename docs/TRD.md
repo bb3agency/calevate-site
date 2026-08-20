@@ -102,69 +102,72 @@ Models (per-agent config, BYOK):
 - STT: **Sarvam Saaras V3** (22 Indian languages, streaming, code-mixed) — their docs
   supersede our original Saarika v2.5 pick [docs-verified Jul 2026]. Auto-available when
   Sarvam is the speech provider. Gate A-2: compare bundled/managed Sarvam tier.
-- LLM: **Gemini 2.5 Flash on a PAID Vertex AI account, `asia-south1` — DEFAULT (D-400),
-  superseding D-36's "Sarvam 105B, free per token" LLM leg outright.** One model, one
-  region, one retirement date across every LLM surface this product has. Read the three
-  surfaces separately, because they are three decisions at three stages:
-  - **In-call** (inside the engine, BYOK) — D-400's decision, delivered by **D-404:
-    ROTATION, NOT PROXYING**. **`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`.** The
-    blocker read "a regional Vertex endpoint authenticates with a ~1-hour OAuth2 bearer
-    and Bolna's credential store holds one static string"; both halves are true and the
-    conclusion was not, because a store that holds a string can hold one we REPLACE on a
-    schedule. The engine calls Vertex Mumbai **directly** on
-    `vertex_openai_base_url()` — zero added latency, no proxy, no new deployable — and
-    authenticates with a GCP OAuth2 access token minted at 12 hours
-    (`generateAccessToken`, `lifetime: "43200s"`, org policy
-    `constraints/iam.allowServiceAccountCredentialLifetimeExtension`) and replaced every
-    4 hours by `apps/workers/vertex_credential.py` through the new
-    `VoiceEngine.set_llm_credential` port. **The granted expiry is read back, never
-    assumed**: a deployment handed 1-hour tokens is refused by name rather than run into a
-    gap between ticks. A failed refresh is a total, silent LLM outage, so it pages
-    (`vertex_llm_credential_refresh_failed`, `runbooks/vertex-llm-credential.md`).
-    **An API key is not the easy version of this — it is a different region.** A key
-    forces Vertex's GLOBAL endpoint (`@google/genai` short-circuits on `apiKey ||
-    location === 'global'`; Vertex Express is global by construction), and Google's own
-    guidance is not to use the global endpoint where ML processing has residency
-    requirements. **Bolna's own `provider: "google"` is the AI Studio Developer API and
-    is REFUSED, not missing** — global host, no region anywhere in the URL (D-401), its
-    client being `genai.Client(api_key=…)` with no project, region or base URL
-    (VERIFIED-OSS, `bolna/llms/gemini_llm.py`). D-405..D-407 record the proxy, the two
-    key routes and the native provider as rejected, each with its reason.
-    ⚠ ONE LIVE UNKNOWN REMAINS: which credential-store name the hosted platform reads
-    `llm_key` from for a `provider: "custom"` leg —
-    `Settings.bolna_llm_credential_name` (default `CUSTOM`, `applies: live`), gate 16c.
-  - **Dashboard AI** (user-triggered, over the REDACTED copy) — D-127, live in code, never
-    the AI Studio Developer API.
+- LLM: **Azure OpenAI in South India — `AZURE_LOCATION` (`southindia`), default
+  `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) — on BOTH LLM surfaces (D-410,
+  superseding D-400/D-404 on the in-call leg and D-127 on the dashboard leg).** One
+  region, one allow-list, one price table, one builder. `gpt-4.1-mini` is a LIVE CONFIG
+  SWITCH through `azure_openai_model`, not a second shipped default, because its
+  availability in Indian regions is not confirmed while `gpt-4o-mini`'s in South India is.
+  Read the three surfaces separately, because one of them deliberately did not move:
+  - **In-call** (inside the engine, BYOK). The engine calls our Azure deployment directly
+    on `azure_openai_base_url(resource)` — `https://{resource}.openai.azure.com/openai/v1`
+    — with **a static API key** in `Authorization: Bearer`. That is the **v1 surface**:
+    OpenAI-compatible, and it needs no `api-version`. **The classic surface is rejected**
+    (`…/deployments/<id>/chat/completions?api-version=YYYY-MM-DD` with an `api-key:`
+    header): the dated `api-version` is a second thing to keep current and the header is
+    not what an OpenAI-shaped client sends. **`azure_openai_deployment` is a separate
+    setting from `azure_openai_model`** because on Azure a deployment id is NOT a model
+    name — you deploy a model under an id you choose and call THAT id — so it is config
+    and can never be derived. `engine/bolna.py::_llm_routing` maps our vocabulary to
+    `provider: "azure"`, a **first-class Bolna provider**: it is on their published
+    provider list, `azure` is in the live per-agent LLM dropdown, and their OSS
+    `LLMProvider` carries both `azure` and `azure-openai`. So the `custom` route — whose
+    credential path was never verified, and whose doubt is what moved this product
+    (retired gate 16c) — is not used. **There is no rotation cron, no dead man, no org
+    policy and no 12-hour ceiling**: all of that existed because a regional Vertex
+    endpoint took no static key, and it is deleted with the endpoint.
+    ⚠ ONE MARKED ASSUMPTION REMAINS: which credential FIELDS Bolna's Azure provider
+    expects. Their docs are egress-blocked from this environment, so nothing here invents
+    a field name. `Settings.bolna_llm_credential_name` (default `AZURE`, `applies: live`)
+    names the credential-store entry, so a wrong guess is a console edit rather than a
+    deploy — OPERATIONS §2 gate 16f.
+  - **Dashboard AI** (user-triggered, over the REDACTED copy) — same resource, same
+    region, same constants. Every rule D-127 wrote (G-1..G-7: redaction before the call,
+    no raw PII, the disclosed Sarvam fallback) is unchanged and now binds Azure.
   - **First post-call extraction** — **`GEMINI_EXTRACTION_DEFAULT is False` (D-127 G-7):
     Sarvam runs it permanently**, because that pass reads the RAW transcript and G-2
-    forbids raw PII reaching Google. D-400 does not move it.
+    forbids raw PII reaching a general-purpose model vendor. D-410 does not move it.
 
-  At $0.30/$2.50 per M tokens. **2.5 AND NOT 3.x, ON PURPOSE**: the 16 Aug 2026 re-search placed
-  the 3.x family on the global and `us`/`eu` multi-region endpoints and placed the 2.5
-  class in Mumbai, and D-127 will not move the region — so the founder took the model that
-  the only permitted region serves, and with it **BRD R-04's 16 Oct 2026 retirement, LIVE
-  for this leg** (`calevate_shared.engine.GEMINI_DEFAULT_LLM_RETIRES`; the build turns red
-  30 days out). **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`** even so: the evidence now
-  points the right way but nothing here has read a page or made a call, so whether Mumbai
-  serves the identifier we ship is OPERATIONS §2 gate 14 and not a settled fact. Which
-  model extracts BETTER is still
-  unmeasured and still blocked on a Sarvam key and egress (§7's golden-transcript
-  fixtures) — D-400 is a residency-and-billing decision and does not claim a quality one.
-  **The OpenAI-compatible endpoint is no longer a "fallback if offered"**: their published
-  OpenAPI leaves `llm_agent.provider` and `family` without an `enum` while giving
-  `agent_flow_type` one in the same block, and their server routes `provider: "custom"` to
-  the OpenAI client with our `base_url` — so it is the DESIGNED extension. What is still
-  unverified is whether the HOSTED platform behaves as the open-source server does, and
-  whether it can hold a credential it refreshes (gate 16 / 16b). Sarvam's
-  **rate limits (60/200/1,000 rpm by plan) are a concurrency input**, not a price input —
-  size the plan at pilot gate 13.
-  R-04: the 2.5 family retires 16 Oct 2026, and **the dashboard-AI leg now runs on it**,
-  so this is a dated obligation rather than a risk we routed around — migration target is
-  whatever Gemini `asia-south1` serves on the day (gate 14 answers that; the region does
-  not move). LLM id is a config string on the agent, so changing it is a config edit +
-  regression run. COST NOTE [verified Aug 2026]: 2.5 Flash is $0.30/$2.50, 3.1 Flash-Lite
-  is $0.25/$1.50 and 3.5 is $0.30/$2.50 — the migration is roughly cost-neutral if it
-  lands on a Flash tier and cheaper if a Lite tier reaches Mumbai by then (§10).
+  At $0.15 in / $0.60 out per 1M tokens for `gpt-4o-mini` and $0.40 / $1.60 for
+  `gpt-4.1-mini` (Global Standard list) — cheaper than the outgoing `gemini-2.5-flash`
+  ($0.30 / $2.50) on both legs and **half the input price**, which is where the saving
+  lands because §6.1 resends the whole conversation every turn. `AZURE_LIST_PRICE_USD_PER_MTOK`
+  states those once, in the vendor's unit, and the whole INR chain derives from it (§10.1).
+  **THE RESIDENCY CLAIM IS NARROWER THAN VERTEX'S AND THIS DOCUMENT SAYS SO.** Vertex put
+  `asia-south1` in the hostname AND the `locations/` path, so `scripts/check_model_residency.py`
+  could prove residency from the AST. `<resource>.openai.azure.com` names no region: the
+  region is a property of the RESOURCE. The guard changes job rather than being deleted
+  and still proves four things — `AZURE_LOCATION` is the only spelling of the region in
+  shipped code, no `Settings` field may carry a region, no Azure endpoint is constructible
+  except through `azure_openai_base_url()`, and that builder cannot emit a non-India
+  region. The rest is **attested by a human**: that the resource is in South India
+  (OPERATIONS §2 gate 20) and that its deployment is **Regional Standard and NOT Global**
+  (gate 20c). Global is Azure's DEFAULT deployment type and processes worldwide; a Global
+  deployment inside a South India resource passes every automated check in this tree and
+  breaks the DPA. Regional costs roughly 5–10% more (published examples to +12% and +20%),
+  which is a payable cost of the posture rather than an accident. The REGIONAL hostname
+  form `southindia.api.cognitive.microsoft.com` would restore the AST proof and is
+  rejected FOR NOW because the v1 surface is documented only on the custom-subdomain form
+  — gate 20d is what reopens it. **What is NOT claimed**: which model extracts or converses
+  BETTER in Telugu code-mixed function-calling is still unmeasured and still blocked on a
+  Sarvam key and egress (§7's golden-transcript fixtures); D-410 is a residency, delivery
+  and billing decision and does not claim a quality one. **NO VENDOR RETIREMENT DATE IS
+  RUNNING AGAINST THIS PRODUCT** — BRD R-04's 16 Oct 2026 died with the Gemini model, the
+  date-carrying constant and the test that turned CI red thirty days out (D-410). Sarvam's
+  **rate limits (60/200/1,000 rpm by plan) are a concurrency input**, not a price input,
+  and Azure's TPM/RPM quota in `southindia` is a fourth such input — size both at pilot
+  gates 13 and 20b. LLM id is a config string on the agent, so changing it is a config
+  edit plus a regression run.
 - TTS: **Sarvam Bulbul V3** (11 Indian languages) — their docs list only V3; Bulbul v2
   may no longer be offered, which moves the TTS cost line to the v3 band (₹30/10K,
   ~₹1.20–1.35/min) [docs-verified; cost model §10 updated]. Ear-test at verification
@@ -420,9 +423,10 @@ scorecard — D-31]:
   hold or supply model keys — we are a managed service (D-10, flat tenancy). Three
   locations, and only three:
   1. **Canonical copy → the secrets manager.** `SARVAM_API_KEY`,
-     `GCP_SERVICE_ACCOUNT_JSON` (D-127 — the Vertex service-account key; `GEMINI_API_KEY`
-     is still a declared field but opens the disqualified AI Studio door and is read only
-     to produce a better refusal),
+     `AZURE_OPENAI_API_KEY` (D-410 — the static key for BOTH LLM surfaces; it is a
+     credential, so the name-fragment machinery seals it out of `platform_settings` and
+     nothing may log it), `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON` (D-23 — lead delivery
+     only; the LLM legs no longer touch Google),
      `BOLNA_API_KEY` exist in `.env` for local dev only; prod values are injected at
      runtime from the secrets manager (DEV-SETUP §3). **Never in Postgres plaintext, never
      committed** (hard rule: secrets).
@@ -489,8 +493,8 @@ Only H3 touches the retrieval layer. H1 is orchestration, H2 is our existing pip
 
 | # | Horizon | Lifetime | Owner / store | Cost | In-call latency |
 |---|---|---|---|---|---|
-| **H1** | In-call working memory — the running dialogue the agent reasons over | the call only; **discarded at hangup** | the ENGINE's orchestrator (the LLM message array) | no line item — LLM input tokens, already inside the ₹0.15–0.20/min LLM leg | 0ms (nothing is retrieved) |
-| **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | Gemini extraction ₹0.02–0.05/call | n/a (post-call) |
+| **H1** | In-call working memory — the running dialogue the agent reasons over | the call only; **discarded at hangup** | the ENGINE's orchestrator (the LLM message array) | no line item — LLM input tokens, already inside the ₹0.10–0.24/min LLM leg (§10.1) | 0ms (nothing is retrieved) |
+| **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | Sarvam extraction ₹0.00/call — free per token, and this pass has never run on a paid vendor (`GEMINI_EXTRACTION_DEFAULT is False`) | n/a (post-call) |
 | **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | forever | managed RAG/memory service (D-28) | provider unit cost | injected **pre-call** via the context webhook (~5s budget), never mid-call |
 
 H1 is not a component we build, buy, or key: the engine holds the conversation for the
@@ -501,10 +505,13 @@ call, not memory persisting across calls. Two consequences:
 
 - **H1 is not free, it is unmetered.** The full conversation is resent to the LLM every
   turn, so input tokens grow through the call: minute 10 costs more than minute 1. The
-  ₹0.15–0.20/min LLM figure is a blended average that already assumes this; long calls
-  skew above it. Provider-side context caching (Gemini implicit caching) mitigates.
+  per-minute LLM figure in §10.1 is therefore a CURVE and not a rate — `billing/rates.py::llm_cost_inr_per_minute`
+  takes a duration for exactly this reason. Provider-side prompt caching would mitigate it
+  and a resent conversation is the ideal shape for it, but **whether Azure OpenAI applies
+  it to our deployment, and on what terms, is NOT verified here and is not folded into any
+  number** — the same discipline retired gate 14c applied to a Vertex surcharge.
   **UNVERIFIED (pilot gate 8):** whether Bolna truncates or summarises history at a
-  window limit, and whether it enables the provider's context caching on BYOK keys.
+  window limit, and whether it enables any provider-side caching on BYOK keys.
 - **Swapping the KB does not change H1.** H1 is orchestration; the KB choice below is
   retrieval. They are independent decisions.
 
@@ -522,8 +529,8 @@ architectures, not different keys:
 | Telugu | multilingual mode names Hindi/Tamil, **not Telugu**; mode is immutable at KB creation | ours — no constraint |
 | Portability | engine-locked | portable |
 
-**Cost is not the deciding variable** (₹0.02–0.05 against ₹1.75–2.30/min of BYOK model
-cost is noise). **Latency is** — which is exactly the D-28 gate below. So v1 keeps in-call
+**Cost is not the deciding variable** (₹0.02–0.05 against ₹1.70–2.34/min of BYOK model
+cost is noise; D-410 moved that subtotal by pennies and did not move this conclusion). **Latency is** — which is exactly the D-28 gate below. So v1 keeps in-call
 retrieval on the built-in KB, with the T3 filler utterance as the only mask we rely on.
 If pilot gate 8 shows Telugu retrieval quality is poor in multilingual mode, the external
 custom-function route becomes the fallback and we accept the masked round trip.
@@ -621,18 +628,21 @@ aimed at a model that no longer answers while §10 priced the 105B) when a Sarva
 is present, and an offline heuristic runner otherwise, which is what keeps the regression
 harness's baseline stable.
 
-**Gemini is not in that ladder, and `GEMINI_EXTRACTION_DEFAULT is False` is the greppable
-form of why** (D-127 G-2/G-7). **D-400 moved the IN-CALL LLM leg to Gemini and did NOT move
-this one**, which is the distinction that decision turns on: the in-call leg and the
-dashboard assist see the caller through the engine and through `text_redacted`
-respectively, and this pass is the only one in the system that reads `turn.text`. This selector's caller is `workers/pipeline.py`, which hands
+**No general-purpose model vendor is in that ladder, and `GEMINI_EXTRACTION_DEFAULT is False`
+is the greppable form of why** (D-127 G-2/G-7; the constant keeps its name because the rule
+it records is about this PASS, not about a vendor). **D-400 moved the in-call LLM leg off
+Sarvam and D-410 moved it again, to Azure OpenAI South India — neither moved THIS one**, and
+that is the distinction both decisions turn on: the in-call leg and the dashboard assist see
+the caller through the engine and through `text_redacted` respectively, and this pass is the
+only one in the system that reads `turn.text`. This selector's caller is `workers/pipeline.py`, which hands
 over the RAW transcript — `turn.text`, one line after `redacted.text` is computed, because
 a CRM "callback number" field needs the actual digits. Until D-127 the ladder returned a
-Gemini client whenever a Gemini key was configured and a Sarvam key was not, so one absent
-environment variable sent raw caller PII to a second processor. Gemini now serves only the
-USER-TRIGGERED work, through `workers/extraction.run_assist()`, over the redacted copy, on
-Vertex AI `asia-south1` — and `run_assist` re-runs `redact()` on its input and REFUSES text
-that still yields a match, so G-2 is structural rather than documentary.
+second-vendor client whenever that vendor's key was configured and a Sarvam key was not, so
+one absent environment variable sent raw caller PII to a second processor. The other vendor
+now serves only the USER-TRIGGERED work, through `workers/extraction.run_assist()`, over the
+redacted copy, on Azure OpenAI in South India — and `run_assist` re-runs `redact()` on its
+input and REFUSES text that still yields a match, so G-2 is structural rather than
+documentary.
 
 ⚠ **This paragraph describes BEHAVIOUR and is the line that rots first.** Everything in it
 is decided in one function; if you are changing that function, change this paragraph in the
@@ -697,29 +707,44 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
 Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.62 (Bulbul v3)
-· **LLM 0.23–0.51 (Gemini 2.5 Flash on paid Vertex AI — D-400 supersedes D-36's ₹0.00)**
-· telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.5–4.1 (launch)
-→ 1.9–2.8 (phase 2)**.
+· **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI South India — the band is the one- to
+ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
+On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
+· telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.3–3.9 (launch)
+→ 1.7–2.6 (phase 2)** — both bands are D-400's 3.5–4.1 and 1.9–2.8 moved down by the
+₹0.20/min the LLM leg gave back at the five-minute reference (₹0.36 → ₹0.16).
 
-> ⚠ **THE LLM LEG STOPPED BEING FREE AND IS NOT A FLAT PER-MINUTE RATE (D-400).** D-36
-> priced it at ₹0.00 because Sarvam 105B is free per token; the founder has moved it to a
-> paid Vertex AI account. The replacement is `billing/rates.py::llm_cost_inr_per_minute`,
-> which takes a DURATION, because §6.1 resends the whole conversation to the model on
-> every turn — so input tokens grow through the call and total input cost is quadratic in
-> length. At the published $0.30/$2.50 per M tokens and ₹95.66/USD, on the reference
-> conversation stated at `rates.REFERENCE_CALL`: **₹0.23/min on a one-minute call,
-> ₹0.36/min at five minutes, ₹0.51/min at ten.** The band above is that range and a
-> ten-minute call is where it bites; anything longer is above it. **This is the one leg
-> whose cost a longer call makes worse per minute rather than better**, which is a new
-> shape in this model and the reason the figure is a function rather than a literal.
+> ⚠ **THE LLM LEG IS NOT FREE AND IS NOT A FLAT PER-MINUTE RATE (D-400, repriced by D-410).**
+> D-36 priced it at ₹0.00 because Sarvam 105B is free per token; it is now `gpt-4o-mini` on
+> a paid Azure OpenAI deployment in South India. The computation is
+> `billing/rates.py::llm_cost_inr_per_minute`, which takes a DURATION, because §6.1 resends
+> the whole conversation to the model on every turn — so input tokens grow through the call
+> and total input cost is quadratic in length. **The SHAPE of the calculation is unchanged
+> by D-410; only the vendor price feeding it moved**, from $0.30/$2.50 per 1M tokens to
+> `AZURE_LIST_PRICE_USD_PER_MTOK`'s **$0.15 in / $0.60 out** for `gpt-4o-mini` (and
+> $0.40 / $1.60 for `gpt-4.1-mini`, the live switch). Cheaper on both legs and half the
+> input price, which is where it lands because voice is input-dominated. On the reference
+> conversation stated at `rates.REFERENCE_CALL`, on the DEFAULT model: **₹0.10/min on a
+> one-minute call, ₹0.16/min at five minutes, ₹0.24/min at ten** — **less than half what
+> the Gemini leg cost at every duration** (₹0.23 / ₹0.36 / ₹0.51). **The switch is not a
+> free upgrade and the figures say so**: `gpt-4.1-mini` is **₹0.27 / ₹0.44 / ₹0.65**, which
+> is **2.67x the default at every duration** (it is exactly 2⅔x on both the input and the
+> output leg, so the ratio cannot vary with call length) and **19% to 27% MORE than the
+> Gemini leg we just left**, widening with duration. `llm_cost_inr_per_minute` takes
+> `model` as a REQUIRED keyword argument for that reason: a caller that priced the default
+> while the deployment ran the other one would record 37 paise for every rupee actually
+> spent, silently, in a ledger that is append-only. **This is still the one
+> leg whose cost a longer call makes worse per minute rather than better**, which is why
+> the figure is a function and not a literal.
 >
-> ⚠ It is also **not billed by the engine, and will never be**. Since D-404
-> `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, so a deployment holding a GCP project
-> and service account runs this leg for real — but a BYOK leg means the ENGINE pays
-> nothing and reports nothing, and the truth arrives on a GCP invoice, per project and not
-> per tenant. That is a metering gap this rate card models and no vendor field can close.
-> A ~10% non-global endpoint surcharge is REPORTED and deliberately not folded in
-> (D-403, gate 14c).
+> ⚠ It is also **not billed by the engine, and will never be**. A BYOK leg means the ENGINE
+> pays nothing and reports nothing, and the truth arrives on an **Azure invoice, per
+> subscription and not per tenant**. That is a metering gap this rate card models and no
+> vendor field can close. **A Regional-Standard premium of roughly 5–10% over Global
+> Standard is REPORTED (published examples to +12% and +20%) and deliberately not folded
+> in** — it is the price of the residency posture, it is paid on purpose, and it is
+> confirmed against a real invoice at OPERATIONS §2 gate 20c rather than guessed into a
+> constant. This is the same discipline retired gate 14c applied to the Vertex question.
 
 > ⚠ **The model legs above are §10.1's, not July's** — this paragraph is a summary and
 > **§10.1 is the rate card.** Two July readings that survived here after §10.1 corrected
@@ -728,9 +753,9 @@ Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.
 > the card live on 11 Aug 2026: **v2 is live at half the v3 rate**, which is why
 > `billing/rates.py` bills a two-rung ladder and why `plans.overage_rate_value` exists at
 > all), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
-> with ₹0.00 (Sarvam 105B, free per token) and **D-400 has replaced that in turn with a
-> real, duration-dependent Gemini leg**; ₹0.15–0.20 was the Flash-LITE estimate and is
-> low for 2.5 Flash, whose output leg is 8.3x its input leg.
+> with ₹0.00 (Sarvam 105B, free per token), D-400 replaced that with a real,
+> duration-dependent leg, and **D-410 has repriced that leg onto `gpt-4o-mini`** — same
+> curve, a cheaper vendor price, and an output leg 4x its input leg rather than 8.3x.
 > `scripts/check_docs_drift.py` §4b now
 > diffs §10.1's card against `TTS_INR_PER_10K_CHARS`, so the RATES cannot drift again
 > unwatched; the platform and telephony bands here remain UNVERIFIED estimates (pilot
@@ -743,8 +768,11 @@ storage) ≈ ₹7–10k; platform/model minimums + numbers ≈ ₹3k.
 
 **Normalized platform comparison (D-32 method: BYOK legs removed, since they are
 identical on every platform).** The BYOK stack is a CONSTANT — STT ₹0.50 + TTS
-₹1.10–1.60 + LLM ₹0.15–0.20 = **₹1.75–2.30/min everywhere** (→ ₹2.15–2.75 after the
-forced Gemini-3.x migration, R-04; → ₹1.60–2.10 if Sarvam's LLM is genuinely free).
+₹1.10–1.60 + LLM ₹0.10–0.24 (`gpt-4o-mini`, one to ten minutes) = **₹1.70–2.34/min
+everywhere** (→ ₹1.60–2.10 if Sarvam's LLM is genuinely free and the leg is switched back
+to it; → ₹1.87–2.75 on the `gpt-4.1-mini` switch).
+**The forced-migration adder that used to sit here is GONE**: it priced BRD R-04's
+Gemini-3.x step, and D-410 removed the retirement date along with the model.
 Telephony (~₹0.35–0.50) is likewise constant. Only the platform fee and latency differ:
 
 | Platform | Platform fee (BYOK; excludes STT/TTS/LLM) | Latency posture |
@@ -790,7 +818,7 @@ the July figures and corrects two of our own doc errors — see the two ⚠ note
 
 | Sarvam API | Published rate |
 |---|---|
-| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400). Kept on the card because it is the fallback the in-call leg falls back to on any deployment holding no GCP project or service account — which since D-404 (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`) is what decides the leg, rather than the code. And because a rate we walked away from is worth being able to walk back to.* |
+| **Sarvam 105B / 30B (chat LLM)** | ⚠ **Free per token** — *and no longer our LLM leg (D-400, D-410). Kept on the card because it is the disclosed dashboard-assist fallback, because it prices the value rung of §10.3's ladder, and because a rate we walked away from is worth being able to walk back to. Walking back is not free: Sarvam has no member in Bolna's `LLMProvider`, so an in-call return means `provider: "custom"` — the credential path retired gate 16c put in doubt.* |
 | Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |
 | Text-to-Speech **Bulbul v2** | ⚠ **₹15 / 10,000 chars — still live, not discontinued** |
 | Speech-to-Text | ₹30 / hour |
@@ -801,7 +829,7 @@ universal across APIs. **Rate limits are the real constraint, not price** — 60
 200 rpm (Pro ₹10k) / 1,000 rpm (Business ₹50k).
 
 > ⚠ **Corrects D-20**, which recorded Bulbul v2 as "appears discontinued." It is live at
-> **half** the v3 rate. ⚠ **Corrected R-04's premise, and D-400 has since overtaken that** — Sarvam's LLM is genuinely free per token, which made a Gemini migration avoidable on COST grounds; the founder has taken it anyway, on a paid Vertex account, for the reasons in D-400. So R-04 is live again for the in-call leg as well as the dashboard one, and the ₹0.00 line below is what we gave up rather than what we run.
+> **half** the v3 rate. ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — Sarvam's LLM is genuinely free per token, which made a paid LLM leg avoidable on COST grounds; the founder took one anyway, first on Vertex and now on Azure OpenAI South India, for the reasons in D-400 and D-410. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
 ~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
@@ -812,37 +840,41 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
 | TTS — Bulbul **v2** | ₹1.50 / 1,000 chars | **₹0.54–0.81** |
-| LLM — **Gemini 2.5 Flash on Vertex `asia-south1`** (D-400 default) | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
-| LLM — Sarvam 105B *(what D-400 superseded; still what runs today)* | free per token | ₹0.00 |
-| LLM — Gemini 2.5 Flash-Lite *(the founder's stated fallback if Mumbai will not serve 2.5 Flash — gate 14)* | $0.10/$0.40 per 1M tok | ₹0.15–0.20 |
+| LLM — **`gpt-4o-mini` on Azure OpenAI `southindia`** (D-410 default) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
+| LLM — `gpt-4.1-mini` on Azure OpenAI `southindia` *(the live switch, `azure_openai_model`; availability in Indian regions NOT confirmed — gate 20b)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
+| LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and §10.3's value rung)* | free per token | ₹0.00 |
 
 **BYOK model subtotal, by combination** (identical on every platform — not a decision
 variable, D-32):
 
-Gemini rows are quoted at the **five-minute** figure (₹0.36/min), because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds ₹0.15/min to every Gemini row.
+Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt-4o-mini`, ₹0.44 on `gpt-4.1-mini`** — because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds **₹0.08/min** to every `gpt-4o-mini` row and **₹0.21/min** to every `gpt-4.1-mini` row. Neither figure is a rate: `llm_cost_inr_per_minute` takes a duration because §6.1 resends the whole conversation each turn, and it takes `model` as a required keyword because the two rows above differ by 2.67x.
 
 | Combination | Per call-minute |
 |---|---|
-| **Bulbul v3 + Gemini 2.5 Flash** (D-400 default) | **₹1.94–2.48** |
+| **Bulbul v3 + `gpt-4o-mini`** (D-410 default) | **₹1.74–2.28** |
+| Bulbul v3 + `gpt-4.1-mini` *(the switch — what it costs, stated where the choice is made)* | ₹2.02–2.56 |
 | Bulbul v3 + Sarvam LLM *(what runs today)* | ₹1.58–2.12 |
-| Bulbul v2 + Gemini 2.5 Flash | ₹1.40–1.67 |
+| Bulbul v2 + `gpt-4o-mini` | ₹1.20–1.47 |
 | **Bulbul v2 + Sarvam LLM** (cheapest verified) | **₹1.04–1.31** |
 
 | Remaining legs | Per call-minute | Status |
 |---|---|---|
 | Telephony (Exotel/Vobiz class) | ₹0.35–0.50 *(estimate)* | **UNVERIFIED** |
 | Engine platform fee (Bolna BYOK) | target ≤₹1.50 | **UNVERIFIED — pilot gate 12** |
-| **All-in, rented engine** | **₹1.89–4.48** | v2+Sarvam-LLM floor → v3+Gemini-2.5-Flash ceiling at five minutes; **₹4.63 at ten** |
+| **All-in, rented engine** | **₹1.89–4.28** | v2+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. **The floor did not move** — its combination has a free LLM leg, so nothing in D-410 touches it. The CEILING fell ₹0.20, from D-400's ₹4.48. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** — above where the Gemini leg left it |
 
-The quality/cost trade is now explicit and ours to choose per tier: **v2+Sarvam LLM is
-~47% cheaper per minute than v3+Gemini 2.5 Flash** — and D-400 has moved the DEFAULT to the expensive end of that ladder rather than the cheap one, deliberately, so the ladder itself is now the margin lever it was designed to be rather than a note about one. Bulbul v3 vs v2 Telugu quality is an **ear test at
+The quality/cost trade is now explicit and ours to choose per tier: **v2+Sarvam LLM is ~42% cheaper per minute than v3+`gpt-4o-mini`** (and ~49% cheaper than v3+`gpt-4.1-mini`) — and D-400 moved the DEFAULT to the expensive end of that ladder deliberately, so the ladder itself is the margin lever it was designed to be rather than a note about one. **D-410 narrowed the gap rather than closing it**: the spread was ~47% against the Gemini leg and is ~42% against `gpt-4o-mini`, because the premium rung got cheaper while the free rung did not move. **Flipping `azure_openai_model` widens it straight back to ~49%**, which is the honest way to read that switch — it is a quality bet costing 2.67x the default LLM leg, not a free upgrade. Bulbul v3 vs v2 Telugu quality is an **ear test at
 the pilot**, not a spec decision — and it is exactly the lever that lets us build a
 value/premium ladder (see §10.3).
 
 **Self-orchestrated comparison (phase 2).** Same BYOK subtotal + telephony, no platform
 fee, plus ~₹0.15–0.30/min compute (2 vCPU/4 GB node ≈ ₹2,112/mo, ~8–9 concurrent):
-**≈ ₹2.23–3.12/min**. The delta is therefore **≈ ₹0.9–1.5/min**, which is simply the
-platform fee — consistent with the ~2k min/month break-even already stated above.
+**≈ ₹2.20–3.14/min** (re-derived at D-410 from the ₹1.70–2.34 BYOK constant above; it read
+₹2.23–3.12 against the Gemini leg, so this one barely moved — the LLM change lands almost
+entirely inside the subtotal's own rounding). The delta is therefore still **≈ ₹0.9–1.5/min**,
+which is simply the platform fee: **both sides carry the identical BYOK leg, so a cheaper
+model moves the two totals together and the delta by nothing** — consistent with the
+~2k min/month break-even already stated above.
 
 ### 10.3 Reconstructing Outpero's economics (why their ₹3/₹5/₹7 tiers work)
 
@@ -868,7 +900,7 @@ to reconcile — do not build on it without direct verification.)*
 | Input | Value | Confidence |
 |---|---|---|
 | STT (Sarvam) | ₹0.50/min | **verified rate** |
-| LLM (Sarvam 105B) | ₹0.00 — free per token | **verified rate** *(theirs; ours moved to paid Gemini per D-400, so this row is now a statement about a COMPETITOR's inputs and not about ours)* |
+| LLM (Sarvam 105B) | ₹0.00 — free per token | **verified rate** *(theirs; ours moved to a paid leg at D-400 and to Azure OpenAI South India at D-410, so this row is a statement about a COMPETITOR's inputs and not about ours)* |
 | TTS by tier | Sarvam → Smallest → Cartesia | **verified from their code** |
 | Telephony (India mobile) | ₹0.35–0.50/min | estimate |
 | Orchestration | **unknown** | ⚠ **NOT ESTABLISHED — see below** |
@@ -1005,19 +1037,20 @@ alone. FX ₹88/USD throughout, matching §10's existing figures.
 | Platform fee | ₹1.76 (2¢) | ₹5.28 ($0.06) — **includes STT + TTS** |
 | STT | ₹0.50 (Saaras) | *in the fee (Ink 2)* |
 | TTS | ₹0.54–0.81 (Bulbul v2) · ₹1.08–1.62 (v3) | *in the fee (Sonic 3.5)* |
-| LLM | ₹0.00 → **+₹0.36 (D-400)** | ₹0.00 → **+₹0.36** (BYOK; Cartesia's own LLM line is "free for a limited time" — do not model on it) |
+| LLM | ₹0.00 → **+₹0.16 (D-410, five-minute)** | ₹0.00 → **+₹0.16** (BYOK; Cartesia's own LLM line is "free for a limited time" — do not model on it) |
 | Telephony, blended in/out | ₹0.50–1.35 | ₹0.50–1.35 |
 | **Variable total** | **₹3.30–4.42** (v2) · **₹3.84–5.23** (v3) | **₹5.78–6.63** |
 | Midpoint used below | **₹3.87** (v2 stack) | **₹6.21** |
 
 > ⚠ **THE TOTALS AND MIDPOINTS ABOVE HOLD THE LLM LEG AT ₹0.00 ON BOTH SIDES, AND THAT IS
-> DELIBERATE RATHER THAN STALE (D-400).** The leg is no longer free — Gemini 2.5 Flash on
-> paid Vertex costs ₹0.23–0.51/min depending on call length (§10.1) — but it is BYOK on
-> both platforms and therefore identical on both, which is exactly the class of input
-> D-32's method removes from a platform comparison. Adding ₹0.36 to each column moves both
-> midpoints and moves the DELTA by nothing, so the break-even arithmetic below is
-> unaffected. **What it does move is the absolute floor**, and §10.1 is where that lives:
-> read the all-in number from there, never from this table.
+> DELIBERATE RATHER THAN STALE (D-400, repriced by D-410).** The leg is no longer free —
+> `gpt-4o-mini` on Azure OpenAI South India costs ₹0.10–0.24 per minute
+> depending on call length (§10.1) — but it is BYOK on both platforms and therefore
+> identical on both, which is exactly the class of input D-32's method removes from a
+> platform comparison. Adding the same figure to each column moves both midpoints and moves
+> the DELTA by nothing, so the break-even arithmetic below is unaffected. **What it does
+> move is the absolute floor**, and §10.1 is where that lives: read the all-in number from
+> there, never from this table.
 
 Fixed monthly: infra ₹8,500 + ~₹300/client DID rental *(assumption — the Exotel/Vobiz
 rate card is still an open gate, ROADMAP §1)*. The Bolna path additionally buys a
@@ -1117,11 +1150,12 @@ written on the day of the switch is the expensive way to find out.
 **Sarvam LLM key works on Cartesia Line** — Line routes through LiteLLM, Sarvam is a
 first-class LiteLLM provider (`sarvam/` prefix) with an OpenAI-compatible endpoint at
 `https://api.sarvam.ai/v1`, so the free-per-token LLM leg of D-36 survives the move
-intact. **D-400 has since replaced that leg with Gemini on Vertex, and the portability
-argument survives the replacement in a WEAKER form**: an OpenAI-compatible `base_url` is
-what both engines take, so the ENDPOINT ports; what does not port is the credential, which
-is a one-hour OAuth2 bearer on Vertex and is the blocker D-402 records against Bolna and
-would be the identical blocker against Line. Wrong: **the speech legs do not.** Line's TTS configuration takes a Cartesia
+intact. **D-400 replaced that leg and D-410 has replaced it again, with Azure OpenAI South
+India — and the portability argument comes back STRONGER than either Vertex form left it**:
+an OpenAI-compatible `base_url` is what both engines take, so the endpoint ports, and the
+credential is now a STATIC API KEY, so it ports too. The Vertex leg's blocker — a
+short-lived OAuth2 bearer that no static credential store can hold (D-402) — would have
+been the identical blocker against Line, and it is gone. Wrong: **the speech legs do not.** Line's TTS configuration takes a Cartesia
 `voice_id` and a Cartesia `model` (`sonic-3.5`/`sonic-2`) — there is no provider field,
 and Ink 2/Sonic are the product rather than a default. So "BYOK Sarvam into Cartesia"
 is true for one leg of three, and D-36's residency argument rests on the other two.
@@ -1131,7 +1165,7 @@ why the engine port is where the work belongs:
 
 | Capability | Bolna | Cartesia Line | Consequence for us |
 |---|---|---|---|
-| BYOK LLM | yes | **yes** (LiteLLM) | Sarvam 105B survives the move; D-400's Vertex leg ports as a URL and not as a credential |
+| BYOK LLM | yes | **yes** (LiteLLM) | Sarvam 105B survives the move; D-410's Azure leg ports as a URL AND a static key, which the Vertex leg could not |
 | BYOK STT | yes (Saaras) | **no** (Ink 2) | D-36 residency argument weakens; new ear test |
 | BYOK TTS | yes (Bulbul) | **no** (Sonic) | agent voice picker becomes a lie unless capability-driven |
 | Engine-side campaigns | yes (unverified, TRD §5) | no | we already dispatch in our layer — no loss |

@@ -13,9 +13,10 @@ or omits it — it never leaks its own shape upward.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import re
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Final, Literal, Protocol, runtime_checkable
+from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -338,400 +339,297 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
 )
 
 
-#: THE Vertex AI region, and the only one D-127 permits. Mumbai.
+#: THE Azure region this platform's Azure OpenAI resource lives in. South India (D-410).
 #:
 #: WHY IT IS A `Final` HERE AND NOT A `Settings` FIELD, which is the half a reviewer would
 #: wave through. `platform_config.managed_fields()` derives the ops console's editable set
 #: from `Settings.model_fields` minus the bootstrap keys minus credential-shaped names, so
-#: a field called `vertex_location` would be editable from a web form the day it was
+#: a field called `azure_location` would be editable from a web form the day it was
 #: declared — and a residency posture invertible by a click at 3am is not a posture. Same
-#: doctrine `check_bootstrap_keys` applies to `APP_ENV` (D-95 §4), applied to the one other
-#: value whose change is a compliance event wearing a config diff.
+#: doctrine `check_bootstrap_keys` applies to `APP_ENV` (D-95 §4), and the same
+#: single-constant discipline `VERTEX_LOCATION` carried until D-410 replaced it.
 #:
-#: It lives beside `SARVAM_DEFAULT_LLM` because this is where the repo already keeps the
-#: facts about which model runs where, and because `scripts/check_model_residency.py`
-#: names this file as the home in its own failure text. That guardrail enforces four
-#: things about this constant: it is the only spelling of `asia-south1` in shipped code,
-#: every `*-aiplatform.googleapis.com` host resolves to it, the `locations/…` path segment
-#: interpolates it and nothing else, and no `Settings` field can carry a region at all.
+#: ⚠ **THIS CONSTANT IS AN ASSERTION, NOT A PROOF, AND THAT IS A REAL WEAKENING.** It is
+#: recorded as one here — in the place a reader checking residency will look — rather than
+#: papered over. Vertex put `asia-south1` in the host AND in the `locations/` path segment,
+#: so `scripts/check_model_residency.py` could prove the region from the AST. Azure's
+#: shipped endpoint shape cannot: `<resource>.openai.azure.com` names no region, because
+#: the region is a property of the RESOURCE, fixed by whoever created it in the portal. So
+#: the chain is three links and only two of them are code: this constant says which region
+#: the resource must be in; `Settings.azure_openai_resource` points at a resource an
+#: operator asserts is there; and a HUMAN confirms it once in the portal (OPERATIONS §2,
+#: the Azure residency gate). Nothing in this file can close the last link, and a comment
+#: claiming otherwise would be worse than the gap.
 #:
-#: The region appears TWICE in a Vertex URL — in the host and in the path — and the two
-#: can disagree. One constant is what makes them unable to.
-VERTEX_LOCATION: Final = "asia-south1"
+#: WHAT THE GUARD STILL PROVES, so it is clear what was kept: `AZURE_LOCATION` is the only
+#: spelling of the region in shipped code, no `Settings` field may carry a region at all,
+#: no Azure endpoint is constructible except through `azure_openai_base_url()` below, and
+#: that builder takes no region argument — so there is no code path by which a deployment
+#: aims model traffic at a different region without editing this line.
+#:
+#: THE REJECTED ALTERNATIVE THAT WOULD RESTORE THE AST PROOF: Azure also serves a REGIONAL
+#: hostname, `southindia.api.cognitive.microsoft.com`, which the vendor documents as
+#: interchangeable with the custom subdomain — spelling that would put the region back in
+#: the URL where a static check can see it. Rejected FOR NOW on one ground: the v1 surface
+#: is documented only on the custom-subdomain form, and custom subdomains are what Entra ID
+#: requires, so shipping the regional hostname would trade a confirmed-working endpoint for
+#: a stronger guard on an unconfirmed one. Revisit if the portal gate confirms v1 answers
+#: there — the change is this constant, the builder, and nothing else.
+AZURE_LOCATION: Final = "southindia"
 
-#: The Gemini model the dashboard-AI path sends (D-127; PLAN Part 13).
+#: THE MODELS this platform may configure into an Azure OpenAI leg, as a CLOSED set
+#: (D-410). Both LLM surfaces — the in-call leg and the dashboard AI — draw from it.
 #:
-#: **2.5 Flash, and it is the FOUNDER'S CALL taken with the retirement date in front of
-#: them** — the trade is stated here rather than in a commit nobody re-reads. D-134 chose
-#: `gemini-3.1-flash-lite` to get out from under BRD R-04's 16 Oct 2026 date; D-142 then
-#: found that nothing places any 3.x model in `asia-south1` (global plus the `us`/`eu`
-#: multi-region REP endpoints only) while the 2.5 class IS reported in Mumbai. So the two
-#: candidates were: a model with a long life that the only permitted region may not serve,
-#: or a model the region serves that dies on a date. D-127 will not move the REGION — that
-#: is the residency leg the whole product rests on — so the choice is between a feature
-#: that 404s and a feature with a deadline, and a deadline is a thing an operator can meet.
-#:
-#: WHAT IT COSTS, AND WHERE THAT COST IS RECORDED: this leg is now exposed to BRD R-04 for
-#: real. `GEMINI_DEFAULT_LLM_RETIRES` below is that date as DATA, the build goes red with
-#: runway to spare (`tests/sarvam_model_identifier_test.py`), and OPERATIONS §2 gate 14
-#: carries the operator-facing version. 3.x would have avoided all of it; it may also have
-#: 404'd on the first call.
-#:
-#: NOT Flash-LITE, which was the founder's stated fallback and is not needed: search
-#: places `gemini-2.5-flash` itself in Mumbai, and the fallback exists for the case where
-#: only the Lite tier is served there. If gate 14 comes back 404 on this identifier, that
-#: fallback — `gemini-2.5-flash-lite`, same family, same retirement date — is the next
-#: thing to try, and it has to come out of `GEMINI_RETIRED_LLMS` when it does.
-#:
-#: EVIDENCE STANDING: **REPORTED, NOT READ**, searched 16 Aug 2026. Every host that would
-#: settle it is refused by this environment's egress proxy — `docs.cloud.google.com`,
-#: `discuss.ai.google.dev`, `modelavailability.com`, `innfactory.ai`, `gcloud-compute.com`,
-#: `openrouter.ai`, `pricepertoken.com` were each ATTEMPTED and each returned
-#: EGRESS_BLOCKED — so what follows is independent search summaries agreeing, never a page
-#: fetched here:
-#:
-#: * Google's own data-residency table is summarised as listing, for Mumbai
-#:   (`asia-south1`), Gemini 2.5 Flash (1M and 128k), 2.5 Pro, 2.5 Flash-Lite, 2.5 Flash
-#:   Image, 2.0 Flash and 2.0 Flash-Lite — with ML processing in-region. That is the same
-#:   list a separate search returned before this decision was taken.
-#: * A Google developer-forum thread is titled "Is there any model available (or planned)
-#:   in the `asia-south1` region on Vertex AI that is MORE CAPABLE than Gemini 2.5 Flash?"
-#:   — a user treating 2.5 Flash as the region's ceiling, which is corroboration of a
-#:   different kind from a docs summary and points the same way.
-#: * Nothing found in either search places a 3.x model in `asia-south1`.
-#:
-#: The one thing actually READ from this repository is the PRICE, and only because
-#: `raw.githubusercontent.com` is not blocked: LiteLLM's `model_prices_and_context_window.
-#: json` (main, fetched 16 Aug 2026) gives `gemini-2.5-flash` under `vertex_ai-language-
-#: models` as `input_cost_per_token` 3e-07 and `output_cost_per_token` 2.5e-06 — $0.30 and
-#: $2.50 per 1M. The same file gives `gemini-3.1-flash-lite` as $0.25/$1.50, which is
-#: exactly what `billing/ai_quota.py` priced from, so the table is the right one.
-#:
-#: ⚠ WHETHER `VERTEX_LOCATION` SERVES IT is STILL a separate fact with its own constant —
-#: `GEMINI_MODEL_CONFIRMED_IN_REGION` below, and it is still False. A search summary is
-#: not a 200. Read that before believing this one works.
-GEMINI_DEFAULT_LLM: Final = "gemini-2.5-flash"
+#: A `Literal` WITH `get_args` BESIDE IT, not a bare frozenset, for `EngineName` /
+#: `SELECTABLE_ENGINES`' reason (D-103): the Literal is what `Settings.azure_openai_model`
+#: is annotated with, so pydantic refuses an unknown identifier at the CONFIG boundary and
+#: mypy checks every comparison against it — while the frozenset below is the same set as a
+#: VALUE, derived rather than retyped, for callers that need membership rather than an
+#: annotation. A free-form string would let a typo become a model identifier that 404s from
+#: a third party in the middle of a live phone call, which is the failure class
+#: `SARVAM_RETIRED_LLMS` above already exists for.
+AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 
-#: The day `GEMINI_DEFAULT_LLM` stops answering — BRD R-04's retirement of the Gemini 2.5
-#: family, 16 Oct 2026.
-#:
-#: A `date` RATHER THAN A SENTENCE, and that is the entire point of the line. The cost of
-#: the decision above is a deadline, and a deadline recorded in prose is a deadline whose
-#: enforcement is "whoever read it last" — the failure mode CLAUDE.md's hard rule 4 note
-#: and this file's own D-105 history are both about. As data it can be asserted on:
-#: `tests/sarvam_model_identifier_test.py::test_the_shipped_gemini_model_has_runway_left`
-#: turns the build red `RETIREMENT_RUNWAY_DAYS` before it, which is the only mechanism in
-#: this repository that will speak up on a day when nobody is thinking about Gemini.
-#:
-#: WHEN IT FIRES the fix is one constant and one call, in this order: run OPERATIONS §2
-#: gate 14 against the newest Gemini `asia-south1` serves, then move `GEMINI_DEFAULT_LLM`
-#: to it and this date with it. NOT a region change, and not `locations/global` —
-#: `check_model_residency` refuses both and D-127 is why.
-#:
-#: EVIDENCE STANDING: **REPORTED, NOT READ** — the 16 Oct 2026 date is the one fact D-134,
-#: D-142 and this decision have all inherited from search summaries of Google's deprecation
-#: schedule rather than from the page. A wrong date here fails SAFE in one direction only:
-#: too early and the build asks for a migration nobody needed, too late and the assist 404s
-#: with `vertex_model_not_served_in_region` in the log (`workers/extraction.py`) and a
-#: disclosed Sarvam fallback carrying the work (G-6). That asymmetry is why the runway
-#: below is generous rather than tight.
-GEMINI_DEFAULT_LLM_RETIRES: Final = date(2026, 10, 16)
+#: The same set as a value — `get_args` on the Literal, never a second tuple beside it.
+AZURE_OPENAI_MODELS: Final[frozenset[str]] = frozenset(get_args(AzureOpenAIModel))
 
-#: Has anyone confirmed that `VERTEX_LOCATION` serves `GEMINI_DEFAULT_LLM`? No.
+#: What a deployment runs if nobody chooses: `gpt-4o-mini` (D-410).
 #:
-#: A greppable boolean rather than a paragraph, for `GEMINI_EXTRACTION_DEFAULT`'s reason
-#: and `CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA`'s shape: the claim "Gemini 3.x Flash-Lite
-#: runs on Vertex AI `asia-south1`" is currently in eight documents, and until it names a
-#: constant `check_docs_drift` §5 cannot tell those eight sentences from the truth.
+#: **4o-mini RATHER THAN 4.1-mini, AND THE ASYMMETRY IS AVAILABILITY, NOT PREFERENCE.**
+#: `gpt-4o-mini` is documented available in South India; `gpt-4.1-mini`'s availability in
+#: any Indian region is NOT confirmed, and its default quotas are Sweden Central / East US
+#: 2. So the choice is between the model the only permitted region is known to serve and a
+#: better one that may not be servable there at all — the same shape of trade D-127 had to
+#: make about Gemini, resolved the same way: ship what the region serves, and make the
+#: other a LIVE CONFIG SWITCH (`Settings.azure_openai_model`) so the operator who confirms
+#: it in the portal moves to it without a deploy and without this file changing.
 #:
-#: EVIDENCE STANDING: **REPORTED, NOT READ**, re-searched 16 Aug 2026 with the model
-#: changed under it. `docs.cloud.google.com`, `discuss.ai.google.dev`,
-#: `modelavailability.com`, `innfactory.ai`, `gcloud-compute.com`, `openrouter.ai` and
-#: `pricepertoken.com` were each attempted from this repository and each refused by the
-#: egress proxy, so what follows is independent search summaries agreeing, never a page
-#: fetched here:
-#:
-#: * The evidence about the SHIPPED model has REVERSED, and that is why this constant did
-#:   not change with it. When `GEMINI_DEFAULT_LLM` was `gemini-3.1-flash-lite`, search
-#:   placed the 3.x family on the GLOBAL endpoint and the `us`/`eu` multi-region REP
-#:   endpoints and nowhere near Mumbai — the flag was False AND the news was bad. Now that
-#:   the shipped model is `gemini-2.5-flash`, search places it squarely in Mumbai (a
-#:   summary of Google's data-residency table listing 2.5 Flash, 2.5 Pro, 2.5 Flash-Lite,
-#:   2.5 Flash Image, 2.0 Flash and 2.0 Flash-Lite there with ML processing; a developer
-#:   forum thread asking for anything in `asia-south1` "more capable than Gemini 2.5
-#:   Flash"). The flag is False and the news is GOOD.
-#: * **A better expectation is not a confirmation, and the difference is this constant's
-#:   whole job.** D-142 minted it precisely because a search summary of an unreadable page
-#:   is not evidence a request will succeed; flipping it now on a summary of the SAME
-#:   unreadable page, merely because the summary is flattering this time, would be that
-#:   argument run backwards. Nothing has been read, nothing has been called.
-#:
-#: WHAT SURVIVED THE RE-SEARCH, and it is the leg D-127 actually rests on: `asia-south1`
-#: is in Vertex's own ML-processing-location table (with Tokyo, Singapore, Sydney, Seoul),
-#: and Google states ML processing occurs in the region the request is made in for the
-#: regions that table lists. The REGION is not in doubt; the MODEL is. That asymmetry is
-#: why this constant is about the model and `VERTEX_LOCATION` above carries no such flag.
-#:
-#: WHY THE ANSWER IS NOT "USE THE GLOBAL ENDPOINT". Google's own words on it are "you
-#: can't control or know which region your ML processing requests are sent to", which is
-#: the exact sentence D-127 disqualifies AI Studio over. `check_model_residency` refuses
-#: `locations/global` for that reason and must keep refusing it.
-#:
-#: WHAT CLOSES IT, and NOTHING ELSE DOES: one `generateContent` against
-#: `vertex_generate_url(project, GEMINI_DEFAULT_LLM)` with a service-account bearer,
-#: returning 200 — OPERATIONS §2 gate 14, on the day the GCP project exists. That project
-#: is the external blocker, by name: a Google Cloud account and a service-account key.
-#: There is no engineering work between here and the answer. A 404 is the answer "no", and
-#: it is a LOUD answer — `VertexGeminiExtractor` logs `vertex_model_not_served_in_region`
-#: naming this constant, `assist_capability()` answers `provider_unavailable`, and G-6's
-#: disclosed Sarvam fallback carries the work meanwhile. If the answer is no, the decision
-#: is a MODEL change (`gemini-2.5-flash-lite` first — the founder's stated fallback, same
-#: family, same retirement date — then the newest Gemini `asia-south1` does serve) and
-#: never a REGION change: the second is the residency inversion this whole guardrail exists
-#: to prevent, and it is nine characters away at all times.
-GEMINI_MODEL_CONFIRMED_IN_REGION: Final = False
+#: WHAT IT NO LONGER COSTS, and it is the plainest benefit of D-410 rather than a detail:
+#: A RETIREMENT DATE. `GEMINI_DEFAULT_LLM_RETIRES` was a live 16 Oct 2026 deadline (BRD
+#: R-04) that this repository had to turn its own build red ahead of, because the only
+#: model the only permitted region served was one the vendor had already dated. Gemini 2.5's
+#: date died with Gemini; there is deliberately no dated constant here replacing it, and
+#: that is a real reduction in what somebody has to remember rather than an omission.
+AZURE_OPENAI_DEFAULT_MODEL: Final = "gpt-4o-mini"
 
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
 #: scans for them for the reason it scans for the Sarvam ones.
 #:
-#: MOST OF THESE ARE DATED RATHER THAN ALREADY DEAD, which is the difference from
-#: `SARVAM_RETIRED_LLMS`: 16 Oct 2026 is a date somebody has to act before, and the only
-#: cheap moment to act is the one where the identifier is being written. A name that dies
-#: on a schedule and is caught on the day it dies costs a pipeline returning empty answers
-#: with a 404 nobody is watching for.
+#: **THE SET IS NOW THE WHOLE FAMILY, AND D-410 IS WHY THE HOLE CLOSED.** It used to carry
+#: one deliberate omission: `gemini-2.5-flash` was `GEMINI_DEFAULT_LLM`, so a set that both
+#: banned it and shipped it would have been incoherent, and a separate test guarded stray
+#: literals of the shipped name instead. D-410 moved both LLM surfaces to Azure OpenAI, so
+#: there is no shipped Gemini identifier left and nothing for the hole to protect — every
+#: name in the family is now a name a module could only be spelling by mistake.
 #:
-#: `gemini-2.5-flash` IS NO LONGER IN THIS SET, and the omission is the founder's decision
-#: rather than an oversight: it is `GEMINI_DEFAULT_LLM`, so a set that both banned it and
-#: shipped it would be incoherent (`test_the_gemini_default_is_not_itself_retired` says so
-#: by failing). What the set therefore stopped guarding — a stray `"gemini-2.5-flash"`
-#: literal somewhere other than this file — is guarded instead by
-#: `test_no_shipped_module_spells_the_gemini_default`, and the DATE it stopped guarding is
-#: carried by `GEMINI_DEFAULT_LLM_RETIRES` above. Neither half was dropped on the floor.
-#: Its Lite sibling stays banned because it is not what we ship; if gate 14 makes it the
-#: fallback, it moves out of here in that same change.
+#: TWO DIFFERENT FACTS LAND IN ONE SET and it is worth knowing which is which while
+#: reading it: most of these were dated or dead at the VENDOR (16 Oct 2026 for the 2.5
+#: class), while `gemini-2.5-flash` is here because THIS PRODUCT stopped sending it. The
+#: ban is the same ban either way, because the failure is: a 400 or a 404 from a third
+#: party at the moment furthest from anyone watching.
+#:
+#: NOT `GEMINI_EXTRACTION_DEFAULT`'s leg, which never was Gemini and does not move: the
+#: first post-call extraction reads the RAW transcript and stays on Sarvam permanently
+#: (`apps/workers/extraction.py`). Nothing here changes for it.
 GEMINI_RETIRED_LLMS: Final = frozenset(
     {
         "gemini-1.5-flash",
         "gemini-1.5-pro",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
+        "gemini-2.5-flash",
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
     }
 )
 
 
-#: THE PUBLISHED LIST PRICE of `GEMINI_DEFAULT_LLM`, in **USD per MILLION tokens** —
-#: input and output — and the ONE place this repository states it (D-400).
+#: THE PUBLISHED LIST PRICE of every model in `AZURE_OPENAI_MODELS`, in **USD per MILLION
+#: tokens** — input and output — and the ONE place this repository states it (D-410).
 #:
 #: WHY IT IS HERE AND IN USD, when every rupee figure in this codebase is INR (hard rule
-#: 7). Two readers now need this number and they need it at different exchange rates:
-#: `billing/ai_quota.py` prices the dashboard assist, and TRD §10 prices the IN-CALL LLM
-#: leg that D-400 just made non-free. It shipped as two INR literals in `ai_quota.py`
-#: with the fx already folded in, which was right while there was one reader and is the
-#: D-103 / D-105 defect the moment there are two: the vendor publishes dollars,
-#: `usd_inr_rate` is a live console value, and a constant that has already multiplied
-#: them cannot be re-derived when either moves. So the VENDOR'S fact lives here in the
-#: vendor's unit, beside the model identifier it is a price OF, and every rupee
-#: conversion happens at a named rate in `billing/`, which is where hard rule 7 says
-#: money arithmetic belongs.
+#: 7). Two readers need this number and they need it at different exchange rates:
+#: `billing/ai_quota.py` prices the dashboard assist and `billing/rates.py` prices the
+#: in-call LLM leg. It once shipped as INR literals with the fx already folded in, which is
+#: right while there is one reader and is the D-103 / D-105 defect the moment there are
+#: two: the vendor publishes dollars, `usd_inr_rate` is a live console value, and a
+#: constant that has already multiplied them cannot be re-derived when either moves. So the
+#: VENDOR'S fact lives here in the vendor's unit, beside the identifiers it is a price OF,
+#: and every rupee conversion happens at a named rate in `billing/`, which is where hard
+#: rule 7 says money arithmetic belongs.
 #:
-#: ⚠ **A LIST PRICE IS A VENDOR CLAIM**, and this one's standing is unusually good:
-#: **READ, not summarised** — LiteLLM's `model_prices_and_context_window.json` fetched
-#: from `raw.githubusercontent.com` and parsed locally on 16 Aug 2026, where
-#: `gemini-2.5-flash` under `vertex_ai-language-models` gives `input_cost_per_token`
-#: 3e-07 and `output_cost_per_token` 2.5e-06. Corroborated 18 Aug 2026 by two independent
-#: search summaries of Vertex pricing pages ("$0.30 input / $2.50 output per million
-#: tokens, no long-context surcharge across the full 1M window").
-#: `docs.cloud.google.com` is refused by this environment's egress proxy, so the vendor's
-#: own page has never been fetched from this repository.
+#: KEYED BY MODEL, where `GEMINI_LIST_PRICE_USD_PER_MTOK` was a bare `{"in", "out"}` pair.
+#: That is not symmetry for its own sake: `azure_openai_model` is a LIVE console switch and
+#: `gpt-4.1-mini` costs 2.7x the default on BOTH legs, so a single pair would be a cost
+#: model that silently describes the wrong model within one poll interval of an operator
+#: flipping it — the D-105 defect with a clock attached.
 #:
-#: ⚠ **A NON-GLOBAL ENDPOINT SURCHARGE IS REPORTED AND WOULD LAND ON US.** Two
-#: independent search summaries (18 Aug 2026) say Vertex charges roughly 10% more on
-#: regional endpoints than on the global one from 1 July 2026 — precisely the premium a
-#: residency posture buys. ONE of the two adds that it applies to "the generally
-#: available Gemini 3 and later families", which would exempt this model. It is NOT
-#: folded into these numbers: a 10% factor nobody has seen on an invoice would make every
-#: derived figure unfalsifiable in the expensive direction. It is carried as OPERATIONS
-#: §2 gate 14c instead, settled by the first GCP invoice.
+#: WHERE THE SAVING LANDS, because it is not evenly spread: the outgoing `gemini-2.5-flash`
+#: was $0.30 in / $2.50 out, so the default here is HALF the input price and under a
+#: quarter of the output price. Voice is input-dominated (TRD §6.1 resends the whole
+#: conversation each turn, which is what makes in-call cost quadratic in call length), so
+#: the input leg is the one that moves the margin.
 #:
-#: ⚠ **TWO MOVES ARE ALREADY DATED**: `GEMINI_DEFAULT_LLM_RETIRES` (16 Oct 2026) and the
-#: end of the Flash tier's introductory pricing (1 Jan 2027).
-GEMINI_LIST_PRICE_USD_PER_MTOK: Final[dict[str, Decimal]] = {
-    "in": Decimal("0.30"),
-    "out": Decimal("2.50"),
+#: THE KEYS ARE `AZURE_OPENAI_MODELS` AND MUST STAY THAT WAY. Typed `dict[str, ...]`
+#: rather than keyed on the Literal so a caller holding a model identifier read back off a
+#: historical `usage_events` row can still look it up — the price of a leg that already ran
+#: is not a member of today's allow-list and never will be again. What that costs is a
+#: check the type cannot make: adding a model to `AzureOpenAIModel` without adding its
+#: price here is a `KeyError` at metering time, on the first call after an operator flips
+#: the switch. The two move together, and a test in `billing/` is what says so.
+#:
+#: ⚠ **A LIST PRICE IS A VENDOR CLAIM.** Standing: GLOBAL STANDARD list prices, verified
+#: 19 Aug 2026 for D-410. This environment's egress proxy refuses Microsoft's pricing pages,
+#: so the numbers are the decision's own verified record rather than a page fetched here.
+#:
+#: ⚠ **WE DO NOT BUY GLOBAL STANDARD, AND THE DIFFERENCE IS THE PRICE OF RESIDENCY.**
+#: Global is Azure's DEFAULT deployment type and processes worldwide; a REGIONAL Standard
+#: deployment is what pins inference to `AZURE_LOCATION`, and it is reported to cost
+#: roughly 5-10% more, with published examples as high as +12% and +20%. That premium is
+#: deliberately NOT folded into these numbers: a factor nobody has yet seen on an invoice
+#: would make every derived figure unfalsifiable in the expensive direction, which is the
+#: same reason the Vertex regional surcharge was carried as a gate rather than a multiplier.
+#: It is settled by the first Azure invoice (OPERATIONS §2).
+AZURE_LIST_PRICE_USD_PER_MTOK: Final[dict[str, dict[str, Decimal]]] = {
+    "gpt-4o-mini": {"in": Decimal("0.15"), "out": Decimal("0.60")},
+    "gpt-4.1-mini": {"in": Decimal("0.40"), "out": Decimal("1.60")},
 }
 
 
-def vertex_openai_base_url(project: str) -> str:
-    """Vertex AI's **OpenAI-compatible** base URL for one project, pinned to Mumbai.
+#: WHAT MAY STAND WHERE `<resource>` DOES in an Azure OpenAI hostname: ONE DNS LABEL.
+#:
+#: A PATTERN RATHER THAN AN f-STRING'S GOOD FAITH, and this is the one place in this module
+#: where interpolation is a security question and not a style one. `VERTEX_LOCATION` sat at
+#: the FRONT of its host, so whatever was interpolated after it landed in a PATH and the
+#: host stayed Google's whatever the caller passed. Azure's custom subdomain puts the
+#: caller's value at the very front of the authority: `f"https://{resource}.openai.azure
+#: .com/…"` with `resource = "evil.example/x"` is a URL whose HOST is `evil.example` and
+#: whose tail merely reads like Azure. That value is handed to a third party as the place
+#: to send a client's caller's words, so it is validated — here, once, and read by both the
+#: builder and `ModelConfig`'s validator so the two cannot disagree about what is legal.
+#:
+#: 2-64 characters, letters, digits and interior hyphens: it becomes a DNS label, and the
+#: bound is derived from the hostname it has to be legal in rather than read out of Azure's
+#: naming rules (their docs are refused by this environment's egress proxy). It errs
+#: PERMISSIVE on case, because DNS is case-insensitive and refusing a resource name that
+#: would have worked is a self-inflicted outage; it errs STRICT on everything that could
+#: change which host is addressed, because that is the failure this exists for.
+#:
+#: PUBLIC AS A PATTERN STRING, COMPILED PRIVATELY. `Settings.azure_openai_resource`
+#: carries the same constraint so an operator learns at the moment they type it, and a
+#: pydantic `Field(pattern=…)` wants the source rather than a compiled object — so the
+#: string is the shared thing and the `re.Pattern` is this module's own. Two spellings of
+#: this rule is the one outcome that would matter: the config boundary and the endpoint
+#: builder disagreeing about what is legal is how the value that passed the console fails
+#: at publish time.
+AZURE_RESOURCE_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$"
 
-    THE SECOND VERTEX DOOR, and it is a different door from `vertex_generate_url`
-    (`apps/workers/extraction.py`) rather than a second spelling of the same one. That
-    one is `…/publishers/google/models/{model}:generateContent` and OUR OWN client calls
-    it. This one is `…/endpoints/openapi`, an OpenAI Chat Completions surface, and its
-    whole purpose is to be handed to a THIRD PARTY — the voice engine, which speaks
-    OpenAI and does not speak `generateContent` (D-400). Two URLs, two callers, two API
-    shapes; what they share is the only thing that must not drift, `VERTEX_LOCATION`, and
-    both interpolate that one `Final` into both the host and the `locations/` segment so
-    `scripts/check_model_residency.py` can prove it from the AST.
+_AZURE_RESOURCE_RE: Final = re.compile(AZURE_RESOURCE_PATTERN)
 
-    WHY IT LIVES IN THE PORTABILITY CONTRACT rather than in the Bolna adapter. It is not
-    a vendor payload shape (hard rule 2) — it is OUR endpoint, the one we would hand to
-    any engine that can take a base URL, and `ModelConfig.llm_base_url` is where it
-    lands. An adapter that built it would be an adapter deciding where our models run.
+#: Everything after the resource label. ONE spelling, two readers — `azure_openai_base_url`
+#: writes it and `_azure_resource_of` reads it back off — because a second spelling of
+#: `/openai/v1` is a validator that accepts an endpoint no builder here emits.
+_AZURE_ENDPOINT_SUFFIX: Final = ".openai.azure.com/openai/v1"
 
-    ⚠ **THE URL IS NOT THE HARD PART; THE CREDENTIAL IS.** See
-    `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE` — a regional Vertex endpoint takes a ~1-hour
-    OAuth2 bearer and nothing else, and no engine in this repository has anywhere to put
-    a credential that expires.
 
-    EVIDENCE STANDING for the path shape: **REPORTED, NOT READ** (searched 18 Aug 2026;
-    `docs.cloud.google.com` is refused by this environment's proxy). Multiple independent
-    search summaries of Google's own "OpenAI compatibility" page agree on
-    `https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi`
-    as the OpenAI client's `base_url`, with `/chat/completions` appended by the client.
-    A wrong path fails LOUD (a 404 from a host that does serve our project), which is the
-    safe direction.
+def azure_openai_base_url(resource: str) -> str:
+    """Azure OpenAI's **v1** base URL for one resource — THE only way to build one (D-410).
+
+    THE v1 SURFACE, NOT THE CLASSIC ONE, and the rejected alternative is the whole reason
+    this leg is simpler than the Vertex leg it replaced. Classic is
+    `…/openai/deployments/{deployment}/chat/completions?api-version=YYYY-MM-DD` with an
+    `api-key:` header: a DATED query parameter somebody has to keep current forever, and an
+    authentication header no OpenAI-compatible client sends. The v1 surface needs no
+    `api-version` at all and accepts `Authorization: Bearer <key>` — which is exactly what
+    an OpenAI-shaped client emits, and is what makes a STATIC key work here where a
+    regional Vertex endpoint could take nothing but a 12-hour OAuth2 bearer on a rotation
+    schedule of ours (D-404, deleted by D-410 along with its cron, its dead man and its
+    runbook).
+
+    WHY IT LIVES IN THE PORTABILITY CONTRACT rather than in an adapter. It is not a vendor
+    payload shape (hard rule 2) — it is OUR endpoint, the one we would hand to any engine
+    that takes a base URL, and `ModelConfig.llm_base_url` is where it lands. An adapter that
+    built it would be an adapter deciding where our models run.
+
+    ⚠ **THE REGION IS NOT IN THIS URL** and no amount of reading it will find one. See
+    `AZURE_LOCATION` for what that costs, what still holds, and the human gate that closes
+    the gap. This is also why the function takes no location argument: there is nowhere to
+    put one, and a parameter that changed nothing would be worse than its absence.
+
+    ⚠ **WHAT THE ENGINE SENDS AS `model` IS THE DEPLOYMENT ID, NOT THE MODEL NAME.** On
+    Azure a model is deployed under a name of the operator's choosing and the API addresses
+    THAT (`Settings.azure_openai_deployment`); `Settings.azure_openai_model` records which
+    model the deployment was made from, which is what the cost model needs and what the API
+    never sees. Conflating the two is the mistake this endpoint shape invites, because on
+    every other OpenAI-compatible provider the two strings are the same string.
+
+    RAISES on a resource that is not one DNS label, rather than interpolating it. A builder
+    that quietly emitted `https://evil.example/x.openai.azure.com/openai/v1` would be
+    handing a third party an attacker's host wearing our suffix — see `_AZURE_RESOURCE_RE`.
+    Callers normally pass `Settings.azure_openai_resource`, which carries the same pattern,
+    so in a configured deployment this cannot fire; it is here because a public builder in
+    a shared contract has no way to know its caller did that.
+
+    EVIDENCE STANDING for the path shape: verified 19 Aug 2026 for D-410 against Microsoft
+    Learn (`foundry/openai/api-version-lifecycle`,
+    `azure/developer/ai/how-to/switching-endpoints`), which give
+    `https://<resource>.openai.azure.com/openai/v1/` as the OpenAI-compatible base URL with
+    no `api-version` and with key-in-authorization-header supported. A wrong path fails
+    LOUD — a 404 from a host that does serve our resource — which is the safe direction.
     """
-    return (
-        f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/{project}"
-        f"/locations/{VERTEX_LOCATION}/endpoints/openapi"
-    )
+    if not _AZURE_RESOURCE_RE.fullmatch(resource):
+        raise ValueError(
+            f"{resource!r} is not a valid Azure OpenAI resource name: it becomes the "
+            "first label of the endpoint's hostname, so it must be 2-64 letters, digits "
+            "and interior hyphens and nothing else"
+        )
+    return f"https://{resource}{_AZURE_ENDPOINT_SUFFIX}"
 
 
-#: Can the in-call LLM leg actually BE Gemini-on-Vertex yet? No — and the blocker is the
-#: credential, not the model, the region, the price or the URL (D-400, D-402).
-#:
-#: A greppable boolean rather than a paragraph, for `GEMINI_MODEL_CONFIRMED_IN_REGION`'s
-#: reason: the founder has decided the LLM leg is Gemini on paid Vertex, that decision is
-#: now written into eight documents, and until it names a constant `check_docs_drift`
-#: cannot tell an intention from a running system.
-#:
-#: WHAT IS SETTLED, and each of these was read rather than assumed:
-#:
-#: * **Bolna's `llm_agent.provider` is an OPEN string with a sibling `base_url`.** READ AT
-#:   SOURCE in their published OpenAPI (`bolna-ai/skills@28b24aa`,
-#:   `references/openapi.yml`, md5 5597f7da080d47564696bc05c12e9112): `LlmAgent.provider`
-#:   and `SimpleLlmAgent.provider` are `type: string, default "openai"` with NO `enum`,
-#:   beside `base_url` (`example "https://api.openai.com/v1"`) — while `agent_flow_type`
-#:   in the very same block DOES carry `enum: [streaming, preprocessed]` and the telephony
-#:   `provider` carries `enum: [twilio, plivo]`. The author uses `enum` when they mean
-#:   closed. An arbitrary OpenAI-compatible endpoint is the DESIGNED extension.
-#: * **`provider` selects the client; `family` is read by nothing.** READ AT SOURCE in
-#:   `bolna-ai/bolna` (`bolna/providers.py::SUPPORTED_LLM_PROVIDERS`,
-#:   `bolna/enums.py::LLMProvider`): `"custom"` maps to `OpenAiLLM`, which constructs
-#:   `AsyncOpenAI(base_url=…, api_key=llm_key)` (`bolna/llms/openai_llm.py`). This settles
-#:   the D-260 marked assumption in `engine/bolna.py::_agent_body` in the direction that
-#:   assumption feared.
-#: * **Bolna's OWN "Google Gemini" provider is the AI STUDIO API, which D-127
-#:   disqualified.** Their provider matrix (`bolna-ai/skills@28b24aa`,
-#:   `references/providers-matrix.md`) lists it needing one key named `GOOGLE`; their
-#:   server maps `provider: "google"` to `GeminiLLM`, which is `genai.Client(api_key=…)`
-#:   against `generativelanguage.googleapis.com` (`bolna/llms/gemini_llm.py`) — a GLOBAL
-#:   host with no region anywhere in the URL. **So the easy route is the disqualified
-#:   one**, and that tension is the finding rather than a detail: "Gemini is supported"
-#:   and "Gemini is supported in a way that keeps caller audio in India" are different
-#:   sentences.
-#:
-#: WHAT WAS NOT SETTLED, AND NOW IS — **ROTATION, NOT PROXYING** (D-404). The blocker
-#: read: "a regional Vertex endpoint authenticates with a Google OAuth2 access token that
-#: expires in about an hour, and Bolna stores static strings." Both halves were true and
-#: the conclusion drawn from them was not. A store that holds a string can hold a string
-#: we REPLACE on a schedule, and this repository already owns every part of doing that:
-#: the RS256 service-account handshake (`apps/workers/google_oauth.py`), the secrets
-#: manager reference for the key (`gcp_service_account_json`, never in the DB or a
-#: committed file), and a cron registry with a retry ladder. Two facts turned "static
-#: strings" from a wall into a schedule:
-#:
-#: * **The token can last 12 hours, not one.** `generateAccessToken` accepts
-#:   `lifetime: "43200s"` for a service account named in the org policy
-#:   `constraints/iam.allowServiceAccountCredentialLifetimeExtension` (Google IAM docs,
-#:   read 18 Aug 2026). Default is 3600s, and the response ALWAYS carries `expireTime`
-#:   (`google/iam/credentials/v1/common.proto`), so what we were GRANTED is read back
-#:   rather than assumed — see `apps/workers/vertex_credential.py`.
-#: * **`provider: "custom"` sends a plain bearer.** VERIFIED-OSS at `bolna-ai/bolna`
-#:   master, `bolna/llms/openai_llm.py`: `AsyncOpenAI(base_url=…, api_key=llm_key, …)`,
-#:   and `AsyncOpenAI` sends `Authorization: Bearer <api_key>` — which is exactly what
-#:   Vertex's OpenAI-compatible surface accepts. The engine never needs to know the string
-#:   is an OAuth2 token rather than an API key.
-#:
-#: An API key remains no alternative, and that is the reason the rotation is worth its
-#: cost: Vertex API keys work only in express mode, whose endpoints are the GLOBAL
-#: `aiplatform.googleapis.com` with no `projects` or `locations` segment, and the
-#: `@google/genai` client short-circuits to the global endpoint the moment an API key is
-#: present, ignoring the configured location entirely (google-gemini/gemini-cli#27984,
-#: READ 18 Aug 2026 — a reporter watching requests go to the global host while the UI
-#: displayed their region). Google's own guidance is blunter still: "Don't use the global
-#: endpoint if you have ML processing requirements, because you can't control or know
-#: which region your ML processing requests are sent to." **A key is not the convenient
-#: version of this leg; it is a different leg, in a different country.**
-#:
-#: THE THREE REJECTED ROUTES, kept in full because the next reader will otherwise
-#: re-propose the easy ones (each is a decision row of its own: D-405..D-407):
-#:
-#: * **(A) A Google AI Studio key** (`provider: "google"` — a long-lived static string that
-#:   fits Bolna's credential store exactly, and the only route that is a five-minute
-#:   change). **CLOSED, and on ONE ground rather than D-401's two.** Paying removes the
-#:   training-and-human-review objection: Google states it does not train on paid Developer
-#:   API data. The residency objection SURVIVES it — the Developer API has no region pinning
-#:   at all, the host carries no region, and there is no field in which to ask for one.
-#:   Taking it would be abandoning D-127's posture on the leg that carries the caller's
-#:   actual voice: a DPDP position change and a founder's call, not a shortcut. No code path
-#:   can reach it, and `_llm_routing` refuses `provider: "google"` by test.
-#: * **(B) A token-broker proxy WE run in-region** — holds the service-account key, mints
-#:   and refreshes the bearer, forwards to `asia-south1`, registered with Bolna as a custom
-#:   model URL. **REJECTED IN FAVOUR OF ROTATION**, and the three costs that decided it are
-#:   the ones that made rotation worth finding: it sits IN the turn-latency path (so it
-#:   belongs beside `apps/voice-runtime`, not in `apps/api`) and adds a hop to every model
-#:   token on a live phone call; it is a NEW DEPLOYABLE needing its own ROADMAP §6 entry;
-#:   and **`POST /user/model/custom` carries NO credential field, so an unauthenticated
-#:   OpenAI-compatible endpoint on the public internet would be an OPEN RELAY FOR OUR VERTEX
-#:   SPEND** — an unguessable path is not authentication. Rotation costs zero added
-#:   latency, no new deployable and no new attack surface, because the bearer travels
-#:   engine-to-Google on a connection we are not in.
-#: * **(C) Ask Bolna.** Still worth one email, and it is now an OPTIMISATION rather than a
-#:   blocker: if they will accept a credential-refresh hook the rotation gets simpler, and
-#:   if they will not, nothing here changes. `api.bolna.ai`, `docs.bolna.ai` and
-#:   `www.bolna.ai` are refused by this environment's egress proxy, so it cannot be asked
-#:   from here; OPERATIONS §2 gate 16b carries the test.
-#:
-#: WHAT THIS CONSTANT ACTUALLY GATES, because it is not a note: `apps/api/agents/service
-#: .py::in_call_llm` reads it, and it is the ONE decision point for the whole leg. It is
-#: now True, and it is still not sufficient on its own — `in_call_llm` requires a
-#: `gcp_project_id` AND a resolvable service account, because publishing a Vertex endpoint
-#: into a deployment that can mint no bearer for it is a 401 at dial time on a live phone
-#: line. The endpoint and the model identifier move TOGETHER for the same class of reason:
-#: sending a Sarvam identifier to Vertex is a 404 on that same call. Every arm is covered
-#: by `tests/in_call_llm_provider_test.py`.
-#:
-#: ⚠ WHAT IS STILL UNVERIFIED AGAINST THE LIVE PLATFORM, and it is one thing rather than
-#: the four it used to be: **which `provider_name` the hosted platform reads `llm_key`
-#: from for a `provider: "custom"` leg.** VERIFIED-OSS proves the framework passes
-#: `llm_key` straight to `AsyncOpenAI`; nothing published says which credential-store
-#: entry the HOSTED platform injects it from. `Settings.bolna_llm_credential_name` carries
-#: our default so an operator who learns the answer sets it from the ops console without a
-#: deploy, and OPERATIONS §2 gate 16c is the one call that settles it.
-VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE: Final = True
+def _azure_resource_of(base_url: str) -> str | None:
+    """The `<resource>` in an endpoint `azure_openai_base_url` could have produced, or
+    `None` if this URL is not one of ours.
+
+    THE INVERSE OF THE BUILDER, written as an inverse on purpose: "does this URL come from
+    our builder" is answerable by taking it apart with the same two pieces the builder put
+    it together from, and any other spelling of the check is a second opinion waiting to
+    disagree. Returning the resource rather than a bool costs nothing and gives the caller
+    something to put in an error message.
+    """
+    prefix = "https://"
+    if not (base_url.startswith(prefix) and base_url.endswith(_AZURE_ENDPOINT_SUFFIX)):
+        return None
+    resource = base_url[len(prefix) : -len(_AZURE_ENDPOINT_SUFFIX)]
+    return resource if _AZURE_RESOURCE_RE.fullmatch(resource) else None
 
 
 #: WHERE an LLM leg runs, in OUR vocabulary — never the engine's (hard rule 2).
 #:
-#: `"vertex_openai"` is D-400's leg: Gemini on paid Vertex AI, reached through the
-#: OpenAI-compatible surface at `vertex_openai_base_url()`, region-pinned to Mumbai.
+#: `"azure_openai"` is D-410's leg: an OpenAI model served by Azure OpenAI, reached through
+#: the v1 surface at `azure_openai_base_url()`, on a resource in `AZURE_LOCATION`.
+#:
+#: IT REPLACED `"vertex_openai"` OUTRIGHT rather than joining it, and the rejected
+#: alternative is worth the line: keeping both would have made the residency posture a
+#: CHOICE, and a posture with two answers is two postures. D-410 moved both LLM surfaces at
+#: once for exactly that reason.
+#:
+#: WHAT THE VOCABULARY BUYS HERE, now that the engine has a first-class name for this
+#: provider. Bolna lists Azure OpenAI in its published provider set and its live agent
+#: dropdown (`azure`), so `apps/api/engine/bolna.py::_llm_routing` maps this member onto a
+#: provider the platform advertises — not onto the `custom` route, whose one unverified
+#: premise (which credential-store entry a custom model's key is read from) is what put the
+#: Vertex leg in doubt. Ours stays a separate name from theirs because the mapping is the
+#: adapter's job and because "azure" is a vendor's word for a cloud, not ours for a leg.
 #:
 #: ONE MEMBER, AND THAT IS THE HONEST COUNT rather than a stub. `None` — "whatever the
-#: engine's own default is" — is what every agent in this repository still resolves to,
-#: because D-260/gate 16 has never been answered: nobody knows whether the hosted Bolna
-#: platform honours `provider` and `base_url` at all, and naming D-36's Sarvam leg here
-#: would mean CHANGING the wire body of every live agent on the strength of that
-#: unanswered question. So the vocabulary names the leg somebody has argued a residency
-#: posture for, and nothing else. A second member arrives with a decision-log entry.
+#: engine's own default is" — remains what an agent resolves to on a deployment that has
+#: not been given an Azure resource, and it is what the fake engine and the conformance
+#: suite exercise. A second member arrives with a decision-log entry.
 #:
 #: CLOSED WHERE THE ENGINE'S IS OPEN, deliberately. Bolna's `provider` is an open string
 #: because Bolna does not care where a model runs; ours is closed because we do, and
 #: `ModelConfig`'s validator is what makes that more than a naming convention.
-LlmProvider = Literal["vertex_openai"]
+LlmProvider = Literal["azure_openai"]
 
 
 #: THE ONE SENTENCE A SCRIPT MAY NOT CONTRADICT, and the string every read-back is
@@ -810,71 +708,84 @@ class ModelConfig(BaseModel):
     """BYOK model selection — plain config strings (D-04/D-20/D-36), so changing a
     model is a config edit + regression run, never a code change.
 
-    THE LLM LEG NOW CARRIES THREE FIELDS WHERE IT CARRIED ONE (D-400), and the two new
-    ones are not symmetry with the speech legs. `stt_provider` and `tts_provider` are
-    vendor NAMES an engine looks up in its own table; `llm_provider` is OUR closed
-    vocabulary (`LlmProvider`) and `llm_base_url` is an ENDPOINT — the place a third
-    party will send a client's caller's words. Naming the second thing is what makes
-    "the LLM leg runs in India" a checkable property of a value instead of a claim about
-    a vendor, which is the whole of D-127's replacement argument and now applies to the
-    in-call leg too.
+    THE LLM LEG CARRIES THREE FIELDS WHERE IT CARRIED ONE (D-400, re-aimed by D-410), and
+    the two extra ones are not symmetry with the speech legs. `stt_provider` and
+    `tts_provider` are vendor NAMES an engine looks up in its own table; `llm_provider` is
+    OUR closed vocabulary (`LlmProvider`) and `llm_base_url` is an ENDPOINT — the place a
+    third party will send a client's caller's words. Naming the second thing is what makes
+    "the LLM leg runs where we say it runs" a checkable property of a VALUE instead of a
+    claim about a vendor, which is the whole of D-127's argument and applies to the in-call
+    leg too.
 
-    The D-260 marked assumption in `engine/bolna.py::_agent_body` said this field would
-    arrive if `provider` turned out to be the field that routes. It is (READ AT SOURCE,
-    `bolna/providers.py::SUPPORTED_LLM_PROVIDERS` — `family` is declared and read by
-    nothing), so it has.
+    WHAT D-410 CHANGED AND WHAT IT DID NOT. The shape is unchanged; the vocabulary moved
+    from Vertex to Azure OpenAI, and so did what the validator below can prove — see
+    `AZURE_LOCATION`. What did NOT move is `llm_model`'s meaning on this leg, and it is the
+    trap Azure sets: see that field.
     """
 
     stt_provider: str | None = None
     stt_model: str | None = None
+    #: The model identifier sent on the wire.
+    #:
+    #: ⚠ ON AN `azure_openai` LEG THIS IS THE DEPLOYMENT ID, NOT A MODEL NAME. Azure serves
+    #: a model under a deployment the operator named, and the API addresses the deployment;
+    #: `Settings.azure_openai_deployment` is what belongs here, while
+    #: `Settings.azure_openai_model` records which model that deployment was made from and
+    #: is read by the cost model, never by the wire. On every other OpenAI-compatible
+    #: provider the two strings are the same string, which is exactly why this needs saying
+    #: once, here, rather than being rediscovered from a 404.
     llm_model: str | None = None
     #: WHERE the LLM leg runs. `None` means "the engine's own default", which is what
     #: every config in this repository meant before D-400 and is still what the fake
     #: engine and the conformance suite exercise.
     llm_provider: LlmProvider | None = None
-    #: The OpenAI-compatible endpoint for a `vertex_openai` leg — always the output of
-    #: `vertex_openai_base_url()`, never typed by hand and never a tenant's to choose.
+    #: The OpenAI-compatible endpoint for an `azure_openai` leg — always the output of
+    #: `azure_openai_base_url()`, never typed by hand and never a tenant's to choose.
     llm_base_url: str | None = None
     tts_provider: str | None = None
     tts_voice: str | None = None
 
     @model_validator(mode="after")
     def _llm_endpoint_is_coherent(self) -> ModelConfig:
-        """A `vertex_openai` leg has a Mumbai-pinned base URL, and nothing else has one.
+        """An `azure_openai` leg has an endpoint our own builder could have emitted, and
+        nothing else has one at all.
 
-        WHY A VALIDATOR AND NOT A REVIEW. `scripts/check_model_residency.py` proves that
-        every Google model URL *written in this tree* names `asia-south1`; it says so
-        itself under "what this check cannot see" — a URL assembled at runtime or read
-        from a store is invisible to it. This object is exactly that blind spot's shape:
-        a URL travelling from our configuration into a third party's agent object. So the
-        static check covers the literal and this covers the value, and between them there
-        is no path by which an engine is handed a model endpoint outside India.
+        WHY A VALIDATOR AND NOT A REVIEW. `scripts/check_model_residency.py` proves things
+        about the model URLs *written in this tree*; it says so itself under "what this
+        check cannot see" — a URL assembled at runtime or read from a store is invisible to
+        it. This object is exactly that blind spot's shape: a URL travelling from our
+        configuration into a third party's agent object. So the static check covers the
+        literal and this covers the value, and between them there is no path by which an
+        engine is handed a hand-typed model endpoint.
 
-        REFUSING A BASE URL WITHOUT A PROVIDER is the half worth stating: it is the shape
-        a future caller reaches for when it wants "just point the LLM somewhere", and it
+        WHAT IT CAN PROVE, AND WHAT IT CANNOT — the gap is D-410's recorded weakening
+        rather than an oversight, and this is one of the two places a reader will look for
+        it. It CAN prove the endpoint is the v1 surface on ONE Azure OpenAI resource and
+        that the resource is a single DNS label, so the host is Azure's rather than a
+        look-alike whose tail merely reads like it (`_AZURE_RESOURCE_RE` has the attack).
+        It CANNOT prove the resource is in `AZURE_LOCATION`: the hostname names no region,
+        the region is a property of the resource, and only a human in the portal can
+        confirm it. `VERTEX_LOCATION` appeared twice in a Vertex URL and this validator
+        checked both halves; there is no equivalent here and pretending otherwise would be
+        worse than the gap.
+
+        REFUSING A BASE URL WITHOUT A PROVIDER is the half worth stating: it is the shape a
+        future caller reaches for when it wants "just point the LLM somewhere", and it
         would route to the engine's default client against our endpoint — a mismatch that
         fails as a confusing 4xx from a vendor rather than as a sentence about what is
         wrong.
         """
-        if self.llm_provider == "vertex_openai":
+        if self.llm_provider == "azure_openai":
             if not self.llm_base_url:
-                raise ValueError("llm_provider 'vertex_openai' requires llm_base_url")
-            # The host AND the `locations/` segment — a host pinned to Mumbai with
-            # `locations/global` in the path is the global endpoint wearing a regional
-            # host, which is the exact substitution `check_model_residency` exists for.
-            expected = (
-                f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/",
-                f"/locations/{VERTEX_LOCATION}/",
-            )
-            if (
-                not self.llm_base_url.startswith(expected[0])
-                or expected[1] not in self.llm_base_url
-            ):
+                raise ValueError("llm_provider 'azure_openai' requires llm_base_url")
+            if _azure_resource_of(self.llm_base_url) is None:
                 raise ValueError(
-                    f"llm_base_url must be a Vertex AI {VERTEX_LOCATION} endpoint (D-127)"
+                    "llm_base_url must be an Azure OpenAI v1 endpoint from "
+                    f"azure_openai_base_url() — https://<resource>{_AZURE_ENDPOINT_SUFFIX} "
+                    f"on a resource in {AZURE_LOCATION} (D-410)"
                 )
         elif self.llm_base_url:
-            raise ValueError("llm_base_url is only meaningful with llm_provider 'vertex_openai'")
+            raise ValueError("llm_base_url is only meaningful with llm_provider 'azure_openai'")
         return self
 
 
@@ -1421,16 +1332,18 @@ class WebhookVerdict(BaseModel):
 
 
 class LlmCredentialPlacement(BaseModel):
-    """What the engine ACTUALLY did with a rotated LLM credential (D-404).
+    """What the engine ACTUALLY did with an installed LLM credential (D-404).
 
     `set_llm_credential` cannot be fire-and-forget, and the reason is a vendor semantic
     nobody has read back: a credential store may REPLACE the entry under a name or it may
-    APPEND a second one. Under append semantics a rotation that reported success would
-    leave the engine holding both the new bearer and every expired one before it, and
+    APPEND a second one. Under append semantics an install that reported success would
+    leave the engine holding both the new key and every superseded one before it, and
     which of them a call authenticates with is the vendor's choice — so a leg could keep
-    working for hours after a rotation and then fail on a token nobody knew was still
-    installed. That failure is indistinguishable from "the refresher stopped running",
-    which is the one thing the alarm is supposed to tell an operator apart.
+    working for hours after a rotation and then start failing on a credential nobody knew
+    was still installed, at a moment with no change to correlate it with. Under D-410's
+    static Azure key that is the WORSE failure rather than a smaller one: the old bearer
+    at least expired, while a superseded API key an operator believes they revoked can
+    authenticate our spend indefinitely.
 
     So the adapter reports what it observed, in OUR terms, and the caller logs it. No
     vendor id, name or payload crosses this boundary (hard rule 2) — two counts and a
@@ -1674,12 +1587,20 @@ class VoiceEngine(Protocol):
         """Install the secret the configured LLM endpoint authenticates with, replacing
         whatever this engine was holding for that purpose (D-404).
 
-        **THIS IS THE METHOD A ROTATING CREDENTIAL NEEDS, and no other method on this
-        Protocol could be it.** `create_agent`/`update_agent` carry an agent's CONFIG;
-        a bearer that expires is not configuration, it is a moving fact about the
-        deployment, and pushing it through the agent path would mean re-publishing every
-        agent in the fleet every few hours — a compliance-gated write (hard rule 5, the
-        prompt is re-verified on every publish) driven by a clock.
+        **THE CREDENTIAL IS NOT AGENT CONFIG, AND NO OTHER METHOD ON THIS PROTOCOL COULD
+        CARRY IT.** `create_agent`/`update_agent` carry an agent's CONFIG; the key the LLM
+        leg authenticates with is a fact about the DEPLOYMENT, and pushing it through the
+        agent path would mean re-publishing every agent in the fleet to rotate one string
+        — a compliance-gated write (hard rule 5, the prompt is re-verified on every
+        publish) driven by something that has nothing to do with any agent.
+
+        **ITS CALLER IS NOW A PERSON, NOT A CLOCK (D-410), AND THE METHOD IS UNCHANGED BY
+        THAT.** It was minted for a bearer that expired in twelve hours and was replaced
+        every four by a cron of ours; Azure OpenAI takes a STATIC key, so that refresher,
+        its dead man and its runbook are deleted and what remains is an operator rotating
+        a key. The Protocol keeps the method because the OPERATION did not go away, only
+        its schedule — and because an engine whose credential can only be installed by
+        re-publishing the fleet is a fact this contract should still be able to state.
 
         **ONLY MEANINGFUL WHERE `capabilities.is_ours("llm")` IS TRUE**, and that is the
         same gate rather than a new capability flag on purpose: an engine that DICTATES
@@ -1689,17 +1610,17 @@ class VoiceEngine(Protocol):
         forever while the leg it exists to keep alive is somebody else's.
 
         WHAT `secret` IS deliberately unstated: a static API key for one engine, a
-        12-hour Google OAuth2 bearer for another. The Protocol's job is that the value
-        arrives and supersedes; how long it lives is the CALLER's problem, and
-        `apps/workers/vertex_credential.py` is the caller that owns it for D-404's leg.
+        short-lived OAuth2 bearer for another. The Protocol's job is that the value
+        arrives and supersedes; how long it lives, and therefore whether anything has to
+        call this again, is the CALLER's problem and never this method's.
 
         NOT IDEMPOTENT IN THE `delete_agent` SENSE, and the difference matters: calling
         it twice with the same secret must leave the engine holding that secret once, but
         each call is a real write — this is the operation whose whole purpose is to
-        replace something that still works with something that will work longer.
+        replace a credential the engine is currently using.
 
         Raises rather than returning a failure, because every caller's response to "the
-        credential did not land" is the same page (`vertex_llm_credential_refresh_failed`)
+        credential did not land" is the same one — page, and leave the old key in place —
         and a returned `False` is a thing a caller can forget to read.
         """
         ...

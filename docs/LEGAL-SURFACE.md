@@ -212,10 +212,31 @@ Stated so the DPA's Annex B is verifiable and so nobody has to trust a marketing
   (`PLATFORM_KEK_RETIRED`).
 - **Webhooks**: Bolna is unsigned, so source-IP allowlist + execution-id dedupe + poller as
   truth (TRD §5); outbound HMAC-signed with a bounded retry budget.
-- **Model residency**: `scripts/check_model_residency.py` fails the build on a global Google
-  host, on a non-`asia-south1` aiplatform literal, or on a region reachable from
-  console-editable config. This is the one residency guarantee that is *enforced* rather
-  than asserted, and the public documents say exactly that and no more.
+- **Model residency**: `scripts/check_model_residency.py` fails the build if the region is
+  spelled anywhere but the single frozen `AZURE_LOCATION`, if any `Settings` field could
+  carry a region or an endpoint, if an Azure endpoint is constructed anywhere but
+  `azure_openai_base_url()`, or if that builder could emit a region at all.
+
+  **⚠ THIS PARAGRAPH USED TO CLAIM THE OPPOSITE OF THE TRUTH AND THE CORRECTION MATTERS
+  MORE HERE THAN ANYWHERE ELSE IN THIS TREE.** It said model residency was *"the one
+  residency guarantee that is enforced rather than asserted"*. Under D-127 that was
+  accurate: a Vertex URL carried `asia-south1` in the host **and** the path, so the guard
+  read the region off the literal and proved where traffic went. Under D-410 it is
+  **backwards**. `https://<resource>.openai.azure.com/openai/v1` names no region — the
+  region is a property of the Azure RESOURCE — so what the build proves is narrower and
+  must be stated narrowly: *there is no code path that can change where the traffic goes
+  without editing one frozen constant.* Where it actually goes is **asserted by
+  configuration and attested by a human** in the Azure portal (OPERATIONS §2 gates 20 and
+  20c), filed in `docs/evidence/`.
+
+  Two consequences a lawyer reading this should have in front of them. **(1)** The
+  strongest residency statement this product can make about its LLM legs is now an
+  attestation, not a build artifact — so a client document must not describe it as
+  machine-enforced. **(2)** Gate 20c is not a formality: Azure's DEFAULT deployment type
+  is *Global*, which processes worldwide, and a Global deployment inside a South India
+  resource satisfies every automated check in this repository while breaching the DPA.
+  The guard prints both caveats on every run, pass or fail, so this cannot silently drift
+  back to the old claim.
 
 **Not in place, and named in the documents rather than glossed:** no ISO 27001, no SOC 2,
 no penetration test, no restore drill ever passed (`infra/backup/` "applied to nothing and
@@ -276,9 +297,17 @@ to any client who bought on that sentence.
 1. Decide the host is in India (Bengaluru/Mumbai region), provision it, and the sentence
    becomes true for the database — but *not* for R2, Clerk, Resend, Sentry or Bolna, so the
    sentence still needs narrowing; **or**
-2. Narrow the landing-page copy to the claim that is enforced: *"every model endpoint is
-   pinned to an Indian region, and the build fails otherwise"* — which is a stronger claim
-   than most competitors can make and is checkable (`scripts/check_model_residency.py`).
+2. Narrow the landing-page copy to the claim that is enforced. **D-410 narrowed what that
+   sentence may say, and this is the one place it matters legally.** Until 19 Aug 2026 the
+   claim was *"every model endpoint is pinned to an Indian region, and the build fails
+   otherwise"* — true because `asia-south1` sat in the Vertex URL and the residency guard
+   `scripts/check_model_residency.py` could read it from the AST. Azure's endpoint carries
+   no region, so the provable half is now narrower: *"no model endpoint can be built in this codebase except through one
+   function that cannot emit a non-Indian region, and the build fails otherwise"* — still
+   checkable, still more than most competitors can say, and it stops short of asserting
+   where the resource physically is. **The resource's region and its deployment type are
+   attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by the build**, and any
+   public copy that implies otherwise is the misrepresentation this finding is about.
 
 I did not edit `page.tsx` — it is outside my scope. **This is FOLLOW-UP-2 and it should be
 done in the next change, not scheduled.** `/legal/privacy` §8 already carries a callout
@@ -489,10 +518,17 @@ nothing and closes two statutory obligations in two instruments.
 
 DP-11's downward leg. Bolna's residency and erasure commitments are unrun pilot gates
 (`evidence/bolna-pilot-scorecard.md` is an empty template); no DPA has been executed with
-Clerk, Resend, Sentry, Cloudflare or the hosting provider. Rule 6(f) requires the contract to
-impose equivalent safeguards, and today we would be promising a client something we have not
-obtained upstream. **What closes it:** sign the vendors' standard DPAs — all five publish
-one — and record the Bolna residency term in the contract before flipping `ENGINE=bolna`.
+Clerk, Resend, Sentry, Cloudflare or the hosting provider. **D-410 adds a sub-processor that
+holds the most sensitive input this system has: Microsoft (Azure OpenAI, South India) now
+carries BOTH LLM surfaces, so the in-call leg means raw caller speech reaches it in real
+time.** Microsoft publishes a standard DPA and the Azure OpenAI service terms carry the
+data-handling commitments this depends on; neither has been executed, and until one is, the
+strongest statement available about that leg is the region it is configured for. Rule 6(f)
+requires the contract to impose equivalent safeguards, and today we would be promising a
+client something we have not obtained upstream. **What closes it:** sign the vendors' standard
+DPAs — Microsoft, Google (for Sheets lead delivery, D-23), Resend, Sentry, Cloudflare and the
+hosting provider all publish one — and record the Bolna residency term in the contract before
+flipping `ENGINE=bolna`.
 
 ---
 
@@ -539,8 +575,12 @@ decision.
 - **13 May 2027** — DPDP substantive obligations commence; IT Act s.43A and the SPDI Rules
   2011 fall away. Until then §3.3 is the operative regime and the privacy notice must keep
   citing it.
-- **16 October 2026** — `GEMINI_DEFAULT_LLM_RETIRES` (BRD R-04). Unrelated to law but on the
-  same clock and already tracked.
+- **~~16 October 2026 — the Gemini 2.5 retirement (BRD R-04)~~ REMOVED 19 Aug 2026 (D-410).**
+  Both LLM surfaces moved to Azure OpenAI South India; the model, the date-carrying constant
+  and the test that turned CI red thirty days out are all deleted, and R-04 closes. **No
+  vendor-imposed model deadline is currently on this calendar** — if one is announced for
+  `AZURE_OPENAI_DEFAULT_MODEL`, it comes back here and into a date-carrying constant, which
+  is the mechanism that worked.
 - **Quarterly** — re-check: whether the TCCCPR Third Amendment has been notified (T-10);
   whether a restricted-country list has been notified under DPDP §16 (DP-17); whether any SDF
   class notification could reach us (DP-16); whether GST turnover has crossed the ₹5 crore

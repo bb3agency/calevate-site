@@ -8,25 +8,29 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
 D-31) + BYOK models. Speech is Sarvam (Saaras STT, Bulbul v3 TTS, v2 = value tier —
-D-36, unchanged). Language is **Gemini 2.5 Flash on a PAID Vertex AI account,
-`asia-south1`** — **D-400 supersedes D-36's "Sarvam 105B, free per token" LLM leg
-outright**, D-127 having already taken the dashboard surface. Three LLM surfaces at three
-stages, each saying so in code: **in-call** is D-400's, delivered by **D-404 — rotation,
-not proxying** — and `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`. The engine calls
-Vertex Mumbai directly (no proxy, no added latency, no new deployable) with a GCP OAuth2
-access token minted at 12 hours and replaced every 4 by
-`apps/workers/vertex_credential.py`; a failed refresh is a silent total outage, so it
-pages `vertex_llm_credential_refresh_failed`. An API key is NOT an option — it forces the
-global endpoint (D-405..D-407 record every rejected route with its reason).
-`agents/service.py::in_call_llm` is still the switch and now needs three things: the
-constant, a project, and a resolvable service account; **dashboard AI** is D-127's
-and `GEMINI_MODEL_CONFIRMED_IN_REGION is False` (OPERATIONS §2 gate 14); **the first
-post-call extraction stays on Sarvam permanently** because it reads raw transcript text
-(`GEMINI_EXTRACTION_DEFAULT is False`, and D-400 does not move it). 2.5 because no 3.x
-model is reported in Mumbai and the region does not move, which makes BRD R-04's
-**16 Oct 2026 retirement live** (`GEMINI_DEFAULT_LLM_RETIRES`, and the build goes red 30
-days out). Bolna's own `provider: "google"` is the AI Studio API and is refused, not
-missing (D-401). Our code: admin console,
+D-36, unchanged). Language is **Azure OpenAI in South India** — `AZURE_LOCATION`
+(`southindia`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
+a live config switch through `azure_openai_model`. **D-410 supersedes D-400/D-404 on the
+in-call leg and D-127 on the dashboard leg; Gemini and Vertex are out of this product.**
+Three LLM surfaces, two of which moved: **in-call** and **dashboard AI** both run on the
+same Azure resource, region and model constants, reached through the ONE builder
+`azure_openai_base_url()` (`https://{resource}.openai.azure.com/openai/v1` — the
+OpenAI-compatible v1 surface, no `api-version`, a **static API key** in
+`Authorization: Bearer`). `engine/bolna.py::_llm_routing` maps our vocabulary to
+`provider: "azure"`, a first-class Bolna provider, so the unverified `custom` credential
+path is not used. There is no rotation cron and no dead man: D-404's machinery existed
+because a regional Vertex endpoint took no static key, and it is deleted with it.
+**The first post-call extraction stays on Sarvam permanently** because it reads raw
+transcript text (`GEMINI_EXTRACTION_DEFAULT is False`, and D-410 does not move it).
+⚠ Two things a new agent must not overstate. **(a) The residency claim is weaker than it
+was**: `<resource>.openai.azure.com` names no region, so the guard proves only that one
+constant spells the region, that no `Settings` field can carry one, and that no endpoint
+is constructible outside the builder — the resource's actual region and its
+**Regional-not-Global** deployment type are attested by a human (OPERATIONS §2 gates 20
+and 20c). Global is Azure's default and processes worldwide. **(b) Which credential
+FIELDS Bolna's Azure provider expects is a MARKED ASSUMPTION** (their docs are
+egress-blocked here) — gate 16f; do not invent field names. **BRD R-04's 16 Oct 2026
+retirement is gone** with the model and the date-carrying constant. Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
 Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, first-party auth

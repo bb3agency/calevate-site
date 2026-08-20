@@ -9,7 +9,7 @@ Decisions: D-36 (canonical BYOK stack), D-15 (regression-on-every-change), and t
 
 - Client: **ci**
 - Vertical: all
-- Run at: 2026-08-15T19:21:05.219274+00:00
+- Run at: 2026-08-20T11:58:17.472236+00:00
 - Cases per provider: 110
 
 ## Providers scored
@@ -41,7 +41,7 @@ Decisions: D-36 (canonical BYOK stack), D-15 (regression-on-every-change), and t
 ## What this run does NOT decide
 
 - **Only one provider ran (offline).** This is a scorecard, not a comparison: nothing here says another extractor would do better or worse.
-- **It cannot move the FIRST post-call extraction to Gemini.** That pass reads the RAW transcript because a callback-number field needs the actual digits, and D-127 G-2/G-7 keeps it on Sarvam for that reason alone — `GEMINI_EXTRACTION_DEFAULT is False`. A gemini column that wins every field here changes what serves the user-triggered assist, over the REDACTED copy, and nothing else.
+- **It cannot move the FIRST post-call extraction off Sarvam.** That pass reads the RAW transcript because a callback-number field needs the actual digits, and D-127 G-2/G-7 keeps it sovereign for that reason alone — `GEMINI_EXTRACTION_DEFAULT is False`, a constant D-410 deliberately did not move when it took both LLM surfaces to Azure OpenAI. An `azure` column that wins every field here changes what serves the user-triggered assist, over the REDACTED copy, and nothing else.
 - **Residency is not a score.** Sending transcript text to a provider is a D-36 decision about where an Indian caller's words are processed, and no column here can outvote it.
 - **The fixtures are synthetic.** They are the same cases for every provider, which is what makes the columns comparable, and they are not a sample of live traffic.
 - **`compliance`, `redaction` and `fixture` failures score OUR code**, not the model's — a provider column carrying one of those is reporting a defect on this side of the seam.

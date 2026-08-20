@@ -293,7 +293,14 @@ async def test_installing_the_llm_credential_posts_the_documented_body() -> None
     comes from `Settings.bolna_llm_credential_name` rather than a literal, because it is a
     MARKED ASSUMPTION an operator must be able to correct from the ops console without a
     deploy — nothing published says which entry the hosted platform reads `llm_key` from
-    for a `provider: "custom"` leg."""
+    for a `provider: "azure"` leg (D-410 moved the default from `CUSTOM` to `AZURE` with
+    the provider; OPERATIONS §2 gate 16c is unchanged and still open).
+
+    THE EXPECTED NAME IS A LITERAL HERE AND A SETTING THERE, deliberately. Reading the
+    setting on both sides would make this assertion true by construction and prove only
+    that the adapter can read a field. What it has to pin is the string that goes ON THE
+    WIRE, which is what an operator comparing our POST against their console is looking
+    at — so a change to the default is a change this test has to be told about."""
     seen: list[tuple[str, str, dict[str, str] | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -308,23 +315,25 @@ async def test_installing_the_llm_credential_posts_the_documented_body() -> None
     assert placement.replaced_in_place is True
     assert placement.superseded_removed == 0
     posts = [(path, body) for method, path, body in seen if method == "POST"]
-    assert posts == [("/providers", {"provider_name": "CUSTOM", "provider_value": "ya29.fresh"})]
+    assert posts == [("/providers", {"provider_name": "AZURE", "provider_value": "ya29.fresh"})]
 
 
 async def test_a_store_that_appends_is_reported_rather_than_tolerated() -> None:
-    """**THE FAILURE THIS DANCE EXISTS FOR.** If the store APPENDS, the engine holds the
-    fresh bearer AND every expired one under one name, and which of them a call
-    authenticates with is the vendor's choice. The leg then keeps working for a while and
-    dies on a token nobody knew was installed — indistinguishable, from outside, from "the
-    refresher stopped", which is the one thing the alarm must be able to tell apart.
+    """**THE FAILURE THIS DANCE EXISTS FOR, AND D-410 MADE IT WORSE RATHER THAN MOOT.**
+    If the store APPENDS, the engine holds the fresh credential AND every superseded one
+    under one name, and which of them a call authenticates with is the vendor's choice.
+    Under the rotating Vertex bearer the stale copies expired on their own, so this cost a
+    confusing outage half a day later; under a STATIC Azure key a superseded copy an
+    operator believes they revoked authenticates our spend until it is revoked at the
+    source. Same detection, higher stakes.
 
     Detected by IDENTITY, not by count: an id present before the write and still present
     after it cannot be the entry we just made."""
-    stale = _provider_row("p-old", "CUSTOM")
+    stale = _provider_row("p-old", "AZURE")
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
-            return httpx.Response(200, json=[stale, _provider_row("p-new", "CUSTOM")])
+            return httpx.Response(200, json=[stale, _provider_row("p-new", "AZURE")])
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
     with pytest.raises(ProblemError) as raised:

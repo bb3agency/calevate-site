@@ -1037,8 +1037,8 @@ def probe_h1_history_handling(
     The instrument is per-turn INPUT TOKENS, not cost, and the reason is worth stating
     because the obvious approach is broken: the LLM leg of `cost_breakdown` is zero on
     every call however the history is handled. It was zero under D-36 because Sarvam 105B
-    is free per token; **under D-400 it is zero for a stronger reason** — the leg is BYOK,
-    so the engine pays nothing and reports nothing, and the Vertex spend lands on a GCP
+    is free per token; **since D-400 it is zero for a stronger reason** — the leg is BYOK,
+    so the engine pays nothing and reports nothing, and the model spend lands on an Azure
     invoice the engine has never seen. A cost-based probe here would produce a tidy column
     of zeros and conclude nothing while looking like a measurement, and that stays true
     after the leg is paid for.
@@ -1047,13 +1047,15 @@ def probe_h1_history_handling(
       * strictly rising input tokens ⇒ full resend, no truncation. The blended average
         needs a long-call correction and any PRICED in-call LLM is understated. **That
         correction is no longer hypothetical (D-400)**: the founder moved the in-call LLM
-        leg to a paid Vertex AI account, and `billing/rates.py::llm_cost_inr_per_minute`
-        computes the curve this probe would MEASURE — ₹0.23/min at one minute, ₹0.51 at
-        ten, on the assumption that the resend is total. So this probe now scores an
-        assumption the cost model rests on rather than a curiosity. (The leg is now BUILT:
-        `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True` since D-404, which reached it by
-        ROTATING the bearer rather than proxying — so the India-co-located deployable
-        D-402 route (B) contemplated costs nothing, because it was not built.)
+        leg to a paid Azure OpenAI account, and `billing/rates.py::llm_cost_inr_per_minute`
+        computes the curve this probe would MEASURE — ₹0.10/min at one minute, ₹0.24 at
+        ten on `gpt-4o-mini`, on the assumption that the resend is total. So this probe
+        scores an assumption the cost model rests on rather than a curiosity, and the
+        assumption got MORE load-bearing under D-410, not less: the model is now a live
+        config switch, and `gpt-4.1-mini` is 2.67x the default on both token legs, so an
+        error in the resend assumption is multiplied by whichever model is deployed.
+        (No deployable was ever built for this leg. D-404 reached it by rotating a Vertex
+        bearer; D-410 removed even that, because an Azure key is static.)
       * a plateau or a drop ⇒ truncation or summarisation. Which of the two is NOT
         distinguishable from token counts, and distinguishing them would mean reading
         the prompt the engine sent — caller utterances, hard rule 6. Say "one of the
@@ -1162,8 +1164,9 @@ def probe_h1_history_handling(
                 "D-400 the in-call LLM leg IS priced, so this is a live cost finding "
                 "rather than a hypothetical: `llm_cost_inr_per_minute` assumes exactly "
                 "this (no caching, total resend) and is therefore the CEILING that a "
-                "pass here would lower. Gemini bills cached input reads at about a "
-                "tenth of the input rate, so the lever is real.",
+                "pass here would lower. Whether Azure OpenAI discounts cached input "
+                "reads on our deployment, and by how much, is UNVERIFIED here — so the "
+                "lever is recorded as a lever and not as a number.",
                 turns_with_cached_tokens=0,
             )
         )

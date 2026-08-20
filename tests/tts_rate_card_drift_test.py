@@ -40,6 +40,8 @@ from __future__ import annotations
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+from calevate_shared.engine import AZURE_OPENAI_MODELS
 from scripts import check_docs_drift as guard
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -182,58 +184,86 @@ def test_a_rate_outside_section_10_1_is_not_read() -> None:
     assert not guard.doc_tts_rates("Bulbul v3 costs ₹30 / 10,000 chars, they say.\n")
 
 
-# --- 4c: the in-call LLM cost curve (D-400) -----------------------------------
+# --- 4c: the in-call LLM cost curves (D-400, two of them since D-410) ----------
 #
 # THE SAME CLASS AS EVERYTHING ABOVE, ON A NUMBER NOBODY BILLS AGAINST YET — which is
 # what makes it the one most likely to rot. D-36 priced the in-call LLM leg at ₹0.00
 # because Sarvam 105B is free per token, and TRD §10 reasoned the whole margin from that
-# zero. D-400 moved the leg to a paid Vertex AI account, so §10 now quotes a curve that
+# zero. D-400 moved the leg to a paid account, so §10 now quotes a curve that
 # `billing/rates.py::llm_cost_inr_per_minute` computes — and nothing charges against it,
 # so nothing else would ever notice the two drifting apart.
+#
+# D-410 MADE IT TWO CURVES. `Settings.azure_openai_model` selects `gpt-4o-mini` or
+# `gpt-4.1-mini` live, they are 2.7x apart, so §10.1 carries a row per model and each row
+# is scored against `llm_cost_inr_per_minute(minutes, model=<that row's model>)`. THE ROW
+# MUST NAME THE MODEL VERBATIM — that identifier is how the check knows which price the
+# row's figures are supposed to be — and a model with no row is reported rather than
+# skipped, because the row that goes missing will be the non-default one and that is the
+# expensive half: a margin table quoting only the cheap model is wrong the moment an
+# operator flips a console switch.
 
 
-def test_the_check_reads_the_real_llm_row_and_it_agrees_today() -> None:
-    """Wiring. A check reading an empty row would report OK on every mutation, which is
-    why `llm_cost_curve_drift` treats an empty reading as a FAILURE rather than a pass."""
-    quoted = guard.doc_llm_per_minute()
-    assert quoted, "TRD §10.1's Gemini LLM row did not parse — section 4c is reading nothing"
-    assert set(quoted) == {1, 5, 10}, quoted
+def test_the_check_reads_the_real_llm_rows_and_they_agree_today() -> None:
+    """Wiring, on EVERY model. A check reading an empty row would report OK on every
+    mutation, which is why `llm_cost_curve_drift` treats an empty reading as a FAILURE
+    rather than a pass."""
+    points = guard.doc_llm_cost_points()
+    assert set(points) == AZURE_OPENAI_MODELS, points
+    for model, quoted in points.items():
+        assert quoted, f"TRD §10.1 has no `| LLM …` row naming `{model}` — 4c reads nothing"
+        assert set(quoted) == {1, 5, 10}, (model, quoted)
     assert not guard.llm_cost_curve_drift()
 
 
-def test_the_quoted_curve_rises_with_call_length() -> None:
+@pytest.mark.parametrize("model", sorted(AZURE_OPENAI_MODELS))
+def test_the_quoted_curve_rises_with_call_length(model: str) -> None:
     """The shape is the finding, not the level: §6.1 resends the whole conversation every
     turn, so input cost is quadratic in duration and per-minute cost RISES. A doc quoting
     one flat rate would have lost that, and this is the assertion that would notice."""
-    quoted = guard.doc_llm_per_minute()
+    quoted = guard.doc_llm_per_minute(model=model)
     assert quoted[1] < quoted[5] < quoted[10], quoted
 
 
 def test_a_doc_side_drift_in_the_llm_curve_is_named() -> None:
     """The likeliest direction, exactly as for the TTS card: someone edits the margin
-    table by hand and never touches the function it came out of."""
-    offenders = guard.llm_cost_curve_drift(_mutated("₹0.36 (5 min)", "₹0.29 (5 min)"))
+    table by hand and never touches the function it came out of.
+
+    ₹0.16 is `gpt-4o-mini` at five minutes. If this mutation stops matching, the doc's
+    published figure has moved and the two halves of D-410's cost model have to be
+    reconciled deliberately — which is the whole point of asserting against the REAL doc
+    rather than an invented one."""
+    offenders = guard.llm_cost_curve_drift(_mutated("₹0.16 (5 min)", "₹0.29 (5 min)"))
     assert any("5-minute call" in line for line in offenders), offenders
 
 
-def test_the_llm_row_disappearing_is_a_failure_and_not_a_pass() -> None:
+def test_an_llm_row_disappearing_is_a_failure_and_not_a_pass() -> None:
     """A check that goes quiet when its subject is reworded teaches the next reader to
     reword it. Same argument `check_redaction_exposure.check_allowlist` makes when it
-    refuses to pass on a route table with no permissions in it at all."""
+    refuses to pass on a route table with no permissions in it at all.
+
+    THE ONE FIXTURE IN THIS FILE THAT IS NOT THE REAL DOC, and the reason is that the
+    property under test is precisely "§10.1 with no LLM row at all", which no single-string
+    mutation of the real document can express now that there are two rows — deleting one
+    would leave the other and prove only half of it. The section heading is imported from
+    the checker rather than typed, so the fixture cannot drift from what it parses.
+    """
     offenders = guard.llm_cost_curve_drift(
-        _mutated("| LLM — **Gemini 2.5 Flash", "| LLM — (moved)")
+        f"{guard.TTS_RATE_HEADING}\n\n| leg | rate |\n| --- | --- |\n| TTS | ₹30 |\n"
     )
-    assert any("no longer carries" in line for line in offenders), offenders
+    assert len(offenders) == len(AZURE_OPENAI_MODELS), offenders
+    assert all("carries no" in line for line in offenders), offenders
 
 
 def test_the_doc_may_round_to_paise_without_being_reported() -> None:
     """Calibration, and the one that would otherwise make this check harmful. The
     function returns NUMERIC(12,4) because `unit_cost_paid` stores four decimals; §10
-    prints paise because a margin table is read by a person. Reporting ₹0.2310 against
-    ₹0.23 would train the next reader to print four decimals in prose to quiet a check."""
+    prints paise because a margin table is read by a person. Reporting ₹0.1021 against
+    ₹0.10 would train the next reader to print four decimals in prose to quiet a check."""
     from apps.api.billing.rates import llm_cost_inr_per_minute
 
-    assert llm_cost_inr_per_minute(1) != guard.doc_llm_per_minute()[1], (
-        "this test is vacuous unless the function is genuinely more precise than the doc"
-    )
+    for model, quoted in guard.doc_llm_cost_points().items():
+        assert llm_cost_inr_per_minute(1, model=model) != quoted[1], (
+            f"this test is vacuous for {model} unless the function is genuinely more "
+            "precise than the doc"
+        )
     assert not guard.llm_cost_curve_drift()

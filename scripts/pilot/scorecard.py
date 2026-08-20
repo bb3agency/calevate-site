@@ -590,6 +590,66 @@ class CostLine(_Frozen):
         return self
 
 
+def _llm_cost_line() -> CostLine:
+    """The in-call LLM band, COMPUTED rather than quoted.
+
+    THIS LINE USED TO CARRY THE NUMBERS AS PROSE AND IT WAS WRONG WITHIN A DAY. It said
+    "INR 0.23 (1 min) - 0.51 (10 min) on Gemini 2.5 Flash / Vertex asia-south1" — a figure
+    derived from a vendor price list, in a file nothing checks, beside a cost model that
+    had already moved. That is the D-103/D-105 defect exactly: one fact, two homes, and
+    the copy nobody reads is the one that rots.
+
+    Three reasons deriving beats retyping here, and only the first is tidiness:
+
+    * **`azure_openai_model` is a LIVE console switch** and `gpt-4.1-mini` costs about
+      2.7x the default on both token legs. A frozen sentence would describe the wrong
+      model within one poll interval of an operator flipping it.
+    * **The vendor publishes DOLLARS and this column is rupees**, and the rate that
+      converts them is `billing/rates.LIST_PRICE_USD_INR` — deliberately the frozen
+      list-price rate rather than the live `Settings.usd_inr_rate`, so this figure is a
+      number a person can plan around and does not move with an ops console. Retyping the
+      rupees here would fold that conversion into a string, which is exactly what hard
+      rule 7 says not to do with money.
+    * **The curve is quadratic in call length** (TRD §6.1 resends the whole conversation
+      every turn), so the band's two ends are two calls into the same function rather than
+      a range somebody eyeballed.
+
+    Still PROSE in the estimate column, per `default_cost_model`'s contract — an estimate
+    a person reads, never a measurement. The measured column stays a Decimal or absent.
+    Imported inside the function because `scripts/pilot/` is a thin harness and
+    `billing/rates` pulls in the settings stack; the same reason `check_docs_drift` defers
+    its own import of it.
+    """
+    from apps.api.billing.rates import llm_cost_inr_per_minute
+    from calevate_shared.engine import (
+        AZURE_LOCATION,
+        AZURE_OPENAI_DEFAULT_MODEL,
+        AZURE_OPENAI_MODELS,
+    )
+
+    # The DEFAULT first, then the rest in a stable order. Not alphabetical: an operator
+    # reading this line wants the band their pilot most likely ran, and `gpt-4.1-mini`
+    # sorts ahead of `gpt-4o-mini` while being the one nobody gets without flipping a
+    # switch.
+    models = [
+        AZURE_OPENAI_DEFAULT_MODEL,
+        *sorted(AZURE_OPENAI_MODELS - {AZURE_OPENAI_DEFAULT_MODEL}),
+    ]
+    bands = "; ".join(
+        f"{model} INR {llm_cost_inr_per_minute(1, model=model)} (1 min) - "
+        f"{llm_cost_inr_per_minute(10, model=model)} (10 min)"
+        for model in models
+    )
+    return CostLine(
+        leg="LLM",
+        estimate=(
+            f"{bands} on Azure OpenAI {AZURE_LOCATION} (D-410, where an Azure resource, "
+            "key and deployment are configured); INR 0.00 on the Sarvam 105B fallback "
+            "(D-36). Which model runs is `azure_openai_model`, a live switch"
+        ),
+    )
+
+
 def default_cost_model() -> tuple[CostLine, ...]:
     """The legs OPERATIONS §2 and TRD §10 name, with nothing measured yet.
 
@@ -600,24 +660,14 @@ def default_cost_model() -> tuple[CostLine, ...]:
         CostLine(leg="Platform fee (BYOK)", estimate="unpublished; target <= ~INR 1.5/min"),
         CostLine(leg="Sarvam Saaras V3 STT", estimate="INR 0.50/min"),
         CostLine(leg="Sarvam Bulbul V3 TTS", estimate="INR 0.90-1.40/min (beta pricing)"),
-        # GEMINI IS NOW THE DECISION AND NOT THE ALTERNATIVE (D-400), AND IT IS BUILT
-        # (D-404): `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`, the one-hour-bearer
-        # blocker having been answered by rotating the credential rather than proxying it.
+        # AZURE OPENAI IS NOW THE DECISION AND NOT THE ALTERNATIVE (D-410, superseding
+        # D-400/D-404). There is no credential blocker left to record: an Azure key is
+        # STATIC, so the rotation apparatus D-404 needed is deleted rather than replaced.
         # WHICH LEG A PILOT ACTUALLY RUNS IS NOW A DEPLOYMENT FACT, not a code fact — it
-        # is Vertex where the pilot account holds a GCP project and service account, and
+        # is Azure where the pilot account holds a resource, a key and a deployment, and
         # Sarvam where it does not — so this line states BOTH bands rather than picking
-        # one. At 2.5 Flash's published $0.30/$2.50 the paid band is 0.23/min on a
-        # one-minute call rising to 0.51 at ten, because TRD 6.1 resends the whole history
-        # every turn (`billing/rates.py::llm_cost_inr_per_minute`). An operator filling
-        # this scorecard in knows which of the two their pilot ran.
-        CostLine(
-            leg="LLM",
-            estimate=(
-                "INR 0.23 (1 min) - 0.51 (10 min) on Gemini 2.5 Flash / Vertex "
-                "asia-south1 (D-400/D-404, where GCP is configured); INR 0.00 on the "
-                "Sarvam 105B fallback (D-36)"
-            ),
-        ),
+        # one. An operator filling this scorecard in knows which of the two their pilot ran.
+        _llm_cost_line(),
         CostLine(leg="Telephony", estimate="INR 0.35-0.50/min"),
         CostLine(
             leg="Built-in KB",

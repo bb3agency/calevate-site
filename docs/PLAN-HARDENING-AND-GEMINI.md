@@ -1,5 +1,13 @@
 # PLAN — Harden every surface, then move dashboard AI to Gemini
 
+> ⚠ **HISTORICAL. The VENDOR in this plan is superseded — D-410 (19 Aug 2026) moved both
+> LLM surfaces to Azure OpenAI South India and removed Gemini and Vertex from the product,
+> along with BRD R-04's 16 Oct 2026 retirement date.** Everything this plan says about
+> REDACTION, the G-1..G-7 rules, the residency doctrine and the hardening parts still
+> binds; read "Gemini on Vertex `asia-south1`" throughout as "Azure OpenAI `southindia`",
+> and read Part 17's in-call question as answered by D-400/D-404 and then re-answered by
+> D-410. The document is kept as written for the same reason the paragraph below gives.
+
 **Status: PARTS 1–16 and 18 IMPLEMENTED (D-127 … D-138). PART 17 is pilot-gated.**
 Written 15 Aug 2026, revised the same day with the founder's answers folded in, and again
 when the work landed. The parts below are kept as WRITTEN, not rewritten into the past

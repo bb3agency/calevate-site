@@ -127,22 +127,83 @@ Exit status is the contract with `backup-health.sh`:
 
 from __future__ import annotations
 
+import hashlib
 import sys
+import time
 
-from apps.api.core.heartbeat import PING_ATTEMPTS, PING_TIMEOUT_S, check_ref, ping
+import httpx
 
 EX_UNAVAILABLE = 69
 EX_CONFIG = 78
 
-# THE PING ITSELF LIVES IN `apps/api/core/heartbeat.py` (D-408), not here, because a
-# second observer now needs the identical mechanism from async code. What moved is the
-# transport, the retry policy and "what counts as delivered"; what stayed is this file's
-# argument for the whole pattern, above, and its exit-status contract with
-# `backup-health.sh`, below. The constants are re-exported so that contract still reads
-# from one place.
+# THE PING LIVES HERE AGAIN, and the round trip is worth one comment because the next
+# reader will otherwise re-do it. D-408 extracted it to `apps/api/core/heartbeat.py`
+# because a SECOND observer — the in-call LLM credential-rotation loop — needed the same
+# mechanism from async code, and two copies of a retry policy is two things to get right.
+# D-410 deleted that observer: Azure OpenAI takes a static key, so there is no rotation
+# loop to watch. A shared module with one caller is not sharing, it is indirection, and
+# this particular indirection also cost something concrete — it put an `apps.api.core`
+# import at MODULE scope in a script whose whole discipline (see above) is that it must
+# survive the failures it reports and therefore imports as little as possible.
 #
-# `PING_ATTEMPTS` and `PING_TIMEOUT_S` are imported for `__all__` and for the operator
-# docs; the retry loop that uses them is `heartbeat.ping`.
+# So the extraction is reverted rather than left standing with one caller. If a second
+# heartbeat is ever needed, extract it again — the argument was right, it was the second
+# caller that turned out to be temporary.
+
+# Bounded so a health run can never hang on its own heartbeat: worst case is
+# ATTEMPTS x (timeout + backoff) of about 21s, comfortably inside the unit's
+# TimeoutStartSec and inside the 15-minute timer interval. The vendor documents that a
+# ping can be lost to plain packet loss and recommends retrying
+# (https://healthchecks.io/docs/reliability_tips/), and a lost ping here would eventually
+# page a human out of hours for a healthy database — so retrying is noise reduction, not
+# optimism.
+PING_TIMEOUT_S = 5.0
+PING_ATTEMPTS = 3
+PING_BACKOFF_S = 2.0
+
+# The vendor answers 200 with a two-byte body. Anything else — a 404 for a deleted
+# check, a 5xx, an HTML captive portal — is NOT a heartbeat, and treating it as one
+# would be the "silent pass that looks configured" failure in its final form.
+_OK_STATUS = 200
+
+
+def check_ref(url: str) -> str:
+    """A stable, non-reversible handle for one ping URL, for operator output.
+
+    The URL is a bearer secret (anyone holding it can silence the alarm), so it must
+    never reach a log — but "which check did we ping" still has to be answerable when
+    a rotation goes wrong, and a digest prefix answers it without carrying the secret.
+    """
+    return hashlib.sha256(url.encode()).hexdigest()[:12]
+
+
+def ping(url: str) -> tuple[bool, str]:
+    """One heartbeat, retried. Returns (delivered, a reason safe to print).
+
+    `reason` names a status code or an exception TYPE, never a URL and never an
+    exception's message — which can quote the URL it failed to reach.
+    """
+    reason = "no attempt was made"
+    for attempt in range(1, PING_ATTEMPTS + 1):
+        try:
+            # follow_redirects=False on purpose: a redirect to somewhere else is not
+            # this check, and silently following one would let a hijacked DNS answer
+            # "delivered" forever. GET (not POST) so there is no body to get wrong.
+            response = httpx.get(
+                url,
+                timeout=PING_TIMEOUT_S,
+                follow_redirects=False,
+                headers={"user-agent": "calevate-backup-heartbeat"},
+            )
+        except httpx.HTTPError as exc:
+            reason = f"{type(exc).__name__} on attempt {attempt}"
+        else:
+            if response.status_code == _OK_STATUS:
+                return (True, f"HTTP {response.status_code}")
+            reason = f"HTTP {response.status_code} on attempt {attempt}"
+        if attempt < PING_ATTEMPTS:
+            time.sleep(PING_BACKOFF_S)
+    return (False, reason)
 
 
 def main() -> int:
@@ -163,7 +224,7 @@ def main() -> int:
         )
         return EX_CONFIG
 
-    delivered, reason = ping(url, agent="backup-heartbeat")
+    delivered, reason = ping(url)
     ref = check_ref(url)
     if delivered:
         print(f"host_heartbeat sent check={ref} ({reason})", file=sys.stderr)

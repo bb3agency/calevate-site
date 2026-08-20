@@ -1572,21 +1572,28 @@ _VENDOR_ONLY_KEYS = frozenset(
         # Ordinary-looking English words, banned for `introduction`'s reason.
         "start_time",
         "end_time",
-        # THE LLM ENDPOINT, IN THE VENDOR'S SPELLING (D-400/D-404), and it is `call_type`'s
-        # case exactly: the concept is ours and the spelling is theirs. OUR word is
-        # `llm_base_url` — on `ModelConfig`, built by `vertex_openai_base_url()` and
-        # validated for Mumbai there — while bare `base_url` is the key inside Bolna's
-        # `SimpleLlmAgent`. That distinction is load-bearing rather than tidy: this field
-        # carries the RESIDENCY guarantee, so a shipped module outside the adapter reading
-        # a raw `base_url` off a payload is reading an unvalidated endpoint, which is the
-        # one shape `ModelConfig`'s validator exists to make impossible.
+        # THE LLM ENDPOINT, IN THE VENDOR'S SPELLING (D-400/D-404, re-aimed by D-410), and
+        # it is `call_type`'s case exactly: the concept is ours and the spelling is theirs.
+        # OUR word is `llm_base_url` — on `ModelConfig`, built by `azure_openai_base_url()`
+        # and validated there against the one endpoint shape that builder emits — while
+        # bare `base_url` is the key inside Bolna's `SimpleLlmAgent`. That distinction is
+        # load-bearing rather than tidy: this field carries the RESIDENCY guarantee, so a
+        # shipped module outside the adapter reading a raw `base_url` off a payload is
+        # reading an unvalidated endpoint, which is the one shape `ModelConfig`'s validator
+        # exists to make impossible.
+        #
+        # IT MATTERS MORE UNDER AZURE, NOT LESS, and that is worth the extra line. A Vertex
+        # URL wore its region in the host and the path, so an unvalidated one could at
+        # least be EYEBALLED; `<resource>.openai.azure.com` names no region at all, so the
+        # only thing standing between a stray `base_url` and an out-of-region resource is
+        # the validator this ban keeps callers funnelled through.
         "base_url",
-        # Bolna's credential store (D-404). `provider_id` is how `set_llm_credential`
-        # tells a superseded entry from the one it just wrote — the store MASKS
-        # `provider_value`, so identity is the only thing it will answer honestly about.
-        # Both are their nouns and neither has a Calevate counterpart: our vocabulary for
-        # this has no id at all, because the credential is minted per rotation and stored
-        # nowhere of ours.
+        # Bolna's credential store (D-404, no longer rotating since D-410). `provider_id`
+        # is how `set_llm_credential` tells a superseded entry from the one it just wrote —
+        # the store MASKS `provider_value`, so identity is the only thing it will answer
+        # honestly about. Both are their nouns and neither has a Calevate counterpart: our
+        # vocabulary for this has no id at all, because the credential lives in the secrets
+        # manager and in the vendor's store, and nowhere of ours.
         "provider_id",
         "provider_name",
     }

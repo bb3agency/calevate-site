@@ -2,17 +2,19 @@
 
 RFC 7523's JWT-bearer profile, which is what Google's server-to-server flow is: sign a
 short-lived assertion with the service account's RS256 private key, POST it to the token
-endpoint, get a bearer back, cache it until its refresh margin. Two callers today —
-`workers/google_sheets.py` (a client's spreadsheet, scope `.../auth/spreadsheets`) and
-`workers/extraction.py` (Vertex AI in `asia-south1`, scope `.../auth/cloud-platform`) —
-and they differ in exactly one value, the scope.
+endpoint, get a bearer back, cache it until its refresh margin. ONE caller today:
+`workers/google_sheets.py` (D-23, a client's spreadsheet, scope `.../auth/spreadsheets`).
 
-WHY THIS MODULE EXISTS AT ALL: it is an extraction, not an invention. Every line here
-was `google_sheets.py`'s, written and tested for the Sheets delivery path. D-127 needed
-the same flow for Vertex, and the choice was between a second copy of a crypto handshake
-and one home for it. "One way per problem, and migrate rather than accumulate" decides
-that, and the migration is in the same change: `google_sheets.py` imports these names
-rather than keeping its own.
+IT HAD TWO, AND KEEPING IT A MODULE IS A DECISION RATHER THAN AN OVERSIGHT. Every line
+here was `google_sheets.py`'s until D-127 needed the identical handshake for Vertex AI
+and one home beat a second copy of a crypto exchange. **D-410 moved both LLM legs to
+Azure OpenAI, which authenticates with a static key**, so the Vertex caller is gone and
+this file is back to one. It does not fold back into `google_sheets.py`, because what it
+owns is not "the Sheets transport's auth step" — it is a promise about KEY MATERIAL (see
+below), separately stated and separately tested in `tests/google_oauth_test.py`, and
+inlining it would put a signing routine in the middle of a spreadsheet adapter where the
+next reader has no reason to look for one. Google Sheets sync is a shipped feature and
+this is the only thing that authenticates it.
 
 --------------------------------------------------------------------------------------
 WHY NOT `google-auth`, WHICH IS THE OBVIOUS ANSWER
@@ -78,7 +80,7 @@ JWT_BEARER_GRANT: Final = "urn:ietf:params:oauth:grant-type:jwt-bearer"
 
 #: Google caps an assertion's own lifetime at one hour; we ask for exactly that and then
 #: refuse to USE a token in its last five minutes. That margin is load-bearing for error
-#: mapping in the callers: a token we hand to Google is never more than 55 minutes old,
+#: mapping in the caller: a token we hand to Google is never more than 55 minutes old,
 #: so a 401 is a statement about the KEY and not about staleness, and can be reported to
 #: an operator as such instead of being retried into the same wall three times.
 TOKEN_TTL_S: Final = 3600
@@ -143,15 +145,18 @@ class _CachedToken:
 
 #: One cached bearer per (account address, KEY, scope).
 #:
-#: Module-level rather than instance-level because both callers build a fresh transport
-#: per unit of work (they re-read settings so a config change takes effect, which is
-#: right) — a token cached on the instance would be minted per lead and per assist, and
-#: would spend a network round-trip and an RS256 signature on every one.
+#: Module-level rather than instance-level because the caller builds a fresh transport
+#: per unit of work (it re-reads settings so a config change takes effect, which is
+#: right) — a token cached on the instance would be minted per lead delivered, and would
+#: spend a network round-trip and an RS256 signature on every one.
 #:
-#: THE SCOPE IS IN THE KEY because one service account now serves two of them. A cache
-#: keyed on identity alone would hand the Vertex caller a token minted for
-#: `.../auth/spreadsheets`, which Google answers with a 403 that names neither the scope
-#: nor the cache — a bug that would look like a broken IAM grant.
+#: THE SCOPE IS IN THE KEY, and it STAYS there now that only one scope is asked for. It
+#: was added when a second Google API (Vertex, `.../auth/cloud-platform`) shared this
+#: flow: a cache keyed on identity alone hands one caller a token minted for the other's
+#: scope, which Google answers with a 403 that names neither the scope nor the cache — a
+#: bug that reads as a broken IAM grant. D-410 removed that second caller and NOT the
+#: key, because a one-line invariant that is correct for any number of scopes is cheaper
+#: than the next reader rediscovering that 403.
 #:
 #: THE KEY ID IS IN THE KEY for the same argument one step further, and it is what makes
 #: `platform_config`'s `AppliesRule(LIVE)` on `gcp_service_account_json` true rather than

@@ -46,14 +46,16 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import ai_quota
 from apps.api.billing.ai_quota import (
-    AI_ASSIST_NOMINAL_INR,
     AI_OVERAGE_BLOCK_INR,
     AI_QUOTA_INR,
     PLATFORM_AI_BRAKE_INR,
     AiQuota,
+    assist_nominal_inr,
+    ktok,
     new_assist_ref,
     overage_ref,
     purchase_ai_overage,
+    quota_payload,
     read_ai_quota,
     read_platform_ai_spend,
     record_ai_assist_usage,
@@ -67,10 +69,19 @@ from apps.api.billing.models import (
     UNIT_TYPES,
     assert_units_are_disjoint,
 )
-from apps.api.billing.service import current_billing_month, get_balance, record_entry, tier_usage
+from apps.api.billing.rates import llm_inr_per_ktok
+from apps.api.billing.service import (
+    current_billing_month,
+    get_balance,
+    record_entry,
+    tier_usage,
+    to_paise,
+)
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
+from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL, AZURE_OPENAI_MODELS
 from pydantic import ValidationError
 from sqlalchemy import text
 
@@ -87,11 +98,24 @@ MIGRATION = (
 # neither may hang the suite. Same constant, same reason, as `billing_audit_test.py`.
 BARRIER_TIMEOUT = 1.0
 
-# Prices chosen so every rupee figure below is exact and readable: 1 ktok in at ₹100/ktok
-# is ₹100.00, which is `self_serve`'s whole included allowance. Real Gemini prices are
-# four orders of magnitude smaller; the arithmetic under test is the same either way.
-PRICE_IN = Decimal("100.0000")
-PRICE_OUT = Decimal("0.0000")
+# THE PRICES ARE THE REAL ONES AND THEY ARE NO LONGER THIS FILE'S TO CHOOSE (D-410).
+# `record_ai_assist_usage` used to take the two per-ktok prices as arguments, so this file
+# passed ₹100/ktok to make every rupee figure below round. It now derives them from the
+# MODEL, which is the point: a ledger row's `unit_cost_paid` can no longer disagree with
+# its own `meta.model`. What that costs here is that a full-allowance assist is a large
+# token count rather than a round price, and what it buys is that these tests meter at the
+# prices production meters at.
+#
+# `gpt-4o-mini` is what an unconfigured deployment runs, so it is what these tests assert
+# against; the tests that are ABOUT the switch name both models explicitly.
+ASSIST_MODEL = AZURE_OPENAI_DEFAULT_MODEL
+ASSIST_PRICE = llm_inr_per_ktok(ASSIST_MODEL)
+
+# 7,000 ktok in — chosen to cost ₹100.10, just over `self_serve`'s ₹100 allowance, so ONE
+# default assist fills a tier exactly as the old ₹100 assist did. Derived below rather
+# than restated so a vendor price move changes the rupee figure and not this file's logic.
+FULL_TIER_TOKENS_IN = 7_000_000
+ONE_ASSIST_INR = ktok(FULL_TIER_TOKENS_IN) * ASSIST_PRICE["in"]
 
 
 #: The REAL brake predicate, captured before the autouse fixture below replaces it, so
@@ -159,9 +183,9 @@ async def _assist(
     tenant_id: UUID,
     ref: str | None = None,
     *,
-    tokens_in: int = 1000,
+    tokens_in: int = FULL_TIER_TOKENS_IN,
     tokens_out: int = 0,
-    price_in: Decimal = PRICE_IN,
+    model: str = ASSIST_MODEL,
 ) -> ai_quota.AssistMetered:
     async with tenant_session(tenant_id) as session:
         return await record_ai_assist_usage(
@@ -170,9 +194,7 @@ async def _assist(
             ref=ref or new_assist_ref(),
             tokens_in=tokens_in,
             tokens_out=tokens_out,
-            price_in_inr_per_ktok=price_in,
-            price_out_inr_per_ktok=PRICE_OUT,
-            model="gemini-flash-lite",
+            model=model,
             feature="resummarise",
         )
 
@@ -384,13 +406,13 @@ async def test_a_second_click_meters_once_and_moves_no_counter() -> None:
     second = await _assist(tenant_id, ref)
 
     assert first.recorded is True
-    assert first.cost_inr == Decimal("100.0000"), f"1 ktok at ₹100 = ₹100, got {first.cost_inr}"
+    assert first.cost_inr == ONE_ASSIST_INR, f"expected {ONE_ASSIST_INR}, got {first.cost_inr}"
     assert second.recorded is False, "the same ref metered twice"
     assert second.cost_inr == Decimal("0"), "a replay must add nothing"
 
     quota = await _quota(tenant_id)
     assert quota.requests_used == 1, "COUNT(DISTINCT ref) counted a replay as a request"
-    assert quota.used_inr == Decimal("100.00000000"), quota.used_inr
+    assert quota.used_inr == ONE_ASSIST_INR, quota.used_inr
 
 
 async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked() -> None:
@@ -414,11 +436,9 @@ async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked()
                 session,
                 tenant_id=tenant_id,
                 ref=ref,
-                tokens_in=1000,
+                tokens_in=FULL_TIER_TOKENS_IN,
                 tokens_out=0,
-                price_in_inr_per_ktok=PRICE_IN,
-                price_out_inr_per_ktok=PRICE_OUT,
-                model="gemini-flash-lite",
+                model=ASSIST_MODEL,
                 feature="resummarise",
             )
             a_inserted.set()
@@ -439,11 +459,9 @@ async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked()
                 session,
                 tenant_id=tenant_id,
                 ref=ref,
-                tokens_in=1000,
+                tokens_in=FULL_TIER_TOKENS_IN,
                 tokens_out=0,
-                price_in_inr_per_ktok=PRICE_IN,
-                price_out_inr_per_ktok=PRICE_OUT,
-                model="gemini-flash-lite",
+                model=ASSIST_MODEL,
                 feature="resummarise",
             )
             seen["b_done_at"] = time.monotonic()
@@ -461,7 +479,7 @@ async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked()
 
     quota = await _quota(tenant_id)
     assert quota.requests_used == 1
-    assert quota.used_inr == Decimal("100.00000000")
+    assert quota.used_inr == ONE_ASSIST_INR
 
 
 async def test_the_platform_counter_moves_once_per_assist_and_never_on_a_replay() -> None:
@@ -478,7 +496,7 @@ async def test_the_platform_counter_moves_once_per_assist_and_never_on_a_replay(
     async with untenanted_session() as session:
         after = await read_platform_ai_spend(session)
     assert after.requests - before.requests == 1, "a replay moved the platform counter"
-    assert after.spend_inr - before.spend_inr == Decimal("100.0000")
+    assert after.spend_inr - before.spend_inr == ONE_ASSIST_INR
 
 
 async def test_the_platform_total_is_readable_without_a_tenant_context() -> None:
@@ -505,7 +523,9 @@ async def test_the_ceiling_is_the_tiers_and_the_counts_are_labelled_estimates() 
     tenant_id = await _tenant("self_serve")
     quota = await _quota(tenant_id)
     assert quota.included_inr == AI_QUOTA_INR["self_serve"]
-    assert quota.requests_included == int(AI_QUOTA_INR["self_serve"] // AI_ASSIST_NOMINAL_INR)
+    assert quota.requests_included == int(
+        AI_QUOTA_INR["self_serve"] // assist_nominal_inr(ASSIST_MODEL)
+    )
     assert quota.state == "within"
     assert quota.extra_unavailable == "not_at_ceiling"
 
@@ -513,7 +533,7 @@ async def test_the_ceiling_is_the_tiers_and_the_counts_are_labelled_estimates() 
 async def test_at_the_ceiling_the_feature_blocks_with_the_code_the_modal_opens_on() -> None:
     """G-5's first half: the feature BLOCKS. It does not degrade and it does not bill."""
     tenant_id = await _tenant("self_serve")
-    await _assist(tenant_id)  # ₹100 = the whole tier
+    await _assist(tenant_id)  # ₹100.10 — over the whole tier
 
     with pytest.raises(ProblemError) as raised:
         async with tenant_session(tenant_id) as session:
@@ -861,7 +881,7 @@ async def test_no_money_field_crosses_the_wire_as_a_json_number() -> None:
     body = json.loads(AiQuotaOut.model_validate(response).model_dump_json())
     assert _floats(body) == [], f"money left as JSON floats: {_floats(body)}"
     assert body["included_inr"] == "100.00"
-    assert body["used_inr"] == "100.00"
+    assert body["used_inr"] == str(to_paise(ONE_ASSIST_INR))
     assert body["extra_block_inr"] == str(AI_OVERAGE_BLOCK_INR)
     assert body["extra_purchased_inr"] is None, "nothing bought reads as null, not 0.00"
 
@@ -885,8 +905,8 @@ async def test_every_rupee_in_the_quota_is_a_decimal() -> None:
     for name in ("included_inr", "used_inr", "allowance_inr", "remaining_inr"):
         value = getattr(quota, name)
         assert isinstance(value, Decimal), f"{name} is {type(value).__name__}, not Decimal"
-    # 1.234 ktok at ₹100 = ₹123.40, exactly — the arithmetic a float would round.
-    assert quota.used_inr == Decimal("123.40000000"), quota.used_inr
+    # 1.234 ktok at the input rate, exactly — the arithmetic a float would round.
+    assert quota.used_inr == ktok(1234) * ASSIST_PRICE["in"], quota.used_inr
 
 
 # --------------------------------------------------------------------- helpers
@@ -938,7 +958,7 @@ async def test_a_month_whose_extra_block_is_already_spent_is_finished_not_re_off
     """
     tenant_id = await _tenant("self_serve")
     await _topup(tenant_id, "5000.00")
-    await _assist(tenant_id)  # ₹100 = the whole tier
+    await _assist(tenant_id)  # ₹100.10 — over the whole tier
     bought = await _buy(tenant_id)
     assert bought.charged is True
 
@@ -1027,7 +1047,7 @@ async def test_a_tenant_under_its_ceiling_is_let_through_with_its_quota() -> Non
 # 9. The product terms are ARITHMETIC, not opinions (D-140)
 # ============================================================================
 #
-# `AI_QUOTA_INR`, `AI_ASSIST_NOMINAL_INR`, `AI_OVERAGE_BLOCK_INR` and
+# `AI_QUOTA_INR`, `assist_nominal_inr`, `AI_OVERAGE_BLOCK_INR` and
 # `PLATFORM_AI_BRAKE_INR` shipped as four typed rupee figures whose only justification
 # was a sentence beside each. A sentence cannot be wrong by 100x and a number can, and a
 # ceiling wrong by 100x is a product defect that reads exactly like a correct one — it
@@ -1037,84 +1057,99 @@ async def test_a_tenant_under_its_ceiling_is_let_through_with_its_quota() -> Non
 
 
 def test_the_reference_assist_costs_what_the_published_price_says_it_does() -> None:
-    """The arithmetic under `AI_ASSIST_NOMINAL_INR`, spelled out once.
+    """The arithmetic under `assist_nominal_inr`, spelled out once PER MODEL.
 
-    `gemini-2.5-flash` at $0.30/$2.50 per 1M tokens and ₹95.66/USD is ₹0.0287 and ₹0.2392
-    per 1,000 tokens; 5,000 in and 1,500 out is ₹0.50230. If the price table moves and
-    this does not, one of the two is a typo.
+    `gpt-4o-mini` at $0.15/$0.60 per 1M tokens and ₹95.66/USD is ₹0.0143 and ₹0.0574 per
+    1,000 tokens; 5,000 in and 1,500 out is ₹0.15760. `gpt-4.1-mini` at $0.40/$1.60 is
+    ₹0.0383 and ₹0.1531, so the same assist is ₹0.42115. If the price table moves and this
+    does not, one of the two is a typo.
 
-    It has moved once: ₹0.33475 on `gemini-3.1-flash-lite`, which no source places in
-    `asia-south1`. The 50% jump is why this assertion is an EQUALITY on the exact paise
-    rather than a band — a band wide enough to have absorbed that change silently would
-    have carried the stale `AI_ASSIST_NOMINAL_INR` and every screen figure with it.
+    EQUALITIES ON THE EXACT PAISE rather than a band, because this number has now moved
+    three times on model decisions alone (₹0.33475, then ₹0.50230 on `gemini-2.5-flash`,
+    now these two) and a band wide enough to have absorbed any of them silently would have
+    carried a stale nominal onto every screen. BOTH models are pinned because either can
+    be live: pinning only the default is exactly the blind spot D-410 introduced.
     """
-    assert ai_quota.reference_assist_cost_inr() == Decimal("0.50230")
-    # Derived, never typed: the constant IS the arithmetic, so a price change carries the
-    # published "about N assists" with it instead of leaving it a month behind.
-    assert (ai_quota.reference_assist_cost_inr() * ai_quota.NOMINAL_ASSIST_MARGIN).quantize(
-        Decimal("0.01")
-    ) == AI_ASSIST_NOMINAL_INR
-    assert isinstance(AI_ASSIST_NOMINAL_INR, Decimal), "a reference price that is a float"
+    assert ai_quota.reference_assist_cost_inr("gpt-4o-mini") == Decimal("0.15760")
+    assert ai_quota.reference_assist_cost_inr("gpt-4.1-mini") == Decimal("0.42115")
+    for model in AZURE_OPENAI_MODELS:
+        # Derived, never typed: the nominal IS the arithmetic, so a price change carries
+        # the published "about N assists" with it instead of leaving it a month behind.
+        nominal = assist_nominal_inr(model)
+        assert (
+            ai_quota.reference_assist_cost_inr(model) * ai_quota.NOMINAL_ASSIST_MARGIN
+        ).quantize(Decimal("0.01")) == nominal
+        assert isinstance(nominal, Decimal), "a reference price that is a float"
 
 
 def test_every_price_in_the_table_is_expressible_in_the_column_that_stores_it() -> None:
     """`unit_cost_paid` is NUMERIC(12,4). A price with a fifth decimal place is a price
     this ledger silently rounds, which is the exact failure per-KTOK metering exists to
     avoid — a per-TOKEN price would store as 0.0000 and meter every assist as free."""
-    for leg, price in ai_quota.LLM_INR_PER_KTOK.items():
-        assert price == price.quantize(Decimal("0.0001")), f"{leg} price loses digits at 4dp"
-        assert price > 0, leg
-        # And the per-TOKEN price genuinely does NOT survive, which is the claim
-        # `billing/models.py` makes to justify counting in thousands. At `gemini-2.5-flash`
-        # prices the input leg rounds to 0.0000 outright (100% lost) and the output leg
-        # rounds from ₹0.0002392 to ₹0.0002 (16.4% lost) — not zero, and still a sixth of
-        # the price thrown away. Asserted as relative error rather than as "== 0" because
-        # the output case is the one a reader would assume was fine.
-        #
-        # THE THRESHOLD MOVED FROM 0.25 TO 0.15 AND THAT IS A REAL WEAKENING, recorded
-        # rather than smoothed over: 3.1 Flash-Lite's output leg lost 30%, 2.5 Flash's
-        # loses 16.4%, and the loss shrinks as the output price rises. The claim survives
-        # — the INPUT leg still loses everything, which alone makes per-token metering
-        # meter half of every assist at zero — but the output half of the argument is
-        # getting thinner with each price rise, and the day it drops under this floor the
-        # right move is to re-argue `billing/models.py`'s paragraph, not to lower the
-        # number again.
-        per_token = price / Decimal("1000")
-        lost = (per_token - per_token.quantize(Decimal("0.0001"))).copy_abs() / per_token
-        assert lost >= Decimal("0.15"), (
-            f"{leg} survives per-token storage with only {lost:.1%} lost — the reason "
-            "this ledger counts in thousands has changed"
-        )
+    for model in AZURE_OPENAI_MODELS:
+        for leg, price in llm_inr_per_ktok(model).items():
+            assert price == price.quantize(Decimal("0.0001")), f"{model}/{leg} loses digits at 4dp"
+            assert price > 0, leg
+            # And the per-TOKEN price genuinely does NOT survive, which is the claim
+            # `billing/models.py` makes to justify counting in thousands. Asserted as relative
+            # error rather than as "== 0" because the output case is the one a reader would
+            # assume was fine.
+            #
+            # THE THRESHOLD HAS A HISTORY AND D-410 REVERSED ITS DIRECTION. It moved 0.25 ->
+            # 0.15 as Gemini's output price ROSE (3.1 Flash-Lite lost 30%, 2.5 Flash 16.4%),
+            # and the note here said the output half of the argument was getting thinner with
+            # every price rise. Azure's models are cheaper, so the loss is back up — 74.2% on
+            # `gpt-4o-mini`'s output leg and 30.6% on `gpt-4.1-mini`'s — and the floor is left
+            # where it is rather than re-tightened to today's numbers, because it is a claim
+            # about what per-token storage does to SMALL prices and not a record of the
+            # cheapest model we have run. The input leg still loses everything on both.
+            per_token = price / Decimal("1000")
+            lost = (per_token - per_token.quantize(Decimal("0.0001"))).copy_abs() / per_token
+            assert lost >= Decimal("0.15"), (
+                f"{model}/{leg} survives per-token storage with only {lost:.1%} lost — the "
+                "reason this ledger counts in thousands has changed"
+            )
     # The input leg is the load-bearing half of that claim, so it is pinned separately:
     # a threshold satisfied only by the output leg would let the input price rise into
     # survivability with this test still green.
-    input_per_token = ai_quota.LLM_INR_PER_KTOK["in"] / Decimal("1000")
-    assert input_per_token.quantize(Decimal("0.0001")) == Decimal("0.0000"), (
-        "the input leg now survives per-token storage — `billing/models.py`'s ktok "
-        "argument rests on it storing as exactly zero"
-    )
+    for model in AZURE_OPENAI_MODELS:
+        input_per_token = llm_inr_per_ktok(model)["in"] / Decimal("1000")
+        assert input_per_token.quantize(Decimal("0.0001")) == Decimal("0.0000"), (
+            f"{model}'s input leg now survives per-token storage — `billing/models.py`'s "
+            "ktok argument rests on it storing as exactly zero"
+        )
 
 
-def test_no_product_constant_is_out_by_an_order_of_magnitude() -> None:
-    """Each of the four numbers, against what an assist actually costs.
+@pytest.mark.parametrize("model", sorted(AZURE_OPENAI_MODELS))
+def test_no_product_constant_is_out_by_an_order_of_magnitude(model: str) -> None:
+    """Each of the four numbers, against what an assist actually costs — ON EVERY MODEL
+    AN OPERATOR CAN SELECT, not just the shipped default.
+
+    THAT PARAMETRISATION IS THE D-410 HALF OF THIS TEST. `Settings.azure_openai_model` is
+    live, so the binding constraint on a tier's allowance is the DEAREST selectable model
+    (`gpt-4.1-mini`, 2.7x the default): a ceiling checked only against the cheap model is a
+    ceiling that stops clearing the "enough to form an opinion" floor the moment somebody
+    flips a console switch, with no deploy and nothing turning red.
 
     The bands are wide on purpose — these are commercial terms and the founder may move
     them — but they are bands: every one of them fails on a misplaced decimal point,
     which is the error class that has no other detector.
     """
-    one_assist = ai_quota.reference_assist_cost_inr()
+    one_assist = ai_quota.reference_assist_cost_inr(model)
 
     # The reference PRICE must be in the same world as the reference COST. Below 1x it
     # over-promises the assist count on a screen; above 4x it makes the feature look
     # meaner than it is.
-    ratio = AI_ASSIST_NOMINAL_INR / one_assist
+    ratio = assist_nominal_inr(model) / one_assist
     assert Decimal("1") <= ratio <= Decimal("4"), f"the nominal is {ratio}x a real assist"
 
     # A tier's included allowance has to buy enough assists to form an opinion of the
     # feature (>= 50) and not so many that "absorbed" stops meaning anything (<= 20,000).
     for tier, allowance in AI_QUOTA_INR.items():
         assists = allowance / one_assist
-        assert Decimal("50") <= assists <= Decimal("20000"), f"{tier} buys {assists} assists"
+        assert Decimal("50") <= assists <= Decimal("20000"), (
+            f"{tier} buys {assists} assists on {model}"
+        )
     # And the tiers are ordered the way the plan prices are: paying more never buys less.
     assert AI_QUOTA_INR["managed"] > AI_QUOTA_INR["self_serve"] > AI_QUOTA_INR["trial"]
 
@@ -1129,6 +1164,101 @@ def test_no_product_constant_is_out_by_an_order_of_magnitude() -> None:
     # ceiling is doing no work.
     worst_tenant = AI_QUOTA_INR["managed"] + AI_OVERAGE_BLOCK_INR
     assert worst_tenant * 10 <= PLATFORM_AI_BRAKE_INR, "one tenant can trip the platform brake"
+
+
+# ============================================================================
+# 9b. The priced model IS the model that ran (D-410)
+# ============================================================================
+#
+# `Settings.azure_openai_model` switches between two models 2.7x apart, LIVE, with no
+# deploy. Two things therefore have to follow the switch and neither did before D-410:
+# what a metered row was charged at, and what the screen estimates. The failure both
+# guard against is silent in every other way — a row whose `unit_cost_paid` was the
+# default model's price while `meta.model` names the other one is not a crash, not a type
+# error, and not correctable afterwards, because `usage_events` is append-only (hard rule
+# 4). `tests/llm_cost_model_test.py` holds the SIGNATURES that make it unwritable; these
+# two hold the rows and the screen.
+
+
+@pytest.mark.parametrize("model", sorted(AZURE_OPENAI_MODELS))
+async def test_an_assist_is_metered_at_the_price_of_the_model_that_ran_it(model: str) -> None:
+    """The ledger row carries the model AND the model's own price, and the writer is what
+    keeps them equal — a caller cannot supply a price at all.
+
+    Parametrised over both models rather than asserted on the default, because "the price
+    followed the model" is only a claim if the two models are priced apart, and the run on
+    the non-default model is the one that would fail if the writer had reached for
+    `AZURE_OPENAI_DEFAULT_MODEL` anywhere inside itself.
+    """
+    tenant_id = await _tenant()
+    metered = await _assist(tenant_id, tokens_in=2_000, tokens_out=1_000, model=model)
+
+    price = llm_inr_per_ktok(model)
+    assert metered.recorded is True
+    assert metered.cost_inr == ktok(2_000) * price["in"] + ktok(1_000) * price["out"]
+
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(
+                text(
+                    "SELECT unit_type, unit_cost_paid, meta->>'model' FROM usage_events "
+                    "WHERE tenant_id = :t AND unit_type = ANY(:u) ORDER BY unit_type"
+                ),
+                {"t": tenant_id, "u": list(AI_ASSIST_UNIT_TYPES)},
+            )
+        ).all()
+
+    assert [row[0] for row in rows] == ["ai_assist_ktok_in", "ai_assist_ktok_out"]
+    assert [row[1] for row in rows] == [price["in"], price["out"]]
+    assert {row[2] for row in rows} == {model}, (
+        "a row's unit_cost_paid and its own meta.model disagree — the defect deriving the "
+        "price from the model exists to make unrepresentable"
+    )
+
+
+async def test_the_published_assist_estimate_follows_the_live_model_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "About N assists" describes the model that will serve the NEXT assist.
+
+    `assist_nominal_inr` used to be a module-level `Final`, computed once at import from
+    the shipped default — so an operator switching to the 2.7x model left every screen
+    quoting a count 2.6x too generous until somebody redeployed, and nothing looked wrong.
+    `AiQuota` now carries the model `read_ai_quota` read off the live setting, and the
+    count divides by THAT model's reference price.
+
+    The rupee figures are deliberately NOT asserted to move: they are exact sums of rows
+    already written, at whatever model actually ran them, and a month during which the
+    switch was flipped legitimately holds both. Only the ESTIMATE takes a model.
+    """
+    tenant_id = await _tenant("self_serve")
+    other = next(iter(AZURE_OPENAI_MODELS - {AZURE_OPENAI_DEFAULT_MODEL}))
+
+    monkeypatch.setattr(
+        get_settings(), "azure_openai_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False
+    )
+    cheap = await _quota(tenant_id)
+    monkeypatch.setattr(get_settings(), "azure_openai_model", other, raising=False)
+    dear = await _quota(tenant_id)
+
+    assert cheap.assist_model == AZURE_OPENAI_DEFAULT_MODEL
+    assert dear.assist_model == other
+    assert cheap.requests_included == int(
+        cheap.allowance_inr // assist_nominal_inr(cheap.assist_model)
+    )
+    assert dear.requests_included == int(
+        dear.allowance_inr // assist_nominal_inr(dear.assist_model)
+    )
+    assert cheap.requests_included > dear.requests_included, (
+        "the published assist count did not move with the live model switch"
+    )
+    assert cheap.used_inr == dear.used_inr, "an estimate's model changed a metered rupee"
+
+    # And the wire shape carries the same arithmetic, so the modal's "N more uses" cannot
+    # quote a different model from the panel behind it.
+    assert quota_payload(dear)["extra_block_requests"] == int(
+        AI_OVERAGE_BLOCK_INR // assist_nominal_inr(other)
+    )
 
 
 # ============================================================================
@@ -1165,9 +1295,7 @@ def _reject(ref: str) -> None:
         ref=ref,
         tokens_in=1,
         tokens_out=1,
-        price_in_inr_per_ktok=PRICE_IN,
-        price_out_inr_per_ktok=PRICE_OUT,
-        model="m",
+        model=ASSIST_MODEL,
         feature="f",
     )
     try:
@@ -1223,7 +1351,7 @@ async def test_the_platform_counter_follows_the_row_and_not_the_api_processs_clo
         after = await read_platform_ai_spend(session, month=real_month)
         stray_after = await read_platform_ai_spend(session, month=wrong_month)
 
-    assert after.spend_inr - before.spend_inr == Decimal("100.0000"), (
+    assert after.spend_inr - before.spend_inr == ONE_ASSIST_INR, (
         "the platform counter followed the API process's clock, not the row's month"
     )
     assert stray_after.spend_inr == stray_before.spend_inr, "a row was counted into 2099-01"
@@ -1267,7 +1395,7 @@ async def test_a_block_is_not_sold_in_the_last_hour_of_the_month() -> None:
     """
     tenant_id = await _tenant("self_serve")
     await _topup(tenant_id, "5000.00")
-    await _assist(tenant_id)  # ₹100 = the whole tier
+    await _assist(tenant_id)  # ₹100.10 — over the whole tier
     before = await get_balance_for(tenant_id)
     assert (await _quota(tenant_id)).at_ceiling, "the fixture must be AT the ceiling"
 
@@ -1317,6 +1445,7 @@ def _quota_object(**overrides: Any) -> AiQuota:
         "requests_used": 200,
         "extra_purchased_inr": Decimal("0"),
         "platform_paused": False,
+        "assist_model": ASSIST_MODEL,
         "month_ending": False,
     }
     fields.update(overrides)
@@ -1584,7 +1713,7 @@ async def test_a_metered_assist_drives_the_announcement_from_the_counters_own_to
     await _seed_month(month, warn_at - Decimal("1"))
     try:
         with caplog.at_level("ERROR"):
-            await _assist(tenant_id)  # ₹100
+            await _assist(tenant_id)  # one full-allowance assist
         assert _alerts(caplog) == ["ai_platform_brake_near"], (
             "the writer did not announce off the counter's own returned total"
         )

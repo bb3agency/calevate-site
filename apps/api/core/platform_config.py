@@ -328,20 +328,41 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "gst_supplier_address": AppliesRule(LIVE),
     "gst_supplier_gstin": AppliesRule(LIVE),
     "gst_supply_sac": AppliesRule(LIVE),
-    # The GCP project Vertex AI bills and runs in (D-127). `workers/extraction`
-    # re-reads it per assist. It is plain config and not a credential on purpose — a
-    # project id is in every URL the client builds and is the value an operator gets
-    # wrong first, so it belongs where they can SEE it. The REGION is deliberately not
-    # here and can never be: `calevate_shared.engine.VERTEX_LOCATION` is a `Final`
-    # constant and `scripts/check_model_residency.py` fails the build on any `Settings`
-    # field whose name says region, location, residency, vertex or aiplatform.
-    "gcp_project_id": AppliesRule(LIVE),
-    # LIVE because being able to change it without a deploy is the entire point (D-404).
-    # It names which entry in the engine's credential store the in-call LLM bearer is
-    # written to, our default is a marked assumption, and the operator who settles it
-    # (OPERATIONS §2 gate 16c) is looking at a broken LLM leg while they do. The refresher
-    # re-reads settings each tick and pushes the bearer under whatever name it then finds,
-    # so a correction takes effect on the next tick with no restart and no republish.
+    # ---- AZURE OPENAI (D-410). Both LLM surfaces, and NOT all one answer ---------
+    #
+    # THE ENDPOINT AND THE DEPLOYMENT ARE BAKED INTO EACH PUBLISHED AGENT, which is what
+    # makes them `needs_republish` rather than `live` and is the distinction this table
+    # exists for. `azure_openai_resource` becomes `ModelConfig.llm_base_url` and
+    # `azure_openai_deployment` becomes `ModelConfig.llm_model`; both travel into the
+    # engine's own agent record at publish time, so an agent that is already live keeps
+    # calling the resource it was published against however many times the console is
+    # edited. Reporting either `live` would be the outage this file's header describes,
+    # on the leg that carries a client's caller's voice.
+    "azure_openai_resource": AppliesRule(
+        NEEDS_REPUBLISH,
+        "it becomes each agent's LLM endpoint at publish time, so agents already live "
+        "keep calling the old resource until they are re-published — and a resource in "
+        "the wrong region is a residency change no code here can detect (see "
+        "calevate_shared.engine.AZURE_LOCATION)",
+    ),
+    "azure_openai_deployment": AppliesRule(
+        NEEDS_REPUBLISH,
+        "it is the deployment id each agent was published with, so live agents keep "
+        "calling the old deployment until they are re-published",
+    ),
+    # LIVE, and it is the ONE of the four that genuinely is: nothing sends this value to
+    # anybody. It records which model the deployment was made from, `billing/` reads it
+    # per usage event to price the leg, and changing it changes an invoice line within one
+    # poll interval. ⚠ It must move WITH `azure_openai_deployment` — pointing this at a
+    # model the deployment does not run prices something nobody is calling, which is a
+    # wrong invoice rather than an outage and therefore the failure that hides longest.
+    "azure_openai_model": AppliesRule(LIVE),
+    # A MARKED ASSUMPTION, live on purpose (D-404's mechanism, D-410's provider). It names
+    # which entry in the engine's credential store the LLM key is written to; our default
+    # is derived from the vendor's naming rule rather than read from their docs, and the
+    # operator who settles it (OPERATIONS §2) is looking at a broken LLM leg while they
+    # do. Whatever pushes the credential re-reads settings, so a correction takes effect
+    # without a restart and without a republish.
     "bolna_llm_credential_name": AppliesRule(LIVE),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
@@ -367,33 +388,32 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     ),
     # Read at the point of use, per call or per request.
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
-    # D-127 disqualified the AI Studio Developer API this key opens, so nothing sends it
-    # anywhere. It is still `live` and that is not a fiction: `assist_capability()` reads
-    # it per call, and its presence is what turns the generic "no credential" refusal into
-    # the one an operator who installed it needs. Setting it therefore still changes what
-    # the platform does within one poll interval — it changes the SENTENCE, not the
-    # endpoint.
+    # D-127 disqualified the AI Studio Developer API this key opens and D-410 removed the
+    # last Google LLM leg, so nothing sends it anywhere. It is still `live` and that is
+    # not a fiction: `assist_capability()` reads it per call, and its presence is what
+    # turns the generic "no credential" refusal into the one an operator who installed the
+    # wrong thing needs. Setting it changes the SENTENCE, not the endpoint — within one
+    # poll interval, which is what `live` claims.
     "gemini_api_key": AppliesRule(LIVE),
-    # The Vertex service-account key (D-127). `live`, and unlike `bolna_api_key` that was
-    # checked rather than assumed: `workers/extraction.vertex_credentials()` parses it
-    # per assist and `VertexGeminiExtractor` is constructed per assist, so a new key
-    # reaches the next request.
-    #
-    # ROTATING WITHIN ONE ACCOUNT USED TO BE THE EXCEPTION and no longer is. The bearer
-    # is cached in `google_oauth` on `(client_email, private_key_id, scope)`; when that
-    # tuple was `(client_email, scope)` a new key on the SAME service-account address —
-    # which is what Google's own console mints — kept the retired key's token in flight
-    # for up to an hour, and this row said so instead of fixing it. `live` now means
-    # live: the next assist misses the cache and signs with the new key. The one residue
-    # is a key file with no `private_key_id`, which Google does not produce.
-    "gcp_service_account_json": AppliesRule(LIVE),
+    # The Azure OpenAI key (D-410), and the classification is the CONSERVATIVE of the two
+    # answers its two surfaces give. The dashboard-AI path reads it through
+    # `get_settings()` per request, which is `live`; the in-call leg's copy does not live
+    # in this process at all — it is installed into the ENGINE's credential store, so a
+    # rotation here reaches a live phone call only once that install has happened.
+    # `live` is the answer that costs an outage (see this file's header), so the row
+    # states the weaker of the two truths rather than the flattering one.
+    "azure_openai_api_key": AppliesRule(
+        NEEDS_REPUBLISH,
+        "the dashboard AI picks it up on the next request, but the in-call leg's copy is "
+        "held by the engine — a rotation does not reach a live call until the credential "
+        "is re-installed on the engine (VoiceEngine.set_llm_credential)",
+    ),
     "audit_chain_secret": AppliesRule(LIVE),  # compliance/audit._active_key(), per write
     "audit_chain_secret_retired": AppliesRule(LIVE),
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
     "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
     "backup_heartbeat_url": AppliesRule(LIVE),
-    "in_call_llm_heartbeat_url": AppliesRule(LIVE),
     "google_sheets_service_account_json": AppliesRule(LIVE),
     "meta_page_access_tokens": AppliesRule(LIVE),
     "razorpay_webhook_secret": AppliesRule(LIVE),

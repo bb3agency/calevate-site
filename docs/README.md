@@ -102,20 +102,25 @@ specific things, and neither has been run:
 ## One-line summary of the locked stack
 
 Bolna (engine, adapter-isolated — D-31) + **Sarvam for SPEECH** (D-36's Saaras STT ·
-Bulbul v3 TTS default, v2 as the value tier — unchanged) + **Gemini 2.5 Flash on a PAID
-Vertex AI account, `asia-south1`, for LANGUAGE** — **D-400 supersedes D-36's "Sarvam 105B,
-free per token" LLM leg outright**, D-127 having already taken the dashboard surface. One
-model, one region, one retirement date; 2.5 because Mumbai is the only permitted region
-and no 3.x model is reported there, so BRD R-04's 16 Oct 2026 retirement is LIVE
-(`GEMINI_DEFAULT_LLM_RETIRES`). **The in-call leg is now BUILT, not merely decided**:
-`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True` — D-404 puts the engine on Vertex Mumbai
-directly (no proxy, no added hop on a live call, no new deployable) with a GCP OAuth2
-access token minted at 12 hours and rotated every 4 by `apps/workers/vertex_credential.py`,
-because a store that holds a static string can hold one we replace on a schedule.
-`GEMINI_MODEL_CONFIRMED_IN_REGION is False` remains (nobody has made
-the one call that verifies Mumbai serves the identifier — OPERATIONS §2 gate 14). The
-third, `GEMINI_EXTRACTION_DEFAULT is False`, is decided the OTHER way and permanently: the
-first post-call extraction stays on Sarvam because it reads the raw transcript, and D-400
+Bulbul v3 TTS default, v2 as the value tier — unchanged) + **Azure OpenAI in South India
+for LANGUAGE, on BOTH LLM surfaces** — **D-410 supersedes D-400/D-404 on the in-call leg
+and D-127 on the dashboard leg; Gemini and Vertex are out of this product.** One region
+(`AZURE_LOCATION`, `southindia`), one default (`AZURE_OPENAI_DEFAULT_MODEL`,
+`gpt-4o-mini`), one allow-list (`AZURE_OPENAI_MODELS`) and one builder
+(`azure_openai_base_url()`); `gpt-4.1-mini` is a live config switch rather than a second
+shipped default, because its availability in Indian regions is not confirmed. The engine
+authenticates with a **static API key** on the OpenAI-compatible v1 surface, so D-404's
+rotation cron, its alarm, its runbook and D-408's dead man are all deleted — they existed
+because a regional Vertex endpoint took no static key. **BRD R-04's 16 Oct 2026 Gemini
+retirement dies with this**, and no vendor deadline is currently running against the
+product. **The residency claim is narrower than it was and this line will not pretend
+otherwise**: `<resource>.openai.azure.com` names no region, so the build proves only that
+one constant spells the region and that no endpoint is constructible outside the builder —
+that the resource really is in South India, and that its deployment is Regional Standard
+rather than Azure's worldwide-by-default Global, are attested by a human (OPERATIONS §2
+gates 20 and 20c). The third surface is decided the OTHER way and permanently:
+`GEMINI_EXTRACTION_DEFAULT is False`, so the
+first post-call extraction stays on Sarvam because it reads the raw transcript, and D-410
 does not move it. **D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
 Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · first-party auth, two
 realms (D-165/D-170/D-177 — Clerk is deleted) ·
@@ -125,5 +130,12 @@ cannot make**: `docs/DEPLOYMENT.md` says India co-location is NOT required for t
 which is the stack holding every transcript, and F-1 is open precisely because the region
 is undecided. It was scrubbed from the landing page and left here, where it seeded the
 same sentence in BRD §sales. Nothing may re-assert it until a host is chosen and named · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
-D-34 self-serve prepaid tier · all-in target ≈ ₹3.1–3.6/min (D-36; verified floor ₹2.9 on
-Bulbul v2 + Sarvam LLM), ₹1.7–2.3/min at phase 2.
+D-34 self-serve prepaid tier · all-in target ≈ **₹3.3–3.8/min**, ₹1.9–2.5/min at phase 2
+(verified floor **₹2.9** on Bulbul v2 + Sarvam LLM, UNCHANGED — that combination's LLM leg
+is free). **Both bands were re-derived at D-410 and both moved, because D-36 struck them
+against a ₹0.00 LLM leg and the leg is no longer free.** They carry the shipped default,
+`gpt-4o-mini` at ₹0.16/min on a five-minute call (TRD §10.1): D-36's ₹3.1–3.6 + ₹0.16.
+D-400 would have added ₹0.36 and nobody updated this line at the time, so what D-410
+actually delivers here is **₹0.20/min back** — the line is now ₹0.16 above D-36 rather than
+₹0.36 above it. Flipping `azure_openai_model` to `gpt-4.1-mini` costs 2.67x that leg and
+puts the target at ≈ ₹3.5–4.0.

@@ -379,11 +379,12 @@ Listed so the next pass does not re-spend the time. Each was verified against co
 - **Signup quota 5/user/hour, 30/IP/hour** — `apps/api/tenancy/signup.py:85-86` vs
   `docs/SURFACES.md:502`, including the "consumed on every ATTEMPT" detail
   (`signup.py:215-237`).
-- **Gemini flags** — `GEMINI_DEFAULT_LLM_RETIRES = date(2026,10,16)` and
-  `GEMINI_MODEL_CONFIRMED_IN_REGION = False`
-  (`packages/shared/src/calevate_shared/engine.py:351,405`),
-  `GEMINI_EXTRACTION_DEFAULT = False` (`apps/workers/extraction.py:114`) — matching CLAUDE.md,
-  `docs/README.md`, `docs/AGENTS.md`, `docs/OPERATIONS.md` §2 gate 14 and BRD R-04 exactly.
+- **Gemini flags** — ~~`GEMINI_DEFAULT_LLM_RETIRES = date(2026,10,16)` and
+  `GEMINI_MODEL_CONFIRMED_IN_REGION = False`~~ *(both deleted 19 Aug 2026 by D-410, with the
+  Gemini/Vertex legs themselves; this audit records what was true on its date)*,
+  `GEMINI_EXTRACTION_DEFAULT = False` (`apps/workers/extraction.py`) — matching CLAUDE.md,
+  `docs/README.md`, `docs/AGENTS.md`, `docs/OPERATIONS.md` §2 gate 14 and BRD R-04 exactly
+  as they read on the audit date.
   The load-bearing "this is still a decision, not an observation" caveat is present in every
   one of them.
 - **Bolna egress `13.203.39.153`** — `packages/shared/src/calevate_shared/config.py:60`

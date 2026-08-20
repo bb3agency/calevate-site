@@ -55,16 +55,26 @@ view.
 **Also needed and separately external:** Sarvam BYOK keys (gate 3), and an Exotel/Vobiz
 SIP trunk (gate 13).
 
-### A2. Dated and unavoidable — the Gemini retirement
+### A2. The model account — and the dated item here is GONE
+
+**~~Dated and unavoidable — the Gemini retirement~~ REMOVED 19 Aug 2026 (D-410).** Both LLM
+surfaces moved to Azure OpenAI South India. The Gemini model, `GEMINI_DEFAULT_LLM_RETIRES`,
+the CI test that turned red on 16 Sep 2026 and gates 14/14b/14c are all deleted, and BRD
+R-04 is closed. **Nothing in this document is now running against a vendor deadline.** What
+replaces it is not dated but is not optional either — two of these three decide whether the
+residency claim in the client DPA is true, and neither is visible from the endpoint:
 
 | Item | Status | Detail |
 |---|---|---|
-| Gate 14 — does `asia-south1` serve our Gemini model | **BLOCKED** on a GCP project + service-account key | `GEMINI_MODEL_CONFIRMED_IN_REGION is False`. The test is ONE call. Search now points the right way (2.5 class is in Mumbai's ML-processing table; 3.x is not) but a summary of a page nobody could open is not a 200. |
-| Gate 14b — **replace `gemini-2.5-flash` before 16 Oct 2026** | **BLOCKED**, same key, and it comes due either way | **CI goes red on 16 Sep 2026** via `test_the_shipped_gemini_model_has_runway_left`. If nobody acts, assists 404 and fall back to Sarvam with the G-6 disclosure — degraded and disclosed, not an outage. |
+| Gate 20 — is the Azure resource actually in South India | **BLOCKED** on an Azure subscription | `<resource>.openai.azure.com` names no region. The guard proves only that the code cannot construct a non-India endpoint; the resource's region is read once from the portal by a human and filed in `docs/evidence/`. |
+| Gate 20c — is the deployment **Regional Standard, not Global** | **BLOCKED**, same subscription, and it is the one people get wrong | **Global is Azure's DEFAULT deployment type and processes worldwide.** A Global deployment in a South India resource passes every automated check in this repository and breaks the DPA. Regional costs roughly 5–10% more; that is the price of the posture. |
+| Gate 20b — does `gpt-4o-mini` have quota in South India on this subscription | **BLOCKED**, same subscription | Availability in a region and quota in your subscription are different facts, and only the second makes a call succeed. Also pilot gate 13's fourth concurrency leg. |
+| Gate 16f — which credential FIELDS Bolna's Azure provider expects | **BLOCKED** on a Bolna account | A MARKED ASSUMPTION, because their docs are egress-blocked here. `azure` is in their live provider dropdown and in their OSS `LLMProvider`; the field names are not published. Settle with `GET /providers`, `POST /providers`, `GET` again. |
 
-**Wrong answers, all three blocked in code**: widening the region, using `locations/global`,
-or widening `RETIREMENT_RUNWAY_DAYS` to quiet the test. `scripts/check_model_residency.py`
-fails the build on the first two.
+**Wrong answers**: a Global deployment, a resource in any other region, an OpenAI platform
+key in place of Azure (India residency there covers storage at rest only — inference runs
+in the US), and falling back to `provider: "custom"`, which is the unverified credential
+path this migration exists to leave.
 
 ### A3. Compliance and commercial registrations
 
@@ -153,10 +163,12 @@ one thing it waits on.
 permits it; if it does not, that becomes an external blocker and should be recorded as one.
 
 **Step 2 — the two accounts, in this order.**
-A **GCP project + service-account key** is the cheapest unblock in the whole document: it
-is one key, it closes gate 14, and it starts the clock on 14b, which turns CI red on
-**16 Sep 2026** whether or not anyone acts. A **Bolna account** unblocks twelve gates and
-is the gate to everything voice.
+An **Azure subscription with an Azure OpenAI resource in South India** is the cheapest
+unblock in the whole document: it is one resource, one deployment and one static key, and
+it closes gates 20, 20b and 20c — the three that decide whether the residency claim in the
+client DPA is true. **It no longer starts any clock**: D-410 deleted the dated Gemini
+obligation along with the model. A **Bolna account** unblocks twelve gates and is the gate
+to everything voice.
 
 **Step 3 — run the pilot.**
 `make pilot` runs gates 1, 2 and 6 today. Gates 3, 4, 5 need real PSTN calls in Telugu.

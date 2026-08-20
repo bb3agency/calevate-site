@@ -356,15 +356,16 @@ def test_a_monitor_answering_anything_but_200_is_not_a_heartbeat(
     """A 404 for a deleted check and a 5xx are both "nobody is watching". Reading them
     as success is the silent-pass failure in its final form — and the retries are real,
     because the vendor documents that pings are lost to plain packet loss."""
-    from apps.api.core import heartbeat
     from scripts import host_heartbeat
 
     monitor.status = 503
-    # PATCHED WHERE IT IS READ, not where it is re-exported: D-408 moved the retry loop
-    # into `core.heartbeat`, and patching `host_heartbeat.PING_BACKOFF_S` would now bind
-    # a name the loop never looks at — the test would still pass and would silently take
-    # four real seconds, which is how a speed-dependent suite starts (D-29).
-    monkeypatch.setattr(heartbeat, "PING_BACKOFF_S", 0.0)
+    # Patched where it is READ. D-408 moved the retry loop into `apps/api/core/heartbeat.py`
+    # for a second caller; D-410 deleted that caller (Azure OpenAI takes a static key, so
+    # there is no credential-rotation loop to watch) and the extraction was reverted with
+    # it, so the loop is back here. A shared module with one caller is indirection, not
+    # sharing — and it had put an `apps.api.core` import at module scope in a script whose
+    # discipline is to import as little as possible.
+    monkeypatch.setattr(host_heartbeat, "PING_BACKOFF_S", 0.0)
     monkeypatch.setattr(get_settings(), "backup_heartbeat_url", monitor.url)  # type: ignore[attr-defined]
     assert host_heartbeat.main() == host_heartbeat.EX_UNAVAILABLE
     assert len(monitor.received) == host_heartbeat.PING_ATTEMPTS
@@ -390,11 +391,11 @@ def test_there_is_no_failure_signal_anywhere_in_the_heartbeat_path() -> None:
     # this file would have gone on passing while the code it was written to watch moved
     # out from under it — and it now also covers the worker's dead man, which pings the
     # same vendor from the same primitives (`vertex_credential._feed_dead_man`).
-    modules = (
-        REPO_ROOT / "scripts" / "host_heartbeat.py",
-        REPO_ROOT / "apps" / "api" / "core" / "heartbeat.py",
-        REPO_ROOT / "apps" / "workers" / "vertex_credential.py",
-    )
+    # ONE file again. D-408 split the request out and this guard followed it into two
+    # more; D-410 deleted both of those (the rotation loop and its shared ping), so the
+    # code that puts a URL on the wire is back here alone. The guard must always name
+    # every file that can make the request — that is the property, not the count.
+    modules = (REPO_ROOT / "scripts" / "host_heartbeat.py",)
     for module in modules:
         tree = ast.parse(module.read_text())
         docstrings = {
