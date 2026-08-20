@@ -36,7 +36,16 @@ interface Pending {
   reject: (error: Error) => void;
 }
 
-/** A `fetch` stub that hands each request back so a test can settle it when it likes. */
+/**
+ * A `fetch` stub that hands each request back so a test can settle it when it likes.
+ *
+ * IT HONOURS `init.signal`, because a stub that ignores it cannot be used to reason about
+ * cancellation at all — and cancellation is now load-bearing on this path twice over: the
+ * restore deadline aborts the read it abandoned (`realm.ts::runRestoreWithDeadline`), and
+ * every request carries a deadline of its own whose timer is only cleared when the request
+ * settles (`lib/api/client.ts`). A stub that swallowed the abort would leave both hanging
+ * and make the leftover-timer assertions below unreadable.
+ */
 function deferredFetch(): Pending[] {
   const pending: Pending[] = [];
   vi.stubGlobal(
@@ -44,6 +53,11 @@ function deferredFetch(): Pending[] {
     vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       return new Promise<Response>((resolve, reject) => {
+        const signal = init?.signal;
+        if (signal) {
+          if (signal.aborted) reject(signal.reason);
+          else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }
         pending.push({
           path: url.startsWith(API_BASE) ? url.slice(API_BASE.length) : url,
           method: init?.method ?? "GET",

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import type { TenantSummary } from "@/lib/api/admin";
+import type { TenantErasure } from "@/lib/api/erasure";
 import { tenantStatusPath } from "@/lib/api/commercials";
 import type { Routes } from "./harness";
 
@@ -240,21 +241,100 @@ describe("the erasure panel", () => {
 
   it("reports an erasure that has already been filed, and offers no second one", async () => {
     await renderClosed({
+      // `satisfies TenantErasure`, which this fixture did not carry and needed: it
+      // named the key `id` (the server sends `request_id`) and claimed a status of
+      // "running", which `TenantErasureOut`'s enum is `pending | completed` and no
+      // server can answer with. Neither showed, because the screen's ladder tests for
+      // "completed" and treats everything else as in-flight — a fixture lying in the
+      // direction the screen ignores, which is `wireFixtureGuard.test.ts`'s subject.
       [ERASURE_PATH]: [
         {
-          id: "0192f0aa-7777-7000-8000-0000000000e1",
+          request_id: "0192f0aa-7777-7000-8000-0000000000e1",
           tenant_id: TENANT,
-          status: "running",
+          status: "pending",
           reason: "client asked, ticket 4471",
           requested_at: "2026-08-14T10:00:00Z",
           completed_at: null,
           proof: null,
           limitations: [],
-        },
+        } satisfies TenantErasure,
       ],
     });
 
     await screen.findByText(/An erasure has been filed for this client and is running/);
     expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
   });
+
+  /**
+   * THE CERTIFICATE'S DATES ARE IST, IN WHATEVER TIMEZONE THE OPERATOR'S LAPTOP IS ON.
+   *
+   * Both lines interpolated a bare `new Date(...).toLocaleString()` /
+   * `.toLocaleDateString()` — no locale and no `timeZone` — so this panel took the
+   * BROWSER's zone and the browser's locale while every other instant in both consoles
+   * goes through `formatIST` (CLAUDE.md: stored UTC, shown IST at the edge). On a laptop
+   * still set to a US timezone the DPDP erasure certificate — the record that answers
+   * "when was this destroyed" — read "8/19/2026, 4:00:00 PM" and named the PREVIOUS day.
+   *
+   * The fixture picks two instants that fall on a different calendar day either side of
+   * the boundary, and the timezone is moved for real rather than mocked, so this test
+   * is about the code and not about the machine it runs on.
+   */
+  it("dates the erasure certificate in IST from a browser outside India", async () => {
+    const original = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const { container } = await renderClosed({
+        [ERASURE_PATH]: [ERASED],
+      });
+
+      await screen.findByText(/This client's data was erased on/);
+      // 19 Aug 20:00Z is 20 Aug 01:30 IST — and 19 Aug 16:00 in New York.
+      expect(container.textContent).toContain("erased on 20 Aug, 01:30 am");
+      // 15 Nov 18:45Z is 16 Nov 00:15 IST — a retention deadline off by a day is a
+      // recording kept, or destroyed, on the wrong side of the TRAI floor.
+      expect(container.textContent).toContain("destroyed by 16 Nov, 12:15 am");
+      // What the browser's own formatting would have produced.
+      expect(container.textContent).not.toContain("8/19/2026");
+      expect(container.textContent).not.toContain("11/15/2026");
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
 });
+
+/**
+ * A COMPLETED erasure with its certificate — `satisfies TenantErasure` so the compiler
+ * checks it against the generated wire type. The route map takes `unknown`, which is
+ * exactly the hole `tests/wireFixtureGuard.test.ts` documents: a fixture nothing checks
+ * drifts from the server silently.
+ */
+const ERASED = {
+  request_id: "0192f0aa-7777-7000-8000-0000000000e2",
+  tenant_id: TENANT,
+  status: "completed",
+  reason: "client asked, ticket 4471",
+  requested_at: "2026-08-19T19:00:00Z",
+  completed_at: "2026-08-19T20:00:00Z",
+  proof: {
+    tenant_id: TENANT,
+    executed_at: "2026-08-19T20:00:00Z",
+    scope: {
+      calls_erased: 128,
+      transcript_turns_erased: 2140,
+      call_extractions_erased: 128,
+      leads_erased: 44,
+      campaign_contacts_erased: 44,
+      recordings_destroyed: 96,
+      recordings_within_trai_floor: 32,
+      webhook_bodies_erased: 12,
+    },
+    recording_hold_until: "2026-11-15T18:45:00Z",
+    actions: { calls: "stripped", leads: "anonymised" },
+    engine_deletion: "requested, unconfirmed",
+    not_erased: [],
+    limitations: [],
+    limitations_version: "1",
+  },
+  limitations: [],
+} satisfies TenantErasure;

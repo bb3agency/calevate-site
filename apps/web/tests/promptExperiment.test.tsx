@@ -495,3 +495,27 @@ describe("the A/B script test panel", () => {
     expect(container.textContent).not.toContain("It is STAGED");
   });
 });
+
+describe("the call cap", () => {
+  /**
+   * ONE READING OF A CAP, SHARED WITH THE CLIENT'S OWN SCREEN.
+   *
+   * This card had its own `minutesReading` ("10 min") while `c/[slug]/agents` had
+   * `formatCallCap` ("10 minutes") — the same field, `effective_call_cap_s`, spelled two
+   * ways in the two consoles, so an operator and the client they were on the phone to
+   * were reading different sentences about one number. Both now come from
+   * `components/ui.tsx::formatCallCap`; `agents.test.tsx` pins the client half.
+   */
+  it("reads the cap the way the client's own screen reads it", async () => {
+    const { container } = await render();
+
+    // WAIT FOR THE CAP, not for the card's heading. "Maximum call length" is static and
+    // renders before the read lands, so waiting on it and then asserting synchronously was
+    // asserting against a card still showing "Loading…" whenever the query had not settled
+    // inside the same flush — green only by the margin of however many microtasks a
+    // request happened to take. `findByText` returns the instant it matches, so this costs
+    // nothing when the code is right and is the difference between a race and an assertion.
+    await screen.findByText(/600s/);
+    expect(container.textContent).toContain("(10 minutes, platform default)");
+  });
+});

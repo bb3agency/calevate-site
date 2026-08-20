@@ -106,23 +106,32 @@ export const SUBPROCESSORS: LegalDocument = {
             ],
             [
               "Sarvam AI",
-              "Speech recognition, the language model that runs the conversation, voice " +
-                "synthesis, and the first pass that extracts fields from the transcript.",
+              "Speech recognition and voice synthesis during the call, the first pass " +
+                "that extracts fields from the transcript, and the standby for the " +
+                "dashboard assistant if the primary model is unavailable.",
               "Call audio and the raw, unredacted transcript. This is the one path that " +
                 "must see raw text: a callback-number field needs the actual digits.",
               "India.",
-              "Core.",
+              "Core. It no longer supplies the language model that holds the " +
+                "conversation — that is the next row.",
             ],
             [
-              "Google Cloud — Vertex AI",
-              "The dashboard assistant a client triggers from their own screen.",
-              "The redacted transcript and the client's own configuration. Never raw " +
-                "personal data.",
-              "India — Mumbai (asia-south1) only. The region is a frozen constant in the " +
-                "code and a build check fails the release if any model endpoint names a " +
-                "global or non-Indian host.",
-              "Core, on a client-triggered surface. A deployment with no Google credential " +
-                "simply has no dashboard assistant.",
+              "Microsoft — Azure OpenAI",
+              "Both language-model legs: the model that holds the conversation during a " +
+                "call, and the dashboard assistant a client triggers from their own " +
+                "screen.",
+              "On the call leg, the conversation as it happens — everything the caller " +
+                "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
+                "transcript and the client's own configuration, never raw personal data. " +
+                "The two legs see very different things and are listed separately for " +
+                "that reason.",
+              "India — South India, by configuration. Read the caution below before " +
+                "relying on this: unlike our previous provider, the endpoint does not " +
+                "name its own region, so this is a setting we make and check by hand " +
+                "rather than one a build can prove.",
+              "Core. Until 19 August 2026 this row named Google Cloud's Vertex AI for the " +
+                "dashboard leg only; both legs moved to Microsoft on that date, and the " +
+                "in-call leg — which hears the caller — is new to this vendor.",
             ],
             [
               "Exotel · Vobiz · Plivo",
@@ -131,15 +140,6 @@ export const SUBPROCESSORS: LegalDocument = {
               "India.",
               "Core once numbers are procured. None is procured yet, because that depends " +
                 "on the DLT registrations.",
-            ],
-            [
-              "Clerk",
-              "Sign-in for the two dashboards. Two separate Clerk applications — one for " +
-                "clients, one for our operators.",
-              "Client users' names, email addresses, authentication factors and session " +
-                "state. No caller data ever reaches it.",
-              "United States.",
-              "Core.",
             ],
             [
               "Cloudflare",
@@ -192,9 +192,12 @@ export const SUBPROCESSORS: LegalDocument = {
             ],
             [
               "Google — Sheets API",
-              "Writes each new lead into a Google Sheet you own.",
+              "Writes each new lead into a Google Sheet you own. Since 19 August 2026 " +
+                "this is the ONLY thing any Google service does for us: no call audio, " +
+                "no transcript and no model request reaches Google any more.",
               "The lead's fields, including name and — depending on the option you choose " +
-                "— the phone number in raw or masked form.",
+                "— the phone number in raw or masked form. Never the recording or the " +
+                "transcript.",
               "Google, global.",
               "Client-enabled. Access is granted by you sharing your own document with our " +
                 "service account, and revoked by un-sharing it.",
@@ -241,7 +244,7 @@ export const SUBPROCESSORS: LegalDocument = {
     },
     {
       id: "cautions",
-      heading: "3. Two things a careful reader should know",
+      heading: "3. Three things a careful reader should know",
       subsections: [
         {
           id: "bolna-residency",
@@ -264,8 +267,49 @@ export const SUBPROCESSORS: LegalDocument = {
           ],
         },
         {
+          id: "llm-residency",
+          heading: "3.2 What we can prove about where the language model runs, and what we cannot",
+          blocks: [
+            {
+              kind: "para",
+              text:
+                "Until 19 August 2026 the language model ran on an endpoint whose own " +
+                "address contained the Indian region it served, so a check in our build " +
+                "could read the region out of the code and fail the release if it were " +
+                "ever anything else. Our current provider's address contains no region " +
+                "at all: the region is a property of the account resource the address " +
+                "points at, not of the address. That is a genuinely weaker guarantee and " +
+                "we would rather you read it here than infer it later.",
+            },
+            {
+              kind: "para",
+              text:
+                "What the build still proves: there is exactly one place in our code that " +
+                "can construct a model endpoint, it cannot produce a non-Indian region, " +
+                "the region is written once and is not a setting anyone can edit, and no " +
+                "configuration field is allowed to carry a region or an endpoint at all. " +
+                "So no change to our software or our settings can move the language leg " +
+                "out of India without a code change that fails the build.",
+            },
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "Two facts a person confirms, not the build",
+              text:
+                "First, that the provider account itself was created in the South India " +
+                "region. Second, that the model deployment inside it is the regional " +
+                "kind rather than the provider's global default, which would process " +
+                "requests wherever there is capacity in the world. Both are read from " +
+                "the provider's console by a person, dated and filed as evidence, and " +
+                "neither can be seen from the endpoint, from the response, or from any " +
+                "check we could write. We say so because a document that called this " +
+                "machine-enforced would be overstating it.",
+            },
+          ],
+        },
+        {
           id: "byok",
-          heading: "3.2 Model credentials, and what happens if you change them",
+          heading: "3.3 Model credentials, and what happens if you change them",
           blocks: [
             {
               kind: "para",
@@ -273,8 +317,9 @@ export const SUBPROCESSORS: LegalDocument = {
                 "The speech and language models run under credentials the platform holds, " +
                 "against endpoints the platform pins. Changing which model an agent uses " +
                 "is a data-residency change and not a settings tweak, and it is treated as " +
-                "one: the destination can no longer be a global endpoint, because a build " +
-                "check refuses to compile a release in which one appears.",
+                "one: no model endpoint can be built anywhere in our code except through " +
+                "the single function described above, and the build refuses a release in " +
+                "which one is.",
             },
           ],
         },

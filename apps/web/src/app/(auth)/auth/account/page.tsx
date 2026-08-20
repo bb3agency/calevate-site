@@ -9,9 +9,12 @@
  * hours here, "because their blast radii differ by an order of magnitude". A modal warning
  * a clinic receptionist twice a day is a control that teaches people to dismiss controls.
  *
- * It is not the client dashboard: that lives at `/c/<slug>` and still authenticates
- * through Clerk, because `apps/api/core/auth.py` does not yet read the first-party session
- * cookie. See `/auth/admin` for the same note and what closes it.
+ * It is not the client dashboard: that lives at `/c/<slug>` and authenticates with the
+ * SAME session this page manages — `core/auth.py` reads the realm's `__Host-` cookie
+ * (`authn/cookies.read_token`) and D-177 left no identity vendor behind it. This note
+ * used to say the dashboard "still authenticates through Clerk, because
+ * `apps/api/core/auth.py` does not yet read the first-party session cookie"; that was the
+ * migration state, and it closed.
  */
 
 import { useCallback } from "react";

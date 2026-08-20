@@ -45,12 +45,17 @@ export class ApiProblem extends Error {
 /**
  * A refusal this browser produced itself, wearing the API's error shape.
  *
- * Auth can fail before any request leaves: the deployment names Clerk but carries no
- * publishable key, Clerk never loaded, the session expired between two clicks. Those
- * are the failures a user is most likely to meet and least able to interpret, so they
+ * Auth can fail before any request leaves: an admin session built with no view-as grant
+ * (below), or a local `dev:` token source that throws because there is no signed-in
+ * subject to name. Those are the failures a user is least able to interpret, so they
  * must arrive with a sentence and a remediation — which is exactly what `ProblemNotice`
  * already renders, from `ApiProblem`, on every screen in the app. Inventing a second
  * error shape would mean teaching twenty screens about it.
+ *
+ * The examples here used to be Clerk's — "the deployment names Clerk but carries no
+ * publishable key, Clerk never loaded". There is no identity vendor since D-177 and
+ * therefore no vendor script to fail to load; the class survives because the causes
+ * above are still local refusals wearing the API's shape.
  *
  * `status: 0` is the honest part: it is the conventional "no HTTP response happened"
  * (XHR's `status` for a request that never completed), so nothing here claims the
@@ -75,14 +80,141 @@ export class AuthProblem extends ApiProblem {
 }
 
 /**
+ * HOW LONG THE BROWSER WAITS BEFORE IT STOPS WAITING — and why the number is ABOVE
+ * nginx's rather than below it, which is the part a future reader will want to "fix".
+ *
+ * There was no deadline anywhere in this transport and `fetch` has none of its own, so a
+ * request that never answered left a skeleton spinning forever with nothing on screen a
+ * person could act on. That is the failure this closes.
+ *
+ * **70s is deliberately LONGER than `proxy_read_timeout 60s`**
+ * (`infra/nginx/snippets/calevate-proxy.conf`), and inverting them would make the product
+ * worse, not safer. Any request that REACHES nginx already ends at ~60s with a real status
+ * — a 504 carrying a problem body, or at worst a status line `problemFrom` can render a
+ * sentence from. A 30s client cap would pre-empt every one of those and replace the
+ * server's own explanation with this file's generic one. The genuinely unbounded case is
+ * the connection that never reaches nginx AT ALL — DNS that never resolves, a captive
+ * portal that swallows the SYN, a socket a sleeping laptop left open — and 70s is what
+ * bounds exactly that, leaving nginx's more informative answer first in every case where
+ * there is one.
+ *
+ * It fits the longest legitimate request with room to spare: `POST /v1/calls/{id}/assist`
+ * is bounded by `EXTRACTION_TIMEOUT_S = 30.0` (`apps/workers/extraction.py`) plus request
+ * overhead, so nothing this app legitimately asks for is cut off by either ceiling.
+ *
+ * A tighter cap on ONE route is `{ timeoutMs }` at that call site — see `RequestOptions`.
+ * Measurement can justify one; taste cannot, and lowering THIS value is the change that
+ * silently costs every route its informative error.
+ */
+export const REQUEST_TIMEOUT_MS = 70_000;
+
+/**
+ * The deadline above, having been reached — as the `ApiProblem` every screen renders.
+ *
+ * `AuthProblem`'s shape and for its reason: a failure the browser produced itself still
+ * has to arrive as a sentence with a remediation, because `ProblemNotice` is the only
+ * failure channel these screens have. Without it a timeout surfaces as a bare
+ * `DOMException: AbortError`, which `ProblemNotice` can only render as "Something went
+ * wrong" — the generic message this deadline exists to avoid producing.
+ *
+ * `retryable: true` is what puts the "Try again" button back, and it is honest: unlike
+ * `AuthProblem`'s causes, a request that ran out of time is the most retryable failure
+ * there is (`ProblemNotice` makes the same argument for errors that never reached the API
+ * at all). It also lets the query retry policy in `app/providers.tsx` have another go,
+ * which is right for a read; mutations never auto-retry there.
+ *
+ * WHAT IT DELIBERATELY DOES NOT SAY is that nothing happened. We stopped listening; we did
+ * not stop the server. A POST that timed out may well have been completed and charged for,
+ * which is the entire reason `useCallAssist` holds its `Idempotency-Key` across a retry —
+ * a reassuring sentence here would be a claim this transport cannot make.
+ */
+export class TimeoutProblem extends ApiProblem {
+  constructor(timeoutMs: number) {
+    super(0, {
+      kind: "transient",
+      type: "urn:calevate:browser/request_timeout",
+      title: "Calevate did not answer in time",
+      // `Math.max(1, …)` so a sub-second budget — which only a test has a reason to set —
+      // cannot produce "did not answer within 0 seconds", a sentence that reads as a bug
+      // report rather than as an explanation.
+      detail: `Calevate did not answer within ${Math.max(1, Math.round(timeoutMs / 1000))} seconds, so we stopped waiting.`,
+      remediation: "Check your connection and try again.",
+      retryable: true,
+    });
+    this.name = "TimeoutProblem";
+  }
+}
+
+/**
+ * Run one network exchange under a deadline, and turn a breached one into a sentence.
+ *
+ * EXPORTED because `lib/authn/transport.ts` is the one other place this app calls `fetch`,
+ * and it needs the same deadline for the same reason. `ApiProblem`, `problemFrom` and
+ * `readBody` are already shared with it rather than copied; this is the fourth, and two
+ * spellings of "stop waiting after a while" is exactly the drift that rule prevents.
+ *
+ * ## Why an `AbortController` of our own, rather than `AbortSignal.timeout()`
+ *
+ * The standard spelling would be `AbortSignal.any([signal, AbortSignal.timeout(ms)])`, and
+ * it is the right default when nothing better is needed. Two things are bought by not
+ * using it here, and neither is style:
+ *
+ * - **We know WHICH deadline fired without inspecting the rejection.** `AbortSignal.timeout`
+ *   is told apart from a caller's abort by sniffing `err.name === "TimeoutError"` on
+ *   whatever the fetch implementation chose to reject with. The flag below is set by the
+ *   only line that can set it, so a fetch that rejects with a plain `AbortError` — or with
+ *   anything at all — still produces the right problem for the right cause.
+ * - **A caller's own abort stays the caller's.** It is forwarded with `signal.reason`
+ *   intact and reaches them unwrapped, because a cancelled request is not a failed one and
+ *   must not render as a refusal.
+ *
+ * The listener is removed rather than left to `{ once: true }`: a caller may hold ONE
+ * long-lived signal across many requests, and a listener per request on it is a leak that
+ * grows with session length.
+ */
+export async function withDeadline<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+  { timeoutMs = REQUEST_TIMEOUT_MS, signal }: { timeoutMs?: number; signal?: AbortSignal } = {},
+): Promise<T> {
+  const deadline = new AbortController();
+  let expired = false;
+  const timer = setTimeout(() => {
+    expired = true;
+    deadline.abort();
+  }, timeoutMs);
+  const forwardCallerAbort = () => deadline.abort(signal?.reason);
+  if (signal) {
+    // An ALREADY-aborted signal never fires `abort` again, so the listener alone would
+    // let a cancelled request go out.
+    if (signal.aborted) forwardCallerAbort();
+    else signal.addEventListener("abort", forwardCallerAbort);
+  }
+  try {
+    return await run(deadline.signal);
+  } catch (cause) {
+    if (expired) throw new TimeoutProblem(timeoutMs);
+    throw cause;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", forwardCallerAbort);
+  }
+}
+
+/**
  * How `apiRequest` obtains the bearer credential for ONE call.
  *
- * A function, and asked per request, because a Clerk session token lives about SIXTY
- * SECONDS — clerk-js refreshes it on a recurring interval and `getToken()` hands back
- * the current one ("How Clerk works: cookies", clerk.com/docs/guides/how-clerk-works).
- * A console tab left open over lunch would therefore send an expired token on its next
- * poll if the string had been captured once when the session object was built. The
- * dashboard polls every twenty seconds, so "left open" is the normal case, not an edge.
+ * A function, and asked per request rather than captured when the session object was
+ * built. That shape was chosen for a vendor token that expired every sixty seconds and
+ * is KEPT for `GrantSource` below, which still has one — a view-as grant expires in
+ * minutes and re-mints transparently, and the dashboard polls every twenty seconds, so
+ * "a console tab left open over lunch" is the normal case here rather than an edge. One
+ * shape for both credentials the transport carries, so neither can be the one somebody
+ * cached.
+ *
+ * SINCE D-177 THERE IS NO TOKEN ON THE DEPLOYED PATH AT ALL: the credential is the
+ * realm's `HttpOnly` `__Host-` cookie the browser attaches itself (see `Session.token`
+ * below), and this source is present only locally, where it hands back
+ * `dev:<realm>:<id>` with no round trip.
  *
  * **The union is deliberate: a credential that is already known is returned, not
  * promised.** The local `dev:<realm>:<id>` token needs no round trip, and making it
@@ -208,6 +340,17 @@ interface RequestOptions {
    */
   ifMatch?: string;
   signal?: AbortSignal;
+  /**
+   * A tighter deadline than `REQUEST_TIMEOUT_MS` for THIS request — one line at the call
+   * site, which is the point of it being an option rather than a constant.
+   *
+   * Deliberately a per-request override and not a per-route table: a table would be a
+   * second place to keep in step with the routes, and the only reason to shorten a
+   * deadline is a measurement of that one endpoint, which belongs beside the endpoint.
+   * Raising it above the default is almost always wrong — nginx severs at 60s, so a
+   * client waiting longer is waiting for a socket nobody is writing to.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -242,7 +385,15 @@ export async function apiRequest<T>(
 async function sendRequest<T>(
   session: Session,
   path: string,
-  { method = "GET", body, idempotencyKey, confirmAction, ifMatch, signal }: RequestOptions = {},
+  {
+    method = "GET",
+    body,
+    idempotencyKey,
+    confirmAction,
+    ifMatch,
+    signal,
+    timeoutMs,
+  }: RequestOptions = {},
 ): Promise<T> {
   // Resolved HERE, per call, rather than when the session object was built. The `await`
   // is skipped when the source already has the string, so a local request still reaches
@@ -292,21 +443,31 @@ async function sendRequest<T>(
       typeof requestedGrant === "string" ? requestedGrant : await requestedGrant;
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers,
-    // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,
-    // `__Host-`-prefixed cookie no script can read, so it reaches the API only if this
-    // says so — the API and the consoles are different origins, and the browser omits
-    // cookies cross-origin by default. `lib/authn/transport.ts` says the same thing for
-    // `/v1/auth/**`; the two are one transport the day that file's `fetch` goes away.
-    credentials: "include",
-    body: body === undefined ? undefined : JSON.stringify(body),
-    signal,
-  });
+  // THE WHOLE EXCHANGE IS UNDER THE DEADLINE, not just the round trip. A response whose
+  // headers arrive and whose body then stalls is the same hang from the reader's chair,
+  // and both readers below consume that body — so the clock stops when the answer is in
+  // hand, not when the status line is.
+  // Returned, not `await`ed: an extra `await` here buys nothing and costs a microtask on
+  // every request in the app. That is not hypothetical bookkeeping — see `TokenSource`
+  // above, where one extra tick between a query and its `fetch` was directly observable in
+  // the test suite.
+  return withDeadline(async (deadlineSignal) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,
+      // `__Host-`-prefixed cookie no script can read, so it reaches the API only if this
+      // says so — the API and the consoles are different origins, and the browser omits
+      // cookies cross-origin by default. `lib/authn/transport.ts` says the same thing for
+      // `/v1/auth/**`; the two are one transport the day that file's `fetch` goes away.
+      credentials: "include",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: deadlineSignal,
+    });
 
-  if (!response.ok) throw await problemFrom(response);
-  return (await readBody(response)) as T;
+    if (!response.ok) throw await problemFrom(response);
+    return (await readBody(response)) as T;
+  }, { timeoutMs, signal });
 }
 
 /**

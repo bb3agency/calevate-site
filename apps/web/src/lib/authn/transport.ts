@@ -34,7 +34,7 @@
  * refusals carry their own sentences to the screen; that is the whole reporting channel.
  */
 
-import { API_BASE, ApiProblem, problemFrom, readBody } from "@/lib/api/client";
+import { API_BASE, ApiProblem, problemFrom, readBody, withDeadline } from "@/lib/api/client";
 
 import { isRateLimited } from "./problems";
 
@@ -124,17 +124,40 @@ export async function authnRequest<T>(
 
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      // The whole credential. Without this the cookie is not attached cross-origin and
-      // every authenticated route answers 401 — a failure that looks exactly like an
-      // expired session and is not one.
-      credentials: "include",
-      signal,
-    });
+    // THE SAME DEADLINE THE OTHER TRANSPORT KEEPS, from the same constant — see
+    // `client.ts::REQUEST_TIMEOUT_MS` for why the number is above nginx's rather than
+    // below it. It matters at least as much here as there: every console screen sits
+    // behind a session restore on this transport, so a request that never answers is not
+    // one dead panel, it is a sign-in gate that spins forever with nothing to act on.
+    //
+    // The DEADLINE COVERS THE ROUND TRIP, and the body reads below sit outside it — which
+    // is a smaller gap than it looks. A body that stalls after its headers arrived is by
+    // definition a response that reached us from nginx, and nginx severs a stalled
+    // upstream at `proxy_read_timeout`; the case with no ceiling of its own is the one
+    // that never got that far, and that is the case this covers. Keeping the reads
+    // outside also keeps the 429 rung below — which needs the `Response` in hand, then
+    // sleeps, then recurses — out of a deadline it would otherwise spend its sleep
+    // against. Each attempt gets its own clock, which is the correct reading of a retry.
+    response = await withDeadline(
+      (deadlineSignal) =>
+        fetch(`${API_BASE}${path}`, {
+          method,
+          headers,
+          body: body === undefined ? undefined : JSON.stringify(body),
+          // The whole credential. Without this the cookie is not attached cross-origin and
+          // every authenticated route answers 401 — a failure that looks exactly like an
+          // expired session and is not one.
+          credentials: "include",
+          signal: deadlineSignal,
+        }),
+      { signal },
+    );
   } catch (cause) {
+    // THE DEADLINE'S OWN REFUSAL PASSES THROUGH. `TimeoutProblem` is already an
+    // `ApiProblem` carrying a sentence, a remediation and `status: 0`, so `isUnreachable`
+    // reads it exactly as it reads the one below — and rewrapping it would throw away the
+    // one detail that distinguishes "we waited 70 seconds" from "the connection failed".
+    if (cause instanceof ApiProblem) throw cause;
     // A `fetch` that never produced a response: DNS, TLS, a dropped connection, an
     // aborted navigation. `AuthProblem`'s `status: 0` is how the rest of this app already
     // spells "no HTTP response happened", and `isUnreachable` is what reads it — which is

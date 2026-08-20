@@ -22,6 +22,7 @@ import {
   NOTICE_TONES,
   ProblemNotice,
   Skeleton,
+  formatCallCap,
   formatINR,
   formatIST,
 } from "@/components/ui";
@@ -834,21 +835,6 @@ function LaneList({
       </ul>
     </div>
   );
-}
-
-/**
- * "10 minutes", "5 min 30 s" — a call cap in the units an owner thinks in.
- *
- * `formatDuration` in components/ui is for how long a call ACTUALLY ran and reads as a
- * stopwatch (`10:00`); a ceiling reads as a sentence. Two formats because they answer two
- * different questions, not because one was forgotten.
- */
-function formatCallCap(seconds: number): string {
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  if (minutes === 0) return `${rest} seconds`;
-  if (rest === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
-  return `${minutes} min ${rest} s`;
 }
 
 /**

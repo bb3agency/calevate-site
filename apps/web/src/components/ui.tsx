@@ -595,6 +595,33 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
+/**
+ * "10 minutes", "5 min 30 s", "45 seconds" — a call CAP, in the units an owner thinks in.
+ *
+ * `formatDuration` above is for how long a call ACTUALLY ran and reads as a stopwatch
+ * (`10:00`); a ceiling reads as a sentence. Two formats because they answer two different
+ * questions, not because one was forgotten.
+ *
+ * IT LIVES HERE BECAUSE BOTH REALMS ASK IT. The client's agents screen and the admin
+ * prompt screen each had their own — `formatCallCap` and `minutesReading` — describing
+ * the SAME number (`effective_call_cap_s`) and disagreeing about it: one said "15
+ * minutes" and "5 min 30 s", the other "15 min" and "5 min 30s". Nothing was broken by
+ * that, which is the point: two ways of doing one thing is a defect even when both work,
+ * and an operator and a client discussing the same cap were reading two spellings of it.
+ *
+ * The non-finite guard comes from the admin twin and is load-bearing there: its caller
+ * passes `Number(<what the operator has typed>)`, which is `NaN` for a half-typed field,
+ * and the client version would have rendered "NaN min NaN s".
+ */
+export function formatCallCap(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "—";
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  if (minutes === 0) return `${rest} seconds`;
+  if (rest === 0) return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+  return `${minutes} min ${rest} s`;
+}
+
 /** A count, grouped the way an Indian reader groups one (1,20,000 — not 120,000). */
 export function formatCount(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
@@ -634,4 +661,77 @@ export function formatIST(value: string | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * `formatIST`'s doctrine in the shape `<input type="datetime-local">` speaks — the pair
+ * of conversions for a field whose value is IST BY NATURE rather than by who is looking.
+ *
+ * ## The bug this exists to make unwriteable
+ *
+ * `datetime-local` has no timezone in it, and both halves of the naive round trip read the
+ * BROWSER's clock: `date.getHours()` on the way in and `new Date("2026-08-04T14:30")` on
+ * the way out. That is correct on a machine set to India and silently wrong everywhere
+ * else — and D-22's "view as client" plus a colleague on a laptop still set to a US zone
+ * make "everywhere else" a real session rather than a hypothetical. The value it corrupts
+ * is not the operator's: it is the timestamp on an Indian registrar's letter, which says
+ * one thing and would be stored as another.
+ *
+ * ## Why the two directions are spelled differently, and why that is not two ways
+ *
+ * Both name ONE fact — the wall clock in India — and this repo already fixed each half
+ * once. Forward, `Intl` is asked for the parts in `Asia/Kolkata`, which is what `formatIST`
+ * above does and what `lib/api/invoice.ts` does for the billing month; `formatToParts` is
+ * used rather than a formatted string so nothing depends on where a locale puts its comma.
+ * Backward, the `+05:30` is WRITTEN IN, which is what `campaigns.ts::scheduleStartAt` and
+ * `recurrenceUntil` do and for the identical reason recorded there. Going backwards
+ * through `Intl` would mean solving for the offset at an instant we do not yet have —
+ * machinery whose only purpose would be to rediscover a constant. India has observed
+ * UTC+05:30 with no daylight saving since 1945 and IANA lists no future transition for
+ * `Asia/Kolkata`; "IST" names that offset, which is why the input is labelled IST on
+ * screen wherever this is used.
+ *
+ * A LABEL IS PART OF THIS CONTRACT, not decoration. An unlabelled `datetime-local` that
+ * quietly means something other than the machine's clock is worse than the bug it fixes,
+ * because the reader has no way to tell which one they are typing.
+ */
+const IST_INPUT_PARTS = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Asia/Kolkata",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  // `hourCycle`, never `hour12: false` — the latter resolves to `h24` under some locale
+  // data and renders midnight as "24:00", which no `datetime-local` will accept.
+  hourCycle: "h23",
+});
+
+/** An instant → the `YYYY-MM-DDTHH:mm` an IST reader would type. `""` when there is none. */
+export function formatISTInput(value: string | null | undefined): string {
+  if (!value) return "";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "";
+  const parts: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
+  for (const part of IST_INPUT_PARTS.formatToParts(at)) parts[part.type] = part.value;
+  const { year, month, day, hour, minute } = parts;
+  if (!year || !month || !day || !hour || !minute) return "";
+  return `${year}-${month}-${day}T${hour}:${minute}`;
+}
+
+/**
+ * The inverse: what an IST reader typed → the instant the API stores.
+ *
+ * `null` for an empty or unparseable field rather than a guess, which is the same answer
+ * `scheduleStartAt` gives and for the same reason — a field the operator has not filled in
+ * is not midnight, and a half-typed one is not a time at all.
+ */
+export function istInputToInstant(value: string): string | null {
+  const typed = value.trim();
+  if (typed === "") return null;
+  // Seconds are appended because `datetime-local` omits them unless a `step` asks for
+  // them, and `2026-08-04T14:30+05:30` is not a date-time any parser is obliged to accept.
+  const withSeconds = typed.length === 16 ? `${typed}:00` : typed;
+  const at = new Date(`${withSeconds}+05:30`);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }

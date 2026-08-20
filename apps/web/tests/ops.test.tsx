@@ -28,6 +28,8 @@ import {
   type ConfigList,
 } from "@/lib/api/opsConfig";
 
+import { formatISTInput, istInputToInstant } from "@/components/ui";
+
 import { problem, renderAdminPage, type Routes } from "./harness";
 
 /**
@@ -1613,6 +1615,98 @@ describe("our own telemarketer registration", () => {
     // which is the strongest form of "disabled with its reason" available here.
     expect(screen.queryByRole("button", { name: /Record registration/ })).toBeNull();
   });
+
+  /**
+   * THE REGISTRATION TIMESTAMP, IN A BROWSER THAT IS NOT IN INDIA.
+   *
+   * The field held "the IST moment on the registrar's letter" — its own comment said so —
+   * and read `at.getHours()`, the BROWSER's wall clock, in both directions. Correct on a
+   * machine set to India and silently wrong everywhere else, which for an admin console is
+   * not a hypothetical: D-22 "view as client" and a colleague on a laptop still set to a US
+   * zone are ordinary sessions.
+   *
+   * The value is IST BY ITS NATURE — it is a timestamp on an Indian DLT registrar's letter,
+   * not a local reading of when the operator happened to be sitting down — so both
+   * directions are pinned to `Asia/Kolkata` and the input says IST on screen.
+   *
+   * The zone is moved FOR REAL rather than mocked, the way `quality.test.tsx` does it: Node
+   * re-reads `process.env.TZ` on assignment, so this is the same code path a browser in New
+   * York takes. `06:30Z` is chosen because it is the value that separates the two
+   * implementations — 12:00 IST the same day, and 01:30 the same day in New York, so a
+   * fixture that merely differed by hours could still pass on the date alone.
+   */
+  it("reads and writes the registration date in IST, from a browser outside India", async () => {
+    const original = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      const { calls } = renderAdminPage(
+        <OpsPage />,
+        routes(platform(), SUPERADMIN, {
+          "POST /v1/ops/platform/tm-registration": {
+            status: "active",
+            tm_id: "TM-110022",
+            registered_at: "2026-01-04T06:30:00Z",
+            verified_at: "2026-08-01T06:30:00Z",
+            is_live: true,
+          },
+        }),
+      );
+
+      // READ. 2026-01-04T06:30:00Z is 12:00 IST — what the letter says — and 01:30 in the
+      // browser's own zone, which is what the field used to show.
+      const field = (await screen.findByDisplayValue("2026-01-04T12:00")) as HTMLInputElement;
+      expect(field.type).toBe("datetime-local");
+
+      // THE LABEL IS PART OF THE FIX. A `datetime-local` carries no zone, so an unlabelled
+      // one means "this machine's clock" to every reader; a field that quietly means
+      // something else is worse than the bug, because nobody can tell which they typed.
+      expect(screen.getByText("Registered on (IST)")).toBeTruthy();
+
+      // WRITE. The operator retypes what the letter says — 14:45 IST on the 9th — and the
+      // instant that leaves must be 09:15Z, never the 19:45Z a New York reading produces.
+      fireEvent.change(field, { target: { value: "2026-01-09T14:45" } });
+      fireEvent.change(screen.getByPlaceholderText(/registrar grant letter/), {
+        target: { value: "registrar grant letter 2026-01-09" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("RECORD"), { target: { value: "RECORD" } });
+      fireEvent.click(screen.getByRole("button", { name: /Record registration as active/ }));
+
+      await waitFor(() => {
+        expect(calls.some((c) => c.path === "/v1/ops/platform/tm-registration")).toBe(true);
+      });
+      const sent = calls.find((c) => c.path === "/v1/ops/platform/tm-registration");
+      expect(JSON.parse(sent?.body ?? "{}").registered_at).toBe("2026-01-09T09:15:00.000Z");
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
+  /**
+   * The codec's two edges, asserted directly because neither is reachable from the form.
+   *
+   * MIDNIGHT is the one an `Intl` mistake produces silently: `hour12: false` resolves to
+   * `h24` under some locale data and renders 00:00 as "24:00", which no `datetime-local`
+   * accepts — the field would simply go blank, on the one value nobody thinks to try.
+   * `hourCycle: "h23"` in `components/ui.tsx` is what prevents it, and a future
+   * simplification back to `hour12` would pass every other test in this file.
+   */
+  it("round-trips IST midnight, which is where an hourCycle mistake would hide", () => {
+    const original = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      // 2026-01-08T18:30:00Z is exactly 00:00 IST on the 9th — a different DAY in New York.
+      expect(formatISTInput("2026-01-08T18:30:00Z")).toBe("2026-01-09T00:00");
+      expect(istInputToInstant("2026-01-09T00:00")).toBe("2026-01-08T18:30:00.000Z");
+      // Absent stays absent, in both directions: a field nobody filled in is not midnight.
+      expect(formatISTInput(null)).toBe("");
+      expect(istInputToInstant("")).toBeNull();
+      expect(istInputToInstant("not a date")).toBeNull();
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
 });
 
 /**
@@ -1823,6 +1917,52 @@ describe("the platform configuration panel", () => {
     // The permission is NOT ops:manage — an operator who may run the recovery tools
     // still has no business switching the platform's voice engine (§7).
     expect(change.disabled).toBe(true);
+  });
+
+  /**
+   * THE TWO SETTINGS WHOSE BLAST RADIUS IS WIDEST WERE FILED UNDER "no group for yet".
+   *
+   * "Other" is a safety net — a key this console has never heard of stays editable — and
+   * it is the wrong home for a key whose change is a commercial or security event.
+   * `azure_openai_model` is a LIVE switch between two models 2.7x apart on price, so it
+   * moves every in-call token bill AND every "about N assists" a client reads
+   * (`billing/ai_quota.assist_nominal_inr` derives that estimate per model);
+   * `first_party_auth_enabled` is the kill switch over the only authentication this
+   * product has. Both arrived after the group list was written — the Azure keys with
+   * D-410, the auth switch with D-177 — and prefix matching cannot notice that on its
+   * own, which is the whole reason this test exists rather than a comment.
+   */
+  it("files the language model and the sign-in switch under their own headings", async () => {
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(platform(), SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
+            configField({
+              key: "azure_openai_model",
+              env_var: "AZURE_OPENAI_MODEL",
+              value: "gpt-4o-mini",
+              default: "gpt-4o-mini",
+              kind: "string",
+            }),
+            configField({
+              key: "first_party_auth_enabled",
+              env_var: "FIRST_PARTY_AUTH_ENABLED",
+              value: true,
+              default: true,
+              kind: "boolean",
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("azure_openai_model");
+    expect(screen.getByText("Language model")).toBeTruthy();
+    expect(screen.getByText("Sign-in")).toBeTruthy();
+    // The bucket that says this console has no opinion about a setting — neither of
+    // these may land in it.
+    expect(container.textContent).not.toContain("Settings this console has no group for yet");
   });
 });
 

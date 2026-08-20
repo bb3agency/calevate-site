@@ -67,5 +67,24 @@ export default defineConfig({
     // here rather than from a hand-written `afterEach` each file could forget.
     restoreMocks: true,
     unstubGlobals: true,
+    /**
+     * HEADROOM ABOVE `asyncUtilTimeout`, WITHOUT WHICH THAT SETTING CANNOT BE SPENT.
+     *
+     * `tests/setup.ts` raises RTL's `findBy`/`waitFor` budget to 5000ms and argues the case
+     * — 93 files across parallel workers, and the slowest render in a loaded run is nowhere
+     * near the slowest in an isolated one. Vitest's own `testTimeout` DEFAULTS TO 5000 too,
+     * so the two were equal and the RTL budget was unreachable: a `findBy` that needed even
+     * a second of real waiting killed the test on vitest's clock first, and reported it as
+     * "Test timed out" rather than as the assertion that was still waiting.
+     *
+     * That is not hypothetical — it is what a loaded box produced here, on a test whose
+     * only fault was waiting for a query instead of assuming it had already landed.
+     *
+     * RAISING IT WEAKENS NOTHING, which is `setup.ts`'s own argument for the same move: a
+     * wrong render still fails on its assertion, and `findBy` returns the moment the DOM
+     * matches. What this buys is that a slow run reports the real failure instead of a
+     * timeout, and that the 5000ms above means what it says.
+     */
+    testTimeout: 15_000,
   },
 });

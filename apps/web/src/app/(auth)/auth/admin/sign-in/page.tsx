@@ -12,13 +12,15 @@
  * on `/auth/admin` leaves this page permanently convinced restore is impossible — the one
  * page whose job is to fix that.
  *
- * ## This route exists alongside the Clerk one, and that is the migration, not a fork
+ * ## THIS IS THE ONLY OPERATOR DOOR — the migration this note used to describe is over
  *
- * `/admin/sign-in` still mounts Clerk and still works. AUTH-MIGRATION §5 step 6 ("deleting
- * Clerk") is explicitly NOT built, `apps/api/core/auth.py` does not yet accept the
- * first-party session cookie, and this slice owns `apps/web` only — so pointing the
- * existing path here would sign an operator into a console every one of whose API calls
- * would then 401. Two paths until the backend leg lands; one afterwards.
+ * It said "`/admin/sign-in` still mounts Clerk and still works … `apps/api/core/auth.py`
+ * does not yet accept the first-party session cookie". Both halves are now false and the
+ * second is the one that matters: `core/auth.py` reads the realm's `__Host-` cookie
+ * through `authn/cookies.read_token` and there is no identity vendor left to fall back to
+ * (D-177). There is no `/admin/sign-in` route in this app either — this path is where an
+ * operator signs in, and the console it lands them in authenticates with the session
+ * minted here.
  */
 
 import { Providers } from "@/app/providers";

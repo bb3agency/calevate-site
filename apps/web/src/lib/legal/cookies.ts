@@ -10,10 +10,13 @@ import type { LegalDocument } from "./types";
  *   authentication provider, no analytics and no third-party script. Fonts are local
  *   (`next/font/local`), so there is not even a font request leaving the browser. The
  *   public pages therefore set nothing.
- * - `ClerkProvider` is mounted only inside `src/app/admin/layout.tsx`, the client-realm
- *   layout and the `(auth)` sign-in pages. Clerk's cookies are key-suffixed per
- *   application so the two realms can coexist on one registrable domain — the mechanism
- *   is documented in `src/lib/authn/cookies` on the API side (`apps/api/authn/cookies.py`).
+ * - The dashboards set ONE cookie each, and we mint it ourselves. There is no
+ *   authentication vendor and no vendor cookie: `apps/api/authn/cookies.py` is the only
+ *   thing in this system that sets a session cookie, and `COOKIE_NAMES` there is the
+ *   authority for the two names below. This document used to describe a third party's
+ *   cookies, key-suffixed per application; that vendor was removed (D-166/D-170/D-177)
+ *   and the `__Host-` pair replaced them. A cookie notice naming cookies the site does
+ *   not set, and omitting the one it does, is the failure this file exists to avoid.
  *
  * So the honest notice is: nothing on the public site, strictly-necessary session cookies
  * once you sign in, no consent banner because there is nothing to consent to. Writing a
@@ -87,43 +90,40 @@ export const COOKIE_NOTICE: LegalDocument = {
           columns: ["Cookie", "Set by", "What it does", "How long it lasts"],
           rows: [
             [
-              "Session cookie",
-              "Clerk, our authentication provider",
-              "Carries the short-lived token that proves you are signed in. It is what " +
-                "makes every page you load yours rather than somebody else's.",
-              "Short-lived and refreshed while you use the dashboard.",
+              "__Host-calevate_client_session",
+              "Calevate. There is no third-party sign-in provider and no vendor cookie.",
+              "The client dashboard's session. It carries a random secret that identifies " +
+                "your session row on our server and nothing else — no name, no email, no " +
+                "account identifier. It is HttpOnly, so no script on the page can read " +
+                "it; Secure, so it is never sent over plain HTTP; SameSite=Strict, so it " +
+                "is not sent on a request another site started.",
+              "It is a session cookie and carries no expiry date of its own, so your " +
+                "browser drops it when you close it. Our server is the authority: a " +
+                "client session ends after 12 hours of inactivity, and after 14 days no " +
+                "matter how active you are.",
             ],
             [
-              "Client state cookie (name ends in a short suffix, for example " +
-                "__client_uat_a1b2c3d4)",
-              "Clerk",
-              "Records that a signed-in session exists in this browser, so the app knows " +
-                "whether to show you the dashboard or the sign-in screen. The suffix is " +
-                "derived from the application's public key: Calevate runs two entirely " +
-                "separate sign-in applications, one for clients and one for our operators, " +
-                "and the suffix is what stops them colliding on one domain.",
-              "Until the session ends. Operator sessions last 12 hours; client sessions " +
-                "refresh for up to 7 days.",
-            ],
-            [
-              "Development-only cookie",
-              "Clerk",
-              "Used only on a developer's machine, where the browser will not share a " +
-                "cookie across ports. It is never set on the live site.",
-              "Not applicable in production.",
+              "__Host-calevate_admin_session",
+              "Calevate.",
+              "Exactly the same cookie for the operator console, under a different name. " +
+                "The two are separate cookies backed by separate session logic, so being " +
+                "signed in to one grants nothing in the other.",
+              "Also a session cookie. Our server ends an operator session after 30 " +
+                "minutes of inactivity, and after 8 hours regardless — shorter than a " +
+                "client session, deliberately.",
             ],
           ],
         },
         {
           kind: "callout",
           tone: "note",
-          title: "Two applications, two sets of cookies, and no shared session",
+          title: "Two realms, two cookies, and no shared session",
           text:
-            "The client dashboard and the operator console use separate authentication " +
-            "applications with separate cookies and no shared session logic. Being signed " +
-            "in to one tells the other nothing. That separation is a security property, " +
-            "not a technical accident, and it is why you may see two similarly named " +
-            "cookies if you have used both.",
+            "The client dashboard and the operator console use separate cookies backed " +
+            "by separate session code, with nothing shared between them. Being signed in " +
+            "to one tells the other nothing. That separation is a security property, not " +
+            "a technical accident, and it is why you may see two similarly named cookies " +
+            "if you have used both.",
         },
       ],
     },

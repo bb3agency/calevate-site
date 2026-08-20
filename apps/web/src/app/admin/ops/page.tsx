@@ -36,6 +36,8 @@ import {
   Skeleton,
   formatCount,
   formatIST,
+  formatISTInput,
+  istInputToInstant,
 } from "@/components/ui";
 import {
   usePlatformState,
@@ -780,18 +782,15 @@ const TM_STATUSES: { value: TmStatus; label: string }[] = [
   { value: "revoked", label: "revoked — registration withdrawn" },
 ];
 
-/** `date-time` ⇄ `<input type="datetime-local">`. The input speaks LOCAL wall-clock
- * (an operator types the IST moment on the registrar's letter) and `Date` converts it
- * to the instant the API stores, so no timezone arithmetic happens by hand. */
-function toLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(
-    at.getHours(),
-  )}:${pad(at.getMinutes())}`;
-}
+/**
+ * `toLocalInput` WAS HERE AND IS GONE. It read `at.getHours()` — the BROWSER's wall clock
+ * — while its own comment said the field held "the IST moment on the registrar's letter".
+ * Those are the same number only on a machine set to India, and this is the admin console:
+ * an operator reading it from another zone was shown, and would have posted back, a
+ * different instant than the letter states. `formatISTInput`/`istInputToInstant`
+ * (`components/ui.tsx`) are the pair that names the zone instead of assuming it, beside
+ * the `formatIST` this screen already renders every other time through.
+ */
 
 /**
  * Calevate's own DLT telemarketer registration — the platform-wide campaign blocker.
@@ -823,7 +822,7 @@ function TmRegistrationPanel({
       : "not_registered",
   );
   const [tmId, setTmId] = useState(registration.tm_id ?? "");
-  const [registeredAt, setRegisteredAt] = useState(toLocalInput(registration.registered_at));
+  const [registeredAt, setRegisteredAt] = useState(formatISTInput(registration.registered_at));
   const [reason, setReason] = useState("");
   const [confirm, setConfirm] = useState("");
 
@@ -892,7 +891,7 @@ function TmRegistrationPanel({
               {
                 status,
                 tm_id: tmId.trim() || null,
-                registered_at: registeredAt ? new Date(registeredAt).toISOString() : null,
+                registered_at: istInputToInstant(registeredAt),
                 reason: reason.trim(),
               },
               { onSuccess: () => setConfirm("") },
@@ -930,7 +929,13 @@ function TmRegistrationPanel({
               />
             </label>
             <label className="block">
-              <span className={FIELD_LABEL}>Registered on</span>
+              {/* THE ZONE IS ON SCREEN, and it is not decoration. A `datetime-local`
+                  carries no zone, so an unlabelled one means "this machine's clock" to
+                  every reader — and this field does not: it holds the moment printed on
+                  the registrar's letter, which is IST wherever the operator is sitting.
+                  Saying so is what lets someone in another zone type the letter's digits
+                  rather than converting them, which is the whole correction here. */}
+              <span className={FIELD_LABEL}>Registered on (IST)</span>
               <input
                 type="datetime-local"
                 value={registeredAt}
@@ -938,6 +943,10 @@ function TmRegistrationPanel({
                 disabled={!access.allowed}
                 className={FIELD}
               />
+              <span className={FIELD_HINT}>
+                The date and time on the registrar&apos;s letter, in IST — type it as
+                printed, wherever you are.
+              </span>
             </label>
           </div>
 

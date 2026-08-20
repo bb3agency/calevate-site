@@ -183,9 +183,10 @@ export const PRIVACY_POLICY: LegalDocument = {
                   term: "Identity and sign-in",
                   detail:
                     "Your name, work email address and (if you give one) your phone " +
-                    "number, together with the identifier your sign-in provider assigns " +
-                    "you and your role in the account. Sign-in itself is operated for us " +
-                    "by Clerk; we never see or store your password.",
+                    "number, together with your role in the account. Sign-in is ours " +
+                    "end to end — there is no third-party sign-in provider, so your " +
+                    "account identity is not shared with one. We store your password " +
+                    "only as an Argon2id hash and never in a form anyone here can read.",
                 },
                 {
                   term: "Your business's own details",
@@ -572,14 +573,22 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "Speech and language processing happens in India, and this is enforced",
+              term: "Speech and language processing is configured for India, and the code cannot change that on its own",
               detail:
-                "The speech recognition, the language model and the voice synthesis used " +
-                "during a call run on an Indian provider. The one non-Indian vendor in " +
-                "the product — Google Cloud's Vertex AI, used for the dashboard assistant " +
-                "on redacted data only — is pinned to the Mumbai region (asia-south1) by " +
-                "a constant in the code, and a build check fails the release if any model " +
-                "endpoint anywhere in the codebase names a global or non-Indian host.",
+                "Speech recognition and voice synthesis run on an Indian provider. The " +
+                "language model on both AI legs — the model that holds the conversation " +
+                "during a call, and the dashboard assistant that works on redacted data " +
+                "— runs on Microsoft's Azure OpenAI service configured for the South " +
+                "India region. What the build enforces: there is one function in the " +
+                "whole codebase that may construct a model endpoint, it cannot produce a " +
+                "non-Indian region, the region appears exactly once and is not a setting " +
+                "anyone can edit, and the release fails if any of that stops being true. " +
+                "What it cannot enforce, stated plainly because the distinction is real: " +
+                "the provider's endpoint address does not name its own region, so that " +
+                "the account and its model deployment are genuinely in South India is " +
+                "confirmed by a person against the provider's console and filed as dated " +
+                "evidence, not proved by a build check. See the sub-processor page, " +
+                "section 3.2.",
             },
             {
               term: "The application and the database",
@@ -605,11 +614,13 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "outside India and see the sub-processor page.",
             },
             {
-              term: "Sign-in, transactional email and error monitoring",
+              term: "Transactional email and error monitoring",
               detail:
-                "Clerk, Resend and Sentry are operated from outside India. They receive " +
-                "account identities, email addresses and — for Sentry — error reports " +
-                "that pass through a redaction hook before they leave the process.",
+                "Resend and Sentry are operated from outside India. They receive email " +
+                "addresses and — for Sentry — error reports that pass through a " +
+                "redaction hook before they leave the process. Sign-in is no longer on " +
+                "this list: it used to be operated by an overseas provider and is now " +
+                "ours, running on the same server as the rest of the application.",
             },
           ],
         },

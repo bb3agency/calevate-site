@@ -14,6 +14,8 @@ import {
   SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
+  formatCallCap,
+  formatINR,
   formatIST,
 } from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
@@ -839,7 +841,7 @@ function CallCapPanel({
               <dd className="text-sm font-medium tabular-nums text-ink">
                 {pending.effective_call_cap_s}s
                 <span className="ml-1 text-xs font-normal text-ink-muted">
-                  ({minutesReading(pending.effective_call_cap_s)}
+                  ({formatCallCap(pending.effective_call_cap_s)}
                   {pending.call_cap_is_platform_default ? ", platform default" : ", set here"})
                 </span>
               </dd>
@@ -849,10 +851,17 @@ function CallCapPanel({
                 Worst case, one call
               </dt>
               {/* Null is "no rate on the plan", not free. Rendering ₹0 would be a lie
-                  the client would then see on their own screen. The value is an exact
-                  NUMERIC string and is never parsed (hard rule 7). */}
+                  the client would then see on their own screen.
+                  
+                  `formatINR`, not `₹${…}` — the SAME field on the client's own agents
+                  screen already made this trip: its header records "Money bypassed
+                  `formatINR`. `₹${state.worst_case_call_cost_inr}` printed the raw wire
+                  string, so ₹1,500.00 rendered as ₹1500.00". This is the operator's copy
+                  of that number, quoted to a client on the phone, and it was still
+                  ungrouped. `formatINR` formats the DIGITS and never parses them, which
+                  is the property that mattered here (hard rule 7). */}
               <dd className="text-sm font-medium tabular-nums text-ink">
-                {hasWorstCase ? `₹${worstCase}` : "no rate on this plan"}
+                {hasWorstCase ? formatINR(worstCase) : "no rate on this plan"}
               </dd>
             </div>
           </dl>
@@ -896,7 +905,7 @@ function CallCapPanel({
           <span className="text-xs text-ink-muted">
             {parsed === null
               ? "Empty — restores the platform default."
-              : `${minutesReading(parsed)} per call.`}
+              : `${formatCallCap(parsed)} per call.`}
             {/* Three states, not two. `lanes` supplies this input's `min`/`max`, so a
                 FAILED read silently removes the bounds from a control that is still
                 pressable — the operator types a value, the server refuses it, and nothing
@@ -1640,12 +1649,3 @@ function pointsReading(value: number): string {
   return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)} pts`;
 }
 
-/** Seconds in the units an operator argues about caps in. Presentation only — the
- *  number sent to the API is always the seconds the field holds. */
-function minutesReading(seconds: number): string {
-  if (!Number.isFinite(seconds)) return "—";
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  if (minutes === 0) return `${rest}s`;
-  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest}s`;
-}

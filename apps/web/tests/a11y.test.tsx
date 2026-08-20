@@ -1,6 +1,7 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { AiQuota } from "@/lib/api/aiQuota";
 import type { Margin } from "@/lib/api/admin";
 import type { CallDetail } from "@/lib/api/client";
 import AdminLayout from "@/app/admin/layout";
@@ -351,7 +352,20 @@ const USAGE = {
 };
 
 /** A self-serve account that has just hit its AI ceiling — the state with the offer on
- *  it, so the sweep sees the notice, the button and the copy around them. */
+ *  it, so the sweep sees the notice, the button and the copy around them.
+ *
+ *  THE TWO COUNTS ARE PRODUCIBLE BY THE SERVER AT TODAY'S PRICE, and they were not: this
+ *  fixture still carried 200 and 1,000, which divide ₹100 and ₹500 by a ₹0.50 nominal
+ *  that has not existed since D-146. `billing/ai_quota.py` derives both from
+ *  `assist_nominal_inr(model)` — ₹0.24 on `gpt-4o-mini` (D-410) — so ₹100 included is
+ *  416 and the ₹500 block is 2,083. D-410 recomputed the same three figures in
+ *  `aiQuota.test.tsx` and `callAssist.test.tsx` and did not reach this file; a fixture no
+ *  server can answer with is a wrong number carrying a fixture's authority, and this one
+ *  is the state an owner reads while deciding whether to spend ₹500.
+ *
+ *  `satisfies AiQuota` for the reason `wireFixtureGuard.test.ts` argues: the `Routes` map
+ *  takes `unknown`, so a plain literal here is checked by nothing at all. It pins the
+ *  SHAPE; the comment above is what pins the values, because no type can. */
 const AI_QUOTA_AT_CEILING = {
   month: "2026-08",
   plan_tier: "self_serve",
@@ -361,14 +375,14 @@ const AI_QUOTA_AT_CEILING = {
   allowance_inr: "100.00",
   remaining_inr: "0.00",
   requests_used: 214,
-  requests_included: 200,
+  requests_included: 416,
   requests_remaining: 0,
   extra_purchased_inr: null,
   extra_block_inr: "500.00",
-  extra_block_requests: 1000,
+  extra_block_requests: 2083,
   extra_available: true,
   extra_unavailable_reason: null,
-};
+} satisfies AiQuota;
 
 const DASHBOARD = {
   calls_today: 3,
