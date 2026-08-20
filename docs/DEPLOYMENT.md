@@ -16,7 +16,11 @@ receiver) needs only a **general-purpose VPS; India co-location is NOT REQUIRED 
 sentences together, because they are not in tension and the difference matters when
 somebody quotes one of them: co-location is not a *requirement* of this stack, and the
 founder bought it anyway. What that buys is one leg of the residency question and not the
-question — R2 runs `AWS_REGION=auto`, Bolna's recordings were observed on `us-east-1`, and
+question — R2 runs `AWS_REGION=auto`, Bolna **documents its whole platform as US-hosted by
+default** (*"By default, Bolna processes calls on infrastructure in the US (AWS us-east-1)"*,
+`bolna-findings/mirror/pages/concepts/security.md:29` — which is broader and better sourced
+than the recording-URL observation this line used to carry, and their India option is
+Enterprise-gated and foreclosed by our BYOK posture, D-415), and
 Resend and Sentry are operated outside India, so **an Indian host does not make the data
 plane India-resident and nothing here may claim it does** (D-180, LEGAL-SURFACE F-1).
 
@@ -192,7 +196,11 @@ worker) that rate was **≈250 acks/s per process**, and the measured latencies 
     plan at half that ceiling                  →  processes = peak ÷ (0.25 x T)
 
 D-32 records Bolna at **100 concurrent on Pilots and 250+ in production** — one
-campaign's calls hanging up together is exactly a burst of in-flight deliveries. So:
+campaign's calls hanging up together is exactly a burst of in-flight deliveries. (The 100
+is a plan claim from their marketing pricing page; their documentation publishes 2
+concurrent on free and "Starts at 10" on paid, `bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md:15,19`,
+and the account's real number is on `GET /user/me`. The sizing below stands on the 250+
+production datapoints, which are the conservative half.) So:
 
 | environment | peak in flight | processes | why |
 |---|---|---|---|
@@ -650,8 +658,10 @@ What is done about it:
   10-second default against a 25-second drain: every api deploy ended in SIGKILL.
   `tests/worker_reliability_test.py` pins drain < grace for all three services.
 - **The safety net already exists.** A delivery arriving in voice-runtime's gap gets no
-  ack; Bolna does not retry (D-31); the reconciliation poller recovers it on a 10-minute
-  tick. Leads appear late, not never. This is the same net OPERATIONS §5 leans on.
+  ack; whether Bolna retries it is UNSETTLED and we assume not (D-352 — the OSS deliverer
+  is a different program from the hosted one and their hosted webhook page states no
+  guarantee either way); the reconciliation poller recovers it on a 10-minute
+  tick regardless, which is why the gap is survivable under either reading. Leads appear late, not never. This is the same net OPERATIONS §5 leans on.
 
 **Rejected: a blue/green rollout plugin** (`docker rollout` and friends — scale to two,
 wait for healthy, drop the old). It is the right shape and it would close the gap, but it

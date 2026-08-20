@@ -195,6 +195,21 @@ expired on 1 June 2026, before today (20 Aug 2026), and we were never subject to
 there is no deadline *running*. Recording the near-miss is worth one clause; the exact
 proposed replacement, if the owning lane wants it:
 
+> **DISPOSITION, 20 Aug 2026 (doc-reconciliation pass): DECLINED for CLAUDE.md, applied
+> elsewhere.** Two reasons, both about what that file is for. (1) The clause's factual
+> content is vendor-changelog history, and CLAUDE.md carries no such list — starting one
+> means it grows with every vendor change and the next reader cannot tell which entries
+> still bind. (2) The part that DOES bind is a pipeline design rule, not a date: *never
+> parse, store or re-use a vendor URL; `calls.recording_url` holds our own object key*.
+> That rule now sits where the code it governs is described — `docs/TRD.md` §5 (Recordings
+> bullet, with the 1 Jun 2026 change, the Bolna-hosted endpoint and the 24-hour pre-signed
+> ceiling quoted from `changelog/may-2026.md:91,99,118`) and `docs/SURFACES.md` §3.3 — and
+> `docs/` wins over the manual anyway. CLAUDE.md's "no vendor deadline is currently running
+> against this product" is left exactly as it stands: it is true, and any clause appended to
+> it would read to a hurried agent as though one were.
+
+The proposed text, kept here as the record of what was declined:
+
 ```
 and no vendor deadline is currently running against this product. (Bolna's one dated
 breaking change — S3 recording URLs retired 1 Jun 2026, docs/evidence/

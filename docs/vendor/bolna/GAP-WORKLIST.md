@@ -1,6 +1,27 @@
 # Bolna docs → our tree: the reading order, and the leads already visible
 
-**What this is.** 335 documentation pages is a directory nobody opens. This is the
+> ## ⚠ SUPERSEDED AS A WORKLIST, 20 Aug 2026 — every lead below has been read out
+>
+> This file was written from ONE SENTENCE of index copy per page, before any page body
+> existed in the repo. The bodies now exist (`bolna-findings/mirror/pages/`, 335 pages,
+> hash-manifested) and ten audit lanes read them end to end; their reports are
+> `docs/evidence/bolna-*.md` and the decisions are ROADMAP §6 **D-414 … D-424** with
+> OPERATIONS §2 gates **9v, 21–27**. **Read the evidence files, not this one** — a lead is
+> a guess about a page, and guesses that have been answered are the most misleading kind of
+> document this repo can carry. Kept for provenance, and because how each guess FARED is
+> itself evidence about reading index copy as specification.
+>
+> | Lead | Verdict from the page bodies | Where |
+> |---|---|---|
+> | **A** — our two Azure model ids absent from their Azure page | **WRONG, and it was the highest-stakes lead here.** Their Azure "Supported models" table lists all four `gpt-4o`/`gpt-4.1` variants including both *mini*s; the index sentence was a marketing summary of the top of a table, not an allow-list. No fork, no defect. **What the same pages DID find** was a real defect the lead never suspected: our wire `provider` string and our credential name were both wrong (D-417). | `bolna-providers-llm.md` §1–3 |
+> | **B** — model landscape a generation ahead; BYOK may be pointless | **Half right, and the inference was wrong.** Our exact stack IS inside the flat-rate bundle — but *"When you bring your own keys (BYOK), Bolna does not charge for those components"* (`pricing/call-pricing.md:75`), so the 6¢ is a SUM, not a floor, and BYOK's cost case survives. What actually breaks the margin target is D-36's default TTS: `bulbul:v3` is NOT on the included list. | D-423, `bolna-executions-cost.md` §E |
+> | **C** — Indian-server processing may retire gate 9's verdict | **It retired it in the OTHER direction.** Their default is the US for everything, India residency is an Enterprise purchase, and its requirements EXCLUDE BYOK — so buying it would move zero calls. Gate 9 now tests a decision, not a measurement. | D-415, `bolna-compliance-residency.md` §2, §5 |
+> | **D** — a Violations API we had never heard of | **CONFIRMED and acted on.** Nothing pushes it, nothing signs it, and the only channel is a list endpoint; an hourly poller is built and gate 9v carries the five questions their pages do not answer. | D-416, `bolna-compliance-residency.md` §1 |
+> | **E** — dispositions may be the extraction feature we built | **Not a switch, and the real find was elsewhere**: the adapter was passing the vendor's *category-nested* `extracted_data` into a field our tree reads as flat. | `bolna-kb-extraction.md` |
+> | **§6 features with zero hits** | Read: graph agents (unused, and their debugging page yields the first number we have on in-call history — *"The response LLM only sees the most recent 50 messages"*, though it is stated of GRAPH agents and may not bind ours), Truecaller (per-client, unpriced, and it has a multi-day outage mode we do not model — gates 26/27), Web Call SDK, MCP/Skills, IVR/DTMF (documented, and DTMF is now pinned OFF because digits enter the transcript), CLI. | `bolna-subaccounts-platform.md`, `bolna-telephony.md` §7a, `bolna-call-flows.md` §5 |
+> | **§7 gate rows** | Gates 7 (unit settled, currency not), 16f (field names settled, `api-version` open), 6 (delivery guarantee UNSETTLED, and the poller was 400ing on a missing required parameter), 8 (both KB blockers re-confirmed), 10, 12, 13, 25–27 — each answered or sharpened in the lane report named above. | `docs/evidence/bolna-*.md` |
+
+**What this was.** 335 documentation pages is a directory nobody opens. This is the
 worklist that turns them into answers: for each open gate, marked assumption, or suspected
 gap, WHICH page settles it and WHAT to look for. Work top down — the order is by what it
 costs us to be wrong, not by how their docs are organised.

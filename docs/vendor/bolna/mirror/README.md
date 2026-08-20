@@ -1,7 +1,31 @@
 # Bolna documentation mirror — what this is, and what is missing from it
 
-**STATUS: INDEX ONLY. The 335 pages are NOT here yet.** Read the next section before
-treating anything in this directory as evidence.
+> ## ⚠ THE FETCH HAPPENED — AND IT LANDED SOMEWHERE ELSE (20 Aug 2026)
+>
+> **The 335 pages exist and have been read end to end. They are NOT in this directory and
+> they are not coming here.** They live at **`bolna-findings/mirror/`** — `pages/**`,
+> `llms.txt`, `llms-full.txt` and a `MANIFEST.json` carrying `url`, `status`, `bytes` and
+> `sha256` for all 335 (334 × 200, one 404 on `api-reference/openapi.yml`). The manifest's
+> own `path` values still read `vendor\bolna\mirror\pages\…`, which is where the fetcher
+> was pointed when it ran: **it ran on the founder's machine, not in this environment**, and
+> the result was delivered into the repo under a different root. This host's egress is
+> unchanged — `https://www.bolna.ai/docs/index.md` still returns 403 on CONNECT, re-measured
+> 20 Aug 2026 — so nothing here can re-fetch or refresh that tree.
+>
+> **Rules for the mirror**: read-only evidence, cited as `bolna-findings/mirror/pages/<path>:<line>`;
+> never edited, reformatted or moved (`bolna-findings` is in ruff's `extend-exclude` WITH
+> `force-exclude`, and `tests/vendor_evidence_guard_test.py` fails if a page drifts from its
+> recorded hash — a repo-wide `ruff format .` had already rewritten the vendor's Python
+> blocks in nine pages that other lanes were citing by line number).
+>
+> **What was done with it**: ten audit lanes, one report each, in `docs/evidence/bolna-*.md`;
+> the decisions they produced are ROADMAP §6 **D-414 … D-424** and OPERATIONS §2 gates
+> **9v, 21–27**. This directory stays as the provenance record of the index that ordered the
+> fetch — the `llms.txt` transcription and the trust table below — and is no longer the place
+> to look for a page.
+
+**STATUS (superseded): INDEX ONLY. The 335 pages are NOT here.** Read the next section for
+the provenance of what IS here.
 
 ## Why a mirror
 

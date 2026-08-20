@@ -70,7 +70,13 @@ Method & evidence:
     gates that close the remaining cost unknowns), `outpero-teardown-aug2026.md`
     (conclusions from the authenticated competitor teardown) and
     `outpero-research-log.md` (the raw working notes behind it, including which
-    findings were later retracted).
+    findings were later retracted). **And, since 20 Aug 2026, `bolna-*.md` — ten lane
+    reports over the vendor's ENTIRE hosted documentation set**, mirrored read-only at
+    `bolna-findings/mirror/` (335 pages, per-page SHA-256 manifest; the host itself is
+    still egress-blocked here, so the fetch happened elsewhere and cannot be refreshed
+    from this tree). Every vendor sentence in the blueprint is now expected to cite a page
+    and a line in that mirror — evidence class **VERIFIED-VENDOR-DOCS**. The decisions
+    they produced are ROADMAP §6 D-414…D-424 and OPERATIONS §2 gates 9v, 21–27.
 
 Engineering companions:
 12. **CLAUDE.md** — operating manual for Claude Code in the repo (hard rules, commands,

@@ -38,13 +38,23 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    switched ON at birth and switchable by the client afterwards (D-163 — the truthful
    answer when a caller ASKS is not switchable by anyone); extraction schema
    pre-filled from vertical template, edited per client; voice/language/model picks.
-5. **Knowledge**: paste text → chunk preview → admin approves → publish, which attaches
-   it to the engine KB (adapter) and recompiles T0. Same path and same limits as §7,
+5. **Knowledge**: paste text → chunk preview → admin approves → publish, which recompiles
+   T0 and, on an engine with a built-in knowledge base, attaches the new version and
+   detaches the superseded one. **On Bolna it REFUSES at the capability check before
+   anything is withdrawn** (`kb/service.py`, `require_capability("knowledge_base")`,
+   `BOLNA_CAPABILITIES.knowledge_base = False`, D-354): their create endpoint takes a PDF
+   or a URL and has no text field, which is the only shape our approved-prose pipeline
+   produces (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:31-80`).
+   Refusing before the detach is deliberate — the alternative takes a client's knowledge
+   down in order to report that we could not replace it. So T0 is what a client's
+   knowledge buys today (TRD §6.2). Same path and same limits as §7,
    which is the one description of it — PDFs and URLs are refused by name until an
    ingestion worker exists, and there is no embeddings job of ours (D-28/D-33).
-6. **Number & compliance** (see §10 for the full model): inbound DID provisioned via
-   adapter API (no SIMs — numbers are virtual, ~₹/hundreds/month rental, one-per-client
-   mandatory); existing client number handled by call-forwarding to the DID (porting only
+6. **Number & compliance** (see §10 for the full model): inbound DID obtained by a human,
+   NOT through our adapter — `PROVISIONING_IMPLEMENTED = False`, and for the 140/160
+   series there is no vendor endpoint to implement against at all (§10). Numbers are
+   virtual (no SIMs), ~₹/hundreds/month rental, one-per-client
+   mandatory; existing client number handled by call-forwarding to the DID (porting only
    later, never in onboarding critical path). If outbound intended: classification decided,
    client's own **PE registration** initiated (~₹5,900, we handle it — part of setup fee),
    DLT voice template drafted/submitted, series selected (140 promotional / 160-standard
@@ -226,8 +236,13 @@ caller dials client number → engine answers with agent →
 After-hours: agent runs 24/7 by default; "after_hours" flag set from business_hours →
 dashboard "after-hours captured" metric; escalation rules can differ after hours.
 Failure: engine down ⇒ number's fallback route = client's own phone (configured at
-provisioning); our webhook down ⇒ **the event is LOST at the webhook layer (Bolna has
-no delivery retries — D-31)**; the 10-min List-Executions reconciliation poller is the
+provisioning); our webhook down ⇒ **assume the event is LOST at the webhook layer**
+(this said "Bolna has no delivery retries — D-31" as a fact; it is not one. D-352 showed
+the OSS single-POST deliverer is a different program from the hosted one, their skills
+repo says the hosted platform retries on non-2xx, and their own hosted webhook page
+`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md` says
+**nothing at all** about retries, signing or guarantees — one uncorroborated source either
+way, so we design for loss and claim neither); the 10-min List-Executions reconciliation poller is the
 guarantee of record and recovers every missed event.
 
 ## 4. Instant Lead Callback (Webhook-in → Outbound)
@@ -283,18 +298,52 @@ Three rules, all of them consequences of things stated elsewhere in this documen
 
 **Concurrency reservation (our dispatcher — the platform has no native reserved-inbound
 feature):** the platform account's line pool is shared across ALL tenants, so one client's
-campaign must never starve another's inbound receptionist. The dispatcher enforces, in
-order: (1) `platform_lines_total` (from verification item 8, config value); (2)
+campaign must never starve another's inbound receptionist. ⚠ **THE VENDOR'S DOCS SAY THE
+SECOND HALF OF THAT SENTENCE CANNOT HAPPEN, AND WE ARE NOT ACTING ON PROSE.** The
+"no native reserved-inbound feature" half is confirmed — no such setting exists anywhere
+in `bolna-findings/mirror/`. But the org envelope is scoped to *outbound*
+(`enterprise/concurrency-management.md:33`) and two pages say inbound is never admitted
+against it: *"Inbound calls are never queued"* (`:65`) and *"**No concurrency limits** -
+inbound calls are never restricted or queued"*
+(`pricing/outbound-calling-concurrency.md:26-28`). If that survives contact with a
+saturated media plane, `inbound_reserve` costs us 4 of 10 lines for nothing and the
+outbound pool goes 6 → 10, a 67% throughput gain **free**. It is exactly the class of
+vendor claim D-31/D-32/D-350 exist for — a statement about admission control — so it is
+an OBSERVATION TO MAKE at pilot gate 13 (hold N outbound calls at the ceiling, place an
+inbound call to a platform number, see whether it connects), not a change to make from a
+page. Two more facts from the same pages that our dispatcher does not model: surplus
+outbound work is **queued, not rejected** (`pricing/outbound-calling-concurrency.md:41`) —
+so an over-high `platform_lines_total` is a COMPLIANCE defect, not a throughput one, because
+the surplus dials out of a vendor queue we cannot see or DNC-scrub after `check_dispatch`
+has already cleared it; and *"An account's capacity is split evenly across its providers"*
+(`enterprise/concurrency-management.md:73`), so the moment we dial through both Plivo and
+Vobiz with work waiting on each, our effective ceiling on each is HALF the pool. The
+dispatcher has no notion of a provider. Both are gate 13.
+The dispatcher enforces, in
+order: (1) `platform_lines_total` (from verification item 8, config value — **and the
+vendor publishes this number on a read endpoint, `GET /user/me` →
+`concurrency: {max, current}`, `api-reference/user/info.md:78-87`, so it should be READ
+rather than typed: the paid tier "scal[es] automatically with monthly usage",
+`pricing/outbound-calling-concurrency.md:19`, i.e. a correct constant decays without a
+deploy**); (2)
 `inbound_reserve` (default 30% of pool, min 4 lines) — outbound dispatch may only use
 `total − reserve`; (3) per-tenant `concurrency_ceiling` (plan field, default ≤ 10);
 (4) per-campaign concurrency slider ≤ tenant ceiling; (5) the platform's outbound
-call-creation rate limit — Bolna's is unpublished (pilot measures it; recorded as a
-config value) — the dispatch loop paces dial requests across ALL tenants to stay
-under whatever the measured/contracted limit is. Dispatch loop: before each dial, check active-call count from live engine
-events against (2)+(3); over-limit contacts stay queued (mirrors platform queuing
-behavior). Also respect the secondary ceilings: Sarvam
-BYOK-tier model concurrency and SIP trunk channels — the dispatcher's effective pool is
-MIN of all three (config values, reviewed when any vendor plan changes).
+call-creation rate limit — **published, and this line used to say it was not**: `POST
+/call` is **500 requests/minute**, counted per ORGANIZATION and shared across every user
+in it, with a 429 on breach (`bolna-findings/mirror/pages/api-reference/rate-limiting.md:18-27`);
+what remains unpublished is dispatch PACING, which is a different quantity (the limit
+bounds our request rate, not how fast the platform dials) — the dispatch loop paces dial
+requests across ALL tenants to stay under whatever the documented/measured limit is. Dispatch loop: before each dial, check active-call count from live engine
+events against (2)+(3); over-limit contacts stay queued — and that genuinely does mirror
+platform behaviour: *"Outbound calls that don't fit your concurrency limit are **queued,
+not rejected**"* (`pricing/outbound-calling-concurrency.md:41`). Also respect the secondary
+ceilings: Sarvam BYOK-tier model concurrency and the Azure TPM/RPM quota in `southindia`
+— the dispatcher's effective pool is MIN of those with (1) (config values, reviewed when
+any vendor plan changes). **"SIP trunk channels" was the third term here and it is
+removed**: we run no trunk, and a BYOT trunk would not add an independent ceiling anyway —
+*"those calls run on Bolna's SIP infrastructure, so they share platform capacity even
+though the trunk is yours"* (`enterprise/concurrency-management.md:80`).
 
 ## 6. Post-Call Pipeline (worker jobs, keyed by call_id, idempotent)
 
@@ -421,8 +470,10 @@ ported per client wish.
 ## 10. Number Provisioning & DLT Roles (reference)
 
 **No physical SIMs.** All numbers are virtual DIDs (Exotel / Vobiz / Plivo, connected to
-the engine — Bolna guides verified for all three; Vobiz inbound unconfirmed, TRD §5),
-routed over SIP, stored in `phone_numbers`.
+the engine — Bolna guides verified for all three; **Vobiz inbound is ASSERTED in their
+capability matrix with no provider-specific guide published**, where Twilio, Plivo and
+Exotel each have one — `bolna-findings/mirror/pages/supported-telephony-providers.md:33`,
+TRD §5), routed over SIP, stored in `phone_numbers`.
 
 **BUT "PROVISIONED VIA API" IS TRUE ONLY OF ORDINARY GEOGRAPHIC DIDs, AND THIS LINE USED
 TO SAY IT OF ALL OF THEM.** The 140- and 160-series numbers this product actually sells on
@@ -450,7 +501,10 @@ Typical allocation per client:
 
 **DLT role model:** each **client is the Principal Entity (PE)** for calls made on their
 behalf (their identity, their templates, their consent records — PE registration ~₹5,900
-first TSP, executed by us during onboarding as part of the setup fee). **Calevate
+first TSP, executed by us during onboarding as part of the setup fee; **the figure is
+independently corroborated by the engine vendor's own guide** — *"a payment link for
+**₹5,900** will be generated on the portal"*,
+`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md:60`). **Calevate
 registers once as the Telemarketer (TM)** under our operating entity and is linked to each
 client PE. Calevate's TM registration is therefore the single company-level blocker
 (Risk R-01); each client's PE registration is an onboarding step.

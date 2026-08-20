@@ -116,6 +116,16 @@ prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_con
 extraction_schemas(id, tenant_id, agent_id, version INT, fields JSONB, published_at)
 phone_numbers(id, tenant_id, agent_id, e164 UNIQUE, series ENUM[140,160,standard],
   provider, engine_number_ref, dlt_status ENUM[pending,registered,blocked], purpose TEXT)
+  -- KNOWN UNMODELLED STATE, recorded rather than added: a Truecaller-verified number can
+  -- enter "Delisting Pending" for 1-3 business days, during which "outbound and inbound
+  -- calls on this number will be blocked"
+  -- (bolna-findings/mirror/pages/guides/inbound/truecaller-verification.md:161,215).
+  -- It is triggered by a click in a dashboard we do not own, with no webhook and no
+  -- documented status field to read, and our dispatcher would keep handing the number to a
+  -- campaign. The column is NOT extended for it: nothing is Truecaller-verified yet (the
+  -- vendor does not publish the price), and a state we cannot observe is a lie in a column.
+  -- Interim control is procedural — nobody delists a number attached to a live agent —
+  -- and gate 27 asks whether GET /phone-numbers/all exposes any verification status at all.
 ```
 
 `extraction_schemas.fields` shape (validated by Pydantic on write):
@@ -426,6 +436,14 @@ engine_capacity(id PK=1, platform_lines_total INT, inbound_reserve INT,
   -- (with MIN_INBOUND_RESERVE = 4) in apps/workers/campaign_dispatch.py — deliberately a
   -- constant until the pilot produces real numbers, so the measured value has exactly one
   -- place to land. The table lands when there is more than one number to store.
+  -- ⚠ THE PILOT IS NOT NEEDED FOR THE FIRST OF THOSE NUMBERS AND THIS COMMENT USED TO
+  -- IMPLY IT WAS: the vendor publishes the account's ceiling on a read endpoint —
+  -- GET /user/me returns concurrency:{max,current}
+  -- (bolna-findings/mirror/pages/api-reference/user/info.md:78-87) — and the paid tier
+  -- "scal[es] automatically with monthly usage" (pricing/outbound-calling-concurrency.md:19),
+  -- so a correct constant decays without a deploy. inbound_reserve is a separate question
+  -- and a live one: their docs say inbound is never queued or restricted at all, which
+  -- would make the reserve free throughput — pilot gate 13, FLOWS §5, do NOT act on prose.
 invoices(id, tenant_id, period, lines JSONB, subtotal, gst, total,
   status ENUM[draft,sent,paid,overdue], razorpay_ref)
   -- SHIPPED INSTEAD (M2): an invoice is a DERIVED STATEMENT, not a row. `build_invoice`

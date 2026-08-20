@@ -17,8 +17,10 @@ same Azure resource, region and model constants, reached through the ONE builder
 `azure_openai_base_url()` (`https://{resource}.openai.azure.com/openai/v1` — the
 OpenAI-compatible v1 surface, no `api-version`, a **static API key** in
 `Authorization: Bearer`). `engine/bolna.py::_llm_routing` maps our vocabulary to
-`provider: "azure"`, a first-class Bolna provider, so the unverified `custom` credential
-path is not used. There is no rotation cron and no dead man: D-404's machinery existed
+`provider: "azure-openai"` — the vendor's own machine-readable wire value
+(`bolna-findings/mirror/pages/providers/llm-model/azure-openai.md:20,59`); it said
+`"azure"` until their docs were read, which was a LABEL, not a wire value (D-417) — a
+first-class Bolna provider, so the unverified `custom` credential path is not used. There is no rotation cron and no dead man: D-404's machinery existed
 because a regional Vertex endpoint took no static key, and it is deleted with it.
 **The first post-call extraction stays on Sarvam permanently** because it reads raw
 transcript text (`GEMINI_EXTRACTION_DEFAULT is False`, and D-410 does not move it).
@@ -27,9 +29,14 @@ was**: `<resource>.openai.azure.com` names no region, so the guard proves only t
 constant spells the region, that no `Settings` field can carry one, and that no endpoint
 is constructible outside the builder — the resource's actual region and its
 **Regional-not-Global** deployment type are attested by a human (OPERATIONS §2 gates 20
-and 20c). Global is Azure's default and processes worldwide. **(b) Which credential
-FIELDS Bolna's Azure provider expects is a MARKED ASSUMPTION** (their docs are
-egress-blocked here) — gate 16f; do not invent field names. **BRD R-04's 16 Oct 2026
+and 20c). Global is Azure's default and processes worldwide. **(b) The credential FIELD NAMES are SETTLED and the guess we shipped was WRONG**
+(D-417): their Azure provider takes four flat entries — `AZURE_OPENAI_API_KEY`,
+`AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`
+(`bolna-findings/mirror/pages/providers.md:40,96-102`) — so four `POST /providers` calls,
+not one, and `Settings.bolna_llm_credential_name` now defaults to `AZURE_OPENAI_API_KEY`.
+Their docs are no longer egress-blocked; they are mirrored under `bolna-findings/`. What
+stays open is whether `AZURE_OPENAI_API_VERSION` is real on the v1 surface — their own two
+pages disagree — gate 16f; still do not invent values. **BRD R-04's 16 Oct 2026
 retirement is gone** with the model and the date-carrying constant. Our code: admin console,
 client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,

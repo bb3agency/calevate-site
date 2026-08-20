@@ -23,19 +23,35 @@ product.** Read the three LLM surfaces separately — two moved, one deliberatel
    `Authorization: Bearer`. There is no rotation cron, no dead man, no org policy and no
    12-hour ceiling — D-404's whole machinery existed because a regional Vertex endpoint
    took no static key, and it is deleted. `engine/bolna.py::_llm_routing` maps our
-   vocabulary to `provider: "azure"`, a FIRST-CLASS Bolna provider (their published
-   provider list, the live agent dropdown, and `azure`/`azure-openai` in their OSS
-   `LLMProvider`), so the `custom` route — the one whose credential path was never
-   verified (retired gate 16c) — is not used. **`azure_openai_deployment` is NOT
-   `azure_openai_model`**: on Azure you deploy a model under an id you choose and call
-   THAT id, so the deployment name is config and can never be derived. ⚠ ONE MARKED
-   ASSUMPTION REMAINS: which credential FIELDS Bolna's Azure provider expects — their docs
-   are egress-blocked from this environment, so nothing here invents a field name and
-   presents it as fact. `Settings.bolna_llm_credential_name` survives to carry it
-   (`applies: live`, default `AZURE`), so a wrong guess costs a console edit and not a
-   deploy — OPERATIONS §2 gate 16f. `agents/service.py::in_call_llm` remains the ONE
-   place the leg is decided for an agent. **The next Bolna work is one API call**:
-   `GET /providers`, then `POST /providers`, then `GET` again.
+   vocabulary to **`provider: "azure-openai"`** — a FIRST-CLASS Bolna provider, so the
+   `custom` route (whose credential path was never verified, retired gate 16c) is not
+   used. **THIS SAID `"azure"` UNTIL THEIR DOCS WERE READ (D-417)**: D-410 chose it from a
+   provider matrix and a dashboard dropdown, both human-readable LABELS, which is the wrong
+   class of evidence for a wire value; their docs print the machine-readable one twice
+   (`bolna-findings/mirror/pages/providers/llm-model/azure-openai.md:20,59`).
+   **`azure_openai_deployment` is NOT `azure_openai_model`**: on Azure you deploy a model
+   under an id you choose and call THAT id, so the deployment name is config and can never
+   be derived. **The credential-FIELDS assumption is CLOSED and the guess was wrong**
+   (D-417): their Azure provider takes four flat entries — `AZURE_OPENAI_API_KEY`,
+   `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`
+   (`providers.md:40,96-102`) — and the store is `{provider_name, provider_value}`, so it
+   is **four** `POST /providers` calls, not one. `Settings.bolna_llm_credential_name`
+   (`applies: live`) now defaults to `AZURE_OPENAI_API_KEY`; `AZURE` would have 401'd on
+   the first turn of the first call. ⚠ ONE HALF STAYS OPEN: whether
+   `AZURE_OPENAI_API_VERSION` is real on the v1 surface, where two of their own pages
+   disagree — OPERATIONS §2 gate 16f, and no value is invented for it.
+   `agents/service.py::in_call_llm` remains the ONE place the leg is decided for an agent.
+   **The next Bolna work is still API calls**: `GET /providers`, four `POST /providers`,
+   then `GET` again.
+   **Where the vendor facts now come from**: their doc HOST is still egress-blocked here
+   (`www.bolna.ai` → 403 on CONNECT, re-measured 20 Aug 2026), but their 335 pages were
+   fetched elsewhere and delivered as a read-only mirror at `bolna-findings/mirror/` with a
+   per-page SHA-256 `MANIFEST.json`. That is the **VERIFIED-VENDOR-DOCS** class every
+   vendor claim in this tree now cites, page and line; the ten lane reports over it are
+   `docs/evidence/bolna-*.md`. **Never edit, reformat or move it** — ruff is configured to
+   exclude it (`force-exclude`) because a repo-wide `ruff format .`, the exact command the
+   Commands section below tells you to run, once rewrote the vendor's code blocks inside
+   nine pages that other lanes were citing by line number.
 2. **Dashboard AI** (user-triggered, over redacted data) — same resource, same region,
    same model constants. D-127's rules (G-1..G-7: redaction before the call, no raw PII,
    the disclosed Sarvam fallback) are unchanged and now bind Azure.
