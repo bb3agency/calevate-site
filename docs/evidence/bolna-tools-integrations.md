@@ -608,6 +608,11 @@ Stated so a future reader can tell "checked and fine" from "not looked at":
 
 ## 7. Proposed OPERATIONS §2 gate-table text — EXACT, to be applied centrally
 
+*Applied 20 Aug 2026. The gate-18 criteria replacement carries one correction: the vendor has
+no `hangup_detail` field, so (e) now names `hangup_by` / `hangup_reason` / `hangup_provider_code`
+(D-414). The gate-9 parenthetical was folded into the rewritten gate 9 (D-415) rather than
+patched, because that whole row was replaced in the same pass.*
+
 **Replace the criteria cell of gate 18** (the `#`/name cell is unchanged):
 
 > `BOLNA_CAPABILITIES.transfer=False` was "nobody checked", then "the built-in is an in-call
@@ -707,7 +712,7 @@ sentence:
 **Proposed ROADMAP §6 decision-log entry**, for the one field this pass found and
 deliberately did not wire:
 
-> **D-4xx — `context_details.recipient_data` is a real return channel and is NOT read yet.**
+> **D-422 — `context_details.recipient_data` is a real return channel and is NOT read yet.** *(applied centrally 20 Aug 2026 as D-422.)*
 > Four independent Bolna tutorials (Make.com email/SMS/WhatsApp, n8n email) show the
 > post-call webhook carrying `context_details.recipient_data` — the round-trip of the
 > `user_data` our `start_outbound_call` sent — alongside

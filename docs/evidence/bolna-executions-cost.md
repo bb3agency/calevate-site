@@ -19,7 +19,7 @@ produce different numbers.
 | B | The webhook source-IP allowlist held **1 of 3** documented egress addresses, and it fails safe — two of three senders were being rejected. | capability constant wrong | **FIXED** |
 | C | Gate 7's **unit** half is settled by the vendor's own worked example — arithmetic, not a precedence rule. | assumption → fact | **FIXED (evidence + tests)** |
 | D | Gate 7's **currency** half is *not* settled, and cannot be settled by capturing a payload — `AgentExecution` declares no `currency` field. | assumption stands | refusal branch kept |
-| E | Our stack (`azure/gpt-4o-mini`, `saaras`, `bulbul:v2`) is **included in Bolna's flat $0.06/min rate**. The cost case for BYOK is gone; the residency case is not. | founder decision | reported, not changed |
+| E | Our stack (`azure/gpt-4o-mini`, `saaras`, `bulbul:v2`) is **included in Bolna's flat $0.06/min rate**. ⚠ **THE INFERENCE DRAWN FROM THAT WAS WRONG AND IS CORRECTED BELOW (D-423): the 6¢ is a SUM, not a floor** — `call-pricing.md:75` says BYOK removes the charge for those components. | founder decision | observation stands, conclusion corrected |
 | F | `bulbul:v3` is **not** on the preferred list — D-36's default TTS falls off the flat rate onto variable billing. | founder decision | reported, not changed |
 
 ---
@@ -371,7 +371,21 @@ is `20`"*, and *"keep fetching while `has_more == true`"* — which is exactly w
 
 ## 6. Founder decisions — NOT changed by me
 
-### E. BYOK buys us **no cost saving on the LLM leg**. It still buys residency.
+### E. Our stack is inside the bundled tier — and BYOK still SAVES money. ⚠ CORRECTED 20 Aug 2026 (D-423)
+
+> **THIS SECTION'S OBSERVATION IS RIGHT AND ITS CONCLUSION WAS WRONG.** It read the flat
+> $0.06/min as a FLOOR and concluded "the cost argument for BYOK is dead". The 6¢ is a
+> **SUM**, decomposed on the vendor's own dashboard as voice agent (STT+LLM+TTS) 3.5¢ +
+> telephony 0.5¢ + Bolna platform 2.0¢ (VERIFIED-DASHBOARD, founder screenshot, 20 Aug
+> 2026), and `bolna-findings/mirror/pages/pricing/call-pricing.md:75` — quoted in this very
+> section — says outright: *"You can significantly reduce costs by connecting your own
+> provider accounts. When you bring your own keys (BYOK), Bolna does not charge for those
+> components. You only pay your providers directly, plus Bolna's platform fee."* So BYOK
+> deletes the 3.5¢ line and replaces it with our own provider bills. Against TRD §10.1:
+> bundled ₹5.52/min, BYOK with Bulbul v3 ₹3.98–4.66/min, BYOK with Bulbul v2
+> ₹3.44–3.85/min. **BYOK is cheaper on our stack, and only the v2 variant lands inside the
+> ₹3–3.6/min target.** The decision that follows is D-36's default TTS, not BYOK — see
+> ROADMAP §6 D-423 and OPERATIONS §2 gate 12(a).
 
 `bolna-findings/mirror/pages/pricing/preferred-models.md`:
 
@@ -397,18 +411,22 @@ the flat rate. Meanwhile:
 > yet marked as preferred), that component is billed at variable, usage-based rates instead
 > of the flat rate. — `preferred-models.md`
 
-**The decision to put to the founder:** the *cost* argument for BYOK on the in-call LLM leg
-is dead — going BYOK moves that component **off** a bundled flat rate and onto our own Azure
-bill plus Bolna's platform fee. **The residency argument is untouched and is why D-410
-exists.** Bolna's `azure/*` deployment is *theirs*; its region is unstated, and per
+**The decision to put to the founder** ⚠ *as corrected by D-423:* going BYOK moves each
+component **off** the bundled flat rate and onto our own provider bill plus Bolna's platform
+fee — and on our stack that is **cheaper**, not merely different, because `gpt-4o-mini` and
+Sarvam cost us far less than the 3.5¢/min voice-agent line they replace. What the founder
+owns is the TTS rung: `bulbul:v3` is our default (D-36) and is NOT on the preferred list,
+which costs twice over — it forfeits the included tier and it pushes the all-in figure
+outside the ₹3–3.6/min target that `bulbul:v2` sits inside. **The residency argument is
+untouched and is why D-410 exists.** Bolna's `azure/*` deployment is *theirs*; its region is unstated, and per
 CLAUDE.md a resource's region and its Regional-vs-Global deployment mode can only be
 attested in the portal by a human — which we cannot do for someone else's resource, and
 Global is Azure's default. Routing in-call transcripts through an Azure deployment whose
 region we cannot attest breaks the DPA claim.
 
-**I did not change our provider posture.** My reading is that BYOK survives on residency
-alone and that this should be recorded as such, so nobody later "optimises" it away on
-cost. That is a founder call, not mine.
+**I did not change our provider posture.** My reading was that BYOK survives on residency
+alone; ⚠ that reading is superseded by D-423 — it survives on residency **and** on cost, and
+the live question is the TTS rung rather than BYOK itself. That is a founder call, not mine.
 
 Two commercial notes for gate 12 while it is open:
 
@@ -470,11 +488,15 @@ edited nothing under `/legal/`.
 
 ## 7. Exact text proposed for files I must not edit
 
+*Applied 20 Aug 2026: the gate-7 replacement, the gate-12 additions (in the corrected form —
+see finding E and **D-423**), and the gates 17/18 field-name correction. The decision row landed
+as **D-414**, not D-412 — that number was already taken by the alarm-stage decision.*
+
 ### `docs/OPERATIONS.md` §2 — gate 7, replacement for the sentences from
 ### "**THE ONE THAT RAISED THIS TO A HARD GATE**" onward
 
 > **THE UNIT IS SETTLED; THE CURRENCY IS NOT, AND THIS GATE NOW SCORES ONLY THE SECOND
-> (D-412).** Our adapter divides by 100 (`_ASSUMED_MINOR_UNITS_PER_MAJOR`). That constant
+> (D-414).** Our adapter divides by 100 (`_ASSUMED_MINOR_UNITS_PER_MAJOR`). That constant
 > used to rest on the vendor's own precedence rule between two contradicting first-party
 > documents — a rule about which document to believe, not an observation. Their hosted API
 > reference now prints a real completed execution
@@ -509,12 +531,13 @@ edited nothing under `/legal/`.
 > `bolna-findings/mirror/pages/pricing/preferred-models.md` states "**\$0.06/min
 > (₹5.52/min)** at standard wallet tiers" and lists the included models. **Our entire stack
 > is inside it** — `azure/gpt-4o-mini` and `azure/gpt-4.1-mini` (LLM), `saaras:v2.5` /
-> `saaras:v4` (ASR), `bulbul:v2` (TTS). So the **cost** case for BYOK on the in-call LLM leg
-> is gone; BYOK moves that component off a bundled rate onto our own bill plus the platform
-> fee. **The residency case is untouched and is the whole of D-410's reason** — Bolna's
-> `azure/*` deployment is theirs, its region is unstated, and Global is Azure's default.
-> Record that BYOK now stands on residency alone so nobody later optimises it away on
-> price. Same page also answers (b) in part: "Larger wallet top-ups (e.g. \$600+) get a
+> `saaras:v4` (ASR), `bulbul:v2` (TTS). ⚠ **APPLIED CENTRALLY IN THE CORRECTED FORM (D-423):**
+> this proposal said the cost case for BYOK was gone. It is not — `call-pricing.md:75` says
+> BYOK removes the charge for those components, so the 6¢/min is a SUM (voice agent 3.5¢ +
+> telephony 0.5¢ + platform 2.0¢, VERIFIED-DASHBOARD) rather than a floor, and BYOK on our
+> stack is cheaper. **The residency case is untouched and is the whole of D-410's reason** —
+> Bolna's `azure/*` deployment is theirs, its region is unstated, and Global is Azure's
+> default. What is worth recording is that `bulbul:v3` is NOT on the preferred list. Same page also answers (b) in part: "Larger wallet top-ups (e.g. \$600+) get a
 > lower effective per-minute rate as a volume discount — the preferred model bundle itself
 > is the same across tiers."
 > **(g) — the inference is stronger but still an inference:** `pricing/call-pricing.md`
@@ -541,7 +564,7 @@ distinct status on a client's screen — not the factual one.
 
 ### `docs/ROADMAP.md` §6 — proposed decision-log entry
 
-> **D-412 — Bolna renumbered its webhook egress and requires both halves of the executions
+> **D-414 — Bolna renumbered its webhook egress and requires both halves of the executions
 > date filter; both halves of the guarantee of record were down.** *Supersedes the
 > single-egress premise in D-31/TRD §5 and completes D-353.*
 > **(1)** `DEFAULT_BOLNA_SOURCE_IPS` held one address. Bolna now publishes **three** —
@@ -567,9 +590,9 @@ distinct status on a client's screen — not the factual one.
 > cannot be closed by a payload capture: `AgentExecution` declares no `currency` field, so
 > an INR-billed account meters on the USD assumption rather than refusing. Gate 7 now needs
 > an invoice.
-> Closes: nothing external. Opens: gate 12 should record that BYOK survives on **residency
-> alone**, since `azure/gpt-4o-mini` and `azure/gpt-4.1-mini` are inside Bolna's flat
-> $0.06/min bundle.
+> Closes: nothing external. Opens: gate 12 records the bundle membership of our models and
+> ⚠ — corrected centrally as D-423 — that BYOK still saves money on our stack, that the
+> platform fee is observed at 2¢/min, and that `bulbul:v3` is outside the preferred list.
 
 ---
 

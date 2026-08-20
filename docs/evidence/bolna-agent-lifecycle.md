@@ -182,7 +182,7 @@ has to run per language: `compose_engine_prompt` would render one prompt per ent
 `multilingual_config.languages`, each carrying `TRUTHFUL_ANSWER_DIRECTIVE` *in that language*,
 and the judge would have to read every one of them back. That is a shared-model change and a
 translation question (the directive is English prose today), so it is a decision, not a flag —
-proposed decision-log entry **D-1** below.
+proposed decision-log entry **D-418** below (applied centrally 20 Aug 2026).
 
 ### F-2 — `routes` answers **without the LLM**. REPORTED (needs Lane B).
 
@@ -472,7 +472,7 @@ an omission:
 `calling_guardrails: {call_start_hour: 9, call_end_hour: 21}` *and* accept that a dial we
 mistakenly authorise at 21:30 gets parked to 09:00 rather than refused. That trades a
 loud failure for a silent 12-hour-late call to a lead who may have gone on DNC in between.
-I did not send it. Proposed decision-log entry **D-2**.
+I did not send it. Proposed decision-log entry **D-419** (applied centrally 20 Aug 2026, merged with a sibling lane's `auto_reschedule`/`dtmf_enabled` finding).
 
 ### F-6 — the engine speaks a line we did not write, in a language we did not choose
 
@@ -624,7 +624,7 @@ currently pins `parallel`; whichever way this resolves, that test moves with it.
 
 ### docs/ROADMAP.md — decision log
 
-> **D-1 — Bolna agents are published single-language, and multilingual is a composer change
+> **D-418 — Bolna agents are published single-language, and multilingual is a composer change
 > rather than a toggle.** `MultilingualConfig` keeps a `system_prompt` per language and the
 > platform "switches them, along with the active system prompt, during the call"
 > (`bolna-findings/mirror/pages/api-reference/agent/v2/create.md`). `compose_engine_prompt` puts
@@ -640,7 +640,7 @@ currently pins `parallel`; whichever way this resolves, that test moves with it.
 > prompts. Until then a Telugu-first agent speaks Telugu because its script and its voice are
 > Telugu, not because the engine switches languages mid-call.
 
-> **D-2 — Calling-hours enforcement stays ours; Bolna's `calling_guardrails` is deliberately
+> **D-419 — Calling-hours enforcement stays ours; Bolna's `calling_guardrails` is deliberately
 > unset.** Their built-in reschedules an out-of-window dial to the next allowed start in the
 > recipient's timezone. A dial parked at 22:00 and placed at 09:00 has not passed
 > `compliance.check_dispatch` at the moment it is placed — no DNC re-read, no consent re-read, no
@@ -666,14 +666,14 @@ currently pins `parallel`; whichever way this resolves, that test moves with it.
 > the whole configuration — set `calling_guardrails` via `PATCH`, then `PUT` a body that omits
 > it, and re-read.
 
-> **Gate 21 (new) — `toolchain.execution`.** We send `parallel` (VERIFIED-OSS, their own
+> **Gate 24 (new; applied as 24 — three lanes proposed a "21") — `toolchain.execution`.** We send `parallel` (VERIFIED-OSS, their own
 > builder); the hosted doc's "smallest body that produces a working English conversation agent"
 > sends `sequential`, twice. Both are in the enum. Create one agent each way, place a test call on
 > each, and record whether first-audio latency or turn behaviour differs. Whichever wins, the
 > value and `tests/bolna_contract_test.py::test_the_toolchain_and_prompt_envelope_match_the_spec`
 > move together.
 
-> **Gate 22 (new) — the silence probe we did not configure.** `check_if_user_online` defaults
+> **Gate 23 (new; applied as 23) — the silence probe we did not configure.** `check_if_user_online` defaults
 > **true** and `trigger_user_online_message_after` defaults **10 s**, and we send
 > `hangup_after_silence: 10`. On a test call, go silent and record: (a) does the agent speak a
 > probe before hanging up, and at what second? (b) **what language does it speak it in on a
@@ -774,10 +774,10 @@ deliberately **not** run (ten agents, four vCPU — a contention failure is not 
 ## Deliberately left alone
 
 - **`toolchain.execution`** — see F-5. Two valid enum values, one OSS source and one hosted-doc
-  example disagreeing, no way to observe the difference here. Gate 21.
+  example disagreeing, no way to observe the difference here. Gate 24.
 - **`LlmAgentV2.routes`** — see F-2. Not nullable, no default; a `null` or `[]` would be a guess
   that could 400 every publish.
-- **`calling_guardrails` / `auto_reschedule`** — see F-8/D-2. Configuring them would move a dial
+- **`calling_guardrails` / `auto_reschedule`** — see F-8/D-419. Configuring them would move a dial
   outside the compliance gate.
 - **`check_if_user_online`** — see F-6. Both plausible values are product decisions.
 - **`BOLNA_CAPABILITIES.knowledge_base`** — Lane G's, as instructed. Reported in §4.
@@ -792,10 +792,10 @@ deliberately **not** run (ten agents, four vCPU — a contention failure is not 
 
 ## Needs a founder decision
 
-1. **F-6 / Gate 22** — what an agent says when a caller goes quiet. Today it is the vendor's
+1. **F-6 / Gate 23** — what an agent says when a caller goes quiet. Today it is the vendor's
    default probe, at 10 s, in a language nobody here chose, on a Telugu-first product, with no
    API field for the text.
-2. **F-8 / D-2** — whether to send `calling_guardrails` as belt-and-braces knowing an
+2. **F-8 / D-419** — whether to send `calling_guardrails` as belt-and-braces knowing an
    out-of-window dial is *parked for twelve hours* rather than refused, and could be placed to a
    lead who went on DNC in between.
 3. **F-1's successor** — whether this product ever wants engine-side multilingual agents. If yes,

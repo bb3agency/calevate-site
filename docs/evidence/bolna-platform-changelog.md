@@ -269,7 +269,7 @@ Because `parse_source_ip_allowlist` fails **safe**, two of three vendor senders 
 **rejected** at the receiver.
 
 **I did not edit this.** By the time I reached the file, another lane had landed the fix
-as **D-412** — `frozenset({"13.203.39.153", "13.126.9.249", "13.202.133.53"})`, plus the
+as **D-414** — `frozenset({"13.203.39.153", "13.126.9.249", "13.202.133.53"})`, plus the
 `DOCUMENTED_EGRESS_IP` → `DOCUMENTED_EGRESS_IPS` rename across `scripts/pilot/gates_api.py`,
 `scripts/check_bootstrap_keys.py` and `tests/engine_name_drift_test.py`. Their write-up
 additionally dates the vendor's change by comparing the mirror against the older
@@ -355,7 +355,7 @@ three directions: a missing/non-boolean flag falls back to "believe the page" an
 `page_size <= 50` against the stub. **No change needed.**
 
 > Note: the `to` parameter *is* a live gap on this endpoint, but it is **not mine** — the
-> concurrent D-412 lane found and fixed it in the same file (`_LISTING_MAX_WINDOW`,
+> concurrent D-414 lane found and fixed it in the same file (`_LISTING_MAX_WINDOW`,
 > 7-day cap) while I was reading. Not duplicated here.
 
 ### 4.2 The recording-URL breaking change — WE WERE NEVER EXPOSED ✅
@@ -594,7 +594,7 @@ Needs a per-agent value on the engine side, so it belongs with whichever lane ow
 |---|---|
 | **Lane D (residency/legal)** | `concepts/security.md:29-36`: "**By default, Bolna processes calls on infrastructure in the US (AWS us-east-1).** Indian data residency is available…" When enabled: "Call processing runs on servers in `ap-south-1` (Mumbai)", "Recordings and transcripts are stored in India", "**LLM inference is routed to India-region endpoints (where available)**" — note the hedge. Also `changelog/july-2025.md:12` dates India residency to 30 Jul 2025, and `security.md:71` on provider-credential storage: "your provider API keys are stored encrypted in Bolna's infrastructure… Bolna does not log or expose provider credentials in API responses" — relevant to the D-410 BYOK Azure key. **I did not edit `/legal/*` or `docs/LEGAL-SURFACE.md`.** |
 | **Lane A (executions/status)** | I added `prepared` to `_VENDOR_STATUSES` and `_STATUS_MAP` in `apps/api/engine/bolna.py` (§3.1). If you also found it, it is done — please do not add it twice. Your `_LISTING_MAX_WINDOW` / `to` work is untouched by me. |
-| **D-412 lane (webhooks)** | Independent confirmation of your three-IP finding (§3.2). **`scripts/pilot/gates_api.py` is currently mid-rename and will `NameError` — three call sites still say `DOCUMENTED_EGRESS_IP`.** |
+| **D-414 lane (webhooks)** | Independent confirmation of your three-IP finding (§3.2). **`scripts/pilot/gates_api.py` is currently mid-rename and will `NameError` — three call sites still say `DOCUMENTED_EGRESS_IP`.** |
 | **Extraction / CRM lane** | 14 Apr 2026 confidence + reasoning + typed-format validation (timeline). A `confidence_label` of `Low` is a ready-made human-review trigger. |
 | **KB / RAG lane** | 9 Mar 2026 multilingual KBs (cross-lingual retrieval), 7 Dec 2025 URL sources, 5 Oct 2025 multi-collection queries, 18 Jun 2026 `vector_ids`. |
 | **Compliance lane** | §6.2 (engine's 9AM–9PM default), 3 Mar 2026 (140/160-series purchasable), 29 Sep 2025 (CIN + GST required to buy numbers — external blocker). |
