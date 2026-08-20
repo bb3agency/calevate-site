@@ -120,6 +120,10 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
+    # Bolna's shape again: the caller ID is a per-call field and inbound routing is an API
+    # call, so the default fake is what exercises both halves of D-420 offline.
+    caller_id=True,
+    inbound_binding=True,
     transfer=False,
     webhook_auth="none",
 )
@@ -158,6 +162,11 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=False,
     number_series=frozenset(),
+    # Unchanged from the default, deliberately: this fixture's axis is SPEECH. Giving it a
+    # telephony difference too would stop any clause it fails from saying which one it
+    # measured — the same argument the `agent_hosting` line above makes.
+    caller_id=True,
+    inbound_binding=True,
     transfer=True,
     webhook_auth="hmac",
 )
@@ -194,6 +203,17 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
+    # **THE ONE PROFILE THAT REFUSES BOTH TELEPHONY CAPABILITIES, and it is forced rather
+    # than chosen** (D-420). This shape is Cartesia Line: its outbound body names ONE
+    # `from_number_id` read from adapter-wide config — one number for the whole platform,
+    # on a product where each tenant's Principal Entity has its own registered header — so
+    # it cannot present a caller ID WE name per dial, and there is no agent object of ours
+    # for a number to be bound to. Without this profile the refusal branches of
+    # `require_capability("caller_id")` and `require_capability("inbound_binding")` would be
+    # contract no test has ever run: the real `cartesia` adapter refuses every dial one step
+    # earlier, on the compliance floor, so its caller-id refusal is unreachable there.
+    caller_id=False,
+    inbound_binding=False,
     transfer=False,
     webhook_auth="none",
 )
@@ -250,6 +270,8 @@ class FakeEngine:
         self._agents: dict[str, AgentConfig] = {}
         self._calls: dict[str, dict[str, Any]] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
+        #: `engine_number_ref → agent ref` — the engine's inbound routing table (D-420).
+        self._inbound: dict[str, EngineAgentRef] = {}
         #: The rotating LLM credential (D-404), modelled as REPLACE-IN-PLACE — one slot,
         #: last write wins. That is the semantics the real store is hoped to have and the
         #: one a caller may rely on; the append case is a vendor defect the Bolna adapter
@@ -424,6 +446,11 @@ class FakeEngine:
         # both what the guard checks and what the line below stores, so an edit that stops
         # storing it stops passing the guard in the same breath.
         require_call_compliance_floor(engine=self, prompt_on_the_wire=ctx.system_prompt)
+        # REFUSE A CALLER ID THIS ENGINE CANNOT PRESENT, never drop it (D-420). Same
+        # doctrine as `require_speech_leg`: dropping produces a dial that succeeds while the
+        # callee's handset shows a number nobody gated, and nothing downstream can detect it.
+        if ctx.from_e164:
+            require_capability("caller_id", engine=self)
         handle = self._stable_id("fakecall", ref, to, ctx.lead_id or "", str(len(self._calls)))
         now = datetime.now(UTC)
         self._calls[handle] = {
@@ -433,7 +460,11 @@ class FakeEngine:
             "started_at": now,
             "ended_at": now + timedelta(seconds=95),
             "duration_s": 95,
-            "from_e164": "+911140000000",
+            # THE CALLER ID THIS DIAL PRESENTED (D-420). It is `ctx.from_e164` when the
+            # caller named one, and only then does it fall back to a fixture constant —
+            # storing the constant unconditionally is what would let an adapter that drops
+            # the caller ID pass the clause that checks it reached the wire.
+            "from_e164": ctx.from_e164 or "+911140000000",
             "to_e164": to,
             "context": ctx.model_dump(),
             # The per-call prompt AS THIS ENGINE RECEIVED IT, kept beside the call rather
@@ -555,6 +586,61 @@ class FakeEngine:
             engine_number_ref=self._stable_id("fakenum", digits),
             series=spec.series,
         )
+
+    # --- inbound routing (D-420) ---------------------------------------------
+    #
+    # STATEFUL, for the reason `_kb` is: a fake that answered every bind with None would
+    # let an adapter that routes nothing pass the conformance clause, which is the one
+    # defect that clause exists to catch. `inbound_agent_for` is the read-back that makes
+    # "the number now answers to this agent" observable — a test affordance, like
+    # `call_prompt`, and deliberately not a Protocol method: no vendor publishes such a
+    # read (Bolna's inbound routes answer with a URL and the number's id, not a mapping we
+    # could re-read), so putting it on the port would mint a contract exactly one
+    # implementation could satisfy.
+
+    def _number_key(self, number: ProvisionedNumber) -> str:
+        """The engine's own handle, refusing a number it has never been told about.
+
+        THE SAME REFUSAL THE REAL ADAPTER MAKES, and it is here rather than left to Bolna
+        because it is a property of the CONTRACT: `bind_inbound_number` addresses a number
+        by `engine_number_ref`, so an engine handed None has nothing to bind. A fake that
+        cheerfully bound on the E.164 would make the conformance suite prove a shape no
+        adapter can implement.
+        """
+        if number.engine_number_ref:
+            return number.engine_number_ref
+        raise ProblemError(
+            kind="dependency",
+            code="engine_number_not_linked",
+            title="This number is not known to the voice platform",
+            # No E.164 in the message (hard rule 6) — see the Bolna twin.
+            detail=(
+                "The voice platform has no record of this phone number, so no agent can be "
+                "set to answer it."
+            ),
+            remediation=(
+                "Connect the number to the voice platform account first, then assign the "
+                "agent again."
+            ),
+        )
+
+    async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
+        require_capability("inbound_binding", engine=self)
+        # LAST WRITE WINS, matching what the Protocol promises: re-pointing a number at a
+        # different agent is a legitimate re-bind, not a conflict, because
+        # `phone_numbers.agent_id` is the authority on which agent owns a number.
+        self._inbound[self._number_key(number)] = ref
+
+    async def unbind_inbound_number(self, number: ProvisionedNumber) -> None:
+        require_capability("inbound_binding", engine=self)
+        # ABSENT IS SUCCESS (the Protocol's clause): the postcondition is "nothing of ours
+        # answers this number", which an unbound number already satisfies. `pop` with a
+        # default rather than a membership test, so the two cannot drift apart.
+        self._inbound.pop(self._number_key(number), None)
+
+    def inbound_agent_for(self, engine_number_ref: str) -> EngineAgentRef | None:
+        """Which agent this engine would hand an incoming call on that number to."""
+        return self._inbound.get(engine_number_ref)
 
     # --- knowledge base ------------------------------------------------------
     #

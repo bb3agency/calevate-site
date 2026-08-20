@@ -5,7 +5,8 @@ campaign must never starve another's inbound receptionist:
 
 1. `platform_lines_total` (engine verification item 8, a config value for now)
 2. minus `inbound_reserve` (default 30%, min 4 lines) → the OUTBOUND pool
-3. per-tenant `concurrency_ceiling` (plans row, default 10)
+3. per-tenant `concurrency_ceiling` (plans row), CLAMPED to that outbound pool —
+   a ceiling above the pool is not a ceiling (`_tenant_ceiling`)
 4. per-campaign slider ≤ tenant ceiling
 
 Active-call counts come from OUR `calls` table (status queued/ringing/in_progress),
@@ -146,12 +147,40 @@ log = get_logger(__name__)
 # thing that decides. An account whose limit is RAISED (`limits.md`: "contact support ...
 # or upgrade your plan") is the case that needs this number moved, and moving it is the
 # whole change — which is why it stayed one constant.
+#
+# **WHAT THIS CONSTANT IS: OUR TYPED-IN BELIEF ABOUT SOMEBODY ELSE'S NUMBER**, which the
+# vendor's own tier text says decays without a deploy — "Paid accounts — Starts at 10
+# concurrent calls, **scaling automatically with monthly usage**"
+# (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md:18`). A belief
+# that goes stale in the UP direction only wastes lines; stale in the DOWN direction is a
+# compliance failure, for the reason spelled out at `global_budget` in `_run_tick`.
+#
+# **WHAT WOULD REPLACE IT, EXACTLY:** the live value on `GET /user/me`
+# (`concurrency.max`, with `concurrency.current` as a free cross-check on our own
+# `total_active`), surfaced through a normalized `VoiceEngine` method — nothing in
+# `apps/workers/` may see a vendor payload (hard rule 2), so this cannot be a call from
+# here. It is NOT built, and the blocker is external in the CLAUDE.md sense: reading it
+# needs a real Bolna account, which is a vendor account nobody in this repo can create.
+# Until that exists this stays one constant, typed, and wrong-by-default in the safe
+# direction (the pilot number is the vendor's documented floor for a paid account).
 PLATFORM_LINES_TOTAL = 10
 MIN_INBOUND_RESERVE = 4
 ACTIVE_STATUSES = ("queued", "ringing", "in_progress")
 
 # What a tenant with no `plans` row is allowed (FLOWS §5 rule 3).
-DEFAULT_CONCURRENCY_CEILING = 10
+#
+# **DERIVED, NOT TYPED, AND THAT IS THE WHOLE POINT.** This shipped as a literal `10`
+# beside `PLATFORM_LINES_TOTAL = 10` / `MIN_INBOUND_RESERVE = 4`, i.e. a per-tenant
+# ceiling of 10 over a platform outbound pool of 6 — a "ceiling" a single tenant could
+# not reach and which therefore capped nothing at all. Two constants that must agree are
+# a defect even on the day they do agree, because the next person raises one of them.
+#
+# So the default is the engine account's whole line count by construction, and the
+# ceiling that actually binds is computed by `_tenant_ceiling()` below, which clamps
+# whatever the `plans` row says to the outbound pool that exists. A plan sold with a
+# ceiling above the pool is then a commercial promise the platform cannot keep, not a
+# dispatcher that quietly hands one tenant the switchboard.
+DEFAULT_CONCURRENCY_CEILING = PLATFORM_LINES_TOTAL
 
 # A call row is only evidence of an occupied LINE while it is fresh. Rows can strand in
 # `queued`/`in_progress` when an engine event is lost — the reconciliation poller
@@ -351,6 +380,31 @@ def _outbound_pool() -> int:
     return max(0, PLATFORM_LINES_TOTAL - reserve)
 
 
+def _tenant_ceiling(configured: int | None, pool: int) -> int:
+    """FLOWS §5 rule 3 UNDER rules 1+2: a tenant's ceiling, clamped to the pool.
+
+    **A per-tenant ceiling larger than the whole outbound pool is not a ceiling.** At the
+    shipped constants the pool is 6 lines and `plans.concurrency_ceiling` defaulted to 10,
+    so the first tenant in the spend order with a slider ≥ 6 could take the entire
+    platform — the failure rules 1+2 exist to prevent, arriving through rule 3.
+
+    The clamp is here rather than in the SQL, and rather than as a constraint on `plans`,
+    for two reasons. The pool is not a constant — `_outbound_pool()` reads
+    `inbound_reserve_ratio` from settings at tick time — so a CHECK constraint could only
+    police a number that moves under it. And a plans row is a commercial promise: a client
+    sold 20 lines on a 6-line platform has been mis-sold, which is a conversation, not a
+    row to reject at 3am. Clamping keeps the dispatcher correct while leaving the promise
+    visible in the plan where somebody can notice it.
+
+    This is a CAP, never a floor: the vendor's model is floor + cap
+    (`bolna-findings/mirror/pages/enterprise/concurrency-management.md:42-43`) and we have
+    no floor column. `_run_tick`'s starvation alarm is what makes that absence visible;
+    see the comment there for why a floor is not being invented in this file.
+    """
+    ceiling = DEFAULT_CONCURRENCY_CEILING if configured is None else int(configured)
+    return max(0, min(ceiling, pool))
+
+
 # The tenant's BUDGET read, asked only of tenants `dispatch_scan()` said have a running
 # campaign. Built once at import: `text()` per tenant was measurable client CPU when
 # this ran 12,070 times a tick, and it is a constant either way.
@@ -457,9 +511,9 @@ async def _run_tick() -> str:
             continue
         async with tenant_session(work.tenant_id) as session:
             row = (await session.execute(_TENANT_BUDGET_SQL, {"tid": work.tenant_id})).first()
-            ceiling = int(
-                row[0] if row is not None and row[0] is not None else DEFAULT_CONCURRENCY_CEILING
-            )
+            # Clamped to the pool: rule 3 can only ever narrow rules 1+2, never widen
+            # them. See `_tenant_ceiling` for why the clamp is not a `plans` constraint.
+            ceiling = _tenant_ceiling(row[0] if row is not None else None, pool)
             # The campaign may have been paused between the scan and this read — that is
             # a race the client WINS, and it costs one session, not a dial.
             campaigns: list[dict[str, Any]] = list(row[1] or []) if row is not None else []
@@ -492,12 +546,22 @@ async def _run_tick() -> str:
                 if not campaign_window_open(calling_hours, compliance_service.ist_now()):
                     continue
                 # Rule 4 under rule 3: the slider, bounded by what the tenant has left.
+                #
+                # UNCONDITIONAL, and it used to be guarded by `if slots > 0`. That guard
+                # could not fire: `campaigns.concurrency` is NOT NULL under the CHECK
+                # `concurrency BETWEEN 1 AND 10` (`ck_campaigns_concurrency_range`, applied
+                # in `e16c96e68bc5`), and the `tenant_budget <= 0` break six lines up means
+                # the budget is at least 1 here — so `min()` of two positives is positive.
+                # A defensive arm no state can reach is not free: it reads as a case that
+                # happens, and it is a branch the coverage gate then has to be waived for.
+                # If the slider ever gains a zero — a plan tier that parks a campaign at no
+                # lines, say — that is a `running` campaign dialling nothing, which belongs
+                # in the query above (`WHERE c.status = 'running'`) rather than as a silent
+                # skip here. `dispatch_budget_test` pins the constraint that makes this
+                # safe, so relaxing it fails a test instead of quietly reviving the case.
                 slots = min(int(slider), tenant_budget)
-                if slots > 0:
-                    tenant_budget -= slots
-                    running.append(
-                        (work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {})
-                    )
+                tenant_budget -= slots
+                running.append((work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {}))
 
     if not running:
         # `started` is always reported, even as 0: a ternary here would add a branch to
@@ -506,24 +570,94 @@ async def _run_tick() -> str:
         return f"no_running_campaigns started={started}"
 
     # Rule 1+2: what is left of the shared pool after everyone's active calls.
+    #
+    # **THIS IS A CALLING-HOURS CONTROL, NOT AN OPTIMISATION, AND NOBODY MAY READ IT AS A
+    # REFUSAL.** The instinct is that handing the engine more calls than it can run gets
+    # them rejected and we retry later. It does not: *"Outbound calls that don't fit your
+    # concurrency limit are **queued, not rejected**. They dial automatically as active
+    # calls finish"* (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md:41`,
+    # and again at `enterprise/concurrency-management.md:66`). So a dial we place past the
+    # real ceiling is not load-shed — it sits in a vendor-side queue we cannot see, cancel
+    # or DNC-scrub, and rings whenever the vendor gets to it.
+    #
+    # `compliance.service.check_dispatch` clears a contact at DISPATCH time: the DNC list,
+    # the tenant's cap and the TRAI calling hour, all as of now. A contact cleared at 20:55
+    # IST and queued at the vendor can ring after 21:00 — outside the window, with our own
+    # records showing it was lawfully cleared. Staying under the pool is what keeps our
+    # gate the thing that decides when a phone rings. That makes `PLATFORM_LINES_TOTAL`
+    # being HIGHER than the account's real ceiling a compliance defect rather than a
+    # throughput one, which is why that constant's comment is as long as it is.
     global_budget = max(0, pool - total_active)
     if global_budget == 0:
         return f"pool_saturated active={total_active}"
 
     dialled, blocked, exhausted = 0, 0, 0
-    for tenant_id, campaign_id, slots, retry_policy in running:
+    served: set[UUID] = set()
+    starved: list[UUID] = []
+    for index, (tenant_id, campaign_id, slots, retry_policy) in enumerate(running):
         if global_budget <= 0:
+            # **THE TAIL OF THIS LIST IS STARVED, AND THE ORDER NEVER ROTATES.** `running`
+            # follows `_tenants_with_work()`, i.e. `dispatch_scan()`'s `ORDER BY
+            # tenant_id`, and `tenant_id` is uuid_v7 — TIME-ORDERED. So under a saturated
+            # pool the dial order is oldest tenant first, on every tick, forever, and the
+            # newest tenant is served last every time. Client #12 can dial zero for a week
+            # while each tick reports a healthy `dialled=N`.
+            #
+            # **WHY THE ORDER IS NOT ROTATED HERE.** The durable fix is the vendor's own
+            # design and it is not a dispatcher change: guaranteed floors first, surplus
+            # shared in proportion to those floors
+            # (`enterprise/concurrency-management.md:51-67`). A floor is a `plans` column,
+            # an admission rule that the sum of floors cannot exceed the pool, and — the
+            # part no code can supply — a commercial promise about how many lines a client
+            # is sold. Rotation would be a second, weaker answer to the same question that
+            # the real fix then has to remove, and one way per problem is this repo's
+            # standard. It would also not be free: it makes "which campaign dials next"
+            # non-deterministic tick to tick, which is the property the oldest-campaign-
+            # first ordering above was chosen for.
+            #
+            # **WHAT IS NOT ACCEPTABLE IS THAT IT IS INVISIBLE**, and that is what this
+            # alarm fixes. `outstanding_probe_budget_exhausted` (reconciliation) is the
+            # same shape — a deliberate truncation of a stable tenant ordering, made
+            # operator-visible rather than removed — so this follows the answer already in
+            # the tree instead of inventing a third one.
+            #
+            # No cross-tick counter is kept: the alert pipeline already distinguishes
+            # "happened once" from "still true, 199 times" through its suppressed counts
+            # (`core/alerting.py`), and a Redis fairness counter would be state to keep
+            # correct for a signal that mechanism already carries.
+            # dict.fromkeys, not a set: the order is the spend order, so the ids in the
+            # alarm read the same way the runbook's query does.
+            starved = list(dict.fromkeys(t for t, _c, _s, _r in running[index:] if t not in served))
             break
         take = min(slots, global_budget)
         results = await _dispatch_for_campaign(tenant_id, campaign_id, take, retry_policy)
+        served.add(tenant_id)
         dialled += results["dialled"]
         blocked += results["blocked"]
         exhausted += results["exhausted"]
         global_budget -= results["dialled"]
 
+    if starved:
+        # Tenant ids only — never a number, never a name (hard rule 6). The ids are what
+        # an operator needs to answer "who has been getting nothing", and the runbook
+        # (`runbooks/campaign-stall.md` §4a) turns them into clients.
+        alert(
+            "WORKER_STALL",
+            "dispatch_budget_starved",
+            detail=(
+                f"{len(starved)} tenant(s) dialled nothing this tick: the shared pool ran "
+                f"out before their turn and the spend order does not rotate. "
+                f"pool={pool} active={total_active} dialled={dialled} "
+                f"tenants={','.join(str(t) for t in starved[:5])}"
+            ),
+        )
+
     if dialled or blocked:
         record_campaign_dials(dialled=dialled, blocked=blocked)
-    return f"dialled={dialled} blocked={blocked} exhausted={exhausted} started={started}"
+    return (
+        f"dialled={dialled} blocked={blocked} exhausted={exhausted} "
+        f"started={started} starved={len(starved)}"
+    )
 
 
 async def _fire_due_schedules(tenant_id: UUID) -> int:

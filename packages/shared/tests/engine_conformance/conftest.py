@@ -194,6 +194,17 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     #: Every execution id this stub has minted or listed. The `GET /executions/{id}`
     #: branch answers 404 for anything else — see there.
     executions: set[str] = set()
+    #: THE CALLER ID EACH DIAL ASKED FOR, so `GET /executions/{id}` can echo it back as
+    #: `telephony_data.from_number` (D-420). Without this the suite could not tell an
+    #: adapter that SENDS `from_phone_number` from one that drops it: `start_outbound_call`
+    #: returns a handle and nothing else, which is the same blind spot the per-call prompt
+    #: has. Echoing the value a vendor was given is what a real one does — the number the
+    #: callee saw is a property of the execution.
+    dialled_from: dict[str, str] = {}
+    #: `phone_number_id → agent_id` — this stub's inbound routing table (D-420). Stateful
+    #: for the reason the agent store is: a stub that answered every `POST /inbound/setup`
+    #: with 200 would let an adapter that binds nothing pass the clause that checks it.
+    inbound: dict[str, str] = {}
     # The AGENT store, and it is stateful for the same reason the KB routes are: a stub
     # that answered every `GET /v2/agent/{id}` with the body of the last write would let
     # an adapter that echoes what it was handed pass the read-back clause, which is the
@@ -334,7 +345,49 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             placed.append(body["recipient_phone_number"])
             execution_id = f"exec_abc{len(placed):03d}"
             executions.add(execution_id)
+            # THE CALLER ID, RECORDED ONLY WHEN IT WAS SENT (D-420). Their documented body
+            # makes `from_phone_number` optional and falls back to the platform's own pool
+            # when it is absent, so an absent key is a real and different outcome — and a
+            # stub that invented a value here would make "the adapter sent our number" and
+            # "the adapter dropped it" identical again.
+            caller_id = body.get("from_phone_number")
+            if isinstance(caller_id, str) and caller_id:
+                assert caller_id.startswith("+"), "E.164 only"
+                dialled_from[execution_id] = caller_id
             return httpx.Response(200, json={"execution_id": execution_id})
+        if path == "/inbound/setup" and request.method == "POST":
+            # `{agent_id, phone_number_id}`, both required by their own OpenAPI block
+            # (`api-reference/inbound/agent.md`). A missing key is a 400 here because it is
+            # a 400 there — an adapter that posted a null `phone_number_id` must not sail
+            # through the suite on a stub more forgiving than the vendor.
+            body = json.loads(request.content or b"{}")
+            number_id = body.get("phone_number_id")
+            agent_id = body.get("agent_id")
+            if not isinstance(number_id, str) or not isinstance(agent_id, str):
+                return httpx.Response(400, json={"error": "agent_id and phone_number_id"})
+            inbound[number_id] = agent_id
+            return httpx.Response(
+                200,
+                json={
+                    "url": f"https://api.bolna.ai/inbound_call?agent_id={agent_id}",
+                    "phone_number": "+911140000000",
+                    "id": number_id,
+                },
+            )
+        if path == "/inbound/unlink" and request.method == "POST":
+            # STATEFUL, and a number this stub does not hold answers 404 — the same
+            # MARKED ASSUMPTION the `/call/{id}/stop` branch carries and for the same
+            # reason: their spec documents 200 and 400 and says nothing about unlinking a
+            # number that is not linked. What it proves is OUR handling (the adapter's
+            # `absent_is_success`, i.e. that an offboarding step does not fail on a
+            # postcondition already satisfied), never the vendor's behaviour.
+            body = json.loads(request.content or b"{}")
+            number_id = body.get("phone_number_id")
+            if not isinstance(number_id, str):
+                return httpx.Response(400, json={"error": "phone_number_id"})
+            if inbound.pop(number_id, None) is None:
+                return httpx.Response(404, json={"error": "unknown phone number"})
+            return httpx.Response(200, json={"id": number_id, "phone_number": "+911140000000"})
         if path.startswith("/call/") and path.endswith("/stop"):
             # `POST /call/{execution_id}/stop` — the vendor's real stop route. Until D-353
             # both the adapter and this stub used `/executions/{id}/stop`, which is not a
@@ -370,7 +423,14 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
             execution_id = path.rsplit("/", 1)[-1]
             if execution_id not in executions:
                 return httpx.Response(404, json={"error": "unknown execution"})
-            return httpx.Response(200, json={**BOLNA_COMPLETED, "id": execution_id})
+            document = {**BOLNA_COMPLETED, "id": execution_id}
+            caller_id = dialled_from.get(execution_id)
+            if caller_id is not None:
+                document["telephony_data"] = {
+                    **BOLNA_COMPLETED["telephony_data"],
+                    "from_number": caller_id,
+                }
+            return httpx.Response(200, json=document)
         return httpx.Response(404, json={"error": "not found"})
 
     return handler

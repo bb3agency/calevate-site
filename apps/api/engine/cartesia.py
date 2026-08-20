@@ -335,6 +335,21 @@ _TERMINAL_RAW: Final = frozenset(
 #   each method; what it BUYS is that a deployment running `ENGINE=cartesia` fails at the
 #   publish button with a sentence an operator can act on, rather than at a 404 in the
 #   middle of a transaction that has already written half of itself.
+# * `caller_id=False` AND IT IS THE INTERESTING ONE (D-420), because this adapter looks
+#   like the counter-example and is not. `POST /agents/calls` does take a `from_number_id`
+#   and `start_outbound_call` REFUSES without one — but that value is
+#   `CartesiaEngine(from_number_id=...)`, adapter-wide configuration: ONE number for the
+#   whole platform, on a product where each tenant's Principal Entity has its own
+#   DLT-registered header and the campaign gate approves a per-campaign
+#   `phone_numbers.e164`. Presenting a per-call caller ID would need an E.164 → number-id
+#   lookup this adapter has no documented route for, and inventing one is what D-31/D-32
+#   forbid. So the honest answer is False: a context carrying `from_e164` is REFUSED by
+#   name, never dialled with the platform number instead.
+# * `inbound_binding=False`. There is no agent object of ours here to bind a number TO
+#   (`agent_hosting="external_deployment"`): the agent is a program deployed from a
+#   repository, and nothing read at source describes a number-to-agent route on this
+#   platform. A guess would be a screen that reports a receptionist assigned to a number
+#   nobody told the vendor about — which is exactly the defect D-420 opened on.
 CARTESIA_CAPABILITIES = EngineCapabilities(
     stt="engine",
     tts="engine",
@@ -343,6 +358,8 @@ CARTESIA_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
+    caller_id=False,
+    inbound_binding=False,
     transfer=False,
     webhook_auth="hmac",
 )
@@ -704,6 +721,14 @@ class CartesiaEngine:
         # drop this check exists to prevent. It refuses every dial until gate 19(b) says
         # which field carries a prompt, and then this argument becomes that field.
         require_call_compliance_floor(engine=self, prompt_on_the_wire=None)
+        # A CALLER ID WE CANNOT PRESENT IS REFUSED, NOT DROPPED (D-420). `from_e164` is a
+        # dialable string; this vendor's body wants `from_number_id`, its own handle for a
+        # number, and no sourced route turns one into the other. Dialling from
+        # `self._from_number_id` anyway would present the platform's number while the
+        # campaign gate certified the client's registered header — the exact silent
+        # substitution the capability exists to make impossible.
+        if ctx.from_e164:
+            require_capability("caller_id", engine=self)
         if self._from_number_id is None:
             # ITS OWN CODE, and it did not have one: this reused `engine_not_configured`,
             # which is the credential refusal (P2.6). One code for two causes means an
@@ -806,6 +831,29 @@ class CartesiaEngine:
             title="Number provisioning is not available",
             detail="Numbers are provisioned with the telephony provider directly.",
         )
+
+    async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
+        """Refuses by name — there is no agent object of ours to answer a number (D-420).
+
+        `agent_hosting="external_deployment"`: the agent is a program deployed from a
+        repository and this API can only observe it, so "which agent answers this number"
+        is not a question this platform's control plane takes from us. Nothing read at
+        source describes a number-to-agent route here, and inventing one would put a green
+        tick on a receptionist assignment that reached nobody — the defect D-420 exists to
+        close, reproduced on the second vendor.
+        """
+        require_capability("inbound_binding", engine=self)
+
+    async def unbind_inbound_number(self, number: ProvisionedNumber) -> None:
+        """Refuses by name, for `bind_inbound_number`'s reason.
+
+        **AND IT REFUSES RATHER THAN NO-OPPING, even though "nothing of ours answers this
+        number" is already true here.** The Protocol's absent-is-success clause is about a
+        number the engine does not HOLD; this is an engine that cannot route numbers at
+        all, and answering an offboarding path with a silent success would tell an operator
+        that a release step completed on a platform that never took it.
+        """
+        require_capability("inbound_binding", engine=self)
 
     async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
         """Refuses, because this engine's LLM is not ours to credential (D-404).

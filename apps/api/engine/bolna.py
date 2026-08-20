@@ -863,6 +863,81 @@ def _check_transfer_leg(payload: dict[str, Any], *, engine_call_id: str) -> None
     )
 
 
+# --- the semantic routing layer, which answers WITHOUT the model ----------------------
+#
+# **A SECOND PROMPT BYPASS, AND IT IS QUIETER THAN THE TRANSFER LEG.** `LlmAgentV2` carries
+# `routes` — `{embedding_model, routes: [{route_name, utterances, response,
+# score_threshold}]}` — described by the vendor as *"predefined routes that can be used to
+# answer FAQs, or set basic guardrails, or do a static function call"*, matched on SEMANTIC
+# SIMILARITY of what the caller said (default threshold 0.85) and answered with a STATIC
+# STRING (`bolna-findings/mirror/pages/api-reference/agent/v2/create.md`, schemas `Routes`
+# and `Route`).
+#
+# WHY THAT IS A COMPLIANCE PROBLEM AND NOT A FEATURE WE HAVE NOT ADOPTED. Hard rule 5's
+# floor lives in the SYSTEM PROMPT (`TRUTHFUL_ANSWER_DIRECTIVE`), and every instrument this
+# repository has for it — the publish read-back, `verification.judge`, the half-hourly drift
+# sweep — scores the prompt. A route never consults the model at all: an utterance close
+# enough to *"are you a robot"* is answered from config, so the directive that overrides
+# every instruction above it is not in the path. **A console click can therefore make a
+# published agent deny being an AI, and the prompt would still read back perfect.**
+#
+# WHY THIS IS AN ALARM ON THE READ-BACK AND NOT A FIELD IN `_agent_body`. We do not send
+# `routes` and must not start: it is not nullable and has no default in their schema, so
+# guessing `null` or `[]` risks 400ing every publish on this platform for a field we have no
+# use for — the same reasoning that keeps `allow_multiple` and `ivr_config` off the inbound
+# body. The exposure is a console edit, which is precisely what a READ-BACK sees and a
+# request body cannot. So this is `_check_transfer_leg`'s shape, deliberately: one adapter,
+# one way of reporting a vendor-side configuration nobody here decided.
+#
+# HARD RULE 6 GOVERNS WHAT IT MAY SAY. A route's `utterances` are what a caller says and its
+# `response` is what the agent says back — conversation content. Neither is reported. What
+# is reported is the agent ref, how many routes exist and their `route_name`s, which are
+# operator-authored labels ("politics", "pricing") and the only handle for finding them in
+# the console.
+_ROUTE_NAME_SAMPLE = 5
+
+
+def _check_semantic_routes(agent: dict[str, Any], *, ref: EngineAgentRef) -> None:
+    """Page when a read-back agent carries routes that answer callers without the LLM."""
+    config = agent.get("agent_config")
+    source = config if isinstance(config, dict) else agent
+    tasks = source.get("tasks")
+    if not isinstance(tasks, list):
+        return
+    names: list[str] = []
+    count = 0
+    for task in tasks:
+        tools = task.get("tools_config") if isinstance(task, dict) else None
+        llm_agent = tools.get("llm_agent") if isinstance(tools, dict) else None
+        block = llm_agent.get("routes") if isinstance(llm_agent, dict) else None
+        # `Routes` is an OBJECT wrapping the array; a bare array is accepted too because a
+        # dashboard-written agent is not obliged to match the create schema's nesting, and
+        # reading only one shape would make the check silently blind to the other.
+        rows = block.get("routes") if isinstance(block, dict) else block
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            count += 1
+            name = row.get("route_name") if isinstance(row, dict) else None
+            if isinstance(name, str) and name and len(names) < _ROUTE_NAME_SAMPLE:
+                names.append(name)
+    if count == 0:
+        return
+    alert(
+        "CORE_LOGIC",
+        "engine_agent_semantic_routes_present",
+        detail=(
+            f"this agent carries {count} semantic route(s) that answer a caller from a "
+            "static string without consulting the model, so the platform rules in its "
+            "system prompt are not in the path for anything one of them matches — "
+            "including a caller asking whether they are talking to an AI. Route names: "
+            f"{', '.join(names) or 'unnamed'}. Nothing in this tree sends routes; they "
+            "were added in the vendor console."
+        ),
+        engine_agent_ref=ref,
+    )
+
+
 def _parse_dt(value: Any) -> datetime | None:
     if not value:
         return None
@@ -1481,6 +1556,30 @@ def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> Non
 #   assumed: it is the surface this adapter has always called. What the value BUYS is that
 #   the assumption is now written down and refusable, so the engine that does NOT work this
 #   way can say so instead of being discovered at a 404.
+# * `caller_id=True` (D-420). VERIFIED-VENDOR-DOCS: `POST /call` takes
+#   `from_phone_number` — *"Add your purchased phone number or your own connected phone
+#   number in `from_phone_number` field"* — and OMITTING IT IS NOT NEUTRAL: the same page
+#   says the call then goes out on their centralised pool, which for an Indian callee is
+#   *"a `+91` prefix phone"*
+#   (`bolna-findings/mirror/pages/guides/outbound/making-outgoing-calls.md`). This adapter
+#   sent no such field until D-420, so every campaign call presented Bolna's number while
+#   `campaigns.service._channel_blockers` reported the client's registered header approved.
+# * `inbound_binding=True` (D-420). VERIFIED-VENDOR-DOCS: `POST /inbound/setup`
+#   `{agent_id, phone_number_id}` and `POST /inbound/unlink {phone_number_id}`
+#   (`bolna-findings/mirror/pages/api-reference/inbound/agent.md`, `.../unlink.md`), which
+#   the inbound guide makes mandatory — *"You will need to assign a phone number to your
+#   Bolna Voice AI agent for automatically answering all incoming calls on that phone
+#   number"*.
+#   ⚠ **MARKED ASSUMPTION — OPERATIONS §2 GATE 25.** The same vendor also writes
+#   *"Inbound Agent functionality using APIs currently requires connecting your **Twilio
+#   account**"* (`guides/telephony/twilio-inbound-calls.md`), and `allow_multiple` /
+#   `ivr_config` on the setup body are documented Plivo-only. Those cannot both be current,
+#   and Plivo is the carrier for the 160-series numbers our agents run on. `True` is the
+#   claim that the ROUTE exists and that this adapter calls it correctly; whether a
+#   non-Twilio Indian number binds through it is gate 25's single API call. It fails LOUD
+#   if not — a 400 from the vendor, surfaced as `engine_rejected` by `bind_inbound_number`'s
+#   caller and alarmed — which is the safe direction to be wrong in, and strictly better
+#   than the state D-420 found, where the step was not attempted at all.
 BOLNA_CAPABILITIES = EngineCapabilities(
     stt="ours",
     tts="ours",
@@ -1489,6 +1588,8 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=False,
     number_series=frozenset(),
+    caller_id=True,
+    inbound_binding=True,
     transfer=False,
     webhook_auth="source_ip",
 )
@@ -2083,6 +2184,12 @@ class BolnaEngine:
         """
         payload = await self._request("GET", f"/v2/agent/{ref}")
         agent = _agent_object(payload)
+        # BEFORE the snapshot is assembled, for `_check_transfer_leg`'s reason: this is a
+        # fact about the agent nothing in `AgentSnapshot` can carry, and the read-back is
+        # the only place it is visible. Every publish and every half-hourly drift sweep
+        # comes through here, so a console-added route is paged on within the sweep
+        # interval rather than on the call where it first answers for us.
+        _check_semantic_routes(agent, ref=ref)
         prompt = _agent_system_prompt(agent)
         greeting, greeting_readable = _agent_greeting(agent)
         kb_refs, kb_readable = _agent_kb_refs(agent)
@@ -2129,11 +2236,27 @@ class BolnaEngine:
             user_data["context_note"] = ctx.context_note
         if ctx.prior_call_summary:
             user_data["prior_call_summary"] = ctx.prior_call_summary
-        data = await self._request(
-            "POST",
-            "/call",
-            json={"agent_id": ref, "recipient_phone_number": to, "user_data": user_data},
-        )
+        # THE CALLER ID, AND THE FIELD'S ABSENCE IS WHAT D-420 IS (symptom 1). Their own
+        # outbound guide: *"Add your purchased phone number or your own connected phone
+        # number in `from_phone_number` field"*, and omitting it dials from their
+        # centralised pool — for an Indian callee, *"a `+91` prefix phone"*
+        # (`bolna-findings/mirror/pages/guides/outbound/making-outgoing-calls.md`). So the
+        # DLT-registered 140/160-series header the campaign gate approves reached nothing,
+        # and the callee, the TSP and the complaint trail saw the vendor's number.
+        #
+        # OMITTED RATHER THAN SENT NULL when there is none. The field is optional in their
+        # documented body and a null on an optional string is the shape a vendor validator
+        # is most likely to reject; "no caller ID" is what an ABSENT key already means here,
+        # and it is what a single-lead callback from an account with no registered header
+        # legitimately wants.
+        body: dict[str, Any] = {
+            "agent_id": ref,
+            "recipient_phone_number": to,
+            "user_data": user_data,
+        }
+        if ctx.from_e164:
+            body["from_phone_number"] = ctx.from_e164
+        data = await self._request("POST", "/call", json=body)
         handle = data.get("execution_id") or data.get("id")
         if not isinstance(handle, str):
             raise ProblemError(
@@ -2187,6 +2310,94 @@ class BolnaEngine:
             code="engine_capability_unverified",
             title="Number provisioning is not automated yet",
             detail="Numbers are provisioned with the telephony provider directly (M1).",
+        )
+
+    # --- inbound routing (D-420) ---------------------------------------------
+    #
+    # WHAT THE VENDOR DOCUMENTS AND WHAT IS STILL OPEN, in one place so neither method
+    # repeats it. `POST /inbound/setup` binds `{agent_id, phone_number_id}` and
+    # `POST /inbound/unlink` releases `{phone_number_id}`; both answer with an
+    # `InboundAgentResponse` we deliberately do not read — the postcondition is a fact about
+    # the engine's routing table, not a body, and the next drift sweep is what would catch a
+    # 200 that changed nothing (`bolna-findings/mirror/pages/api-reference/inbound/agent.md`,
+    # `.../unlink.md`).
+    #
+    # ⚠ **`phone_number_id` HAS THREE DOCUMENTED SHAPES AND WE DO NOT PICK ONE.** Their
+    # inbound page types it a dashed UUID, `phone-numbers/get_all.md` types the SAME field
+    # `^[0-9a-fA-F]{32}$` (bare hex), and `byot-setup.md` returns a ULID-looking
+    # `01HQNUMBER111222333`. So this adapter sends `engine_number_ref` VERBATIM and asserts
+    # nothing about its format: whatever the vendor's own listing hands back is what
+    # `phone_numbers.engine_number_ref` holds and what goes back out. A validator here would
+    # be this repository inventing a vendor contract, and would refuse the very value the
+    # vendor issued. OPERATIONS §2 gate 25 settles the format and whether a non-Twilio
+    # Indian number binds at all.
+
+    def _inbound_number_id(self, number: ProvisionedNumber) -> str:
+        """The vendor's handle for `number`, or a refusal naming what is missing.
+
+        A NUMBER WITH NO `engine_number_ref` IS NOT AN ERROR TO RETRY — it is the ordinary
+        state of every number today, because D-05 buys numbers FROM THE TELEPHONY VENDOR
+        directly and nothing has ever introduced one to the engine (this adapter's
+        `provision_number` refuses, `BOLNA_CAPABILITIES.number_series` is empty). So the
+        refusal names the missing onboarding step and carries a remediation a person can
+        act on, rather than POSTing a null the vendor would answer 400 to.
+
+        Its own code rather than `engine_capability_absent`: the engine HAS inbound
+        binding, and this deployment has not given it the number — different cause,
+        different fix, different person, exactly the split `engine_caller_id_not_configured`
+        already makes against `engine_not_configured`.
+        """
+        if number.engine_number_ref:
+            return number.engine_number_ref
+        raise ProblemError(
+            kind="dependency",
+            code="engine_number_not_linked",
+            title="This number is not known to the voice platform",
+            # Hard rule 6: the number's identity is the vendor handle we do NOT have, and
+            # the E.164 never appears in a message, a log line or an alarm.
+            detail=(
+                "The voice platform has no record of this phone number, so no agent can be "
+                "set to answer it."
+            ),
+            remediation=(
+                "Connect the number to the voice platform account first, then assign the "
+                "agent again."
+            ),
+        )
+
+    async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
+        """`POST /inbound/setup` — make `ref` the agent that answers this number.
+
+        `allow_multiple` and `ivr_config` are NOT sent. Both are documented Plivo-only
+        options and neither is a thing this product has decided: `allow_multiple` widens a
+        binding we deliberately keep one-to-one (`phone_numbers.agent_id` is a single
+        column, and a number answered by two agents has no answer to "which script ran"),
+        and an IVR menu in front of an AI receptionist is a product decision with a
+        disclosure question attached, not a default. Omitting them takes the vendor's own
+        defaults, which is the same discipline `_agent_body` applies everywhere else.
+        """
+        require_capability("inbound_binding", engine=self)
+        await self._request(
+            "POST",
+            "/inbound/setup",
+            json={"agent_id": ref, "phone_number_id": self._inbound_number_id(number)},
+        )
+
+    async def unbind_inbound_number(self, number: ProvisionedNumber) -> None:
+        """`POST /inbound/unlink` — nothing of ours answers this number any more.
+
+        `absent_is_success=True`: the postcondition is that no agent answers, and a number
+        the platform does not hold already satisfies it. The Protocol says so; the reason it
+        is spelled here as well is that this is an OFFBOARDING path, and a step that raises
+        on "there was nothing to undo" is a step that blocks the release of a number the
+        client has stopped paying for.
+        """
+        require_capability("inbound_binding", engine=self)
+        await self._request(
+            "POST",
+            "/inbound/unlink",
+            absent_is_success=True,
+            json={"phone_number_id": self._inbound_number_id(number)},
         )
 
     # --- the LLM credential (D-404, no longer rotating since D-410) -----------

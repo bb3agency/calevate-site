@@ -67,7 +67,8 @@ Each tick returns one string (ARQ job result / worker logs). Match it:
 | `no_outbound_pool` | Reserve ≥ total lines; pool is zero. Also fires alert `WORKER_STALL` / `outbound_pool_empty` | step 3 |
 | `pool_saturated active=N` | Pool exists but N active calls consume it all | step 3 |
 | `no_running_campaigns` | No campaign in status `running` had slots > 0 | steps 4–5 |
-| `dialled=X blocked=Y exhausted=Z` | Tick is working; the problem is per-campaign or per-contact | steps 6–8 |
+| `dialled=X blocked=Y exhausted=Z started=S starved=W` | Tick is working; the problem is per-campaign or per-contact | steps 6–8 |
+| …with `starved=W`, W > 0 | The tick dialled, but W tenants got NO line before the pool ran out. Also fires alert `WORKER_STALL` / `dispatch_budget_starved`, whose detail names up to five of them | step 4a |
 
 All strings from `dispatch_campaign_tick` in `apps/workers/campaign_dispatch.py`.
 
@@ -127,22 +128,35 @@ to enforce. Treat the global budget as a calling-hours control, not an optimisat
 The tick computes, per tenant: `tenant_budget = concurrency_ceiling − active`, then
 `slots = min(campaign.concurrency, tenant_budget)`; only `slots > 0` campaigns join the
 dial list (`apps/workers/campaign_dispatch.py`). Ceiling comes from
-`plans.concurrency_ceiling`, `COALESCE(..., 10)`:
+`plans.concurrency_ceiling`, defaulting to `PLATFORM_LINES_TOTAL` and then **clamped to
+the outbound pool** (`_tenant_ceiling`) — a plan sold with a ceiling above the pool cannot
+be honoured, and the dispatcher caps it rather than handing one tenant the switchboard:
 
 ```sql
-SELECT c.id, c.status, c.concurrency, COALESCE(p.concurrency_ceiling, 10) AS ceiling
+SELECT c.id, c.status, c.concurrency,
+       COALESCE(p.concurrency_ceiling, 10) AS ceiling_on_the_plan,
+       least(COALESCE(p.concurrency_ceiling, 10), 6) AS ceiling_in_effect  -- 6 = the pool, step 3
 FROM campaigns c
 LEFT JOIN plans p ON p.tenant_id = c.tenant_id
 WHERE c.status = 'running';
 ```
 
+A gap between those two columns is a **commercial** problem, not a dispatcher one: the
+client was sold lines the platform does not have. Raise the pool (step 3a) or reprice —
+never widen the clamp.
+
 A tenant whose active-call count (step 3) ≥ ceiling gets zero slots every tick — that is
 the design working (one client must not starve another's inbound), not a bug.
 
-### 4a. The tenant got slots and still dialled nothing
+### 4a. The tenant got slots and still dialled nothing — `dispatch_budget_starved`
 
-There is a fourth stall this table does not name, and it reports as a HEALTHY tick
-(`dialled=X ...`, never `pool_saturated`) while one tenant dials zero. The tick builds
+There is a fourth stall this table does not name, and it USED to report as a wholly
+healthy tick (`dialled=X ...`, never `pool_saturated`) while one tenant dialled zero. It
+is now named twice — `starved=W` in the tick's own return string, and the alarm
+`WORKER_STALL` / `dispatch_budget_starved`, whose detail carries the pool, the
+platform-wide active count and up to five starved tenant ids. **If you were paged by that
+alarm you are already in the right section and the ids in the detail are your answer to
+"who".** The rest of this section is how it happens and what to do about it. The tick builds
 `running` — every (tenant, campaign, slots) that cleared rules 3 and 4 — and then spends
 `global_budget = pool − total_active` down that list in order, breaking out when it hits
 zero (`_run_tick`, `apps/workers/campaign_dispatch.py`). The list's order is
@@ -169,7 +183,12 @@ step 3a shows the vendor ceiling is genuinely higher than we believe. The durabl
 a per-tenant guaranteed FLOOR alongside the cap — see
 `docs/evidence/bolna-subaccounts-platform.md` §2.3, which sets out the mechanism and the
 engine's own reference algorithm for it. Do not "fix" this by editing the scan's
-`ORDER BY`: a different fixed order starves a different tenant.
+`ORDER BY`: a different fixed order starves a different tenant. Rotation was considered
+and deliberately not shipped — it is a second, weaker answer that the floor has to remove
+again, and it would make "which campaign dials next" non-deterministic tick to tick. The
+alarm exists so that the gap between today and the floor is *visible* rather than *quiet*;
+a `dispatch_budget_starved` that keeps firing with the same ids is the evidence that
+buys the plan column.
 
 ## 5. Campaign status
 

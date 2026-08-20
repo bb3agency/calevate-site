@@ -1538,8 +1538,25 @@ _VENDOR_ONLY_KEYS = frozenset(
         # was a duplicate a frozenset silently absorbed — ruff's B033 caught it. It stays
         # HERE rather than there because this is the first block: the set is a ban list,
         # not a per-vendor inventory, and a word only has to be banned once.
+        # THE CALLER ID, IN THE VENDOR'S SPELLING (D-420) — `recipient_phone_number`'s
+        # opposite number, and banned for exactly its reason. OUR word for the header a dial
+        # presents is `from_e164`, on `CallContext`; theirs is this. The concept is ours, the
+        # spelling is theirs, so `from_e164` outside the adapter is ordinary while
+        # `from_phone_number` there would be a vendor shape that escaped. (The conformance
+        # suite's stub uses it freely — that stub IS a pretend Bolna, and this guard reads
+        # shipped modules, not test doubles.)
+        "from_phone_number",
         "has_more",
+        # THE VENDOR'S OWN WRAPPER AROUND AN AGENT'S MODEL LEG AND ITS SEMANTIC ROUTES
+        # (D-420). `llm_agent` holds `routes`, and each route carries a `route_name`; the
+        # adapter reads all three ONLY to alarm that a console-set route exists, because a
+        # route answers from a static response with the LLM never consulted — which would
+        # bypass `TRUTHFUL_ANSWER_DIRECTIVE`. `route_name` is the one field of a route this
+        # repo may touch: it names the route without carrying what the route SAYS, which is
+        # what keeps the alarm inside hard rule 6.
+        "llm_agent",
         "llm_config",
+        "route_name",
         # THE TWO HALVES OF A BOLNA DISPOSITION, read since the extraction-flattening fix.
         # Their `extracted_data` nests `{category: {field: {"subjective": ..., "objective":
         # ...}}}` while OUR `engine_extracted` is a FLAT `{field: value}`, so the adapter
@@ -1662,6 +1679,13 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "cost",
         "created_at",
         "currency",
+        # OURS OVERWHELMINGLY, AND THIS IS THE CLEAREST CASE IN EITHER LIST. `routes` is
+        # Bolna's name for an agent's semantic-match shortcuts, and it is also the word
+        # every FastAPI module in this tree uses for its own endpoints — 82 shipped files
+        # outside the adapter contain it. Banning it would fire on `apps/api/*/routes.py`
+        # forever, which is why the ban list is a list of words only ONE side uses. Note the
+        # contrast with `route_name` a few entries up: that spelling is Bolna's alone.
+        "routes",
         "data",
         "direction",
         "documents",

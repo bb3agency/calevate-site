@@ -90,6 +90,16 @@ _REMEDIATION: Final[dict[EngineCapabilityName, str]] = {
         "Numbers are bought from the telephony provider rather than the voice platform. "
         "Contact us and we will provision one for your account."
     ),
+    "caller_id": (
+        "The voice platform in use dials from its own number, so calls cannot be made to "
+        "show this account's registered number. Contact us before running a campaign from "
+        "this account — a campaign must dial from its own registered header."
+    ),
+    "inbound_binding": (
+        "The voice platform in use cannot be told which agent answers which number, so "
+        "this number has to be pointed at the agent by hand. Contact us and we will set "
+        "it up."
+    ),
     "transfer": (
         "The voice platform in use cannot transfer a live call. Use the escalation phone "
         "number configured on the agent."
