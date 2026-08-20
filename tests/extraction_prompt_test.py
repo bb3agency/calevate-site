@@ -190,16 +190,31 @@ def test_the_prompt_still_carries_the_schema_and_the_transcript() -> None:
 
 def test_both_shipped_model_paths_send_this_exact_prompt() -> None:
     """The rules are worthless if a provider adapter builds its own instruction. Both
-    adapters must render the shared prompt, or Gemini and Sarvam disagree about what a
-    denial means — and after D-127 they answer DIFFERENT questions about the same call
-    (Sarvam the first raw-transcript pass, Vertex the user-triggered assist over the
-    redacted copy), which makes one shared instruction more load-bearing, not less."""
+    adapters must render the shared prompt, or Azure and Sarvam disagree about what a
+    denial means — and they answer DIFFERENT questions about the same call (Sarvam the
+    first raw-transcript pass, Azure the user-triggered assist over the redacted copy),
+    which makes one shared instruction more load-bearing, not less.
+
+    IT READS THE WHOLE CLASS, NOT `run` ALONE, AND D-410 IS WHY. This test used to
+    `inspect.getsource(cls.run)`, which encoded an assumption it never stated: that the
+    request is assembled in `run` itself. When the Azure adapter grew a `_post()` helper
+    — so the structured-output request and its degraded retry could differ in exactly one
+    argument — the prompt moved one frame down and this went red on an adapter that was
+    behaving perfectly. The property worth asserting is "this adapter does not author its
+    own instruction", and that is a fact about the CLASS. Narrowing it to one method made
+    it a fact about a file's layout, which is the kind of test that cries wolf during a
+    refactor and gets weakened by whoever is holding the refactor.
+
+    Direct attribute access on purpose: the D-410 rename from `VertexGeminiExtractor` to
+    `AzureOpenAIExtractor` should break this with an `AttributeError`, not skip an adapter
+    it cannot find. A defensively-written loop would still report that "both shipped
+    paths" send the shared prompt while checking only Sarvam."""
     import inspect
 
     import apps.workers.extraction as extraction_module
 
-    for cls in (extraction_module.SarvamExtractor, extraction_module.VertexGeminiExtractor):
-        source = inspect.getsource(cls.run)
+    for cls in (extraction_module.SarvamExtractor, extraction_module.AzureOpenAIExtractor):
+        source = inspect.getsource(cls)
         assert "build_extraction_prompt(spec, transcript)" in source, (
             f"{cls.__name__} does not send the shared extraction prompt"
         )

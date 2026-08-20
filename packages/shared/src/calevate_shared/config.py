@@ -15,6 +15,17 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 from pydantic_settings.sources import DotEnvSettingsSource
 
+# The MODEL and ENDPOINT vocabulary lives in the portability contract, not here (D-410).
+# `Settings` imports FROM `engine` and never the other way round: which models exist and
+# what an Azure resource name may look like are facts about the leg an engine runs, and a
+# second spelling of either in this file is the drift that lets the console accept a value
+# the endpoint builder then refuses.
+from calevate_shared.engine import (
+    AZURE_OPENAI_DEFAULT_MODEL,
+    AZURE_RESOURCE_PATTERN,
+    AzureOpenAIModel,
+)
+
 #: Environment variables the deployment's `.env` legitimately carries FOR SOMEONE ELSE.
 #:
 #: botocore resolves these three itself — nothing in this repository passes credentials to
@@ -330,99 +341,172 @@ class Settings(BaseSettings):
     # raw PII reaching Google. `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form
     # of that sentence (`workers/extraction.py`).
     sarvam_api_key: str | None = None
-    # ⚠ THE AI STUDIO DEVELOPER API KEY, AND D-127 DISQUALIFIED THE DOOR IT OPENS.
+    # ⚠ THE AI STUDIO DEVELOPER API KEY, AND NO SURFACE IN THIS PRODUCT OPENS THAT DOOR.
     # `generativelanguage.googleapis.com` is a global host with no region anywhere in the
     # URL, and on the free tier Google states it uses submitted prompts and responses to
     # improve its products with human reviewers able to read them — which for a Processor
     # holding an Indian SMB's callers' transcripts is not a tradeoff, it is a disclosure
-    # we could not make. Vertex takes an OAuth2 bearer, never an API key in a query
-    # string, so this value cannot reach the replacement path even by accident.
+    # we could not make. D-127 disqualified it; D-410 then moved both LLM surfaces to
+    # Azure OpenAI, so there is no Google LLM leg left for this value to reach even by
+    # accident.
     #
-    # IT IS KEPT, PERMANENTLY, AND THIS IS NOT A DEPRECATION — which is what this comment
-    # used to claim, in a paragraph that contradicted itself two sentences later. It said
-    # hard rule 8's two-step applied and that step one was done, "nothing in the tree
-    # [reads] it", and then said it is read in exactly one place. Both cannot be true, and
-    # the second one is: `assist_capability()` reads it on every call. A field that is
-    # READ has not had step one taken, so there is no step two to schedule and the
-    # sentence promising a later release was a schedule wearing a rule's clothes
-    # (CLAUDE.md: a deferral is a decision-log entry naming what closes it, or it is not
-    # a deferral).
+    # IT IS KEPT, AND THIS IS NOT A DEPRECATION — which is what this comment used to
+    # claim, in a paragraph that contradicted itself two sentences later. It said hard
+    # rule 8's two-step applied and that step one was done, "nothing in the tree [reads]
+    # it", and then said it is read in exactly one place. Both cannot be true, and the
+    # second one is: `assist_capability()` reads it on every call. A field that is READ
+    # has not had step one taken, so there is no step two to schedule and the sentence
+    # promising a later release was a schedule wearing a rule's clothes (CLAUDE.md: a
+    # deferral is a decision-log entry naming what closes it, or it is not a deferral).
     #
-    # WHAT IT IS INSTEAD is the one input that separates "this deployment has no AI
-    # credential" from "this deployment has the WRONG KIND of AI credential", and those
-    # two need different sentences on the screen: the first sends an operator to install
-    # something, the second sends them to install something ELSE and explains why the
-    # thing they already installed is refused. Delete the field and `assist_capability()`
-    # can only answer `no_credential`, which would send an operator who did install a
-    # Gemini key to go and check their typing. That is not a field that silently does
-    # nothing (PLATFORM-CONFIG §8's objection); it is a field whose entire job is the
-    # error message, and `tests/vertex_extraction_test.py` pins both that it produces
-    # `ai_studio_key_disqualified` and that nothing else in the tree reads it.
+    # ⚠ THIS COMMENT USED TO CLAIM A JOB THIS FIELD NO LONGER HAS, and the correction is
+    # the point. It argued that the field was the one input separating "no AI credential"
+    # from "the WRONG KIND of AI credential", because `assist_capability()` read it to
+    # choose between two operator-facing sentences. **Nothing reads it any more.** D-410's
+    # extraction rewrite deleted `ai_studio_key_disqualified` on its own reasoning, and
+    # the two facts landed in different files by different hands — leaving a comment here
+    # that was readable, confident and false. Grepping the tree, the only readers left are
+    # `platform_config`'s metadata table and two tests, one of which tests this very claim.
     #
-    # Deleting it would ALSO be a boot failure rather than a cleanup — `Settings` is
-    # `extra="forbid"` over a dotenv — but that is the smaller reason and it is recorded
-    # second on purpose, because it is the one that would come back if the field ever did
-    # become genuinely dead.
+    # SO WHY IS IT STILL HERE? One reason, and it is the one previously recorded second:
+    # `Settings` is `extra="forbid"` over a dotenv, so deleting the field turns any `.env`
+    # still carrying `GEMINI_API_KEY` into a BOOT FAILURE. That is hard rule 8's two-step
+    # deprecation in its ordinary form — stop reading it in this release, remove it in a
+    # later one — and this is the release that stopped reading it.
+    #
+    # WHAT CLOSES IT: deleting this field once no `.env` in use carries the key. That is a
+    # deferral naming what closes it rather than a schedule, per CLAUDE.md. It is NOT
+    # waiting on a decision, a vendor or a date.
+    #
+    # DO NOT restore the reader to make the old argument true again. An operator installing
+    # a Gemini key for a product with no Gemini leg is now an unlikely path, and a
+    # defensive branch that cannot realistically be reached is the coverage-ratchet
+    # liability the extraction rewrite deleted it to avoid.
     gemini_api_key: str | None = None
-    # The GCP project the Vertex AI calls bill to and run in (D-127 G-1/G-3). ONE
-    # Calevate-owned project, cost absorbed and metered per tenant — never per-tenant
-    # credentials, because a tenant never chooses this endpoint and never sees it.
+
+    # AZURE OPENAI — BOTH LLM SURFACES, ONE RESOURCE (D-410). The in-call leg the engine
+    # calls and the user-triggered dashboard AI read the same four values below.
     #
-    # ORDINARY CONFIG, not a credential: a project id is not a secret (it appears in every
-    # URL the client builds) and it is the value an operator will get wrong first, so it
-    # belongs on the console screen where they can see and correct it. What is NOT here,
-    # and must never be, is the REGION — `calevate_shared.engine.VERTEX_LOCATION` is a
-    # `Final` constant precisely so no console can move model traffic out of India, and
+    # WHY FOUR RATHER THAN TWO, and it is Azure's shape rather than ours: the endpoint is
+    # built from a RESOURCE name, the API addresses a DEPLOYMENT, and the deployment is
+    # made FROM a model whose identity only the cost model needs. Three different strings
+    # that every other OpenAI-compatible provider collapses into one, plus the key.
+    #
+    # WHAT IS NOT HERE, AND MUST NEVER BE: the REGION.
+    # `calevate_shared.engine.AZURE_LOCATION` is a `Final` for the reason it says, and
     # `scripts/check_model_residency.py` fails the build on any `Settings` field whose
-    # name says region, location, residency, vertex or aiplatform.
+    # name says region, location or residency. Azure hides the region inside the resource
+    # rather than in the URL, which makes `azure_openai_resource` the value that decides
+    # residency in practice — read `AZURE_LOCATION` before changing it, and note that no
+    # code here can check it.
     #
-    # Bounded at GCP's own limit: project ids are 6-30 characters, lowercase letters,
-    # digits and hyphens, starting with a letter. The pattern refuses a project NUMBER
-    # (all digits) too — Vertex accepts either in the URL, but a number in this box is
-    # almost always somebody pasting the wrong field out of the console, and the resulting
-    # 403 names neither.
-    gcp_project_id: str | None = Field(
-        default=None, min_length=6, max_length=30, pattern=r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$"
+    # The GOOGLE CREDENTIALS THAT WERE HERE ARE GONE, deleted rather than deprecated:
+    # `gcp_project_id` and `gcp_service_account_json` existed for the Vertex AI legs and
+    # for nothing else, and D-410 removed the last reader of both. Google Sheets sync
+    # (D-23) was the one candidate for keeping them and does not use them — it reads
+    # `google_sheets_service_account_json` below through the same
+    # `workers/google_oauth.py` handshake, which stays. A credential an operator can still
+    # install and then believe in is the `COHERE_API_KEY` defect this file already
+    # recorded once.
+
+    # The resource name — the `<resource>` in `https://<resource>.openai.azure.com`.
+    #
+    # ORDINARY CONFIG, not a credential: it is in every URL the client builds, and it is
+    # the value an operator will get wrong first, so it belongs on the console screen
+    # where they can see and correct it.
+    #
+    # BOUNDED BY THE HOSTNAME IT BECOMES, from the ONE pattern in the engine contract
+    # rather than a second one typed here: `azure_openai_base_url()` interpolates this at
+    # the FRONT of the authority, so a value carrying a `/` or a `.` addresses a different
+    # host entirely (`calevate_shared.engine._AZURE_RESOURCE_RE` has the attack in full).
+    # Refusing it here means the operator learns at the moment they type it, in a message
+    # naming this field, rather than from a builder raising inside a publish.
+    azure_openai_resource: str | None = Field(
+        default=None, min_length=2, max_length=64, pattern=AZURE_RESOURCE_PATTERN
     )
-    # The service-account key that mints the OAuth2 bearer for Vertex (RFC 7523
-    # JWT-bearer, `workers/google_oauth.py`). Same shape, same handling and the same ONE
-    # key for the whole platform as `google_sheets_service_account_json` below — and the
-    # same rule about where it lives: injected from the secrets manager at deploy time,
-    # never a plaintext database row (its name matches `_json`, so `managed_fields()`
-    # excludes it and `platform_secrets` seals it), never a file committed here.
+    # The static API key the v1 surface authenticates with, sent as
+    # `Authorization: Bearer <key>` (D-410).
     #
-    # Absent ⇒ `assist_capability()` answers `available=False, reason="no_credential"` and
-    # the dashboard-AI surface explains itself rather than going silently missing. It is
-    # deliberately NOT in `runtime_config_missing_keys`: a deployment with no dashboard AI
-    # is a coherent deployment, and a readiness probe that goes red for an absent optional
-    # feature is a probe operators learn to ignore.
-    gcp_service_account_json: str | None = None
-    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE IN-CALL LLM BEARER (D-404).
+    # THIS FIELD IS THE WHOLE REASON THE VERTEX ROTATION MACHINERY IS GONE. A regional
+    # Vertex endpoint took a Google OAuth2 access token and nothing else, so D-404 built a
+    # 4-hourly refresher, a dead man watching it and a runbook for when it stopped. Azure
+    # takes a string that does not expire; the refresher, its cron registration, its alarm,
+    # its runbook and `in_call_llm_heartbeat_url` were deleted in the same change, because
+    # a watchdog over a loop that no longer exists still reports health.
     #
-    # A SETTING RATHER THAN A CONSTANT, and the reason is that nobody knows the right
-    # value yet. VERIFIED-OSS proves the framework hands `llm_key` straight to
-    # `AsyncOpenAI` for a `provider: "custom"` leg (`bolna/llms/openai_llm.py`); nothing
-    # the vendor publishes says which credential-store entry the HOSTED platform injects
-    # it FROM. Their other providers use shouty names (`OPENAI`, `GOOGLE`, `SARVAM`), and
-    # their provider matrix says a custom model's key is "registered via
-    # `POST /user/model/custom`" — an endpoint whose published schema has no credential
-    # field at all, so that sentence cannot be taken literally.
+    # SEALED OUT OF THE PLAINTEXT TABLE BY ITS NAME: `api_key` is one of
+    # `platform_config._SECRET_NAME_FRAGMENTS`, so `managed_fields()` excludes it and
+    # `platform_secrets` holds it encrypted. Injected from the secrets manager at deploy
+    # time, never a committed file, never logged.
     #
-    # `CUSTOM` is therefore a DEFAULT, not a fact. It is console-managed (`applies: live`)
-    # precisely so the operator who gets the answer from OPERATIONS §2 gate 16c types it
-    # into a screen instead of waiting for a deploy — which is the difference between a
-    # five-minute fix and an outage that lasts until the next release.
+    # Bounded generously rather than tightly. An Azure OpenAI key is short (tens of
+    # characters), but a ceiling that tracked today's format would refuse tomorrow's on a
+    # value an operator cannot work around; 512 is far above any key and far below the
+    # megabyte a jsonb-replicated string could otherwise carry.
+    azure_openai_api_key: str | None = Field(default=None, max_length=512)
+    # The DEPLOYMENT id — what the API actually addresses, and NOT the model name.
+    #
+    # ITS OWN FIELD BECAUSE AZURE MAKES IT ONE. Elsewhere `model` names a model; on Azure
+    # an operator deploys a model under a name of their choosing and the request carries
+    # THAT name, so it cannot be derived from `azure_openai_model` and must not be guessed
+    # from it. `ModelConfig.llm_model` is where this value lands on the wire.
+    #
+    # Bounded to the shape Azure accepts for a deployment id — letters, digits, hyphens
+    # and underscores, up to 64 — so a value with a slash or a space cannot reach a URL.
+    azure_openai_deployment: str | None = Field(
+        default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    )
+    # WHICH MODEL THE DEPLOYMENT WAS MADE FROM — read by the cost model, never sent.
+    #
+    # **THIS IS THE `gpt-4.1-mini` SWITCH** and the reason it is config rather than a
+    # constant. `gpt-4o-mini` is documented available in `AZURE_LOCATION`; `gpt-4.1-mini`
+    # is not confirmed in any Indian region, so it ships as a value an operator flips once
+    # they have confirmed it in the portal and created a deployment for it — with no
+    # deploy of ours, which is what makes a portal answer a five-minute change.
+    #
+    # `applies: live`, and the pairing is the part to get right: this and
+    # `azure_openai_deployment` must move TOGETHER. Changing the model here without
+    # pointing the deployment at a matching one prices a model nobody is running — which
+    # is a WRONG INVOICE rather than an outage, and therefore the failure that would go
+    # unnoticed longest.
+    #
+    # BOUNDED BY ITS TYPE rather than by a length: `AzureOpenAIModel` is the closed set in
+    # the engine contract, so pydantic refuses an unknown identifier at the write path,
+    # the boot-time load and the console alike, and a new model is a decision-log entry
+    # rather than a typo.
+    azure_openai_model: AzureOpenAIModel = AZURE_OPENAI_DEFAULT_MODEL
+    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE LLM KEY (D-404, re-aimed by
+    # D-410).
+    #
+    # A SETTING RATHER THAN A CONSTANT, AND THE REASON IS UNCHANGED BY THE MIGRATION:
+    # NOBODY HERE HAS READ THE RIGHT VALUE. It is one of the two things D-410 could not
+    # settle — Bolna's docs are refused by this environment's egress proxy — so it is a
+    # MARKED ASSUMPTION with a named gate (OPERATIONS §2), never a fact. What changed is
+    # only which provider it names a key for.
+    #
+    # `AZURE` IS A DERIVED DEFAULT, NOT A VENDOR STATEMENT, and the derivation is the
+    # whole of its standing: their published provider matrix names credential entries
+    # after the provider in upper case (`OPENAI`, `GOOGLE`, `SARVAM`), and the provider we
+    # send for this leg is `azure` (Azure OpenAI is in their published provider list and
+    # their live agent dropdown, which is what made D-410 cheaper than D-404). So this is
+    # their own naming rule applied to our provider string. It may still be wrong —
+    # `AZURE_OPENAI` is the obvious alternative — and a wrong value fails LOUD, as a 401
+    # from Azure on the first turn of the first call.
+    #
+    # Console-managed (`applies: live`) precisely so the operator who gets the answer
+    # types it into a screen instead of waiting for a deploy — the difference between a
+    # five-minute fix and an outage lasting until the next release.
     #
     # NOT a credential itself: it is the NAME of one, it is not secret, and it must stay
     # out of `platform_secrets` (whose sealing is keyed on `_json`/`_key` style names) so
     # an operator can actually SEE what is currently configured. The value it names is
-    # never stored here or anywhere else of ours — it is minted per refresh and pushed
-    # straight to the engine.
+    # `azure_openai_api_key`, which is held encrypted and pushed to the engine, never
+    # echoed back.
     #
     # Bounded to the shape a credential-store key can take: their examples are
     # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores.
     bolna_llm_credential_name: str = Field(
-        default="CUSTOM", min_length=2, max_length=64, pattern=r"^[A-Z][A-Z0-9_]{1,63}$"
+        default="AZURE", min_length=2, max_length=64, pattern=r"^[A-Z][A-Z0-9_]{1,63}$"
     )
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
@@ -589,35 +673,16 @@ class Settings(BaseSettings):
     # reaches nobody is the exact defect this closes.
     backup_heartbeat_url: str | None = None
 
-    # THE SECOND DEAD MAN (D-408), watching the in-call LLM bearer's rotation loop.
-    #
-    # WHY A SECOND ONE RATHER THAN A BRANCH OF THE FIRST. `vertex_credential.py` already
-    # pages on every way rotation can FAIL — but that alarm is raised BY the job, so the
-    # one failure it cannot report is the job not running at all: a stopped ARQ worker, a
-    # container that never came back, a Redis the worker cannot reach. Nothing rotates,
-    # nothing pages, and the in-call LLM leg goes dark within twelve hours on live calls
-    # for every client at once. That is the highest-consequence silent failure in this
-    # system, and only an observer OUTSIDE the worker can turn its silence into a page.
-    #
-    # PERIOD 4h (`REFRESH_INTERVAL_HOURS`), GRACE 2h, configured vendor-side — the
-    # arithmetic is on `TOKEN_LIFETIME_S`: a bearer is replaced while it still has 8
-    # hours left, so a page after 6 hours of silence still leaves at least 6 hours of
-    # working service to fix it in. `runbooks/vertex-llm-credential.md` §8.3 has the
-    # vendor-side setup.
-    #
-    # ONLY A COMPLETED ROTATION PINGS IT. Not a skip, not a failure — see
-    # `vertex_credential.refresh_in_call_llm_credential`. A caller that pings on any
-    # other path has removed this alarm rather than extended it, because what is being
-    # watched for is silence.
-    #
-    # IT IS A CREDENTIAL, for `backup_heartbeat_url`'s reason: holding it is enough to
-    # silence the alarm. The `heartbeat` fragment in `platform_config` seals it out of
-    # the plaintext table by name.
-    #
-    # UNSET is correct locally, in CI, and on any deployment not running the Vertex leg;
-    # it means no dead man is armed, and the worker says so once per tick rather than
-    # passing silently.
-    in_call_llm_heartbeat_url: str | None = None
+    # `IN_CALL_LLM_HEARTBEAT_URL` WAS HERE AND IS GONE (D-410), TWO HOURS AFTER IT WAS
+    # BUILT, and it is worth one comment because deleting a watchdog normally is the
+    # wrong move. D-408 added a second dead man because the in-call LLM bearer was
+    # rotated every four hours by a job of ours, and the one failure that job could not
+    # report was itself not running — a stopped worker meant nothing rotated, nothing
+    # paged, and every client's LLM leg went dark within twelve hours. Azure OpenAI takes
+    # a STATIC key, so there is no rotation loop; a dead man watching a loop that does
+    # not exist is strictly worse than none, because silence is what it reports health
+    # with and it would go on being silent forever. The refresher, the cron entry, the
+    # alarm and the runbook went in the same change.
 
     # WhatsApp transport for hot-lead alerts (ROADMAP M2). OFF by default and it must
     # stay off until the human checklist in workers/whatsapp.py is done: WABA + business

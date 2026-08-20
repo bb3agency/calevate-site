@@ -4,7 +4,7 @@ This module is the JOIN between two halves that were built one call apart and ne
 — `apps/workers/extraction.run_assist` (which decides who answers and what that answer
 cost) and `apps/api/billing/ai_quota` (which decides whether it may run at all and turns
 a token count into rupees). Until something called both in order, the ledger, the quota,
-the wallet modal, the platform brake, the capability ladder and the Vertex client were
+the wallet modal, the platform brake, the capability ladder and the assistant client were
 all reachable by nobody.
 
 WHAT A "RE-SUMMARISE" IS, AND WHAT IT DELIBERATELY IS NOT
@@ -38,7 +38,7 @@ handler. This calls one, and the exception is argued rather than assumed — the
 
 The rule's purpose is to keep vendor latency off the latency-critical path and off a
 blocking worker. Neither applies: the voice path is `apps/voice-runtime` and is not
-this, and every hop here is `await`ed on an asyncio loop, so a slow Gemini occupies no
+this, and every hop here is `await`ed on an asyncio loop, so a slow Azure occupies no
 thread. What it DOES occupy is one pooled Postgres connection for the length of the
 round trip, because `Depends(db)`'s transaction is open across it and `app.tenant_id` is
 transaction-local (`db/session.tenant_session`) so the transaction cannot be committed
@@ -65,7 +65,7 @@ SUBJECT → GATE → RUN → METER, and each arrow is load-bearing:
 2. **gate before run.** `require_ai_assist` RAISES, so a refusal happens before a token
    is spent: a refused request costs nothing, which is the only reading of G-4 under
    which a ceiling is a ceiling.
-3. **run before meter.** The quantity metered is Vertex's own count, which does not
+3. **run before meter.** The quantity metered is Azure's own count, which does not
    exist until the call returns. `AssistResult.usage is None` is handled by
    `meter_assist` below and never by inventing a number.
 4. **meter is unconditional on a run that returned.** A completed assist is money spent
@@ -81,17 +81,16 @@ from decimal import Decimal
 from typing import Final
 from uuid import UUID
 
-from calevate_shared.engine import GEMINI_DEFAULT_LLM
 from calevate_shared.extraction import ExtractionSchemaSpec
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import record_ai_assist_usage
-from apps.api.billing.rates import LLM_INR_PER_KTOK
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.workers.extraction import GEMINI_PROVIDER, AssistResult
+from apps.api.core.settings import get_settings
+from apps.workers.extraction import AZURE_PROVIDER, AssistResult
 
 log = get_logger(__name__)
 
@@ -228,10 +227,10 @@ async def meter_assist(
       thousands of Sarvam tokens recorded as zero thousand is a FABRICATED quantity, and
       a fabricated quantity in an append-only ledger looks exactly like a real one. It
       would also move `read_ai_quota`'s `requests_used` — `COUNT(DISTINCT ref)` over the
-      Gemini unit types — so the screen would count a Gemini assist that never happened,
-      and the rupee ceiling (the number that actually blocks) and the request count (the
+      paid unit types — so the screen would count a paid assist that never happened, and
+      the rupee ceiling (the number that actually blocks) and the request count (the
       number a person plans around) would start disagreeing about the same month.
-    * **A Gemini answer Vertex did not count.** We paid Google and cannot say how much.
+    * **An Azure answer Azure did not count.** We paid Microsoft and cannot say how much.
       Also unwritten, for the same reason and with the opposite severity: this is a
       METERING OUTAGE — every assist in this state is spend the per-tenant ceiling and
       the platform brake are both blind to — so it fires `alert()` rather than an info
@@ -239,28 +238,52 @@ async def meter_assist(
       refused; the brake going quiet is a thing an operator can act on, and a plausible
       invented number is not.
 
+      WHAT "NO USAGE" MEANS HERE IS THE ADAPTER'S ANSWER, NOT A CLAIM ABOUT AZURE
+      (D-410). `workers/extraction.py::_azure_usage` returns None when the response
+      carried no `usage` block, and this branch reports exactly that. Why a 200 would
+      arrive without one is a vendor behaviour nobody in this repository has observed, so
+      nothing is asserted about it and nothing is inferred from it — the alert says what
+      was seen and asks an operator to look, which is the only honest shape for a metering
+      outage whose cause is on somebody else's side.
+
     Never raises. It runs after the provider has been paid, in the same transaction as
     everything else the request writes (§4's rule that the record and the act commit
     together), and a metered assist undone by a failure to talk about it would be the
     money hole this whole path exists to close.
     """
+    # THE MODEL THE LEDGER NAMES, and it is the model rather than the deployment on
+    # purpose (D-410). Azure serves a model under a deployment ID the operator chose; the
+    # deployment is a routing label that says nothing about price or quality, so a ledger
+    # row naming it could not be priced later and would silently re-baseline on a console
+    # rename. `azure_extractor()` builds the client with this same setting, which is why
+    # this is a read of the setting rather than a constant: `azure_openai_model` is
+    # D-410's LIVE switch (`gpt-4.1-mini` costs 2.7x the default on both legs), so a
+    # constant here would name a model nothing ran on within one poll of an operator
+    # flipping it. Read AFTER the run, so an operator who flips it mid-request has the
+    # ledger name the model the answer probably came from rather than the one it
+    # certainly did not — the residual race is one request wide and the alternative is
+    # widening `AssistResult` to carry the model, which is a Protocol change for a
+    # one-request window.
+    model = get_settings().azure_openai_model
     usage = result.usage
     if usage is None:
-        if result.capability.provider == GEMINI_PROVIDER:
+        if result.capability.provider == AZURE_PROVIDER:
             alert(
                 "CORE_LOGIC",
                 "ai_assist_unmeterable",
                 detail=(
-                    "A dashboard assist ran on Gemini and Vertex returned no "
-                    "usageMetadata, so it could not be metered: this spend is invisible "
+                    "A dashboard assist ran on Azure OpenAI and the response carried no "
+                    "usage block, so it could not be metered: this spend is invisible "
                     "to the tenant's AI ceiling and to the platform brake. Nothing was "
-                    "estimated. Check whether Vertex has stopped sending the block "
+                    "estimated. Check whether Azure has stopped sending the block "
                     "before the month's real spend outruns PLATFORM_AI_BRAKE_INR."
                 ),
-                # Ids and a feature name. No tenant name, no transcript, no output.
+                # Ids, a model name and a feature name. No tenant name, no transcript,
+                # no output — and never the key, which is the one thing on this path
+                # whose leak is worse than PII.
                 tenant_id=str(tenant_id),
                 ref=ref,
-                model=GEMINI_DEFAULT_LLM,
+                model=model,
                 feature=feature,
             )
         else:
@@ -284,16 +307,14 @@ async def meter_assist(
         ref=ref,
         tokens_in=usage.prompt_tokens,
         tokens_out=usage.output_tokens,
-        # THE LIST PRICE, because it is the only price this deployment knows. The column
-        # is `unit_cost_paid` and the GCP invoice is the truth the day one exists;
-        # `LLM_INR_PER_KTOK` carries that caveat and its source.
-        price_in_inr_per_ktok=LLM_INR_PER_KTOK["in"],
-        price_out_inr_per_ktok=LLM_INR_PER_KTOK["out"],
-        # `run_assist` builds `VertexGeminiExtractor(account, project)` with no model
-        # argument, so the model that produced this usage is the default — read from the
-        # constant rather than restated, so a change to it cannot leave the ledger
-        # naming a model nothing ran on.
-        model=GEMINI_DEFAULT_LLM,
+        # THE MODEL, AND THE PRICE IS DERIVED FROM IT rather than passed beside it
+        # (D-410). This call used to hand over two rupee figures and a model name as
+        # three independent arguments, which is a ledger row whose `unit_cost_paid` can
+        # disagree with its own `meta.model` — on an APPEND-ONLY table, invisibly, once
+        # `azure_openai_model` became a live switch between two models 2.7x apart.
+        # `record_ai_assist_usage` reads `rates.llm_inr_per_ktok(model)` and refuses an
+        # unpriced identifier, so that row is now unrepresentable.
+        model=model,
         feature=feature,
     )
     return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)

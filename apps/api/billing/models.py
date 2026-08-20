@@ -48,25 +48,28 @@ CREDIT_REASONS = ("topup", "usage", "adjustment", "refund")
 #
 # **`ktok`, NOT `tok`, and that is a MONEY decision, not a naming one.** `unit_cost_paid`
 # is NUMERIC(12,4) and every reader multiplies it by `qty`, so the smallest non-zero
-# price this ledger can express is ₹0.0001 per unit of qty. `gemini-2.5-flash` input is
-# $0.30 per 1M tokens — ₹0.0000287 a token at ₹95.66/USD — which stores as 0.0000, so a
+# price this ledger can express is ₹0.0001 per unit of qty. `gpt-4o-mini` input is $0.15
+# per 1M tokens — ₹0.0000143 a token at ₹95.66/USD — which stores as 0.0000, so a
 # per-TOKEN qty would meter the input leg of every dashboard assist at exactly zero
 # rupees. The OUTPUT leg is the one worth spelling out because it looks survivable and is
-# not: ₹0.0002392 a token stores as 0.0002, which is not zero and is 16% of the price
-# discarded. Per THOUSAND tokens the two are ₹0.0287 and ₹0.2392, which the column holds
-# with digits to spare. What the ₹0.0001/1k quantum costs is stated where it lands: it
-# bounds the error on OUR OWN absorbed cost at 0.35% of the input rung, and no
-# client-visible rupee is ever derived from it — past the quota a client is charged a
-# FIXED block (`billing/ai_quota.py`), never a token count.
+# not: ₹0.0000574 a token stores as 0.0001, which is not zero and is the price WRONG BY
+# 74% — over-stated here rather than discarded, which is no better on a ledger. Per
+# THOUSAND tokens the two are ₹0.0143 and ₹0.0574, which the column holds with digits to
+# spare. What the ₹0.0001/1k quantum costs is stated where it lands: it bounds the error
+# on OUR OWN absorbed cost at 0.7% of the input rung, and no client-visible rupee is ever
+# derived from it — past the quota a client is charged a FIXED block
+# (`billing/ai_quota.py`), never a token count.
 #
-# THE FIGURES ABOVE MOVED ONCE ALREADY — they were 3.1 Flash-Lite's ($0.25/$1.50, 30%
-# discarded on the output leg) until the founder shipped 2.5 Flash — and the survivable-
-# looking case moved WITH them, from 30% lost to 16%. That is the direction that matters:
-# the argument for counting in thousands gets weaker as the output price rises, and the
-# day a model's output rounds to within a few percent this paragraph has to be re-argued
-# rather than re-stated. The prices themselves live in ONE place,
-# `billing/rates.py::LLM_INR_PER_KTOK`, with their source;
-# `tests/ai_quota_test.py` holds this paragraph to the arithmetic.
+# THE FIGURES ABOVE HAVE MOVED THREE TIMES AND D-410 REVERSED THEIR DIRECTION. They were
+# 3.1 Flash-Lite's ($0.25/$1.50, 30% wrong on the output leg), then `gemini-2.5-flash`'s
+# ($0.30/$2.50, 16%) — and the note here read "the argument for counting in thousands gets
+# weaker as the output price RISES". Azure OpenAI is cheaper, so the argument got stronger
+# again: 74% on `gpt-4o-mini` and 31% on `gpt-4.1-mini`, whose $0.40/$1.60 is the dearest
+# of the two models `azure_openai_model` selects between. The claim to re-argue rather than
+# re-state, the day it comes due, is unchanged — a model whose output rounds to within a
+# few percent of its per-token price would make this paragraph wrong. The prices themselves
+# live in ONE place, `billing/rates.py::llm_inr_per_ktok(model)`, with their source;
+# `tests/ai_quota_test.py` holds this paragraph to the arithmetic ON BOTH MODELS.
 AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
 
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has

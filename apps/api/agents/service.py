@@ -80,16 +80,14 @@ from typing import cast
 from uuid import UUID
 
 from calevate_shared.engine import (
-    GEMINI_DEFAULT_LLM,
-    VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE,
     AgentConfig,
     CallContext,
     DisclosurePosture,
     ModelConfig,
     VoiceEngine,
+    azure_openai_base_url,
     compose_engine_prompt,
     compose_opening_line,
-    vertex_openai_base_url,
 )
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -108,6 +106,18 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
 from apps.api.tenancy.lifecycle import assert_account_open
+
+# THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
+# re-derived (D-410). It lives beside the dashboard-AI client because that is where the
+# first caller was, and it is not an extraction fact: it answers "does this deployment
+# hold an Azure OpenAI credential", which since D-410 is ONE question with ONE answer for
+# both LLM surfaces — they share a resource, a key and a deployment. A second read here
+# would be the second place that decides what "configured" means, which is the D-103 /
+# D-105 defect class, and it would also lose the half-set/unset distinction that function
+# already draws (`azure_credential_incomplete`). `apps/api` importing `apps/workers` is
+# the established direction here (`crm/assist.py`, `crm/service.py`, `admin/health.py`),
+# and `workers/extraction.py` imports only `apps/api/core/*`, so there is no cycle.
+from apps.workers.extraction import azure_credentials
 
 log = get_logger(__name__)
 
@@ -316,57 +326,78 @@ def _assert_has_a_script(agent: dict[str, object]) -> str:
 
 
 def in_call_llm(configured_model: object) -> dict[str, object]:
-    """The LLM leg's three `ModelConfig` fields for one agent — D-400's one decision point.
+    """The LLM leg's three `ModelConfig` fields for one agent — D-410's one decision point.
 
     THE WHOLE SWITCH LIVES HERE, and that is the reason this function exists rather than
-    three expressions inline. D-400 makes the canonical in-call LLM Gemini on paid Vertex
-    AI; D-404 delivers it, by ROTATING the bearer on a cron rather than proxying the
-    endpoint. Between a decision and its delivery there is always a temptation to leave
-    the decision as prose and the code as it was — and then nobody can say what "when it
-    lands, flip it" actually means. It means this function, and nothing else.
+    three expressions inline. D-400 made the canonical in-call LLM a paid one; D-410
+    re-aimed it at Azure OpenAI in `AZURE_LOCATION`. Between a decision and its delivery
+    there is always a temptation to leave the decision as prose and the code as it was —
+    and then nobody can say what "when it lands, flip it" actually means. It means this
+    function, and nothing else.
 
-    THREE CONDITIONS, AND EVERY ONE IS NECESSARY. Each names a different way the leg
+    THREE CONDITIONS, AND EVERY ONE IS NECESSARY — resource, key, deployment. They are
+    not three settings that happen to travel together; each names a different way the leg
     fails, and each fails at a different, worse moment:
 
-    1. **The route exists** (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`). A founder's switch.
-       While it is False nothing here changes, whatever else is configured.
-    2. **This deployment has a project to bill** (`gcp_project_id`). Without it there is
-       no id to interpolate into the URL, so there is no endpoint to name.
-    3. **This deployment can MINT A BEARER for that endpoint**
-       (`gcp_service_account_json`). **This condition is D-404's, and it is the one a
-       reviewer would drop.** Every deployment running D-127's dashboard AI already has a
-       project id — so without this third check, turning on the dashboard assistant would
-       silently move every agent's in-call LLM to an endpoint this deployment holds no
-       credential for. That does not fail at publish time, where somebody would see it. It
-       fails as a 401 from Vertex, mid-sentence, on a client's live phone call.
+    1. **A RESOURCE** (`azure_openai_resource`). It is the first label of the hostname, so
+       without it there is no endpoint to name at all.
+    2. **A KEY** (`azure_openai_api_key`). **This is D-404's condition in its Azure form,
+       and it is still the one a reviewer would drop.** The resource and the deployment
+       are enough to BUILD a URL, so a leg configured from those two alone looks complete
+       and points every agent at an endpoint nothing can authenticate against. That does
+       not fail at publish time, where somebody would see it. It fails as a 401 from
+       Azure, mid-sentence, on a client's live phone call.
+    3. **A DEPLOYMENT** (`azure_openai_deployment`). Azure serves a model under a
+       deployment ID the operator chose, and the v1 surface addresses THAT. A resource
+       with no deployment addresses a host and no model.
 
-    The key is checked for PRESENCE, not parsed. Parsing is
-    `apps/workers/vertex_credential.py`'s job and a present-but-malformed key is a paged
-    alarm there (`vertex_llm_credential_refresh_failed`); a publish path that did crypto
-    to answer a routing question would be a second place the credential is read, and this
-    module would then need the worker's imports to decide what an agent runs.
+    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, because the gap is real.** It proves WE
+    hold a key. It does not prove the ENGINE holds it: Bolna authenticates from its own
+    credential store, which `VoiceEngine.set_llm_credential` writes and which nobody has
+    observed for a first-class Azure provider (`Settings.bolna_llm_credential_name`
+    defaults to `AZURE` and is a MARKED ASSUMPTION — OPERATIONS §2 gate 16f). So the
+    condition is "this deployment holds a key it could install", which is the strongest
+    thing a publish path can check without doing the vendor's bookkeeping for it. The
+    same gap existed under D-404 and was closed by the same gate.
+
+    WHAT D-410 DELETED FROM THIS LADDER, said plainly rather than left as an absence:
+    the founder's constant (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`) is gone with the
+    Vertex leg, and the switch is now the configuration itself — a deployment holding no
+    Azure credential publishes exactly as it did before. And **the D-404 hazard the third
+    condition guarded against has changed shape rather than survived**: under Vertex, the
+    dashboard AI needed only a project id while the in-call leg needed a mintable bearer,
+    so turning the assistant on could silently move the phone line. Under D-410 both
+    surfaces read the SAME three fields, so configuring the dashboard assistant does move
+    the in-call leg — deliberately, because it is one credential to one resource in one
+    region, which is D-410's whole argument. What must never happen is a HALF-configured
+    move, which is what `azure_credentials()` refuses.
 
     THE MODEL IDENTIFIER MOVES WITH THE ENDPOINT, and this is the half a reviewer would
     wave through. `agents.llm_model` holds what an operator configured, which today is a
-    Sarvam identifier; sending `sarvam-105b` to Vertex is a 404 at dial time on a live
-    phone line. So a Vertex leg carries `GEMINI_DEFAULT_LLM` and the column is
-    deliberately ignored — the endpoint and the model are ONE decision and cannot be
+    Sarvam identifier; sending `sarvam-105b` to Azure is a 404 at dial time on a live
+    phone line. So an Azure leg carries the DEPLOYMENT and the column is deliberately
+    ignored — the endpoint and the thing it addresses are ONE decision and cannot be
     configured apart. The rejected alternative was honouring the column and letting the
     404 teach the operator; it teaches them during a client's call.
+
+    ⚠ **`llm_model` IS THE DEPLOYMENT ID HERE, NOT `Settings.azure_openai_model`**, and
+    on every other OpenAI-compatible provider those would be the same string. The model
+    name records which model the deployment was made from; it is what
+    `AZURE_LIST_PRICE_USD_PER_MTOK` prices and it never goes on the wire.
+    `ModelConfig.llm_model` says the same thing at the other end of this seam.
 
     Returns a dict rather than a `ModelConfig` because the caller is building one with the
     speech legs alongside, and two `ModelConfig`s merged is a second place for the LLM
     fields to be decided.
     """
-    settings = get_settings()
-    project = (settings.gcp_project_id or "").strip()
-    can_mint = bool((settings.gcp_service_account_json or "").strip())
-    if not VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE or not project or not can_mint:
+    credentials = azure_credentials()
+    if credentials is None:
         return {"llm_model": configured_model}
+    resource, _api_key, deployment = credentials
     return {
-        "llm_model": GEMINI_DEFAULT_LLM,
-        "llm_provider": "vertex_openai",
-        "llm_base_url": vertex_openai_base_url(project),
+        "llm_model": deployment,
+        "llm_provider": "azure_openai",
+        "llm_base_url": azure_openai_base_url(resource),
     }
 
 
@@ -390,7 +421,7 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
             stt_provider=agent["stt_provider"],
             stt_model=agent["stt_model"],
             # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
-            # and the model identifier cannot be configured apart (D-400).
+            # and the identifier it addresses cannot be configured apart (D-410).
             **in_call_llm(agent["llm_model"]),
             tts_provider=agent["tts_provider"],
             tts_voice=agent["tts_voice"],

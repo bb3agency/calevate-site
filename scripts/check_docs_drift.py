@@ -1051,10 +1051,10 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
 #
 # WHY THIS EXISTS SEPARATELY FROM 4b. That one guards a rate the biller charges; this one
 # guards a rate nothing charges yet — the in-call LLM leg, which D-36 priced at ₹0.00
-# because Sarvam 105B is free per token and which D-400 moved to a paid Vertex AI account.
-# A number nobody bills against is exactly the number that rots, and this one is load
-# bearing anyway: TRD §10 is where the founder reasons about margin, and the LLM leg went
-# from "free, ignore it" to a leg that costs more per minute the longer a call runs.
+# because Sarvam 105B is free per token and which D-400 moved to a paid account. A number
+# nobody bills against is exactly the number that rots, and this one is load bearing
+# anyway: TRD §10 is where the founder reasons about margin, and the LLM leg went from
+# "free, ignore it" to a leg that costs more per minute the longer a call runs.
 #
 # THE FIGURE IS A CURVE, NOT A RATE, which is why the doc states three points and why the
 # check reads all of them. §6.1 resends the whole conversation every turn, so input tokens
@@ -1062,37 +1062,59 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
 # be a blended average that a long call skews above. `llm_cost_inr_per_minute` is the one
 # computation; the doc quotes it at 1, 5 and 10 minutes; this proves the quotes are still
 # what the function returns.
+#
+# AND SINCE D-410 THERE ARE TWO CURVES, ONE PER SELECTABLE MODEL. `Settings
+# .azure_openai_model` switches between `gpt-4o-mini` and `gpt-4.1-mini` live and the
+# second costs 2.7x the first, so §10.1 publishes a row for each and this check scores
+# each row against `llm_cost_inr_per_minute(minutes, model=<that row's model>)`. THE
+# CONTRACT WITH THE DOC IS ONE LINE: a `| LLM …` row must contain the model's exact
+# identifier, because that identifier is how this check knows which price the row's
+# figures are supposed to be. Every model in `AZURE_OPENAI_MODELS` must have such a row —
+# a missing one is reported, not skipped, for the reason `llm_cost_curve_drift` gives.
 
-#: `| LLM — **Gemini …** | … | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |` —
-#: every `₹X (N min)` pair in §10.1's Gemini row.
+#: `| LLM — **gpt-4o-mini** | … | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |` —
+#: every `₹X (N min)` pair in one §10.1 LLM row.
 _DOC_LLM_PER_MINUTE = re.compile(
     r"₹\s*([0-9]+(?:\.[0-9]+)?)\s*\((\d+)\s*min\)",
 )
 
 
-def doc_llm_per_minute(text: str | None = None) -> dict[int, Decimal]:
-    """TRD §10.1's in-call LLM cost curve as `{minutes: INR per minute}`.
+def doc_llm_per_minute(text: str | None = None, *, model: str | None = None) -> dict[int, Decimal]:
+    """TRD §10.1's in-call LLM cost curve for one model, as `{minutes: INR per minute}`.
 
-    Read from the GEMINI row only. The Sarvam and Flash-Lite rows beside it are a
-    superseded default and a stated fallback, and neither is what `llm_cost_inr_per_minute`
-    computes — scoring them against it would report a disagreement that is the table
-    working as intended.
+    Read from the row that NAMES `model`, defaulting to the shipped default
+    (`AZURE_OPENAI_DEFAULT_MODEL`). The default is about which ROW to read and not about
+    which price to apply — `llm_cost_inr_per_minute` takes no such default, deliberately
+    (`billing/rates.py`) — and it is what lets the one-line summary at the bottom of this
+    script quote a figure without choosing a model for the reader.
+
+    The Sarvam row beside these is a superseded default and is not what
+    `llm_cost_inr_per_minute` computes; scoring it would report a disagreement that is the
+    table working as intended.
     """
+    from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL
+
+    wanted = model or AZURE_OPENAI_DEFAULT_MODEL
     document = text if text is not None else TRD.read_text(encoding="utf-8")
     body = _section(document, TTS_RATE_HEADING, "\n### ")
     if body is None:
         return {}
     row = next(
-        (
-            line
-            for line in body.splitlines()
-            if line.startswith("| LLM") and "Gemini" in line and "Vertex" in line
-        ),
+        (line for line in body.splitlines() if line.startswith("| LLM") and wanted in line),
         None,
     )
     if row is None:
         return {}
     return {int(minutes): _decimal(amount) for amount, minutes in _DOC_LLM_PER_MINUTE.findall(row)}
+
+
+def doc_llm_cost_points(text: str | None = None) -> dict[str, dict[int, Decimal]]:
+    """Every §10.1 LLM row, keyed by the model it names — exactly what
+    `llm_cost_curve_drift` scores, so the summary line at the bottom of this script counts
+    the same points the check verified rather than one model's worth of them."""
+    from calevate_shared.engine import AZURE_OPENAI_MODELS
+
+    return {model: doc_llm_per_minute(text, model=model) for model in sorted(AZURE_OPENAI_MODELS)}
 
 
 def _at_doc_precision(computed: Decimal, quoted: Decimal) -> Decimal:
@@ -1111,31 +1133,42 @@ def _at_doc_precision(computed: Decimal, quoted: Decimal) -> Decimal:
 
 
 def llm_cost_curve_drift(text: str | None = None) -> list[str]:
-    """§10.1's three quoted points against `billing/rates.py::llm_cost_inr_per_minute`.
+    """§10.1's quoted points, per model, against `billing/rates.py::llm_cost_inr_per_minute`.
 
-    An EMPTY reading is a failure, not a pass. The row is the only place the cost of
-    D-400 is stated in the document a founder reasons about margin from, and a check that
-    silently passed when the row was reworded would be worse than no check — it is the
+    An EMPTY reading is a failure, not a pass — for EVERY model, not just the default.
+    These rows are the only place the cost of the LLM decision is stated in the document a
+    founder reasons about margin from, and a check that silently passed when a row was
+    reworded would be worse than no check — it is the
     `check_redaction_exposure.check_allowlist` argument: a guard that cannot find its
-    subject has not verified it.
+    subject has not verified it. A missing row for the NON-default model is the likelier
+    half of that failure and the more expensive one: `gpt-4.1-mini` is one console edit
+    away and costs 2.7x, so a margin table that quotes only the cheap model is a table
+    that is wrong the moment the switch is flipped.
     """
     from apps.api.billing.rates import llm_cost_inr_per_minute
 
-    quoted = doc_llm_per_minute(text)
-    if not quoted:
-        return [
-            f"{_rel(TRD)} §10.1 no longer carries a `| LLM — … Gemini … Vertex …` row "
-            "quoting `₹X (N min)` points. D-400's in-call LLM cost is the number the "
-            "margin now turns on; restore the row or delete this check deliberately."
-        ]
-    return [
-        f"{_rel(TRD)} §10.1 quotes the in-call LLM leg at ₹{amount}/min on a {minutes}-minute "
-        f"call; `billing/rates.py::llm_cost_inr_per_minute({minutes})` computes "
-        f"₹{_at_doc_precision(llm_cost_inr_per_minute(minutes), amount)}. "
-        "The function is the cost model"
-        for minutes, amount in sorted(quoted.items())
-        if _at_doc_precision(llm_cost_inr_per_minute(minutes), amount) != amount
-    ]
+    offenders: list[str] = []
+    for model, quoted in doc_llm_cost_points(text).items():
+        if not quoted:
+            offenders.append(
+                f"{_rel(TRD)} §10.1 carries no `| LLM …` row naming `{model}` and quoting "
+                "`₹X (N min)` points. Every model this platform can be switched to has a "
+                "cost curve the margin turns on; restore the row (it must contain the "
+                "model identifier verbatim) or delete this check deliberately."
+            )
+            continue
+        computed = {
+            minutes: _at_doc_precision(llm_cost_inr_per_minute(minutes, model=model), amount)
+            for minutes, amount in quoted.items()
+        }
+        offenders.extend(
+            f"{_rel(TRD)} §10.1 quotes `{model}` at ₹{amount}/min on a {minutes}-minute "
+            f"call; `billing/rates.py::llm_cost_inr_per_minute({minutes}, model='{model}')` "
+            f"computes ₹{computed[minutes]}. The function is the cost model"
+            for minutes, amount in sorted(quoted.items())
+            if computed[minutes] != amount
+        )
+    return offenders
 
 
 # --- 5. prose that quotes a capability constant's value quotes the right one ----
@@ -1656,7 +1689,8 @@ def main() -> int:
         f"{len(compliance_section_tokens())} names in SEC-COMP §3 still in the code, "
         f"{len(doc_rate_zones())} rate zones declared, "
         f"{len(doc_tts_rates())} TTS rungs priced identically by TRD §10.1 and the biller, "
-        f"{len(doc_llm_per_minute())} in-call LLM cost points matching "
+        f"{sum(len(points) for points in doc_llm_cost_points().values())} in-call LLM cost "
+        f"points, across {len(doc_llm_cost_points())} models, matching "
         f"`llm_cost_inr_per_minute`, "
         f"{len(value_claims())} sentences quote one of "
         f"{len(capability_constants())} capability constants correctly, "

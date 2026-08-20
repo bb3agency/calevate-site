@@ -47,15 +47,16 @@ red-team case is the extraction side — `expect_absent` on the fields the attac
 force runs the real extractor over the real attack text.
 
 It runs against WHATEVER extractor is configured — Sarvam when a key is present and the
-offline baseline when none is (D-127 removed the Gemini branch from `get_extractor()`
-entirely: the first post-call pass reads the RAW transcript, so it stays sovereign) — and
-the report names the model, because comparing runs across models is the point of gate 13.
+offline baseline when none is (D-127 removed the assist provider from `get_extractor()`
+entirely and D-410 did not put it back: the first post-call pass reads the RAW transcript,
+so it stays on Sarvam permanently) — and the report names the model, because comparing
+runs across models is the point of gate 13.
 
 **`--provider` scores a NAMED extractor, and repeating it scores several head to head.**
 Task #87 ("extraction quality has never been scored against a real model") is blocked
 outside this repo on egress and a Sarvam key; the HARNESS half is not, and it is here:
 
-    uv run python -m scripts.eval --client=ci --provider=sarvam --provider=gemini \
+    uv run python -m scripts.eval --client=ci --provider=sarvam --provider=azure \
         --evidence=docs/evidence/extraction-provider-scorecard.md
 
 Three properties, each of which is the reason this is not simply "run it twice":
@@ -114,14 +115,14 @@ from typing import Any
 from apps.api.compliance.optout import detect_opt_out
 from apps.api.core.settings import get_settings
 from apps.workers.extraction import (
-    GEMINI_PROVIDER,
+    AZURE_PROVIDER,
     SARVAM_PROVIDER,
     Extractor,
     OfflineExtractor,
     SarvamExtractor,
+    azure_extractor,
     extract_call,
     get_extractor,
-    vertex_extractor,
 )
 from apps.workers.redaction import redact, spoken_digit_runs
 from calevate_shared.extraction import ExtractionField, ExtractionSchemaSpec
@@ -625,8 +626,9 @@ class Provider:
     raising, because that is not an error — it is the ordinary state of every machine
     that has not been given a key, and it has to be reportable as a refusal rather than
     as a traceback. It is also the only shape that fits both kinds of provider: Sarvam is
-    one string and Vertex is a project id plus a service-account key, and `vertex_extractor()`
-    already owns the decision about when those two amount to a credential (D-127).
+    one string and Azure OpenAI is a resource plus a key plus a deployment id, and
+    `azure_extractor()` already owns the decision about when those three amount to a
+    credential (`azure_credentials()`, D-410).
 
     `requires` is carried so the refusal can NAME what to set. "No credential" sends an
     operator into `Settings` to work out which one; this is the difference between a
@@ -667,10 +669,12 @@ def _offline() -> Extractor:
 #: where a column silently labelled `sarvam` because that is what the box happened to
 #: hold would be evidence of something nobody checked.
 #:
-#: `gemini` is `vertex_extractor()` and nothing else. An AI Studio `GEMINI_API_KEY`
-#: cannot produce a column here, which is the same refusal D-127 makes everywhere else in
-#: the tree: the endpoint it opens has no India residency, so a score measured through it
-#: would be evidence gathered by the means the decision forbids.
+#: `azure` is `azure_extractor()` and nothing else, which is the same refusal D-127 made
+#: of an AI Studio key and D-410 restates for OpenAI direct: a column measured through an
+#: endpoint the residency decision forbids would be evidence gathered by the means the
+#: decision forbids. It is also the only provider here whose credential is not ONE string
+#: — a resource, a key and a deployment id — and `azure_credentials()` is the one place
+#: that decides when three half-set values amount to a credential.
 #:
 #: A new extractor class means one new entry here and nothing else. That is the seam —
 #: this module never asks `get_extractor()` to choose and never reaches past the public
@@ -678,11 +682,11 @@ def _offline() -> Extractor:
 PROVIDERS: dict[str, Provider] = {
     "configured": Provider("configured", None, _configured),
     SARVAM_PROVIDER: Provider(SARVAM_PROVIDER, "SARVAM_API_KEY", _sarvam),
-    GEMINI_PROVIDER: Provider(
-        GEMINI_PROVIDER,
-        "GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON (Vertex AI asia-south1 — an AI "
-        "Studio GEMINI_API_KEY opens no door here, D-127 G-1)",
-        vertex_extractor,
+    AZURE_PROVIDER: Provider(
+        AZURE_PROVIDER,
+        "AZURE_OPENAI_RESOURCE, AZURE_OPENAI_API_KEY and AZURE_OPENAI_DEPLOYMENT (Azure "
+        "OpenAI in AZURE_LOCATION; the deployment id is NOT the model name, D-410)",
+        azure_extractor,
     ),
     "offline": Provider("offline", None, _offline),
 }
@@ -881,11 +885,13 @@ def render_comparison(runs: Sequence[ProviderRun], meta: Mapping[str, Any]) -> s
             "comparison: nothing here says another extractor would do better or worse.",
         )
     lines += [
-        "- **It cannot move the FIRST post-call extraction to Gemini.** That pass reads the "
-        "RAW transcript because a callback-number field needs the actual digits, and D-127 "
-        "G-2/G-7 keeps it on Sarvam for that reason alone — `GEMINI_EXTRACTION_DEFAULT is "
-        "False`. A gemini column that wins every field here changes what serves the "
-        "user-triggered assist, over the REDACTED copy, and nothing else.",
+        "- **It cannot move the FIRST post-call extraction off Sarvam.** That pass reads "
+        "the RAW transcript because a callback-number field needs the actual digits, and "
+        "D-127 G-2/G-7 keeps it sovereign for that reason alone — "
+        "`GEMINI_EXTRACTION_DEFAULT is False`, a constant D-410 deliberately did not move "
+        "when it took both LLM surfaces to Azure OpenAI. An `azure` column that wins every "
+        "field here changes what serves the user-triggered assist, over the REDACTED copy, "
+        "and nothing else.",
         "- **Residency is not a score.** Sending transcript text to a provider is a D-36 "
         "decision about where an Indian caller's words are processed, and no column here "
         "can outvote it.",

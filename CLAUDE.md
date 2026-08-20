@@ -10,38 +10,55 @@ mirrors this manual for other coding agents.
 
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
 voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Saaras STT ·
-Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Gemini 2.5 Flash on a
-PAID Google Cloud Vertex AI account, `asia-south1`, on all three LLM surfaces** — D-400
-supersedes D-36's "Sarvam 105B, free per token" LLM leg outright, D-127 already having
-taken the dashboard-AI surface. One model, one region, one retirement date. Read the
-three surfaces separately, because they are at different stages and say so in code:
+Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in South
+India** — `AZURE_LOCATION` (`southindia`), default `AZURE_OPENAI_DEFAULT_MODEL`
+(`gpt-4o-mini`), with `gpt-4.1-mini` a live config switch. **D-410 supersedes D-400/D-404
+on the in-call leg and D-127 on the dashboard leg; Gemini and Vertex are OUT of this
+product.** Read the three LLM surfaces separately — two moved, one deliberately did not:
 
-1. **In-call** (inside the engine, BYOK) — D-400's decision, delivered by **D-404:
-   ROTATION, NOT PROXYING**. `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE is True`. The engine
-   calls Vertex Mumbai DIRECTLY on an endpoint we construct
-   (`vertex_openai_base_url`), so there is no proxy, no added hop on a live call and no
-   new deployable; what it authenticates with is a GCP OAuth2 **access token**, minted at
-   12 hours (`generateAccessToken`, `lifetime: "43200s"`) and replaced every 4 by
-   `apps/workers/vertex_credential.py`. A failed refresh is a total LLM outage that is
-   silent until the next call, so it pages: `vertex_llm_credential_refresh_failed`,
-   `runbooks/vertex-llm-credential.md`. `agents/service.py::in_call_llm` is still the one
-   switch, and it now needs THREE things — the constant, a `gcp_project_id`, and a
-   resolvable service account. **An API key cannot be used here**: a key forces Vertex's
-   GLOBAL endpoint, which is a residency inversion, not a shortcut (D-405..D-407 record
-   the proxy, AI Studio, Vertex Express and Bolna's native Google provider as rejected,
-   each with its reason). ⚠ ONE THING IS STILL UNVERIFIED LIVE — which credential-store
-   name the hosted engine reads `llm_key` from (`Settings.bolna_llm_credential_name`,
-   OPERATIONS §2 gate 16c).
-2. **Dashboard AI** (user-triggered, over redacted data) — D-127, live in code, and
-   **`GEMINI_MODEL_CONFIRMED_IN_REGION is False`**: search points the right way but
-   nobody has made the one call that settles it (OPERATIONS §2 gate 14).
+1. **In-call** (inside the engine, BYOK) — the engine calls our Azure deployment on
+   `azure_openai_base_url(resource)`, which emits
+   `https://{resource}.openai.azure.com/openai/v1`. That is the **v1 surface**: it is
+   OpenAI-compatible, has no `api-version` to keep current, and takes a **STATIC API KEY** in
+   `Authorization: Bearer`. There is no rotation cron, no dead man, no org policy and no
+   12-hour ceiling — D-404's whole machinery existed because a regional Vertex endpoint
+   took no static key, and it is deleted. `engine/bolna.py::_llm_routing` maps our
+   vocabulary to `provider: "azure"`, a FIRST-CLASS Bolna provider (their published
+   provider list, the live agent dropdown, and `azure`/`azure-openai` in their OSS
+   `LLMProvider`), so the `custom` route — the one whose credential path was never
+   verified (retired gate 16c) — is not used. **`azure_openai_deployment` is NOT
+   `azure_openai_model`**: on Azure you deploy a model under an id you choose and call
+   THAT id, so the deployment name is config and can never be derived. ⚠ ONE MARKED
+   ASSUMPTION REMAINS: which credential FIELDS Bolna's Azure provider expects — their docs
+   are egress-blocked from this environment, so nothing here invents a field name and
+   presents it as fact. `Settings.bolna_llm_credential_name` survives to carry it
+   (`applies: live`, default `AZURE`), so a wrong guess costs a console edit and not a
+   deploy — OPERATIONS §2 gate 16f. `agents/service.py::in_call_llm` remains the ONE
+   place the leg is decided for an agent. **The next Bolna work is one API call**:
+   `GET /providers`, then `POST /providers`, then `GET` again.
+2. **Dashboard AI** (user-triggered, over redacted data) — same resource, same region,
+   same model constants. D-127's rules (G-1..G-7: redaction before the call, no raw PII,
+   the disclosed Sarvam fallback) are unchanged and now bind Azure.
 3. **First post-call extraction** — stays on **Sarvam, permanently**, because it reads
    the RAW transcript; `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`
-   and D-400 does not move it.
+   and D-410 does not move it.
 
-2.5 rather than 3.x because Mumbai is the only region D-127 permits and no 3.x model is
-reported there — a founder's decision that buys a **live 16 Oct 2026 retirement** (BRD
-R-04, `GEMINI_DEFAULT_LLM_RETIRES`, OPERATIONS §2 gate 14). Our
+**THE RESIDENCY CLAIM IS WEAKER THAN IT WAS AND YOU MUST NOT WRITE AS IF IT IS NOT.**
+Vertex put `asia-south1` in the hostname AND the path, so the guard could prove residency
+from the AST. `<resource>.openai.azure.com` names no region: the region is a property of
+the RESOURCE. So `scripts/check_model_residency.py` proves what it still can — one
+spelling of the region (`AZURE_LOCATION`), no `Settings` field carrying a region, no Azure
+endpoint constructible outside `azure_openai_base_url()`, and a builder that cannot emit a
+non-India region — and the rest is **attested by a human in the portal**: that the resource
+is really in South India (gate 20) and that the deployment is **Regional Standard and NOT
+Global** (gate 20c). Global is Azure's DEFAULT and processes worldwide; a Global deployment
+inside a South India resource passes every check in this tree and breaks the DPA. **OpenAI
+direct is disqualified and it is the thing you will be tempted to propose**: its India
+residency covers storage at rest only, inference runs in the US, and for a phone call the
+transcript IS the inference input. D-410 records that, plus Sarvam-via-Custom-LLM, Krutrim
+and DeepSeek, each with its reason. **BRD R-04's 16 Oct 2026 retirement is GONE** —
+`GEMINI_DEFAULT_LLM_RETIRES` and the test that turned CI red thirty days out are deleted,
+and no vendor deadline is currently running against this product. Our
 code = admin console, client dashboards,
 schema-driven lead extraction/CRM, RAG knowledge bases, metering/billing, compliance
 (TRAI/DLT/DPDP). Latency-critical voice path is isolated in `apps/voice-runtime`.

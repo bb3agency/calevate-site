@@ -275,7 +275,7 @@ _STATUS_MAP: dict[str, CallStatus] = {
 
 
 def _llm_routing(models: ModelConfig) -> dict[str, str]:
-    """The `provider`/`family`/`base_url` keys for one config's LLM leg (D-400).
+    """The `provider`/`family`/`base_url` keys for one config's LLM leg (D-410).
 
     THE ONLY PLACE a Calevate LLM leg becomes a Bolna provider name (hard rule 2).
 
@@ -294,31 +294,76 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
     can change in a release note. Preserving it is what this docstring's own
     do-not-change-live-bodies rule asks for once "before" means D-355 rather than D-283.
 
-    `"custom"` for Vertex is their word rather than our workaround: their provider matrix
-    documents `Custom (LiteLLM-compatible)` as "OpenAI-style `base_url` + key … Set
-    `provider: "custom"`", and their server routes that value to the OpenAI client with
-    our `base_url` (`bolna/providers.py`, `bolna/llms/openai_llm.py`). `family` is
-    cosmetic on their side — declared and read by nothing — and is sent as `openai`
-    because `openai` is what the wire format IS.
+    **`"azure"` IS A CHOICE BETWEEN TWO REAL SPELLINGS, NOT "the name" (D-410).** Their
+    `LLMProvider` enum carries BOTH `azure` and `azure-openai` (VERIFIED-OSS,
+    `bolna/enums.py`, recorded in `docs/vendor/bolna/oss-harvest.md`), and nothing we can
+    read says which client class each maps to in `SUPPORTED_LLM_PROVIDERS`. The tiebreak
+    is that the enum belongs to the OSS framework while the program we actually POST to
+    is the HOSTED platform, and the hosted platform is where both pieces of evidence
+    point: its published provider matrix lists `Azure OpenAI` among five first-class LLM
+    providers (`docs/vendor/bolna/hosted-oas.md`), and its live agent LLM dropdown offers
+    `azure` (browser sweep, 19 Aug 2026). `azure-openai` is named here rather than
+    forgotten because it is the one-string fallback if `azure` turns out to route
+    somewhere else — see the gate below.
 
-    **`provider: "google"` IS REFUSED, NOT MISSING**, and this is the branch a future
-    reader will want to add. Bolna ships a first-party Gemini provider needing one static
-    key named `GOOGLE`, and it is `genai.Client(api_key=…)` against
+    **WHY NOT `"custom"`, WHICH IS THE BETTER-EVIDENCED VALUE.** `provider: "custom"`
+    is VERIFIED-OSS to construct `AsyncOpenAI(base_url=…, api_key=llm_key)`
+    (`bolna/providers.py`, `bolna/llms/openai_llm.py`) — literally the client our v1
+    endpoint wants — and that is what the Vertex leg sent. It was abandoned because the
+    route it depends on is the one in doubt: a custom model's key is read from the
+    credential store, the 19 Aug 2026 sweep found no Provider Keys page and no `custom`
+    entry in the dropdown, and gate 16c records that sweep (the gate is retired BECAUSE
+    of what it found, which is the same thing as it having been decisive). `azure` trades a
+    verified client construction for a provider the platform ADVERTISES, which is the
+    trade D-410 exists to make.
+
+    ⚠ **MARKED ASSUMPTION, AND IT IS THE WHOLE LEG: what their `azure` provider does with
+    `base_url` and `model` is not verified and cannot be from here** (`api.bolna.ai` and
+    their docs are both refused by this environment's egress proxy). Two behaviours are
+    possible. If it builds an OpenAI-compatible client against our `base_url`, everything
+    below is right. If it builds a CLASSIC Azure client instead
+    (`…/openai/deployments/{id}/chat/completions?api-version=…`), it needs a deployment
+    name and an `api-version` — and their `SimpleLlmAgent` schema has a field for
+    NEITHER (VERIFIED-OAS, `openapi.yml` md5 5597f7da080d47564696bc05c12e9112: the block
+    is `provider`/`family`/`model`/`base_url` plus sampling knobs, and nothing else). The
+    absence of those two fields is itself weak evidence for the first reading, and it is
+    the observation **OPERATIONS §2 gate 16f** asks for: `GET /providers`, `POST` ours,
+    publish one agent with this body, read it back (gate 16), place one call. Gate 16f
+    says to settle this assumption HERE, in this function, in the same change as the
+    observation. If the second reading turns out to be true, the fallbacks are
+    `azure-openai` and then `custom` — in that order, and each is one string.
+
+    **THE DEPLOYMENT IS WHAT TRAVELS IN `model`, AND THE MODEL NAME NEVER LEAVES US.**
+    Azure serves a model under a deployment ID the operator chose and the v1 surface
+    addresses THAT, so `ModelConfig.llm_model` carries the deployment on this leg (its
+    own field comment says so) and `_agent_body` puts it in the one model slot their
+    schema has. `Settings.azure_openai_model` — which model that deployment was made from
+    — is read by the cost model and by nothing on the wire. On every other
+    OpenAI-compatible provider the two strings are the same string, which is exactly why
+    a leg that sent the model name would look right and 404 at dial time.
+
+    `family` is cosmetic on their side — declared on `Llm` and read by nothing
+    (VERIFIED-OSS) — and stays `openai` on every arm because `openai` is what the wire
+    format IS, whoever is serving it.
+
+    **`provider: "google"` IS REFUSED, NOT MISSING**, and the entry survives D-410
+    because the temptation does. Bolna ships a first-party Gemini provider needing one
+    static key named `GOOGLE`, and it is `genai.Client(api_key=…)` against
     `generativelanguage.googleapis.com` — the AI Studio Developer API
-    (`bolna/llms/gemini_llm.py`). D-127 disqualified that host on two grounds, and **only
-    ONE of them survives the founder paying, which is the version to remember**: Google
-    states it does not train on PAID Developer API data, so the human-reviewer objection
-    is a free-tier objection; what does not go away is that **the Developer API has no
-    region pinning at all** — no region in the host, no field in which to ask for one. It
-    is the EASY way to put Gemini on the in-call leg and it moves Indian callers' words
-    out of India (D-401).
+    (`bolna/llms/gemini_llm.py`), a global host with no region in it and no field in
+    which to ask for one (D-127, D-401). There is no Google LLM leg in this product any
+    more, so the only way that value gets sent now is by somebody wiring one back.
     """
     if models.llm_provider is None:
         return {"provider": "openai", "family": "openai"}
-    body = {"provider": "custom", "family": "openai"}
+    body = {"provider": "azure", "family": "openai"}
     if models.llm_base_url:
-        # Proven Mumbai-pinned by `ModelConfig` itself, which is the only reason this
-        # line may hand a model endpoint to a third party without re-checking it here.
+        # Proven by `ModelConfig` itself to be an endpoint `azure_openai_base_url()`
+        # could have emitted, on a single-DNS-label resource — which is the only reason
+        # this line may hand a model endpoint to a third party without re-checking it.
+        # What that proof does NOT cover is the REGION: Azure hides it inside the
+        # resource, so `AZURE_LOCATION` is asserted by config and confirmed by a human in
+        # the portal. Read that constant before trusting this line further than it goes.
         body["base_url"] = models.llm_base_url
     return body
 
@@ -691,31 +736,37 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     # agent unreadable.
     llm_model = leaf("llm_agent", "llm_config", "model") or leaf("llm_agent", "model")
 
-    # WHERE THE LLM LEG IS RUNNING, read back rather than assumed (D-400). Their
-    # `provider` cannot be inverted on its own — both of our legs render to `"custom"` —
-    # so the ENDPOINT is what identifies a Vertex leg, which is fitting: the endpoint is
-    # the fact that carries the residency guarantee, and the provider name is a routing
-    # detail.
+    # WHERE THE LLM LEG IS RUNNING, read back rather than assumed (D-400, re-aimed by
+    # D-410). THE ENDPOINT IS WHAT IDENTIFIES THE LEG, AND IT STAYS THAT WAY EVEN THOUGH
+    # THE PROVIDER NAME BECAME INVERTIBLE. Under Vertex both of our arms rendered to
+    # `"custom"`, so there was no choice; since D-410 an `azure_openai` leg renders to
+    # `"azure"` and an unset one to `"openai"`, so `provider` alone would now appear to
+    # answer the question. It does not: `azure` says the agent points at SOME Azure
+    # OpenAI resource, and this repository's guarantee is about ONE — the resource in
+    # `AZURE_LOCATION`. An agent aimed at somebody else's resource, or at a resource an
+    # operator created in the wrong region, is exactly the drift a read-back exists to
+    # catch, and only the endpoint carries that fact.
     #
     # DUAL-SPELLED FOR THE SAME REASON `llm_model` IS, and it did not arrive that way.
     # D-400 wrote this read against a FLAT `llm_agent` because the branch it came from
     # also wrote a flat body; D-355 is what the write path actually does, and
     # `_llm_routing`'s keys go INSIDE `llm_config`. Reading only the flat key would
-    # report every v2 agent's Vertex endpoint as ABSENT — the same confident-wrong answer
-    # the paragraph above rejects, on the one field that carries residency.
+    # report every v2 agent's endpoint as ABSENT — the same confident-wrong answer the
+    # paragraph above rejects, on the one field that carries residency.
     #
     # A base URL WE DO NOT RECOGNISE is reported as no provider and LOGGED, never
-    # normalised away and never raised. `ModelConfig` refuses a non-Mumbai Vertex URL by
-    # construction (that is the point of its validator), so accepting the value here
-    # would be impossible and letting the ValidationError escape would turn a read-back
-    # into a failed publish — the one shape D-260 says a snapshot must never take. The
-    # log line carries the HOST only: it is a vendor's endpoint, not transcript text, and
-    # the host is the whole of what an operator needs to see that something is off.
+    # normalised away and never raised. `ModelConfig` refuses anything that is not a v1
+    # endpoint on a single-label Azure resource (that is the point of its validator), so
+    # accepting the value here would be impossible and letting the ValidationError escape
+    # would turn a read-back into a failed publish — the one shape D-260 says a snapshot
+    # must never take. The log line carries the HOST only: it is a vendor's endpoint, not
+    # transcript text, and the host is the whole of what an operator needs to see that
+    # something is off.
     base_url = leaf("llm_agent", "llm_config", "base_url") or leaf("llm_agent", "base_url")
     llm_provider: LlmProvider | None = None
     if base_url is not None:
         try:
-            ModelConfig(llm_provider="vertex_openai", llm_base_url=base_url)
+            ModelConfig(llm_provider="azure_openai", llm_base_url=base_url)
         except ValidationError:
             log.warning(
                 "engine_llm_endpoint_unrecognised",
@@ -723,7 +774,7 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
             )
             base_url = None
         else:
-            llm_provider = "vertex_openai"
+            llm_provider = "azure_openai"
     return (
         ModelConfig(
             stt_provider=leaf("transcriber", "provider"),
@@ -1116,6 +1167,16 @@ class BolnaEngine:
                                     # that introduced `_llm_routing` spread it at the
                                     # flat v1 level, which the v2 endpoint ignores.
                                     **_llm_routing(cfg.models),
+                                    # ONE MODEL SLOT, AND ON AN AZURE LEG IT HOLDS THE
+                                    # DEPLOYMENT ID (D-410). Their `SimpleLlmAgent` has
+                                    # exactly this one string for the thing to run
+                                    # (VERIFIED-OAS) and Azure's v1 surface addresses a
+                                    # DEPLOYMENT rather than a model, so what belongs
+                                    # here is `Settings.azure_openai_deployment` — which
+                                    # is what `agents/service.py::in_call_llm` puts in
+                                    # `ModelConfig.llm_model` for this leg.
+                                    # `Settings.azure_openai_model` is a different string
+                                    # that never reaches the wire; see `_llm_routing`.
                                     "model": cfg.models.llm_model,
                                     # SENT EXPLICITLY, and the reason is that NOT sending them
                                     # was a decision nobody had taken (D-283).
@@ -1150,12 +1211,15 @@ class BolnaEngine:
                                     # decision is "leave headroom", and the direction is not in
                                     # doubt.)
                                     #
-                                    # THE HEADROOM USED TO BE FREE AND IS NOT ANY MORE (D-400).
-                                    # This paragraph ended "the LLM leg is Sarvam 105B, FREE PER
-                                    # TOKEN, so the headroom costs nothing on the money path" —
-                                    # true under D-36 and false the moment the leg moved to paid
-                                    # Vertex, where output tokens are the EXPENSIVE leg at 8.3x
-                                    # input. **The number does not move**, and that is the point
+                                    # THE HEADROOM USED TO BE FREE AND IS NOT ANY MORE (D-400,
+                                    # repriced by D-410). This paragraph ended "the LLM leg is
+                                    # Sarvam 105B, FREE PER TOKEN, so the headroom costs nothing
+                                    # on the money path" — true under D-36 and false the moment
+                                    # the leg moved to a paid provider, where output tokens are
+                                    # the expensive ones: 4x input on `gpt-4o-mini` and on
+                                    # `gpt-4.1-mini` alike (`AZURE_LIST_PRICE_USD_PER_MTOK`),
+                                    # against 8.3x on the Vertex leg this replaced. **The number
+                                    # does not move**, and that is the point
                                     # worth recording: a cap is a safety valve against a runaway
                                     # generation, not a budget, and a ceiling that bites
                                     # mid-sentence still truncates a reply rather than shortening
@@ -1478,7 +1542,16 @@ class BolnaEngine:
             detail="Numbers are provisioned with the telephony provider directly (M1).",
         )
 
-    # --- the rotating LLM credential (D-404) ---------------------------------
+    # --- the LLM credential (D-404, no longer rotating since D-410) -----------
+    #
+    # THE OPERATION SURVIVED THE SCHEDULE. It was built for a Vertex bearer that expired
+    # in twelve hours and was replaced every four by a cron of ours; Azure OpenAI takes a
+    # STATIC key, so the refresher, its dead man and its runbook are deleted and the
+    # caller is now a person rotating a key. Nothing below changes for that — see the
+    # Protocol's note on `set_llm_credential` — but two things read differently and are
+    # corrected in place rather than left to a reader to reconcile: "the refresher" is an
+    # operator, and append semantics went from bad to WORSE, because a superseded bearer
+    # at least expired on its own and a superseded API key does not.
 
     async def _llm_credential_ids(self, name: str) -> set[str]:
         """The `provider_id`s the store currently holds under `name`.
@@ -1502,7 +1575,7 @@ class BolnaEngine:
         }
 
     async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
-        """Write the in-call LLM bearer into Bolna's credential store (D-404).
+        """Write the in-call LLM credential into Bolna's credential store (D-404/D-410).
 
         VERIFIED-OAS (`bolna-ai/skills@28b24aa`, `references/openapi.yml`, md5
         5597f7da080d47564696bc05c12e9112 — re-downloaded and re-hashed 18 Aug 2026, so
@@ -1517,25 +1590,28 @@ class BolnaEngine:
         possible and they are not equally survivable:
 
         * **Replace in place.** The happy case, and what a credential store usually does.
-        * **Append.** The store ends up holding the fresh bearer AND every expired one,
-          and WHICH of them a call authenticates with is the vendor's choice. The leg
-          keeps working for a while and then fails on a token nobody knew was installed —
-          a failure indistinguishable, from the outside, from "the refresher stopped",
-          which is precisely the sentence `vertex_llm_credential_refresh_failed` exists
-          to make unambiguous.
+        * **Append.** The store ends up holding the fresh credential AND every superseded
+          one, and WHICH of them a call authenticates with is the vendor's choice.
+          **D-410 made this the worst of the three rather than the middle one.** Under a
+          rotating Vertex bearer the stale copies expired on their own, so append cost us
+          a confusing outage twelve hours later; under a STATIC Azure key a superseded
+          copy an operator believes they revoked goes on authenticating our spend
+          indefinitely, and the revocation they performed in the Azure portal is the only
+          thing that ends it.
         * **Refuse the duplicate.** Loud, and handled by the ladder as `engine_rejected`.
 
         So we COUNT BEFORE AND AFTER and clean up what we find, using only documented
         routes. The reward is that the answer to "which semantics does the live platform
-        have" arrives as DATA from the first rotation instead of as a reviewer's guess —
+        have" arrives as DATA from the first install instead of as a reviewer's guess —
         the same move `_snapshot` makes for gate 16. `LlmCredentialPlacement` is how it
         reaches the log.
 
-        WHY POST-THEN-DELETE AND NEVER DELETE-THEN-POST. The obvious spec-clean rotation
-        is "remove the old entry, add the new one". It is wrong on the only axis that
+        WHY POST-THEN-DELETE AND NEVER DELETE-THEN-POST. The obvious spec-clean order is
+        "remove the old entry, add the new one". It is wrong on the only axis that
         matters: between the two calls the engine holds NO credential, so a POST that
-        fails after a successful DELETE takes the LLM leg down IMMEDIATELY rather than at
-        the old token's expiry. Post-first is strictly safer — the worst case is a
+        fails after a successful DELETE takes the LLM leg down IMMEDIATELY — and with a
+        static key there is no expiry deadline making the other order urgent, so the
+        argument only got stronger. Post-first is strictly safer: the worst case is a
         duplicate we then remove, and the second-worst is a duplicate we log.
 
         THE SECRET IS NEVER LOGGED, and nothing here puts it in an exception: the ladder
@@ -1544,16 +1620,17 @@ class BolnaEngine:
         about PII; a credential is the one thing whose leak is worse).
         """
         # An engine whose LLM leg it DICTATES has no credential of ours to hold, and a
-        # silent no-op there would be a refresher reporting green forever about somebody
+        # silent no-op there would be an install reporting green forever about somebody
         # else's model. `has("llm")` is `is_ours("llm")` — see the Protocol's note on why
         # this is that gate rather than a capability flag of its own.
         require_capability("llm", engine=self)
         # Read per call rather than copied at construction, because this is the one
-        # setting whose value is a MARKED ASSUMPTION (`Settings.bolna_llm_credential_name`)
-        # and the operator correcting it is looking at a broken leg while they do. The
-        # adapter is cached per process, so a constructor copy would make an `applies:
-        # live` classification a lie. This method runs on a multi-hour cron, so the read
-        # costs nothing that matters.
+        # setting whose value is a MARKED ASSUMPTION (`Settings.bolna_llm_credential_name`,
+        # default `AZURE` since D-410 and still nobody's observation — gate 16f) and the
+        # operator correcting it is looking at a broken leg while they do. The adapter is
+        # cached per process, so a constructor copy would make an `applies: live`
+        # classification a lie. This method runs once per key rotation, so the read costs
+        # nothing that matters.
         name = get_settings().bolna_llm_credential_name
         before = await self._llm_credential_ids(name)
         await self._request(
@@ -1578,10 +1655,10 @@ class BolnaEngine:
         # deleting by name would take our fresh one with them.
         #
         # NOT SILENTLY TOLERATED. This is an alarm rather than a cleanup, and the reason
-        # is the docstring's second bullet: a store holding several bearers under one name
+        # is the docstring's second bullet: a store holding several keys under one name
         # authenticates calls with one of them at its own discretion, so the leg's health
         # stops being a function of anything we do. It is reported as a REFUSAL of the
-        # rotation, which is exactly right — the rotation did not achieve its purpose.
+        # install, which is exactly right — the install did not achieve its purpose.
         log.warning(
             "engine_llm_credential_appended",
             extra={
@@ -1600,7 +1677,11 @@ class BolnaEngine:
                 "of replacing it, so which credential a call uses is no longer ours to "
                 "decide."
             ),
-            remediation=("Remove the stale entry in the vendor console, then re-run the refresh."),
+            remediation=(
+                "Remove the stale entry in the vendor console, then install the key "
+                "again. Revoke the superseded key in the Azure portal as well — a static "
+                "key the store kept goes on working until it is revoked at the source."
+            ),
             failure_stage="CORE_LOGIC",
         )
 

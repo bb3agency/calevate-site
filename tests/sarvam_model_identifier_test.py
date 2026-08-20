@@ -28,41 +28,50 @@ this commit and silent on the next one, and the site that hurt most — the pilo
 precisely the one nobody thought to grep, because it is under `scripts/` and reads like a
 fixture rather than like production. The same argument `engine_name_drift_test` makes.
 
-IT NOW COVERS GEMINI TOO (D-127, PLAN Part 13), and the file keeps its name on purpose:
-`calevate_shared/engine.py`, `scripts/check_model_residency.py` (three times) and
+IT COVERS EVERY VENDOR THIS PRODUCT NAMES A MODEL TO, and the file keeps its name on
+purpose: `calevate_shared/engine.py`, `scripts/check_model_residency.py` (three times) and
 `tests/money_rounding_mode_test.py` all cite `sarvam_model_identifier_test` by name, and
 renaming a file to widen a docstring would break four citations to fix a label. The
 question is the same question — does shipped code name a model identifier the vendor will
-refuse — and one home for it beats two files that drift.
+refuse, and does it name it twice — and one home for it beats three files that drift.
 
-THE GEMINI HALF DIFFERS IN ONE WAY WORTH STATING: those identifiers are not dead yet.
-The 2.5 family RETIRES 16 Oct 2026 (BRD R-04). Banning a name now rather than on the day
-is the whole value: a name that dies on a schedule costs a pipeline returning empty
-answers with a 404 nobody is watching for, and the only cheap moment to act is the one
-where the identifier is being written.
+**WHAT D-410 REMOVED FROM THIS FILE, AND WHY THAT IS A BENEFIT RATHER THAN A GAP.** Under
+D-127 the shipped dashboard model was `gemini-2.5-flash`, which the vendor had already
+DATED: it retired 16 Oct 2026 (BRD R-04). That deadline was a real, stated cost of taking
+the only model the only permitted region served, so this file carried the only mechanism in
+the repository that would raise it on a day nobody was thinking about Gemini —
+`GEMINI_DEFAULT_LLM_RETIRES`, a `RETIREMENT_RUNWAY_DAYS` window, and a test that turned CI
+RED on 16 Sep 2026 whatever the diff under test was about.
 
-AND THE SHIPPED MODEL IS NOW ONE OF THEM, which is why this file grew two tests. The
-founder chose `gemini-2.5-flash` over a 3.x model with the date in front of them, because
-`asia-south1` is the only region D-127 permits and no 3.x model is reported there
-(`calevate_shared.engine.GEMINI_DEFAULT_LLM` records the whole argument). A scan that bans
-the name we ship is incoherent, so the name came OUT of `GEMINI_RETIRED_LLMS` — and both
-things it was doing had to land somewhere else rather than be lost: the LITERAL ban became
-`test_no_shipped_module_spells_the_gemini_default`, and the DATE became
-`GEMINI_DEFAULT_LLM_RETIRES` plus `test_the_shipped_gemini_model_has_runway_left`, the one
-mechanism in this repository that will raise the subject on a day when nobody is thinking
-about Gemini.
+D-410 moved both LLM surfaces to Azure OpenAI and **no vendor deadline currently runs
+against this product**, so the constant, the window and the calendar test are all deleted
+rather than re-aimed at a date nobody has. There is deliberately no dated constant
+replacing them: a countdown to a day that has not been announced is a red build waiting for
+a reason. If Microsoft dates `gpt-4o-mini`, the mechanism comes back with the date, in this
+file, and the decision-log entry says which announcement it came from.
+
+WHAT DID NOT GO. `GEMINI_RETIRED_LLMS` grew rather than shrank — with no shipped Gemini
+identifier left, the set is now the WHOLE family and every name in it is one a module could
+only be spelling by mistake. The scan below is therefore a tripwire with no subject in the
+tree, which is exactly the state it should be in: it is what stops a Gemini identifier
+coming BACK by copy-paste from a doc, a search result or an old branch, on a leg whose
+symptom is a 404 at the point furthest from anyone watching.
+
+AND THE D-105 DISCIPLINE FOLLOWED THE DEFAULT RATHER THAN DYING WITH IT.
+`test_no_shipped_module_spells_the_gemini_default` existed because a shipped model
+identifier written at a call site is correct on the day it is typed and unfixable in one
+place afterwards. That is as true of `gpt-4o-mini` as it was of `gemini-2.5-flash`, so the
+rule is restated as `test_no_shipped_module_spells_the_azure_default_model` — a rule about
+whatever the DEFAULT is, which keeps working the next time it moves.
 """
 
 from __future__ import annotations
 
 import ast
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Final
 
 from calevate_shared.engine import (
-    GEMINI_DEFAULT_LLM,
-    GEMINI_DEFAULT_LLM_RETIRES,
+    AZURE_OPENAI_DEFAULT_MODEL,
     GEMINI_RETIRED_LLMS,
     SARVAM_DEFAULT_LLM,
     SARVAM_RETIRED_LLMS,
@@ -78,23 +87,6 @@ SCANNED_TREES: tuple[str, ...] = ("apps", "packages/shared/src", "scripts")
 
 #: The module that owns the answer, and the only file allowed to spell these names.
 CANONICAL_HOME = "packages/shared/src/calevate_shared/engine.py"
-
-#: How much warning the build gives itself before `GEMINI_DEFAULT_LLM` stops answering.
-#:
-#: THIRTY DAYS, and the number is argued rather than picked. What it has to buy is not a
-#: project — it is the WORK, and the work is one constant plus one `generateContent` call
-#: (OPERATIONS §2 gate 14). The external input that call needs, a GCP project with a
-#: service-account key, is already gate 14's precondition and already blocks the assist
-#: entirely: with no project there is no Gemini leg to retire, the Sarvam fallback is
-#: serving (D-127 G-6), and this test is asking for a decision that costs a line.
-#:
-#: LONGER WOULD BE WORSE, not safer, and this is the part worth writing down: the founder
-#: shipped this model on 16 Aug 2026, 61 days out. Any runway of 61 days or more makes the
-#: build red on the day the decision lands, and a gate that is red on arrival is a gate
-#: somebody deletes — which would cost the deadline itself, not just the warning. Thirty
-#: days puts the first red build on 16 Sep 2026, a month before the model dies, with the
-#: assist still working the whole time.
-RETIREMENT_RUNWAY_DAYS: Final = 30
 
 
 def _string_literals(path: Path) -> set[str]:
@@ -154,6 +146,17 @@ def test_the_default_is_not_itself_retired() -> None:
     )
 
 
+# THERE IS NO AZURE EQUIVALENT OF THE TEST ABOVE, AND THE ABSENCE IS DELIBERATE.
+# "the default is one this platform ships" is `AZURE_OPENAI_DEFAULT_MODEL in
+# AZURE_OPENAI_MODELS`, and mypy strict already proves it: the constant infers a `Literal`,
+# `Settings.azure_openai_model` is annotated `AzureOpenAIModel`, and the assignment of one
+# to the other is checked at every CI run. A test restating it would be a second place the
+# rule lives (D-103/D-105) buying nothing — the same argument `apps/workers/extraction.py`
+# makes for having no `model_not_allowed` refusal reason. Sarvam has no such Literal,
+# because the retired set is a vendor CHANGELOG fact rather than a type, which is why that
+# half needs the assertion and this half does not.
+
+
 def test_the_extractor_and_the_pilot_gate_agree_with_the_constant() -> None:
     """Both sites resolve to the shared answer at RUNTIME, not merely by looking similar.
 
@@ -176,14 +179,26 @@ def test_the_extractor_and_the_pilot_gate_agree_with_the_constant() -> None:
     )
 
 
-def test_no_shipped_module_sends_a_retired_gemini_model() -> None:
-    """The same scan, for the vendor whose retirement has a date on it.
+def test_no_shipped_module_names_a_gemini_model_at_all() -> None:
+    """The scan for the vendor this product no longer uses, and the set is now the whole
+    family.
 
     `apps/workers/extraction.py` carried `model: str = "gemini-2.5-flash-lite"` as a
-    default argument until Part 13 — a literal in exactly the shape D-105 was written
-    about, eight weeks from a vendor 404 on a path where the symptom is "extraction is
-    empty" and the first three places anyone looks are the schema, the prompt and the
-    transcript.
+    default argument, and later `gemini-2.5-flash` as the shipped dashboard model — a
+    literal in exactly the shape D-105 was written about, on a path where the symptom is
+    "extraction is empty" and the first three places anyone looks are the schema, the
+    prompt and the transcript.
+
+    D-410 took Gemini out of the product entirely, which CLOSED the one hole this set
+    carried: `gemini-2.5-flash` used to be excluded because banning the name we shipped
+    would have been incoherent. Nothing ships it now, so every name in the family is a name
+    a module could only be spelling by mistake — most of them dated or dead at the vendor,
+    one of them merely abandoned by us, and the failure is the same either way.
+
+    A TRIPWIRE WITH NO SUBJECT IN THE TREE, which is the state it should be in. What it
+    catches is a Gemini identifier coming BACK — from a search result, an old branch, a doc
+    written before 19 Aug 2026 — onto a leg where the answer is a 404 from a third party at
+    the moment furthest from anyone watching.
     """
     offenders: dict[str, set[str]] = {}
     for path in _shipped_python():
@@ -195,94 +210,46 @@ def test_no_shipped_module_sends_a_retired_gemini_model() -> None:
             offenders[relative] = retired
 
     assert not offenders, (
-        "these modules name a Gemini model identifier that is retired or dated for "
-        f"retirement: {ChainMapLike(offenders)}. Import "
-        "`calevate_shared.engine.GEMINI_DEFAULT_LLM` instead."
+        "these modules name a Gemini model identifier, and D-410 removed Gemini from this "
+        f"product on both LLM surfaces: {ChainMapLike(offenders)}. The in-call leg and the "
+        "dashboard AI are Azure OpenAI (`AZURE_OPENAI_DEFAULT_MODEL`); the first post-call "
+        "extraction pass reads the RAW transcript and stays on Sarvam permanently "
+        "(`SARVAM_DEFAULT_LLM`, `GEMINI_EXTRACTION_DEFAULT is False`). There is no third "
+        "leg for a Google model to be on."
     )
 
 
-def test_the_gemini_default_is_not_itself_retired() -> None:
-    """The same blind spot as the Sarvam one, and the same reason it is not hypothetical:
-    `gemini-2.5-flash-lite` WAS the migration target for the 2.0 family before it acquired
-    a retirement date of its own.
+def test_no_shipped_module_spells_the_azure_default_model() -> None:
+    """D-105's rule, following the default rather than dying with the last one.
 
-    This used to also assert `startswith("gemini-3")`. That assertion encoded D-134's
-    answer to a question the founder has since re-decided on new evidence — no 3.x model
-    is reported in `asia-south1`, which is the only region D-127 permits — so keeping it
-    would have been a test pinning a superseded decision. What survives the change is the
-    part that is true whatever the family: the identifier we SEND cannot be one the scan
-    above BANS, because then the two disagree and only one of them reaches Google.
-    """
-    assert GEMINI_DEFAULT_LLM not in GEMINI_RETIRED_LLMS, (
-        f"{GEMINI_DEFAULT_LLM} is in the retired set and is also what this repo sends on "
-        "every user-triggered assist"
-    )
+    `test_no_shipped_module_spells_the_gemini_default` existed because a shipped model
+    identifier written at a call site is correct on the day it is typed and unfixable in
+    one place afterwards — which is precisely how `"sarvam-m"` ended up in two modules and
+    survived the vendor retiring it. That is as true of `gpt-4o-mini` as it was of
+    `gemini-2.5-flash`, and MORE true in one respect: `gpt-4.1-mini` is a LIVE console
+    switch (`Settings.azure_openai_model`), so a module that spelled the default would keep
+    sending the default after an operator moved off it, and the cost model — which reads
+    the setting — would price the other one. Two answers to "which model is running", one
+    of them a rupee figure.
 
-
-def test_no_shipped_module_spells_the_gemini_default() -> None:
-    """The literal ban `GEMINI_RETIRED_LLMS` stopped providing for the shipped name.
-
-    Before the founder's 2.5 decision, `"gemini-2.5-flash"` written anywhere in `apps/`,
-    `packages/` or `scripts/` was a red build. Taking it out of the retired set — which it
-    had to be, since it is what we send — would have quietly given that back, and the
-    thing it was protecting against is exactly D-105's defect: a model identifier as a
-    literal at a call site, correct on the day it was typed and unfixable in one place
-    afterwards. So the ban is restated as a rule about the DEFAULT rather than about one
-    string, which also means it keeps working when the default moves.
+    A RULE ABOUT THE DEFAULT RATHER THAN ABOUT ONE STRING, so it keeps working the next
+    time the default moves. Exact-match on the identifier, not containment: a sentence in
+    an operator-facing error that MENTIONS the model ("confirm the deployment's model is
+    gpt-4o-mini or later") is prose a person reads, not a value the code sends.
     """
     offenders = {
-        path.relative_to(REPO_ROOT).as_posix(): {GEMINI_DEFAULT_LLM}
+        path.relative_to(REPO_ROOT).as_posix(): {AZURE_OPENAI_DEFAULT_MODEL}
         for path in _shipped_python()
         if path.relative_to(REPO_ROOT).as_posix() != CANONICAL_HOME
-        and GEMINI_DEFAULT_LLM in _string_literals(path)
+        and AZURE_OPENAI_DEFAULT_MODEL in _string_literals(path)
     }
     assert not offenders, (
-        "these modules spell the Gemini model identifier instead of importing "
-        f"`calevate_shared.engine.GEMINI_DEFAULT_LLM`: {ChainMapLike(offenders)}. A "
-        "second spelling is a site the next retirement will not reach."
+        "these modules spell the Azure model identifier instead of reading "
+        "`Settings.azure_openai_model` (or, where no deployment config is in scope, "
+        f"importing `calevate_shared.engine.AZURE_OPENAI_DEFAULT_MODEL`): "
+        f"{ChainMapLike(offenders)}. A second spelling is a site the live `gpt-4.1-mini` "
+        "switch will not reach."
     )
-
-
-def test_the_shipped_gemini_model_has_runway_left() -> None:
-    """The deadline the founder's decision bought, made executable (BRD R-04, D-127).
-
-    THE ONLY TEST HERE THAT DEPENDS ON THE CALENDAR, and it is deliberate. Every other
-    guard in this repository answers a question about the SHAPE of the tree; this one
-    answers "is the model we ship still going to be there next month", which nothing about
-    the tree can settle. `gemini-2.5-flash` retires on a date, the symptom on that date is
-    a 404 at the far end of a user-triggered assist, and the only cheap moment to act is
-    before it — so the build has to be what raises it, on a day when the diff under test
-    has nothing to do with Gemini.
-
-    WHEN THIS GOES RED, THE FIX IS NOT TO MOVE THE NUMBER. It is OPERATIONS §2 gate 14
-    against the newest Gemini `asia-south1` serves, then `GEMINI_DEFAULT_LLM` and
-    `GEMINI_DEFAULT_LLM_RETIRES` moved together. Widening `RETIREMENT_RUNWAY_DAYS` buys
-    nothing but a quieter 404.
-    """
-    remaining = (GEMINI_DEFAULT_LLM_RETIRES - datetime.now(UTC).date()).days
-    assert remaining > RETIREMENT_RUNWAY_DAYS, (
-        f"{GEMINI_DEFAULT_LLM} retires {GEMINI_DEFAULT_LLM_RETIRES.isoformat()} — "
-        f"{remaining} day(s) away, inside the {RETIREMENT_RUNWAY_DAYS}-day runway. This is "
-        "the cost of shipping the 2.5 family so that `asia-south1` would serve it "
-        "(D-127; the region does not move). Run OPERATIONS §2 gate 14 against the newest "
-        "Gemini Mumbai serves, then move GEMINI_DEFAULT_LLM and GEMINI_DEFAULT_LLM_RETIRES "
-        "together in calevate_shared/engine.py. Do NOT widen the region, do NOT use "
-        "locations/global, and do NOT widen RETIREMENT_RUNWAY_DAYS."
-    )
-
-
-def test_the_vertex_client_resolves_the_constant_rather_than_spelling_a_model() -> None:
-    """The rewiring half. A file that swapped one literal for another passes the scan and
-    reintroduces the defect the moment Google moves again."""
-    from apps.workers.extraction import VertexGeminiExtractor
-    from apps.workers.google_oauth import ServiceAccount
-
-    account = ServiceAccount(
-        client_email="a@b.iam.gserviceaccount.com",
-        private_key="k",
-        token_uri="https://oauth2.googleapis.com/token",
-    )
-    assert VertexGeminiExtractor(account, "calevate-prod").model_name == GEMINI_DEFAULT_LLM
 
 
 class ChainMapLike:

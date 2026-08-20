@@ -583,14 +583,20 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         # so this key is what stands between a deployment and an offline heuristic
         # extractor, which makes it a readiness failure.
         #
-        # THE GOOGLE CREDENTIAL IS DELIBERATELY NOT HERE. `GCP_PROJECT_ID` /
-        # `GCP_SERVICE_ACCOUNT_JSON` power the user-triggered dashboard AI, and a
-        # deployment without one is a coherent deployment that simply has no assistant:
-        # `assist_capability()` answers `no_credential`, the surface explains itself, and
-        # a disclosed Sarvam fallback carries the work. A readiness probe that went red
-        # for an absent OPTIONAL feature is a probe operators learn to ignore, which
-        # costs more than the feature. Neither is `GEMINI_API_KEY`, which after D-127
-        # opens a disqualified endpoint and whose absence is the CORRECT state.
+        # THE AZURE OPENAI CREDENTIALS ARE DELIBERATELY NOT HERE. `AZURE_OPENAI_RESOURCE`
+        # / `AZURE_OPENAI_API_KEY` / `AZURE_OPENAI_DEPLOYMENT` power the user-triggered
+        # dashboard AI and the in-call LLM leg (D-410), and a deployment without them is a
+        # coherent deployment: it has no assistant — `assist_capability()` answers
+        # `no_credential`, the surface explains itself, and a disclosed Sarvam fallback
+        # carries the work — and its agents run on the engine's own default LLM, which is
+        # what every agent in this repository resolved to before there was an Azure leg at
+        # all. A readiness probe that went red for an absent OPTIONAL feature is a probe
+        # operators learn to ignore, which costs more than the feature.
+        #
+        # (`GCP_PROJECT_ID` and `GCP_SERVICE_ACCOUNT_JSON` used to be named here and are
+        # gone with the Vertex legs — see `calevate_shared.config`.) Neither is
+        # `GEMINI_API_KEY`, which opens an endpoint D-127 disqualified and whose absence is
+        # the CORRECT state.
         if not cfg.sarvam_api_key:
             missing.append("SARVAM_API_KEY")
         # AUTHENTICATION HAS NO KEY TO REPORT HERE ANY MORE, and that is the point of
@@ -687,7 +693,7 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
         #
         # WHY THIS IS NOT THE "ABSENT OPTIONAL FEATURE" THE GOOGLE COMMENT DECLINES TO
         # REPORT. That test is whether the deployment still does its job without the key.
-        # Without `GCP_SERVICE_ACCOUNT_JSON` the assistant is off and calls still land;
+        # Without `AZURE_OPENAI_API_KEY` the assistant is off and calls still land;
         # without a transport nobody can sign in to watch them. Until now the only thing
         # that said so was `alert_delivery_has_no_transport`, a WARNING written at boot —
         # and that line's own comment concedes the point: "it refuses at 3am, and this

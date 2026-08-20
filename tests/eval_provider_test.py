@@ -1,9 +1,9 @@
 """The eval harness's PROVIDER dimension — the half of task #87 that is not blocked.
 
-Scoring Sarvam against Gemini over the golden transcripts needs a Sarvam key and egress,
-neither of which exists in this repo or this environment. The machinery that will do it
-on the day they arrive does exist, and this file is what stops it rotting between now and
-then: every assertion here runs with no credential of any kind.
+Scoring Sarvam against Azure OpenAI over the golden transcripts needs a Sarvam key, an
+Azure resource and egress, none of which exists in this repo or this environment. The
+machinery that will do it on the day they arrive does exist, and this file is what stops it
+rotting between now and then: every assertion here runs with no credential of any kind.
 
 Ranked by what each failure costs, worst first:
 
@@ -27,7 +27,10 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from apps.workers.extraction import GEMINI_PROVIDER, SARVAM_PROVIDER, OfflineExtractor
+from apps.api.core.settings import get_settings
+from apps.workers import extraction
+from apps.workers.extraction import AZURE_PROVIDER, SARVAM_PROVIDER, OfflineExtractor
+from calevate_shared.engine import AZURE_OPENAI_MODELS
 from calevate_shared.extraction import ExtractionSchemaSpec
 from scripts.eval import (
     CANNOT_RUN,
@@ -56,36 +59,104 @@ pytestmark = pytest.mark.anyio
 
 
 def test_a_provider_with_no_credential_is_refused_by_name() -> None:
-    scorable, refused = resolve_providers([SARVAM_PROVIDER, GEMINI_PROVIDER, "offline"])
+    scorable, refused = resolve_providers([SARVAM_PROVIDER, AZURE_PROVIDER, "offline"])
 
     # The one that needs nothing still resolves; the other two are named, not scored.
     assert [name for name, _ in scorable] == ["offline"]
-    assert {miss.provider for miss in refused} == {SARVAM_PROVIDER, GEMINI_PROVIDER}
+    assert {miss.provider for miss in refused} == {SARVAM_PROVIDER, AZURE_PROVIDER}
     # The refusal names the variable to set. "No credential" would send an operator into
-    # Settings to work out which one.
+    # Settings to work out which one — and for Azure there are THREE of them, which is the
+    # whole reason `requires` is carried as prose rather than derived from a field name.
     assert "SARVAM_API_KEY" in str(refused[0])
-    assert "GCP_PROJECT_ID" in str(refused[1])
+    assert "AZURE_OPENAI_RESOURCE" in str(refused[1])
+    assert "AZURE_OPENAI_DEPLOYMENT" in str(refused[1])
     # …and says plainly that nothing was measured, because the sentence a reader will
     # otherwise supply for themselves is "it scored zero".
     assert "nothing was measured" in str(refused[0])
 
 
-def test_an_ai_studio_key_cannot_produce_a_gemini_column(monkeypatch: Any) -> None:
-    """D-127 G-1, enforced where the evidence is gathered rather than only where it is used.
+def _with_settings(monkeypatch: Any, **overrides: Any) -> None:
+    """Point `apps.workers.extraction` at a doctored `Settings`.
 
-    `GEMINI_API_KEY` opens the AI Studio Developer API — a global endpoint with no India
-    residency. A score measured through it would be evidence collected by the means the
-    decision forbids, so the gemini column comes from `vertex_extractor()` or from
-    nothing.
+    Patched on the EXTRACTION module rather than on `apps.api.core.settings`, and the
+    difference is not cosmetic: `extraction.py` does `from … import get_settings`, so the
+    name is bound at import time and patching the source module leaves the binding alone.
+    A test that patched the wrong one would pass for the wrong reason on every provider
+    that has no credential anyway — which is all of them, here.
     """
-    from apps.api.core import settings as settings_module
-
-    original = settings_module.get_settings()
+    original = get_settings()
     monkeypatch.setattr(
-        settings_module, "get_settings", lambda: original.model_copy(update={"gemini_api_key": "k"})
+        extraction, "get_settings", lambda: original.model_copy(update=dict(overrides))
     )
-    _, refused = resolve_providers([GEMINI_PROVIDER])
-    assert [miss.provider for miss in refused] == [GEMINI_PROVIDER]
+
+
+def test_the_wrong_kind_of_key_cannot_produce_an_azure_column(monkeypatch: Any) -> None:
+    """D-127 G-1's rule, restated for the vendor D-410 chose.
+
+    `Settings.gemini_api_key` outlived Gemini deliberately — its whole job is now to tell
+    an operator who installed the WRONG credential apart from one who installed none
+    (`assist_capability`, and see the field's comment in `calevate_shared/config.py`). What
+    it must never do is open a door. A score measured through a credential the residency
+    decision forbids would be evidence gathered by the means the decision forbids, so the
+    `azure` column comes from `azure_extractor()` or from nothing.
+    """
+    _with_settings(monkeypatch, gemini_api_key="k")
+    scorable, refused = resolve_providers([AZURE_PROVIDER])
+    assert scorable == []
+    assert [miss.provider for miss in refused] == [AZURE_PROVIDER]
+
+
+def test_a_half_configured_azure_credential_refuses_rather_than_scoring(
+    monkeypatch: Any,
+) -> None:
+    """D-410's new failure mode, and the one this harness could most easily get wrong.
+
+    Every other provider here is ONE string: it is present or it is not. Azure needs a
+    resource, a key and a deployment id, so there is a state no previous provider had —
+    an operator midway through a change, with two of the three installed. Scoring that
+    would mean building an extractor addressed at nothing and reporting its 4xx as the
+    model's quality.
+
+    `azure_credentials()` is the single place that decides, and it distinguishes UNSET
+    (the ordinary state, says nothing) from HALF-SET (logs `azure_credential_incomplete`
+    naming the FIELDS, never the values — one of the three IS the credential). Both answer
+    `None` here, because a refusal is the only honest column for either.
+    """
+    _with_settings(
+        monkeypatch,
+        azure_openai_resource="calevate-prod",
+        azure_openai_api_key="k",
+        azure_openai_deployment=None,
+    )
+    scorable, refused = resolve_providers([AZURE_PROVIDER])
+    assert scorable == []
+    assert [miss.provider for miss in refused] == [AZURE_PROVIDER]
+
+
+def test_a_fully_configured_azure_credential_scores_as_the_model_it_names(
+    monkeypatch: Any,
+) -> None:
+    """The other half of the pair — a refusal that fires unconditionally is not a check.
+
+    It also pins the trap Azure sets and no other provider does: the API is addressed by
+    the DEPLOYMENT id, while `model_name` — what the scorecard column is headed with and
+    what the cost model reads — is the MODEL the deployment was made from. A column headed
+    with the deployment id would name a string only this operator's subscription
+    understands, in a document whose whole purpose is comparing models across runs.
+    """
+    _with_settings(
+        monkeypatch,
+        azure_openai_resource="calevate-prod",
+        azure_openai_api_key="k",
+        azure_openai_deployment="calevate-4o-mini-southindia",
+    )
+    scorable, refused = resolve_providers([AZURE_PROVIDER])
+    assert refused == []
+    assert [name for name, _ in scorable] == [AZURE_PROVIDER]
+    assert scorable[0][1].model_name in AZURE_OPENAI_MODELS, (
+        "the column is headed with the DEPLOYMENT id — a string only this operator's "
+        "subscription understands — in a document whose purpose is comparing models"
+    )
 
 
 async def test_the_runner_exits_2_and_scores_nothing_when_a_key_is_absent(
@@ -338,8 +409,9 @@ def test_the_committed_scorecard_matches_what_the_harness_writes_today() -> None
     assert document.startswith("# Extraction provider scorecard — EVIDENCE ARTIFACT")
     assert "<!-- GENERATED FILE — do not hand-edit. -->" in document
     assert "uv run python -m scripts.eval --client=ci --provider=offline" in document
-    # The caveat that stops this file being read as a licence to move extraction to
-    # Gemini, which D-127 G-7 forbids for the raw-PII pass whatever the numbers say.
+    # The caveat that stops this file being read as a licence to move the raw-PII
+    # extraction pass off Sarvam, which D-127 G-7 forbids whatever the numbers say and
+    # which D-410 deliberately did not revisit when it moved both LLM surfaces to Azure.
     assert "GEMINI_EXTRACTION_DEFAULT is False" in document
 
 

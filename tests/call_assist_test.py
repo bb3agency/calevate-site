@@ -3,8 +3,8 @@
 `billing/ai_quota.py` (D-137/D-140) and `workers/extraction.run_assist` (D-134/D-142)
 were built one call apart by two agents who did not know about each other, and both
 recorded the same top gap: nothing joined them, so the ledger, the ceiling, the wallet
-dialog, the platform brake, the capability ladder and the Vertex client were reachable by
-no user. `crm/routes.assist_call` is the call that joins them and this file is what makes
+dialog, the platform brake, the capability ladder and the assistant client were reachable
+by no user. `crm/routes.assist_call` is the call that joins them and this file is what makes
 each half of the join falsifiable.
 
 WHAT IS PROVED HERE, and each one is a property somebody could break silently:
@@ -22,8 +22,15 @@ WHAT IS PROVED HERE, and each one is a property somebody could break silently:
    only place it saves anything (`billing/ai_quota.ASSIST_REF_PREFIX`).
 4. **A fallback is disclosed and is not metered.** The sentence reaches the response, and
    the free leg writes no rupees.
-5. **`usage is None` on GEMINI is an alert, not a zero.** The one case where "we do not
-   know" and "it was free" would otherwise meter the same.
+5. **`usage is None` on the PAID leg is an alert, not a zero.** The one case where "we
+   do not know" and "it was free" would otherwise meter the same.
+
+WHAT D-410 CHANGED IN THIS FILE, and it is smaller than the diff suggests. Every property
+above is unchanged; the provider under them moved from Gemini on Vertex to Azure OpenAI,
+and one assertion class GENUINELY DISAPPEARED rather than being relaxed — there is no
+bearer to mint, so "even the token exchange did not happen" is not a thing a refusal can
+be checked against any more. A static key is why (D-410), and the tests that used to make
+that check now check the one request that remains.
 
 CONCURRENCY AND SHARED STATE: every test mints its own tenant. `platform_ai_spend` is the
 one row that is not per-tenant, and the autouse fixture severs this file's dependency on
@@ -43,7 +50,7 @@ from uuid import UUID
 
 import httpx
 import pytest
-from apps.api.billing import ai_quota
+from apps.api.billing import ai_quota, rates
 from apps.api.core.settings import get_settings
 from apps.api.crm import assist
 from apps.api.crm import routes as crm_routes
@@ -51,21 +58,22 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.workers import extraction as extraction_module
 from apps.workers.extraction import (
-    GEMINI_PROVIDER,
+    AZURE_PROVIDER,
     SARVAM_PROVIDER,
+    AzureOpenAIExtractor,
     SarvamExtractor,
-    VertexGeminiExtractor,
 )
 from apps.workers.redaction import redact
+from calevate_shared.engine import AZURE_LIST_PRICE_USD_PER_MTOK
 from calevate_shared.extraction import ExtractionSchemaSpec
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
-# ONE fake Vertex in this repo. It records the request objects httpx was actually handed,
+# ONE fake Azure in this repo. It records the request objects httpx was actually handed,
 # which is the artefact test 1 needs, and a second copy here would drift from the response
 # shape the client parses. Same reason `route_shape_test` imports `view_as_headers`.
-from tests.vertex_extraction_test import FakeVertex, _credential_json
+from tests.azure_extraction_test import API_KEY, DEPLOYMENT, RESOURCE, FakeAzure
 
 #: A Telugu turn with a real-shaped Indian mobile in it — the exact pair hard rule 6
 #: names. `redact()` keeps the last two digits, so the redacted copy is recognisably the
@@ -76,8 +84,6 @@ RAW_TURNS: list[tuple[str, str]] = [
     ("agent", "Namaskaram, Sunrise Clinic. Cheppandi."),
     ("caller", f"Naa peru Ravi. Naa number {CALLER_NUMBER}, repu appointment kavali."),
 ]
-
-PROJECT = "calevate-assist-test"
 
 
 def _client() -> AsyncClient:
@@ -96,40 +102,42 @@ def _the_platform_brake_is_not_this_suites_business(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(ai_quota, "platform_brake_tripped", not_tripped)
 
 
-@pytest.fixture(autouse=True)
-def _clean_token_cache() -> Any:
-    """The Vertex bearer cache is process-level (one token an hour, not one an assist),
-    so it is shared state between tests. Cold on both sides, or the second test here
-    silently skips the token exchange the fake is counting."""
-    from apps.workers import google_oauth
-
-    google_oauth.reset_token_cache()
-    yield
-    google_oauth.reset_token_cache()
-
-
 @pytest.fixture
-def vertex_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A deployment holding a Vertex credential and NO Sarvam key: the top rung of the
-    ladder, so anything that falls off it has to say so."""
+def azure_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A deployment holding an Azure OpenAI credential and NO Sarvam key: the top rung of
+    the ladder, so anything that falls off it has to say so.
+
+    THE THREE FIELDS ARE SET TOGETHER because `azure_credentials()` requires all three —
+    a half-set deployment is a distinct state with its own test in
+    `tests/azure_extraction_test.py`, and reaching it here by accident would silently
+    move every test in this file onto the fallback rung.
+
+    IT NO LONGER RESETS A TOKEN CACHE. The fixture beside this one used to, because the
+    Vertex bearer was process-level state shared between tests; an Azure key is static
+    and is read per request, so there is nothing to go stale. That is a deleted class of
+    test flakiness rather than an omission.
+    """
     settings = get_settings()
-    monkeypatch.setattr(settings, "gcp_project_id", PROJECT, raising=False)
-    monkeypatch.setattr(settings, "gcp_service_account_json", _credential_json(), raising=False)
+    monkeypatch.setattr(settings, "azure_openai_resource", RESOURCE, raising=False)
+    monkeypatch.setattr(settings, "azure_openai_api_key", API_KEY, raising=False)
+    monkeypatch.setattr(settings, "azure_openai_deployment", DEPLOYMENT, raising=False)
     monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
-    monkeypatch.setattr(settings, "gemini_api_key", None, raising=False)
 
 
-def use_fake_vertex(monkeypatch: pytest.MonkeyPatch, google: FakeVertex) -> None:
-    """Drive the REAL Vertex client through httpx's own plumbing.
+def use_fake_azure(monkeypatch: pytest.MonkeyPatch, azure: FakeAzure) -> None:
+    """Drive the REAL Azure client through httpx's own plumbing.
 
-    Patching the class rather than its `run` method is deliberate: the URL, the bearer and
-    the request body are all built inside `run`, and a hand-written stand-in for it could
-    not get any of them wrong — which is exactly what test 1 is trying to catch.
+    Patching the class rather than its `run` method is deliberate: the URL, the
+    authorization header and the request body are all built inside the constructor and
+    `run`, and a hand-written stand-in for them could not get any of them wrong — which
+    is exactly what test 1 is trying to catch.
     """
     monkeypatch.setattr(
         extraction_module,
-        "VertexGeminiExtractor",
-        lambda account, project: VertexGeminiExtractor(account, project, client=google.client()),
+        "AzureOpenAIExtractor",
+        lambda resource, api_key, deployment, model: AzureOpenAIExtractor(
+            resource, api_key, deployment, model, client=azure.client()
+        ),
     )
 
 
@@ -272,11 +280,11 @@ async def _at_the_ceiling(tenant_id: UUID, monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setitem(ai_quota.AI_QUOTA_INR, "self_serve", Decimal("0.00"))
 
 
-# ---------------------------------------- 1. G-2: raw transcript text never reaches Gemini
+# ----------------------------------------- 1. G-2: raw transcript text never reaches Azure
 
 
 async def test_the_model_is_sent_the_redacted_turns_and_never_the_raw_column(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """THE test this whole route exists under (D-127 G-2/G-7).
 
@@ -291,15 +299,15 @@ async def test_the_model_is_sent_the_redacted_turns_and_never_the_raw_column(
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
 
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
 
     assert response.status_code == 200, response.text
-    sent = google.sent.content.decode()
-    assert CALLER_NUMBER not in sent, "the raw transcript column reached Vertex"
+    sent = azure.sent.content.decode()
+    assert CALLER_NUMBER not in sent, "the raw transcript column reached Azure"
     assert json.dumps(CALLER_NUMBER)[1:-1] not in sent
     assert "[phone ••23]" in sent, (
         "the redacted turn is missing too — the assertion above proves nothing if the "
@@ -309,7 +317,7 @@ async def test_the_model_is_sent_the_redacted_turns_and_never_the_raw_column(
 
 
 async def test_a_turn_whose_redacted_copy_still_holds_a_number_is_refused_before_the_model(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The SECOND guard, which had no caller in the tree until this route existed.
 
@@ -325,35 +333,35 @@ async def test_a_turn_whose_redacted_copy_still_holds_a_number_is_refused_before
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id, redacted=[RAW_TURNS[0][1], RAW_TURNS[1][1]])
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
 
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
 
     assert response.status_code == 422, response.text
     assert response.json()["type"].endswith("/assist_input_not_redacted")
-    assert google.generate_requests == [], "the provider was reached with unredacted text"
+    assert azure.requests == [], "the provider was reached with unredacted text"
     assert await _usage_rows(tenant_id) == []
 
 
 async def test_a_turn_with_no_redacted_copy_at_all_fails_closed(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`transcript_turns.text_redacted` is NULLable, and the two wrong answers are
     obvious: send `text` instead (the residency inversion), or skip the turn and hand the
     client a summary of part of a call presented as a summary of the call."""
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id, redacted=[redact(RAW_TURNS[0][1]).text, None])
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
 
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
 
     assert response.status_code == 422, response.text
     assert response.json()["type"].endswith("/assist_transcript_not_redacted")
-    assert google.generate_requests == []
+    assert azure.requests == []
 
 
 def test_the_transcript_the_model_reads_is_speaker_prefixed_lines() -> None:
@@ -369,7 +377,7 @@ def test_the_transcript_the_model_reads_is_speaker_prefixed_lines() -> None:
 
 
 async def test_a_tenant_at_the_ceiling_is_refused_before_a_token_is_spent(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """G-5's block, from the outside, and the three things a refusal must not do.
 
@@ -380,8 +388,8 @@ async def test_a_tenant_at_the_ceiling_is_refused_before_a_token_is_spent(
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     await _at_the_ceiling(tenant_id, monkeypatch)
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
     spend_before = await _platform_spend()
 
     async with _client() as http:
@@ -391,16 +399,21 @@ async def test_a_tenant_at_the_ceiling_is_refused_before_a_token_is_spent(
     assert response.json()["type"].endswith("/ai_quota_exceeded")
     assert response.json()["remediation"], "a refusal a person can act on, not a bare code"
     # In this order: the provider first, because a ledger assertion alone passes on a path
-    # that paid Google and then failed to record it.
-    assert google.generate_requests == [], "the model was called for a refused request"
-    assert google.token_requests == [], "even the bearer was not worth minting"
+    # that paid Microsoft and then failed to record it.
+    #
+    # THIS USED TO BE TWO ASSERTIONS and the second one is deleted rather than weakened:
+    # under Vertex a refusal also had to prove no BEARER was minted, because minting one
+    # was a second network round trip on the same path. A static Azure key is read out of
+    # settings, so there is exactly one request a refusal can fail to avoid, and it is
+    # this one (D-410).
+    assert azure.requests == [], "the model was called for a refused request"
     assert await _usage_rows(tenant_id) == []
     assert await _platform_spend() == spend_before
     assert await _audit_actions(call_id) == []
 
 
 async def test_a_call_with_no_transcript_is_refused_for_that_reason_and_not_for_money(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """SUBJECT before GATE, which is the one ordering choice that is not about money.
 
@@ -483,9 +496,9 @@ async def test_a_staff_member_cannot_spend_the_accounts_ai_allowance() -> None:
 
 
 async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The join, end to end: Vertex's own token count becomes two `usage_events` rows and
+    """The join, end to end: Azure's own token count becomes two `usage_events` rows and
     one movement of the platform counter, under a server-minted key.
 
     The quantities are asserted as exact `Decimal`s in THOUSANDS of tokens, because that
@@ -494,8 +507,8 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()  # 1,200 prompt / 300 candidates + 500 thoughts
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()  # 1,200 prompt / 800 completion, 500 of them reasoning
+    use_fake_azure(monkeypatch, azure)
     spend_before, requests_before = await _platform_spend()
 
     async with _client() as http:
@@ -510,27 +523,40 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
     rows = await _usage_rows(tenant_id)
     assert [r[0] for r in rows] == ["ai_assist_ktok_in", "ai_assist_ktok_out"]
     assert rows[0][1] == Decimal("1.2000"), "1,200 prompt tokens are 1.2 ktok"
-    # 300 candidates + 500 thinking tokens: Gemini 3 bills thoughts at the OUTPUT rate and
-    # `candidatesTokenCount` does not include them.
+    # 800 completion tokens, of which 500 are reasoning. `completion_tokens_details` is a
+    # BREAKDOWN of `completion_tokens`, never an addition to it — adding them would bill
+    # 1.3 ktok for 0.8 ktok of output, which is the regression this number exists to fail.
     assert rows[1][1] == Decimal("0.8000")
-    assert rows[0][2] == ai_quota.LLM_INR_PER_KTOK["in"]
-    assert rows[1][2] == ai_quota.LLM_INR_PER_KTOK["out"]
+    prices = rates.llm_inr_per_ktok(get_settings().azure_openai_model)
+    assert rows[0][2] == prices["in"]
+    assert rows[1][2] == prices["out"]
     assert rows[0][3] == rows[1][3], "both legs of one assist share one key"
     assert rows[0][3].startswith("assist:"), "the key is the server's, never a browser's"
 
-    exact = (
-        Decimal("1.2") * ai_quota.LLM_INR_PER_KTOK["in"]
-        + Decimal("0.8") * ai_quota.LLM_INR_PER_KTOK["out"]
-    )
-    # ₹0.225800 exactly at `gemini-2.5-flash` prices, and `platform_ai_spend.spend_inr` is
-    # NUMERIC(12,4), so what the counter can hold is ₹0.2258. QUANTIZED here rather than
-    # the assertion loosened to an `approx`: the rounding is a property of the column and
-    # is what the brake will actually accumulate, and a tolerance would also pass on an
-    # arithmetic error. Pinned as a LITERAL beside the derivation on purpose — the two
-    # agree only while the price table and this file's arithmetic agree, which is the
-    # thing a price change (and there has already been one) is most likely to break.
+    exact = Decimal("1.2") * prices["in"] + Decimal("0.8") * prices["out"]
+    # `platform_ai_spend.spend_inr` is NUMERIC(12,4), so what the counter can hold is four
+    # decimals. QUANTIZED here rather than the assertion loosened to an `approx`: the
+    # rounding is a property of the column and is what the brake will actually accumulate,
+    # and a tolerance would also pass on an arithmetic error.
+    #
+    # THE LITERAL THAT USED TO SIT HERE IS NOW A SECOND DERIVATION, and that is a
+    # strengthening rather than a retreat (D-410). `₹0.2258` was pinned beside the
+    # `LLM_INR_PER_KTOK` arithmetic so the two had to agree; the price is now per MODEL and
+    # `azure_openai_model` is a live console switch between two models 2.7x apart, so a
+    # single literal would pin one model's price into a test about metering arithmetic and
+    # fail on a config change that is supposed to be free. What replaces it is the same
+    # cross-check taken one step further back — from the VENDOR'S dollars and the exchange
+    # rate, not from the rupee table this row was written out of — so an arithmetic error
+    # anywhere in the chain still fails here.
     expected = exact.quantize(Decimal("0.0001"))
-    assert expected == Decimal("0.2258")
+    from_vendor_usd = AZURE_LIST_PRICE_USD_PER_MTOK[get_settings().azure_openai_model]
+    per_ktok = {
+        leg: (usd * rates.LIST_PRICE_USD_INR / 1000).quantize(Decimal("0.0001"))
+        for leg, usd in from_vendor_usd.items()
+    }
+    assert expected == (
+        Decimal("1.2") * per_ktok["in"] + Decimal("0.8") * per_ktok["out"]
+    ).quantize(Decimal("0.0001"))
     spend_after, requests_after = await _platform_spend()
     assert spend_after - spend_before == expected
     assert requests_after - requests_before == 1
@@ -538,7 +564,7 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
 
 
 async def test_the_stored_summary_and_extraction_are_left_exactly_as_they_were(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A re-summarise is a VIEW, not a rewrite (`crm/assist.py` argues why).
 
@@ -550,9 +576,9 @@ async def test_the_stored_summary_and_extraction_are_left_exactly_as_they_were(
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    google.answer = {**google.answer, "summary": "A completely different second reading."}
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    azure.answer = {**azure.answer, "summary": "A completely different second reading."}
+    use_fake_azure(monkeypatch, azure)
 
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
@@ -572,7 +598,7 @@ async def test_the_stored_summary_and_extraction_are_left_exactly_as_they_were(
 
 
 async def test_the_answer_goes_out_through_the_same_redaction_pass_as_every_summary(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Belt to the braces. The model cannot copy a digit it never saw, so this pass should
     never have anything to do — which is exactly why it has to be tested: a guard that is
@@ -580,9 +606,9 @@ async def test_the_answer_goes_out_through_the_same_redaction_pass_as_every_summ
     phone-shaped run (or a future prompt that quotes one back) must not print it."""
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    google.answer = {**google.answer, "summary": f"Ravi asked us to ring {CALLER_NUMBER}."}
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    azure.answer = {**azure.answer, "summary": f"Ravi asked us to ring {CALLER_NUMBER}."}
+    use_fake_azure(monkeypatch, azure)
 
     async with _client() as http:
         response = await http.post(f"/v1/calls/{call_id}/assist", headers=_headers(token, slug))
@@ -597,15 +623,15 @@ async def test_the_answer_goes_out_through_the_same_redaction_pass_as_every_summ
 
 
 async def test_the_same_idempotency_key_answers_twice_and_is_paid_for_once(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Deduping AFTER the provider has been paid hides the spend rather than saving it
-    (`billing/ai_quota.ASSIST_REF_PREFIX`), so the second click must not reach Vertex at
+    (`billing/ai_quota.ASSIST_REF_PREFIX`), so the second click must not reach Azure at
     all — asserted on the request count, not only on the ledger."""
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
     spend_before, requests_before = await _platform_spend()
     headers = _headers(token, slug, key=f"double-{uuid.uuid4().hex[:8]}")
 
@@ -616,7 +642,7 @@ async def test_the_same_idempotency_key_answers_twice_and_is_paid_for_once(
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert second.json() == first.json(), "the second click got a different answer"
-    assert len(google.generate_requests) == 1, "the second click was paid for"
+    assert len(azure.requests) == 1, "the second click was paid for"
     rows = await _usage_rows(tenant_id)
     assert len(rows) == 2, "one assist is two rows (in and out), not four"
     spend_after, requests_after = await _platform_spend()
@@ -625,7 +651,7 @@ async def test_the_same_idempotency_key_answers_twice_and_is_paid_for_once(
 
 
 async def test_a_different_key_on_the_same_call_is_a_second_assist(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The other half, and the reason the key is per-ATTEMPT rather than per-call.
 
@@ -641,8 +667,8 @@ async def test_a_different_key_on_the_same_call_is_a_second_assist(
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
     spend_before, requests_before = await _platform_spend()
 
     async with _client() as http:
@@ -657,7 +683,7 @@ async def test_a_different_key_on_the_same_call_is_a_second_assist(
 
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
-    assert len(google.generate_requests) == 2, "the second ask was answered from a cache"
+    assert len(azure.requests) == 2, "the second ask was answered from a cache"
     rows = await _usage_rows(tenant_id)
     assert len(rows) == 4, "two assists are four rows under two distinct keys"
     assert len({row[3] for row in rows}) == 2, "both assists metered under one key"
@@ -669,24 +695,24 @@ async def test_a_different_key_on_the_same_call_is_a_second_assist(
 # -------------------------- 5. G-6: the fallback is disclosed, and it is not metered
 
 
-async def test_a_gemini_outage_answers_with_sarvam_and_the_disclosure_reaches_the_client(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+async def test_an_azure_outage_answers_with_sarvam_and_the_disclosure_reaches_the_client(
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """G-6 forbids a silent fallback, so the sentence is part of the RESPONSE and not a
     thing the screen is trusted to remember to compose.
 
     And the free leg writes no rupees: D-36 prices Sarvam at zero, so a `usage_events`
-    row here would be a Gemini quantity claimed for a call Gemini never served.
+    row here would be a paid quantity claimed for a call the paid leg never served.
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
     monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
     spend_before = await _platform_spend()
 
-    async def _vertex_down(
-        self: VertexGeminiExtractor, spec: ExtractionSchemaSpec, transcript: str
+    async def _azure_down(
+        self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
-        raise httpx.ConnectError("vertex is unreachable")
+        raise httpx.ConnectError("azure is unreachable")
 
     sarvam_saw: list[str] = []
 
@@ -696,7 +722,7 @@ async def test_a_gemini_outage_answers_with_sarvam_and_the_disclosure_reaches_th
         sarvam_saw.append(transcript)
         return {"summary": "Ravi wants a Tuesday slot.", "sentiment": "neutral"}
 
-    monkeypatch.setattr(VertexGeminiExtractor, "run", _vertex_down)
+    monkeypatch.setattr(AzureOpenAIExtractor, "run", _azure_down)
     monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
 
     async with _client() as http:
@@ -722,10 +748,13 @@ async def test_no_provider_at_all_is_a_refusal_with_something_to_do_about_it(
     an empty summary — `assist_unavailable` carries the remediation `ProblemNotice`
     renders verbatim, and the client's copy of it names an action a CLIENT can take."""
     settings = get_settings()
-    monkeypatch.setattr(settings, "gcp_project_id", None, raising=False)
-    monkeypatch.setattr(settings, "gcp_service_account_json", None, raising=False)
-    monkeypatch.setattr(settings, "sarvam_api_key", None, raising=False)
-    monkeypatch.setattr(settings, "gemini_api_key", None, raising=False)
+    for field in (
+        "azure_openai_resource",
+        "azure_openai_api_key",
+        "azure_openai_deployment",
+        "sarvam_api_key",
+    ):
+        monkeypatch.setattr(settings, field, None, raising=False)
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
 
@@ -738,16 +767,16 @@ async def test_no_provider_at_all_is_a_refusal_with_something_to_do_about_it(
     assert await _usage_rows(tenant_id) == []
 
 
-# ------------------------------- 6. `usage is None` on Gemini: an alert, never a zero
+# -------------------------------- 6. `usage is None` on Azure: an alert, never a zero
 
 
-async def test_a_gemini_answer_vertex_did_not_count_alerts_instead_of_metering_zero(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+async def test_an_azure_answer_azure_did_not_count_alerts_instead_of_metering_zero(
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """THE decision this join had to make, and the one D-140 named in advance.
 
     `AssistResult.usage is None` has two causes and they are not the same event. A Sarvam
-    fallback is free (test above). A GEMINI answer with no `usageMetadata` is money we
+    fallback is free (test above). An AZURE answer with no `usage` block is money we
     spent and cannot account for: the tenant's ceiling and the platform brake are both
     blind to it. Metering it as zero would be a fabricated quantity in an append-only
     ledger, and estimating it from the transcript length is exactly what D-140 refused —
@@ -759,9 +788,9 @@ async def test_a_gemini_answer_vertex_did_not_count_alerts_instead_of_metering_z
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    google.usage = None  # a body with no `usageMetadata` block at all
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    azure.usage = None  # a 200 whose body carries no `usage` block at all
+    use_fake_azure(monkeypatch, azure)
     spend_before = await _platform_spend()
 
     fired: list[tuple[str, str, dict[str, str]]] = []
@@ -785,7 +814,7 @@ async def test_a_gemini_answer_vertex_did_not_count_alerts_instead_of_metering_z
 
 
 async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The other side of the same `if`, asserted separately because the two outcomes look
     identical in the ledger and must not look identical to a person on call: a free leg is
@@ -794,17 +823,17 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
     call_id = await _call_with_transcript(tenant_id)
     monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
 
-    async def _vertex_down(
-        self: VertexGeminiExtractor, spec: ExtractionSchemaSpec, transcript: str
+    async def _azure_down(
+        self: AzureOpenAIExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
-        raise httpx.ConnectError("vertex is unreachable")
+        raise httpx.ConnectError("azure is unreachable")
 
     async def _sarvam_run(
         self: SarvamExtractor, spec: ExtractionSchemaSpec, transcript: str
     ) -> dict[str, Any]:
         return {"summary": "Sarvam answered."}
 
-    monkeypatch.setattr(VertexGeminiExtractor, "run", _vertex_down)
+    monkeypatch.setattr(AzureOpenAIExtractor, "run", _azure_down)
     monkeypatch.setattr(SarvamExtractor, "run", _sarvam_run)
     fired: list[str] = []
     monkeypatch.setattr(
@@ -825,10 +854,10 @@ async def test_a_sarvam_fallback_is_unmetered_without_waking_an_operator(
 
 
 def test_the_provider_names_the_response_can_carry_are_the_ladders_own() -> None:
-    """`meter_assist` branches on `capability.provider == GEMINI_PROVIDER`, so the two
+    """`meter_assist` branches on `capability.provider == AZURE_PROVIDER`, so the two
     constants have to be the ones `assist_capability` actually sets. A typo here would
-    meter a Sarvam fallback at Gemini prices and alert on nothing."""
-    assert GEMINI_PROVIDER == "gemini"
+    meter a Sarvam fallback at Azure prices and alert on nothing."""
+    assert AZURE_PROVIDER == "azure"
     assert SARVAM_PROVIDER == "sarvam"
 
 
@@ -856,7 +885,7 @@ def test_the_route_declares_a_mutating_permission_that_exists_and_is_granted() -
 
 
 async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_pay_again(
-    vertex_configured: None, monkeypatch: pytest.MonkeyPatch
+    azure_configured: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """CORRECTNESS 1 (D-181): the claim used to roll back with the side effect it guards.
 
@@ -869,19 +898,19 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
 
     Driven with the audit write raising, because that is the failure the audit report
     names and it sits between the payment and the response. What must be true afterwards
-    is one thing: the second request with the same key does not reach Vertex.
+    is one thing: the second request with the same key does not reach Azure.
     """
     tenant_id, slug, token = await _make_tenant()
     call_id = await _call_with_transcript(tenant_id)
-    google = FakeVertex()
-    use_fake_vertex(monkeypatch, google)
+    azure = FakeAzure()
+    use_fake_azure(monkeypatch, azure)
     headers = _headers(token, slug, key=f"crash-{uuid.uuid4().hex[:8]}")
 
     async def refuse_to_audit(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError("audit chain unavailable")
 
     # Patched and restored BY HAND rather than through `monkeypatch.undo()`: undo() is
-    # per-test, not per-call, so it would also revert `vertex_configured`'s environment
+    # per-test, not per-call, so it would also revert `azure_configured`'s environment
     # and the retry below would be refused as `assist_no_credential` — a green test that
     # never reached the model. (That is not hypothetical; it is what this test did first.)
     original_write_audit = crm_routes.write_audit
@@ -894,13 +923,13 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
     ) as http:
         first = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
     assert first.status_code >= 500, first.text
-    assert len(google.generate_requests) == 1, "the provider was paid once"
+    assert len(azure.requests) == 1, "the provider was paid once"
 
     crm_routes.write_audit = original_write_audit  # type: ignore[assignment]
     async with _client() as http:
         second = await http.post(f"/v1/calls/{call_id}/assist", headers=headers)
 
-    assert len(google.generate_requests) == 1, (
-        f"the retry paid Google a second time (status {second.status_code}): the claim "
+    assert len(azure.requests) == 1, (
+        f"the retry paid Microsoft a second time (status {second.status_code}): the claim "
         "did not survive the failure it exists to survive"
     )

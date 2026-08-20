@@ -1,15 +1,21 @@
 """The ONE Google service-account flow, tested as a CACHE rather than as a handshake.
 
-`tests/sheets_adapter_test.py` and `tests/vertex_extraction_test.py` each prove the flow
-works for their own caller — the assertion is minted, the scope is right, one bearer
-serves many units of work. Neither can prove the properties that belong to the module
-itself, because both hold one credential for the life of a test:
+`tests/sheets_adapter_test.py` proves the flow works for its caller — the assertion is
+minted, the scope is right, one bearer serves many deliveries. It cannot prove the
+properties that belong to the module itself, because it holds one credential for the life
+of a test:
+
+**THIS MODULE HAD TWO CALLERS AND NOW HAS ONE.** D-127 gave it a Vertex AI caller on the
+`cloud-platform` scope; D-410 moved both LLM legs to Azure OpenAI, which authenticates
+with a static key, so Google Sheets sync (D-23) is the only thing left that mints a
+bearer here. Two properties below were ADDED for the second caller and are kept
+deliberately rather than unwound — see the scope test for the argument.
 
   1. **WHAT COUNTS AS THE SAME CREDENTIAL.** The cache key is the identity, and an
      identity that is too coarse serves a retired key's token for the better part of an
      hour. Rotating the KEY while keeping the ADDRESS is the ordinary rotation — it is
      what Google's console does — and `platform_config` classifies
-     `gcp_service_account_json` as `live` on the strength of this.
+     `google_sheets_service_account_json` as `live` on the strength of this.
   2. **WHICH CLOCK THE DEADLINE IS ON.** A wall clock steps; a cache deadline must not
      be read off one.
   3. **WHAT A RACE DOES.** Two arq jobs starting cold in one worker both miss.
@@ -41,9 +47,13 @@ from apps.workers.google_oauth import (
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-EMAIL = "calevate-vertex@calevate-test.iam.gserviceaccount.com"
-SCOPE = "https://www.googleapis.com/auth/cloud-platform"
-OTHER_SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+EMAIL = "calevate-sheets@calevate-test.iam.gserviceaccount.com"
+#: The scope the ONE shipped caller asks for (`workers/google_sheets.SCOPE`).
+SCOPE = "https://www.googleapis.com/auth/spreadsheets"
+#: A SECOND scope, asked for by nothing this repository ships today. It is here because
+#: the cache key is per-scope and that invariant has to stay testable — see
+#: `test_one_account_and_key_serving_two_scopes_gets_two_bearers`.
+OTHER_SCOPE = "https://www.googleapis.com/auth/drive.file"
 
 
 def _pem() -> str:
@@ -136,8 +146,8 @@ async def test_rotating_the_key_on_one_account_takes_effect_on_the_next_call() -
     rotate — the address does not change, only `private_key_id` and the PEM. Keyed on the
     address alone, every worker kept sending the retired key's bearer for up to
     fifty-five minutes, and the only cures were a restart or an operator remembering a
-    Python function. `platform_config` calls `gcp_service_account_json` `live`; this is
-    the assertion that makes that word true.
+    Python function. `platform_config` calls `google_sheets_service_account_json` `live`;
+    this is the assertion that makes that word true.
     """
     google = FakeGoogle()
     async with google.client() as http:
@@ -174,14 +184,23 @@ async def test_a_rotation_does_not_grow_the_cache() -> None:
 
 
 async def test_one_account_and_key_serving_two_scopes_gets_two_bearers() -> None:
-    """The behaviour the extraction into this module had to ADD. A `cloud-platform` caller
-    handed a `spreadsheets` token meets a 403 naming neither the scope nor the cache."""
+    """The behaviour the extraction into this module had to ADD, kept after D-410 removed
+    the caller that needed it.
+
+    One service account served two scopes while Vertex shared this flow, and a cache keyed
+    on identity alone handed one caller the other's token — a 403 naming neither the scope
+    nor the cache, which reads as a broken IAM grant. There is one shipped scope again, so
+    this arm is not reachable from production code today; it stays because the invariant
+    is one line, is correct for any number of scopes, and the next Google API this platform
+    reaches would otherwise rediscover that 403 the expensive way. A test deleted for
+    "nothing calls it" is how the regression comes back.
+    """
     google = FakeGoogle()
     async with google.client() as http:
-        vertex = await access_token(http, _account(), scope=SCOPE)
-        sheets = await access_token(http, _account(), scope=OTHER_SCOPE)
+        sheets = await access_token(http, _account(), scope=SCOPE)
+        other = await access_token(http, _account(), scope=OTHER_SCOPE)
 
-    assert vertex != sheets
+    assert sheets != other
     assert len(google.exchanges) == 2
     assert len(google_oauth._TOKENS) == 2, "one scope's token evicted the other's"
 

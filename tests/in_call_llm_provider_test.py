@@ -1,60 +1,79 @@
-"""The in-call LLM leg can name where it runs, and it cannot name anywhere outside India.
+"""The in-call LLM leg can name where it runs, and it cannot name anywhere but our resource.
 
-D-400 moved the canonical in-call LLM from Sarvam 105B (free per token, sovereign by
-vendor) to Gemini on a PAID Vertex AI account. That is a residency change wearing a
-pricing decision: D-36's guarantee was an argument about a VENDOR, and the replacement —
-D-127's, now extended to the in-call leg — is an argument about an ENDPOINT. An endpoint
-is a string, the difference between `asia-south1` and `us-central1` is nine characters,
-and this file is one of the two things standing between those nine characters and a
-DPDP-relevant transfer.
+D-400 moved the canonical in-call LLM off Sarvam 105B (free per token, sovereign by
+vendor) onto a PAID account; D-410 re-aimed that account at Azure OpenAI in South India.
+Either way it is a residency change wearing a pricing decision: D-36's guarantee was an
+argument about a VENDOR, and the replacement — D-127's, extended to the in-call leg — is
+an argument about an ENDPOINT. An endpoint is a string, and this file is one of the two
+things standing between that string and a DPDP-relevant transfer.
+
+⚠ **WHAT THIS FILE CAN NO LONGER PROVE, SAID FIRST BECAUSE IT IS A REAL WEAKENING.**
+Vertex put `asia-south1` in the host AND in the `locations/` path segment, so the tests
+below used to read the region off the URL twice and refuse the nine characters that
+changed it. Azure's shipped endpoint shape names no region at all — `<resource>.openai
+.azure.com` — because the region is a property of the RESOURCE, fixed by whoever created
+it in the portal. So what is asserted here is one link of a three-link chain:
+`AZURE_LOCATION` says which region the resource must be in, `Settings.azure_openai_resource`
+points at a resource an operator asserts is there, and a HUMAN confirms it once in the
+Azure portal (OPERATIONS §2). No test in this repository can close the last link, and one
+claiming to would be worse than the gap. `calevate_shared.engine.AZURE_LOCATION` carries
+the same warning in the other place a reader looks.
+
+WHAT IS STILL PROVED, WHICH IS NOT NOTHING: no endpoint reaches an engine except one
+`azure_openai_base_url()` could have emitted; that builder refuses anything but a single
+DNS label, so the HOST is Azure's rather than a look-alike whose tail merely reads like
+it; the leg's model identifier and its endpoint cannot be configured apart; and every arm
+of the one switch that decides whether an agent's LLM is ours has a test that fails when
+it is deleted.
 
 THE OTHER THING IS `scripts/check_model_residency.py`, AND THE SPLIT IS THE POINT. That
-guard reads the AST and proves every Google model URL *written in this tree* names
-Mumbai. It says in its own docstring what it cannot see: a URL assembled at runtime, read
-from a store, or handed to a vendor. `ModelConfig`'s validator covers exactly that blind
-spot — the VALUE rather than the literal — and this file is what proves the validator is
+guard reads the AST and proves things about the model URLs *written in this tree*. It
+says in its own docstring what it cannot see: a URL assembled at runtime, read from a
+store, or handed to a vendor. `ModelConfig`'s validator covers exactly that blind spot —
+the VALUE rather than the literal — and this file is what proves the validator is
 connected to anything. A tripwire with no test that steps on it is a tripwire nobody has
 evidence is wired up (`model_residency_guard_test` makes the same argument about its
 subject).
 
-WHAT THIS FILE DELIBERATELY DOES NOT ASSERT, AND THE LINE HAS MOVED (D-404). It used to
-be "that the leg is LIVE", because `VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE` was False and
-nothing could put a bearer where the engine would find one. That constant is now True and
-the rotation is built (`apps/workers/vertex_credential.py`,
-`tests/vertex_credential_test.py`), so what is left unasserted is smaller and sharper:
-**that a Gemini in-call agent placed a real phone call.** Asserting that would be
-asserting a vendor behaviour nobody has observed — `api.bolna.ai` is refused by this
-environment's egress proxy, and OPERATIONS §2 gate 16c is where the observation goes.
-What IS asserted here is that the configuration is EXPRESSIBLE, that it renders to the
-vendor body their published schema and their own server accept, and that no other
-endpoint can be expressed at all.
+WHAT THIS FILE DELIBERATELY DOES NOT ASSERT: **that an Azure-backed agent placed a real
+phone call.** Asserting that would be asserting a vendor behaviour nobody has observed —
+`api.bolna.ai` is refused by this environment's egress proxy, and what their `azure`
+provider does with a `base_url` and a `model` is the open gate (`_llm_routing` names it).
+What IS asserted is that the configuration is EXPRESSIBLE, that it renders to the vendor
+body their published schema accepts, and that no other endpoint can be expressed at all.
 """
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import pytest
 from apps.api.engine.bolna import BolnaEngine, _agent_models, _llm_routing
 from calevate_shared.engine import (
-    GEMINI_DEFAULT_LLM,
-    GEMINI_LIST_PRICE_USD_PER_MTOK,
-    VERTEX_LOCATION,
+    AZURE_LOCATION,
+    AZURE_OPENAI_DEFAULT_MODEL,
     ModelConfig,
-    vertex_openai_base_url,
+    azure_openai_base_url,
 )
 from pydantic import ValidationError
 
-PROJECT = "calevate-voice"
+RESOURCE = "calevate-voice"
+#: The DEPLOYMENT ID, which is what travels in the vendor's one model slot. Deliberately
+#: unlike any model name in `AZURE_OPENAI_MODELS`, so a test that confuses the two fails
+#: instead of coincidentally passing — the whole point of the distinction is that on every
+#: other OpenAI-compatible provider these two strings are one string.
+DEPLOYMENT = "calevate-voice-inbound"
+ENDPOINT = azure_openai_base_url(RESOURCE)
 
 
-def _vertex_models() -> ModelConfig:
+def _azure_models() -> ModelConfig:
     return ModelConfig(
         stt_provider="sarvam",
         stt_model="saaras:v3",
-        llm_model=GEMINI_DEFAULT_LLM,
-        llm_provider="vertex_openai",
-        llm_base_url=vertex_openai_base_url(PROJECT),
+        llm_model=DEPLOYMENT,
+        llm_provider="azure_openai",
+        llm_base_url=ENDPOINT,
         tts_provider="sarvam",
         tts_voice="anushka",
     )
@@ -63,23 +82,55 @@ def _vertex_models() -> ModelConfig:
 # --- the endpoint --------------------------------------------------------------------
 
 
-def test_the_base_url_carries_mumbai_in_both_places_it_appears() -> None:
-    """Host AND path. They are separate strings in the URL and can disagree — a host
-    pinned to Mumbai with `locations/global` in the path is the global endpoint wearing
-    a regional host, which is the substitution D-127 exists to refuse."""
-    url = vertex_openai_base_url(PROJECT)
-    assert url.startswith(f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/")
-    assert f"/locations/{VERTEX_LOCATION}/" in url
-    assert "global" not in url
+def test_the_base_url_is_the_v1_surface_and_carries_no_api_version() -> None:
+    """The v1 surface is the whole reason this leg is simpler than the Vertex leg it
+    replaced: it needs no dated `api-version` and it accepts a key in the authorization
+    header, which is what an OpenAI-shaped client sends. The classic surface
+    (`/openai/deployments/{id}/chat/completions?api-version=YYYY-MM-DD`) is a second
+    thing to keep current forever and an auth header no such client emits."""
+    assert f"https://{RESOURCE}.openai.azure.com/openai/v1" == ENDPOINT
+    assert "api-version" not in ENDPOINT
+    assert "/deployments/" not in ENDPOINT
 
 
-def test_the_base_url_is_the_openai_surface_and_not_the_generatecontent_one() -> None:
-    """`endpoints/openapi` is the OpenAI Chat Completions door, which is the only one a
-    voice engine speaking OpenAI can use. `:generateContent` is our own client's door
-    (`workers/extraction.py`) and sending it here would 404 at dial time."""
-    url = vertex_openai_base_url(PROJECT)
-    assert url.endswith("/endpoints/openapi")
-    assert ":generateContent" not in url
+def test_the_endpoint_names_no_region_and_that_is_recorded_rather_than_hidden() -> None:
+    """THE WEAKENING, ASSERTED AS A FACT SO IT CANNOT BE FORGOTTEN.
+
+    Under Vertex this file's first test read `asia-south1` out of the URL twice. Azure
+    hides the region inside the resource, so there is nothing to read — and a test that
+    quietly stopped looking would leave a reader believing the old proof still holds. So
+    the absence is asserted: if a future endpoint shape ever DOES carry the region, this
+    fails, and the person who made that possible is exactly the person who should hear
+    about it (the regional hostname `southindia.api.cognitive.microsoft.com` is the
+    rejected-for-now alternative that would do it — see `AZURE_LOCATION`).
+    """
+    assert AZURE_LOCATION not in ENDPOINT
+    assert AZURE_LOCATION == "southindia", "one spelling of the region, and it is India"
+
+
+@pytest.mark.parametrize(
+    "resource",
+    [
+        # The attack this guard exists for: Azure puts the caller's value at the FRONT of
+        # the authority, so an interpolated `evil.example/x` is a URL whose HOST is the
+        # attacker's and whose tail merely reads like Azure.
+        "evil.example/x",
+        "res.openai.azure.com",
+        "res:8443",
+        "a",  # one character: not a legal two-plus DNS label
+        "-leading",
+        "trailing-",
+        "",
+    ],
+)
+def test_a_resource_that_is_not_one_dns_label_is_refused_rather_than_interpolated(
+    resource: str,
+) -> None:
+    """A builder that quietly emitted `https://evil.example/x.openai.azure.com/openai/v1`
+    would be handing a third party an attacker's host wearing our suffix — and the value
+    it is handing over is where a client's caller's words go."""
+    with pytest.raises(ValueError):
+        azure_openai_base_url(resource)
 
 
 # --- what the config will and will not accept -----------------------------------------
@@ -88,38 +139,49 @@ def test_the_base_url_is_the_openai_surface_and_not_the_generatecontent_one() ->
 @pytest.mark.parametrize(
     "base_url",
     [
-        # The global endpoint: Google states the caller cannot control or know which
-        # region processes the request on it.
-        "https://aiplatform.googleapis.com/v1/projects/p/locations/global/endpoints/openapi",
-        # A regional HOST with a global PATH — the half a reviewer waves through.
-        "https://asia-south1-aiplatform.googleapis.com/v1/projects/p/locations/global/endpoints/openapi",
-        # The right shape, the wrong nine characters.
-        "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/endpoints/openapi",
-        # The AI Studio Developer API, which D-127 disqualified outright and which is
-        # what Bolna's own first-party `provider: "google"` reaches.
-        "https://generativelanguage.googleapis.com/v1beta",
-        # Something that is not Google at all, reached by a config bug or a paste.
+        # THE CLASSIC AZURE SURFACE, on our own resource. Right host, wrong door: it wants
+        # a dated `api-version` and an `api-key:` header, and it is the shape somebody
+        # copies out of an Azure quickstart.
+        "https://calevate-voice.openai.azure.com/openai/deployments/d/chat/completions",
+        # THE REGIONAL HOSTNAME. It would restore the AST proof of residency and is
+        # rejected FOR NOW because the v1 surface is documented only on the custom
+        # subdomain — so this is a refusal with a reason, not an oversight (`AZURE_LOCATION`).
+        "https://southindia.api.cognitive.microsoft.com/openai/v1",
+        # A LOOK-ALIKE whose tail reads like Azure and whose host is not.
+        "https://evil.example/x.openai.azure.com/openai/v1",
+        # OpenAI direct: DISQUALIFIED (their India residency covers storage at rest only;
+        # inference still runs in the US, and for a phone call the transcript IS the
+        # inference input).
         "https://api.openai.com/v1",
+        # The AI Studio Developer API — a global host with no region in it and no field in
+        # which to ask for one. This is what Bolna's own `provider: "google"` reaches.
+        "https://generativelanguage.googleapis.com/v1beta",
+        # THE LEG THIS ONE REPLACED. Vertex Mumbai was correct under D-400 and is not
+        # expressible any more, which is what "replaced outright rather than joined" means:
+        # a residency posture with two answers is two postures.
+        "https://asia-south1-aiplatform.googleapis.com/v1/projects/p/locations/asia-south1/endpoints/openapi",
+        # Plain HTTP to the right host: the transcript would cross the network in clear.
+        "http://calevate-voice.openai.azure.com/openai/v1",
     ],
 )
-def test_no_endpoint_outside_mumbai_can_be_configured(base_url: str) -> None:
+def test_no_endpoint_but_our_own_can_be_configured(base_url: str) -> None:
     with pytest.raises(ValidationError):
-        ModelConfig(llm_provider="vertex_openai", llm_base_url=base_url)
+        ModelConfig(llm_provider="azure_openai", llm_base_url=base_url)
 
 
-def test_a_vertex_leg_without_an_endpoint_is_refused() -> None:
+def test_an_azure_leg_without_an_endpoint_is_refused() -> None:
     """Naming the provider and omitting the URL would route to the engine's default
-    client with a Gemini model identifier — a confusing 4xx from a vendor rather than a
+    client with a deployment id for a model — a confusing 4xx from a vendor rather than a
     sentence about what is wrong."""
     with pytest.raises(ValidationError):
-        ModelConfig(llm_provider="vertex_openai", llm_model=GEMINI_DEFAULT_LLM)
+        ModelConfig(llm_provider="azure_openai", llm_model=DEPLOYMENT)
 
 
 def test_an_endpoint_without_a_provider_is_refused() -> None:
     """The shape a future caller reaches for when it wants "just point the LLM
     somewhere" — and the one that would send our endpoint to the wrong client."""
     with pytest.raises(ValidationError):
-        ModelConfig(llm_base_url=vertex_openai_base_url(PROJECT))
+        ModelConfig(llm_base_url=ENDPOINT)
 
 
 def test_the_pre_d400_config_is_still_valid_and_unchanged() -> None:
@@ -141,22 +203,33 @@ def test_an_unset_provider_renders_exactly_what_the_adapter_sent_before() -> Non
     way is the only combination that cannot route somewhere we did not name. An omitted
     `provider` merely DEFAULTS to `openai` on their side (`Llm.provider`), so returning
     `{"family": "openai"}` here would swap an explicit choice for a vendor default — a
-    silent revert of D-355 for every agent in the tree, which is precisely what this
-    function's docstring forbids."""
+    silent revert of D-355 for every agent in the tree, which is precisely what
+    `_llm_routing`'s docstring forbids."""
     assert _llm_routing(ModelConfig(llm_model="sarvam-105b")) == {
         "provider": "openai",
         "family": "openai",
     }
 
 
-def test_a_vertex_leg_renders_the_provider_the_engine_actually_routes_on() -> None:
-    """READ AT SOURCE (`bolna/providers.py::SUPPORTED_LLM_PROVIDERS`): `provider` picks
-    the client class and `"custom"` picks the OpenAI one, which is then constructed with
-    our `base_url`. `family` is declared on their model and read by nothing, which is
-    why the assertion that matters is on `provider`."""
-    body = _llm_routing(_vertex_models())
-    assert body["provider"] == "custom"
-    assert body["base_url"] == vertex_openai_base_url(PROJECT)
+def test_an_azure_leg_renders_the_spelling_the_live_platform_offers() -> None:
+    """`azure`, NOT `azure-openai`, AND NOT `custom` — three real candidates and the
+    choice between them is the whole of D-410's engine-side bet.
+
+    Their `LLMProvider` enum carries both `azure` and `azure-openai` (VERIFIED-OSS), so
+    this is one of two names their server will recognise; the tiebreak is the HOSTED
+    platform, whose published provider matrix lists `Azure OpenAI` and whose live agent
+    dropdown offers `azure`. `custom` is the better-evidenced value — VERIFIED-OSS to
+    construct `AsyncOpenAI(base_url=…, api_key=…)`, which is literally the client our v1
+    endpoint wants — and it was abandoned because the credential route it depends on is
+    the one gate 16c put in doubt.
+
+    Pinned by `==` rather than by "not google": the value is a decision with a written
+    reason, and a change to it is a change to that decision.
+    """
+    body = _llm_routing(_azure_models())
+    assert body["provider"] == "azure"
+    assert body["family"] == "openai", "cosmetic on their side, and `openai` is what the wire is"
+    assert body["base_url"] == ENDPOINT
 
 
 def test_the_agent_body_carries_the_endpoint_into_the_llm_block() -> None:
@@ -180,44 +253,78 @@ def test_the_agent_body_carries_the_endpoint_into_the_llm_block() -> None:
         direction="inbound",
         system_prompt="Book appointments.",
         opening_line="",
-        models=_vertex_models(),
+        models=_azure_models(),
     )
     body = BolnaEngine(api_key="k", fx_rate=Decimal("83.50"))._agent_body(cfg)
     llm_agent = body["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]
     assert llm_agent["agent_type"] == "simple_llm_agent"
     llm = llm_agent["llm_config"]
-    assert llm["model"] == GEMINI_DEFAULT_LLM
-    assert llm["provider"] == "custom"
-    assert llm["base_url"] == vertex_openai_base_url(PROJECT)
+    assert llm["provider"] == "azure"
+    assert llm["base_url"] == ENDPOINT
     # The flat v1 spelling must NOT also be present: two spellings of one endpoint is
     # how a corrected URL gets applied in one place and ignored in the other.
     assert "base_url" not in llm_agent
 
 
+def test_the_wire_carries_the_deployment_and_never_the_model_name() -> None:
+    """AZURE'S ONE TRAP, ASSERTED RATHER THAN COMMENTED.
+
+    On Azure a model is deployed under an ID the operator chose and the API addresses
+    THAT, so the vendor's single model slot must hold `Settings.azure_openai_deployment`.
+    `Settings.azure_openai_model` records which model that deployment was made FROM: it
+    is what `AZURE_LIST_PRICE_USD_PER_MTOK` prices and it must never reach the vendor,
+    because a deployment is not obliged to be named after its model and a request naming
+    the model 404s.
+
+    The negative is asserted over the WHOLE serialized body rather than over one key,
+    because the failure this catches is somebody adding a well-meaning second field.
+    On every other OpenAI-compatible provider these two strings are the same string,
+    which is exactly why this looks right when it is wrong.
+    """
+    from calevate_shared.engine import AgentConfig
+
+    cfg = AgentConfig(
+        tenant_id="t",
+        agent_id="a",
+        name="Reception",
+        direction="inbound",
+        system_prompt="Book appointments.",
+        opening_line="",
+        models=_azure_models(),
+    )
+    body = BolnaEngine(api_key="k", fx_rate=Decimal("83.50"))._agent_body(cfg)
+    llm = body["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]["llm_config"]
+    assert llm["model"] == DEPLOYMENT
+    assert AZURE_OPENAI_DEFAULT_MODEL not in json.dumps(body), (
+        "a model name reached the vendor; Azure addresses the DEPLOYMENT and 404s on this"
+    )
+
+
 def test_a_bolna_google_provider_is_never_sent() -> None:
     """Bolna ships a first-party Gemini provider needing one static `GOOGLE` key, and it
     is `genai.Client(api_key=…)` against `generativelanguage.googleapis.com` — the AI
-    Studio Developer API, disqualified by D-127 on residency AND on free-tier terms under
-    which Google states human reviewers may read submitted prompts and responses. It is
-    the EASY way to put Gemini on this leg, which is exactly why it needs a test rather
-    than a comment."""
-    for models in (_vertex_models(), ModelConfig(llm_model="sarvam-105b")):
+    Studio Developer API, a global host with no region pinning at all. There is no Google
+    LLM leg in this product since D-410, which makes this test MORE useful rather than
+    less: the only way that value gets sent now is by somebody wiring one back."""
+    for models in (_azure_models(), ModelConfig(llm_model="sarvam-105b")):
         assert _llm_routing(models).get("provider") != "google"
 
 
 # --- what the adapter reads back ------------------------------------------------------
 
 
-def test_a_mumbai_endpoint_read_back_is_recognised_as_a_vertex_leg() -> None:
+def test_our_endpoint_read_back_is_recognised_as_an_azure_leg() -> None:
+    """The FLAT v1 spelling, which an account may still hold from agents created through
+    the v1 path or through the dashboard."""
     models, readable = _agent_models(
         {
             "tasks": [
                 {
                     "tools_config": {
                         "llm_agent": {
-                            "model": GEMINI_DEFAULT_LLM,
-                            "provider": "custom",
-                            "base_url": vertex_openai_base_url(PROJECT),
+                            "model": DEPLOYMENT,
+                            "provider": "azure",
+                            "base_url": ENDPOINT,
                         }
                     }
                 }
@@ -226,17 +333,16 @@ def test_a_mumbai_endpoint_read_back_is_recognised_as_a_vertex_leg() -> None:
     )
     assert readable
     assert models is not None
-    assert models.llm_provider == "vertex_openai"
-    assert models.llm_base_url == vertex_openai_base_url(PROJECT)
+    assert models.llm_provider == "azure_openai"
+    assert models.llm_base_url == ENDPOINT
 
 
 def test_the_v2_nesting_this_adapter_actually_writes_reads_back_too() -> None:
     """THE ROUND TRIP, and the case the read arrived unable to handle. `_agent_body`
     writes `base_url` inside `llm_config` (D-355); the D-400 read looked only at the flat
-    v1 key, so every agent this adapter creates would have read back as "no Vertex
-    endpoint configured" — a confident wrong answer on the field that carries residency,
-    which is exactly the failure mode `_agent_models`'s docstring exists to prevent. The
-    flat case above stays because an account may still hold v1-era agents."""
+    v1 key, so every agent this adapter creates would have read back as "no endpoint
+    configured" — a confident wrong answer on the field that carries residency, which is
+    exactly the failure `_agent_models`'s docstring exists to prevent."""
     models, readable = _agent_models(
         {
             "tasks": [
@@ -245,9 +351,9 @@ def test_the_v2_nesting_this_adapter_actually_writes_reads_back_too() -> None:
                         "llm_agent": {
                             "agent_type": "simple_llm_agent",
                             "llm_config": {
-                                "model": GEMINI_DEFAULT_LLM,
-                                "provider": "custom",
-                                "base_url": vertex_openai_base_url(PROJECT),
+                                "model": DEPLOYMENT,
+                                "provider": "azure",
+                                "base_url": ENDPOINT,
                             },
                         }
                     }
@@ -257,24 +363,31 @@ def test_the_v2_nesting_this_adapter_actually_writes_reads_back_too() -> None:
     )
     assert readable
     assert models is not None
-    assert models.llm_model == GEMINI_DEFAULT_LLM
-    assert models.llm_provider == "vertex_openai"
-    assert models.llm_base_url == vertex_openai_base_url(PROJECT)
+    assert models.llm_model == DEPLOYMENT
+    assert models.llm_provider == "azure_openai"
+    assert models.llm_base_url == ENDPOINT
 
 
-def test_an_endpoint_we_do_not_recognise_reads_back_as_no_provider_and_never_raises() -> None:
-    """A read-back that RAISED would turn "the vendor stored something odd" into a failed
-    publish, which is the one shape D-260 says a snapshot must never take. It must also
-    not be normalised into a Vertex leg — the whole point is that this URL is not one."""
+def test_another_resource_reads_back_as_no_provider_and_never_raises() -> None:
+    """THE READ-BACK'S REAL JOB SINCE D-410, and it is why the endpoint still identifies
+    the leg even though `provider` became invertible. `azure` in the read-back says the
+    agent points at SOME Azure OpenAI resource; this repository's guarantee is about ONE.
+    An agent aimed at another resource — a stale one, a test one, one an operator created
+    in the wrong region — is exactly the drift a read-back exists to catch, and only the
+    endpoint carries that fact.
+
+    It must not RAISE, either: that would turn "the vendor stored something odd" into a
+    failed publish, the one shape D-260 says a snapshot must never take.
+    """
     models, readable = _agent_models(
         {
             "tasks": [
                 {
                     "tools_config": {
                         "llm_agent": {
-                            "model": GEMINI_DEFAULT_LLM,
-                            "provider": "custom",
-                            "base_url": "https://us-central1-aiplatform.googleapis.com/v1",
+                            "model": DEPLOYMENT,
+                            "provider": "azure",
+                            "base_url": "https://someone-elses.openai.azure.com/openai/v1/",
                         }
                     }
                 }
@@ -287,92 +400,102 @@ def test_an_endpoint_we_do_not_recognise_reads_back_as_no_provider_and_never_rai
     assert models.llm_base_url is None
 
 
-# --- the money the decision costs -----------------------------------------------------
-
-
-def test_the_published_price_is_stated_once_and_the_rupee_table_derives_from_it() -> None:
-    """D-400's second defect class: two INR literals with the exchange rate already
-    folded in cannot both be corrected when the vendor's dollar price moves, and there
-    are now two readers of that price. This asserts the derivation rather than the
-    numbers, so the test survives a price change and the numbers do not."""
-    from apps.api.billing.rates import LIST_PRICE_USD_INR, LLM_INR_PER_KTOK
-
-    for leg, usd_per_mtok in GEMINI_LIST_PRICE_USD_PER_MTOK.items():
-        assert LLM_INR_PER_KTOK[leg] == (usd_per_mtok * LIST_PRICE_USD_INR / 1000).quantize(
-            LLM_INR_PER_KTOK[leg]
-        )
-
-
-def test_the_llm_leg_costs_more_per_minute_on_a_longer_call() -> None:
-    """TRD §6.1: the full conversation is resent every turn, so input tokens grow through
-    the call and a single "₹x/min" is a blended average a long call skews above. The
-    figure D-36 retired (₹0.00, free per token) had no such shape; the one replacing it
-    does, and a cost model that quoted minute one while reasoning about minute ten would
-    understate the leg by more than half."""
-    from apps.api.billing.rates import llm_cost_inr_per_minute
-
-    assert llm_cost_inr_per_minute(1) < llm_cost_inr_per_minute(5) < llm_cost_inr_per_minute(10)
-    with pytest.raises(ValueError):
-        llm_cost_inr_per_minute(0)
+# --- the money the decision costs lives in `tests/llm_cost_model_test.py` --------------
+#
+# THREE COST TESTS USED TO SIT HERE and were removed rather than kept, which is worth a
+# note because "delete a passing test" is normally the wrong move. They were written in
+# parallel with `tests/llm_cost_model_test.py` during the D-410 migration and were
+# genuine duplicates of three tests there — the USD→INR derivation, the unpriced-model
+# refusal, and the rising per-minute curve — not weaker versions of them.
+#
+# One way per problem, and the tiebreak is SUBJECT rather than seniority: this file's
+# subject is the provider contract and the one resolver switch (which endpoint, which
+# spelling, which arms fall back). What a token costs in rupees is a different subject
+# with its own file, and that file also covers what this one never did — that no cost
+# function may grow a `model=` default, and that a metered row cannot disagree with its
+# own model. Two files asserting one property is how they drift into disagreeing, and
+# the one that goes stale is always the one whose subject it was not.
 
 
 # --- the one switch, and every arm of it ----------------------------------------------
 #
-# `in_call_llm` is the single decision point for the whole leg, and since D-404 it has
-# THREE necessary conditions rather than two. Each is exercised alone, because a condition
-# whose failing arm nobody has run is a condition nobody knows the shape of — and each
-# names a different way the leg breaks at a different, worse moment.
+# `in_call_llm` is the single decision point for the whole leg, and it has THREE necessary
+# conditions — resource, key, deployment. Each is exercised ALONE-MISSING, because a
+# condition whose failing arm nobody has run is a condition nobody knows the shape of; and
+# each names a different way the leg breaks at a different, worse moment.
+#
+# THE ARMS ARE ASSERTED ON THE PASSTHROUGH, not on "no exception". A half-configured
+# deployment must fall back to the ENGINE'S OWN DEFAULT — the same body every agent row in
+# this repository has always produced — and never to a half-built Azure endpoint, which is
+# the one outcome that looks configured and cannot authenticate.
 
-SERVICE_ACCOUNT_JSON = '{"client_email": "a@b.iam.gserviceaccount.com", "private_key": "x"}'
+_AZURE_FIELDS = ("azure_openai_resource", "azure_openai_api_key", "azure_openai_deployment")
+
+API_KEY = "azure-static-key-under-test"
 
 
-def test_a_deployment_with_no_gcp_project_stays_put(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No project means no id to interpolate into the URL, so there is no endpoint to
-    name. Local, CI and any staging without a Google account are exactly this, and they
-    must keep publishing."""
-    from apps.api.agents import service
+def _configure(monkeypatch: pytest.MonkeyPatch, **overrides: str | None) -> None:
+    """Set the three credential fields, with `None` for the one under test."""
     from apps.api.core.settings import get_settings
 
-    monkeypatch.setattr(get_settings(), "gcp_service_account_json", SERVICE_ACCOUNT_JSON)
-    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
+    values: dict[str, str | None] = {
+        "azure_openai_resource": RESOURCE,
+        "azure_openai_api_key": API_KEY,
+        "azure_openai_deployment": DEPLOYMENT,
+    }
+    values.update(overrides)
+    settings = get_settings()
+    for field in _AZURE_FIELDS:
+        monkeypatch.setattr(settings, field, values[field], raising=False)
 
 
-def test_a_deployment_that_cannot_mint_a_bearer_stays_put(
+@pytest.mark.parametrize(
+    ("missing", "why"),
+    [
+        (
+            "azure_openai_resource",
+            "the resource is the first label of the hostname, so without it there is no "
+            "endpoint to name at all",
+        ),
+        (
+            "azure_openai_api_key",
+            "THE CONDITION A REVIEWER WOULD DROP: the resource and the deployment alone "
+            "BUILD a URL, so a leg configured from those two looks complete and points "
+            "every agent at an endpoint nothing can authenticate against — a 401 from "
+            "Azure mid-sentence on a client's live phone call, not a publish-time error",
+        ),
+        (
+            "azure_openai_deployment",
+            "Azure serves a model under a deployment the operator named and the v1 "
+            "surface addresses THAT; a resource with no deployment addresses a host and "
+            "no model",
+        ),
+    ],
+)
+def test_a_half_configured_deployment_stays_on_the_engines_own_default(
+    monkeypatch: pytest.MonkeyPatch, missing: str, why: str
+) -> None:
+    from apps.api.agents import service
+
+    _configure(monkeypatch, **{missing: None})
+    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}, why
+
+
+def test_a_deployment_with_no_azure_credential_at_all_stays_put(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """**THE D-404 CONDITION, AND THE ONE A REVIEWER WOULD DROP.** Every deployment
-    running D-127's dashboard AI already has `gcp_project_id` set. If the project alone
-    were enough, switching the dashboard assistant on would silently move every agent's
-    in-call LLM to a Vertex endpoint this deployment holds no service account for — and
-    that does not fail at publish time, where somebody would see it. It fails as a 401
-    from Vertex, mid-sentence, on a client's live phone call.
-
-    Deleting the `can_mint` clause from `in_call_llm` passes every other test in this
-    file."""
+    """Local, CI and any staging without an Azure resource are exactly this, and they
+    must keep publishing. It is also the OFF position of the switch: D-410 deleted the
+    founder's constant along with the Vertex leg, so what turns this leg off is having no
+    credential rather than a boolean somebody has to remember to flip."""
     from apps.api.agents import service
-    from apps.api.core.settings import get_settings
 
-    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
-    monkeypatch.setattr(get_settings(), "gcp_service_account_json", None)
-    assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
-
-
-def test_the_founders_switch_is_still_a_switch(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE` is True today, and it must still be able to
-    turn the leg OFF for a fully configured deployment — that is what makes it a switch
-    rather than a comment. The same constant is read by the refresher, which stops writing
-    credentials when it is False, so the two halves cannot disagree about whether the leg
-    is on."""
-    from apps.api.agents import service
-    from apps.api.core.settings import get_settings
-
-    monkeypatch.setattr(service, "VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE", False)
-    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
-    monkeypatch.setattr(get_settings(), "gcp_service_account_json", SERVICE_ACCOUNT_JSON)
+    _configure(
+        monkeypatch,
+        azure_openai_resource=None,
+        azure_openai_api_key=None,
+        azure_openai_deployment=None,
+    )
     assert service.in_call_llm("sarvam-105b") == {"llm_model": "sarvam-105b"}
 
 
@@ -380,20 +503,27 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The half a reviewer would wave through: `agents.llm_model` holds what an operator
-    configured, and sending `sarvam-105b` to Vertex is a 404 at dial time on a live phone
-    line. The endpoint and the identifier are ONE decision."""
+    configured, and sending `sarvam-105b` to Azure is a 404 at dial time on a live phone
+    line. The endpoint and the thing it addresses are ONE decision.
+
+    And what lands in `llm_model` is the DEPLOYMENT, never `Settings.azure_openai_model` —
+    the trap Azure sets, asserted here at the source as well as on the wire.
+    """
     from apps.api.agents import service
     from apps.api.core.settings import get_settings
 
-    monkeypatch.setattr(get_settings(), "gcp_project_id", PROJECT)
-    monkeypatch.setattr(get_settings(), "gcp_service_account_json", SERVICE_ACCOUNT_JSON)
+    _configure(monkeypatch)
+    monkeypatch.setattr(
+        get_settings(), "azure_openai_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False
+    )
 
     leg = service.in_call_llm("sarvam-105b")
     assert leg == {
-        "llm_model": GEMINI_DEFAULT_LLM,
-        "llm_provider": "vertex_openai",
-        "llm_base_url": vertex_openai_base_url(PROJECT),
+        "llm_model": DEPLOYMENT,
+        "llm_provider": "azure_openai",
+        "llm_base_url": ENDPOINT,
     }
+    assert leg["llm_model"] != AZURE_OPENAI_DEFAULT_MODEL
     # And it must be a config `ModelConfig` will actually accept — the residency
     # validator runs on exactly this dict the moment `_to_config` builds one from it.
-    assert ModelConfig(**leg).llm_base_url == vertex_openai_base_url(PROJECT)
+    assert ModelConfig(**leg).llm_base_url == ENDPOINT

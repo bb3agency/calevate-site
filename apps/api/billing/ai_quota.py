@@ -1,8 +1,9 @@
 """Dashboard AI: what it costs us, what a client gets free, and what happens at the
 ceiling (D-127 — G-3, G-4, G-5).
 
-G-3 puts ONE Calevate-owned Gemini credential behind every client's dashboard assist and
-absorbs the cost. Three things follow from that sentence and this module is all three:
+G-3 puts ONE Calevate-owned credential behind every client's dashboard assist and absorbs
+the cost — an Azure OpenAI key since D-410, where it was a Gemini one. Three things follow
+from that sentence and this module is all three:
 
 - **absorbed is not unmetered.** Every assist lands in `usage_events` under its own unit
   types, per tenant, priced with what it cost US — so "which client is expensive" is a
@@ -16,17 +17,25 @@ absorbs the cost. Three things follow from that sentence and this module is all 
 
 WHY THE SCREEN SHOWS BOTH A COUNT AND A CEILING, AND WHICH ONE IS REAL
 ----------------------------------------------------------------------
-A rupee ceiling does the work; "82 of about 333 assists used" is what an owner can plan
-around. Nobody can reason about ₹41.7 of ₹250 of language-model inference. So the count
+A rupee ceiling does the work; "82 of about 416 assists used" is what an owner can plan
+around. Nobody can reason about ₹41.7 of ₹100 of language-model inference. So the count
 is published as an ESTIMATE and says so — `requests_included` is the ceiling divided by
-`AI_ASSIST_NOMINAL_INR`, a reference price, and the word "about" is in the copy on the
+`assist_nominal_inr(model)`, a reference price, and the word "about" is in the copy on the
 screen rather than only in this comment. The number that blocks is always the rupee one.
 
-(That 333 is `managed`'s ceiling at today's price and it USED TO READ 500. It moved when
-the model did — 3.1 Flash-Lite to 2.5 Flash, a 50% dearer reference assist — which is
-exactly the drift a worked example in prose accumulates while the code stays right. It is
-recomputed here rather than generalised away because the sentence is about what a person
-can plan around, and "the ceiling divided by a reference price" is not that sentence.)
+(That 416 is `self_serve`'s ₹100 ceiling at `gpt-4o-mini`'s price, and it has now moved
+THREE times on model decisions alone — 3.1 Flash-Lite, 2.5 Flash, and now D-410's Azure
+OpenAI pair. Each move is exactly the drift a worked example in prose accumulates while
+the code stays right, which is why the figure is recomputed here rather than generalised
+away: the sentence is about what a person can plan around, and "the ceiling divided by a
+reference price" is not that sentence.)
+
+**AND IT NOW MOVES WITHOUT A DEPLOY.** `Settings.azure_openai_model` switches between
+`gpt-4o-mini` and `gpt-4.1-mini` live, and an assist on the second costs 2.7x the first —
+so the same ₹100 is about 416 assists or about 158 depending on a console value. That is
+why the reference price is a FUNCTION OF THE MODEL and why `AiQuota` carries the model it
+was priced with: an estimate that quoted the default model's price while the deployment
+ran the other one would over-promise by 2.7x on a screen a client plans around.
 
 WHERE THE CEILING LIVES, AND THE MECHANISM THIS DELIBERATELY DOES NOT DUPLICATE
 -------------------------------------------------------------------------------
@@ -98,7 +107,7 @@ before the model is called.
 Money is NUMERIC INR throughout (hard rule 7). No float is constructed in this module,
 every rupee that reaches a response goes through `billing.service.to_paise`, and the
 per-token prices this all rests on are in ONE table with their source
-(`billing/rates.py::LLM_INR_PER_KTOK`) rather than typed into four unfalsifiable
+(`billing/rates.py::llm_inr_per_ktok`) rather than typed into four unfalsifiable
 constants.
 """
 
@@ -117,7 +126,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import ist_month_end, parse_billing_month
-from apps.api.billing.rates import LLM_INR_PER_KTOK
+from apps.api.billing.rates import llm_inr_per_ktok
 from apps.api.billing.service import (
     _IST_MONTH,
     _IST_MONTH_WINDOW,
@@ -132,6 +141,7 @@ from apps.api.billing.service import (
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 
 log = get_logger(__name__)
@@ -151,26 +161,32 @@ log = get_logger(__name__)
 #: tier. Managed clients get the most because they pay the most; a trial gets enough to
 #: form an opinion of the feature and not enough to be a business's whole workload.
 #:
-#: **`trial` MOVED FROM ₹25 TO ₹40, AND THE TEST IS WHY.** Moving to `gemini-2.5-flash`
-#: raised `reference_assist_cost_inr()` from ₹0.33475 to ₹0.50230 — a 50% increase on one
-#: model change — and ₹25 then bought 49.77 assists against the 50 that
-#: `test_no_product_constant_is_out_by_an_order_of_magnitude` calls "enough to form an
-#: opinion". The test was right and the constant was wrong: a prospect being told the
-#: trial is over halfway through evaluating the feature is the one failure a trial tier
-#: cannot have. Clearing the assertion by a rupee was available and is not what was done.
+#: **`trial` MOVED FROM ₹25 TO ₹40 ONE MODEL DECISION AGO, AND D-410 IS WHY IT STAYS.**
+#: ₹25 was set against a reference assist of ₹0.33475 and stopped clearing
+#: `test_no_product_constant_is_out_by_an_order_of_magnitude`'s "enough to form an opinion"
+#: floor (50 assists) the moment the model changed under it — a prospect told the trial is
+#: over halfway through evaluating the feature is the one failure a trial tier cannot have.
+#: ₹40 was chosen for HEADROOM rather than to clear the assertion, and that headroom is
+#: what is now being spent.
 #:
-#: ₹40 buys **79.6 assists — 1.6x the floor**, and the headroom is the point rather than
-#: the number. Two price moves are already DATED: `gemini-2.5-flash` retires 16 Oct 2026
-#: (`GEMINI_DEFAULT_LLM_RETIRES`) and the Flash tier's introductory pricing ends 1 Jan
-#: 2027, and neither replacement is likely to be cheaper. ₹40 stays above the floor until
-#: an assist costs ₹0.80 — a **59% increase**, which is more than the 50% this change just
-#: absorbed. ₹25 would have survived none of it, and a value tuned to clear 50.0 exactly
-#: is one revision from being back here.
+#: **THE BINDING CONSTRAINT IS NO LONGER THE SHIPPED MODEL — IT IS THE DEAREST SELECTABLE
+#: ONE.** `Settings.azure_openai_model` is live, so a tier's allowance has to buy enough
+#: assists on `gpt-4.1-mini` as well as on `gpt-4o-mini`, and the test walks both:
 #:
-#: WHAT A TRIAL TENANT SEES is `requests_included`, which divides by the NOMINAL (₹0.75,
-#: the reference cost times the over-statement margin) and therefore reads **about 53** —
-#: deliberately below the 79.6 the floor is computed against, because the margin exists to
-#: under-promise. Both numbers clear 50, which is what makes the screen and the gate agree.
+#:   * `gpt-4o-mini`  — a reference assist is ₹0.15760, so ₹40 buys **253.8 assists**;
+#:   * `gpt-4.1-mini` — a reference assist is ₹0.42115, so ₹40 buys **95.0 assists**.
+#:
+#: 95.0 is 1.9x the floor, so the trial survives an operator flipping the switch with no
+#: constant moving. What D-410 also removed is the clock that used to sit on this note: the
+#: old figures came with a DATED retirement (16 Oct 2026) and a dated end of introductory
+#: pricing, and neither replacement was likely to be cheaper. There is no dated Azure
+#: constant, so the next move of this number will be a price change rather than a deadline.
+#:
+#: WHAT A TRIAL TENANT SEES is `requests_included`, which divides by the NOMINAL (the
+#: reference cost times the over-statement margin) and therefore reads **about 166** on
+#: `gpt-4o-mini` and **about 63** on `gpt-4.1-mini` — deliberately below the real counts
+#: above, because the margin exists to under-promise. Every one of those four numbers
+#: clears 50, which is what makes the screen and the gate agree on both models.
 AI_QUOTA_INR: Final[dict[str, Decimal]] = {
     "managed": Decimal("250.00"),
     "self_serve": Decimal("100.00"),
@@ -188,29 +204,37 @@ def ktok(tokens: int) -> Decimal:
     return Decimal(tokens) / TOKENS_PER_KTOK
 
 
-#: WHERE THE PER-TOKEN PRICE WENT (D-400): `billing/rates.py::LLM_INR_PER_KTOK`, which
-#: this module now imports and uses directly.
+#: WHERE THE PER-TOKEN PRICE WENT (D-400, repriced by D-410):
+#: `billing/rates.py::llm_inr_per_ktok(model)`, which this module now calls.
 #:
 #: It lived here as `ASSIST_LIST_PRICE_INR_PER_KTOK` — two INR literals with the exchange
 #: rate already folded in — for as long as the dashboard assist was the only thing this
 #: repository paid a language model for. D-400 ended that: the founder moved the IN-CALL
-#: LLM leg to the same paid Vertex account, so TRD §10 prices the same model at a
-#: different point in the same pipeline, and a price constant that has already multiplied
-#: dollars by an exchange rate cannot be corrected when either half moves. That is the
-#: D-103 / D-105 shape exactly, arriving on the money axis.
+#: LLM leg onto the same paid account, so TRD §10 prices the same model at a different
+#: point in the same pipeline, and a price constant that has already multiplied dollars by
+#: an exchange rate cannot be corrected when either half moves. That is the D-103 / D-105
+#: shape exactly, arriving on the money axis.
 #:
-#: So there is now ONE statement of the vendor's dollar price
-#: (`calevate_shared.engine.GEMINI_LIST_PRICE_USD_PER_MTOK`), ONE exchange rate
+#: So there is ONE statement of the vendor's dollar price
+#: (`calevate_shared.engine.AZURE_LIST_PRICE_USD_PER_MTOK`), ONE exchange rate
 #: (`rates.LIST_PRICE_USD_INR`), and ONE rupee table derived from them for every reader.
-#: The numbers are unchanged: ₹0.0287 and ₹0.2392 per 1,000 tokens.
+#: D-410 added the second axis: that table is keyed by MODEL, so the accessor takes one
+#: and nothing in this module prices an assist without saying which model ran it.
 
 #: The reference assist this estimate is built on: tokens in, tokens out. Deliberately
-#: generous on BOTH legs. Input carries the response schema as well as the prompt and the
-#: transcript (`build_vertex_response_schema` says so in its own docstring — a 30-field
-#: schema with descriptions is not free), and OUTPUT carries THINKING TOKENS, which Gemini
-#: bills at the output rate and which `_vertex_usage` folds into `output_tokens` rather
-#: than dropping. On 2.5 Flash that leg is now 8.3x the input rate, so an estimate that
-#: missed thinking tokens would be wrong in the expensive direction.
+#: generous on BOTH legs, and MODEL-INDEPENDENT — the same reference workload is priced
+#: against whichever model is configured, which is what makes the two published estimates
+#: comparable.
+#:
+#: Input carries the response schema as well as the prompt and the transcript (a 30-field
+#: schema with descriptions is not free). OUTPUT is generous because everything the model
+#: emits bills at the output rate, which is 4x the input rate on both Azure models — so an
+#: estimate that under-counted output would be wrong in the expensive direction. On Gemini
+#: this line also had to carry THINKING tokens, which that vendor billed at the output rate
+#: and reported separately; neither `gpt-4o-mini` nor `gpt-4.1-mini` is a reasoning model,
+#: so there is no separate hidden leg to fold in — the generosity is kept anyway, because
+#: an over-statement on this number under-promises on a screen and that is the safe
+#: direction (`NOMINAL_ASSIST_MARGIN` makes the same argument).
 REFERENCE_ASSIST_TOKENS: Final = {"in": 5_000, "out": 1_500}
 
 #: How much dearer than the reference assist the published count assumes an assist is.
@@ -222,39 +246,64 @@ REFERENCE_ASSIST_TOKENS: Final = {"in": 5_000, "out": 1_500}
 NOMINAL_ASSIST_MARGIN: Final = Decimal("1.5")
 
 
-def reference_assist_cost_inr() -> Decimal:
-    """What one REFERENCE assist costs at list price, exactly. Not a charge — the input
-    to the published estimate, and the number `tests/ai_quota_test.py` holds every
-    product constant in this module to within an order of magnitude of."""
+def reference_assist_cost_inr(model: str) -> Decimal:
+    """What one REFERENCE assist costs on `model` at list price, exactly.
+
+    Not a charge — the input to the published estimate, and the number
+    `tests/ai_quota_test.py` holds every product constant in this module to within an
+    order of magnitude of, ON EVERY SELECTABLE MODEL rather than on the shipped default.
+
+    `model` is REQUIRED and has no default (D-410, and `billing/rates.py`'s section
+    comment argues it at length): the two models differ by 2.7x and the switch between
+    them is a live console value, so a silent default here would put the wrong price under
+    every ceiling justification and every "about N assists" on a screen.
+    """
+    price = llm_inr_per_ktok(model)
     return (
-        ktok(REFERENCE_ASSIST_TOKENS["in"]) * LLM_INR_PER_KTOK["in"]
-        + ktok(REFERENCE_ASSIST_TOKENS["out"]) * LLM_INR_PER_KTOK["out"]
+        ktok(REFERENCE_ASSIST_TOKENS["in"]) * price["in"]
+        + ktok(REFERENCE_ASSIST_TOKENS["out"]) * price["out"]
     )
 
 
-#: The reference cost of one assist, used ONLY to turn a rupee ceiling into the "about N
-#: assists" a person can plan around. It is not a price, nothing is charged at it, and no
-#: rupee figure on any screen is derived from it — the estimate it feeds is rendered with
-#: the word "about" beside it.
-#:
-#: DERIVED, NOT TYPED, and that is the fix rather than the value: it shipped as a bare
-#: `Decimal("0.50")` whose only justification was the phrase "a few thousand tokens in
-#: and a few hundred out", which is unfalsifiable — it is equally consistent with ₹0.05
-#: and ₹5.00, and a ceiling wrong by 100 times is a product defect nobody would have caught by
-#: reading it. It now comes out of the published price and a stated reference assist, so
-#: the arithmetic is on the page and the number moves when the price does. **It has now
-#: moved**: it evaluated to ₹0.50 on 3.1 Flash-Lite prices and evaluates to ₹0.75 on 2.5
-#: Flash's, which is a typed constant silently going 50% stale in one model decision and
-#: is the argument for deriving it, run for real.
-AI_ASSIST_NOMINAL_INR: Final = to_paise(reference_assist_cost_inr() * NOMINAL_ASSIST_MARGIN)
+def assist_nominal_inr(model: str) -> Decimal:
+    """The reference PRICE of one assist on `model`, used ONLY to turn a rupee ceiling
+    into the "about N assists" a person can plan around.
+
+    It is not a price anything is charged at, and no rupee figure on any screen is derived
+    from it — the estimate it feeds is rendered with the word "about" beside it. ₹0.24 on
+    `gpt-4o-mini`; ₹0.63 on `gpt-4.1-mini`.
+
+    DERIVED, NOT TYPED, and that is the fix rather than the value: it shipped as a bare
+    `Decimal("0.50")` whose only justification was the phrase "a few thousand tokens in
+    and a few hundred out", which is unfalsifiable — it is equally consistent with ₹0.05
+    and ₹5.00, and a ceiling wrong by 100 times is a product defect nobody would have
+    caught by reading it. It now comes out of the published price and a stated reference
+    assist, so the arithmetic is on the page and the number moves when the price does.
+
+    **AND IT IS A FUNCTION RATHER THAN A `Final` FOR THE SAME REASON, TAKEN ONE STEP
+    FURTHER (D-410).** A module-level constant is computed once, at import, from whatever
+    the shipped default happens to be — so an operator flipping `Settings.azure_openai_model`
+    to the 2.7x model would leave every screen quoting an assist count 2.6x too generous
+    until somebody redeployed, and nothing would have looked wrong. Deriving it per model
+    is what makes the estimate describe the model that will actually serve the next
+    assist. Callers get the model from `AiQuota.assist_model`, which `read_ai_quota`
+    stamps from the live setting.
+
+    Quantized through `to_paise` because it is a rupee figure a person reads, not a unit
+    price a ledger stores.
+    """
+    return to_paise(reference_assist_cost_inr(model) * NOMINAL_ASSIST_MARGIN)
+
 
 #: What the modal offers past the ceiling, debited once per tenant-month.
 #:
 #: WHAT IT ACTUALLY BUYS, stated because the note here used to say "two blocks' worth of
 #: assists on the smallest tier" and that is not a description of any quantity: at the
-#: nominal above it is about 666 assists — five times a `self_serve` month's whole
-#: allowance and about thirteen times a `trial` one. So it is not a small top-up on the
-#: small tiers, and it comes out of the CALLING credit, which is the balance that dials.
+#: nominal it is about 2,083 assists on `gpt-4o-mini` and about 793 on `gpt-4.1-mini` —
+#: five times a `self_serve` month's whole allowance and about thirteen times a `trial`
+#: one, on EITHER model, because the block and the allowances are all rupee figures and
+#: the model cancels out of the ratio. So it is not a small top-up on the small tiers, and
+#: it comes out of the CALLING credit, which is the balance that dials.
 #:
 #: ⚠ **A trial tenant can therefore convert about a year's worth of AI allowance out of
 #: the credit they need to make calls, in one click.** `record_entry(allow_negative=False)`
@@ -387,6 +436,20 @@ class AiQuota:
     extra_purchased_inr: Decimal
     #: The platform-wide brake, which overrides everything below it.
     platform_paused: bool
+    #: WHICH MODEL THE "about N assists" ESTIMATE IS FOR (D-410). `read_ai_quota` stamps
+    #: it from `Settings.azure_openai_model`, the live switch, so the count on the screen
+    #: describes the model that will serve the NEXT assist rather than the one that
+    #: happened to be the shipped default when this module was imported. Required, with no
+    #: default, for the reason `assist_nominal_inr` gives: a quota that could be built
+    #: without naming a model is a quota that can publish a count 2.6x too generous and
+    #: look right.
+    #:
+    #: It is NOT a claim about the assists ALREADY counted in `used_inr` — those were
+    #: priced, row by row, at whatever model actually ran them (`record_ai_assist_usage`),
+    #: and a month during which the switch was flipped legitimately holds both. The rupee
+    #: figures are exact either way; only the ESTIMATE needs a model, and the honest model
+    #: for an estimate about the future is the one configured now.
+    assist_model: str
     #: Too little of this month is left to sell an allowance for it — a stored fact rather
     #: than a property that reads the clock, so a quota object answers the same question
     #: twice the same way and a test can construct the state it wants to assert about.
@@ -415,13 +478,20 @@ class AiQuota:
         return "exhausted" if self.extra_purchased_inr > 0 else "ceiling_reached"
 
     @property
+    def nominal_assist_inr(self) -> Decimal:
+        """The reference price the two counts below divide by — one derivation, read
+        twice, so `requests_included` and `requests_remaining` cannot come to be about
+        different models."""
+        return assist_nominal_inr(self.assist_model)
+
+    @property
     def requests_included(self) -> int:
         """About how many assists the ALLOWANCE is worth, at the reference price."""
-        return int(self.allowance_inr // AI_ASSIST_NOMINAL_INR)
+        return int(self.allowance_inr // self.nominal_assist_inr)
 
     @property
     def requests_remaining(self) -> int:
-        return int(self.remaining_inr // AI_ASSIST_NOMINAL_INR)
+        return int(self.remaining_inr // self.nominal_assist_inr)
 
     @property
     def extra_unavailable(self) -> ExtraUnavailable | None:
@@ -517,6 +587,10 @@ async def read_ai_quota(
         requests_used=requests,
         extra_purchased_inr=extra,
         platform_paused=await platform_brake_tripped(session, month=period),
+        # THE LIVE SWITCH, read here and nowhere else in this module. It is a `Literal` on
+        # `Settings`, so it is already the closed set `llm_inr_per_ktok` prices — an
+        # unpriced identifier cannot reach this line through the console.
+        assist_model=get_settings().azure_openai_model,
         month_ending=month_is_ending(period),
     )
 
@@ -722,8 +796,6 @@ async def record_ai_assist_usage(
     ref: str,
     tokens_in: int,
     tokens_out: int,
-    price_in_inr_per_ktok: Decimal,
-    price_out_inr_per_ktok: Decimal,
     model: str,
     feature: str,
 ) -> AssistMetered:
@@ -750,6 +822,19 @@ async def record_ai_assist_usage(
     `model` and `feature` go into `meta` so that "which surface spent this" is a query.
     No prompt, no completion, no transcript and no identifier of a person is written
     here (hard rule 6) — a token COUNT is not content.
+
+    **THE PRICE IS DERIVED FROM `model`, NOT PASSED BESIDE IT (D-410), AND THAT IS A
+    STRUCTURAL FIX RATHER THAN A TIDY-UP.** This function used to take
+    `price_in_inr_per_ktok` and `price_out_inr_per_ktok` as arguments and `model` as a
+    third, independent one — three values a caller had to keep in step by hand. That was
+    survivable while one model shipped and the price table had one entry. It stopped being
+    survivable the moment `Settings.azure_openai_model` became a live switch between two
+    models 2.7x apart: the caller reads the setting to choose the model, and any caller
+    that then reached for the default's price — or simply forgot to change one of the two
+    price lines when the other moved — would write a ledger row whose `unit_cost_paid`
+    disagrees with its own `meta.model`, on an APPEND-ONLY table (hard rule 4), invisibly,
+    for every assist. Deriving the price from the model makes that row unrepresentable,
+    which is the only guarantee worth having on a ledger that cannot be corrected in place.
     """
     if not _ASSIST_REF_RE.match(ref):
         # A programming error, not a user's: raised rather than refused politely, because
@@ -760,10 +845,17 @@ async def record_ai_assist_usage(
             f"({ASSIST_REF_PREFIX}:<uuid>), never from a request"
         )
 
+    # Raises `ValueError` for a model this repository publishes no price for, BEFORE any
+    # statement runs — the same "refuse rather than guess" the ref guard above makes, on
+    # the other half of the row. Metering an assist at a made-up price is worse than not
+    # metering it: the first is a wrong number on an append-only ledger, the second is a
+    # gap an operator can see in the platform counter.
+    inr_per_ktok = llm_inr_per_ktok(model)
+
     meta = json.dumps({"kind": ASSIST_META_KIND, "model": model, "feature": feature, "ref": ref})
     rows = (
-        ("ai_assist_ktok_in", ktok(tokens_in), price_in_inr_per_ktok),
-        ("ai_assist_ktok_out", ktok(tokens_out), price_out_inr_per_ktok),
+        ("ai_assist_ktok_in", ktok(tokens_in), inr_per_ktok["in"]),
+        ("ai_assist_ktok_out", ktok(tokens_out), inr_per_ktok["out"]),
     )
     landed = Decimal("0")
     landed_month: str | None = None
@@ -1087,14 +1179,13 @@ def quota_payload(quota: AiQuota) -> dict[str, Any]:
         # About how many assists the block is worth, derived HERE for the same reason
         # `requests_included` is: the browser must never divide a rupee amount, and the
         # reference price is not published precisely so nobody is tempted to.
-        "extra_block_requests": int(AI_OVERAGE_BLOCK_INR // AI_ASSIST_NOMINAL_INR),
+        "extra_block_requests": int(AI_OVERAGE_BLOCK_INR // quota.nominal_assist_inr),
         "extra_available": quota.extra_unavailable is None,
         "extra_unavailable_reason": quota.extra_unavailable,
     }
 
 
 __all__ = [
-    "AI_ASSIST_NOMINAL_INR",
     "AI_OVERAGE_BLOCK_INR",
     "AI_QUOTA_INR",
     "ASSIST_META_KIND",
@@ -1113,6 +1204,7 @@ __all__ = [
     "AssistMetered",
     "ExtraPurchase",
     "PlatformAiSpend",
+    "assist_nominal_inr",
     "ktok",
     "month_is_ending",
     "new_assist_ref",

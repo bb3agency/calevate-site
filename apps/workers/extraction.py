@@ -7,9 +7,9 @@ the split between the selectors is the whole of D-127's G-2/G-7:
 - **`SarvamExtractor`** — Sarvam 105B, free per token and sovereign. It is what
   `get_extractor()` returns, and after D-127 it is the ONLY thing `get_extractor()` can
   return besides the offline baseline.
-- **`VertexGeminiExtractor`** — Gemini through Vertex AI `asia-south1` (D-127 G-1). It
-  serves the USER-TRIGGERED work — re-summarise, reshape, ask-about — over the REDACTED
-  copy of a call, and it is reached only through `run_assist()`.
+- **`AzureOpenAIExtractor`** — Azure OpenAI in South India (D-127 G-1's leg, moved to
+  Azure by D-410). It serves the USER-TRIGGERED work — re-summarise, reshape, ask-about
+  — over the REDACTED copy of a call, and it is reached only through `run_assist()`.
 - **`OfflineExtractor`** — deterministic, no network. Used when no provider key is
   configured, which makes `ENGINE=fake` + no keys a fully working local pipeline, and
   gives the regression harness a stable baseline to diff model output against.
@@ -18,17 +18,19 @@ All three return the same `ExtractionOutput`, validated against the schema, so a
 provider swap is a config change (D-04's rationale) and not a code change.
 
 --------------------------------------------------------------------------------------
-WHY GEMINI IS NOT REACHABLE FROM `get_extractor()` ANY MORE (D-127 G-2 + G-7)
+WHY THE ASSIST PROVIDER IS NOT REACHABLE FROM `get_extractor()` (D-127 G-2 + G-7)
 --------------------------------------------------------------------------------------
-It used to be: Sarvam if a Sarvam key was configured, Gemini if only a Gemini key was.
-That ladder was written before there was a rule about WHOSE DATA each provider sees, and
-it does not survive the rule.
+It used to be: Sarvam if a Sarvam key was configured, the other provider if only that
+provider's key was. That ladder was written before there was a rule about WHOSE DATA
+each provider sees, and it does not survive the rule. D-410 changed WHICH company holds
+the second key and changed nothing about this argument, because the argument is about
+the existence of a second processor and not about its name.
 
 `workers/pipeline.py` computes `redacted = redact(turn.text)` and then appends
 `turn.text` — the RAW turn, one line later, deliberately — to the string it hands
 `extract_call`, because a CRM "callback number" field needs the actual digits and an
 extractor reading `[REDACTED]` returns nothing worth storing. So the first post-call
-extraction is THE raw-PII pass, and G-2 says the Google leg never sees raw PII. A
+extraction is THE raw-PII pass, and G-2 says the ASSIST leg never sees raw PII. A
 config-reachable branch in which it does is not a fallback, it is a residency inversion
 one absent environment variable away — the exact shape `check_model_residency` exists to
 make impossible in URLs, applied to the selector instead.
@@ -38,21 +40,27 @@ greppable form of that sentence so `check_docs_drift` §5 can catch the next doc
 that says otherwise. G-7 is not a compromise reached on cost or quality: it is the only
 split under which both halves of D-127 are true at once.
 
-**D-400 MOVED THE IN-CALL LLM LEG TO GEMINI AND DID NOT MOVE THIS ONE**, and the reason
-is the paragraph above rather than an omission. The founder's sentence — "we will setup
-gemini gcp vertex paid account … so LLM thing is solved" — reads as covering every model
-call this product makes, exactly as D-127's "Gemini for everything outside the live call"
-did, and the same line of `pipeline.py` answers it the same way: this pass is the only
-one in the system that reads `turn.text`. Both other Gemini surfaces see redacted or
-tenant-authored text. Moving this one is a decision about WHOSE DATA a second processor
-sees, not about which model is better or cheaper, so it stays raised rather than taken:
-`GEMINI_EXTRACTION_DEFAULT` remains False and D-400 says so in its own first line.
+**D-400 MOVED THE IN-CALL LLM LEG AND DID NOT MOVE THIS ONE; D-410 MOVED BOTH OF THOSE
+TO AZURE OPENAI AND STILL DID NOT MOVE THIS ONE**, and the reason is the paragraph above
+rather than an omission. Each founder decision has read as covering every model call this
+product makes — "so LLM thing is solved" — and the same line of `pipeline.py` has
+answered it the same way three times: this pass is the only one in the system that reads
+`turn.text`. Both other surfaces see redacted or tenant-authored text. Moving this one is
+a decision about WHOSE DATA a second processor sees, not about which model is better or
+cheaper, so it stays raised rather than taken. `GEMINI_EXTRACTION_DEFAULT` remains False.
+
+**THE CONSTANT KEEPS ITS NAME THROUGH D-410 ON PURPOSE.** Gemini is gone from this
+product, so the name now reads as a fossil — but `check_docs_drift` §5 machine-checks
+prose against this identifier BY NAME across the doc set, and renaming it would silently
+unbind every one of those sentences in the same commit that changed what they are about.
+The sentence it stands for has never been "no Gemini here"; it is "the first post-call
+extraction does not run on the assist provider, whoever that is".
 
 --------------------------------------------------------------------------------------
 AVAILABILITY IS DECIDED ONCE (D-127 G-6, PLAN Part 15)
 --------------------------------------------------------------------------------------
-`assist_capability()` is the only place that answers "what happens when Gemini is
-unconfigured, over quota, or down", and it gives one of two answers: fall back to Sarvam
+`assist_capability()` is the only place that answers "what happens when the assist
+provider is unconfigured, over quota, or down", and it gives one of two answers: fall back to Sarvam
 and SAY SO, or refuse with a message and a remediation. A silent fallback quietly
 changes output quality with nobody told, which is the one outcome G-6 rules out — so the
 disclosure travels on the capability object rather than being left to each surface to
@@ -85,10 +93,10 @@ from typing import Any, Final, Protocol
 
 import httpx
 from calevate_shared.engine import (
-    GEMINI_DEFAULT_LLM,
-    GEMINI_MODEL_CONFIRMED_IN_REGION,
+    AZURE_LOCATION,
+    AZURE_OPENAI_DEFAULT_MODEL,
     SARVAM_DEFAULT_LLM,
-    VERTEX_LOCATION,
+    azure_openai_base_url,
 )
 from calevate_shared.extraction import (
     ExtractionField,
@@ -102,7 +110,6 @@ from apps.api.core.alerting import record_extraction_failure
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.workers.google_oauth import ServiceAccount, access_token, parse_service_account
 from apps.workers.redaction import redact
 
 log = get_logger(__name__)
@@ -110,7 +117,8 @@ log = get_logger(__name__)
 SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
 EXTRACTION_TIMEOUT_S = 30.0
 
-#: Does the FIRST post-call extraction run on Gemini? No, and D-127 G-7 says never.
+#: Does the FIRST post-call extraction run on the ASSIST provider — Gemini when this was
+#: minted, Azure OpenAI since D-410? No, and D-127 G-7 says never.
 #:
 #: A greppable boolean rather than a paragraph, which is this repo's honesty device
 #: (`PROVIDER_CREATES_ORDERS`, `ENGINE_REPORTS_TTS_MODEL`, `PROVISIONING_IMPLEMENTED`).
@@ -122,33 +130,6 @@ EXTRACTION_TIMEOUT_S = 30.0
 #: Flipping it to True would require raw caller PII to reach a second processor, so it is
 #: not a knob: it is a fact about which pass reads `turn.text`.
 GEMINI_EXTRACTION_DEFAULT: Final = False
-
-#: The OAuth2 scope a Vertex bearer needs. `cloud-platform` is the only scope Vertex
-#: publishes for `generateContent`; there is no narrower model-inference scope to ask for.
-VERTEX_SCOPE: Final = "https://www.googleapis.com/auth/cloud-platform"
-
-
-def vertex_generate_url(project: str, model: str) -> str:
-    """The Vertex `generateContent` endpoint for one project and model, pinned to Mumbai.
-
-    THE REGION APPEARS TWICE — in the host and in the `locations/` path segment — and the
-    two can disagree: a host pinned to `asia-south1` with `locations/global` in the path
-    is the global endpoint wearing a regional host, on which Google states the caller
-    cannot control which region processes the request. One `Final` constant
-    (`calevate_shared.engine.VERTEX_LOCATION`) fills both, which is what makes them unable
-    to disagree, and `scripts/check_model_residency.py` reads this f-string's AST to prove
-    it — a plain `.format()` template would say `{loc}` and nothing about where `loc` came
-    from, which is why this is a function over an f-string and not a module constant with
-    three holes in it.
-
-    The project is interpolated rather than validated here; `Settings.gcp_project_id`
-    carries GCP's own 6-30 character pattern, so a value that reaches this point is
-    already the right shape.
-    """
-    return (
-        f"https://{VERTEX_LOCATION}-aiplatform.googleapis.com/v1/projects/{project}"
-        f"/locations/{VERTEX_LOCATION}/publishers/google/models/{model}:generateContent"
-    )
 
 
 class Extractor(Protocol):
@@ -162,11 +143,14 @@ def _first_json_object(text: str) -> dict[str, Any]:
     first balanced object rather than failing the whole extraction on a stray ```.
 
     A RECOVERY, and a recovery is strictly weaker than a constraint — which is why the
-    Vertex path does not use it: `build_vertex_response_schema` makes valid JSON a
-    model-side guarantee there. It stays for Sarvam, whose chat API publishes
+    Azure path carries a constraint TOO (`build_azure_response_schema`) rather than
+    instead. Under Structured Outputs this function has nothing left to do and runs as a
+    no-op; it stays on that path because the strict form is documented rather than
+    observed on our own resource, and the degrade that covers that gap lands here. It
+    remains load-bearing for Sarvam, whose chat API publishes
     `response_format: {"type": "json_object"}` but no per-request schema, and for the
-    offline runner. Deleting it here to "finish the migration" would trade a working
-    recovery for a provider that cannot make the stronger promise."""
+    offline runner. Deleting it because "the schema guarantees JSON now" would remove the
+    only thing holding up the path taken when the schema is refused."""
     fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     candidate = fenced.group(1) if fenced else None
     if candidate is None:
@@ -223,99 +207,127 @@ class SarvamExtractor:
         return _first_json_object(str(content))
 
 
-#: How each schema field type is spelled in a Vertex `responseSchema`. Vertex takes a
-#: SUBSET of OpenAPI 3.0 Schema with UPPER-CASE type names, and supports `nullable`,
-#: `required` and `propertyOrdering` on an OBJECT (searched 15 Aug 2026; REPORTED, NOT
-#: READ — `docs.cloud.google.com` is refused by this environment's egress proxy).
+#: How each schema field type is spelled in a JSON Schema Azure's Structured Outputs will
+#: accept. LOWER-CASE, unlike Vertex's OpenAPI dialect, and a SMALLER set than JSON Schema
+#: publishes: strict mode rejects the request outright if the schema uses a keyword it does
+#: not support, which is why nothing here reaches for `format`, `minLength` or `pattern`.
 #:
-#: `date` is STRING and not `format: "date"` on purpose. The prompt tells the model to
-#: keep a relative time in the caller's own words ("repu udayam") and `coerce_value`
-#: parses ISO where it can; a schema-level date format would make the model INVENT a
-#: calendar date for "tomorrow morning" to satisfy the type, which is the one thing this
-#: whole path is built not to do.
-_VERTEX_TYPES: Final[dict[str, str]] = {
-    "text": "STRING",
-    "number": "NUMBER",
-    "bool": "BOOLEAN",
-    "enum": "STRING",
-    "date": "STRING",
+#: `date` is `string` and not `format: "date"` for the reason it was under Vertex, and now
+#: for a second one. The prompt tells the model to keep a relative time in the caller's own
+#: words ("repu udayam") and `coerce_value` parses ISO where it can; a schema-level date
+#: format would make the model INVENT a calendar date for "tomorrow morning" to satisfy the
+#: type, which is the one thing this whole path is built not to do. Strict mode does not
+#: support `format` anyway — the product argument and the vendor constraint agree.
+_AZURE_TYPES: Final[dict[str, str]] = {
+    "text": "string",
+    "number": "number",
+    "bool": "boolean",
+    "enum": "string",
+    "date": "string",
 }
 
-#: The five keys every extraction returns regardless of schema (TRD §7). Spelled here in
-#: Vertex's dialect so the response schema and `build_extraction_prompt` cannot disagree
-#: about what a complete answer is.
-_VERTEX_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
-    "summary": {"type": "STRING"},
-    "sentiment": {"type": "STRING", "enum": ["positive", "neutral", "negative"]},
+#: The five keys every extraction returns regardless of schema (TRD §7). NOT nullable:
+#: these are what `ExtractionOutput` always carries, and a model omitting one is a
+#: malformed answer rather than an empty field.
+_AZURE_FIXED_PROPERTIES: Final[dict[str, dict[str, Any]]] = {
+    "summary": {"type": "string"},
+    "sentiment": {"type": "string", "enum": ["positive", "neutral", "negative"]},
     "outcome_tag": {
-        "type": "STRING",
+        "type": "string",
         "enum": ["resolved", "needs_follow_up", "transferred", "dropped"],
     },
-    "out_of_scope": {"type": "BOOLEAN"},
-    "callback_requested": {"type": "BOOLEAN"},
+    "out_of_scope": {"type": "boolean"},
+    "callback_requested": {"type": "boolean"},
 }
 
+#: The label the schema travels under. Azure constrains it to `^[a-zA-Z0-9_-]+$`, so it is
+#: spelled here rather than derived from a tenant's anything — and it is a LABEL, not an
+#: identity: the schema itself differs per agent, so a name that tried to identify one
+#: would be a second, wronger version of `extraction_schemas.version`.
+AZURE_SCHEMA_NAME: Final = "calevate_call_extraction"
 
-def _vertex_property(field: ExtractionField) -> dict[str, Any]:
-    """One schema field as a Vertex property. Nullable, always."""
-    prop: dict[str, Any] = {"type": _VERTEX_TYPES[field.type], "nullable": True}
+
+def _azure_property(field: ExtractionField) -> dict[str, Any]:
+    """One schema field as a strict-mode property. Nullable, always.
+
+    NULLABILITY IS A TYPE UNION HERE, not a `nullable` keyword — that is Vertex's OpenAPI
+    dialect and strict mode rejects it. `["string", "null"]` is the JSON Schema spelling
+    and it is what makes "the caller never said" expressible at all under a mode that
+    requires every property to be present.
+
+    A NULLABLE ENUM CARRIES `null` IN ITS OWN LIST. Omitting it leaves a schema no value
+    can satisfy — `enum` restricts to the listed members, so a `null` permitted by the
+    type union would be forbidden by the enum one line below it.
+    """
+    prop: dict[str, Any] = {"type": [_AZURE_TYPES[field.type], "null"]}
     if field.type == "enum" and field.enum_values:
-        prop["enum"] = list(field.enum_values)
+        prop["enum"] = [*field.enum_values, None]
     if field.description:
         prop["description"] = field.description
     return prop
 
 
-def build_vertex_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
-    """The `responseSchema` that makes valid JSON a model-side guarantee.
+def build_azure_response_schema(spec: ExtractionSchemaSpec) -> dict[str, Any]:
+    """The strict JSON Schema that makes valid, schema-shaped JSON a MODEL-SIDE guarantee.
 
-    WHY THIS REPLACES THE PARSER ON THIS PATH AND ONLY THIS PATH. `_first_json_object`
-    exists because models wrap JSON in prose and fences however firmly you ask; it is a
-    recovery, and a recovery is strictly weaker than a constraint. Vertex will not emit a
-    document that violates this schema, so on this path the fence-stripping has nothing
-    left to do. It stays for Sarvam, which publishes `response_format: json_object` but
-    no schema — deleting it there would trade a working recovery for a provider that
-    cannot make the stronger promise.
+    THE GUARANTEE IS BACK, and this function is the whole of it. Azure documents
+    Structured Outputs (`response_format: {"type": "json_schema", "strict": true}`) on
+    `gpt-4o-mini` and later — both models in `AZURE_OPENAI_MODELS` — and states that under
+    it "the model will never return a response that deviates from the provided schema".
+    That is the same class of promise Vertex's `responseSchema` made and it is why
+    `_first_json_object` is a belt beside braces here rather than the only thing holding
+    the output up. (VERIFIED-VENDOR-DOCS, 19 Aug 2026: Microsoft Learn
+    `azure/foundry/openai/how-to/structured-outputs`. NOT verified against OUR deployment —
+    see `AzureOpenAIExtractor.run` for what happens if this resource refuses it.)
 
-    WHAT IS AND IS NOT `required`. Only the five fixed keys are, because they are the
-    ones `ExtractionOutput` always carries and a model omitting them is a malformed
-    answer. Every SCHEMA field is optional and nullable, which is the prompt's own rule
-    ("ABSENT MEANS NULL") expressed in a place the model cannot argue with: forcing a
-    client's `callback_number` to be present would push the model to invent one, and a
-    phone number one digit wrong is the worst output this system can produce.
+    STRICT MODE'S THREE CONSTRAINTS, AND WHY NONE OF THEM COST US ANYTHING:
 
-    `propertyOrdering` puts the schema fields first. Generation is left-to-right, so the
-    model reads the transcript for facts before it writes the summary that would
-    otherwise anchor them.
+    1. **Every property must appear in `required`.** Under Vertex only the five fixed keys
+       were required and a client's own field could be ABSENT. That reads like a conflict
+       with "ABSENT MEANS NULL" and is not one: strict mode's answer to an optional field
+       is a nullable type, so the field is always PRESENT and its value is `null` when the
+       caller never said it. Downstream this is not a distinction at all —
+       `coerce_value` short-circuits on `raw is None` and `validate_extraction` skips a
+       None — so **an extraction schema is expressed exactly as it was before**; only the
+       wire spelling of "nothing captured" changed. Crucially it still does NOT force the
+       model to produce a value: forcing a client's `callback_number` to be non-null would
+       push the model to invent one, and a phone number one digit wrong is the worst
+       output this system can produce.
+    2. **`additionalProperties: false`.** A chatty model cannot bolt an extra key on. This
+       is strictly better than the old behaviour, where `validate_extraction` dropped
+       unknown keys AFTER paying for them.
+    3. **A reduced keyword set.** No `format`, no `pattern`, no bounds — see `_AZURE_TYPES`
+       for why that costs this path nothing.
 
-    A SCHEMA FIELD MAY COLLIDE WITH A FIXED ONE, and `ExtractionField.key`'s pattern
-    (`^[a-z][a-z0-9_]{0,39}$`) permits every one of the five — "Summary of complaint" is
-    an ordinary column for a client to author, and `summary` is the obvious key for it.
-    `properties` already resolved that the right way, because `.update()` lets the fixed
-    definition win and the five fixed keys are what `ExtractionOutput` promises. What it
-    did NOT resolve was the ORDER list, which listed the colliding key twice — a
-    `propertyOrdering` naming one property two times is a malformed OpenAPI object, so
-    one client's field name turned every assist for that tenant into a 400 the error
-    ladder could only report as `HTTPStatusError`. The fixed keys stay last: they are the
-    summary-and-judgement half, and reading the transcript for facts first is the whole
-    reason this list exists.
+    ORDER IS PROPERTY ORDER, and it is load-bearing rather than cosmetic. Generation is
+    left-to-right, so the model must read the transcript for facts before it writes the
+    summary that would otherwise anchor them. Vertex needed a separate `propertyOrdering`
+    list to say that; here the insertion order of `properties` IS the statement, which
+    also DELETES a defect by construction: that parallel list named a colliding key twice
+    and a `propertyOrdering` with a duplicate is a malformed object, so one client
+    authoring a field called `summary` turned every assist for that tenant into a 400. A
+    dict cannot hold a key twice, so the collision now resolves once — the fixed
+    definition wins, in the fixed position, because the tenant's key is filtered out
+    BEFORE the fixed five are appended rather than overwritten in place.
 
-    ⚠ THE SCHEMA IS INPUT. It is serialised into the request and counted against the
-    input token budget — a 30-field schema with descriptions is not free, which is why
-    `VertexGeminiExtractor` reads Vertex's own `usageMetadata` back rather than counting
-    the prompt: `ai_assist_ktok_in` (D-137) has to be what the vendor charged for, and
-    the schema is the part of that number nobody would have thought to add up.
+    ⚠ THE SCHEMA IS INPUT. It is serialised into the request and counted against the input
+    token budget — a 30-field schema with descriptions is not free, which is why
+    `AzureOpenAIExtractor` reads Azure's own `usage` block back rather than counting the
+    prompt: `ai_assist_ktok_in` (D-137) has to be what the vendor charged for, and the
+    schema is the part of that number nobody would have thought to add up.
     """
-    properties: dict[str, Any] = {field.key: _vertex_property(field) for field in spec.fields}
-    properties.update(_VERTEX_FIXED_PROPERTIES)
+    properties: dict[str, Any] = {
+        field.key: _azure_property(field)
+        for field in spec.fields
+        if field.key not in _AZURE_FIXED_PROPERTIES
+    }
+    properties.update(_AZURE_FIXED_PROPERTIES)
     return {
-        "type": "OBJECT",
+        "type": "object",
         "properties": properties,
-        "required": list(_VERTEX_FIXED_PROPERTIES),
-        "propertyOrdering": [
-            *(field.key for field in spec.fields if field.key not in _VERTEX_FIXED_PROPERTIES),
-            *_VERTEX_FIXED_PROPERTIES,
-        ],
+        # Every key, because strict mode demands it — optionality lives in the type.
+        "required": list(properties),
+        "additionalProperties": False,
     }
 
 
@@ -331,23 +343,25 @@ class TokenUsage:
     output_tokens: int
 
 
-def _vertex_usage(body: dict[str, Any]) -> TokenUsage | None:
-    """Vertex's `usageMetadata` as our own record, or None if it did not send one.
+def _azure_usage(body: dict[str, Any]) -> TokenUsage | None:
+    """Azure's `usage` block as our own record, or None if it did not send one.
 
     NONE IS NOT ZERO and the difference is a billing one: a missing block means we do not
     know what this call cost, and metering it as zero would quietly give one tenant a
     free assist and move the platform brake by nothing. `record_ai_assist_usage` is
     therefore never called on a None, and that is the caller's rule to keep.
 
-    `thoughtsTokenCount` is folded into OUTPUT. Every Gemini generation this repo has
-    shipped bills thinking tokens at the output rate — 2.5 Flash (`GEMINI_DEFAULT_LLM`
-    since the founder's `asia-south1` decision) as much as the 3.x tier it replaced — and
-    a reasoning model asked for structured JSON spends most of its budget there, so
-    counting only `candidatesTokenCount` would under-meter the very calls that cost the
-    most. It is added rather than replaced because Google reports the two separately and
-    `candidatesTokenCount` does not include it.
+    `completion_tokens` IS THE WHOLE OUTPUT LEG AND NOTHING IS ADDED TO IT, which is the
+    one line that changed shape when D-410 left Gemini. Vertex reported `thoughtsTokenCount`
+    SEPARATELY from `candidatesTokenCount`, so the two had to be summed or a reasoning
+    model would be under-metered; on the OpenAI wire format `completion_tokens_details`
+    is a BREAKDOWN of `completion_tokens`, not an addition to it, and summing them would
+    bill a tenant twice for the same tokens. Neither model this platform ships
+    (`AZURE_OPENAI_MODELS`) emits reasoning tokens at all, so the arm is not reachable
+    today — it is written down because "port the Gemini line across" is the tempting edit
+    and it is wrong in the expensive direction.
     """
-    raw = body.get("usageMetadata")
+    raw = body.get("usage")
     if not isinstance(raw, dict):
         return None
 
@@ -355,31 +369,69 @@ def _vertex_usage(body: dict[str, Any]) -> TokenUsage | None:
         value = raw.get(key)
         return value if isinstance(value, int) and value >= 0 else 0
 
-    total_in = _count("promptTokenCount")
-    total_out = _count("candidatesTokenCount") + _count("thoughtsTokenCount")
+    total_in = _count("prompt_tokens")
+    total_out = _count("completion_tokens")
     if total_in == 0 and total_out == 0:
         return None
     return TokenUsage(prompt_tokens=total_in, output_tokens=total_out)
 
 
-class VertexGeminiExtractor:
-    """Gemini through Vertex AI `asia-south1` (D-127 G-1). NEVER the AI Studio API.
+class AzureOpenAIExtractor:
+    """Azure OpenAI, South India (D-410). The dashboard-AI leg, and only that leg.
 
-    THE ENDPOINT IS THE DECISION. `generativelanguage.googleapis.com` — what this class
-    reached before PLAN Part 13 — is a global host with no region anywhere in the URL,
-    and on the free tier Google states it uses submitted prompts and responses to improve
-    its products with human reviewers able to read them. For a Processor holding an Indian
-    SMB's callers' transcripts that is not a tradeoff, it is a disclosure we could not
-    make. Vertex `asia-south1` processes and stores in-region for GA generative features
-    and does not train on paid usage, so D-36's guarantee survives even though D-36's
-    ARGUMENT ("Sarvam is sovereign") does not.
+    THE ENDPOINT IS STILL THE DECISION, AND IT NO LONGER PROVES ITSELF — read this before
+    trusting the residency guard. D-127 disqualified `generativelanguage.googleapis.com`
+    because a global host names no region, and Vertex answered by putting `asia-south1`
+    in the hostname AND the path, so `scripts/check_model_residency.py` could prove
+    residency straight from this file's AST. Azure's shipped shape cannot:
+    `<resource>.openai.azure.com` hides the region entirely. **Where the request is
+    processed is a property of the Azure RESOURCE, asserted by config and verified once
+    by a human in the portal — this code cannot demonstrate it and does not pretend to.**
+    That is a real weakening against the Vertex design and it is the price of a static
+    key; `AZURE_LOCATION` is the one spelling of the region we ship, and what the guard
+    still proves is that no second spelling and no second URL builder exist.
 
-    AUTH IS AN OAUTH2 BEARER, NOT AN API KEY, and that is not a preference either: Vertex
-    does not accept `?key=` at all. The bearer is minted from a service-account key
-    through `google_oauth` (RFC 7523 JWT-bearer, one shared implementation with the Sheets
-    adapter) and expires in about an hour, so it is fetched per run through a cache that
-    refreshes five minutes before expiry rather than captured once for the life of a
-    worker — a worker process here outlives an hour routinely.
+    The REGIONAL hostname (`southindia.api.cognitive.microsoft.com`) would restore the
+    AST proof and is rejected FOR NOW rather than forgotten: Azure documents the v1
+    surface only on the custom-subdomain form, so shipping it would trade a
+    confirmed-working endpoint for a stronger guard on an unconfirmed one.
+
+    AUTH IS A STATIC API KEY IN AN `Authorization: Bearer` HEADER, which is the whole
+    reason this class replaced a Vertex one. Azure's v1 surface
+    (`https://<resource>.openai.azure.com/openai/v1/`) is OpenAI-compatible, takes no
+    `api-version`, and accepts a key in that header — so there is no OAuth2 handshake, no
+    12-hour ceiling, no refresh cron and no dead man watching the refresh cron. The
+    classic surface (`/openai/deployments/<id>/chat/completions?api-version=YYYY-MM-DD`
+    with an `api-key:` header) is deliberately NOT used: the dated `api-version` is a
+    second thing to keep current, and `api-key` is not what an OpenAI-compatible client
+    sends.
+
+    THE MODEL AND THE DEPLOYMENT ARE TWO DIFFERENT STRINGS AND ONLY ONE GOES ON THE WIRE.
+    On Azure you deploy a model under a deployment ID of your choosing and address THAT,
+    so `model` in the request body is the DEPLOYMENT. `model_name` — what the eval
+    baseline keys on, what a log line reports and what `AZURE_LIST_PRICE_USD_PER_MTOK`
+    prices — is the underlying model, because a deployment ID is one operator's routing
+    label and says nothing about cost or quality. Reporting the deployment as the model
+    would silently re-baseline the whole regression harness on a console rename.
+
+    THE SCHEMA GUARANTEE SURVIVED THE MIGRATION. This leg sends
+    `response_format: {"type": "json_schema", "strict": true}` with a schema built from
+    the agent's own extraction spec, which Azure documents on `gpt-4o-mini` and later as
+    a promise that "the model will never return a response that deviates from the
+    provided schema" — the same class of promise Vertex's `responseSchema` made, and it
+    matters more than it sounds: this schema IS a client's CRM columns, so best-effort
+    JSON parsing would be a product-visible regression rather than an internal one. See
+    `build_azure_response_schema` for the three constraints strict mode adds and why none
+    of them changes how an extraction schema is expressed.
+
+    AND IT DEGRADES RATHER THAN FAILING, because the paragraph above is documented and
+    UNOBSERVED HERE. Microsoft's docs are about the model and the API; nobody has yet
+    watched OUR resource accept the parameter. A 400 on the first attempt is therefore
+    retried ONCE with plain `json_object` and logged as `azure_json_schema_unsupported`,
+    so a deployment that refuses the strong form still answers its user — with the weaker
+    promise, said out loud in a log line, instead of an outage on a paragraph from a
+    vendor's website. `_first_json_object` is what catches the output in that case, which
+    is why it is belt beside braces here and not dead weight.
 
     WHAT IT IS ALLOWED TO SEE: redacted call data and tenant-authored config (G-2).
     `run_assist()` is the only caller and enforces that; this class does not re-check,
@@ -389,21 +441,27 @@ class VertexGeminiExtractor:
 
     def __init__(
         self,
-        account: ServiceAccount,
-        project: str,
-        model: str = GEMINI_DEFAULT_LLM,
+        resource: str,
+        api_key: str,
+        deployment: str,
+        model: str = AZURE_OPENAI_DEFAULT_MODEL,
         *,
         client: httpx.AsyncClient | None = None,
     ) -> None:
-        self._account = account
-        self._project = project
+        # Built ONCE, here, through the single builder — `azure_openai_base_url` is the
+        # only thing in this repository allowed to spell an Azure endpoint, which is what
+        # `check_model_residency` proves. A second f-string anywhere would be a second
+        # place the host can be got wrong.
+        self._url = f"{azure_openai_base_url(resource)}/chat/completions"
+        self._api_key = api_key
+        self._deployment = deployment
         self.model_name = model
         # Same injection seam, and the same ownership rule, as `GoogleSheetsTransport`: a
         # caller-supplied client is the caller's to close. It exists so tests drive this
         # adapter through httpx's real request plumbing (`httpx.MockTransport`) rather
         # than a hand-written stand-in that cannot get a URL wrong.
         self._client = client
-        #: What the LAST `run()` cost, as Vertex counted it — never as we counted it.
+        #: What the LAST `run()` cost, as Azure counted it — never as we counted it.
         #:
         #: MUTABLE STATE ON AN ADAPTER, deliberately, and the bound is what makes it
         #: safe: `run_assist()` constructs one of these per assist and reads this
@@ -412,84 +470,132 @@ class VertexGeminiExtractor:
         #: usage — which would make `OfflineExtractor` and `SarvamExtractor` answer a
         #: question one of them cannot (no network) and the other need not (D-36 prices
         #: the Sarvam leg at zero), i.e. two implementations forced to state a number
-        #: nobody meters. `record_ai_assist_usage` (D-137) meters GEMINI, because Gemini
-        #: is the leg that costs Calevate rupees.
+        #: nobody meters. `record_ai_assist_usage` (D-137) meters the ASSIST leg, because
+        #: that is the one that costs Calevate rupees.
         self.last_usage: TokenUsage | None = None
 
     def _log_refusal(self, status: int) -> None:
-        """The one place a Vertex non-2xx becomes something an operator can act on.
+        """The one place an Azure non-2xx becomes something an operator can act on.
 
         WHY THIS EXISTS AT ALL. `extract_call`'s ladder records `type(exc).__name__`, so
-        every failure on this path reached the log as the single word `HTTPStatusError` —
-        401 (the key), 403 (the IAM grant), 404 (the region does not serve this model),
-        429 (quota) and 503 (Google) all indistinguishable, on a path where the ONE
-        vendor fact D-127 could not verify from this repository is exactly the one a 404
-        answers. The status is the whole diagnosis and it was being thrown away.
+        every failure on this path reaches the log as the single word `HTTPStatusError` —
+        401 (the key), 404 (no such deployment on this resource), 429 (quota) and 5xx
+        (Azure) all indistinguishable, on a path where the status is the whole diagnosis.
 
-        THE BODY IS NEVER LOGGED (hard rule 6). Google's error bodies quote the request,
+        THE BODY IS NEVER LOGGED (hard rule 6). Azure's error bodies quote the request,
         and the request on this path is a call transcript — redacted, but redacted text
-        is still transcript-derived and does not belong in a log line.
+        is still transcript-derived and does not belong in a log line. Neither the key
+        nor the URL is logged either: the resource name is in the URL and the key is in
+        a header, and an operator needs neither to act on any row below.
         """
         if status == 404:
-            # THE GATE, at the only moment anyone is looking. `check_model_residency`
-            # can prove the URL is regional; nothing in this repository can prove the
-            # region serves the model, and a 404 from a host that unambiguously belongs
-            # to our project is that proof arriving. Named so an operator greps it, and
-            # spelling the alternative out because the wrong fix is the tempting one.
+            # THE CONFIGURATION GATE, at the only moment anyone is looking. On this
+            # surface a 404 is not "no such model" — it is "no deployment by that ID on
+            # this resource", which is the one mistake the model/deployment split makes
+            # easy to walk into. Named so an operator greps it, and spelling out the
+            # wrong fix because it is the tempting one.
             log.error(
-                "vertex_model_not_served_in_region",
+                "azure_deployment_not_found",
                 extra={
-                    "region": VERTEX_LOCATION,
+                    "region": AZURE_LOCATION,
                     "model": self.model_name,
-                    "project": self._project,
-                    # READ, not quoted. The flag and the 404 that settles it belong in
-                    # one line, and a string naming the constant would drift off it.
-                    "confirmed_in_region": GEMINI_MODEL_CONFIRMED_IN_REGION,
+                    "deployment": self._deployment,
                     "remedy": (
-                        "Change GEMINI_DEFAULT_LLM to a model this region serves, then "
-                        "set GEMINI_MODEL_CONFIRMED_IN_REGION. Do NOT widen the region "
-                        "and do NOT use locations/global — D-127 disqualifies both, and "
-                        "check_model_residency will refuse the commit."
+                        "AZURE_OPENAI_DEPLOYMENT must be the deployment ID as it appears "
+                        "in the Azure portal, which is NOT the model name. Do not 'fix' "
+                        "this by setting it to AZURE_OPENAI_MODEL, and do not point the "
+                        "resource at another region: check_model_residency refuses a "
+                        "second spelling of the region and D-410 pins it to India."
                     ),
                 },
             )
             return
         log.warning(
-            "vertex_request_refused",
-            extra={"status": status, "model": self.model_name, "project": self._project},
+            "azure_request_refused",
+            extra={"status": status, "model": self.model_name, "deployment": self._deployment},
+        )
+
+    async def _post(
+        self,
+        client: httpx.AsyncClient,
+        spec: ExtractionSchemaSpec,
+        transcript: str,
+        *,
+        response_format: dict[str, Any],
+    ) -> httpx.Response:
+        """One chat completion. The two callers below differ only in `response_format`."""
+        return await client.post(
+            self._url,
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json={
+                # THE DEPLOYMENT, not the model — see the class docstring.
+                "model": self._deployment,
+                "messages": [
+                    {"role": "user", "content": build_extraction_prompt(spec, transcript)}
+                ],
+                "temperature": 0,
+                "response_format": response_format,
+            },
         )
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
         owns_client = self._client is None
+        # `follow_redirects=False` is load-bearing rather than tidy: a redirect off the
+        # region-pinned host is a residency question, and answering it silently by
+        # following the hop is the one thing this leg must not do.
         client = self._client or httpx.AsyncClient(
             timeout=EXTRACTION_TIMEOUT_S, follow_redirects=False
         )
         try:
-            token = await access_token(client, self._account, scope=VERTEX_SCOPE)
-            if token is None:
-                # `google_oauth` already logged the status without the body. Raising a
-                # ValueError puts this on `extract_call`'s error ladder, where a model
-                # failure costs the structured fields and never the call — and keeps the
-                # credential out of the traceback, which is the whole reason
-                # `access_token` returns None instead of raising.
-                raise ValueError("vertex_token_unavailable")
-            response = await client.post(
-                vertex_generate_url(self._project, self.model_name),
-                headers={"Authorization": f"Bearer {token}"},
-                json={
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": build_extraction_prompt(spec, transcript)}],
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0,
-                        "responseMimeType": "application/json",
-                        "responseSchema": build_vertex_response_schema(spec),
+            response = await self._post(
+                client,
+                spec,
+                transcript,
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": AZURE_SCHEMA_NAME,
+                        "strict": True,
+                        "schema": build_azure_response_schema(spec),
                     },
                 },
             )
+            if response.status_code == 400:
+                # THE DEGRADE, and its trigger is deliberately ANY 400 rather than a
+                # reading of the error body. The thing we cannot verify is exactly what
+                # this resource says when it refuses `json_schema`, so a discriminator
+                # keyed on `error.code` or `error.param` would be a guess about the very
+                # payload in doubt — and guessing wrong means an outage on a documented
+                # feature. A 400 is refused at request validation: no model time, no
+                # tokens, a few milliseconds. So we simply ask again the weaker way. If
+                # the 400 was really something else (a content filter, a malformed body),
+                # the retry earns the same 400 and the ORIGINAL refusal is the one
+                # reported, which is the right diagnosis.
+                #
+                # NOT MEMOISED, and that is the rejected alternative worth naming: a flag
+                # remembering "this deployment refuses strict" would save one cheap round
+                # trip per assist and would (a) be process-global mutable state needing a
+                # reset seam for tests, and (b) go stale the moment the deployment is
+                # upgraded — locking a fixed resource into the weak promise forever, with
+                # nothing to notice. Paying milliseconds to re-ask is the cheaper mistake.
+                degraded = await self._post(
+                    client, spec, transcript, response_format={"type": "json_object"}
+                )
+                if not degraded.is_error:
+                    log.warning(
+                        "azure_json_schema_unsupported",
+                        extra={
+                            "model": self.model_name,
+                            "deployment": self._deployment,
+                            "consequence": (
+                                "Structured Outputs was refused by this resource, so the "
+                                "assist ran on json_object: valid JSON, but no model-side "
+                                "guarantee that it matches the agent's extraction schema. "
+                                "Confirm the deployment's model is gpt-4o-mini or later."
+                            ),
+                        },
+                    )
+                    response = degraded
         finally:
             if owns_client:
                 await client.aclose()
@@ -497,19 +603,23 @@ class VertexGeminiExtractor:
             self._log_refusal(response.status_code)
         response.raise_for_status()
         body = response.json()
-        self.last_usage = _vertex_usage(body)
-        # Gemini returns `candidates: []` on a safety block — a documented, ordinary
-        # response, not an exception. Same reasoning as the Sarvam path above.
-        candidates = body.get("candidates") or []
-        parts = (candidates[0].get("content", {}).get("parts") or []) if candidates else []
-        text = str(parts[0].get("text", "")) if parts else ""
-        # The response schema guarantees a JSON object, so this is `json.loads` and not
-        # the fence-stripper. It still cannot be a bare `json.loads`: a safety block
-        # produces no parts at all, and an empty string is not a document.
-        if not text.strip():
-            return {}
-        parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else {}
+        self.last_usage = _azure_usage(body)
+        # `choices` comes back EMPTY, or carries a null `content`, when the provider
+        # declines to answer — Azure's content filter is an ordinary response with
+        # `finish_reason: "content_filter"`, not an exception, and Structured Outputs adds
+        # a model-authored `refusal` beside `content` on the same footing. Neither is read
+        # here: `refusal` is the model's prose ABOUT a call transcript, which is not a
+        # thing this module logs or stores (hard rule 6), and both land as "no answer".
+        # Same reasoning as the Sarvam path above — indexing blindly turns "the model said
+        # nothing" into an IndexError, and losing the call to keep the fields is the wrong
+        # trade.
+        choices = body.get("choices") or []
+        content = choices[0].get("message", {}).get("content", "") if choices else ""
+        # STILL THE FENCE-STRIPPER AND NOT A BARE `json.loads`. Under strict mode the
+        # content is a schema-shaped document and this is a no-op; on the degraded path it
+        # is the only thing standing between a fenced answer and an empty extraction. One
+        # parse path, correct under both promises.
+        return _first_json_object(str(content or ""))
 
 
 @dataclass(frozen=True)
@@ -928,20 +1038,21 @@ def get_extractor() -> Extractor:
     and that is not a runtime decision — the principle this docstring has always stated,
     now with the branch that contradicted it removed.
 
-    GEMINI IS NOT REACHABLE FROM HERE (D-127 G-2/G-7). This function used to return
-    `GeminiExtractor` when a Gemini key was configured and a Sarvam key was not. The
-    caller is `workers/pipeline.py`, which hands over the RAW transcript because a
-    "callback number" field needs the actual digits — so that branch sent raw caller PII
-    to Google whenever one environment variable was absent. `GEMINI_EXTRACTION_DEFAULT is
-    False` is that decision as a fact the tree can be asked about; `run_assist()` is where
-    Gemini serves, over the redacted copy, at a user's request.
+    THE ASSIST PROVIDER IS NOT REACHABLE FROM HERE (D-127 G-2/G-7). This function used to
+    return the assist extractor when that provider's key was configured and a Sarvam key
+    was not. The caller is `workers/pipeline.py`, which hands over the RAW transcript
+    because a "callback number" field needs the actual digits — so that branch sent raw
+    caller PII to a second processor whenever one environment variable was absent.
+    `GEMINI_EXTRACTION_DEFAULT is False` is that decision as a fact the tree can be asked
+    about; `run_assist()` is where the assist provider serves, over the redacted copy, at
+    a user's request.
 
-    THE CONSEQUENCE, STATED RATHER THAN DISCOVERED: a deployment holding only a Google
-    credential now extracts with `OfflineExtractor` instead of Gemini. That is the
-    intended direction — a deterministic reader that files what the transcript literally
-    says is a smaller loss than a residency inversion — and it is not a state any
-    environment is in: `runtime_config_missing_keys` has required `SARVAM_API_KEY`
-    outside `local` since before D-127, so `/healthz/ready` is already red there.
+    THE CONSEQUENCE, STATED RATHER THAN DISCOVERED: a deployment holding only an Azure
+    credential now extracts with `OfflineExtractor`. That is the intended direction — a
+    deterministic reader that files what the transcript literally says is a smaller loss
+    than a residency inversion — and it is not a state any environment is in:
+    `runtime_config_missing_keys` has required `SARVAM_API_KEY` outside `local` since
+    before D-127, so `/healthz/ready` is already red there.
     """
     settings = get_settings()
     if settings.sarvam_api_key:
@@ -949,28 +1060,33 @@ def get_extractor() -> Extractor:
     return OfflineExtractor()
 
 
-# --- G-6: one place decides what happens when Gemini cannot serve -----------------
+# --- G-6: one place decides what happens when the assist provider cannot serve ------
 #
 # PLAN Part 15. Every reason code below is AUTHORED — it names OUR configuration state,
 # never a vendor's error string, because these reach an alert, a client's screen and a
 # support conversation.
 
-#: No Google credential on this deployment: no project id, no service-account key, or a
-#: key that does not parse. The ordinary state today — no GCP project exists yet.
+#: No Azure OpenAI credential on this deployment: no resource, no key, or no deployment
+#: ID. The ordinary state today — no Azure resource exists yet.
 NO_CREDENTIAL_REASON: Final = "no_credential"
 #: The tenant is past its included monthly assist quota and has not accepted the charge
 #: (G-5). Supplied BY THE CALLER — see `assist_capability`.
 QUOTA_EXHAUSTED_REASON: Final = "quota_exhausted"
-#: Vertex answered badly, or did not answer. Discovered by trying, so also supplied by
-#: the caller after a failed attempt.
+#: The provider answered badly, or did not answer. Discovered by trying, so also supplied
+#: by the caller after a failed attempt.
 PROVIDER_UNAVAILABLE_REASON: Final = "provider_unavailable"
-#: A deployment that installed `GEMINI_API_KEY` and expected dashboard AI to work. D-127
-#: disqualified the door that key opens, so this is `no_credential` with the sentence the
-#: operator actually needs instead of the one that would send them to check their typing.
-AI_STUDIO_KEY_REASON: Final = "ai_studio_key_disqualified"
+#: THERE IS NO `model_not_allowed` REASON, AND THE ABSENCE IS THE DESIGN. D-127 carried
+#: `ai_studio_key_disqualified` in a fourth slot here, for a deployment that was
+#: configured WRONGLY rather than not at all. Its Azure analogue would be "the configured
+#: model is not one we ship" — and it cannot happen: `Settings.azure_openai_model` is
+#: typed `AzureOpenAIModel`, a closed `Literal`, and `platform_config.validate_value`
+#: checks a console write against that field definition before it is ever stored. The
+#: allow-list is enforced at the boundary values enter through, which is strictly earlier
+#: and strictly stronger than a check here, so a second one would be an arm no user can
+#: reach, an authored sentence nobody reads, and a second place the rule is stated.
 
 #: Provider names as they appear in a disclosure and in a log line.
-GEMINI_PROVIDER: Final = "gemini"
+AZURE_PROVIDER: Final = "azure"
 SARVAM_PROVIDER: Final = "sarvam"
 
 #: Is a per-tenant assist quota enforced on a path a client can reach? YES, since D-146.
@@ -990,7 +1106,7 @@ SARVAM_PROVIDER: Final = "sarvam"
 #: — the three lines this comment named as its own closing condition, in that order.
 #:
 #: What True does NOT claim, because the next reader will ask: an assist whose token count
-#: Vertex did not return is money spent that no ceiling can see. It is refused a ledger row
+#: the provider did not return is money spent that no ceiling can see. It is refused a ledger row
 #: rather than given a fabricated one, and it fires `ai_assist_unmeterable` so an operator
 #: learns the meter stopped. Enforcement is real; it is not omniscient.
 ASSIST_QUOTA_ENFORCED: Final = True
@@ -1000,12 +1116,8 @@ ASSIST_QUOTA_ENFORCED: Final = True
 #: says something different on two screens about the same event.
 _FALLBACK_DISCLOSURE: Final[dict[str, str]] = {
     NO_CREDENTIAL_REASON: (
-        "This was written by Sarvam, not the assistant model, because no Google Cloud "
+        "This was written by Sarvam, not the assistant model, because no Azure OpenAI "
         "credential is configured on this deployment."
-    ),
-    AI_STUDIO_KEY_REASON: (
-        "This was written by Sarvam, not the assistant model, because this deployment's "
-        "Google credential is not one the assistant can use."
     ),
     QUOTA_EXHAUSTED_REASON: (
         "This was written by Sarvam, not the assistant model, because this month's "
@@ -1023,8 +1135,8 @@ class AssistCapability:
     """What this deployment can actually do about user-triggered AI, as one answer.
 
     `PaymentCapability`'s shape, for `PaymentCapability`'s reason: a caller must not be
-    able to conclude "the assistant works" and then separately assume "so it is Gemini
-    answering". Both facts are one lookup and one object.
+    able to conclude "the assistant works" and then separately assume "so it is the
+    preferred model answering". Both facts are one lookup and one object.
 
     `reason` is non-None exactly when `available` is False. `fallback_reason` is non-None
     exactly when `provider` is not the preferred one — and when it is set, `disclosure`
@@ -1046,43 +1158,64 @@ class AssistCapability:
         return _FALLBACK_DISCLOSURE.get(self.fallback_reason)
 
 
-def vertex_credentials() -> tuple[ServiceAccount, str] | None:
-    """The service account and project for Vertex, or None if this deployment has neither.
+def azure_credentials() -> tuple[str, str, str] | None:
+    """Resource, key and deployment for Azure OpenAI, or None if this deployment lacks
+    any of the three.
 
-    THE ONLY read of `gcp_service_account_json`. The key is parsed here, once, so a
-    malformed one is a named refusal on the screen that asked rather than a parse failure
-    inside a request whose next log line would print it (`parse_service_account` returns
-    None rather than raising for that reason).
+    THE ONLY read of the three `azure_openai_*` credential fields, so "configured" is
+    decided once rather than by each caller's idea of which fields matter.
+
+    ALL THREE OR NOTHING, because two of them are useless: a resource with no deployment
+    ID cannot address anything, and a key with no resource has nowhere to go. What the
+    ladder below distinguishes is UNSET from HALF-SET — a deployment with none of the
+    three is the ordinary state and says nothing, while a deployment with one or two is
+    an operator midway through a change, and reporting that as "unconfigured" sends them
+    to install what they already installed (D-127 made the same distinction for a
+    service-account key that was present and unparseable).
+
+    THE LOG LINE NAMES FIELDS, NEVER VALUES. One of the three IS the credential.
     """
     settings = get_settings()
-    project = (settings.gcp_project_id or "").strip()
-    raw = settings.gcp_service_account_json or ""
-    if not project or not raw:
+    resource = (settings.azure_openai_resource or "").strip()
+    api_key = (settings.azure_openai_api_key or "").strip()
+    deployment = (settings.azure_openai_deployment or "").strip()
+    missing = [
+        name
+        for name, value in (
+            ("azure_openai_resource", resource),
+            ("azure_openai_api_key", api_key),
+            ("azure_openai_deployment", deployment),
+        )
+        if not value
+    ]
+    if len(missing) == 3:
         return None
-    account = parse_service_account(raw)
-    if account is None:
-        # Present but unreadable is an operator error and must not be reported as
-        # "unconfigured", which would send them to install a key they already installed.
-        log.error("vertex_credential_unparseable", extra={"project": project})
+    if missing:
+        log.error("azure_credential_incomplete", extra={"missing": missing})
         return None
-    return account, project
+    return resource, api_key, deployment
 
 
-def vertex_extractor(model: str = GEMINI_DEFAULT_LLM) -> VertexGeminiExtractor | None:
-    """A ready Vertex extractor for this deployment, or None if it holds no credential.
+def azure_extractor() -> AzureOpenAIExtractor | None:
+    """A ready Azure extractor for this deployment, or None if it holds no credential.
 
-    ONE constructor, so nothing outside this module has to know that "the Vertex client"
-    is two configuration values rather than one. `scripts/eval.py`'s provider table wants
-    exactly this: every other provider it scores is built from a single credential string,
-    and Vertex is not — a project id and a service-account key, neither of which is
-    optional. A caller that assembled them itself would be the second place that decides
-    what "configured" means, and the first place is `vertex_credentials()`.
+    ONE constructor, so nothing outside this module has to know that "the Azure client"
+    is four configuration values rather than one. `scripts/eval.py`'s provider table
+    wants exactly this: every other provider it scores is built from a single credential
+    string and this one is not. A caller that assembled them itself would be the second
+    place that decides what "configured" means, and the first place is
+    `azure_credentials()`.
+
+    THE MODEL IS READ WITHOUT A CHECK, which is not an omission — see
+    `MODEL_NOT_ALLOWED`'s absence above. `azure_openai_model` is a closed `Literal` with
+    a default, so it is always set and is always one this platform ships; `gpt-4.1-mini`
+    is D-410's live switch and moving it is a console edit, not a deploy.
     """
-    credentials = vertex_credentials()
+    credentials = azure_credentials()
     if credentials is None:
         return None
-    account, project = credentials
-    return VertexGeminiExtractor(account, project, model)
+    resource, api_key, deployment = credentials
+    return AzureOpenAIExtractor(resource, api_key, deployment, get_settings().azure_openai_model)
 
 
 def assist_capability(
@@ -1093,17 +1226,17 @@ def assist_capability(
 
     THE LADDER, and each rung is a decision rather than a check:
 
-    1. **Gemini serves it** when a credential resolves, the tenant is inside its quota and
-       the provider has not just failed. This is the preferred answer and carries no
-       disclosure, because nothing was substituted.
-    2. **Sarvam serves it, disclosed**, when Gemini cannot. A fallback is honest here:
+    1. **Azure serves it** when a credential resolves, the configured model is one we
+       ship, the tenant is inside its quota and the provider has not just failed. This is
+       the preferred answer and carries no disclosure, because nothing was substituted.
+    2. **Sarvam serves it, disclosed**, when Azure cannot. A fallback is honest here:
        both are instruction-following LLMs over the same redacted text, and the difference
        is quality, not correctness — so the answer stands and the client is told whose it
        is. `OfflineExtractor` is deliberately NOT in this ladder: it is a deterministic
        reader of literal transcript text, and offering its output as "your re-summarised
        call" would be substituting a different KIND of thing while claiming to substitute
        a model.
-    3. **Refuse**, with the reason that stopped Gemini, when there is no Sarvam key
+    3. **Refuse**, with the reason that stopped Azure, when there is no Sarvam key
        either. `assist_unavailable()` turns that into a message with a remediation.
 
     `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than reads. Neither
@@ -1114,7 +1247,6 @@ def assist_capability(
     states without a database.
     """
     settings = get_settings()
-    credentials = vertex_credentials()
 
     blocked: str | None = None
     if quota_exhausted:
@@ -1123,11 +1255,11 @@ def assist_capability(
         blocked = QUOTA_EXHAUSTED_REASON
     elif provider_unavailable:
         blocked = PROVIDER_UNAVAILABLE_REASON
-    elif credentials is None:
-        blocked = AI_STUDIO_KEY_REASON if settings.gemini_api_key else NO_CREDENTIAL_REASON
+    elif azure_credentials() is None:
+        blocked = NO_CREDENTIAL_REASON
 
     if blocked is None:
-        return AssistCapability(available=True, provider=GEMINI_PROVIDER)
+        return AssistCapability(available=True, provider=AZURE_PROVIDER)
     if settings.sarvam_api_key:
         return AssistCapability(available=True, provider=SARVAM_PROVIDER, fallback_reason=blocked)
     return AssistCapability(available=False, reason=blocked)
@@ -1151,17 +1283,11 @@ def assist_unavailable(capability: AssistCapability) -> ProblemError:
             "The assistant model did not answer and this deployment has no second model "
             "configured. Try again in a few minutes; if it persists, contact support."
         ),
-        AI_STUDIO_KEY_REASON: (
-            "This deployment has a Gemini API key, which reaches the AI Studio Developer "
-            "API — an endpoint D-127 disqualifies because it offers no India data "
-            "residency. Install GCP_PROJECT_ID and GCP_SERVICE_ACCOUNT_JSON for Vertex AI "
-            "asia-south1 instead (DEV-SETUP §4)."
-        ),
     }.get(
         reason,
-        "No AI provider is configured on this deployment. Install a Vertex AI service "
-        "account (GCP_PROJECT_ID + GCP_SERVICE_ACCOUNT_JSON) or a Sarvam API key "
-        "(DEV-SETUP §4).",
+        "No AI provider is configured on this deployment. Install an Azure OpenAI "
+        "resource (AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + "
+        "AZURE_OPENAI_DEPLOYMENT) or a Sarvam API key (DEV-SETUP §4).",
     )
     return ProblemError(
         kind="dependency",
@@ -1176,11 +1302,11 @@ def assist_unavailable(capability: AssistCapability) -> ProblemError:
 class AssistResult:
     """One user-triggered assist: what came back, who wrote it, and what it cost.
 
-    `usage` is non-None only for a GEMINI answer that Vertex counted — the leg that
-    spends Calevate's rupees and the only one `record_ai_assist_usage` (D-137) has units
-    for. A Sarvam fallback leaves it None because D-36 prices that leg at zero, and a
-    Gemini answer whose `usageMetadata` did not arrive leaves it None because "we do not
-    know" and "it was free" must not meter the same.
+    `usage` is non-None only for an AZURE answer that Azure counted — the leg that spends
+    Calevate's rupees and the only one `record_ai_assist_usage` (D-137) has units for. A
+    Sarvam fallback leaves it None because D-36 prices that leg at zero, and an Azure
+    answer whose `usage` block did not arrive leaves it None because "we do not know" and
+    "it was free" must not meter the same.
     """
 
     output: ExtractionOutput
@@ -1213,7 +1339,7 @@ async def run_assist(
     `assist_input_not_redacted`, from inside the function the route calls. The guard
     catches the exact mistake its author predicted, in the exact place predicted.
 
-    THE FALLBACK IS DISCLOSED, NEVER SILENT. Gemini failing mid-flight re-asks the ONE
+    THE FALLBACK IS DISCLOSED, NEVER SILENT. Azure failing mid-flight re-asks the ONE
     selector with `provider_unavailable=True` rather than deciding locally, so a surface
     can never grow its own idea of what a failure means; the answer that comes back
     carries `capability.disclosure`, which the response and the screen must show.
@@ -1224,7 +1350,7 @@ async def run_assist(
     session and a tenant and this module has neither; without the parameter the ceiling
     D-137 built could not reach the one function that runs an assist, which is a gate
     with no door. What it returns is the other half: `AssistResult.usage` is what
-    `record_ai_assist_usage` needs for `tokens_in`/`tokens_out`, in Vertex's own count.
+    `record_ai_assist_usage` needs for `tokens_in`/`tokens_out`, in Azure's own count.
     Money stays outside a model adapter; the numbers money is computed from come from it,
     because nowhere else can see them.
     """
@@ -1246,11 +1372,12 @@ async def run_assist(
     if not capability.available:
         raise assist_unavailable(capability)
 
-    if capability.provider == GEMINI_PROVIDER:
-        credentials = vertex_credentials()
-        if credentials is not None:
-            account, project = credentials
-            extractor = VertexGeminiExtractor(account, project)
+    if capability.provider == AZURE_PROVIDER:
+        # `azure_extractor()` rather than a second assembly of the same four settings: it
+        # is the ONE constructor, and the branch that used to build the adapter inline
+        # here was the second place that decided what "configured" means.
+        extractor = azure_extractor()
+        if extractor is not None:
             output = await extract_call(spec, redacted_transcript, extractor=extractor)
             failure = output.errors.get("_model")
             if failure is None:
@@ -1264,7 +1391,7 @@ async def run_assist(
             # post-call pipeline never loses a call over one. Here the user is waiting
             # and the answer is empty, so the same event means something different: ask
             # the ONE selector again, with the fact we now have, rather than deciding
-            # locally what a Gemini outage means.
+            # locally what an Azure outage means.
             log.warning(
                 "assist_provider_failed",
                 extra={"model": extractor.model_name, "error": failure},
@@ -1333,29 +1460,27 @@ async def extract_call(
 
 
 __all__ = [
-    "AI_STUDIO_KEY_REASON",
     "ASSIST_QUOTA_ENFORCED",
+    "AZURE_PROVIDER",
+    "AZURE_SCHEMA_NAME",
     "GEMINI_EXTRACTION_DEFAULT",
-    "GEMINI_PROVIDER",
     "NO_CREDENTIAL_REASON",
     "PROVIDER_UNAVAILABLE_REASON",
     "QUOTA_EXHAUSTED_REASON",
     "SARVAM_PROVIDER",
-    "VERTEX_SCOPE",
     "AssistCapability",
     "AssistResult",
+    "AzureOpenAIExtractor",
     "Extractor",
     "OfflineExtractor",
     "SarvamExtractor",
     "TokenUsage",
-    "VertexGeminiExtractor",
     "assist_capability",
     "assist_unavailable",
-    "build_vertex_response_schema",
+    "azure_credentials",
+    "azure_extractor",
+    "build_azure_response_schema",
     "extract_call",
     "get_extractor",
     "run_assist",
-    "vertex_credentials",
-    "vertex_extractor",
-    "vertex_generate_url",
 ]
