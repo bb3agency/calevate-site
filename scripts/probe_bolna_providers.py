@@ -7,17 +7,29 @@ both halves of that: Azure OpenAI is a FIRST-CLASS Bolna provider, so the doubtf
 `custom` route is not needed, and an Azure key is STATIC, so nothing rotates and there is
 no cadence to prove. Deleting the file would have been the tidy move and it would have
 been wrong, because the ONE thing gate 16c was really asking survived the migration
-intact: **we still do not know the field names Bolna's credential store expects for the
-Azure provider.** Their docs are egress-blocked from this environment, so that is a
-MARKED ASSUMPTION in the adapter and a named gate — the same standing
-`bolna_llm_credential_name` has always had — and this file is still the only instrument
-that settles it without placing a live call.
+intact: **which entry in Bolna's credential store the Azure leg reads its key from, ON A
+LIVE ACCOUNT.**
 
-What changed is what a FAILURE means. Under D-404 a 404 here closed the whole design and
-sent us looking for a provider that takes a static key. Now it says something much
-smaller: the entry is named or shaped differently than we assumed.
-`bolna_llm_credential_name` is `applies: live`, so each attempt is one console edit and a
-re-run — no deploy, no republish.
+**WHAT CHANGED, AND IT MOVED THIS FILE FROM GUESSWORK TO CONFIRMATION.** Their
+credential-store documentation is now readable, and it names FOUR required entries for
+Azure OpenAI — `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE` and
+`AZURE_OPENAI_API_VERSION`, under "All these keys must be added for the respective
+provider". The AUTHORITATIVE list — with its citation, its per-key source in our
+settings, and the one value nothing here can derive — is
+`apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`, and it is the only place a correction
+belongs. The four names above are prose for a reader of this file; no code here reads
+them, which is what keeps this from being a second copy that can drift.
+
+So this probe no longer asks "what is the entry called". It asks the narrower question a
+document cannot answer: does THIS account's store behave the way the page says, under the
+name we are configured to use. `bolna_llm_credential_name` is still `applies: live`, so a
+disagreement is one console edit and a re-run — no deploy, no republish.
+
+**AND THE PROBE ONLY EVER COVERS ONE OF THE FOUR.** `set_llm_credential` writes the API
+key, because that is the entry that must never be typed into a console by a human and the
+only one whose value the platform holds in a form it can push. The endpoint, the
+deployment and the api-version are the operator's, in the vendor console, and a green
+result below says nothing about them.
 
 **IT DRIVES THE REAL ADAPTER, and the first version of this file did not — which is the
 part worth reading.** It hand-rolled `{"provider_name": ..., "provider_value": ...}` and
@@ -87,11 +99,13 @@ async def _run() -> int:
             f"GATE: NEGATIVE (so far) — the write failed: "
             f"{type(exc).__name__}: {str(exc)[:300]}\n\n"
             "This is a question about NAMING, not about the design. Azure OpenAI is a\n"
-            "first-class provider on this platform; what we could not read from their\n"
-            "docs is which entry the Azure leg reads its key from.\n"
-            "  * a 4xx naming the provider  -> try the other plausible spellings of\n"
-            "    `bolna_llm_credential_name`. It is `applies: live`, so each attempt is\n"
-            "    one console edit and a re-run, with no deploy and no republish.\n"
+            "first-class provider on this platform, and their docs name the entry\n"
+            "`AZURE_OPENAI_API_KEY`; a failure here means this ACCOUNT disagrees with\n"
+            "that page.\n"
+            "  * a 4xx naming the provider  -> read the store's own listing in the\n"
+            "    dashboard and set `bolna_llm_credential_name` to what it shows. It is\n"
+            "    `applies: live`, so each attempt is one console edit and a re-run, with\n"
+            "    no deploy and no republish.\n"
             "  * a 404 on the store itself  -> the credential store does not exist on the\n"
             "    hosted API at all, and the key has to be configured on the agent in the\n"
             "    dashboard by hand. Say so in the gate; do NOT invent a second write path."
@@ -107,6 +121,13 @@ async def _run() -> int:
         "Azure provider actually receives this as its key. Publish an agent and place ONE\n"
         "call. There is no second observation to make: D-410's key is static, so nothing\n"
         "expires and nothing has to be watched over time.\n\n"
+        "THREE MORE ENTRIES ARE REQUIRED AND THIS PROBE INSTALLS NONE OF THEM. Their\n"
+        "Azure provider documents four keys; add the endpoint, the deployment and the\n"
+        "api-version by hand in the vendor console. The names, their sources, and why\n"
+        "the api-version has no derivable value here are in\n"
+        "`apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`. RECORD WHAT THE CONSOLE\n"
+        "ACCEPTS FOR THE API-VERSION: it is what tells us whether their Azure client is\n"
+        "the v1 surface we build for or the classic one.\n\n"
         f"NOTE: the probe value is still stored under {name!r}. It is inert, but replace\n"
         "it with the real key before anything depends on the leg — and note that a\n"
         "`replaced_in_place=False` above means the store APPENDS, which is the condition\n"

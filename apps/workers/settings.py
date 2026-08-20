@@ -81,6 +81,7 @@ from apps.workers.dispatcher import (
     sweep_expired,
 )
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
+from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -336,6 +337,25 @@ CRON_JOBS = [
     cron(
         traced_job(sweep_kb_drift),
         minute=set(KB_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE COMPLIANCE-FLAG SWEEP. The third drift-shaped gap and the one with a regulator
+    # behind it: Bolna raises VIOLATIONS against the account we place every regulated
+    # Indian call through, publishes them on a list endpoint, and pushes nothing — so
+    # until this cron existed the channel was silent and the first notice would have been
+    # enforcement (`docs/evidence/bolna-compliance-residency.md` §1).
+    #
+    # `minute` comes FROM the module for its neighbours' reason. HOURLY at :50: no
+    # deadline is documented on any vendor page, so there is no interval to derive — an
+    # hour keeps time-to-notice short on an obligation whose remedy is a human action
+    # anyway, and :50 is the one slot the other fleet-wide fan-outs leave free.
+    #
+    # `max_tries` EXPLICIT, the reason its neighbours give: `cron()` defaults it to 1, and
+    # a sweep that gave up on its first vendor blip would leave a compliance obligation
+    # unwatched for the hour with every screen green.
+    cron(
+        traced_job(sweep_engine_violations),
+        minute={SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE SETUP FEE STOPS WAITING FOR A HUMAN. Before this cron the onboarding charge

@@ -71,9 +71,23 @@ log = get_logger(__name__)
 REQUEST_TIMEOUT_S = 10.0
 
 # --- Throttle handling (SURFACES §3.3) ---------------------------------------
-# Vendor rate limits are unpublished (Bolna: pilot item; Cartesia: no account at all), so
-# 429 is a response we will meet without warning. Three deliberate limits on what we do
-# about it:
+# Bolna's rate limits ARE published now and this comment used to say they were not
+# (VERIFIED-DOCS, `bolna-findings/mirror/pages/api-reference/rate-limiting.md:17-25`,
+# announced `changelog/february-2026.md:51-67`): 500 requests/minute each on
+# `/v2/agent/{agent_id}/executions`, `/v2/agent/{agent_id}` and `/call`, 1000/minute
+# everywhere else, counted **per organisation** — "the rate limit is shared across all
+# users within that organisation" — which for us means per Bolna account, not per tenant.
+# Their guidance is the ladder below: *"Implement exponential backoff"*, and `limits.md`
+# prints `2 ** i`.
+#
+# NOTHING CHANGES HERE AS A RESULT, and that is the finding rather than an omission. Our
+# two callers are orders of magnitude inside it — the reconciliation poller fans out one
+# request per agent per page on a ten-minute tick (`bolna._LISTING_PAGE_SIZE`), and the
+# dispatcher cannot exceed `campaign_dispatch.PLATFORM_LINES_TOTAL` dials in flight — so
+# 429 remains a response we meet without warning rather than one we can predict, which is
+# what the ladder is for. Cartesia's are still unpublished (no account at all).
+#
+# Three deliberate limits on what we do about it:
 #
 # 1. **429 ONLY.** A 429 means the request was refused, not performed — the one status
 #    where retrying `POST /call` cannot dial a person twice. A 502/503/504 on the same

@@ -338,6 +338,39 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
     {"sarvam-m", "sarvam-30b", "sarvam-30b-16k", "sarvam-105b-32k"}
 )
 
+#: Sarvam SPEECH-TO-TEXT identifiers that do not return what was said — they return an
+#: ENGLISH TRANSLATION of it. Banned from shipped code on a Telugu-first product, and
+#: scanned for by `tests/sarvam_model_identifier_test.py` exactly as the retired names are.
+#:
+#: **WHY A BAN AND NOT A PREFERENCE, WHICH IS THE HALF THAT IS EASY TO GET WRONG.** These
+#: are not retired, not deprecated and not second-rate: the engine supports them, a
+#: request naming one succeeds, and the transcript comes back well-formed. **Nothing
+#: 400s.** So the failure has no vendor-side symptom at all — it surfaces as an agent that
+#: works in a demo and a pipeline whose Telugu-shaped machinery quietly matches nothing:
+#: `apps/workers/redaction.py` looks for transliterated Telugu digit words, and
+#: `apps/api/compliance/optout.py` looks for romanised Telugu opt-out phrases, and neither
+#: is in an English translation. A CONSENT WITHDRAWAL WE DO NOT RECOGNISE IS A COMPLIANCE
+#: FAILURE, not a quality one, which is what makes this a hard-banned set rather than a
+#: note in a docstring. It is also the reason the ban is by IDENTIFIER: "did the caller's
+#: own words reach us" is not a property any downstream check can recover once they have
+#: not.
+#:
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`
+#: (fetched 20 Aug 2026) lists four supported Sarvam STT models and separates them on
+#: exactly this axis — *"Saarika v2.5: Transcribes speech to text in the original spoken
+#: language"*, *"Saaras v2.5: Translates speech directly to English text with automatic
+#: language detection"*, *"Saaras v3: Configured for direct transcription in the original
+#: spoken language"*, *"Saaras v4: Latest Saaras model, transcribes directly in the
+#: original spoken language and can auto-detect the spoken language"*. One of the four
+#: translates. This set is that one.
+#:
+#: DELIBERATELY NOT AN ALLOW-LIST OF THE OTHER THREE. A vendor adds models and a
+#: closed set of "good" names turns their next release into our outage, for a leg where
+#: being a release behind costs nothing. A DENY-list of the one behaviour we cannot
+#: tolerate keeps working when the catalogue grows, and the next translating model is one
+#: entry here.
+SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
+
 
 #: THE Azure region this platform's Azure OpenAI resource lives in. South India (D-410).
 #:
@@ -388,6 +421,29 @@ AZURE_LOCATION: Final = "southindia"
 #: annotation. A free-form string would let a typo become a model identifier that 404s from
 #: a third party in the middle of a live phone call, which is the failure class
 #: `SARVAM_RETIRED_LLMS` above already exists for.
+#: ⚠ **BOTH MEMBERS ARE CONFIRMED SELECTABLE ON THE ENGINE, AND ADDING A THIRD IS NOT A
+#: ONE-LINE CHANGE.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/
+#: llm-model/azure-openai.md:44-47`: their Azure "Supported models" table lists `gpt-4.1`,
+#: `gpt-4.1-mini`, `gpt-4o` AND `gpt-4o-mini`, each as *"Previous gen; still available /
+#: Stable if already deployed"*. So the fear that our two identifiers were absent from a
+#: fixed allow-list — and that every publish would be rejected at create time — is
+#: ANSWERED NO. The same page settles the mechanism too (`:69`, `:97-98`): the field is a
+#: DEPLOYMENT name chosen freely, which is what this module has argued all along.
+#:
+#: **WHAT A NEW MEMBER COSTS, listed here because two of the three are invisible from
+#: this line.** `AZURE_LIST_PRICE_USD_PER_MTOK` must gain the same key or metering
+#: `KeyError`s on the first call after the switch. And on a **GPT-5-class** model there
+#: are two more, both of which fail at PUBLISH rather than in review:
+#:
+#:   1. `apps/api/engine/bolna.py::_agent_body` sends `temperature: 0.1`, and their
+#:      GPT-5 models accept ONLY `1` — *"Any other value is rejected with `400 For GPT-5
+#:      models, temperature must be 1`"* (`azure-openai.md:29`). Every publish would 400.
+#:   2. Bolna infers GPT-5 handling and the default `reasoning_effort` by resolving the
+#:      DEPLOYMENT NAME back to a model (`azure-openai.md:69`), so a deployment not named
+#:      after its model gets GPT-4-era defaults on a GPT-5 model with no error at all.
+#:      `Settings.azure_openai_deployment` carries that half.
+#:
+#: None of this is a reason not to move — it is the checklist that makes moving safe.
 AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 
 #: The same set as a value — `get_args` on the Literal, never a second tuple beside it.
@@ -614,12 +670,14 @@ def _azure_resource_of(base_url: str) -> str | None:
 #: once for exactly that reason.
 #:
 #: WHAT THE VOCABULARY BUYS HERE, now that the engine has a first-class name for this
-#: provider. Bolna lists Azure OpenAI in its published provider set and its live agent
-#: dropdown (`azure`), so `apps/api/engine/bolna.py::_llm_routing` maps this member onto a
-#: provider the platform advertises — not onto the `custom` route, whose one unverified
-#: premise (which credential-store entry a custom model's key is read from) is what put the
-#: Vertex leg in doubt. Ours stays a separate name from theirs because the mapping is the
-#: adapter's job and because "azure" is a vendor's word for a cloud, not ours for a leg.
+#: provider. Bolna documents Azure OpenAI as a provider in its own right, with a wire
+#: spelling (`azure-openai`) and a four-key credential-store entry, so
+#: `apps/api/engine/bolna.py::_llm_routing` maps this member onto a provider the platform
+#: advertises — not onto the `custom` route, whose credential path their own docs still do
+#: not describe (the whole documented custom-LLM flow is a URL and a name, with no field
+#: for a key), which is what put the Vertex leg in doubt. Ours stays a separate name from
+#: theirs because the mapping is the adapter's job and because "azure-openai" is a
+#: vendor's word for a cloud product, not ours for a leg.
 #:
 #: ONE MEMBER, AND THAT IS THE HONEST COUNT rather than a stub. `None` — "whatever the
 #: engine's own default is" — remains what an agent resolves to on a deployment that has

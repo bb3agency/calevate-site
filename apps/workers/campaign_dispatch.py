@@ -130,6 +130,22 @@ log = get_logger(__name__)
 # Until engine verification item 8 produces the real numbers, the pool is a config
 # default sized for the pilot. It lives here as ONE constant so the pilot's measured
 # value has exactly one place to land (or move to engine_capacity when that ships).
+#
+# **TEN IS NOW THE VENDOR'S OWN NUMBER RATHER THAN OURS, AND ITEM 8 IS A LOOKUP RATHER
+# THAN A MEASUREMENT** (VERIFIED-DOCS). Bolna: *"By default, Bolna allows up to **10
+# concurrent calls** for paid users"*
+# (`bolna-findings/mirror/pages/frequently-asked-questions.md:51`), and the live value for
+# an account is readable — no support ticket, no stopwatch — from `GET /user/me`:
+#
+#     "concurrency": { "max": 10, "current": 3 }
+#
+# (`bolna-findings/mirror/pages/api-reference/limits.md:11-19`). So the pilot default and
+# the vendor default coincide, which means this constant is not currently over-committing
+# the engine: `_outbound_pool()` hands campaigns 10 minus the inbound reserve, so we dial
+# strictly fewer lines than Bolna will accept and the engine's own queue is never the
+# thing that decides. An account whose limit is RAISED (`limits.md`: "contact support ...
+# or upgrade your plan") is the case that needs this number moved, and moving it is the
+# whole change — which is why it stayed one constant.
 PLATFORM_LINES_TOTAL = 10
 MIN_INBOUND_RESERVE = 4
 ACTIVE_STATUSES = ("queued", "ringing", "in_progress")

@@ -99,6 +99,29 @@ GROUP BY status;
 - `no_outbound_pool` (pool ≤ 0) means config, not traffic: someone changed
   `inbound_reserve_ratio` or `PLATFORM_LINES_TOTAL`. Fix the config, not the data.
 
+### 3a. Is `PLATFORM_LINES_TOTAL` still the vendor's real number?
+
+`PLATFORM_LINES_TOTAL = 10` is OUR typed-in belief about the engine account's ceiling,
+and Bolna publishes the true value: `GET /user/me` returns
+`concurrency: {max, current}` — the account's limit and its live in-flight count
+(`bolna-findings/mirror/pages/api-reference/user/info.md`, `User.concurrency`). Read it
+before touching the constant. It also cross-checks step 3's SQL: `concurrency.current`
+is the vendor's own count of live outbound calls, so a large gap against our `calls`
+total is stranded rows, not a busy platform. The account's tier moves under us without a
+deploy — *"Paid accounts — Starts at 10 concurrent calls, **scaling automatically with
+monthly usage**"* (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md`)
+— so a number that was right when it was typed is not evidence it is right now.
+
+**A constant set too HIGH does not surface as errors, and that is the dangerous
+direction.** Bolna queues rather than rejects: *"Outbound calls that don't fit your
+concurrency limit are **queued, not rejected**. They dial automatically as active calls
+finish"* (same page). So over-dialling looks like a healthy tick — the engine accepted
+everything — while the surplus sits in a vendor queue we cannot see, cancel, or DNC-scrub,
+and dials whenever capacity frees up. That is a compliance exposure, not a throughput one:
+`compliance.service.check_dispatch` runs at DISPATCH time, so a contact cleared at 20:55
+can be dialled by the engine after 21:00 IST, outside the TRAI window our own gate exists
+to enforce. Treat the global budget as a calling-hours control, not an optimisation.
+
 ## 4. Per-tenant ceiling
 
 The tick computes, per tenant: `tenant_budget = concurrency_ceiling − active`, then
@@ -115,6 +138,38 @@ WHERE c.status = 'running';
 
 A tenant whose active-call count (step 3) ≥ ceiling gets zero slots every tick — that is
 the design working (one client must not starve another's inbound), not a bug.
+
+### 4a. The tenant got slots and still dialled nothing
+
+There is a fourth stall this table does not name, and it reports as a HEALTHY tick
+(`dialled=X ...`, never `pool_saturated`) while one tenant dials zero. The tick builds
+`running` — every (tenant, campaign, slots) that cleared rules 3 and 4 — and then spends
+`global_budget = pool − total_active` down that list in order, breaking out when it hits
+zero (`_run_tick`, `apps/workers/campaign_dispatch.py`). The list's order is
+`dispatch_scan()`'s, which is `ORDER BY tenant_id` (migration `a8d4f21c9b06`), and
+`tenant_id` is uuid_v7 — **time-ordered**. So under a saturated pool the spend order is
+oldest tenant first, on every tick, and the newest tenant is served last every time.
+Caps we have; guarantees we do not, and nothing rotates.
+
+Confirm it before chasing anything tenant-specific: if the tick's `dialled` is at or near
+the pool while the complaining tenant's own contacts stayed `pending`, and that tenant's
+UUID sorts late among the tenants with running campaigns, this is the cause and it is not
+a defect in that tenant's campaign, plan or list.
+
+```sql
+-- who is ahead of the complaining tenant in spend order, and holding how many lines
+SELECT DISTINCT r.tenant_id
+FROM engine_agent_routes r
+ORDER BY 1;   -- the tick's own order; anything sorting before yours spends first
+```
+
+Immediate relief is to lower the earlier tenants' `plans.concurrency_ceiling` or their
+campaign sliders so the budget reaches the tail, or raise `PLATFORM_LINES_TOTAL` if
+step 3a shows the vendor ceiling is genuinely higher than we believe. The durable fix is
+a per-tenant guaranteed FLOOR alongside the cap — see
+`docs/evidence/bolna-subaccounts-platform.md` §2.3, which sets out the mechanism and the
+engine's own reference algorithm for it. Do not "fix" this by editing the scan's
+`ORDER BY`: a different fixed order starves a different tenant.
 
 ## 5. Campaign status
 

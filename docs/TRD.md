@@ -417,15 +417,23 @@ scorecard — D-31]:
   turn and no turn latency is derivable from what we ingest. Their docs DO describe a
   `latency_data` object on Get Execution — unverified against a live account, and a
   pilot gate 4 capture rather than an adapter field (see §4).
-- **Webhooks — UNSIGNED, at-most-once** [verified in docs AND the OSS delivery code:
-  a single aiohttp POST, no retry, no timeout, errors swallowed]: per-agent
-  webhook_url in agent_config; fires on status transitions (scheduled → queued →
-  in-progress → completed); pre-call webhooks from tools share the shape. No delivery
-  history, no replay tooling. Authenticity = **source-IP allowlist (13.203.39.153)
+- **Webhooks — UNSIGNED; delivery guarantee UNSETTLED** [this line said "at-most-once"
+  and cited the OSS delivery code — a single aiohttp POST, no retry, errors swallowed —
+  which is a *different program* from the hosted deliverer (D-352). The skills repo says
+  the hosted platform "retries on non-2xx"; the vendor's own hosted webhook page
+  (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`) says
+  **nothing at all** about retries, signing or guarantees. So the retry claim rests on one
+  first-party source and is not corroborated — treat delivery as lossy in both
+  directions]: per-agent webhook_url in agent_config; fires on status transitions
+  (scheduled → queued → in-progress → completed); pre-call webhooks from tools share the
+  shape. No delivery history, no replay tooling. Authenticity = **source-IP allowlist
+  (13.203.39.153, 13.126.9.249, 13.202.133.53 — THREE addresses; this said one until
+  D-412, and the allowlist fails safe, so two of three senders were being rejected)
   enforced IN-APP, and there only** (nginx does D-27 real_ip restoration and no `allow`;
   SECURITY-COMPLIANCE §5 carries why the edge layer is declined rather than pending),
-  plus dedupe on execution_id; webhook payloads are
-  treated as hints — the authenticated Get Execution fetch is the truth. Consequently
+  plus dedupe on the **(execution_id, status) PAIR** — never on execution_id alone, or the
+  `completed` transition is discarded as a duplicate of `queued` (D-352); webhook payloads
+  are treated as hints — the authenticated Get Execution fetch is the truth. Consequently
   the **10-min List-Executions reconciliation poller (FLOWS §3) is the guarantee of
   record**, not a safety net. Empirical delivery behavior re-tested at pilot.
 - **Recordings**: direct S3 URL (us-east-1), no documented expiry — the recording-copy

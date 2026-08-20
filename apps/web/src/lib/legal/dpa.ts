@@ -303,10 +303,12 @@ export const DPA: LegalDocument = {
             "build constrains but cannot prove — see the paragraph below, which is part " +
             "of this clause; object storage selects its location automatically and " +
             "offers no India-only jurisdiction; the application host is at " +
-            "{{PRIMARY_HOSTING_LOCATION}}; the voice platform's own copies of recordings " +
-            "have been observed outside India; and transactional email and error " +
-            "monitoring are operated from outside India. Sign-in is ours and runs on the " +
-            "application host.",
+            "{{PRIMARY_HOSTING_LOCATION}}; the voice platform runs the call itself, and " +
+            "holds its own copy of the recording and transcript, outside India — its " +
+            "documentation states that its services run on United States infrastructure " +
+            "unless an enterprise residency option is purchased, and we have not purchased " +
+            "one; and transactional email and error monitoring are operated from outside " +
+            "India. Sign-in is ours and runs on the application host.",
         },
         {
           kind: "callout",

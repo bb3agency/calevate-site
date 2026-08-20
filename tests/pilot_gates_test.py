@@ -33,7 +33,7 @@ from calevate_shared.engine import (
 )
 from calevate_shared.events import TranscriptTurn
 from scripts.pilot.gates_api import (
-    DOCUMENTED_EGRESS_IP,
+    DOCUMENTED_EGRESS_IPS,
     GateContext,
     compare_delivery,
     run_gate_1,
@@ -71,12 +71,27 @@ class SourceIpEngine(FakeEngine):
     """`fake` plus the one property gate 1 measures: a source-IP allowlist.
 
     Stands in for `BolnaEngine.verify_webhook`, which is the only adapter that has one.
+    Accepts EVERY documented egress, which is what a correctly configured allowlist does
+    — `PartialAllowlistEngine` below is the one that holds a subset.
     """
 
     def verify_webhook(
         self, headers: dict[str, str], body: bytes, source_ip: str
     ) -> WebhookVerdict:
-        if source_ip == DOCUMENTED_EGRESS_IP:
+        if source_ip in DOCUMENTED_EGRESS_IPS:
+            return WebhookVerdict(ok=True, method="source_ip")
+        return WebhookVerdict(ok=False, method="source_ip", reason="not allowlisted")
+
+
+class PartialAllowlistEngine(SourceIpEngine):
+    """An allowlist holding only the FIRST documented egress — the shape this repository
+    actually shipped until D-412, and the one a gate scoring a single address calls green.
+    """
+
+    def verify_webhook(
+        self, headers: dict[str, str], body: bytes, source_ip: str
+    ) -> WebhookVerdict:
+        if source_ip == DOCUMENTED_EGRESS_IPS[0]:
             return WebhookVerdict(ok=True, method="source_ip")
         return WebhookVerdict(ok=False, method="source_ip", reason="not allowlisted")
 
@@ -526,6 +541,35 @@ async def test_gate_1_catches_an_allowlist_that_accepts_everyone() -> None:
     result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery()]))
     rejected = _check(result, "rejects_other_sources")
     assert rejected.status == "fail"
+    assert result.status == "fail"
+
+
+async def test_gate_1_catches_an_allowlist_holding_only_some_documented_egresses() -> None:
+    """THE DEFECT THIS REPOSITORY SHIPPED (D-412), and the one a one-address gate calls green.
+
+    Bolna sends webhooks from three addresses and instructs receivers to "whitelist all
+    three ... to ensure you receive all webhook events"
+    (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`).
+    `DEFAULT_BOLNA_SOURCE_IPS` held one of them, so two of three senders were rejected —
+    and because which sender carries a given transition is not ours to choose, that is not
+    "some" lost webhooks but arbitrary lost transitions, `completed` among them.
+
+    The failure has to be visible as `accepts_documented_egress`, not as
+    `rejects_other_sources`: the allowlist IS rejecting non-allowlisted sources correctly.
+    What is wrong is which addresses it counts as allowlisted, and the message must name
+    the ones that were turned away so an operator can add them.
+    """
+    engine = _seeded(PartialAllowlistEngine())
+    result = await run_gate_1(_ctx(engine, captured_webhooks=[_delivery()]))
+
+    accepts = _check(result, "accepts_documented_egress")
+    assert accepts.status == "fail"
+    for missing in DOCUMENTED_EGRESS_IPS[1:]:
+        assert missing in accepts.detail, (
+            f"the operator cannot act on this without being told {missing} was rejected"
+        )
+    # The subset allowlist still rejects a non-allowlisted source, so THAT check is honest.
+    assert _check(result, "rejects_other_sources").status == "pass"
     assert result.status == "fail"
 
 

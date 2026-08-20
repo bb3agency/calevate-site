@@ -72,6 +72,16 @@ from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 from sqlalchemy import event, text
 
+# RELATIVE TO NOW, NOT A LITERAL DATE — the same time bomb `bolna_listing_test.SINCE`
+# defused, in the file that inherited it. This was `datetime(2026, 8, 10)`, correct on the
+# day it was written and stale the moment `list_executions` grew `_LISTING_MAX_WINDOW`: a
+# fixture pinned to a fixed past instant drifts further from `now()` every day until the
+# window it asks for is one the vendor will not serve. The whole file then fails on
+# `engine_listing_window_too_wide` — a refusal that is CORRECT — and it fails in a test
+# about PII redaction, which has nothing to do with listing windows. Nothing here asserts
+# the absolute value; the call only has to be inside the served window.
+_LISTING_SINCE = datetime.now(UTC)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFORMANCE_DIR = REPO_ROOT / "packages" / "shared" / "tests" / "engine_conformance"
 
@@ -2001,9 +2011,9 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
 
     with caplog.at_level("DEBUG"):
         snapshot = await engine.get_execution("exec_pii_one")
-        listing = await engine.list_executions(since=datetime(2026, 8, 10, tzinfo=UTC))
+        listing = await engine.list_executions(since=_LISTING_SINCE)
         with pytest.raises(ProblemError):
-            await engine.list_executions(since=datetime(2026, 8, 10, tzinfo=UTC))
+            await engine.list_executions(since=_LISTING_SINCE)
         with pytest.raises(ProblemError):
             await engine.get_agent("agent_pii")
         engine.parse_webhook(_pii_execution("exec_pii_hook"))

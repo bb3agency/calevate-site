@@ -56,7 +56,7 @@ from calevate_shared.config import Settings
 #: §4's table, as `Settings` field names. Spelled HERE, independently of
 #: `core/settings.ENV_ONLY_KEYS`, and that duplication is the entire mechanism: a
 #: guardrail that imported the list it is checking would be asking the code whether it
-#: agrees with itself. `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IP` restates a constant
+#: agrees with itself. `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IPS` restates a constant
 #: for the same reason and argues it in the same words.
 BOOTSTRAP_KEYS: frozenset[str] = frozenset(
     {

@@ -351,14 +351,20 @@ def in_call_llm(configured_model: object) -> dict[str, object]:
        deployment ID the operator chose, and the v1 surface addresses THAT. A resource
        with no deployment addresses a host and no model.
 
-    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, because the gap is real.** It proves WE
-    hold a key. It does not prove the ENGINE holds it: Bolna authenticates from its own
-    credential store, which `VoiceEngine.set_llm_credential` writes and which nobody has
-    observed for a first-class Azure provider (`Settings.bolna_llm_credential_name`
-    defaults to `AZURE` and is a MARKED ASSUMPTION — OPERATIONS §2 gate 16f). So the
-    condition is "this deployment holds a key it could install", which is the strongest
-    thing a publish path can check without doing the vendor's bookkeeping for it. The
-    same gap existed under D-404 and was closed by the same gate.
+    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, AND THE GAP GOT WIDER RATHER THAN
+    NARROWER WHEN THE VENDOR'S DOCS WERE READ.** It proves WE hold a key. It does not
+    prove the ENGINE holds it: Bolna authenticates from its own credential store, which
+    `VoiceEngine.set_llm_credential` writes. The store's field NAMES are no longer a
+    guess — their Azure OpenAI provider documents FOUR required entries
+    (`apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`), and
+    `Settings.bolna_llm_credential_name` now defaults to the first of them,
+    `AZURE_OPENAI_API_KEY`. But the platform can only PUSH that one: the endpoint, the
+    deployment and an api-version whose value nothing here can derive are the operator's
+    to install, so "the engine is configured" is further from "we hold a key" than it was
+    when this comment believed one entry was the whole of it. The condition stays "this
+    deployment holds a key it could install", which is the strongest thing a publish path
+    can check without doing the vendor's bookkeeping for it, and OPERATIONS §2 gate 16f
+    is where the rest is observed.
 
     WHAT D-410 DELETED FROM THIS LADDER, said plainly rather than left as an absence:
     the founder's constant (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`) is gone with the
