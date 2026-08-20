@@ -2,9 +2,10 @@
 
 SURFACES §2b: "**Number purchase + KYC**: gated". This module is the purchase half.
 It provisions nothing, because D-05's telephony vendors (Exotel, with Vobiz for the
-140-series) are a decision, not a credential: there is no Exotel account behind this
-deployment, no `EXOTEL_*` secret, and no HTTP call has ever been made to them. What
-ships is therefore the SEAM and an honest refusal — the same shape
+140-series and Plivo for the 160-series — see `KNOWN_PROVIDERS`) are a decision, not a
+credential: there is no account with any of them behind this deployment, no `EXOTEL_*`
+secret, and no HTTP call has ever been made to any of them. What ships is therefore the
+SEAM and an honest refusal — the same shape
 `workers/sheets_sync.py` uses for Google Sheets, `billing/payments.py` for Razorpay and
 `ingest/meta.py` for the Meta Graph read, and for the same reason: a client who picks a
 feature that silently never fires is the worst of the available states.
@@ -67,7 +68,33 @@ log = get_logger(__name__)
 # D-05's telephony picks. A name outside this tuple resolves to
 # `provider_not_implemented` rather than looking configured — `NUMBER_PROVIDER=twilio`
 # must fail loudly, not quietly behave like Exotel.
-KNOWN_PROVIDERS: Final[tuple[str, ...]] = ("exotel", "vobiz")
+#
+# **`plivo` WAS MISSING AND IT IS THE CARRIER FOR HALF OUR REGULATED NUMBERS.** The
+# engine's own regulated-numbers guide maps the two series our `NUMBER_SERIES` enum
+# names onto two carriers, and it is a table, not a hedge (`bolna-findings/mirror/pages/
+# guides/inbound/obtaining-regulated-phone-numbers.md:15-16`):
+#
+#     | **140-series** | Telemarketing and promotional calls | Vobiz  |
+#     | **160-series** | Transactional and service calls ... | Plivo  |
+#
+# So an operator who set `NUMBER_PROVIDER=plivo` — naming the vendor that actually
+# allocates the 160-series numbers every agent we publish runs on, and the one
+# `engine/bolna.py` hardcodes into `tools_config.input/output.provider` — was told
+# `provider_not_implemented:plivo`, i.e. "we do not support that vendor". That is the
+# WRONG refusal: the vendor is supported and the ADAPTER is what is missing, which is
+# the distinction the two reason codes below exist to keep apart. Now it resolves to
+# `no_provisioning_adapter:plivo` like its siblings.
+#
+# `exotel` stays, and is deliberately not the same kind of entry. Bolna's number-purchase
+# API cannot broker an Exotel number at all — `POST /phone-numbers/buy`'s provider enum is
+# `twilio | plivo | vobiz` (`bolna-findings/mirror/pages/api-reference/phone-numbers/
+# buy.md:67-73`) — but Exotel is a first-class BYO-ACCOUNT integration there
+# ("Bring Your Own Account | ✅ Yes", `.../supported-telephony-providers.md:32`), so an
+# Exotel number is bought FROM EXOTEL and connected. This constant answers "which vendor
+# may sell this deployment a number", not "which vendor Bolna will buy one from".
+# `twilio` is still absent on purpose: it is the non-India provider
+# (`.../supported-telephony-providers.md:34` lists its countries and India is not one).
+KNOWN_PROVIDERS: Final[tuple[str, ...]] = ("exotel", "plivo", "vobiz")
 
 # Is there an adapter that can ask a provider for a number? NO. See the module
 # docstring. Greppable and testable rather than a note in a doc.

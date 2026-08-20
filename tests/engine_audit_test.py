@@ -1530,14 +1530,33 @@ _VENDOR_ONLY_KEYS = frozenset(
         # not a per-vendor inventory, and a word only has to be banned once.
         "has_more",
         "llm_config",
+        # THE TWO HALVES OF A BOLNA DISPOSITION, read since the extraction-flattening fix.
+        # Their `extracted_data` nests `{category: {field: {"subjective": ..., "objective":
+        # ...}}}` while OUR `engine_extracted` is a FLAT `{field: value}`, so the adapter
+        # reaches through both words to get at a value. They are vendor-only for
+        # `call_type`'s reason rather than `currency`'s: the CONCEPT is ours — the value of
+        # an extracted field — but the spelling is entirely theirs, and neither word appears
+        # in a single shipped module outside the adapter (measured: 0 files each). A
+        # `subjective` in `apps/workers` would be a vendor shape that escaped, which is what
+        # this list exists to catch.
+        "objective",
         "rag_id",
         "recipient_phone_number",
+        "subjective",
         "synthesizer",
         "task_1",
         "tasks",
         "telephony_data",
         "tools_config",
         "total_cost",
+        # A SECOND CALL LEG, AND WHY IT IS ALARMED RATHER THAN PARSED. When an agent
+        # transfers to a human, Bolna attaches a whole nested record under this key — its
+        # own `recording_url`, `cost` and `duration`. Nothing in this repository models it:
+        # that audio would never be copied, never retained under our policy, and
+        # unreachable by a DPDP erasure. `_check_transfer_leg` therefore pages on its
+        # PRESENCE rather than reading its contents, and this entry keeps the noun from
+        # spreading past the adapter while that stays true.
+        "transfer_call_data",
         "transcriber",
         "user_data",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
@@ -1624,6 +1643,13 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "completed_at",
         "content",
         "context_note",
+        # OURS AS MUCH AS THEIRS — the whole test for this list rather than the one above.
+        # `cost` is read off the transfer leg, but it is also our own word in 102 shipped
+        # modules (`unit_cost_paid`, `CostBreakdown`, `billing/cost_unit.py`), so finding it
+        # outside the adapter proves NOTHING about a leaked vendor shape. Contrast
+        # `cost_breakdown`, `cost_currency` and `total_cost` in the block above: those are
+        # compound nouns only Bolna spells, and they stay banned.
+        "cost",
         "created_at",
         "currency",
         "data",

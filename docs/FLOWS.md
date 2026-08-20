@@ -192,8 +192,23 @@ caller dials client number → engine answers with agent →
 1. Disclosure line (AI + recording notice) plays first — always.
 2. T0 context already in prompt; conversation proceeds; tools available per agent:
    `search_knowledge_base` (our RAG endpoint / engine KB in v1), `book_appointment`
-   (calendar), `transfer_call` (warm to client staff during business hours),
-   `add_to_dnc`, `end_call`.
+   (calendar), `transfer_call` (to client staff during business hours — NOT YET ENABLED,
+   see below), `add_to_dnc`, `end_call`.
+   **`transfer_call` is the one item on that list this system does not have today, and
+   "warm" was a claim nothing supported.** Bolna's built-in is real and its name matches
+   (`key: transfer_call`, an agent-level tool with a config-supplied destination — OAS
+   `TransferCallTools`/`TransferCallToolParams`), but **the vendor documents warm vs cold
+   nowhere**: no page in their mirrored doc set uses the words warm, cold, attended, blind
+   or consultative about a transfer, so whether the caller is held while staff are briefed
+   is unknown, not chosen. Three things must be settled before it is offered, and none is
+   a flag flip — OPERATIONS §2 gate 18, and `docs/evidence/bolna-tools-integrations.md`
+   for the evidence: (a) whether our AI-disclosure and recording obligations follow the
+   caller across the handoff, since the human who picks up is not covered by the sentence
+   the agent already spoke; (b) the transferred leg is a SEPARATE object with its own
+   `recording_url` and its own `cost` (`transfer_call_data`), so retention, DPDP erasure
+   and metering all need it and none of them reaches it today — `engine/bolna.py`
+   `_check_transfer_leg` pages if one ever appears; (c) whether the destination becomes
+   engine config per agent rather than one of our columns.
 3. Unknown/out-of-scope (T4): agent says it doesn't know, offers callback, tags call.
 4. voice-runtime receives interim events (call.started etc.) → creates calls row
    (status in_progress) → live tile on dashboards.

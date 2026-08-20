@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.core.errors import ProblemError
 from apps.api.engine.bolna import (
     _LISTING_MAX_PAGES,
     _LISTING_PAGE_SIZE,
@@ -35,7 +36,13 @@ from apps.api.engine.bolna import (
 )
 from calevate_shared.engine import ExecutionListing
 
-SINCE = datetime(2026, 8, 14, 9, 0, tzinfo=UTC)
+# RELATIVE TO NOW, NOT A LITERAL DATE. It used to be `datetime(2026, 8, 14, 9, 0)`, which
+# was fine on the day it was written and became a time bomb the moment `list_executions`
+# grew a `_LISTING_MAX_WINDOW` guard: a fixture pinned to a fixed past instant drifts
+# further from `now()` every day until the window it asks for is one the vendor will not
+# serve, and the whole file then fails for a reason that has nothing to do with its
+# subject. Nothing here asserts the absolute value — only the offset and the ordering.
+SINCE = datetime.now(UTC)
 AGENT = "agent_1"
 
 
@@ -130,12 +137,109 @@ def test_the_page_size_stays_inside_the_vendors_documented_maximum() -> None:
 async def test_the_time_filter_is_sent_as_utc_with_an_explicit_offset() -> None:
     """`references/bolna-core.md`: a datetime without a timezone offset "is rejected or
     silently runs in UTC". A listing whose window the vendor reinterprets silently covers
-    the wrong half-hour, so the offset is not cosmetic."""
+    the wrong half-hour, so the offset is not cosmetic. Both bounds, not just the lower
+    one — a `to` the vendor reinterprets truncates the window from the far end, which is
+    the end where the newest executions are."""
     seen: list[str] = []
     await _list(_engine(_page([], has_more=False), seen=seen))
 
-    sent = httpx.URL(f"{BASE_URL}{seen[1]}").params["from"]
-    assert datetime.fromisoformat(sent).utcoffset() == timedelta(0)
+    params = httpx.URL(f"{BASE_URL}{seen[1]}").params
+    for bound in ("from", "to"):
+        assert datetime.fromisoformat(params[bound]).utcoffset() == timedelta(0), (
+            f"`{bound}` must carry an explicit UTC offset"
+        )
+
+
+async def test_both_halves_of_the_vendors_required_date_pair_are_sent() -> None:
+    """THE PARAMETER THIS POLLER OMITTED, AND IT IS NOT OPTIONAL (D-412).
+
+    `bolna-findings/mirror/pages/api-reference/executions/get_executions.md` states it in
+    prose — "The `from` and `to` query parameters are **required** to filter executions by
+    date ... Both `from` and `to` are **required** and must be passed **together**" — and
+    marks both `required: true` in the OpenAPI block on the same page. D-353 moved this
+    poller onto the right route and sent only the lower bound, so every tick was a 400:
+    `reconcile_executions` reports `reconciliation_fetch_failed`, and the mechanism D-31
+    appointed the GUARANTEE OF RECORD never runs. Same failure shape as the 404 D-353
+    fixed, one parameter further along.
+
+    The window must also be the one the caller asked for, in the right order — a `to`
+    older than `from` is an empty window that reports itself as a clean, complete listing.
+    """
+    seen: list[str] = []
+    await _list(_engine(_page([], has_more=False), seen=seen))
+
+    params = httpx.URL(f"{BASE_URL}{seen[1]}").params
+    assert "from" in params and "to" in params, (
+        "the vendor requires the pair; sending one is a 400 on every tick"
+    )
+    lower = datetime.fromisoformat(params["from"])
+    upper = datetime.fromisoformat(params["to"])
+    assert lower < upper, "the window must run forwards"
+    assert lower == SINCE - timedelta(minutes=30), "the lower bound is the caller's `since`"
+
+
+async def test_every_agent_in_the_fan_out_is_asked_about_the_same_window() -> None:
+    """`to` is evaluated ONCE, before the fan-out.
+
+    Recomputing it per request would give each agent a slightly different upper bound, so
+    "this listing covers `since`..`to`" would stop being one true statement about the
+    answer — and `complete=True`, which the poller reads as "nothing was missed", is a
+    claim about a window. Cheap to get wrong, invisible afterwards.
+    """
+    seen: list[str] = []
+    await _list(
+        _engine(
+            _page([_row(0)], has_more=False),
+            agents=["agent_a", "agent_b", "agent_c"],
+            seen=seen,
+        )
+    )
+
+    windows = {
+        (
+            httpx.URL(f"{BASE_URL}{call}").params["from"],
+            httpx.URL(f"{BASE_URL}{call}").params["to"],
+        )
+        for call in seen[1:]
+    }
+    assert len(windows) == 1, f"each agent was asked about a different window: {windows}"
+
+
+async def test_a_window_wider_than_the_vendor_serves_is_refused_not_silently_narrowed() -> None:
+    """Seven days is the vendor's published maximum span, and this refuses rather than clamps.
+
+    `get_executions.md`: "The maximum allowed range between `from` and `to` is **7 days**."
+    Quietly moving `from` forward would make `complete=True` a claim about a period nobody
+    asked us to skip, and `ListingIncompleteReason` has no member for "our own arithmetic
+    moved the window" — its four values are all assertions about VENDOR truncation, so
+    borrowing one would put a word in an operator's alert that the runbook defines as
+    something else. A caller asking for a window the engine cannot serve is a bug in the
+    caller, and it fails there, naming the limit.
+    """
+    engine = _engine(_page([], has_more=False))
+
+    with pytest.raises(ProblemError) as raised:
+        await engine.list_executions(since=datetime.now(UTC) - timedelta(days=8))
+
+    assert raised.value.code == "engine_listing_window_too_wide"
+    assert "7 days" in raised.value.detail
+
+
+async def test_a_window_at_the_documented_limit_is_still_served() -> None:
+    """The guard must bound the vendor's limit, not sit inside it.
+
+    An off-by-one that refused at exactly seven days would turn a legal request into an
+    engine error, and the poller's only visible symptom is the same alert either way.
+    """
+    seen: list[str] = []
+    engine = _engine(_page([], has_more=False), seen=seen)
+
+    listing = await engine.list_executions(
+        since=datetime.now(UTC) - timedelta(days=7) + timedelta(seconds=5)
+    )
+
+    assert listing.complete
+    assert "to=" in seen[1]
 
 
 async def test_every_agent_on_the_account_is_walked() -> None:

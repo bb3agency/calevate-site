@@ -15,16 +15,28 @@ checksum and how to re-fetch it: `docs/vendor/bolna/hosted-oas.md`.
 
 Three properties of this vendor shape the whole design and are load-bearing:
 
-1. **Webhooks are unsigned**, so authenticity = source-IP allowlist (a SINGLE documented
-   address, `13.203.39.153`) + `(execution_id, status)` dedupe, payloads are HINTS, and
-   the executions poller is the guarantee of record. **They are NOT at-most-once, which
-   is what this docstring claimed (D-352)**: the hosted platform "retries on non-2xx"
-   and fires one delivery per status transition, so the receiver must ack 2xx and dedupe
-   on the PAIR — never on the execution id alone, or the `completed` transition is
-   discarded as a duplicate of `queued`. The at-most-once reading came from the OSS
-   framework's `aiohttp` one-shot delivery, which is a different program from the hosted
-   deliverer. VERIFIED-VENDOR-REPO: `references/execution-payload.md` §"Webhook delivery"
-   and `setup-webhook/SKILL.md` §"Idempotency".
+1. **Webhooks are unsigned**, so authenticity = source-IP allowlist + `(execution_id,
+   status)` dedupe, payloads are HINTS, and the executions poller is the guarantee of
+   record. **THERE ARE THREE DOCUMENTED EGRESS ADDRESSES AND THIS DOCSTRING SAID THERE
+   WAS ONE (D-412)** — `13.203.39.153`, `13.126.9.249`, `13.202.133.53`, with the
+   consequence stated on the page: *"Whitelist all three on your server to ensure you
+   receive all webhook events"*
+   (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`).
+   Every source this file was written from named one address, and they were right when
+   they were read; the vendor renumbered. `DEFAULT_BOLNA_SOURCE_IPS` held the stale set,
+   and because that allowlist fails safe, two of three senders were being REJECTED.
+   **They are NOT at-most-once, which is what this docstring claimed (D-352)**: the
+   hosted platform "retries on non-2xx" and fires one delivery per status transition, so
+   the receiver must ack 2xx and dedupe on the PAIR — never on the execution id alone, or
+   the `completed` transition is discarded as a duplicate of `queued`. VERIFIED-VENDOR-
+   REPO: `references/execution-payload.md` §"Webhook delivery" and
+   `setup-webhook/SKILL.md` §"Idempotency". **THE HOSTED DOCS DO NOT CORROBORATE THE
+   RETRY, and that is worth knowing rather than glossing**: their webhook page describes
+   the URL, the payload shape and the source IPs and says nothing whatever about retries,
+   signing or delivery guarantees. It does not contradict D-352 — it simply does not
+   speak — so the retry claim still rests on the skills repo alone, and "payloads as
+   hints, poller as truth" (TRD §5) remains the load-bearing design rather than an
+   abundance of caution.
 2. **cost / recording_url / extracted_data populate only at `completed`**, roughly
    2-3 min after disconnect. The post-call pipeline therefore triggers on `completed`,
    never on a disconnect event — `billable_ready` encodes exactly that. VERIFIED-VENDOR-
@@ -79,9 +91,9 @@ from __future__ import annotations
 import random
 import re
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlsplit
 
 import httpx
@@ -124,6 +136,7 @@ from apps.api.engine.capabilities import (
 )
 from apps.api.engine.document import engine_document
 from apps.api.engine.vendor_http import REQUEST_TIMEOUT_S, vendor_request
+from apps.api.engine.violations import OPEN_STATUS, ViolationListing, walk_violations
 
 log = get_logger(__name__)
 
@@ -203,15 +216,35 @@ def throttle_delay_s(
 # MISSING (D-351).** This comment used to say nobody had read a status enum, which was
 # true of the OSS framework (its enums are `HangupReason`, `LogComponent`, provider lists
 # — `bolna/enums.py`, bolna-ai/bolna@cd2e192) and false of the hosted platform. VERIFIED-
-# OAS: `AgentExecution.status` in the pinned spec enumerates exactly fifteen values, and
-# the same fifteen appear as the `status` query filter on
-# `GET /v2/agent/{agent_id}/executions`:
+# OAS: `AgentExecution.status` in the pinned spec enumerated fifteen values, and the same
+# fifteen appeared as the `status` query filter on `GET /v2/agent/{agent_id}/executions`.
 #
-#     scheduled  queued  rescheduled  initiated  ringing  in-progress  call-disconnected
-#     completed  balance-low  busy  no-answer  canceled  failed  stopped  error
+# **THE ENUM IS SIXTEEN, NOT FIFTEEN — `prepared` IS THE SIXTEENTH (D-351 AGAIN).** The
+# pinned OAS is not the vendor's only statement of this enum and it was the narrower one.
+# Their published errors page carries the SAME table with one more row (VERIFIED-DOCS,
+# `bolna-findings/mirror/pages/api-reference/errors.md:42`):
+#
+#     | `prepared` | Intermediate | Execution record created and validated (recipient
+#     number, from/to number assigned) but not yet handed off to the dial queue |
+#
+# So the list is:
+#
+#     scheduled  prepared  queued  rescheduled  initiated  ringing  in-progress
+#     call-disconnected  completed  balance-low  busy  no-answer  canceled  failed
+#     stopped  error
 #
 # `_VENDOR_STATUSES` below is that enum, and `tests/bolna_snapshot_test.py` asserts every
 # member of it is mapped — so a status the vendor adds cannot quietly become `failed`.
+#
+# **`prepared` IS THE SAME DEFECT `rescheduled` WAS, ONE RUNG EARLIER.** It is labelled
+# `Intermediate` by the vendor's own table — the execution exists, its numbers are
+# assigned, and the dial has not been handed off yet — so it is a call that is ALIVE.
+# Unmapped it took the `failed` default, which on the campaign path is not a cosmetic
+# mislabel: `ExecutionSnapshot.terminal` follows the mapped status, so the dispatcher
+# would have counted a contact as attempted-and-dead while the vendor was still holding
+# it, freed the line, and left the real dial to land on a contact already marked failed.
+# It maps to `queued` for the same reason `scheduled` and `rescheduled` do — the vendor
+# has the call and will dial it.
 #
 # **`rescheduled` WAS THE MISSING ONE AND IT MATTERED.** Bolna auto-reschedules a call
 # placed outside an agent's `calling_guardrails` window to the next allowed window
@@ -231,11 +264,12 @@ def throttle_delay_s(
 # hypothetical future spelling read as `failed` — and the FACT is recorded here so nobody
 # re-derives it. Surfacing `answered_by_voice_mail` as a status is a product decision about
 # what a client's screen says, not an adapter fix: OPERATIONS §2 gate 17 keeps it.
-#: The vendor's own `status` enum, verbatim from the pinned OAS. Not iterated at runtime —
-#: it exists so a test can prove `_STATUS_MAP` covers it.
+#: The vendor's own `status` enum. Not iterated at runtime — it exists so a test can prove
+#: `_STATUS_MAP` covers it.
 _VENDOR_STATUSES: frozenset[str] = frozenset(
     {
         "scheduled",
+        "prepared",
         "queued",
         "rescheduled",
         "initiated",
@@ -255,6 +289,7 @@ _VENDOR_STATUSES: frozenset[str] = frozenset(
 
 _STATUS_MAP: dict[str, CallStatus] = {
     "scheduled": "queued",
+    "prepared": "queued",
     "queued": "queued",
     "rescheduled": "queued",
     "initiated": "ringing",
@@ -272,6 +307,60 @@ _STATUS_MAP: dict[str, CallStatus] = {
     "stopped": "failed",
     "error": "failed",
     "balance-low": "failed",
+}
+
+
+#: THE vendor's spelling of "Azure OpenAI" in an agent's `llm_config.provider` — one
+#: place, because `_llm_routing` writes it and `tests/in_call_llm_provider_test.py` pins
+#: it, and a second literal is how a corrected value gets applied in one of them.
+#:
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers/llm-model/
+#: azure-openai.md` states it as a copy-pasteable `llm_config` body and again in its Key
+#: settings table. See `_llm_routing` for why that beats the two display labels D-410
+#: chose `"azure"` from, and for the fallback order if the live platform disagrees.
+_AZURE_LLM_PROVIDER: Final = "azure-openai"
+
+#: EVERY credential-store key Bolna's Azure OpenAI provider is documented to require, in
+#: the vendor's own words. **This is the answer to the last marked assumption in D-410**
+#: (OPERATIONS §2 gate 16f), and it is a fact rather than a derivation for the first time.
+#:
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers.md` (fetched 20 Aug 2026,
+#: sha256 63231b2b7a0c5a338dd1d6342dc65ea4ac05546f7ddb6a28bc3c9a4ec24791b9), "LLMs" tab,
+#: "Azure OpenAI" accordion, under the sentence *"All these keys **must** be added for the
+#: respective provider."* The mapping below is that table verbatim.
+#:
+#: **THIS IS DATA FOR AN OPERATOR AND FOR THE GATE, NOT AN INSTALLER**, and the
+#: distinction is deliberate rather than unfinished. `set_llm_credential` installs ONE
+#: entry — the API key — because that is the only one of the four whose value this
+#: repository can produce without inventing something:
+#:
+#:   * `AZURE_OPENAI_API_KEY`     — `Settings.azure_openai_api_key`. Ours, and secret.
+#:   * `AZURE_OPENAI_API_BASE`    — `azure_openai_base_url(azure_openai_resource)`. Ours.
+#:   * `AZURE_OPENAI_MODEL`       — `Settings.azure_openai_deployment` (NOT
+#:     `azure_openai_model`; on Azure the API addresses the DEPLOYMENT). Ours.
+#:   * `AZURE_OPENAI_API_VERSION` — ⚠ **NOBODY HERE KNOWS WHAT TO PUT HERE, AND THE
+#:     VENDOR'S TWO PAGES DISAGREE ABOUT WHETHER IT IS NEEDED.** This table calls it
+#:     required; `providers/llm-model/azure-openai.md` says the console connection needs
+#:     *"your Azure endpoint URL, API key, and deployment name"* — three things, no
+#:     api-version. And D-410 chose the **v1 surface** (`…/openai/v1`) precisely because
+#:     it has no `api-version` at all; a dated string belongs to the CLASSIC surface. So
+#:     the three readings are "vestigial for a v1 base URL", "their Azure client is the
+#:     classic one and our endpoint choice is wrong", and "any date-shaped string is
+#:     accepted and ignored". **A guessed date here would be exactly the defect gate 16f
+#:     exists to prevent** (D-31/D-32/D-350), so nothing guesses it: the operator working
+#:     the gate reads it off the vendor console, and what they learn settles which of the
+#:     three readings is true — which is the same observation that settles whether the
+#:     per-agent `base_url` in `_llm_routing` is read at all.
+#:
+#: `Settings.bolna_llm_credential_name` names the FIRST of these, and its default moved
+#: from the derived guess `AZURE` to this table's `AZURE_OPENAI_API_KEY` in the same
+#: change. It stays a setting rather than becoming a constant because it remains the one
+#: value an operator may have to correct against a live account without a deploy.
+_AZURE_PROVIDER_KEYS: Final[dict[str, str]] = {
+    "AZURE_OPENAI_API_KEY": "Your Azure API key",
+    "AZURE_OPENAI_MODEL": "Your Azure OpenAI model",
+    "AZURE_OPENAI_API_BASE": "Your Azure URL",
+    "AZURE_OPENAI_API_VERSION": "Your Azure Model API version",
 }
 
 
@@ -295,44 +384,73 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
     can change in a release note. Preserving it is what this docstring's own
     do-not-change-live-bodies rule asks for once "before" means D-355 rather than D-283.
 
-    **`"azure"` IS A CHOICE BETWEEN TWO REAL SPELLINGS, NOT "the name" (D-410).** Their
-    `LLMProvider` enum carries BOTH `azure` and `azure-openai` (VERIFIED-OSS,
-    `bolna/enums.py`, recorded in `docs/vendor/bolna/oss-harvest.md`), and nothing we can
-    read says which client class each maps to in `SUPPORTED_LLM_PROVIDERS`. The tiebreak
-    is that the enum belongs to the OSS framework while the program we actually POST to
-    is the HOSTED platform, and the hosted platform is where both pieces of evidence
-    point: its published provider matrix lists `Azure OpenAI` among five first-class LLM
-    providers (`docs/vendor/bolna/hosted-oas.md`), and its live agent LLM dropdown offers
-    `azure` (browser sweep, 19 Aug 2026). `azure-openai` is named here rather than
-    forgotten because it is the one-string fallback if `azure` turns out to route
-    somewhere else — see the gate below.
+    **`"azure-openai"`, AND IT WAS `"azure"` UNTIL THE VENDOR'S OWN DOCS WERE READ.**
+    Their `LLMProvider` enum carries BOTH spellings (VERIFIED-OSS, `bolna/enums.py`,
+    recorded in `docs/vendor/bolna/oss-harvest.md`), so this was never "is the name
+    right" but "which of two real names". D-410 picked `azure` on the strongest evidence
+    then available — a published provider matrix reading `Azure OpenAI` and a live agent
+    dropdown offering `azure` (browser sweep, 19 Aug 2026) — and both of those are
+    HUMAN-READABLE LABELS, which is exactly the class of evidence that cannot settle a
+    wire value. The docs settle it:
 
-    **WHY NOT `"custom"`, WHICH IS THE BETTER-EVIDENCED VALUE.** `provider: "custom"`
-    is VERIFIED-OSS to construct `AsyncOpenAI(base_url=…, api_key=llm_key)`
-    (`bolna/providers.py`, `bolna/llms/openai_llm.py`) — literally the client our v1
-    endpoint wants — and that is what the Vertex leg sent. It was abandoned because the
-    route it depends on is the one in doubt: a custom model's key is read from the
-    credential store, the 19 Aug 2026 sweep found no Provider Keys page and no `custom`
-    entry in the dropdown, and gate 16c records that sweep (the gate is retired BECAUSE
-    of what it found, which is the same thing as it having been decisive). `azure` trades a
-    verified client construction for a provider the platform ADVERTISES, which is the
-    trade D-410 exists to make.
+        VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/llm-model/
+        azure-openai.md` (fetched 20 Aug 2026, sha256
+        faeda3c225e378c77f4f8db558f5f8329eb691968610af0b2105ff9e96c63f30), which states
+        it twice — once as a copy-pasteable agent body under "Quick config":
 
-    ⚠ **MARKED ASSUMPTION, AND IT IS THE WHOLE LEG: what their `azure` provider does with
-    `base_url` and `model` is not verified and cannot be from here** (`api.bolna.ai` and
-    their docs are both refused by this environment's egress proxy). Two behaviours are
-    possible. If it builds an OpenAI-compatible client against our `base_url`, everything
-    below is right. If it builds a CLASSIC Azure client instead
-    (`…/openai/deployments/{id}/chat/completions?api-version=…`), it needs a deployment
-    name and an `api-version` — and their `SimpleLlmAgent` schema has a field for
-    NEITHER (VERIFIED-OAS, `openapi.yml` md5 5597f7da080d47564696bc05c12e9112: the block
-    is `provider`/`family`/`model`/`base_url` plus sampling knobs, and nothing else). The
-    absence of those two fields is itself weak evidence for the first reading, and it is
-    the observation **OPERATIONS §2 gate 16f** asks for: `GET /providers`, `POST` ours,
-    publish one agent with this body, read it back (gate 16), place one call. Gate 16f
-    says to settle this assumption HERE, in this function, in the same change as the
-    observation. If the second reading turns out to be true, the fallbacks are
-    `azure-openai` and then `custom` — in that order, and each is one string.
+            "llm_agent": {
+              "agent_type": "simple_llm_agent",
+              "agent_flow_type": "streaming",
+              "llm_config": {
+                "provider": "azure-openai",
+                "model": "gpt-5.4-mini",
+                ...
+
+        and once in the "Key settings" table:
+
+            | `provider` | string | `"azure-openai"` | Provider name |
+
+    THAT IS A MACHINE-READABLE VALUE AGAINST TWO DISPLAY LABELS, and it is corroborated
+    structurally: every sibling provider page states `provider` the same way in the same
+    two places, and each of those values (`openai`, `anthropic`, `google`, `deepseek`,
+    `openrouter`) is a name this repository already treats as the wire spelling. `azure`
+    is not deleted from this comment — it stays as the ONE-STRING FALLBACK if the live
+    platform turns out to accept the label and not the documented value, which is the
+    same shape the previous ordering had, inverted by evidence rather than by taste.
+
+    **WHY NOT `"custom"`, WHICH WAS THE BETTER-EVIDENCED VALUE AND IS NOW WORSE.**
+    `provider: "custom"` is VERIFIED-OSS to construct `AsyncOpenAI(base_url=…,
+    api_key=llm_key)` (`bolna/providers.py`, `bolna/llms/openai_llm.py`) — literally the
+    client our v1 endpoint wants — and that is what the Vertex leg sent. It was abandoned
+    because the route it depends on is the one in doubt: a custom model's key is read from
+    the credential store, the 19 Aug 2026 sweep found no Provider Keys page and no
+    `custom` entry in the dropdown, and gate 16c records that sweep. **The docs make that
+    verdict stronger, not weaker.** `customizations/using-custom-llm.md` documents the
+    whole custom-LLM flow — dashboard dialog and `POST /user/model/custom` alike — as
+    taking exactly TWO values, an LLM URL and an LLM NAME, and `api-reference/user/
+    add_model.md`'s OpenAPI body requires precisely `custom_model_name` and
+    `custom_model_url`. **There is no credential field anywhere in that flow**, and the
+    root `providers.md` Custom-LLM accordion is the only provider entry in the file with
+    no key table at all. So the custom route has no documented way to carry an API key,
+    which is the thing our Azure endpoint requires on every request.
+
+    ⚠ **ONE HALF OF THE MARKED ASSUMPTION SURVIVES, AND IT IS NOW A NARROWER QUESTION:
+    does their `azure-openai` provider READ the per-agent `base_url` we send here?** The
+    field names their credential store wants are no longer in doubt (see
+    `_AZURE_PROVIDER_KEYS` below), and one of them is `AZURE_OPENAI_API_BASE` — "Your
+    Azure URL". So the endpoint may be a PROVIDER-level value on their side, in which
+    case the `base_url` we put in `llm_config` is inert and the leg reaches our resource
+    only because the credential store points there. Note what that costs and what it does
+    not: the residency chain grows a link (a value in THEIR store, not just ours), and no
+    read-back of ours can see it — `_agent_models` reads the endpoint off the agent, and
+    an agent whose endpoint is ignored would read back exactly the same either way.
+    `base_url` is still SENT, because their `SimpleLlmAgent` schema has the field
+    (VERIFIED-OAS, `openapi.yml` md5 5597f7da080d47564696bc05c12e9112) and a value that
+    is read is worth more than a key that is ignored is harmful. **OPERATIONS §2 gate
+    16f** is what closes it: install the four keys, publish one agent with this body,
+    read it back (gate 16), place one call, and confirm in the Azure portal's own metrics
+    that the request arrived at OUR resource. If it does not, the fallbacks are `azure`
+    and then `custom` — in that order, and each is one string.
 
     **THE DEPLOYMENT IS WHAT TRAVELS IN `model`, AND THE MODEL NAME NEVER LEAVES US.**
     Azure serves a model under a deployment ID the operator chose and the v1 surface
@@ -357,7 +475,7 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
     """
     if models.llm_provider is None:
         return {"provider": "openai", "family": "openai"}
-    body = {"provider": "azure", "family": "openai"}
+    body = {"provider": _AZURE_LLM_PROVIDER, "family": "openai"}
     if models.llm_base_url:
         # Proven by `ModelConfig` itself to be an endpoint `azure_openai_base_url()`
         # could have emitted, on a single-DNS-label resource — which is the only reason
@@ -365,6 +483,11 @@ def _llm_routing(models: ModelConfig) -> dict[str, str]:
         # What that proof does NOT cover is the REGION: Azure hides it inside the
         # resource, so `AZURE_LOCATION` is asserted by config and confirmed by a human in
         # the portal. Read that constant before trusting this line further than it goes.
+        #
+        # NOR DOES IT COVER WHETHER THIS KEY IS READ AT ALL on an `azure-openai` leg:
+        # their documented Azure config carries no `base_url` row and their credential
+        # store has `AZURE_OPENAI_API_BASE`. See this function's docstring — the value is
+        # sent because their schema has the field and an ignored key costs nothing.
         body["base_url"] = models.llm_base_url
     return body
 
@@ -462,13 +585,64 @@ _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 #: of two documents that disagree, not something either one says, so it is written here as
 #: a hypothesis and not as a fact.
 #:
-#: STILL UNVERIFIED, and gate 7 now scores BOTH halves rather than one:
-#:   (a) the UNIT — because a first-party document says major units and the only thing
-#:       overriding it is a precedence rule, not an observation;
-#:   (b) the CURRENCY — the OAS names none, and if the "account currency" reading is the
-#:       true one then it is the ACCOUNT's, which for an Indian account may be INR and not
-#:       `_ASSUMED_CURRENCY` at all. `CostBreakdown.currency_stated` carries the
-#:       difference into every row so a later correction is re-derivable.
+#: **THE UNIT IS NO LONGER A DOCUMENT RECONCILIATION — THE VENDOR PUBLISHES A WORKED
+#: EXAMPLE AND ONLY ONE READING SURVIVES IT (D-412).** Everything above this paragraph
+#: settles "cents" by a PRECEDENCE RULE ("treat the YAML as canonical"), which is a claim
+#: about which document to believe and not a claim about the world. Their hosted API
+#: reference now prints an actual completed execution
+#: (`bolna-findings/mirror/pages/api-reference/executions/get_execution.md`, "Completed
+#: execution example"):
+#:
+#:     "conversation_duration": 16,
+#:     "total_cost": 3.23,
+#:     "cost_breakdown": {"platform": 2, "network": 1,
+#:                        "transcriber": 0.23, "llm": 0, "synthesizer": 0}
+#:
+#: Two facts fall out of it that no amount of reading the prose could give:
+#:
+#:   1. **`total_cost` IS the sum of the five legs** — 2 + 1 + 0.23 + 0 + 0 = 3.23,
+#:      exactly. `_cost` has always converted the total and the legs on one divisor and one
+#:      rate so a row's parts reproduce its whole; that was a design choice defended on
+#:      first principles, and it is now the vendor's arithmetic as well.
+#:   2. **The MAJOR-unit reading is arithmetically absurd, so it is dead.** 3.23 over 16
+#:      seconds is 12.1 units per minute. Read as minor units that is 12.1 US cents/min —
+#:      sitting right on top of the flat rate the vendor publishes for the Voice AI leg,
+#:      "$0.06/min (₹5.52/min)" plus telephony and platform fee
+#:      (`bolna-findings/mirror/pages/pricing/preferred-models.md`). Read as MAJOR units it
+#:      is $12.11/min — about ₹1,060 a minute for an Indian phone call, three orders of
+#:      magnitude off every price either party publishes. The example also decomposes the
+#:      way per-minute billing does: `network: 1` and `platform: 2` are whole units on a
+#:      16-second call because telephony is "billed by call duration (rounded to minutes)"
+#:      (`bolna-findings/mirror/pages/pricing/call-pricing.md`), while `transcriber: 0.23`
+#:      is fractional because STT is "rounded to seconds" on the same page.
+#:
+#: So `_ASSUMED_MINOR_UNITS_PER_MAJOR` keeps its value and CHANGES CLASS: the divisor is
+#: observed, not adjudicated. That is what the name still says "ASSUMED" for — the
+#: constant is one number carrying two claims, and only the first of them moved.
+#:
+#: STILL UNVERIFIED, and gate 7 now scores the CURRENCY alone rather than both halves:
+#:   (a) the UNIT — **settled**, above. A live capture can only confirm it.
+#:   (b) the CURRENCY — still named in NO first-party source. The OAS says "cents"; the
+#:       pricing page quotes "$0.06/min" and "6¢/min", so every price Bolna publishes is
+#:       primary in dollars and "cent" means the US one. That is an inference from a price
+#:       list, not a statement about this FIELD, and their own pricing page introduces a
+#:       THIRD word for it — "see how many **credits** the conversation consumed"
+#:       (`call-pricing.md`) — which is a wallet unit that need not be one US cent. So the
+#:       house assumption stands and stays an assumption.
+#:       `CostBreakdown.currency_stated` carries the difference into every row so a later
+#:       correction is re-derivable.
+#:
+#: ONE THING THE GATE MUST NOT ASSUME IT WILL SEE: **`AgentExecution` declares no
+#: `currency` field at all.** The full property list on the page above is id, agent_id,
+#: batch_id, conversation_duration, total_cost, status, error_message,
+#: answered_by_voice_mail, transcript, created_at, updated_at, cost_breakdown,
+#: telephony_data, transfer_call_data, batch_run_details, extracted_data, context_details
+#: — and nothing else. `_cost` reads `currency`/`cost_currency` defensively, which costs
+#: nothing and is right to keep, but against the documented shape those keys are absent,
+#: `currency_stated` is always False, and the INR refusal branch below is UNREACHABLE
+#: without the vendor adding an undocumented key. An INR-billed account therefore does not
+#: meter nothing today — it meters on the USD assumption — and gate 7 cannot settle the
+#: currency by reading a payload. It has to read an INVOICE.
 #: WHAT A WRONG VALUE COSTS: every `usage_event` under-values the call by 100x, so no
 #: spend cap ever arms and every margin panel reads near zero — and the 83x currency error
 #: sits on top of that, in the same direction.
@@ -630,6 +804,65 @@ def _check_cost_plausibility(
     )
 
 
+# --- did a SECOND call leg happen that we are not carrying? ---------------------------
+#
+# `BOLNA_CAPABILITIES.transfer=False`, so nothing this tree publishes configures a transfer
+# tool and no execution we produce should carry a transfer leg. That is a statement about
+# OUR publish path, not about the account — and the two can diverge without a deploy. The
+# vendor's Transfer Call built-in is enabled from the agent's Tools tab
+# (`bolna-findings/mirror/pages/agent-setup/tools-tab.md`: "Click **+ Add** next to any
+# tool to enable it"), i.e. a console toggle a client or an operator can flip on an agent
+# we published. The drift sweep proves the PROMPT still carries hard rule 5's directive;
+# it does not enumerate the agent's tools.
+#
+# What that costs, if it happens silently, is exactly the two things this repo has hard
+# rules about. The vendor models the transferred leg as its own object with its own
+# fields — `TransferCallData` in the pinned OAS
+# (`bolna-findings/mirror/pages/api-reference/agent/v2/get_agent_execution.md:270-328`):
+#
+#   * `recording_url` — "Recording URL for the transferred call", a SECOND recording of the
+#     same caller. `pipeline`'s recording copy reads `ExecutionSnapshot.recording_url`,
+#     which is `telephony_data.recording_url` and nothing else, so that audio is never
+#     copied, never retained under our policy, and never reached by a DPDP erasure. The
+#     vendor even serves it from its own route — `GET /recordings/transfer/{execution-id}`,
+#     "Use the `transfer` variant if the call included a transfer leg"
+#     (`bolna-findings/mirror/pages/changelog/may-2026.md:100-103`).
+#   * `cost` — "Total cost incurred for this transferred call". A per-call cost outside
+#     `total_cost`/`cost_breakdown` is a cost hard rule 7 never meters.
+#
+# So this is an ALARM and not a handler, deliberately. Carrying the leg properly needs new
+# members on `ExecutionSnapshot` (a shared model), a decision on whether the transfer leg
+# is separately metered and separately retained, and an answer to whether the recording
+# notice a caller already heard covers a human they are handed to — none of which is a
+# thing an adapter may decide on its own. OPERATIONS §2 gate 18 is where it is settled.
+# Until then the failure mode this converts is the dangerous one: silent loss becomes a
+# named page, on the first call that does it, from every path that snapshots an execution.
+#
+# HARD RULE 6 GOVERNS WHAT THIS MAY SAY. `TransferCallData` carries `to_number` and
+# `from_number` in E.164 and a URL that resolves to caller audio; none of the three appears
+# here. What is reported is the execution id, the leg's vendor status, and two booleans we
+# derived — enough for an operator to know which execution to open and what is at stake.
+def _check_transfer_leg(payload: dict[str, Any], *, engine_call_id: str) -> None:
+    """Page when an execution carries a transfer leg this adapter drops on the floor."""
+    leg = payload.get("transfer_call_data")
+    if not isinstance(leg, dict) or not leg:
+        return
+    alert(
+        "CORE_LOGIC",
+        "engine_transfer_leg_unhandled",
+        detail=(
+            "this execution carries a transfer leg, which this adapter does not normalize: "
+            f"vendor status {leg.get('status') or 'unknown'!r}, "
+            f"second recording present: {bool(leg.get('recording_url'))}, "
+            f"separate cost present: {leg.get('cost') is not None}. "
+            "The leg's recording is NOT copied, retained or reachable by erasure, and its "
+            "cost is NOT metered. An agent we published has had the Transfer Call tool "
+            "enabled outside this tree — OPERATIONS §2 gate 18."
+        ),
+        engine_call_id=engine_call_id,
+    )
+
+
 def _parse_dt(value: Any) -> datetime | None:
     if not value:
         return None
@@ -691,6 +924,44 @@ _LISTING_PAGE_SIZE = 50
 # inside one reconciliation window; a bound is what keeps a vendor whose `has_more` sticks
 # on True from turning the poller into an unbounded request loop.
 _LISTING_MAX_PAGES = 20
+
+#: The widest `from`..`to` span the listing will serve, and the reason the walk sends a
+#: `to` at ALL (D-412).
+#:
+#: **WE WERE SENDING ONLY HALF OF A REQUIRED PAIR.** D-353 correctly moved the poller onto
+#: `GET /v2/agent/{agent_id}/executions` and correctly spelled its lower bound `from` — and
+#: stopped there, because the pinned OAS at `bolna-ai/skills@28b24aa` declares neither
+#: bound required. The vendor's own hosted API reference does, twice over
+#: (`bolna-findings/mirror/pages/api-reference/executions/get_executions.md`):
+#:
+#:   > The `from` and `to` query parameters are **required** to filter executions by date.
+#:   > * Both `from` and `to` are **required** and must be passed **together**.
+#:   > * The maximum allowed range between `from` and `to` is **7 days**.
+#:
+#: and its OpenAPI block on that page marks both `required: true`. A `from` with no `to`
+#: is therefore a 400 on EVERY tick: `vendor_request` raises, `reconcile_executions`
+#: reports `reconciliation_fetch_failed`, and the mechanism D-31 appointed the guarantee of
+#: record never runs — the identical failure shape D-353 was opened to fix, one parameter
+#: further along.
+#:
+#: **THE VENDOR CONTRADICTS ITSELF AND IT DOES NOT MATTER HERE, which is why this is not a
+#: guess.** `bolna-findings/mirror/pages/guides/fetch-agent-executions.md` calls the same
+#: query parameters "(all optional unless noted)", lists `from`/`to` with no note, and
+#: prints a worked example that omits them. So one first-party page says required and
+#: another says optional. Unlike the cost unit — where the two readings produce different
+#: NUMBERS and a wrong pick corrupts the ledger, so the adapter refuses — both readings
+#: here accept the same request: `from`+`to` is a valid filtered listing whether or not
+#: the pair is mandatory. Sending both is the INTERSECTION of the two readings, not a bet
+#: on one of them. Only omitting `to` depends on which page is right.
+#:
+#: SEVEN DAYS IS A REFUSAL, NOT A CLAMP. Silently narrowing a caller's window would make
+#: `complete=True` a lie about a period nobody asked us to skip, and `ListingIncomplete
+#: Reason` has no member for "our own bound moved the window" — its four values are all
+#: claims about VENDOR truncation, and emitting one of them for our arithmetic would put a
+#: word in an operator's alert that the runbook defines as something else. A caller asking
+#: for a window the vendor will not serve is a bug in the caller, so it fails there with a
+#: message naming the limit rather than becoming an opaque vendor 400.
+_LISTING_MAX_WINDOW = timedelta(days=7)
 
 
 def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -879,9 +1150,9 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     # D-410). THE ENDPOINT IS WHAT IDENTIFIES THE LEG, AND IT STAYS THAT WAY EVEN THOUGH
     # THE PROVIDER NAME BECAME INVERTIBLE. Under Vertex both of our arms rendered to
     # `"custom"`, so there was no choice; since D-410 an `azure_openai` leg renders to
-    # `"azure"` and an unset one to `"openai"`, so `provider` alone would now appear to
-    # answer the question. It does not: `azure` says the agent points at SOME Azure
-    # OpenAI resource, and this repository's guarantee is about ONE — the resource in
+    # `"azure-openai"` and an unset one to `"openai"`, so `provider` alone would now
+    # appear to answer the question. It does not: `azure-openai` says the agent points at
+    # SOME Azure OpenAI resource, and this repository's guarantee is about ONE — that in
     # `AZURE_LOCATION`. An agent aimed at somebody else's resource, or at a resource an
     # operator created in the wrong region, is exactly the drift a read-back exists to
     # catch, and only the endpoint carries that fact.
@@ -1026,6 +1297,100 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
     return turns, lost
 
 
+#: The two keys that mark a leaf of the vendor's `extracted_data` tree. A category's
+#: values are RESULT OBJECTS carrying these; a flat field's value is the answer itself.
+#: Matching on the leaf rather than on nesting depth is what lets one function read both
+#: shapes without a version flag we would have to keep current.
+_EXTRACTION_LEAF_KEYS: Final = ("subjective", "objective")
+
+
+def flatten_extracted_data(raw: Any) -> dict[str, Any]:
+    """The vendor's `extracted_data` -> OUR flat `{field_name: value}`.
+
+    **THE VENDOR NESTS BY CATEGORY AND THIS ADAPTER PASSED THE NESTING STRAIGHT THROUGH.**
+    `ExecutionSnapshot.engine_extracted` is a FLAT map of field name to value — that is
+    what every consumer above reads it as, and what `tests/pilot_fidelity_test.py` pins
+    (`engine_extracted={"lead_name": "Ravi Kumar"}`). Bolna's is two levels deep:
+    `extracted_data -> "<Category>" -> "<Disposition>" -> {subjective, objective, ...}`,
+    stated three times in their own documentation — "Results are nested by category and
+    extraction name under `extracted_data`", the worked `GET /executions/{id}` example,
+    and `POST /v2/agent/{id}/dispositions/test`'s "grouped by category and disposition
+    name, in the same format as post-call execution data".
+
+    So `sorted(engine_extracted)` — the one thing every consumer does with it — returned
+    the tenant's CATEGORY names under the label "field names". Pilot gate 7 compares that
+    tuple against the field names an operator lists as `expects_extracted_fields`, so a
+    call in which every field came back scored `fail` and named every one of them as
+    absent. A false FAIL on a gate is worse than no gate: it is read as the vendor
+    failing, on evidence produced by us.
+
+    THE FLATTENING BELONGS HERE, not in the consumer, and that is hard rule 2 rather than
+    tidiness. `scripts/pilot/fidelity.py` learning that a value keyed `subjective` means
+    the parent key is a category is this file's knowledge leaking into a caller that must
+    keep working when the engine is not Bolna.
+
+    BOTH SHAPES, because the vendor says there are two: Extractions is "the NEW ...
+    feature ... powered by the Dispositions API", so an account may still hold agents
+    whose payload is flat. A top-level entry is a CATEGORY only when its value is a
+    mapping whose own values carry `subjective` or `objective`; anything else is a field
+    and passes through untouched. Matching on the leaf keys rather than on depth means a
+    flat field whose value happens to be a dict is not mistaken for a category.
+
+    THE VALUE IS `objective` FIRST, THEN `subjective`. Both are documented as the answer;
+    `objective` is the pre-defined selection — the CRM-column-shaped one — and
+    `subjective` the free text. `confidence`, `reasoning_*` and `validation` are dropped:
+    they are the vendor's account of ITSELF, not the extracted value, and the reasoning
+    fields are free text the model wrote about what the caller said (hard rule 6).
+
+    A DUPLICATE FIELD NAME ACROSS TWO CATEGORIES KEEPS ITS CATEGORY. Bolna scopes
+    uniqueness to the category, so two categories may both carry "Notes"; a bare
+    last-wins would silently drop one extracted value. The second and later spellings
+    become `"<Category> / <Name>"`, which is visible rather than lost — the first keeps
+    the bare name so the common case still matches what an operator lists.
+    """
+    if not isinstance(raw, dict):
+        # Not an object at all — an absent key, a null, or a shape nothing here models.
+        # `{}` is what "no extraction ran" already means to every consumer, and inventing
+        # a field from an unreadable payload would be worse than reporting none.
+        return {}
+    flat: dict[str, Any] = {}
+    for key, value in raw.items():
+        name = str(key)
+        if _is_extraction_category(value):
+            for leaf_name, leaf in value.items():
+                _place(flat, category=name, name=str(leaf_name), value=_extraction_value(leaf))
+            continue
+        flat[name] = value
+    return flat
+
+
+def _is_extraction_category(value: Any) -> bool:
+    """Is `value` a CATEGORY — a non-empty mapping of names to result objects?
+
+    EVERY member must look like a result, not merely one: a flat field whose value is a
+    dict with an unrelated `objective` key inside would otherwise swallow its siblings.
+    """
+    if not isinstance(value, dict) or not value:
+        return False
+    return all(
+        isinstance(leaf, dict) and any(marker in leaf for marker in _EXTRACTION_LEAF_KEYS)
+        for leaf in value.values()
+    )
+
+
+def _extraction_value(leaf: dict[str, Any]) -> Any:
+    """The answer out of one result object: the pre-defined value, else the free text."""
+    objective = leaf.get("objective")
+    if objective is not None:
+        return objective
+    return leaf.get("subjective")
+
+
+def _place(flat: dict[str, Any], *, category: str, name: str, value: Any) -> None:
+    """Write one field, qualifying the name rather than overwriting a taken one."""
+    flat[name if name not in flat else f"{category} / {name}"] = value
+
+
 # Bolna's answers (D-93). Every one of these was already true and was previously
 # expressed only as a `raise` inside the method that hit it — discoverable by calling and
 # failing, which is why screens could offer controls this engine refuses.
@@ -1089,9 +1454,25 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 #   do — and it is now a STATEMENT rather than a shrug. It also means the engine built-in
 #   CLAUDE.md would have us prefer is reachable only by configuring a tool at publish
 #   time, which is a design question (a per-agent escalation number becomes engine config,
-#   not just our column) and not a flag flip. OPERATIONS §2 gate 18 asks the one thing
-#   that decides it: does the hosted agent object accept a transfer tool, and is there any
-#   REST route that transfers a live execution?
+#   not just our column) and not a flag flip.
+#   **THE HOSTED CONTRACT NOW CONFIRMS BOTH HALVES, so the evidence class rises from
+#   VERIFIED-OSS to VERIFIED-VENDOR-DOCS and gate 18's first question is answered.** The
+#   hosted create body carries `ToolsConfigV2.api_tools` → `ApiTools.tools[]` `oneOf`
+#   `TransferCallTools`, whose `key` is `transfer_call` and whose destination is
+#   `TransferCallToolParams.param`, a stringified `{"call_transfer_number": "+1…",
+#   "call_sid": "%(call_sid)s"}` — a number fixed WHEN THE AGENT IS CONFIGURED, exactly the
+#   OSS shape (`bolna-findings/mirror/pages/api-reference/agent/v2/create.md`); the console
+#   equivalent is the Tools tab's Transfer Call card
+#   (`bolna-findings/mirror/pages/agent-setup/tools-tab.md`: "Route the call to a human
+#   agent or another phone number"). And the whole v2 agent surface is
+#   `POST /v2/agent`, `GET /v2/agent/{id}`, `GET /v2/agent/all`, `PUT`/`PATCH
+#   /v2/agent/{id}`, `DELETE /v2/agent/{id}`, `POST /v2/agent/{id}/stop` and the two
+#   executions reads — **no route transfers a live execution**, and `stop` cancels QUEUED
+#   calls ("This stops **ALL** the queued calls for a given agent",
+#   `bolna-findings/mirror/pages/api-reference/agent/v2/stop.md`), not an in-flight one.
+#   What is left for gate 18 is the DESIGN question, not the vendor one: whether a
+#   per-agent escalation number becomes engine config, and who is metered and retained for
+#   the transferred leg (`_check_transfer_leg` above pages on the first one that happens).
 # * `agent_hosting="control_plane"` (D-280). Bolna is the shape this port was written
 #   around and the reason it read as vendor-neutral for as long as it did: `POST /v2/agent`
 #   creates the object, `PUT /v2/agent/{id}` edits it, `GET /v2/agent/{id}` answers what it
@@ -1447,10 +1828,124 @@ class BolnaEngine:
                             # `InputOutput.format` enumerates.
                             "input": {"provider": "plivo", "format": "wav"},
                             "output": {"provider": "plivo", "format": "wav"},
+                            # **STATED, BECAUSE IT IS THE ONE DOCUMENTED WAY THE RUNNING
+                            # PROMPT CAN STOP BEING THE PROMPT WE PUBLISHED** (hard rule
+                            # 5). `MultilingualConfig` keeps a `system_prompt` PER
+                            # LANGUAGE and, in the vendor's own words, *"switches them,
+                            # along with the active system prompt, during the call"*
+                            # (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+                            # api-reference/agent/v2/create.md`,
+                            # `ToolsConfigV2.multilingual_config` →
+                            # `MultilingualConfig.description`; the per-language field is
+                            # `MultilingualLanguageEntry.system_prompt`, *"Prompt
+                            # activated while the agent speaks this language"*).
+                            #
+                            # `compose_engine_prompt` puts `TRUTHFUL_ANSWER_DIRECTIVE`
+                            # into `agent_prompts.task_1.system_prompt` and nowhere else,
+                            # and `verification.judge` reads it back from exactly there.
+                            # So an agent with multilingual switched on would run, for
+                            # every language but the base one, a prompt carrying none of
+                            # the floor — while the read-back scored
+                            # `truthful_answer_applied=True` off a prompt that is not the
+                            # one in use. That is precisely the shape hard rule 5 forbids:
+                            # a config row withdrawing the directive.
+                            #
+                            # WHY EXPLICIT NULL RATHER THAN OMISSION, which is the same
+                            # argument `agent_welcome_message` makes above: an omitted key
+                            # is a field left as it was. Their PATCH page describes `PUT`
+                            # as replacing "the entire agent configuration", but nobody
+                            # here has observed that against a live account (OPERATIONS §2
+                            # gate 2), and a compliance floor is not a thing to rest on an
+                            # unobserved merge semantics. `null` is the vendor's OWN
+                            # value for this key — `default: null`, `nullable: true` on
+                            # `ToolsConfigV2.multilingual_config` — so stating it cannot
+                            # be rejected and cannot mean anything but single-language.
+                            #
+                            # NOT THE SAME TREATMENT FOR `LlmAgentV2.routes`, and the
+                            # asymmetry is evidence, not inconsistency. `Routes` is the
+                            # OTHER config surface that can speak without the LLM — its
+                            # `Route.response` is a *"static response"* returned when a
+                            # caller's utterance matches, so a route matching "are you an
+                            # AI?" would answer from config with the prompt never
+                            # consulted. But `routes` is declared `$ref: Routes` with NO
+                            # `nullable` and NO default, so sending `null` is not a
+                            # documented value and an empty `{"routes": []}` is a guess
+                            # about what their semantic router does with an empty layer.
+                            # Guessing there could break every publish, so it is a
+                            # REPORTED gap (docs/evidence/bolna-agent-lifecycle.md) with
+                            # a read-back proposal, not a literal invented here.
+                            "multilingual_config": None,
                         },
                         "task_config": {
                             "hangup_after_silence": 10,
                             "call_terminate": cfg.max_call_duration_s,
+                            # **THE TWO CONVERSATION FLAGS THAT CAN PLACE A CALL, OR
+                            # RECORD A SECRET, WITHOUT US (D-413).** Both are
+                            # `ConversationConfig` booleans defaulting to `false`
+                            # (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+                            # api-reference/agent/v2/create.md`, the same schema
+                            # `hangup_after_silence` and `call_terminate` above come
+                            # from), so this states what we would otherwise inherit.
+                            # WHY STATED RATHER THAN OMITTED is `multilingual_config`'s
+                            # argument one block up — an omitted key is a field left as
+                            # it was — with one addition that makes it sharper here:
+                            # BOTH have a dashboard toggle. `agent-setup/call-tab.md`
+                            # ships "Auto Reschedule" and "Keypad Input (DTMF)" as
+                            # switches on the Call Tab, so a console click can turn
+                            # either on for a live agent without our deploying, and
+                            # neither is in anything `get_agent` reads back.
+                            #
+                            # `auto_reschedule` — *"Automatically reschedule the call
+                            # when the user asks to be called back at a later time"*.
+                            # A callback scheduled inside the call is placed by THEIR
+                            # scheduler, so it never passes
+                            # `compliance.service.check_dispatch`: the platform halt,
+                            # the tenant's spend cap, the agent gate and — decisively —
+                            # the DNC list are evaluated once, at the first call, and
+                            # never again. Hard rule 5 requires DNC additions to take
+                            # effect before the next dispatch tick, and a
+                            # vendor-scheduled callback has no tick.
+                            # WORSE, THE WINDOW IT WOULD VALIDATE AGAINST IS THE
+                            # CLIENT'S SCRIPT. `guides/outbound/calling-guardrails.md`
+                            # §"In-Call Reschedule Validation" ranks the sources:
+                            # `calling_guardrails` first (we send none — see the
+                            # evidence note), then *"the LLM reads time restrictions
+                            # from the system prompt"*, then a 9AM-9PM default. Priority
+                            # 2 is a tenant-authored string, so a script saying "we're
+                            # available round the clock" would have the model book a
+                            # 23:00 callback — a TCCCPR breach placed on Calevate's own
+                            # telemarketer registration. Hard rule 5 forbids a
+                            # client-authored script withdrawing a compliance invariant;
+                            # `False` is what makes that true rather than hoped.
+                            # THE VENDOR CONTRADICTS ITSELF ABOUT WHAT THE TOGGLE DOES
+                            # and `False` refuses both readings, so the contradiction
+                            # does not have to be settled before we are safe: the OAS
+                            # says in-call callback (above), while the dashboard page
+                            # calls the same switch *"Automatically retry failed calls
+                            # later"* (`agent-setup/call-tab.md`) — which would be a
+                            # SECOND retry ladder stacked on
+                            # `workers/campaign_dispatch._record_failure`, i.e. a double
+                            # dial to one person. Reported, not guessed
+                            # (docs/evidence/bolna-call-flows.md).
+                            #
+                            # `dtmf_enabled` — keypad digits are not a side channel,
+                            # they are delivered INTO THE CONVERSATION as the message
+                            # `dtmf_number: <digits>` (`guides/inbound/dtmf.md`). So
+                            # they land in the transcript this platform stores, redacts
+                            # and exports — and the vendor's own use cases for the
+                            # feature are *"PIN or OTP verification"*, an account
+                            # number, and *"a password or card number"*. MEASURED
+                            # AGAINST OUR OWN REDACTOR RATHER THAN ASSUMED: a
+                            # keypad-entered 4-digit PIN arrives as `dtmf_number: 1234`,
+                            # which is too short for `redaction._PHONE_SPAN_RE`'s
+                            # numbering-plan validator, too short for `_CARD_RE`, and
+                            # invisible to `_OTP_RE` because that one needs the literal
+                            # word otp/code/pin/password within 20 characters and the
+                            # vendor's prefix is `dtmf_number`. Nothing in this product
+                            # asks a caller to press a key, so the feature is all edge
+                            # and no upside until an IVR product exists to want it.
+                            "auto_reschedule": False,
+                            "dtmf_enabled": False,
                         },
                     }
                 ],
@@ -1546,13 +2041,26 @@ class BolnaEngine:
           which is why the unwrapping below tolerates a `data`/`agent` envelope. This is
           the self-hosted server, NOT api.bolna.ai — it is strong evidence about the
           SHAPE and no evidence at all about the hosted path.
-        * NOT READ, ONLY REPORTED. A web search of their hosted API reference (the v2
-          agent overview) lists `GET /v2/agent/{agent_id}` beside the `POST /v2/agent`,
-          `PUT /v2/agent/:agent_id` and `GET /v2/agent/all` this adapter already calls.
-          The page ITSELF could not be fetched: `docs.bolna.ai` and `www.bolna.ai` are
-          both blocked by this environment's egress proxy, so the path below is a claim
-          from a search summary, not something a human here has read. Bolna publishes no
-          OpenAPI spec (module docstring), so there is no schema to fall back on.
+        * VERIFIED-VENDOR-DOCS, AND THIS BULLET USED TO SAY THE OPPOSITE TWICE. It read
+          "NOT READ, ONLY REPORTED ... the page ITSELF could not be fetched" and "Bolna
+          publishes no OpenAPI spec (module docstring)" — the second contradicted this
+          file's own module docstring, which D-350 rewrote to say they publish one. Both
+          halves are now first-hand: the page is mirrored at
+          `bolna-findings/mirror/pages/api-reference/agent/v2/get.md`, it declares
+          `GET /v2/agent/{agent_id}` returning `AgentV2`, and `AgentV2` declares
+          `agent_prompts` — so **the published system prompt IS readable back**, which is
+          the property the publish read-back and the drift sweep are built on
+          (`_agent_system_prompt`). `tasks[].tools_config` is declared too, which is what
+          `_agent_models` reads.
+        * **`agent_welcome_message` IS NOT IN `AgentV2` — read the greeting bullet below
+          before treating an `unreadable` verdict as a defect of ours.** The schema's own
+          property list is `id`, `agent_name`, `agent_type`, `agent_status`, `created_at`,
+          `updated_at`, `tasks`, `ingest_source_config`, `agent_prompts`, and the greeting
+          is in none of them. `_agent_greeting` already answers `readable=False` for that,
+          which the judge scores `unreadable` — so on this engine EVERY publish carrying an
+          opening line lands `unreadable` rather than `applied` until a live account says
+          otherwise. That is the honest verdict, not a bug to code around, and it is what
+          OPERATIONS §2 gate 2 exists to settle.
         * NOT FOUND AT ALL — the loudest gap. **Nothing found anywhere says where a
           knowledge base reference lives inside the agent object**, or whether the agent
           object carries one. `_AGENT_KB_REF_KEYS` is therefore a guessed set of field
@@ -1720,7 +2228,24 @@ class BolnaEngine:
         5597f7da080d47564696bc05c12e9112 — re-downloaded and re-hashed 18 Aug 2026, so
         the pin is a re-read rather than a citation): `POST /providers` takes
         `{provider_name, provider_value}`, `GET /providers` lists them with the value
-        MASKED, and `DELETE /providers/{provider_key_name}` removes one.
+        MASKED, and `DELETE /providers/{provider_key_name}` removes one. **The vendor's
+        own published OpenAPI now says the same thing** (VERIFIED-VENDOR-DOCS,
+        `bolna-findings/mirror/pages/api-reference/providers/{overview,add,get,remove}.md`):
+        the store is a FLAT `provider_name` → `provider_value` map with no per-provider
+        object and no way to write several fields in one call, which is what makes the
+        four-key requirement below four separate installs rather than one structured one.
+
+        **THIS METHOD WRITES ONE OF FOUR DOCUMENTED KEYS, ON PURPOSE — see
+        `_AZURE_PROVIDER_KEYS`.** Their Azure OpenAI provider wants
+        `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE` and
+        `AZURE_OPENAI_API_VERSION`, and "all these keys must be added". Three of the four
+        are values this repository holds; the fourth has no derivable value and the
+        vendor's two pages disagree about whether it is needed at all, so installing
+        three of four automatically would leave the provider incomplete while REPORTING
+        success — the failure mode this method's whole count-before/count-after design
+        exists to avoid. The key is the one that must never be typed into a console by a
+        human, so it is the one that is pushed; the rest are the operator's, and gate 16f
+        is where they are recorded once the account exists.
 
         **WHY THIS IS A THREE-CALL DANCE AND NOT ONE POST**, which is the whole design
         question here. The POST response's `status` enum has exactly one member,
@@ -1763,13 +2288,14 @@ class BolnaEngine:
         # else's model. `has("llm")` is `is_ours("llm")` — see the Protocol's note on why
         # this is that gate rather than a capability flag of its own.
         require_capability("llm", engine=self)
-        # Read per call rather than copied at construction, because this is the one
-        # setting whose value is a MARKED ASSUMPTION (`Settings.bolna_llm_credential_name`,
-        # default `AZURE` since D-410 and still nobody's observation — gate 16f) and the
-        # operator correcting it is looking at a broken leg while they do. The adapter is
-        # cached per process, so a constructor copy would make an `applies: live`
-        # classification a lie. This method runs once per key rotation, so the read costs
-        # nothing that matters.
+        # Read per call rather than copied at construction. The default is no longer a
+        # derivation — `Settings.bolna_llm_credential_name` defaults to
+        # `AZURE_OPENAI_API_KEY`, the vendor's own name for it (`_AZURE_PROVIDER_KEYS`) —
+        # but it stays a live setting for the reason it always had: the operator who
+        # discovers the account wants something else is looking at a broken leg while
+        # they correct it, and a deploy is the wrong length of loop for that. The adapter
+        # is cached per process, so a constructor copy would make the `applies: live`
+        # classification a lie. This runs once per key rotation; the read costs nothing.
         name = get_settings().bolna_llm_credential_name
         before = await self._llm_credential_ids(name)
         await self._request(
@@ -1907,6 +2433,7 @@ class BolnaEngine:
         # bounded by `alerting`'s per-fingerprint suppression, so a fleet metering wrong
         # pages once per 15 minutes with the count riding along, not once per call.
         _check_cost_plausibility(cost, duration_s, engine_call_id=call_id)
+        _check_transfer_leg(payload, engine_call_id=call_id)
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=str(agent_ref) if agent_ref else None,
@@ -1944,7 +2471,9 @@ class BolnaEngine:
                 if raw_status == "completed"
                 else None
             ),
-            engine_extracted=payload.get("extracted_data") or {},
+            # FLATTENED, never passed through: the vendor nests by CATEGORY and
+            # `engine_extracted` is a flat field->value map. See `flatten_extracted_data`.
+            engine_extracted=flatten_extracted_data(payload.get("extracted_data")),
             engine="bolna",
         )
 
@@ -2108,10 +2637,20 @@ class BolnaEngine:
         premise that Bolna publishes no pagination contract. It publishes one.
 
         WHAT THIS DOES NOW. `GET /v2/agent/all` for the account's agents, then for each
-        agent `GET /v2/agent/{ref}/executions?from=<since>&page_number=n&page_size=50`,
-        looping while `has_more` is True. `from` is the vendor's own `created_at >=` filter
-        (sent as UTC ISO 8601 with an explicit offset — `references/bolna-core.md` warns
-        that a datetime without one "is rejected or silently runs in UTC").
+        agent `GET /v2/agent/{ref}/executions?from=<since>&to=<now>&page_number=n&
+        page_size=50`, looping while `has_more` is True. `from`/`to` are the vendor's own
+        `created_at >=` / `created_at <=` filters, sent as UTC ISO 8601 with an explicit
+        offset (`references/bolna-core.md` warns that a datetime without one "is rejected
+        or silently runs in UTC"). **`to` is REQUIRED and this method used to omit it** —
+        read `_LISTING_MAX_WINDOW` for the vendor sentences and for why sending both is
+        the intersection of two contradictory vendor pages rather than a bet on one.
+
+        `to` IS EVALUATED ONCE, before the fan-out, not per agent. A bound recomputed per
+        request would give each agent a different window, so "the walk covered
+        `since`..`to`" would not be a single true statement about the listing — and the
+        rows created during a multi-agent walk are picked up by the next tick anyway,
+        which overlaps this one by 20 minutes (`reconcile_executions` polls every 10 with
+        a 30-minute window).
 
         HOW COMPLETENESS IS DECIDED, and `complete=True` stays a POSITIVE claim:
 
@@ -2137,6 +2676,24 @@ class BolnaEngine:
         legitimate and re-driving one call twice is wasted engine load.
         """
         cutoff = since.astimezone(UTC)
+        until = datetime.now(UTC)
+        if until - cutoff > _LISTING_MAX_WINDOW:
+            # The caller, not the vendor, is what is wrong here — see `_LISTING_MAX_WINDOW`
+            # for why this refuses instead of quietly moving `cutoff` forward.
+            raise ProblemError(
+                kind="dependency",
+                code="engine_listing_window_too_wide",
+                title="That reconciliation window is wider than the engine will serve",
+                detail=(
+                    "The voice platform serves at most "
+                    f"{_LISTING_MAX_WINDOW.days} days of call history per listing request."
+                ),
+                remediation=(
+                    "Ask for a narrower window and repeat it to cover the period, rather "
+                    "than widening this one."
+                ),
+                failure_stage="CORE_LOGIC",
+            )
         snapshots: list[ExecutionSnapshot] = []
         seen_ids: set[str] = set()
         # The `GET /v2/agent/all` response IS a response we read, so it counts:
@@ -2153,6 +2710,7 @@ class BolnaEngine:
                     f"/v2/agent/{agent_ref}/executions",
                     params={
                         "from": cutoff.isoformat(),
+                        "to": until.isoformat(),
                         "page_number": page_number,
                         "page_size": _LISTING_PAGE_SIZE,
                     },
@@ -2203,6 +2761,19 @@ class BolnaEngine:
             incomplete_reason=reason,
             pages_fetched=pages,
         )
+
+    # --- compliance flags ----------------------------------------------------
+
+    async def list_violations(self, *, status: str = OPEN_STATUS) -> ViolationListing:
+        """The account's compliance flags — `SupportsViolations`, this vendor's answer.
+
+        Everything about the shape, the four statuses, the fields deliberately dropped and
+        the reason there is no `submit` counterpart is in `engine/violations.py`. This
+        method is the seam and nothing more: the adapter owns the credential, the base URL
+        and `_parse_dt`'s tolerance for the vendor's date spellings, and the walk is shared
+        so a second engine that grows this surface reuses it rather than copying it.
+        """
+        return await walk_violations(self._request, status=status, parse_dt=_parse_dt)
 
     # --- webhooks ------------------------------------------------------------
 

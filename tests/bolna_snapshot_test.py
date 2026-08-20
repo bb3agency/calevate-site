@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from apps.api.core import alerting
 from apps.api.engine import bolna
 from apps.api.engine.bolna import (
     _STATUS_MAP,
@@ -104,6 +105,112 @@ def test_a_stated_inr_is_refused_because_nothing_says_what_unit_it_is_in() -> No
     # The rest of the snapshot still lands: an unpriceable cost is not a broken call.
     assert snapshot.status == "completed"
     assert snapshot.duration_s == 42
+
+
+# --- 1b. the UNIT, settled by the vendor's own worked example (D-412) ---------
+#
+# The vendor's hosted API reference prints a real completed execution. It is the only
+# first-party artefact that lets the minor-unit question be decided by ARITHMETIC instead
+# of by adjudicating two prose sentences against each other, and the two tests below are
+# what stop that evidence from decaying back into a comment nobody re-derives.
+
+#: Verbatim from the "Completed execution example" block of
+#: `bolna-findings/mirror/pages/api-reference/executions/get_execution.md`. Copied rather
+#: than adapted: the point of the fixture is that it is THEIRS, so trimming it to what our
+#: assertions touch would quietly turn their evidence back into ours.
+VENDOR_WORKED_EXAMPLE: dict[str, object] = {
+    "id": "b7140255-af33-4608-8e97-04dd944b8e48",
+    "agent_id": "5bc97541-e320-4d95-a3a5-242cfe45621d",
+    "status": "completed",
+    "conversation_duration": 16,
+    "total_cost": 3.23,
+    "cost_breakdown": {
+        "platform": 2,
+        "network": 1,
+        "transcriber": 0.23,
+        "llm": 0,
+        "synthesizer": 0,
+    },
+}
+
+
+def test_the_vendors_worked_example_totals_exactly_what_its_legs_sum_to() -> None:
+    """`total_cost` IS the sum of the five legs, and this is the first evidence of it.
+
+    `_cost` converts the total and every leg on ONE divisor and ONE rate so that a row's
+    parts reproduce its whole — a property `usage_events.meta` re-derivation depends on,
+    and one this repository chose on first principles before it had any vendor arithmetic
+    to check it against. The vendor's example now checks it: 2 + 1 + 0.23 + 0 + 0 = 3.23.
+
+    Asserted on the CONVERTED rupee figures rather than on the raw ones, because that is
+    the property that matters downstream: a divisor or a rate applied to the total but not
+    to a leg would satisfy the raw sum and still ship a row whose parts do not add up.
+    """
+    snapshot = _engine()._snapshot(_payload(**VENDOR_WORKED_EXAMPLE))
+
+    cost = snapshot.cost
+    assert cost is not None
+    legs = [cost.platform_inr, cost.network_inr, cost.stt_inr, cost.llm_inr, cost.tts_inr]
+    assert all(leg is not None for leg in legs)
+    assert sum(leg for leg in legs if leg is not None) == cost.total_inr
+
+
+def test_only_the_minor_unit_reading_of_the_worked_example_is_a_possible_phone_bill() -> None:
+    """WHY THE DIVISOR IS 100, argued from the vendor's numbers rather than from its prose.
+
+    Both readings of `total_cost` were first-party: the OAS says "in cents", and
+    `references/execution-payload.md` says "account currency" (major units). Until this
+    example there was no way to choose between them except the vendor's own precedence
+    rule — which settles which DOCUMENT wins, not which reading is true.
+
+    16 seconds for 3.23 is 12.11 units per minute. As minor units that is ~12 US cents/min,
+    which lands beside the rate Bolna publishes for the Voice AI leg — "$0.06/min
+    (₹5.52/min)" plus telephony and platform fee
+    (`bolna-findings/mirror/pages/pricing/preferred-models.md`). As MAJOR units it is
+    $12.11/min: about ₹1,060 for one minute of an Indian phone call.
+
+    This test asserts BOTH arms on purpose. Checking only that the minor-unit reading is
+    plausible would pass just as happily if the band were wide enough to admit both, and
+    then it would be testing nothing — the discriminating fact is that the major-unit
+    reading is excluded by the same band.
+    """
+    snapshot = _engine()._snapshot(_payload(**VENDOR_WORKED_EXAMPLE))
+
+    cost = snapshot.cost
+    assert cost is not None
+    assert snapshot.duration_s == 16
+    as_minor = bolna._implied_inr_per_minute(cost.total_inr, snapshot.duration_s)
+    assert bolna._PLAUSIBLE_INR_PER_MIN_FLOOR <= as_minor <= bolna._PLAUSIBLE_INR_PER_MIN_CEILING, (
+        f"the minor-unit reading prices the vendor's own example at INR {as_minor}/min"
+    )
+
+    # The rejected reading, priced the same way. `_to_inr` with a divisor of 1 IS the
+    # major-unit story, so this is not a hand-computed number we could get wrong.
+    as_major = bolna._to_inr(
+        VENDOR_WORKED_EXAMPLE["total_cost"], FX, minor_units_per_major=Decimal(1)
+    )
+    assert as_major is not None
+    assert bolna._implied_inr_per_minute(as_major, 16) > bolna._PLAUSIBLE_INR_PER_MIN_CEILING, (
+        "if BOTH readings were plausible this example could not settle the unit"
+    )
+
+
+def test_the_documented_execution_shape_carries_no_currency_field() -> None:
+    """The half of gate 7 a payload CANNOT settle, pinned so nobody plans around it.
+
+    `AgentExecution` declares seventeen properties and `currency` is not among them
+    (`bolna-findings/mirror/pages/api-reference/executions/get_execution.md`, OpenAPI
+    block). So against the documented shape `currency_stated` is always False and the
+    INR-refusal branch is unreachable — an INR-billed account does not meter NOTHING
+    today, it meters on the house USD assumption, which is a quieter and more dangerous
+    failure than a gap. Gate 7's currency criterion therefore cannot be closed by
+    capturing an execution; it needs an invoice or a wallet statement.
+    """
+    snapshot = _engine()._snapshot(_payload(**VENDOR_WORKED_EXAMPLE))
+
+    assert snapshot.cost is not None
+    assert snapshot.cost.currency_stated is False
+    assert snapshot.cost.source_currency == "USD", "the house assumption, not a reading"
 
 
 def test_a_currency_we_cannot_convert_is_refused_rather_than_guessed() -> None:
@@ -317,6 +424,29 @@ def test_a_rescheduled_call_is_waiting_not_failed() -> None:
     assert not snapshot.billable_ready
 
 
+def test_a_prepared_call_is_waiting_not_failed() -> None:
+    """THE SECOND MEMBER THAT WAS MISSING, found the same way and costing more.
+
+    `prepared` is the rung between "we accepted your request" and "it is in the dial
+    queue": the vendor's own table calls it *Intermediate* — "Execution record created and
+    validated (recipient number, from/to number assigned) but not yet handed off to the
+    dial queue" (`bolna-findings/mirror/pages/api-reference/errors.md:42`). The pinned OAS
+    this adapter was built from does not list it, which is why fifteen looked complete.
+
+    Unmapped it took `_STATUS_MAP`'s `failed` default, and `failed` is TERMINAL. On the
+    campaign path a terminal status settles the contact and frees the line, so a contact
+    the vendor was about to dial was recorded as attempted-and-dead — while the dial it
+    had already accepted went ahead anyway. That is the `rescheduled` defect (D-351) with
+    a real call attached to it rather than a deferred one.
+    """
+    snapshot = _engine()._snapshot(_payload(status="prepared"))
+
+    assert snapshot.status == "queued"
+    assert snapshot.raw_status == "prepared", "the vendor's own word survives for the audit"
+    assert not snapshot.terminal, "the vendor has accepted this call and has not dialled it"
+    assert not snapshot.billable_ready, "nothing was spoken, so nothing is billable"
+
+
 # --- direction, which the vendor keeps somewhere else (D-359) ----------------
 
 
@@ -408,3 +538,205 @@ def test_a_call_that_is_not_completed_has_no_billable_instant() -> None:
     """Non-vacuity for the pair above: `billable_ready_at` is None until the vendor's
     terminal status, so it can never read as "ready at" for a call that is not."""
     assert _engine()._snapshot(_payload(status="in-progress")).billable_ready_at is None
+
+
+# --- 4. a second call leg the adapter does not carry --------------------------
+#
+# `BOLNA_CAPABILITIES.transfer=False` describes what OUR publish path configures. The
+# vendor's Transfer Call built-in is enabled from the agent's Tools tab — a console toggle
+# — so an agent we published can grow a transfer leg without a deploy, and the vendor then
+# returns `transfer_call_data`: a second leg with its own `recording_url` and its own
+# `cost` (OAS `TransferCallData`). `_snapshot` reads neither. These pin the alarm that
+# makes that loud instead of silent, and the hard-rule-6 bound on what it may say.
+
+
+@pytest.fixture
+def _fresh_alerts() -> None:
+    """Per-fingerprint suppression is 15 minutes wide; a second test asserting the same
+    code would read the first test's window and see nothing. Requested by name rather than
+    autouse — the rest of this file asserts on return values, not on the alert path."""
+    alerting.reset_alerts()
+
+
+def _alert_records(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
+    """The alert path writes ONE `log.error("alert", ...)` per firing, carrying the code
+    and our authored detail in `extra`."""
+    return [record.__dict__ for record in caplog.records if record.message == "alert"]
+
+
+def _transfer_leg(**over: object) -> dict[str, object]:
+    """A completed transfer leg, shaped as `TransferCallData` declares it."""
+    return {
+        "provider_call_id": "CA42fb13614bfcfeccd94cf33befe14s2f",
+        "status": "completed",
+        "duration": "42",
+        "cost": 3,
+        "to_number": "+919876543210",
+        "from_number": "+919812345678",
+        "recording_url": "https://api.bolna.ai/recordings/transfer/exec-abc123",
+        "hangup_by": "Caller",
+        **over,
+    }
+
+
+def test_an_execution_with_a_transfer_leg_pages(
+    _fresh_alerts: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """THE DEFECT THIS ALARM EXISTS FOR. A second recording of the same caller that our
+    retention policy never sees and a DPDP erasure can never reach, plus a cost hard rule 7
+    never meters — arriving because somebody flipped a toggle in the vendor's console."""
+    with caplog.at_level("ERROR"):
+        snapshot = _engine()._snapshot(_payload(transfer_call_data=_transfer_leg()))
+
+    assert [str(r.get("code")) for r in _alert_records(caplog)] == ["engine_transfer_leg_unhandled"]
+    assert snapshot.recording_url is None, (
+        "non-vacuity: the alarm must fire BECAUSE the leg's recording is dropped, so the "
+        "snapshot must still be carrying only the main leg's (absent) recording"
+    )
+
+
+def test_the_transfer_alarm_names_no_phone_number_and_no_recording(
+    _fresh_alerts: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Hard rule 6. `TransferCallData` carries two E.164 numbers and a URL that resolves to
+    caller audio; an alarm that pastes them into the log turns a compliance warning into a
+    compliance breach. The alarm may say WHICH execution and WHAT is at stake, nothing more.
+    """
+    leg = _transfer_leg()
+    with caplog.at_level("ERROR"):
+        _engine()._snapshot(_payload(transfer_call_data=leg))
+
+    detail = str(_alert_records(caplog)[0].get("detail"))
+    for forbidden in (leg["to_number"], leg["from_number"], leg["recording_url"]):
+        assert str(forbidden) not in detail, f"{forbidden!r} must never reach a log line"
+    assert "exec-abc123" in str(_alert_records(caplog)[0].get("engine_call_id")), (
+        "the id is the whole point — an operator has to know which execution to open"
+    )
+
+
+def test_an_ordinary_execution_is_silent(
+    _fresh_alerts: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Every call this system places today is this shape. An alarm that fires on all of
+    them is one an operator mutes, and then the transfer leg goes past."""
+    with caplog.at_level("ERROR"):
+        _engine()._snapshot(_payload())
+    assert _alert_records(caplog) == []
+
+
+@pytest.mark.parametrize("empty", [None, {}, "", []])
+def test_an_absent_or_empty_transfer_leg_is_silent(
+    empty: object, _fresh_alerts: None, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The vendor returns the key with a null/empty value on calls that were never
+    transferred. Paging on "there was no transfer" would fire on every call there is."""
+    with caplog.at_level("ERROR"):
+        _engine()._snapshot(_payload(transfer_call_data=empty))
+    assert _alert_records(caplog) == []
+
+
+# --- `extracted_data`: the vendor nests by category, our contract is flat -------------
+#
+# `ExecutionSnapshot.engine_extracted` is a FLAT `{field_name: value}` map — that is what
+# every consumer above reads it as, and `tests/pilot_fidelity_test.py` pins it. Bolna's
+# `extracted_data` is two levels deep, keyed by CATEGORY first:
+#
+#     extracted_data -> "<Category>" -> "<Disposition>" -> {subjective, objective, ...}
+#
+# stated three times in their own docs — "Results are nested by category and extraction
+# name under `extracted_data`", the worked `GET /executions/{id}` example, and
+# `POST /v2/agent/{id}/dispositions/test` returning results "grouped by category and
+# disposition name, in the same format as post-call execution data".
+#
+# The adapter passed that nesting straight through, so `sorted(engine_extracted)` — the
+# one thing every consumer does with it — returned CATEGORY names under the label "field
+# names", and pilot gate 7 scored a call in which every field arrived as a FAIL naming
+# every one of them absent.
+
+
+def _extracted(**over: object) -> dict[str, object]:
+    """One category, one disposition, in the vendor's documented result shape."""
+    return {
+        "Lead Quality": {
+            "Call Outcome": {
+                "subjective": "Customer asked about enterprise pricing.",
+                "objective": "interested",
+                "confidence": 0.92,
+                "confidence_label": "High",
+                "reasoning_subjective": "Customer asked about pricing.",
+                "reasoning_objective": "Customer agreed to a next step.",
+                "validation": None,
+                **over,
+            }
+        }
+    }
+
+
+def test_extracted_data_reports_the_field_name_not_its_category() -> None:
+    """THE DEFECT, in the one expression every consumer writes. `sorted(...)` has to name
+    the disposition an operator lists as an expected field, never the category above it."""
+    snapshot = _engine()._snapshot(_payload(extracted_data=_extracted()))
+    assert sorted(snapshot.engine_extracted) == ["Call Outcome"], (
+        "gate 7 compares these against the operator's `expects_extracted_fields`, "
+        "which name dispositions — a category here fails a call that fully succeeded"
+    )
+
+
+def test_the_predefined_value_wins_over_the_free_text() -> None:
+    """`objective` is the pre-defined selection — the CRM-column-shaped answer. The free
+    text is the fallback for a disposition configured without pre-defined options."""
+    snapshot = _engine()._snapshot(_payload(extracted_data=_extracted()))
+    assert snapshot.engine_extracted["Call Outcome"] == "interested"
+
+
+def test_a_disposition_with_no_predefined_value_falls_back_to_the_free_text() -> None:
+    snapshot = _engine()._snapshot(_payload(extracted_data=_extracted(objective=None)))
+    assert snapshot.engine_extracted["Call Outcome"] == ("Customer asked about enterprise pricing.")
+
+
+def test_the_vendors_account_of_itself_is_dropped() -> None:
+    """`confidence`, `reasoning_*` and `validation` are the vendor describing its own
+    working, not the extracted value — and the reasoning fields are free text the model
+    wrote about what the CALLER said (hard rule 6)."""
+    snapshot = _engine()._snapshot(_payload(extracted_data=_extracted()))
+    flattened = repr(snapshot.engine_extracted)
+    for leaked in ("confidence", "reasoning", "validation", "Customer agreed"):
+        assert leaked not in flattened, f"{leaked!r} is not an extracted value"
+
+
+def test_the_older_flat_shape_still_passes_through() -> None:
+    """Extractions is "the NEW ... feature ... powered by the Dispositions API", so an
+    account may still hold agents whose payload is flat. A field whose value is a scalar
+    is not a category and must survive untouched."""
+    snapshot = _engine()._snapshot(_payload(extracted_data={"lead_name": "Ravi Kumar"}))
+    assert snapshot.engine_extracted == {"lead_name": "Ravi Kumar"}
+
+
+def test_a_field_whose_value_is_an_unrelated_dict_is_not_mistaken_for_a_category() -> None:
+    """Depth alone would swallow this. A category's members are RESULT objects, so the
+    test is the leaf keys — `subjective`/`objective` — not the nesting."""
+    snapshot = _engine()._snapshot(_payload(extracted_data={"address": {"city": "Hyderabad"}}))
+    assert snapshot.engine_extracted == {"address": {"city": "Hyderabad"}}
+
+
+def test_the_same_field_name_in_two_categories_keeps_both() -> None:
+    """Bolna scopes disposition names to their category, so two may both be "Notes".
+    A bare last-wins would silently drop one extracted value; the second is qualified."""
+    snapshot = _engine()._snapshot(
+        _payload(
+            extracted_data={
+                "Lead Quality": {"Notes": {"objective": "hot", "subjective": ""}},
+                "Escalation": {"Notes": {"objective": "none", "subjective": ""}},
+            }
+        )
+    )
+    assert sorted(snapshot.engine_extracted) == ["Escalation / Notes", "Notes"]
+    assert set(snapshot.engine_extracted.values()) == {"hot", "none"}
+
+
+@pytest.mark.parametrize("empty", [None, {}, "", [], "nonsense"])
+def test_an_absent_or_unreadable_extraction_is_no_extraction(empty: object) -> None:
+    """`{}` is what "no extraction ran" already means to every consumer. Inventing a
+    field out of a shape nothing here models would be worse than reporting none."""
+    snapshot = _engine()._snapshot(_payload(extracted_data=empty))
+    assert snapshot.engine_extracted == {}
