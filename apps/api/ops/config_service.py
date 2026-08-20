@@ -241,7 +241,25 @@ def _refuse_env_shadowed(key: str) -> None:
         )
 
 
-def _validated(key: str, raw: Any) -> Any:
+def validated_value(key: str, raw: Any) -> Any:
+    """Validate a console-supplied value against its own `Settings` field, or refuse.
+
+    PUBLIC, AND THE SECOND CALLER IS WHY. This was `_validated`, private to the
+    non-secret write path — and `ops/secret_service.set_secret` had no equivalent, so a
+    console-set CREDENTIAL was checked for non-emptiness and nothing else. That is not a
+    gap in coverage, it is a constraint that a different code path silently bypasses:
+    `azure_openai_api_key` declares `max_length=512` and the secret path would seal a
+    megabyte, and the day a credential field grows a `pattern=` the pattern would do
+    nothing at all. `core/settings._current_settings` uses `model_copy(update=...)` —
+    which does not re-validate — on the stated grounds that everything in the layer was
+    validated before storage, and that ground was true for rows and false for secrets.
+    One function, both doors.
+
+    NOTHING FROM THE VALUE REACHES THE REFUSAL. Only `type` and `msg` are read off
+    `ValidationError.errors()`; the `input` key it also carries is deliberately not
+    touched, because on this path the input is a credential and a problem+json body is a
+    response, a log line and a screenshot in a support ticket.
+    """
     try:
         return validate_value(key, raw)
     except ValidationError as exc:
@@ -471,7 +489,7 @@ async def set_value(
     """
     _refuse_unmanaged(key)
     _refuse_env_shadowed(key)
-    stored = _validated(key, value)
+    stored = validated_value(key, value)
     # The lock comes FIRST — before the read whose result the precondition is checked
     # against — or the check-then-write is not atomic and the precondition is decoration.
     await _lock_key(session, key)
@@ -576,4 +594,5 @@ __all__ = [
     "read_rows",
     "read_sentinel",
     "set_value",
+    "validated_value",
 ]

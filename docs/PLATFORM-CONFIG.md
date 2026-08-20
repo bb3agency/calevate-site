@@ -1,7 +1,10 @@
 # PLATFORM-CONFIG — the ops console, and where secrets actually live
 
 **Status:** SPEC, approved for build (Aug 2026). Decision row: D-95.
-**Surface:** `admin.calevate.tech/ops` — admin realm, existing Clerk app, existing MFA.
+**Surface:** `admin.calevate.tech/ops` — admin realm, first-party session
+(`apps/api/authn/`, D-165/D-170/D-177 — this line said "existing Clerk app" until
+20 Aug 2026), and the admin realm's mandatory second factor, which is an emailed one-time
+code and is a frozen `MFA_REQUIRED_REALMS = {"admin"}` with no setting behind it.
 **Reading order:** after SECURITY-COMPLIANCE §2 (secrets) and BACKEND-PATTERNS §1
 (module anatomy). DATA-MODEL owns the table shapes once they land.
 
@@ -26,7 +29,7 @@ the most likely way this ends badly.
 
 | | **Core config** | **Secrets** |
 |---|---|---|
-| Examples | engine selection, calling windows, retry ladders, vertical templates, rate limits, the big red switch | Sarvam key, Bolna key, Cartesia key, Clerk secret keys, Razorpay webhook secret, Meta app secret, R2 credentials |
+| Examples | engine selection, calling windows, retry ladders, vertical templates, rate limits, the big red switch | Sarvam key, Bolna key, `AZURE_OPENAI_API_KEY` (D-410), Cartesia key, Google Sheets service account (D-23), Razorpay webhook secret, Meta page access tokens, R2 credentials. **No authentication credential appears here at all** — D-177 removed the vendor whose secret keys this cell used to name, and there is nothing in its place to configure |
 | Storage | plaintext rows | ciphertext + wrapped DEK |
 | Readable back in the UI | **yes** — you must be able to see what the value is | **never** — last-4, who, when |
 | Blast radius if leaked | embarrassing | catastrophic |
@@ -127,7 +130,15 @@ Resolution order for every key: **`os.environ` → `platform_settings` / `platfo
 | `REDIS_URL` | needed by workers before settings resolve |
 
 Everything else is a candidate. **`.env` goes from ~54 keys to 6.** That is the outcome
-the founder asked for, stated as a number so it can be checked.
+the founder asked for, stated as a number so it can be checked — **and when it was checked
+it came out at 8, not 6, for a mechanical reason this table does not cover**:
+`OBJECT_STORE_ENDPOINT` and `OBJECT_STORE_BUCKET` are type-required `Settings` fields with
+no default, so a process whose environment lacks them cannot construct `Settings()` and
+therefore cannot boot far enough to look anything up. The console does manage them and
+renders them read-only when the environment supplies them. `.env.example` carries those 8;
+`tests/env_example_bootstrap_floor_test.py` proves both halves, and DEV-SETUP §4 is the
+current census of what is on each side of the line (55 console-managed today, 37
+core-config + 18 credentials, counted from `managed_fields()` rather than remembered).
 
 ## 5. Data model
 

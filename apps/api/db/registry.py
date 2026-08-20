@@ -109,6 +109,16 @@ TENANT_TABLES = [
     # have no rows at all.
     "tenant_feature_flags",
     "retention_policies",
+    # Which tenants the nightly retention sweep must visit that the engine bridge cannot
+    # name (D-368, migration b2e6f10c94d7). Its policy is HAND-WRITTEN like `dnc_list`'s
+    # and asymmetric the other way: `tenant_isolation` is the strict own-tenant form for
+    # every verb, and a second `FOR SELECT` policy lets an UNTENANTED session — the
+    # retention worker, which has none — read across tenants. Both USING clauses consult
+    # the GUC, so this is an ordinary tenant table and NOT an
+    # `RLS_EXEMPT_TENANT_COLUMNS` entry; the alternative closures both needed one (on
+    # `kb_sources` itself, which holds client content) and that is the price this shape
+    # exists to avoid.
+    "retention_worklist",
     "deletion_requests",
     # The END of an engagement, executed and certified (migration f3a71c9e26b4): the
     # request that erases one client's caller data and is the only thing in this product

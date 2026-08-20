@@ -803,11 +803,16 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    host in `OBJECT_STORE_ENDPOINT`).
 
    `RESEND_API_KEY` is the third env-only key and the ONLY credential that is (see the
-   email block below for why). Everything else — Clerk keys, `BOLNA_API_KEY`, Sarvam,
+   email block below for why). Everything else — `BOLNA_API_KEY`, the Sarvam stack, the
+   four `AZURE_OPENAI_*` values (D-410), `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON`,
    `EMAIL_PROVIDER`, Razorpay, the GST
-   invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 50 of
+   invoice identity, `ENGINE`, calling windows, `USD_INR_RATE`, `ALERTS_EMAIL`, all 55 of
    them — is set afterwards from `admin.calevate.tech/ops`, live, without an SSH session
-   and without a restart. **That screen is now part of go-live** (§9): a freshly
+   and without a restart. *(**There are no authentication keys in that list any more.**
+   This sentence led with "Clerk keys" until 20 Aug 2026; D-177 deleted the vendor and
+   authentication is configured by nothing — not in the environment, not in the console,
+   not in the browser. See `apps/web/.env.example`, which says the same about the two
+   publishable keys that used to be build-time inputs.)* **That screen is now part of go-live** (§9): a freshly
    provisioned VPS boots into a running platform with unconfigured integrations, each of
    which refuses by name rather than pretending to work, and an operator finishes the
    configuration from a browser.
@@ -1239,10 +1244,11 @@ matters most, and it also comes before the privileged scripts are installed at a
 land at step 7, §9.7a.)
 
 **Step 4 places §6 tier 1 — the bootstrap eight plus the two object-store credentials;
-the other 50 keys are step 10a.** After the first deploy the platform is running and its
+the other 55 keys are step 10a.** After the first deploy the platform is running and its
 integrations are unconfigured —
 each refusing by name, none pretending to work. Open `admin.calevate.tech/ops` and set
-them: engine + `BOLNA_API_KEY`, the Sarvam stack, the Clerk secrets, `EMAIL_PROVIDER`
+them: engine + `BOLNA_API_KEY`, the Sarvam stack, the four `AZURE_OPENAI_*` values
+(resource, key, deployment, model — D-410), `EMAIL_PROVIDER`
 plus its credential (`RESEND_API_KEY` for `resend`, `SMTP_*` for `smtp`) and
 `ALERTS_EMAIL`, `USD_INR_RATE`, and the GST invoice identity when the entity exists.
 `POST /v1/ops/secrets/{key}/test` asks the vendor a cheap authenticated question before a
@@ -1253,8 +1259,10 @@ an SSH session — worth reading before ticking OPERATIONS §8.
 
 **But the ops console has a door, and step 4 is also where somebody is given a key.**
 `admin_users` is the allowlist the entire admin realm resolves against, it is
-ops-managed and never reconciled from Clerk (`core/clerk_identity.py` states that
-deliberately), and **nothing in this repository ever inserted a row** — not `seed.py`,
+ops-managed and reconciled from nothing at all (the file that used to say so,
+`core/clerk_identity.py`, went with the vendor at D-177 — the design statement survives
+it and is now simply true by construction: there is no upstream to reconcile FROM), and
+**nothing in this repository ever inserted a row** — not `seed.py`,
 not the deploy script, not any migration. So a fresh deploy came up green with an empty
 table and every admin request 403ing: no organization creatable, no platform setting
 writable, no first campaign reviewable, and no way to reach the screen the paragraph

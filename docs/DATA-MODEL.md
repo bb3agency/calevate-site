@@ -38,16 +38,40 @@ organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE
   -- cannot be an index condition. Keyed reads (`slug =`, `id =`) plan as index scans and are
   -- what every request path uses; the one unkeyed reader is the admin directory.
 reserved_slugs(slug PK)              -- admin, api, login, settings, app, www, ...
-users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at)
+users(id, clerk_user_id UNIQUE, email, name, phone, deactivated_at, email_verified_at)
+  -- clerk_user_id: NOTHING WRITES OR READS IT since D-177. Kept one release under hard
+  -- rule 8's two-step deprecation and recorded in `scripts/check_wiring.UNWIRED_BASELINE`;
+  -- the DROP is step 2 (AUTH-MIGRATION §11). Do not add a reader.
   -- deactivated_at re-checked by the auth guard on EVERY request (BACKEND-PATTERNS §7):
-  -- a cached Clerk session must not outlive a deactivation
+  -- a cached session must not outlive a deactivation. It is also the client realm's whole
+  -- liveness rule in `authn/subjects.py`, so signing in and staying signed in agree.
+  -- email_verified_at: set by the `email_verify` OTP round trip, or directly on
+  -- invitation redemption (possession of the emailed token IS the proof) — D-170.
+  -- WHERE THE CREDENTIAL LIVES: not here. `auth_credentials` (Argon2id + KEK-derived
+  -- pepper) and `auth_sessions` (opaque token fingerprint, mfa_verified_at, idle/absolute
+  -- bounds), both FORCEd deny-by-default RLS, migration e9a4c1d70b52 — AUTH-MIGRATION §2.
 memberships(id, tenant_id, user_id, role ENUM[owner,staff], UNIQUE(tenant_id,user_id))
   -- staff: no billing.*, no org settings, no raw (unredacted) transcripts, and no
   -- recording audio (D-181: the audio is the source of the text that rule protects)
 invitations(id, tenant_id, email, role, token_hash UNIQUE, expires_at DEFAULT now()+'72h',
   used_at, created_by)               -- single-use; hash only; burned on accept
 admin_users(id, clerk_user_id UNIQUE, name, role ENUM[superadmin,operator])  -- separate realm
+  -- Same two-step deprecation on its clerk_user_id, and the same DROP owed. This table is
+  -- an ops-managed allowlist reconciled from nothing; `scripts/bootstrap_admin.py` writes
+  -- the first row (D-171) and the console writes every later one.
 ```
+
+**The four AUTHENTICATION tables are NOT above, and they are not missing either** — they
+have one home and this document is not it. `auth_credentials`, `auth_sessions`,
+`auth_email_tokens` and `auth_otp_challenges` (migrations `e9a4c1d70b52` and
+`b3d9f6a2c815`, `apps/api/authn/models.py`) hold the password hash, the opaque session, the
+single-use emailed tokens and the OTP challenges that D-165/D-170 brought in-house from
+Clerk. **`docs/AUTH-MIGRATION.md` §2 is their schema of record** and carries the column
+list, the predicates and the reasoning; duplicating the shape here would be the second copy
+that drifts. What belongs here is the invariant they share with everything else: all four
+carry **FORCEd deny-by-default RLS** — they are not tenant-scoped, so the policy is not
+`tenant_id =` anything; the app role reaches them only through
+`db/session.credential_session`, which is their sole opener.
 
 ## 3. Agents & Configuration
 

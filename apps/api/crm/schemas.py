@@ -648,10 +648,18 @@ class CallAssistOut(Strict):
     #: the sentence is the one `AssistCapability.disclosure` composes — written once, so
     #: two surfaces cannot say different things about the same substitution.
     disclosure: str | None
-    #: Did this reach `usage_events`? False for a disclosed Sarvam fallback (D-36 prices
-    #: that leg at zero) and for a Gemini answer Vertex did not count. The screen says
-    #: "this did not use any of your allowance" only when this is False, because saying
-    #: it when it is True would be a claim about a client's money that is not true.
+    #: Did this reach `usage_events`? The screen says "this did not use any of your
+    #: allowance" only when this is False, because saying it when it is True would be a
+    #: claim about a client's money that is not true. `crm/assist.py::meter_assist` has
+    #: exactly three ways to answer False, and only the first is routine:
+    #:
+    #: - a disclosed Sarvam fallback, which D-36 prices at zero;
+    #: - an Azure answer that carried no `usage` block (D-410) — nothing is estimated,
+    #:   and `ai_assist_unmeterable` pages because that spend is invisible to both the
+    #:   tenant ceiling and the platform brake;
+    #: - a RETRY of an attempt already metered under the same server-minted `ref`
+    #:   (`billing/ai_quota.AssistMetered.recorded`), which is one assist charged once
+    #:   rather than a free one.
     metered: bool
 
 

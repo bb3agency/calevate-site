@@ -33,6 +33,7 @@ from apps.api.core.logging import get_logger
 from apps.api.core.platform_config import applies_rule, is_secret_key
 from apps.api.core.settings import ENV_ONLY_KEYS, env_declares, env_var_for
 from apps.api.db.result import rowcount_of
+from apps.api.ops.config_service import validated_value
 
 log = get_logger(__name__)
 
@@ -217,6 +218,20 @@ async def set_secret(
                 "this unset — an empty row would read as installed."
             ),
         )
+    # AND AGAINST THE FIELD'S OWN DEFINITION, which this path did not do and the rest of
+    # the system assumed it did. `core/settings._current_settings` installs the override
+    # layer with `model_copy(update=...)` — no re-validation — and says so, on the stated
+    # ground that "every value in the layer was validated against THIS model's own field
+    # definition before it was stored". That was true for `config_service.set_value` and
+    # false here: emptiness was the only check, so a credential field's constraints were
+    # decoration on the one path an operator actually uses. `azure_openai_api_key` carries
+    # `max_length=512` today; the sharper case is the next `pattern=` somebody adds to a
+    # credential, which would silently do nothing. A constraint a sibling code path
+    # bypasses is worse than no constraint, because the model reads as if it holds.
+    #
+    # `validated_value`, not a second converter: one refusal vocabulary for both console
+    # write paths, and it is documented not to echo the input into the problem body.
+    validated_value(key, value)
 
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtextextended(:k, 0))"),

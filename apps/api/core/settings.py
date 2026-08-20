@@ -315,8 +315,20 @@ def _current_settings() -> Settings:
 
     `model_copy(update=...)` rather than re-validating: every value in the layer was
     validated against THIS model's own field definition before it was stored
-    (`platform_config.validate_value`) and again when the snapshot was built, so a third
-    validation here would be a third place for the rules to differ. `Settings()` itself
+    (`platform_config.validate_value`, reached from `ops/config_service.validated_value`
+    by BOTH console write paths) and again when the snapshot was built, so a third
+    validation here would be a third place for the rules to differ.
+
+    **THAT SENTENCE WAS A PREMISE AND IT WAS ONLY TRUE OF HALF THE LAYER.** Secrets do
+    not travel through `platform_config._resolve` — `refresh()` merges `_read_secrets()`
+    straight into `overrides` — and `ops/secret_service.set_secret` checked only that the
+    value was non-empty. So a console-set CREDENTIAL was validated at neither of the two
+    stages this docstring names, and `model_copy` does not validate either: three
+    mechanisms, each declining because one of the others was believed to have done it.
+    Nothing was corrupt (the constraints on credential fields are sanity bounds today),
+    but `azure_openai_api_key`'s `max_length` was unenforceable and the next `pattern=`
+    on a credential would have been decoration. `set_secret` now calls the same validator,
+    which is what makes this paragraph true rather than aspirational. `Settings()` itself
     is re-run on each rebuild, so an environment variable that changed under the process
     is picked up at the same moment a store value is.
     """

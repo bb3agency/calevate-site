@@ -260,14 +260,24 @@ jobs:
         # first time on the production host. Syntax-decidable; no daemon, no network.
         run: uv run python -m scripts.check_deploy_workflow
 
-      - name: "Guardrail: model residency (D-127 asia-south1 only)"
+      - name: "Guardrail: model residency (D-410 southindia only)"
         if: ${{ !cancelled() }}
-        # No model traffic may reach a global Google endpoint, and the region may not be
-        # settable from the ops console — a residency posture an operator can change from
-        # a web form is one a click can invert. Decidable from syntax, so no database and
-        # no network. Landed in the same change as the guardrail rather than after it:
-        # the step above records what happens when the two lists drift, and this is the
-        # one guardrail whose whole value is that it blocks a merge.
+        # The region may not be settable from the ops console — a residency posture an
+        # operator can change from a web form is one a click can invert — and no Azure
+        # endpoint may be constructed outside the one builder. Decidable from syntax, so
+        # no database and no network. It is the one guardrail whose whole value is that
+        # it blocks a merge.
+        #
+        # THE STEP NAME CARRIES THE DECISION NUMBER because it is what an operator reads
+        # on a red run, and it said `D-127 asia-south1` for a while after D-410 moved the
+        # leg to Azure `southindia` — sending whoever hit it to the wrong decision row and
+        # the wrong vendor. A label is documentation with the shortest path to a human.
+        #
+        # It proves LESS than the Vertex form did and the script says so on every run:
+        # `<resource>.openai.azure.com` names no region, so what is proved here is that no
+        # code path can change the destination without editing one frozen constant. That
+        # the resource is in South India, and that its deployment is Regional Standard and
+        # not Global, are human attestations — OPERATIONS §2 gates 20 and 20c.
         run: uv run python -m scripts.check_model_residency
 
       - name: "Guardrail: audit rows record the caller, not the proxy"

@@ -473,7 +473,12 @@ class CreditLedgerEntry(PKMixin, Base):
 class PlatformAiSpend(Base):
     """WHAT THE DASHBOARD-AI KEY HAS COST **US** THIS MONTH, across every tenant.
 
-    G-3 says Calevate owns the Gemini credential and absorbs the cost. That makes an
+    G-3 says Calevate owns the dashboard-AI credential and absorbs the cost — Azure
+    OpenAI in `AZURE_LOCATION` since D-410, and this sentence said "the Gemini
+    credential" for long enough that the pricing block at the top of this same file had
+    already been re-argued for `gpt-4o-mini` while this one had not. The VENDOR is named
+    where the vendor is decided (`workers/extraction.py::azure_credentials`) rather than
+    restated on an ORM row, because that is the half that moves. That makes an
     unbounded bug a bill addressed to us, and no per-tenant quota can see it: a hundred
     tenants each politely inside their own ceiling is still a hundred ceilings of our
     money. This row is the brake that is independent of all of them

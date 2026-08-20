@@ -273,8 +273,11 @@ def admit(
     SCOPED BY SERVICE, not globally, and that is a semantic choice rather than a
     namespacing habit. `api`, `voice-runtime` and `workers` are different programs that
     happen to share a code, and `_subject()` already puts the service in the subject
-    line — so a `queue_enqueue_failed` in the workers must not silence the same code in
-    voice-runtime, where it means something else and is somebody else's morning. Within
+    line — so an `outbox_queue_unreachable` in the workers must not silence a same-named
+    code raised in voice-runtime, where it would mean something else and be somebody
+    else's morning. No code is emitted from two services TODAY; the scoping is what keeps
+    that a property rather than a coincidence. (This sentence used to illustrate itself
+    with `queue_enqueue_failed`, which no call site has ever emitted — D-412.) Within
     ONE service, every worker process shares one window and one bucket, which is exactly
     the bound the constants were written to express.
     """

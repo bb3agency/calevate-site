@@ -368,12 +368,21 @@ def _accepted(response: httpx.Response) -> bool:
     A 200 with no `messages[0].id` is not something Meta is documented to return — which
     is exactly why it is checked. Reporting DELIVERED on a body we did not understand is
     the failure `UnconfiguredWhatsAppTransport` exists to prevent, one layer down.
+
+    THE WHOLE EXPRESSION IS INSIDE THE `try`, AND THE ARM CATCHES WHAT ITS NEIGHBOURS
+    CATCH. This guarded `ValueError` only — non-JSON — while `_error_code` and
+    `_fbtrace_id` next door already guarded `AttributeError` too. So a 200 carrying
+    VALID JSON that is not an object (`[]`, `null`, a bare string) raised
+    `AttributeError` out of `send()`: an unhandled exception in a worker job, on the one
+    path in this module that is supposed to be the safe one. `TypeError` joins them for
+    the same reason one step in — `{"messages": 5}` gets past `bool()` and subscripts an
+    int. A malformed success body is an OUTCOME this adapter reports, never a crash.
     """
     try:
         messages = response.json().get("messages") or []
-    except ValueError:
+        return bool(messages) and bool(messages[0].get("id"))
+    except (ValueError, AttributeError, TypeError):
         return False
-    return bool(messages) and bool(messages[0].get("id"))
 
 
 def _error_code(response: httpx.Response) -> int | None:

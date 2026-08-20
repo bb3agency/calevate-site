@@ -564,9 +564,16 @@ class WorkerSettings:
     # grace ends in SIGKILL: a drain window equal to it would be racing the kill and a
     # drain window longer than it would be cancelled by one. Fifteen seconds of headroom
     # covers the `on_shutdown` hook, the tracing flush and the pool teardown that all run
-    # AFTER the drain. `tests/worker_drain_test.py` pins the relationship against the
-    # compose file rather than trusting this paragraph — the same shape
-    # `dispatch_tick_lease_test` uses for `job_timeout < TICK_LEASE_TTL_S`.
+    # AFTER the drain. `tests/worker_reliability_test.py::
+    # test_the_drain_window_fits_inside_the_grace_docker_gives_it` pins the relationship
+    # by PARSING the compose file rather than trusting this paragraph — the same shape
+    # `dispatch_tick_lease_test` uses for `job_timeout < TICK_LEASE_TTL_S`. (This named
+    # `tests/worker_drain_test.py`, which does not exist and never did: the check was
+    # written into the reliability suite when D-182 widened it from `workers` alone to
+    # all three long-lived services, and the reference was left behind. A comment
+    # pointing at an absent guard reads exactly like the guard that was promised and
+    # never written next door in `auth_email.py` — which is why the file and the test
+    # are both named here, so a grep either lands or fails loudly.)
     #
     # WHY NOT `job_timeout` (300). A job that has run for five minutes is not going to
     # finish in the grace window either, and sizing the drain to the slowest possible job

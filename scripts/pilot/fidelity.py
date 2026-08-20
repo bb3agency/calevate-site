@@ -9,7 +9,8 @@ read earlier is legitimately empty and scoring it would produce a red that means
 nothing. The five:
 
   1. does `completed` carry `total_cost` **and** a per-component `cost_breakdown`;
-  2. is the money in the unit we assumed (USD **cents**);
+  2. is the money in the unit the adapter applies to the currency it is quoted in —
+     a TABLE since D-411, not one number, and a currency with no entry is refused;
   3. does it carry a `recording_url`;
   4. does it carry `extracted_data`;
   5. does the transcript parse into OUR `TranscriptTurn`;
@@ -27,14 +28,23 @@ teeth and what takes them off check 2, and both consequences are worth stating p
   which this module catches and reports as a FAIL naming the FIELDS (`loc`) and the
   error TYPES, never as a traceback and never quoting the input value (a validation
   message carries the rejected input, and here that input is a caller's words).
-* **Check 2 cannot be answered by reading our own snapshot.** `BolnaEngine._cost` sets
-  `source_currency="USD"` as a literal and computes `source_amount = total_cost / 100`;
-  asking the snapshot what currency it is in returns our own assumption, exactly as
-  gate 1 would learn nothing by asking the adapter whether it allows the IP the adapter
-  allows. So the row is NOT RUN until the operator supplies the vendor's OWN figure for
-  the same execution (dashboard or invoice), and what it then tests is whether our
-  derived amount matches theirs — a 100x disagreement is the signature of the cents
-  assumption being wrong, and every INR row in the ledger inherits that factor.
+* **Check 2 cannot be answered by reading our own snapshot.** When the payload names no
+  currency the adapter falls back to `_ASSUMED_CURRENCY` and divides by that currency's
+  entry in `_MINOR_UNITS_PER_MAJOR`; asking the snapshot what currency it is in then
+  returns our own assumption, exactly as gate 1 would learn nothing by asking the adapter
+  whether it allows the IP the adapter allows. So the row is NOT RUN until the operator
+  supplies the vendor's OWN figure for the same execution (dashboard or invoice), and
+  what it then tests is whether our derived amount matches theirs — a disagreement equal
+  to that currency's own divisor is the signature of the minor-unit assumption being
+  wrong, and every INR row in the ledger inherits that factor.
+* **AND IT REPORTS PER CURRENCY, WHICH IS WHAT KEEPS A PASS HONEST (D-411).** The adapter
+  refuses a currency whose unit no first-party source states, so those executions come
+  back with no cost at all. A check that scored only the executions it COULD compare
+  would report `pass` on the USD half of a mixed account and say nothing about the half
+  that meters zero — the gate narrowing silently while its own test stayed green. An
+  unpriced billable execution is therefore answered FIRST and answered `not_run`, and
+  every outcome, `pass` included, carries `_unit_scope_sentence()` naming the currencies
+  the verdict actually covers.
 
 **TIME-TO-`completed` IS A MEASUREMENT, AND ABSENT IF NOT MEASURED.** There is no
 "completed_at" anywhere in the contract — `ExecutionSnapshot` carries `started_at` and
@@ -65,6 +75,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal, Protocol
 
 from apps.api.billing.rates import ROUNDING
@@ -83,7 +94,11 @@ GATE_TITLE = "Post-call data fidelity"
 CHECK_NAMES: tuple[str, ...] = (
     "completed_carries_total_cost",
     "completed_carries_cost_breakdown",
-    "cost_currency_is_usd_cents",
+    # RENAMED from `cost_currency_is_usd_cents` (D-411). The adapter's divisor is a
+    # table keyed by CURRENCY now, so a row name hard-coding one of them would teach
+    # the narrow reading back to every reader of this report — the same defect as the
+    # gate itself silently narrowing. Spelled from `COST_UNIT_CHECK` everywhere else.
+    "cost_unit_matches_the_vendors_own_total",
     "completed_carries_recording_url",
     "completed_carries_extracted_data",
     "transcript_parses_into_transcript_turn",
@@ -105,11 +120,33 @@ COST_COMPONENTS: tuple[str, ...] = (
     "stt_inr",
 )
 
-#: What the adapter assumes the vendor's `total_cost` is denominated in. Written here as
-#: the value gate 7 TESTS, never imported from the adapter: importing it would make the
-#: check tautological (gate 1 makes the same argument about the egress IP).
+#: **THE DIVISOR IS PER CURRENCY, AND SO IS THIS RESTATEMENT (D-411).**
+#:
+#: `engine/bolna.py::_MINOR_UNITS_PER_MAJOR` is a table: a currency with an entry has a
+#: unit this repo can defend from a first-party source, and a currency WITHOUT one is
+#: refused rather than divided by another currency's assumption. This gate used to hold one
+#: scalar against one currency — right while the adapter held one number, and a SILENT
+#: NARROWING the moment it did not. It could still verify USD and had nothing at all to say
+#: about an INR-billed account, the case the whole change was made for, while
+#: `tests/vendor_cost_minor_unit_test.py` kept passing because USD's value never moved.
+#:
+#: STILL RESTATED AND NEVER IMPORTED, for the reason the old note gave and which a table
+#: does not change: importing the adapter's own mapping would make this check tautological,
+#: exactly as gate 1 would learn nothing by asking the adapter which egress IP it allows.
+#: What holds the two level is `tests/vendor_cost_minor_unit_test.py`, which now pins the
+#: whole VOCABULARY in both directions — a currency the adapter learns and this file does
+#: not is a gate scoring an account it cannot reason about.
+STATED_MINOR_UNITS_PER_MAJOR: Mapping[str, Decimal] = MappingProxyType({"USD": Decimal(100)})
+
+#: The currency the adapter falls back to when the payload names none, and its divisor —
+#: derived from the table rather than retyped, so this file holds one spelling of the
+#: number and `tests/vendor_cost_minor_unit_test.py`'s original pin still bites.
 ASSUMED_SOURCE_CURRENCY = "USD"
-ASSUMED_MINOR_UNITS_PER_MAJOR = Decimal(100)
+ASSUMED_MINOR_UNITS_PER_MAJOR = STATED_MINOR_UNITS_PER_MAJOR[ASSUMED_SOURCE_CURRENCY]
+
+#: The row name, spelled once because the check emits it from six places and a typo in one
+#: of them is a row that vanishes from `CHECK_NAMES`' ordered render.
+COST_UNIT_CHECK = "cost_unit_matches_the_vendors_own_total"
 
 #: Money comparisons quantize here before they are compared. Fractions of a US cent on a
 #: per-call charge are below the resolution either side reports, and comparing raw
@@ -135,7 +172,15 @@ CURRENCY_FINDING = (
     "assumption load-bearing, and if it is wrong every INR row in usage_events is wrong "
     "by the exchange rate (hard rule 7). A currency the adapter cannot convert is now "
     "REFUSED rather than converted at the USD rate, so a wrong cost basis cannot ship "
-    "silently; the cost is simply absent and this gate reports it as missing."
+    "silently; the cost is simply absent and this gate reports it as missing. **AND THE "
+    "UNIT IS A SECOND, SEPARATE ASSUMPTION HELD PER CURRENCY (D-411)**: "
+    "`_MINOR_UNITS_PER_MAJOR` states a divisor for USD and for nothing else, because the "
+    "vendor's own tiebreak that rescues the USD reading says 'cents' — not a denomination "
+    "an INR-billed account has. A currency with no entry is refused too, so this gate's "
+    "verdict now names the currencies it covers and returns NOT RUN rather than PASS when "
+    "any billable execution came back unpriced. That is the difference between 'the unit "
+    "is verified' and 'the unit is verified for the one currency that was already "
+    "encoded'."
 )
 
 TRANSCRIPT_PARSE_FINDING = (
@@ -500,7 +545,11 @@ def _cost_checks(completed: Sequence[FidelityObservation]) -> list[SubCheck]:
             f"{len(without_total)} of {len(completed)} `completed` executions carry NO "
             f"cost at all ({', '.join(sorted(o.call_ref for o in without_total))}). Every "
             "usage_event for those calls would be unpriced, and D-31's poller cannot "
-            "repair what the vendor never sent.",
+            "repair it. TWO CAUSES LOOK IDENTICAL FROM HERE and the next row separates "
+            "them: the vendor sent no figure, or the adapter REFUSED the figure it sent "
+            "because nothing states what unit that currency is in (D-411). The second is "
+            "closed by one entry in `engine/bolna.py::_MINOR_UNITS_PER_MAJOR`; the first "
+            "is not ours to close.",
             completed_executions=len(completed),
             without_total_cost=len(without_total),
         )
@@ -541,33 +590,109 @@ def _cost_checks(completed: Sequence[FidelityObservation]) -> list[SubCheck]:
     return [total_check, breakdown_check]
 
 
+def _observed_currency(observation: FidelityObservation, claim: VendorCostClaim | None) -> str:
+    """Which currency this execution's money is IN, as best anything here can say.
+
+    The vendor's own claim wins when the operator supplied one, because that is the
+    independent observation this whole check exists to obtain. `source_currency` is the
+    fallback and it is OUR reading — a fact when the payload named a currency
+    (`currency_stated`), a house assumption when it did not — so it is used to describe an
+    execution, never to corroborate one.
+    """
+    if claim is not None:
+        return claim.currency.strip().upper()
+    return (observation.source_currency or ASSUMED_SOURCE_CURRENCY).strip().upper()
+
+
+def _unit_scope_sentence() -> str:
+    """What a verdict from this check does and does not cover, in one sentence.
+
+    Ridden by every outcome, PASS included. A gate report that says `pass` beside a row
+    called "cost unit" is read as "metering is verified", and after D-411 that is true only
+    of the currencies whose unit the adapter has an entry for — one, today.
+    """
+    stated = ", ".join(sorted(STATED_MINOR_UNITS_PER_MAJOR))
+    return (
+        f"the adapter states a unit for {stated} and for nothing else, so this verdict "
+        "covers those currencies only: an account billed in any other meters NOTHING at "
+        "all (`engine_cost_unit_unknown`), which is a hole this row can report and cannot "
+        "close — closing it is one entry in `engine/bolna.py::_MINOR_UNITS_PER_MAJOR` "
+        "settled against a vendor invoice line, then `scripts/correct_cost_unit.py` for "
+        "the rows already metered."
+    )
+
+
 def _currency_check(
     completed: Sequence[FidelityObservation], claims: Mapping[str, VendorCostClaim]
 ) -> SubCheck:
-    """Our derived amount against the vendor's own figure. See `CURRENCY_FINDING`."""
+    """Our derived amount against the vendor's own figure, PER CURRENCY. See
+    `CURRENCY_FINDING`.
+
+    **THE ORDER OF THESE BRANCHES IS THE WHOLE DESIGN, because the failure this row is
+    most likely to commit is a PASS that means less than it reads (D-411).** Before that
+    change the adapter had one divisor, so "did our amount match theirs" was the entire
+    question. It now has a table, and a currency missing from that table is REFUSED — the
+    execution comes back with no cost at all. A check that only compared the executions it
+    COULD compare would then report `pass` on the USD half of a mixed account and say
+    nothing whatever about the half that meters zero. So an unpriced billable execution is
+    answered FIRST, and it is answered `not_run`: this gate's job is to settle the unit
+    assumption, and "the adapter declined to guess" is precisely the state of not having
+    settled it. (The account being unmetered is not thereby excused — it is a FAIL on
+    `completed_carries_total_cost`, one row up, which is where "we are being charged for
+    something we cannot price" belongs.)
+    """
+    refused = [o for o in completed if o.billable_ready and not o.has_total_cost]
+    if refused:
+        currencies = sorted({_observed_currency(o, claims.get(o.call_ref)) for o in refused})
+        return not_run(
+            COST_UNIT_CHECK,
+            f"{len(refused)} of {len(completed)} billable executions came back with NO cost: "
+            "the adapter refused to price them rather than divide them by another "
+            f"currency's assumption ({', '.join(currencies)}). There is nothing to "
+            f"corroborate, so this row cannot speak — {_unit_scope_sentence()}",
+            billable_executions=len(completed),
+            unpriced_executions=len(refused),
+        )
+
     comparable = [(o, claims[o.call_ref]) for o in completed if o.call_ref in claims]
     comparable = [(o, c) for o, c in comparable if o.source_amount is not None]
     if not comparable:
         return not_run(
-            "cost_currency_is_usd_cents",
+            COST_UNIT_CHECK,
             "no vendor-reported figure to corroborate against. Our snapshot says "
-            f"{ASSUMED_SOURCE_CURRENCY} because the ADAPTER hard-codes it, so reading it "
-            "back tests nothing. Put the vendor's own total for the same execution in the "
-            "inputs file (`vendor_reported_total` / `vendor_reported_currency`).",
+            f"{ASSUMED_SOURCE_CURRENCY} whenever the payload named nothing, so reading it "
+            "back tests our own fallback. Put the vendor's own total for the same "
+            "execution in the inputs file (`vendor_reported_total` / "
+            f"`vendor_reported_currency`) — {_unit_scope_sentence()}",
         )
 
-    wrong_currency = [c.currency for _o, c in comparable if c.currency.upper() != "USD"]
-    if wrong_currency:
+    # THE ADAPTER PRICED IT AS ONE CURRENCY AND THE VENDOR BILLS ANOTHER. Reachable
+    # exactly when the payload named no currency (or named one) and the operator's own
+    # reading of the invoice disagrees — which is the 83x fx error and the 100x unit error
+    # arriving together, on rows that look ordinary. It is a FAIL and not a `not_run`,
+    # because unlike the branch above something WAS metered and it was metered wrong.
+    mis_currency = sorted(
+        {
+            f"{o.source_currency or ASSUMED_SOURCE_CURRENCY} != {c.currency.strip().upper()}"
+            for o, c in comparable
+            if (o.source_currency or ASSUMED_SOURCE_CURRENCY).strip().upper()
+            != c.currency.strip().upper()
+        }
+    )
+    if mis_currency:
         return failed(
-            "cost_currency_is_usd_cents",
-            "the vendor reports this execution in "
-            f"{', '.join(sorted(set(wrong_currency)))}, not USD. The adapter converts "
-            "assuming USD cents, so every INR figure derived from it is wrong by the FX "
-            "ratio as well as by any unit error.",
+            COST_UNIT_CHECK,
+            "the adapter priced these executions in a different currency from the one the "
+            f"vendor bills ({'; '.join(mis_currency)}), so every rupee figure derived from "
+            "them is wrong by the exchange rate AND by whatever the unit error is on top. "
+            "The adapter only assumes a currency when the payload names none, so this is "
+            "the fallback being wrong rather than a stated value being ignored — "
+            f"{_unit_scope_sentence()}",
             executions_compared=len(comparable),
+            currencies_disagreeing=len(mis_currency),
         )
 
-    mismatched: list[tuple[str, Decimal]] = []
+    mismatched: list[tuple[str, str, Decimal]] = []
     for observation, claim in comparable:
         # `rounding=ROUNDING` on all three, and on this gate it is not tidying: the two
         # amounts are rounded BEFORE being compared, so the mode decides the verdict.
@@ -585,30 +710,40 @@ def _currency_check(
             ratio = (
                 (theirs / ours).quantize(MONEY_QUANTUM, rounding=ROUNDING) if ours else Decimal(0)
             )
-            mismatched.append((observation.call_ref, ratio))
+            mismatched.append((observation.call_ref, claim.currency.strip().upper(), ratio))
 
+    verified = sorted({c.currency.strip().upper() for _o, c in comparable})
     if not mismatched:
         return passed(
-            "cost_currency_is_usd_cents",
+            COST_UNIT_CHECK,
             "our derived major-unit amount equals the vendor's own reported total on every "
-            f"compared execution, so `total_cost` is {ASSUMED_SOURCE_CURRENCY} minor units "
-            f"({ASSUMED_MINOR_UNITS_PER_MAJOR} per major) as the adapter assumes",
+            f"compared execution, so `total_cost` is in {', '.join(verified)} minor units "
+            "at the divisor the adapter uses for it "
+            f"({', '.join(f'{c}:{STATED_MINOR_UNITS_PER_MAJOR[c]}' for c in verified)}) — "
+            f"and {_unit_scope_sentence()}",
             executions_compared=len(comparable),
+            currencies_verified=len(verified),
         )
 
-    ratios = sorted({str(ratio) for _ref, ratio in mismatched})
-    hundredfold = any(ratio == ASSUMED_MINOR_UNITS_PER_MAJOR for _ref, ratio in mismatched)
+    ratios = sorted({str(ratio) for _ref, _cur, ratio in mismatched})
+    hundredfold = any(
+        ratio == STATED_MINOR_UNITS_PER_MAJOR.get(currency, ASSUMED_MINOR_UNITS_PER_MAJOR)
+        for _ref, currency, ratio in mismatched
+    )
     return failed(
-        "cost_currency_is_usd_cents",
+        COST_UNIT_CHECK,
         f"{len(mismatched)} of {len(comparable)} executions disagree with the vendor's own "
         f"total (theirs / ours = {', '.join(ratios)}; executions "
-        f"{', '.join(sorted(ref for ref, _ratio in mismatched))}). "
+        f"{', '.join(sorted(ref for ref, _cur, _ratio in mismatched))}). "
         + (
-            "A ratio of exactly 100 means `total_cost` is NOT in cents: the adapter's /100 "
-            "is wrong and every INR row is 100x off (hard rule 7)."
+            "A ratio equal to that currency's own divisor means the figure is NOT in minor "
+            "units: the adapter's division is wrong and every INR row derived from it is "
+            "off by that factor (hard rule 7). Fix the entry in "
+            "`engine/bolna.py::_MINOR_UNITS_PER_MAJOR`, then restate the rows already "
+            "metered with `scripts/correct_cost_unit.py` — `usage_events` is append-only, "
+            "so the repair is a compensating row and never an edit."
             if hundredfold
-            else "The cents assumption does not hold as written; re-derive the unit before "
-            "any ledger row is trusted."
+            else "The unit does not hold as written; re-derive it before any ledger row is trusted."
         ),
         executions_compared=len(comparable),
         executions_mismatched=len(mismatched),
@@ -829,7 +964,7 @@ def evaluate_gate7(
             [
                 not_run("completed_carries_total_cost", reason),
                 not_run("completed_carries_cost_breakdown", reason),
-                not_run("cost_currency_is_usd_cents", reason),
+                not_run(COST_UNIT_CHECK, reason),
                 not_run("completed_carries_recording_url", reason),
                 not_run("completed_carries_extracted_data", reason),
             ]
@@ -1028,6 +1163,7 @@ __all__ = [
     "CHECK_NAMES",
     "COMPLETED_AT_FINDING",
     "COST_COMPONENTS",
+    "COST_UNIT_CHECK",
     "CURRENCY_FINDING",
     "DEFAULT_INPUTS_PATH",
     "DEFAULT_POLL_INTERVAL_S",
@@ -1037,6 +1173,7 @@ __all__ = [
     "GATE_TITLE",
     "INPUTS_ENV",
     "LEAD_SLO_S",
+    "STATED_MINOR_UNITS_PER_MAJOR",
     "TRANSCRIPT_PARSE_FINDING",
     "CompletionTiming",
     "ExecutionInput",

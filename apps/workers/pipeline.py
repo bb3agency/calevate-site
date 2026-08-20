@@ -1891,9 +1891,27 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 "engine": snapshot.engine,
                 "engine_call_id": snapshot.engine_call_id,
                 "source_currency": cost.source_currency,
-                "source_amount": str(cost.source_amount) if cost.source_amount else None,
+                # `is not None`, NOT truthiness, on both of these. A ZERO `source_amount`
+                # is a real answer — the vendor charged nothing for this execution — and
+                # the falsy test wrote `null` for it, i.e. a row indistinguishable from one
+                # captured before these keys existed. That difference is the whole point of
+                # the keys: `billing/cost_unit.py` restates a call by scaling what the
+                # ledger recorded, and it can only do that for rows whose capture-time
+                # inputs are on the row. The falsy test cost nothing on a ₹5 call and the
+                # audit trail on a ₹0 one.
+                "source_amount": str(cost.source_amount)
+                if cost.source_amount is not None
+                else None,
                 # The fx rate used AT CAPTURE — without it the row cannot be re-derived.
-                "fx_rate": str(cost.fx_rate) if cost.fx_rate else None,
+                "fx_rate": str(cost.fx_rate) if cost.fx_rate is not None else None,
+                # WHETHER THE PAYLOAD NAMED THAT CURRENCY OR WE ASSUMED IT — the same
+                # distinction `CostBreakdown.currency_stated` carries, put on the row
+                # because it is not re-derivable from one. `source_currency` is `USD` in
+                # both cases, and which one it was is exactly what OPERATIONS §2 gate 7
+                # scores ("record whether ANY currency field appears in the payload") and
+                # what `runbooks/vendor-cost-unit.md` triages on. The adapter cannot be
+                # asked six weeks later what it assumed.
+                "currency_stated": cost.currency_stated,
                 # D-36's TTS ladder, recorded per row so metering can be audited by
                 # rung and a mis-tiered call can be compensated (never edited — hard
                 # rule 4). `tts_tier_source` is the honesty: `agent_config` means we

@@ -244,9 +244,16 @@ and the chain's key is the one that rotates.
 ## 8. Alerting & metrics taxonomy (ADOPTED)
 
 One alert function with a normalized `failure_stage` enum (ROUTE_HANDLER | CORE_LOGIC
-| QUEUE_ENQUEUE | OUTBOX_DISPATCH | WORKER_DELIVERY | WORKER_TERMINAL | WORKER_STALL
+| OUTBOX_DISPATCH | WORKER_DELIVERY | WORKER_TERMINAL | WORKER_STALL
 | PROCESS_RESTART | HOST_BACKUP) — "where in the pipeline did this die" answerable without
-reading code. `HOST_BACKUP` is not an application stage: it is the host-side backup chain
+reading code. **`QUEUE_ENQUEUE` was in that list and in the type and was passed by
+nothing** (D-412): an operator reading this line could wait for a stage that could not
+arrive, while the two enqueue failures the system really raises are stamped by the
+component that owns the enqueue — `OUTBOX_DISPATCH`/`outbox_queue_unreachable` in
+`dispatcher.dispatch_outbox` and `ROUTE_HANDLER`/`tool_enqueue_timeout` in voice-runtime's
+tool endpoint. `scripts/check_wiring.unemittable_alarm_stages` now fails CI on a stage
+nothing can send, so this list, the type and the call sites cannot drift apart again.
+`HOST_BACKUP` is not an application stage: it is the host-side backup chain
 (D-50), emitted by `scripts/backup/notify.sh` from outside Python entirely, so no Python
 call site passes it. It exists as a member rather than being mislabelled as
 `WORKER_TERMINAL` to make it fit, because a wrong

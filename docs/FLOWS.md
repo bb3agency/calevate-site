@@ -95,49 +95,70 @@ client-visible until step 8.
 
 ## 2. Client Auth & Access
 
-Auth is Clerk (D-37 — reaffirmed against self-building; the decisive argument is that
-RLS trusts `tenant_id` from a verified session, so an auth defect is a cross-tenant
-breach). Two Clerk applications, never sharing session logic: **admin realm**
-(invite-only, signup DISABLED) and **client realm** (self-serve signup enabled).
-Custom domain `accounts.calevate.tech` so the flow is ours end to end.
+**Auth is OURS — `apps/api/authn/` and nothing else.** This section described Clerk until
+D-177; the vendor is deleted from the tree (D-165 designed the replacement, D-170 mounted
+it, D-177 removed the old one), and the argument that made authentication worth owning is
+unchanged and now cuts the other way: **RLS trusts `tenant_id` from a verified session, so
+an auth defect is a cross-tenant breach** — which is precisely why the one dependency whose
+outage is total should not be somebody else's. Full design: `docs/AUTH-MIGRATION.md`;
+mechanism summary: TRD §2's Auth bullet.
+
+Two realms, never sharing session logic: **admin realm** (invite-only; there is no
+public door at all) and **client realm**. The credential is an opaque token in an
+`HttpOnly` `__Host-` cookie, one name per realm, and the realm is inside the stored token
+fingerprint so a client credential cannot be looked up as an admin one. There is no
+`accounts.` hostname and no hosted vendor page: every screen in the flow is ours.
 
 **Three ways into the client realm (D-34 — both motions supported):**
-1. **Self-serve signup** — email/password or **Google OAuth** → Clerk creates the user →
-   the `users` mirror row appears (webhook, or reconciled on the spot — see below) →
-   org-create step (name + slug, validated against `reserved_slugs`) → `organizations`
-   row with `plan_tier='self_serve'` → owner membership.
-2. **Admin invite link** — admin console issues an invitation for an existing or new org;
-   accept path: token hash lookup, expiry + `used_at` check, **burn on success**; resend
-   invalidates the prior token. This is how MANAGED clients (and extra staff on any org)
-   get in.
+1. **Self-serve signup** — `POST /v1/auth/signup` creates the organization (name + slug
+   validated against `reserved_slugs`), its receptionist agent, its extraction schema and
+   its retention policies, and makes the caller the owner, with
+   `plan_tier='self_serve'|'trial'`. **Read the caveat, because it is the one thing in this
+   list that does not work end to end**: that route requires a caller who already holds a
+   verified first-party session and no membership, and **the public account-creation door
+   that would produce such a caller is NOT built** (AUTH-MIGRATION §11, C-11 — the vendor's
+   hosted sign-up page used to stand in for it and went with the vendor). The
+   `self_serve_signup_enabled` switch also defaults to **OFF**. `/signup`'s stranger panel
+   says exactly this rather than linking to a door that is not there. **Google/social
+   sign-in is not offered and is a decision, not a gap** — C-26, dropped in
+   AUTH-MIGRATION §9 Q3: a first-party Google OIDC client is a week of work and a residency
+   question of its own.
+2. **Invitation — the path that works end to end today.**
+   `POST /v1/auth/client/invitations/accept` takes `{token, password, name}` and, in ONE
+   call, redeems the invitation, creates the credential, creates the membership and issues
+   the session. It is one call where the Clerk-era flow took two, because there is no
+   vendor to have made the account first — and it needs no address comparison at all:
+   possession of a token emailed to that address IS the proof, which is also what sets
+   `users.email_verified_at`. Token hash lookup, expiry + `used_at` check, **burned on
+   success** with one `UPDATE … WHERE used_at IS NULL … RETURNING`, so exactly one of two
+   concurrent submissions wins at the database; a resend retires the prior token. This is
+   how MANAGED clients — and extra staff on any org — get in.
 3. **Managed onboarding** — the admin wizard (§1) creates the org first, then invites the
    owner. Same invitation machinery as (2); the difference is who does the setup, not the
    auth path.
 
-**There is no Clerk ORGANIZATION to keep in step.** Creating a client touches Clerk's
-`users` mirror and nothing else: D-10's tenancy is flat and admin-driven, so
-`clerk_webhooks.py` acknowledges `organization*` events and ignores them rather than
-inventing a tenant from an upstream one. Tenant birth is therefore a single Postgres
-transaction (org + retention policies + agent + extraction schema + tier + owner
-membership + audit row), not a two-system distributed transaction.
+**The admin realm's first row is a script, not a screen.** `admin_users` is an ops-managed
+allowlist that nothing reconciles from anywhere, and nothing in the repository used to
+insert into it — so a fresh deploy came up green and 403'd every admin request.
+`scripts/bootstrap_admin.py` closes it: it mails a single-use link, `POST
+/v1/auth/admin/bootstrap/confirm` sets the password, and it refuses to run twice. Every
+operator after the first is invited from the console by an existing one. Both halves are
+audited (`auth.admin_bootstrapped`, `auth.admin_bootstrap_completed`) because it is the
+most privileged act in a deployment's life.
 
-**AND THERE IS NO CROSS-SYSTEM ORDERING LEFT EITHER.** This used to say that the
-`user.created` mirror must land before an invite can be accepted or a self-serve org
-created — which was true, and was a defect rather than a design: Clerk mints a session
-the instant the account exists and returns the browser to us, so both of those steps
-routinely arrive first and both answered 401, the one status a browser treats as "sign in
-again". Clerk's own guidance is that webhook delivery is eventually consistent and must
-not gate a synchronous onboarding flow. `core/clerk_identity.py` therefore RECONCILES the
-mirror row from Clerk's Backend API when a verified token names a subject we have not seen
-(never from the token's claims — `users.email` binds an invitation to its recipient), and
-falls back to a transient, retryable refusal only when Clerk itself cannot be reached. The
-webhook remains the steady-state feed and the only source of `user.deleted`. See D-124.
-
-**Clerk ↔ our DB (D-37):** Clerk authenticates; it does **not** own our data model.
-Webhooks (`user.created/updated/deleted`, `organizationMembership.*`) mirror identities
-into `users` / `memberships`; our `organizations.id` remains the tenant key that RLS uses.
-Never derive `tenant_id` from a client-supplied value — only from the verified session's
-org claim, resolved against our own tables.
+**THERE IS NO SECOND IDENTITY SYSTEM TO KEEP IN STEP, AND THAT IS THE POINT OF D-177.**
+This section used to describe a `users` mirror fed by vendor webhooks, an
+`organization*` event we deliberately ignored, and a reconcile-on-first-token fallback for
+the race between a vendor minting a session and its webhook arriving. **All three are
+gone with the vendor**: `tenancy/clerk_webhooks.py` and `core/clerk_identity.py` do not
+exist, there is no eventually-consistent feed, and the row and the session are created in
+the same transaction as each other. Tenant birth stays what D-10 made it — a single
+Postgres transaction (org + retention policies + agent + extraction schema + tier + owner
+membership + audit row) — and there is no longer a distributed one anywhere near it.
+D-37's load-bearing half **stands**: our Postgres is the system of record, our
+`organizations.id` is the tenant key RLS uses, and never derive `tenant_id` from a
+client-supplied value — only from the verified session, resolved against our own tables.
+D-124's mirror race is deleted rather than superseded; there is nothing left to race.
 
 **Never emailed:** credentials. Invitations carry a single-use token, nothing more.
 

@@ -772,11 +772,22 @@ table and asserts sqlstate `42501`, with `assert len(refused) == len(sweep.table
 cannot pass on a partial probe. One dead table (`kb_retrieval_logs`), properly recorded in
 `UNWIRED_BASELINE` with dated reasons and a test that fails the day anything names it.
 
-### P4.1 — There is no way to create the first `admin_users` row · BLOCKER · OURS
+### P4.1 — There is no way to create the first `admin_users` row · BLOCKER · OURS · **FIXED (D-171)**
+
+**`scripts/bootstrap_admin.py` is the home the fix needed.** It mails a single-use link,
+`POST /v1/auth/admin/bootstrap/confirm` sets the password, it refuses to run twice, and
+both halves are audited (`auth.admin_bootstrapped`, `auth.admin_bootstrap_completed`).
+DEPLOYMENT §9.7a carries the exact invocation for the VPS and for a dev box, including the
+`AUDIT_CHAIN_SECRET` bootstrap-ordering trap it uncovered (D-188), and the go-live
+checklist lists it at item 5. §12's closing table already records this as done; **the
+finding text below did not, and read as an open BLOCKER — which is the drift this register
+exists to prevent.** The original follows.
 
 `admin_users` is the allowlist the whole admin realm resolves against (`core/auth.py:691`),
-and `core/clerk_identity.py:80` states the design: *"The admin realm is never reconciled.
-`admin_users` is not a Clerk mirror; it is an ops-managed allowlist."*
+and `core/clerk_identity.py:80` stated the design: *"The admin realm is never reconciled.
+`admin_users` is not a Clerk mirror; it is an ops-managed allowlist."* *(That file went with
+the vendor at D-177. The design statement outlived it and is now true by construction —
+there is no upstream identity system left to reconcile from.)*
 
 **Nothing in the repository ever inserts a row.** Not `scripts/seed.py`, not
 `scripts/vps-deploy.sh`, not `compose.prod.yml`, not `docs/DEPLOYMENT.md`, not any runbook —
@@ -790,9 +801,13 @@ unreachable. It fails closed, so it is not a security hole — it is a deploymen
 onboard anyone.
 
 **FIX:** one INSERT, but it needs a home that is not a shell history. Either
-`scripts/bootstrap_admin.py` in the family of `scripts/seed.py` (Clerk user id + role,
-`ON CONFLICT DO NOTHING`), or a numbered step in DEPLOYMENT.md with the exact SQL. The Clerk
-account is external; **the row is ours.**
+`scripts/bootstrap_admin.py` in the family of `scripts/seed.py` (vendor user id + role,
+`ON CONFLICT DO NOTHING`), or a numbered step in DEPLOYMENT.md with the exact SQL. The
+vendor account is external; **the row is ours.** *(As shipped it is BOTH, and it needed no
+vendor id at all: D-170/D-177 made the credential ours, so the script creates the operator,
+the credential and the audit trail rather than pointing at an account someone made in a
+dashboard. `--clerk-user-id` was deleted rather than deprecated — a flag that cannot work is
+worse than one that is absent.)*
 
 ### P4.2 — `scripts/seed.py` never runs on a production deploy, so `reserved_slugs` is empty · SERIOUS · OURS
 
@@ -1092,21 +1107,34 @@ never mentions the web file; DEPLOYMENT §9's go-live order never mentions it. S
 
 - `NEXT_PUBLIC_API_BASE_URL` unset → every browser at `app.calevate.tech` calls **its own
   localhost:8000**;
-- both `NEXT_PUBLIC_CLERK_*_PUBLISHABLE_KEY` empty → every realm renders "sign-in is not
-  configured";
-- `resolveAuthMode` correctly resolves to `clerk` and **does not throw**, so `next build`
-  succeeds.
+- ~~both `NEXT_PUBLIC_CLERK_*_PUBLISHABLE_KEY` empty → every realm renders "sign-in is not
+  configured"~~ — **GONE (D-177).** Those two variables do not exist; `apps/web/.env.example`
+  says so in as many words. **Authentication is configured by nothing in the browser**: the
+  credential is an `HttpOnly` `__Host-` cookie the browser attaches by itself and no script
+  can read.
+- `resolveAuthMode` resolves an unset `NEXT_PUBLIC_AUTH_MODE` to **`session`** in a
+  production build (the enum is `session | dev` now, not `clerk | dev`) and **does not
+  throw**, so `next build` still succeeds — which is the half of this finding that
+  survives, and deliberately: the safe reading of a forgotten variable is the one that
+  cannot authenticate anybody. An explicit `dev` in a production build DOES fail the build.
 
 `wait_healthy web` curls `/`, which the landing page answers 200. **The deploy prints DEPLOYED.**
 
-This also breaks §9's central promise: step 10a says the remaining ~50 keys are set from
+~~This also breaks §9's central promise: step 10a says the remaining keys are set from
 `admin.calevate.tech/ops` live — but the **publishable** keys the browser needs are build-time,
 and you cannot reach `/ops` to fix anything until the admin realm's publishable key is already
-baked in. A circular dependency the go-live order does not name.
+baked in. A circular dependency the go-live order does not name.~~ **CLOSED by D-177**, and it
+is the clearest thing the migration bought on this page: with no publishable key there is no
+build-time input to authentication, so the loop has no second half.
 
 **FIX:** add `apps/web/.env.local` to `preflight()` as a hard refusal alongside `.env`; add it
 as a numbered item in §9 step 4; and fail the production build when either publishable key is
-empty, the way it already fails on `AUTH_MODE=dev`.
+empty, the way it already fails on `AUTH_MODE=dev`. **STATUS: the first is DONE** —
+`vps-deploy.sh::preflight_plan` dies with the reason if neither `apps/web/.env.local` nor
+`apps/web/.env.production` is present. The third is moot (no publishable keys). What still
+bites is `NEXT_PUBLIC_API_BASE_URL`: unset, it inlines the empty string and every browser at
+`app.calevate.tech` calls its own `localhost:8000` — so the refusal is the whole guard, and
+this entry stays open on that one variable rather than on the three it was written for.
 
 ### P5.6 — The object store has no credentials and no region, so recordings and raw payloads cannot be written · BLOCKER · OURS
 
@@ -1117,7 +1145,8 @@ resolvable region for sigv4; without `AWS_DEFAULT_REGION`/`AWS_REGION` the const
 
 Those three variables appear **nowhere** in `.env.example` (which says "eight variables, and
 deliberately nothing else"), nowhere in `compose.prod.yml`, nowhere in DEPLOYMENT §6 or §9, and
-are not `Settings` fields — so they are also not among the "50 keys" the ops console manages.
+are not `Settings` fields — so they are also not among the console-managed keys (55 today;
+DEV-SETUP §4 carries the census and how to recount it).
 The only place in the repo that gets this right is the **unapplied** lifecycle applier
 (`infra/object-lifecycle/apply_lifecycle.py:181` passes `region_name`). Two constructions of the
 same client, one correct, one shipping.

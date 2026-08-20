@@ -224,3 +224,88 @@ def test_the_registry_the_guards_read_is_the_one_the_worker_boots() -> None:
     about a list nobody executes."""
     assert WorkerSettings.functions is FUNCTIONS
     assert WorkerSettings.cron_jobs is CRON_JOBS
+
+
+# --- alarm stages -------------------------------------------------------------
+#
+# D-412, recovered from an abandoned branch. `FailureStage` is the one closed vocabulary
+# in this repo that ONLY our own code can produce, which is what makes "nothing emits it"
+# decidable at all — see the section comment in `check_wiring.py` for why the general
+# enum-reachability check is still refused.
+
+
+def test_an_alarm_stage_nothing_emits_is_caught(tmp_path: Path) -> None:
+    """`QUEUE_ENQUEUE` — in the type and in BACKEND-PATTERNS §8, passed by nothing.
+
+    A member with no call site is an alarm an operator is told to expect and will never
+    receive, which is worse than a missing one: the silence reads as health.
+    """
+    (tmp_path / "service.py").write_text(
+        "from apps.api.core.alerting import alert\n"
+        "def go() -> None:\n"
+        '    alert("ROUTE_HANDLER", "webhook_unkeyable")\n'
+    )
+
+    offenders = check_wiring.unemittable_alarm_stages(
+        roots=(tmp_path,), stages=("ROUTE_HANDLER", "QUEUE_ENQUEUE")
+    )
+    assert len(offenders) == 1, offenders
+    assert "QUEUE_ENQUEUE" in offenders[0]
+
+    # The day something emits it, the guard goes quiet on its own — no list to update.
+    (tmp_path / "queue_leg.py").write_text(
+        "from apps.api.core.alerting import alert\n"
+        "def boom() -> None:\n"
+        '    alert("QUEUE_ENQUEUE", "enqueue_failed")\n'
+    )
+    assert (
+        check_wiring.unemittable_alarm_stages(
+            roots=(tmp_path,), stages=("ROUTE_HANDLER", "QUEUE_ENQUEUE")
+        )
+        == []
+    )
+
+
+def test_a_stage_raised_through_problem_error_counts_as_emitted(tmp_path: Path) -> None:
+    """The second emitter shape, and the one whose absence would make this check LIE.
+
+    `core/errors.py`'s handler calls `alert(exc.failure_stage, exc.code, ...)`, so a
+    `raise ProblemError(failure_stage="CORE_LOGIC")` really does send that stage. A scan
+    that read only `alert(...)` would call a live stage dead the day its last direct call
+    site moved behind a raise — a guardrail whose first false positive teaches everyone to
+    add an exemption.
+    """
+    (tmp_path / "route.py").write_text(
+        "from apps.api.core.errors import ProblemError\n"
+        "def go() -> None:\n"
+        '    raise ProblemError(kind="dependency", code="x", failure_stage="CORE_LOGIC")\n'
+    )
+    assert check_wiring.unemittable_alarm_stages(roots=(tmp_path,), stages=("CORE_LOGIC",)) == []
+
+
+def test_a_stage_emitted_from_outside_python_counts(tmp_path: Path) -> None:
+    """`HOST_BACKUP` is sent by `scripts/backup/notify.sh` and by no Python call site.
+
+    It is the reason this section reads shell scripts instead of carrying an exemption
+    list: an exemption would have covered the next DEAD stage as happily as this live one.
+    """
+    (tmp_path / "notify.sh").write_text('args=(--arg failure_stage "HOST_BACKUP")\n')
+    assert check_wiring.unemittable_alarm_stages(roots=(tmp_path,), stages=("HOST_BACKUP",)) == []
+
+
+def test_a_stage_only_a_test_emits_is_still_dead(tmp_path: Path) -> None:
+    """A test that passes a stage proves the alerter ACCEPTS it, never that anything
+    SENDS it — so `_test.py` files are excluded from the emitter scan."""
+    (tmp_path / "alerting_test.py").write_text('alert("CORE_LOGIC", "x")\n')
+    offenders = check_wiring.unemittable_alarm_stages(roots=(tmp_path,), stages=("CORE_LOGIC",))
+    assert len(offenders) == 1, offenders
+
+
+def test_an_empty_vocabulary_fails_rather_than_passing_vacuously() -> None:
+    """This section's own blind spot. Its subject is IMPORTED rather than scanned, so an
+    emptied `FailureStage` is the one way it can go quiet, and it must not report OK."""
+    assert check_wiring.unemittable_alarm_stages(roots=(), stages=()) != []
+
+
+def test_the_live_tree_can_emit_every_alarm_stage_it_declares() -> None:
+    assert check_wiring.unemittable_alarm_stages() == []

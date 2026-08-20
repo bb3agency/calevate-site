@@ -10,8 +10,13 @@ dependencies = [
     "psycopg[binary,pool]>=3.2",
     "pgvector>=0.4",
     "httpx>=0.28",
-    # RFC 7523's JWT-bearer assertion for Google service accounts (`google_oauth.py`,
-    # used by the Sheets adapter and by Vertex AI). It was already imported here and
+    # RFC 7523's JWT-bearer assertion for Google service accounts (`google_oauth.py`).
+    # ONE CALLER TODAY, and it is named rather than counted: `google_sheets.py`, the D-23
+    # client-spreadsheet delivery. This said "used by the Sheets adapter and by Vertex
+    # AI"; D-410 took the Vertex leg out of this product, so half the stated reason names
+    # something that is gone — which is worse than no reason, because the next reader
+    # sees a dependency justified by two callers, finds one, and cannot tell whether the
+    # other was deleted or was never true. It was already imported here and
     # declared only by `apps/api` — the workspace installs one venv, so it resolved and
     # nothing went red, which is exactly how an undeclared dependency survives. `[crypto]`
     # is not optional for us: RS256 signing needs `cryptography`.

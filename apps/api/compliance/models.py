@@ -622,6 +622,74 @@ class FirstCampaignReview(PKMixin, TimestampMixin, Base):
     decided_at: Mapped[datetime] = mapped_column(nullable=False)
 
 
+#: The reasons a tenant can be on the retention worklist. Closed, and rendered verbatim
+#: into `ck_retention_worklist_reason_enum` — a new reason needs a new writer, which needs
+#: a migration anyway, so a closed vocabulary costs nothing and keeps the table
+#: self-describing. `kb_source` is the only one today; `_due_tenants` explains why it is
+#: the only artefact a tenant can hold without ever publishing an agent.
+RETENTION_WORKLIST_REASONS = ("kb_source",)
+
+
+class RetentionWorklistEntry(Base):
+    """A tenant the retention sweep MUST reach that the engine bridge cannot name (D-368).
+
+    THE HOLE THIS CLOSES. `retention._due_tenants` derives the nightly sweep's worklist
+    from `engine_agent_routes`, which is exact for anything involving a CALL — a call row
+    only ever exists for a published agent. D-179 then made KNOWLEDGE expirable, and a
+    knowledge source is the one expirable artefact a tenant can hold without ever
+    publishing anything: upload a document, have an operator reject it, and the tenant has
+    a `kb_sources` row that `_KB_EXPIRABLE` matches, a `kb` retention policy at 365 days,
+    and no `engine_agent_routes` row. Its nightly sweep never ran. Retention is a DPDP
+    obligation, so a tenant silently outside it is a compliance failure, not a backlog
+    item.
+
+    WHY A TABLE RATHER THAN READING `kb_sources` ACROSS TENANTS. The sweep needs one fact
+    — "this tenant holds something expirable" — and reading it off `kb_sources` means an
+    RLS exemption on a table holding CLIENT CONTENT (titles, and the documents behind
+    them). This table is the fact and nothing else: a tenant id, a reason from a closed
+    vocabulary, and when it was first seen.
+
+    AND IT IS NOT AN RLS EXEMPTION EITHER, which is the part worth reading twice. Its
+    `tenant_isolation` policy is the strict own-tenant form for every verb, and a second
+    `FOR SELECT` policy widens reads to sessions with NO tenant GUC — the retention
+    worker, and nothing else. Both consult the GUC, so `check_rls_coverage` judges this by
+    the ordinary rule and it belongs in `db/registry.TENANT_TABLES` beside every other
+    tenant table. `engine_agent_routes` is the near neighbour and is deliberately not the
+    model: its `FOR SELECT USING (true)` is readable cross-tenant from a CLIENT session
+    too, which this problem never needed.
+
+    WHY A DATABASE TRIGGER WRITES IT, and not `kb/service.py`. D-368's own objection to a
+    second bridge was that it would be "a second bridge to keep in step with the first".
+    A trigger on `kb_sources` removes the keeping-in-step: the invariant holds for every
+    writer of that table, including ones nobody has written yet and an operator inserting
+    by hand at 3am. This repo already enforces its other legal-grade invariant — hard rule
+    4's append-only ledgers — in the database rather than in a code path, for the same
+    reason. Migration `b2e6f10c94d7` carries the trigger, the backfill for tenants already
+    in the hole, and the RLS policies.
+
+    NOT append-only and not versioned: it is an index, not a record. `ON CONFLICT DO
+    NOTHING` on the natural key means a tenant that uploads a hundred documents has one
+    row, and `registered_at` answers "since when" for an auditor asking how long a tenant
+    has been inside the sweep's reach.
+    """
+
+    __tablename__ = "retention_worklist"
+    __table_args__ = (
+        CheckConstraint(
+            f"reason IN {RETENTION_WORKLIST_REASONS!r}", name="retention_worklist_reason_enum"
+        ),
+    )
+
+    # Composite PK: (tenant, reason) IS the natural key. Keyed on the pair rather than on
+    # the tenant alone so a future second writer records its own reason instead of
+    # colliding with — or silently overwriting — the first one's.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), primary_key=True
+    )
+    reason: Mapped[str] = mapped_column(String, primary_key=True)
+    registered_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 class RetentionPolicy(PKMixin, Base):
     __tablename__ = "retention_policies"
     __table_args__ = (

@@ -130,11 +130,17 @@ cannot make**: `docs/DEPLOYMENT.md` says India co-location is NOT required for t
 which is the stack holding every transcript, and F-1 is open precisely because the region
 is undecided. It was scrubbed from the landing page and left here, where it seeded the
 same sentence in BRD §sales. Nothing may re-assert it until a host is chosen and named · Sentry/OTel (LLM tracing is a named gap, D-49) · setup-fee + retainer + overage pricing, plus the
-D-34 self-serve prepaid tier · all-in target ≈ **₹3.3–3.8/min**, ₹1.9–2.5/min at phase 2
-(verified floor **₹2.9** on Bulbul v2 + Sarvam LLM, UNCHANGED — that combination's LLM leg
-is free). **Both bands were re-derived at D-410 and both moved, because D-36 struck them
+D-34 self-serve prepaid tier · all-in target ≈ **₹3.3–3.8/min**, ₹1.9–2.6/min at phase 2
+(floor **₹2.9** on Bulbul v2 + Sarvam LLM, UNCHANGED — that combination's LLM leg
+is free; TRD §10.1's ladder cell said ₹1.89 from this repository's first commit until
+20 Aug 2026 and has been corrected TO this number, with the arithmetic shown there. Read
+"verified" off it: the MODEL rates are first-party, the ₹1.50 platform fee inside it is
+still pilot gate 12). **Both bands were re-derived at D-410 and both moved, because D-36 struck them
 against a ₹0.00 LLM leg and the leg is no longer free.** They carry the shipped default,
-`gpt-4o-mini` at ₹0.16/min on a five-minute call (TRD §10.1): D-36's ₹3.1–3.6 + ₹0.16.
+`gpt-4o-mini` at ₹0.16/min on a five-minute call (TRD §10.1): D-36's ₹3.1–3.6 + ₹0.16 =
+3.26–3.76, and phase 2 is that less the ₹1.50 platform fee plus ₹0.15–0.30 compute. **TRD
+§10 owns that derivation and this line quotes it** — the two used to subtract independently
+and disagreed by 0.1–0.2 at both ends.
 D-400 would have added ₹0.36 and nobody updated this line at the time, so what D-410
 actually delivers here is **₹0.20/min back** — the line is now ₹0.16 above D-36 rather than
 ₹0.36 above it. Flipping `azure_openai_model` to `gpt-4.1-mini` costs 2.67x that leg and

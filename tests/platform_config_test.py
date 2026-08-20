@@ -622,3 +622,45 @@ async def test_voice_runtime_adopts_console_config_when_it_boots() -> None:
     # compare equal.
     assert in_force == Decimal("13.25")
     assert str(in_force) == "13.25"
+
+
+def test_the_field_that_names_a_credential_is_editable_and_readable() -> None:
+    """`bolna_llm_credential_name` is a POINTER to a credential, not a credential.
+
+    It holds which entry in the engine's credential store our LLM key was written to
+    (`AZURE`), and it matched `_SECRET_NAME_FRAGMENTS`' bare `credential` fragment, so it
+    was sealed into `platform_secrets` — write-only, `last_four` and nothing else. Two
+    things broke that nobody could see from either file alone: OPERATIONS §2 gate 16f is
+    an operator trying values against a dead LLM leg with the vendor's docs unreachable,
+    and "what is it set to right now" had no answer; and the secrets write path validates
+    non-emptiness only, so sealing it routed its `pattern` around the only place that
+    enforces it (`apply_platform_overrides` installs the layer with `model_copy`, which
+    does not re-validate).
+    """
+    assert pc.is_secret_key("bolna_llm_credential_name") is False
+    assert "bolna_llm_credential_name" in pc.managed_fields()
+    # The constraint the sealing bypassed. It is enforced because the field is plain
+    # config, and this asserts the enforcement rather than the classification.
+    with pytest.raises(ValidationError):
+        pc.validate_value("bolna_llm_credential_name", "azure_openai")
+    assert pc.validate_value("bolna_llm_credential_name", "AZURE_OPENAI") == "AZURE_OPENAI"
+    # Everything that IS a credential still is. `bolna_api_key` differs from the field
+    # above by one word.
+    assert pc.is_secret_key("bolna_api_key") is True
+    assert "bolna_api_key" not in pc.managed_fields()
+
+
+def test_the_exemption_cannot_be_widened_to_something_that_holds_a_secret() -> None:
+    """The escape from `_SECRET_NAME_FRAGMENTS` refuses at import, not in review.
+
+    A false negative here puts a live credential in a plaintext table, so the exemption
+    is an exact name and the guard is a process-level refusal. The tell is the DEFAULT:
+    every credential in `Settings` is `X | None` with none, because a defaulted
+    credential is a credential committed to the source.
+    """
+    with pytest.raises(RuntimeError, match="not a Settings field"):
+        pc._assert_holds_no_secret(frozenset({"bolna_llm_credential_nam"}))
+    with pytest.raises(RuntimeError, match="no default"):
+        pc._assert_holds_no_secret(frozenset({"bolna_api_key"}))
+    # And the real set passes the same guard it was built through.
+    assert pc._assert_holds_no_secret(pc._CREDENTIAL_REFERENCE_KEYS)

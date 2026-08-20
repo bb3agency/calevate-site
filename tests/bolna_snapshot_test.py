@@ -22,6 +22,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+from apps.api.engine import bolna
 from apps.api.engine.bolna import (
     _STATUS_MAP,
     _VENDOR_STATUSES,
@@ -43,8 +45,14 @@ def _payload(**over: object) -> dict[str, object]:
         "status": "completed",
         "agent_id": "agent-1",
         "conversation_duration": 42,
-        "total_cost": 600,  # 600 of SOMETHING; what, is the question below
-        "cost_breakdown": {"platform": 400, "network": 200},
+        # 6 of SOMETHING; what, is the question below. The MAGNITUDE is chosen to be a
+        # plausible 42-second call under the house assumption (6 US cents = ₹5.01, i.e.
+        # ₹7.16/min against the ₹0.5-6/min the adapter expects) — this used to be 600,
+        # which is ₹715/min and trips `engine_cost_implausible` on every use of the
+        # fixture. A fixture that fires the platform's own alarm teaches the next reader
+        # that the alarm is noise.
+        "total_cost": 6,
+        "cost_breakdown": {"platform": 4, "network": 2},
         **over,
     }
 
@@ -61,8 +69,8 @@ def test_an_unstated_currency_converts_on_the_house_assumption_and_says_so() -> 
     assert snapshot.cost.currency_stated is False, (
         "nothing in the payload named a currency, so this is our guess and must say so"
     )
-    # 600 cents = $6.00, at 83.50 = ₹501.
-    assert snapshot.cost.total_inr == Decimal("501.0000")
+    # 6 cents = $0.06, at 83.50 = ₹5.01.
+    assert snapshot.cost.total_inr == Decimal("5.0100")
     assert snapshot.cost.fx_rate == FX
 
 
@@ -71,22 +79,31 @@ def test_a_stated_usd_is_recorded_as_a_reading_not_a_guess() -> None:
     snapshot = _engine()._snapshot(_payload(currency="usd"))
 
     assert snapshot.cost is not None
-    assert snapshot.cost.total_inr == Decimal("501.0000")
+    assert snapshot.cost.total_inr == Decimal("5.0100")
     assert snapshot.cost.currency_stated is True
 
 
-def test_a_stated_inr_is_not_multiplied_by_the_dollar_rate() -> None:
-    """THE 83x BUG. If Bolna bills an India account in INR paise and the adapter converts
-    anyway, our recorded cost basis is out by the exchange rate — upward, which flatters
-    the margin panel and understates what a minute costs us."""
+def test_a_stated_inr_is_refused_because_nothing_says_what_unit_it_is_in() -> None:
+    """THE 100x BUG (D-411), and the reason it hid behind a fix.
+
+    The `rate = 1` branch is right and was added deliberately: a figure already in rupees
+    must not be multiplied by the dollar rate (the 83x error). But the DIVISOR is a
+    separate assumption argued end to end in USD — the OAS sentence carrying it says "in
+    cents" — and it kept applying, so a stated-INR payload was divided by 100 after being
+    correctly left unconverted. An account Bolna bills in RUPEES metered every call at one
+    hundredth of cost, on a row stamped `currency_stated=True`.
+
+    The fix is not a second guess in the other direction: nothing first-party says which
+    unit an INR figure is in, so the adapter refuses, exactly as it does for a currency it
+    has no RATE for. The gap is loud (`call_billable_without_cost` from `pipeline._meter`)
+    where a wrong number is silent.
+    """
     snapshot = _engine()._snapshot(_payload(currency="INR"))
 
-    assert snapshot.cost is not None
-    # 600 paise = ₹6.00, converted by nothing.
-    assert snapshot.cost.total_inr == Decimal("6.0000")
-    assert snapshot.cost.source_currency == "INR"
-    assert snapshot.cost.currency_stated is True
-    assert snapshot.cost.fx_rate == Decimal(1)
+    assert snapshot.cost is None, "1/100th of a rupee figure is not a cost basis"
+    # The rest of the snapshot still lands: an unpriceable cost is not a broken call.
+    assert snapshot.status == "completed"
+    assert snapshot.duration_s == 42
 
 
 def test_a_currency_we_cannot_convert_is_refused_rather_than_guessed() -> None:
@@ -100,8 +117,37 @@ def test_a_currency_we_cannot_convert_is_refused_rather_than_guessed() -> None:
     assert snapshot.duration_s == 42
 
 
-def test_the_breakdown_uses_the_same_rate_as_the_total() -> None:
-    """Two rates in one CostBreakdown is a row whose parts do not sum to its whole."""
+def test_the_day_the_inr_unit_is_observed_the_rate_stays_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other half of the pair, exercised through the flip that closes the hole.
+
+    `_MINOR_UNITS_PER_MAJOR` gains an INR entry the day gate 7 reads an INR-billed
+    execution. When it does, the fx half must still be 1 — the two assumptions are
+    independent and fixing the unit must not quietly reinstate the 83x error — and the
+    divisor must be the one the entry names, not USD's.
+    """
+    monkeypatch.setitem(bolna._MINOR_UNITS_PER_MAJOR, "INR", Decimal(1))
+    snapshot = _engine()._snapshot(_payload(currency="INR"))
+
+    assert snapshot.cost is not None
+    # ₹6, converted by nothing and divided by nothing.
+    assert snapshot.cost.total_inr == Decimal("6.0000")
+    assert snapshot.cost.source_currency == "INR"
+    assert snapshot.cost.currency_stated is True
+    assert snapshot.cost.fx_rate == Decimal(1)
+    assert snapshot.cost.source_amount == Decimal(6), (
+        "`source_amount` x `fx_rate` must reproduce the row's rupees — it used to be "
+        "divided by USD's 100 while the legs were divided by the currency's own divisor"
+    )
+
+
+def test_the_breakdown_uses_the_same_rate_and_unit_as_the_total(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two rates — or two DIVISORS — in one CostBreakdown is a row whose parts do not sum
+    to its whole."""
+    monkeypatch.setitem(bolna._MINOR_UNITS_PER_MAJOR, "INR", Decimal(1))
     snapshot = _engine()._snapshot(_payload(currency="INR"))
 
     assert snapshot.cost is not None

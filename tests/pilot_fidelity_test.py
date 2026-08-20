@@ -174,49 +174,123 @@ def test_a_completed_execution_with_no_recording_fails() -> None:
     assert _check(result, "completed_carries_recording_url").status == "fail"
 
 
-# --- the currency row: our own snapshot cannot answer it -----------------------
+# --- the cost-unit row: our own snapshot cannot answer it, and a PASS is scoped ------
+#
+# Renamed from the currency row with D-411. The adapter's divisor became a table keyed by
+# CURRENCY, and the danger this block guards is not that the row fails wrongly — it is
+# that it PASSES while saying nothing about the currency that motivated the change.
 
 
-def test_currency_is_not_run_without_the_vendors_own_figure() -> None:
-    """Reading `source_currency` back from our snapshot returns the ADAPTER's literal.
-    A pass here would be the harness agreeing with itself."""
-    row = _check(
-        fidelity.evaluate_gate7([fidelity.observe(_snapshot())]), "cost_currency_is_usd_cents"
-    )
+def test_cost_unit_is_not_run_without_the_vendors_own_figure() -> None:
+    """Reading `source_currency` back from our snapshot returns OUR fallback when the
+    payload named nothing. A pass here would be the harness agreeing with itself."""
+    row = _check(fidelity.evaluate_gate7([fidelity.observe(_snapshot())]), fidelity.COST_UNIT_CHECK)
     assert row.status == "not_run"
-    assert "hard-codes" in row.detail
+    assert "vendor's own total" in row.detail
 
 
-def test_currency_passes_when_our_derived_amount_matches_the_vendors() -> None:
+def test_cost_unit_passes_when_our_derived_amount_matches_the_vendors() -> None:
     claim = fidelity.VendorCostClaim(call_ref="exec-abc", total=Decimal("0.0412"), currency="USD")
     row = _check(
         fidelity.evaluate_gate7([fidelity.observe(_snapshot())], vendor_claims={"exec-abc": claim}),
-        "cost_currency_is_usd_cents",
+        fidelity.COST_UNIT_CHECK,
     )
     assert row.status == "pass"
 
 
-def test_a_hundredfold_disagreement_names_the_cents_assumption() -> None:
+def test_even_a_pass_says_which_currencies_it_covers() -> None:
+    """THE POINT OF THE WHOLE ROW AFTER D-411. `pass` beside a row called "cost unit" is
+    read as "metering is verified", and it is verified only for the currencies the adapter
+    has an entry for — one, today. A verdict that does not say so is the gate narrowing in
+    silence, which is exactly what happened when the divisor became a table and this file
+    stayed green because USD's value never moved."""
+    claim = fidelity.VendorCostClaim(call_ref="exec-abc", total=Decimal("0.0412"), currency="USD")
+    row = _check(
+        fidelity.evaluate_gate7([fidelity.observe(_snapshot())], vendor_claims={"exec-abc": claim}),
+        fidelity.COST_UNIT_CHECK,
+    )
+    assert row.status == "pass"
+    assert "USD" in row.detail
+    assert "meters NOTHING" in row.detail, "the pass must name the hole it does not cover"
+    assert "_MINOR_UNITS_PER_MAJOR" in row.detail, "and where the fix goes"
+
+
+def test_an_execution_the_adapter_refused_to_price_is_inconclusive_not_a_pass() -> None:
+    """THE SILENT NARROWING, as a test. A mixed account — one USD execution that compares
+    perfectly, one the adapter refused because nothing states that currency's unit — must
+    NOT report `pass` on the strength of the half it could read. `not_run` is the honest
+    verdict: this gate exists to settle the unit assumption, and "the adapter declined to
+    guess" is precisely the state of not having settled it."""
+    priced = fidelity.observe(_snapshot())
+    refused = fidelity.observe(_snapshot(engine_call_id="exec-inr", cost=None))
+    claim = fidelity.VendorCostClaim(call_ref="exec-abc", total=Decimal("0.0412"), currency="USD")
+    inr = fidelity.VendorCostClaim(call_ref="exec-inr", total=Decimal("3.45"), currency="INR")
+
+    result = fidelity.evaluate_gate7(
+        [priced, refused], vendor_claims={"exec-abc": claim, "exec-inr": inr}
+    )
+
+    row = _check(result, fidelity.COST_UNIT_CHECK)
+    assert row.status == "not_run", "a pass here would be a verdict about the easy half"
+    assert "INR" in row.detail, "and it names the currency it could not reason about"
+    assert "refused to price" in row.detail
+    # The account being unmetered is not excused — it is a FAIL one row up, which is where
+    # "we are being charged for something we cannot price" belongs.
+    assert _check(result, "completed_carries_total_cost").status == "fail"
+
+
+def test_the_unpriced_row_names_both_causes() -> None:
+    """ "the vendor sent no figure" and "the adapter refused what it sent" look identical
+    from here, and only one of them is ours to close. An operator reading this row at 3am
+    must not be told it is the vendor's fault when it is one line of our own table."""
+    row = _check(
+        fidelity.evaluate_gate7([fidelity.observe(_snapshot(cost=None))]),
+        "completed_carries_total_cost",
+    )
+    assert row.status == "fail"
+    assert "REFUSED" in row.detail
+    assert "_MINOR_UNITS_PER_MAJOR" in row.detail
+
+
+def test_a_disagreement_equal_to_the_divisor_names_the_unit_assumption() -> None:
     """The whole reason this row exists: if `total_cost` is in dollars, not cents, our
-    /100 makes every INR ledger row 100x wrong and nothing else would notice."""
+    /100 makes every INR ledger row 100x wrong and nothing else would notice. The fix now
+    has two halves and the message carries both — the constant, and the restatement of the
+    rows already metered under it."""
     claim = fidelity.VendorCostClaim(call_ref="exec-abc", total=Decimal("4.12"), currency="USD")
     row = _check(
         fidelity.evaluate_gate7([fidelity.observe(_snapshot())], vendor_claims={"exec-abc": claim}),
-        "cost_currency_is_usd_cents",
+        fidelity.COST_UNIT_CHECK,
     )
     assert row.status == "fail"
-    assert "NOT in cents" in row.detail
-    assert "100" in row.detail
+    assert "NOT in minor units" in row.detail
+    assert "correct_cost_unit" in row.detail, "append-only: the repair is a compensating row"
 
 
-def test_a_currency_that_is_not_usd_fails_loudly() -> None:
+def test_the_vendor_billing_a_different_currency_from_the_one_we_priced_fails() -> None:
+    """The 83x fx error and the 100x unit error arriving together, on rows that look
+    ordinary: the payload named no currency, we fell back to USD, and the invoice is in
+    something else. Unlike the refusal above, something WAS metered — and metered wrong —
+    so this is a fail and not an inconclusive."""
     claim = fidelity.VendorCostClaim(call_ref="exec-abc", total=Decimal("0.0412"), currency="EUR")
     row = _check(
         fidelity.evaluate_gate7([fidelity.observe(_snapshot())], vendor_claims={"exec-abc": claim}),
-        "cost_currency_is_usd_cents",
+        fidelity.COST_UNIT_CHECK,
     )
     assert row.status == "fail"
     assert "EUR" in row.detail
+    assert "exchange rate" in row.detail
+
+
+def test_the_gate_reports_a_row_for_the_unit_under_its_new_name() -> None:
+    """`CHECK_NAMES` is what the report renders, and a check emitting a name outside it
+    silently disappears. Pinned because the rename touched six call sites."""
+    assert fidelity.COST_UNIT_CHECK in fidelity.CHECK_NAMES
+    assert "usd" not in fidelity.COST_UNIT_CHECK.lower(), (
+        "the divisor is per currency; a row name hard-coding one teaches the narrow reading"
+    )
+    names = [c.name for c in fidelity.evaluate_gate7([fidelity.observe(_snapshot())]).checks]
+    assert names == list(fidelity.CHECK_NAMES)
 
 
 # --- extraction ----------------------------------------------------------------
@@ -594,9 +668,13 @@ async def test_the_runner_reads_the_executions_the_operators_file_names(
     result = await fidelity.run_gate_7(GateContext(engine=engine, settings=_settings()))
     assert _check(result, "completed_carries_total_cost").status == "pass"
     assert _check(result, "transcript_parses_into_transcript_turn").status == "pass"
-    # `fake` reports INR at 1:1, so the USD claim disagrees — the row must be decidable,
-    # which is the property being asserted here rather than the direction of the verdict.
-    assert _check(result, "cost_currency_is_usd_cents").status in ("pass", "fail")
+    # `fake` prices in INR at 1:1 and the operator's claim above says USD, so the adapter
+    # and the invoice name different currencies — a FAIL, and a specific one. The property
+    # asserted is that the row is DECIDABLE end to end: `fake` produces a cost, so this is
+    # never the `not_run` an unpriced execution earns.
+    row = _check(result, fidelity.COST_UNIT_CHECK)
+    assert row.status == "fail"
+    assert "INR" in row.detail and "USD" in row.detail
 
 
 async def test_an_execution_placed_earlier_in_the_same_run_is_picked_up(

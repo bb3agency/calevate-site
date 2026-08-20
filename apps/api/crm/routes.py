@@ -274,7 +274,8 @@ async def assist_call(
     **The `Idempotency-Key` is REQUIRED**, which `POST /v1/leads/{lead_id}/call` does not
     do, and the difference is what a repeat costs. A repeated dial re-runs the compliance
     gate and is bounded by the follow-up ladder; a repeated assist is a second, silent
-    payment to Google with nothing else in front of it — D-140 removed the client-suppliable
+    payment to our model provider — Azure OpenAI since D-410, Google when this was written
+    — with nothing else in front of it. D-140 removed the client-suppliable
     metering `ref` precisely so that dedupe could not happen after the provider was paid,
     and moved double-click protection here. An OPTIONAL key would protect only the callers
     that remember to send one, i.e. this console on the day it was written, which is the
@@ -304,8 +305,9 @@ async def assist_call(
     # did not have. Written into the REQUEST's transaction it was rolled back by
     # `core/deps.db` on any later exception, so a raise anywhere after `run_assist`
     # (a statement timeout, a severed connection, a refused audit write) erased the
-    # claim, the usage rows and the audit row while Google had already been paid — and
-    # the retry with the same key, which is what the key is FOR, paid a second time.
+    # claim, the usage rows and the audit row while the model provider had already been
+    # paid (Azure OpenAI since D-410) — and the retry with the same key, which is what the
+    # key is FOR, paid a second time.
     async with tenant_session(tenant_id) as claim_session:
         claim = await claim_idempotency(
             claim_session,
@@ -321,22 +323,40 @@ async def assist_call(
         # anything (`billing/ai_quota.ASSIST_REF_PREFIX`).
         return CallAssistOut.model_validate(claim.response_payload)
 
-    # 1. THE SUBJECT, before the money. A call with no readable redacted transcript
-    #    cannot be summarised at any price, and finding that out after the ceiling check
-    #    would answer a client at their limit with "add ₹500" for a call the money would
-    #    not have helped with.
-    source = await assist.load_assist_source(session, call_id)
-
-    # 2. THE GATE. It RAISES — `ai_quota_exceeded` is what opens the wallet dialog (G-5),
-    #    `ai_paused_platform_wide` is the brake — so a refusal reaches the client without
-    #    a token having been spent. Everything below this line costs money.
-    quota = await require_ai_assist(session, tenant_id=tenant_id)
-
-    # 3. THE RUN. The key is minted HERE, by the server, per attempt: `record_ai_assist_usage`
-    #    accepts nothing else, because its idempotency is a switch that turns metering off
-    #    (D-140).
-    ref = new_assist_ref()
+    # STEPS 1-3 ARE ONE ARM, AND THE BOUNDARY IS "HAS THE PROVIDER BEEN PAID".
+    #
+    # This `try` used to open at step 3, around `run_assist` alone, and the two refusals
+    # above it therefore left the claim `processing` for the whole `CLAIM_LEASE` — a
+    # client who was told "this call has no transcript" or "you are at your ceiling"
+    # could not reuse the key they had just been refused on, and got
+    # `idempotent_request_in_flight` for a request that cost nothing. The browser worked
+    # around it by minting a FRESH key per attempt, which is worse than the bug it hides:
+    # a key that is never reused cannot dedupe, so a lost response — a 504, a dropped
+    # connection — on a run the server COMPLETED pays a second time, which is the exact
+    # event this required header exists to prevent.
+    #
+    # So the arm covers everything up to and including the provider call, and stops
+    # there. `run_assist` RETURNING is the instant the money is spent, and every failure
+    # after it keeps the claim on purpose — that half is the mechanism working, and step 4
+    # says why. Releasing on a pre-payment refusal is not a relaxation of it: the two
+    # cases are opposites, and conflating them is what left this one open.
     try:
+        # 1. THE SUBJECT, before the money. A call with no readable redacted transcript
+        #    cannot be summarised at any price, and finding that out after the ceiling
+        #    check would answer a client at their limit with "add ₹500" for a call the
+        #    money would not have helped with.
+        source = await assist.load_assist_source(session, call_id)
+
+        # 2. THE GATE. It RAISES — `ai_quota_exceeded` is what opens the wallet dialog
+        #    (G-5), `ai_paused_platform_wide` is the brake — so a refusal reaches the
+        #    client without a token having been spent. Everything below this line costs
+        #    money.
+        quota = await require_ai_assist(session, tenant_id=tenant_id)
+
+        # 3. THE RUN. The key is minted HERE, by the server, per attempt:
+        #    `record_ai_assist_usage` accepts nothing else, because its idempotency is a
+        #    switch that turns metering off (D-140).
+        ref = new_assist_ref()
         result = await run_assist(
             source.spec,
             # `text_redacted`, assembled by `crm/assist.py`, which never names the raw
@@ -344,20 +364,20 @@ async def assist_call(
             # still matches — that guard had no caller until this line, and this line
             # must not defeat it.
             source.transcript,
-            # The gate's verdict, passed IN rather than re-read. It is False on every path
-            # that reaches here — `require_ai_assist` RAISES at the ceiling rather than
-            # returning "no", which is G-5's block — and it is written as the READ rather
-            # than as a literal `False` so that this caller stays correct if the gate ever
-            # learns to answer instead of raise. A literal would be a promise about another
-            # module's control flow, made in this one.
+            # The gate's verdict, passed IN rather than re-read. It is False on every
+            # path that reaches here — `require_ai_assist` RAISES at the ceiling rather
+            # than returning "no", which is G-5's block — and it is written as the READ
+            # rather than as a literal `False` so that this caller stays correct if the
+            # gate ever learns to answer instead of raise. A literal would be a promise
+            # about another module's control flow, made in this one.
             quota_exhausted=quota.at_ceiling,
         )
     except Exception:
-        # NOTHING WAS PAID FOR (the provider call is what raised), so the key is released
-        # rather than left `processing`: a failed attempt that kept it would refuse the
-        # client's own retry as "already in flight" for the whole lease. Its own
-        # transaction, for the same reason the claim had one — the request's is about to
-        # roll back. `_create_order_once`'s failure arm, exactly.
+        # NOTHING HAS BEEN PAID FOR ON ANY PATH THAT REACHES HERE, so the key is released
+        # rather than left `processing`: a refused attempt that kept it would answer the
+        # client's own retry with "already in flight" for the whole lease, for a request
+        # that cost nothing. Its own transaction, for the same reason the claim had one —
+        # the request's is about to roll back. `_create_order_once`'s failure arm, exactly.
         async with tenant_session(tenant_id) as fail_session:
             await fail_idempotency(fail_session, record_id=claim.record_id)
         raise

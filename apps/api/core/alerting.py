@@ -22,10 +22,14 @@ alerting system causing the outage it exists to report.
 
 WHY NOT THE OUTBOX. Every other side effect in this repo goes through the
 transactional outbox (BACKEND-PATTERNS §4), and this one deliberately does not: the
-alarms that matter most are `outbox_dispatch_exhausted`, `pipeline_stalled` and
-`enqueue_failed` — "the thing that delivers work is broken". An alert routed through
-the broken component is an alert nobody gets. This path touches no database, and the
-one Redis call it makes CAN ONLY SUPPRESS — see the next paragraph — so it still
+alarms that matter most are `outbox_dead_letter`, `postcall_pipeline_stalled` and
+`outbox_queue_unreachable` — "the thing that delivers work is broken". An alert routed
+through the broken component is an alert nobody gets. (Those three are the codes
+`dispatcher.dispatch_outbox` and `reliability/service.py` really pass. This sentence used
+to name `outbox_dispatch_exhausted`, `pipeline_stalled` and `enqueue_failed`, none of
+which any call site emits — the D-412 defect one level below the stage enum, and the
+reason the enum is now guarded rather than proof-read.) This path touches no database,
+and the one Redis call it makes CAN ONLY SUPPRESS — see the next paragraph — so it still
 survives the failures it reports. The cost is honest and bounded: a process that dies
 with alerts queued loses those SENDS, never the log lines.
 
@@ -95,7 +99,18 @@ metrics_log = get_logger("calevate.metric")
 FailureStage = Literal[
     "ROUTE_HANDLER",
     "CORE_LOGIC",
-    "QUEUE_ENQUEUE",
+    # THERE IS NO QUEUE_ENQUEUE, AND ITS ABSENCE IS THE POINT (D-412). It sat here and in
+    # BACKEND-PATTERNS §8's published list from the day this taxonomy landed, and nothing
+    # ever passed it. The two enqueue failures this system really raises are stamped by
+    # the component that OWNS the enqueue, which is what makes them actionable:
+    # `dispatcher.dispatch_outbox` alerts OUTBOX_DISPATCH/`outbox_queue_unreachable` (the
+    # queue is unreachable and the batch went back on the shelf), and voice-runtime's tool
+    # endpoint alerts ROUTE_HANDLER/`tool_enqueue_timeout` (inside its 500ms ack budget).
+    # A third stage for those same two events would split one alarm family across two
+    # labels for no gain. §8 published this stage to operators, so what it really was is
+    # a promise of an alarm that could not fire — worse than a missing one, because an
+    # operator concludes from the silence that the leg it names is healthy.
+    # `scripts/check_wiring.unemittable_alarm_stages` refuses the next one.
     "OUTBOX_DISPATCH",
     "WORKER_DELIVERY",
     "WORKER_TERMINAL",

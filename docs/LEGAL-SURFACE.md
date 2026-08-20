@@ -24,7 +24,10 @@ Read in full or in relevant part: `docs/SECURITY-COMPLIANCE.md`, `docs/DATA-MODE
 `apps/api/core/rbac.py`, `apps/api/billing/{terms,gst,invoice,service,payments}.py`,
 `apps/api/engine/{bolna,cartesia}.py`, `apps/api/tenancy/models.py`;
 `packages/shared/src/calevate_shared/config.py`; `scripts/seed.py`, `scripts/check_*.py`;
-the whole of `apps/web/src/app` and `apps/web/src/lib/auth`.
+the whole of `apps/web/src/app` and `apps/web/src/lib/auth`. *(That last path is the
+17-Aug spelling. D-177 deleted `lib/auth/`; the successor is `apps/web/src/lib/authn/`, and
+the sub-processor and cookie copy this audit read now lives in `apps/web/src/lib/legal/` —
+see F-11, which is what re-reading them in August 2026 found.)*
 
 Law was researched on the web on **16–17 August 2026** — every source is listed in §9 with
 its retrieval date, because Indian data-protection and telecom law moved substantially in
@@ -43,7 +46,7 @@ real code gap that can be closed now. The rows say which.
 | Fact | Evidence |
 |---|---|
 | **Calevate is a Data Processor** for callers' personal data; the client business is the **Data Fiduciary**. | `apps/api/compliance/deletion_routes.py` docstring: *"A data principal asks the CLIENT to erase them; the client — the Data Fiduciary, we are their Processor — asks us."* Erasure is a **client-realm** surface requiring `org:manage`; there is no admin-realm route that erases one data principal on their own request. `docs/SECURITY-COMPLIANCE.md` §4. |
-| **Calevate is the Data Fiduciary** for client-account data (users, org, billing, KYC). | `apps/api/tenancy/models.py` — `users(clerk_user_id, email, name, phone)`, `organizations(name, slug, billing_email, intake)`; `apps/api/compliance/models.py` `kyc_records`. Nothing treats these as processed on anyone's instruction. |
+| **Calevate is the Data Fiduciary** for client-account data (users, org, billing, KYC). | `apps/api/tenancy/models.py` — `users(email, name, phone)`, `organizations(name, slug, billing_email, intake)`; `apps/api/compliance/models.py` `kyc_records`; and since D-170 the CREDENTIAL itself, `auth_credentials` (Argon2id hash + KEK-derived pepper) and `auth_sessions`, which Clerk used to hold outside India. Nothing treats these as processed on anyone's instruction. |
 | **Calevate is the Telemarketer (TM); the client is the Principal Entity (PE).** | `docs/SECURITY-COMPLIANCE.md` §3 (*"DLT role model (corrected)"*); `platform_state.tm_id` and blocker `tm_registration_missing`; `dlt_registrations(tenant_id, pe_id, status, tm_link_status)` in `docs/DATA-MODEL.md` §9. |
 
 **Consequence the public documents had to be written around:** the disclosure duty, the
@@ -75,7 +78,16 @@ flowing through the s.8(2) contract.
 
 ### 2.2 Client users (we are Fiduciary)
 
-`users(clerk_user_id, email, name, phone)`; `memberships.role`;
+`users(email, name, phone)`; `memberships.role`; **and, since D-170/D-177 brought
+authentication in-house, the sign-in material itself** — `auth_credentials` (Argon2id hash,
+peppered from the KEK; never a reversible secret), `auth_sessions` (opaque token
+fingerprint, `mfa_verified_at`, idle/absolute bounds) and the one-time codes that back the
+second factor. This is the category that used to sit with a US vendor and now sits in our
+Postgres, which is the whole of D-165's residency argument. *(`users.clerk_user_id` is
+still a COLUMN — unwritten and unread since D-177, kept one release under hard rule 8's
+two-step deprecation and recorded in `scripts/check_wiring.UNWIRED_BASELINE`. It holds no
+new data and AUTH-MIGRATION §11 names the DROP that closes it.)*
+
 `organizations(name, slug, billing_email, intake JSONB)` — **`intake` contains staff names
 and escalation numbers** and is flagged "never log it" in `apps/api/tenancy/models.py`;
 `kyc_records(entity_type, document_kind, document_ref, signatory_name, evidence_ref)`;
@@ -87,9 +99,12 @@ Aadhaar number cannot be stored in a business-registry field. Good control; note
 
 ### 2.3 Website visitors
 
-**Nothing beyond request logs.** `apps/web/src/app/layout.tsx` mounts no `ClerkProvider`,
-no analytics and no third-party script; fonts are `next/font/local`. `ClerkProvider` is
-mounted only under `app/admin/layout.tsx`, the client-realm layout and `(auth)/*`. Grep for
+**Nothing beyond request logs.** `apps/web/src/app/layout.tsx` mounts no analytics and no
+third-party script; fonts are `next/font/local`. **There is no third-party auth provider
+mounted anywhere any more** — D-177 removed the vendor, `@clerk/*` is not a dependency of
+`apps/web`, and the only session providers are ours (`lib/authn/adminSession.tsx`,
+`lib/authn/clientSession.tsx`), mounted under the two realm layouts. A visitor who never
+signs in is therefore served no cookie from anyone. Grep for
 `gtag|googletagmanager|analytics|posthog` in `apps/web/src` returns one unrelated comment.
 `langfuse_*` and `posthog_key` were **deleted** from `Settings` precisely because they were
 credential-shaped fields with no client (`tests/observability_config_honesty_test.py`).
@@ -186,10 +201,37 @@ Stated so the DPA's Annex B is verifiable and so nobody has to trust a marketing
 - **Tenant isolation**: forced RLS on every tenant table; app connects as
   `calevate_app: NOSUPERUSER NOBYPASSRLS` (`.env.example`); `scripts/check_rls_coverage.py`
   in `make guardrails`; cross-tenant zero-rows tests mandatory per hard rule 1.
-- **Two realms, two Clerk apps**, cookies key-suffixed per publishable key
-  (`apps/web/src/lib/auth/clerkRuntime.tsx`).
-- **Admin MFA enforced server-side** in `apps/api/core/auth.py::verify_token` from Clerk's
-  `fva` claim; unknown fails closed (`403 mfa_claim_missing`).
+- **Two realms, separated four independent ways** — and the vendor that used to do this is
+  gone (D-177), so the separation is now built out of our own materials and each mechanism
+  is auditable here rather than in someone's dashboard. `apps/api/authn/` is the only thing
+  in this product that mints a credential. (1) The realm is INSIDE the stored session
+  hash — `authn/sessions.token_fingerprint(token, realm)` domain-separates on it, so a
+  client token looked up under the admin realm matches no row; cross-realm confusion is
+  arithmetic, not a forgotten `WHERE`. (2) The `realm` column is in the `WHERE` clause
+  anyway. (3) Two `__Host-` cookie names, one per realm
+  (`authn/cookies.COOKIE_NAMES`) — an addressing convention, **not** the boundary, and
+  AUTH-MIGRATION §3 says so plainly because both realms' browsers talk to one API host.
+  (4) Per-realm `Origin` enforcement, because `admin.` and `app.` are different origins on
+  the same registrable domain and `SameSite` therefore does not separate them
+  (`core/middleware.CookieCsrfMiddleware`).
+- **Admin MFA enforced server-side** in `apps/api/core/auth.py::verify_token`, from
+  `auth_sessions.mfa_verified_at` — a column, not a vendor claim.
+  `authn/service.MFA_REQUIRED_REALMS` is the frozen constant `{"admin"}` with no setting
+  behind it, so the admin second factor is on in every deployment and cannot be switched
+  off; `tests/authn_mfa_test.py` asserts the sign-in path and the verifier read the same
+  set. The refusal is one code, `401 second_factor_required`. **The factor is a six-digit
+  code emailed to the address on file and nothing else** — no authenticator app, no shared
+  secret, no recovery codes (D-170; AUTH-MIGRATION §2.3 and §7 carry what that costs). It is
+  minted and checked in `apps/api/authn/otp.py`, and what is STORED is an HMAC of the code
+  under a key derived from `PLATFORM_KEK` — which is not in this database — rather than a
+  bare digest: 900,000 precomputed hashes would otherwise turn one read of that table into
+  every live code. The guess budget counts wrong ANSWERS, not requests: each challenge carries
+its own `OTP_MAX_ATTEMPTS` ceiling **on the row**, so it survives a Redis flush and an
+attacker who can reset the caller-keyed limiter still cannot spend more guesses against one
+code. Ten-minute validity. Two independent rate limits is what NIST SP 800-63B's
+requirement for a sub-64-bit authenticator looks like when it is taken seriously.
+  Session lifetimes are enforced on the row, per realm: admin 30 min idle / 8 h absolute,
+  client 12 h idle / 14 d absolute (`authn/sessions.REALM_TIMEOUTS`).
 - **RBAC asserted at boot** in four directions (`core/rbac.py::assert_policy_registry_complete`);
   realm separation is also a CHECK constraint, not only a Python convention.
 - **Impersonation is read-only**, needs a short-lived RFC-8693-shaped signed grant bound to
@@ -246,7 +288,11 @@ never run", D-50), no production deployment.
 
 ## 5. Findings — where we do NOT satisfy an obligation
 
-These are ordered by how much damage they do. **This list is worth more than the policy
+These are ordered by how much damage they do — **except F-11, which is appended rather
+than inserted so that every existing citation of F-1…F-10 still resolves.** By that
+ordering rule it belonged at the top on the day it was found: it was the only finding about
+a document that would be *handed to a client* naming vendors we do not use. Its copy half
+is now closed; its mechanism half is not. **This list is worth more than the policy
 pages.**
 
 ### F-1 — ~~The marketing page makes a data-residency claim the deployment blueprint contradicts.~~ **CLOSED as to the page; the HOSTING DECISION is still open.**
@@ -281,7 +327,10 @@ Against the tree:
 - `docs/SECURITY-COMPLIANCE.md` §4 CAUTION: **Bolna call recordings observed on S3
   `us-east-1`**; the residency posture "must be pinned in the Bolna contract" and has not
   been.
-- Clerk, Resend and Sentry are all operated outside India.
+- Resend and Sentry are operated outside India. *(**Clerk** stood in this list until
+  D-177 and no longer does: authentication, the credential and the session are ours and
+  live in our Postgres — see §2.2. That is one sub-processor fewer outside India, and it
+  is the single largest improvement to this finding since it was written.)*
 
 **This is also a documented internal conflict I am required to flag rather than silently
 resolve** (CLAUDE.md: *"docs/ is authoritative … flag the conflict, don't silently pick"*):
@@ -295,7 +344,7 @@ to any client who bought on that sentence.
 
 **What closes it — pick one, and only one is cheap:**
 1. Decide the host is in India (Bengaluru/Mumbai region), provision it, and the sentence
-   becomes true for the database — but *not* for R2, Clerk, Resend, Sentry or Bolna, so the
+   becomes true for the database — but *not* for R2, Resend, Sentry or Bolna, so the
    sentence still needs narrowing; **or**
 2. Narrow the landing-page copy to the claim that is enforced. **D-410 narrowed what that
    sentence may say, and this is the one place it matters legally.** Until 19 Aug 2026 the
@@ -308,6 +357,32 @@ to any client who bought on that sentence.
    where the resource physically is. **The resource's region and its deployment type are
    attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by the build**, and any
    public copy that implies otherwise is the misrepresentation this finding is about.
+
+**⚠ AND THE NARROWED REPLACEMENT ON THE LANDING PAGE IS NOW WRONG TOO, IN TWO WAYS. Read
+this before quoting anything above as closed.** `apps/web/src/app/page.tsx` (the residency
+tile, ~line 546) currently reads:
+
+> **"The AI runs on Indian endpoints"** — "Speech, language and the reading of your
+> transcripts are Indian services. **The one model endpoint that is not is pinned to
+> Mumbai by a check that fails our build if a line of code ever points somewhere else.**"
+
+That sentence was written for Vertex on 17 Aug and D-410 falsified both halves of it two
+days later. **(1) The region is wrong**: `asia-south1` (Mumbai) went with Vertex; the
+deployment is Azure OpenAI in **South India**. **(2) It makes the machine-enforced claim
+this document has withdrawn**, on the marketing page — the exact surface F-1 exists about,
+where it is a CPA 2019 representation rather than an internal note. The build cannot fail
+on a region it cannot see in the endpoint. It has also lost its arithmetic: with D-410 the
+LANGUAGE leg is Microsoft's on BOTH surfaces, so "the one model endpoint that is not
+[Indian]" now carries every word the caller speaks rather than a redacted dashboard query.
+
+**What the page may truthfully say** — narrower again, and it is still worth saying:
+speech (Sarvam) and the first post-call extraction pass are Indian services; the language
+model runs on a Microsoft Azure OpenAI account **configured for South India**, no code path
+can send it anywhere else without editing one frozen constant, **and the account's region
+and deployment type are confirmed by a person against the provider's console and filed as
+evidence** — checked, not proved by a build. `apps/web/tests/publicLanding.test.tsx:87`
+asserts the current wording verbatim, so the test moves in the same change; that is the
+guard working, not an obstacle.
 
 I did not edit `page.tsx` — it is outside my scope. **This is FOLLOW-UP-2 and it should be
 done in the next change, not scheduled.** `/legal/privacy` §8 already carries a callout
@@ -518,7 +593,9 @@ nothing and closes two statutory obligations in two instruments.
 
 DP-11's downward leg. Bolna's residency and erasure commitments are unrun pilot gates
 (`evidence/bolna-pilot-scorecard.md` is an empty template); no DPA has been executed with
-Clerk, Resend, Sentry, Cloudflare or the hosting provider. **D-410 adds a sub-processor that
+Resend, Sentry, Cloudflare or the hosting provider. *(Clerk was on this list until D-177
+and is not a sub-processor any more — one contract fewer to obtain, and the only entry on
+it that closed by deletion rather than by signature.)* **D-410 adds a sub-processor that
 holds the most sensitive input this system has: Microsoft (Azure OpenAI, South India) now
 carries BOTH LLM surfaces, so the in-call leg means raw caller speech reaches it in real
 time.** Microsoft publishes a standard DPA and the Azure OpenAI service terms carry the
@@ -529,6 +606,57 @@ client something we have not obtained upstream. **What closes it:** sign the ven
 DPAs — Microsoft, Google (for Sheets lead delivery, D-23), Resend, Sentry, Cloudflare and the
 hosting provider all publish one — and record the Bolna residency term in the contract before
 flipping `ENGINE=bolna`.
+
+### F-11 — ~~The published sub-processor list and cookie table named vendors we do not use, and repeated a residency claim §4 had withdrawn.~~ **CLOSED on the copy, 20 Aug 2026. The MECHANISM that let it happen is still open.**
+
+**The finding as recorded.** Everything else in this document described the sub-processors
+correctly; the documents a client would actually be handed did not, and those are the ones
+that carry legal weight. `apps/web/src/lib/legal/subprocessors.ts` (served at
+`/legal/subprocessors`, and the list the DPA points at) carried a row for **"Google Cloud —
+Vertex AI"** located *"India — Mumbai (asia-south1) only"*; inside it, the sentence *"The
+region is a frozen constant in the code and a build check fails the release if any model
+endpoint names a global or non-Indian host"* — **§4's withdrawn claim, verbatim, in the one
+place it is a representation to a client rather than an internal note**; **no row at all
+for Microsoft**, the sub-processor that now receives live caller speech on the in-call leg;
+a **Sarvam** row calling it *"the language model that runs the conversation"*; and a
+**Clerk** row, *"United States"*, *"Core"*. `apps/web/src/lib/legal/cookies.ts` attributed
+all three of its cookies to *"Clerk, our authentication provider"*, described a
+`__client_uat_…` suffix derived from a publishable key, and stated client sessions "refresh
+for up to 7 days".
+
+**Closed by the parallel `apps/web` session on 20 Aug 2026, and verified by reading the
+files rather than taking the report.** `subprocessors.ts` now carries **"Microsoft — Azure
+OpenAI"**, "India — South India, **by configuration**", with the caution that the account's
+region and its deployment type are read by a human and filed as evidence; the Vertex row is
+gone and its history is stated in place; there is no Clerk row anywhere in
+`apps/web/src/lib/legal/`. `cookies.ts` names the two real cookies —
+`__Host-calevate_client_session` and `__Host-calevate_admin_session` — attributes them to
+us, and states the real lifetimes (`authn/sessions.REALM_TIMEOUTS`: client 12 h idle /
+14 d absolute, admin 30 min / 8 h). `privacy.ts` and `dpa.ts` say the region is *"attested
+in evidence, not proved by a build check"*. **If that change is abandoned before it lands,
+this finding returns exactly as written above.**
+
+**⚠ AND THE ONE TEST OVER THIS SURFACE CURRENTLY REQUIRES THE FALSE DISCLOSURE.**
+`apps/web/tests/legal.test.tsx` ("keeps the sub-processor register as the only copy of the
+vendor list") loops over `["Bolna", "Sarvam", "Clerk", "Cloudflare", "Resend", "Razorpay"]`
+and asserts the register **contains** each one. With Clerk correctly removed from
+`subprocessors.ts`, that assertion fails — so the guard is red on the fix rather than on
+the defect, which is the worst orientation a guard can have. The same list contains **no
+Microsoft entry**, so nothing asserts that the sub-processor receiving raw caller speech is
+disclosed at all. Both halves move in the same change: drop `Clerk`, add `Microsoft`, and
+see FOLLOW-UP-8 for binding the list to a constant instead of a literal.
+
+**What is NOT closed, and it is the reason this entry stays here rather than being
+deleted.** The published sub-processor list is derived from **no constant**. Nothing in the
+tree can notice when our actual vendors and that list diverge, which is how a deleted
+vendor (D-177, 17 Aug) and a replaced one (D-410, 19 Aug) both survived in a client-facing
+legal document until somebody read it. That is the defect class `scripts/check_docs_drift.py`
+§5 exists for — a capability claim bound to a greppable constant rather than to prose — on
+the surface where it is most expensive, and `tests/legal.test.tsx` currently bans specific
+SENTENCES (§6) without being able to check the vendor INVENTORY. **What would close it:** a
+single exported list of sub-processor identities that both the page and a test read, so
+adding or removing a vendor in the tree fails a test that names the document it did not
+reach. Owner: ours. No external dependency.
 
 ---
 
@@ -680,5 +808,7 @@ publication — that is the first thing §10 asks for.
 | FOLLOW-UP-2 | Resolve F-1: either provision an Indian host or narrow the landing-page copy. | Same file, same reason. It should be the next change made. |
 | FOLLOW-UP-3 | Add the 35-day backup clause to `ERASURE_LIMITATIONS` / `ERASURE_EXCEPTIONS` in `apps/api/compliance/deletion.py`, so the certificate and `/legal/privacy` §9 agree. | `apps/api` is outside this session's edit scope. |
 | ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
+| ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |
+| FOLLOW-UP-8 | **Bind the published sub-processor list to a constant.** One exported inventory of sub-processor identities that `apps/web/src/lib/legal/subprocessors.ts` renders and `tests/legal.test.tsx` asserts against, so a vendor added to or removed from this tree fails a test naming the legal document it did not reach. F-11's mechanism half: two vendor changes three days apart both survived in a client-facing document because nothing could see the divergence. | `apps/web/**` and `tests/legal.test.tsx` are outside this session's edit scope. **OURS, no external dependency.** |
 | FOLLOW-UP-6 | **Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate. |
 | ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |

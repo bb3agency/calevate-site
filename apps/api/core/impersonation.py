@@ -31,7 +31,9 @@ delegation/impersonation split is RFC 8693 §1.1 and §4.1.)
 DELIBERATELY NOT ADOPTED FROM THAT SPEC: the token-exchange *endpoint*, `may_act`, and
 nested `act` chains. We have one actor, one subject, one hop, and one issuer who is also
 the only verifier. A `/token` endpoint with `subject_token_type` negotiation would be a
-second authentication protocol in a service whose authentication is Clerk (D-37). The
+second authentication protocol in a service that already has one of its own — D-177 made
+authentication first-party (`apps/api/authn`), and this line said "is Clerk (D-37)" long
+after that stopped being true; the argument is unchanged and only its subject moved. The
 CLAIM SHAPE is the part worth borrowing, because it is the part a reviewer already
 knows how to read. Chaining is refused explicitly at the mint route: an impersonating
 session may not mint a grant.
@@ -68,7 +70,8 @@ past it (`VIEW_AS_MAX_AGE`).
 
 WHAT THE GRANT IS **NOT**: a credential. It never travels in `Authorization` and it can
 do nothing on its own. Every request that presents it also presents the operator's own
-admin-realm Clerk token, which is verified (and MFA-gated, D-68) by `verify_token`, and
+admin-realm SESSION COOKIE — the first-party `__Host-` credential D-177 replaced the Clerk
+token with — which is verified (and MFA-gated, D-68) by `verify_token`, and
 whose `admin_users` row and role are re-read from the database on every single request
 by `_load_admin_principal`. That is the whole revocation story and it has ZERO lag:
 
@@ -139,8 +142,13 @@ GRANT_ALGORITHM: Final = "HS256"
 GRANT_TTL: Final = timedelta(minutes=15)
 
 #: Tolerance for clock skew between API replicas. Small on purpose: both the minting and
-#: the verifying process are ours, so this covers NTP drift, not a third party's clock.
-#: (`CLERK_LEEWAY_S` is 30 because the other end of that comparison is Clerk's clock.)
+#: the verifying process are ours, so this covers NTP drift, not a third party's clock —
+#: and after D-177 there is no comparison anywhere in this codebase against somebody
+#: else's clock, which is why five seconds is the only number here rather than the tight
+#: half of a pair. (It read "`CLERK_LEEWAY_S` is 30 because the other end of that
+#: comparison is Clerk's clock", justifying this value by contrast with a constant that is
+#: nowhere in the tree — a reason pointing at nothing is weaker than no reason, because it
+#: looks checked.)
 GRANT_CLOCK_SKEW_S: Final = 5
 
 #: RFC 8693 §4.1. A JSON object whose members identify the actor; we carry only `sub`.
@@ -218,8 +226,10 @@ def _signing_key() -> bytes:
     that authorises reading a client's leads and transcripts: a staging or production
     deploy that forgot the variable would be handing out grants anybody could forge. So
     the local convenience is scoped to `local`, and everywhere else an absent secret is
-    an outage — a loud one, matching `_jwk_client`'s answer to an absent Clerk secret,
-    which is the same class of failure and already has a shape in this repo. That
+    an outage — a loud one, matching how `core/auth.py` answers a deployment holding no
+    signing material at all, which is the same class of failure and already has a shape in
+    this repo. (This cited `_jwk_client` and "an absent Clerk secret"; both went with
+    D-177, so the precedent it appealed to had itself been deleted.) That
     asymmetry is now gone in the other direction too: `compliance/audit.py` refuses an
     absent chain secret on the same terms, so this module's stance is the house style
     rather than the exception it was when it was written.

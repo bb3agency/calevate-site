@@ -34,8 +34,17 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 > you choose and call THAT id, so `AZURE_OPENAI_DEPLOYMENT` and `AZURE_OPENAI_MODEL` are
 > separate settings and the deployment id can never be derived. `AZURE_OPENAI_MODEL`
 > defaults to `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) and accepts only what
-> `AZURE_OPENAI_MODELS` allows; `gpt-4.1-mini` is the live switch, and its availability in
+> `AZURE_OPENAI_MODELS` allows; `gpt-4.1-mini` is the switch, and its availability in
 > Indian regions is **not confirmed** — check quota before switching (gate 20b).
+>
+> ⚠ **THE SWITCH IS TWO SETTINGS AND A REPUBLISH.** `AZURE_OPENAI_MODEL` is the only one of
+> the four that is `applies: live`, and only because nothing sends it anywhere — it prices
+> the leg. `AZURE_OPENAI_RESOURCE` and `AZURE_OPENAI_DEPLOYMENT` are **`needs_republish`**
+> (they are baked into each published agent as its LLM endpoint and model id), and
+> `AZURE_OPENAI_API_KEY` is too (the in-call copy lives in the engine's credential store).
+> Change the model alone and you have changed the INVOICE and nothing else: the calls keep
+> running the old deployment while every usage event is priced at 2.67x. Move the
+> deployment id with it, then republish.
 >
 > **The key is static.** No rotation cron, no service account, no org policy: the v1
 > surface takes the key in `Authorization: Bearer`. Put it in the secrets manager, never in
@@ -141,9 +150,15 @@ number only; they cost money — log them.
 ## 4. Environment variables — eight, and everything else is a screen
 
 `.env.example` used to carry 58 keys. It carries **8**, and they are exactly the ones
-without which no process can start (D-95, PLATFORM-CONFIG §4). The other **50** — 33
-core-config values and 17 credentials — are set from the ops console at
+without which no process can start (D-95, PLATFORM-CONFIG §4). The other **55** — 37
+core-config values and 18 credentials — are set from the ops console at
 `admin.calevate.tech/ops`, live, with no SSH session and no restart.
+
+*(Those three numbers are a CENSUS, not a memory: `Settings.model_fields` is 63, eight of
+them are the block below, `core/platform_config.managed_fields()` is the console's
+core-config set and `is_secret_key()` is what marks the rest as credentials. This line read
+"50 — 33 and 17" until 20 Aug 2026 and had been stale across several settings changes in
+both directions, D-410's among them. If you change it, count it — do not adjust it.)*
 
 ```
 APP_ENV=local|staging|prod
@@ -164,7 +179,7 @@ Concretely:
 
 | Key | Why it can never move |
 |---|---|
-| `APP_ENV` | decides whether `dev:<realm>:<clerk-id>` tokens are accepted (D-49). Reading it from the store means the store decides the security posture. |
+| `APP_ENV` | it is one of the two conditions under which `core/auth.py` accepts a `dev:<realm>:<subject-uuid>` bearer token — the other being that the deployment holds no `PLATFORM_KEK` (D-49; the subject is one of OUR user ids, and has been since D-177 deleted the vendor whose id used to sit there). Reading it from the store means the store decides the security posture. |
 | `DATABASE_URL` | it *is* how you reach the store. |
 | `ALEMBIC_DATABASE_URL` | migrations run before the store is guaranteed to exist — including the migration that creates it. |
 | `REDIS_URL` | workers need it before settings resolve, and the config sentinel (the cheap poll that tells every process the console changed something) lives in Redis. |

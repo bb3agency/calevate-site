@@ -1536,6 +1536,35 @@ def blind_spots() -> list[str]:
             "value — the matcher has stopped matching (a markdown or docstring convention "
             "moved), so section 5 would report OK on a doc that contradicts every constant"
         )
+    # Section 7's left side: the gate roster. An OPERATIONS §2 whose table shape moved
+    # parses to nothing, at which point every "assumed … (gate n)" sentence in the tree is
+    # judged against an empty roster and section 7 reports OK on all of them — the same
+    # vacuous pass this function exists for. The VERDICTS are deliberately not floored:
+    # "no gate carries a terminal verdict" is the true state of the pilot today, and a
+    # floor there would fail on the truth.
+    gates = gate_roster()
+    if len(gates) < 10:
+        failures.append(
+            f"only {len(gates)} pilot gate(s) parsed out of {_rel(_GATE_ROSTER_DOC)} §2 — "
+            "the gate table's shape changed, so section 7 would accept an assumption "
+            "citing any number at all"
+        )
+    # And the floor above is NOT enough, which is worth the extra six lines because the
+    # miss already happened once. Losing ONE row out of twenty-eight passes any count
+    # floor and still makes section 7 report a live citation as dangling — which is how
+    # gate 7's `| 7 **H** *(was S …)*` spelling was found. The scorecard is the second
+    # reading of the same roster, so the honest floor is a subset check: every gate the
+    # committed scorecard scores must be a gate OPERATIONS §2 declares. The reverse does
+    # not hold and must not be asserted — the roster carries gates (15, 16b…16f, 20b/20c)
+    # the Bolna scorecard has no row for.
+    scored = set(_scorecard_gate_ids())
+    if gates and (missing := sorted(scored - gates)):
+        failures.append(
+            f"{_rel(_SCORECARD_DOC)} scores gate(s) {', '.join(missing)} that "
+            f"{_rel(_GATE_ROSTER_DOC)} §2 does not declare — either a gate lost its row "
+            "in the authoritative roster, or `_GATE_ROW` has stopped matching the shape "
+            "one row is written in, and section 7 would call every citation of it dangling"
+        )
     failures.extend(capability_ambiguities())
     return failures
 
@@ -1651,6 +1680,168 @@ def readiness_claim_drift(paths: Iterable[Path] | None = None) -> list[str]:
     return offenders
 
 
+# --- 7. an assumption the pilot has since ANSWERED ------------------------------------
+#
+# D-413, recovered from an abandoned branch. The marked-assumption doctrine (D-31/D-32)
+# says a vendor behaviour is a GATE or a MARKED ASSUMPTION and never a silent premise, and
+# this repo keeps that side of the bargain: PRODUCTION-READINESS §D lists every premise
+# baked into the adapter, and the runbooks and adapter comments each cite the gate that
+# settles theirs.
+#
+# The half nothing checked is what happens when a gate is ANSWERED. A pilot run that closes
+# gate 8 does not visit the sentences saying `list_kb`'s agent linkage is "assumed present";
+# they keep reading as open, an operator keeps treating a measured fact as a guess, and —
+# worse in the other direction — a gate answered RED leaves a sentence saying "assumed"
+# where the truth is "refuted". An assumption that has been answered and still reads as
+# open is exactly as misleading as an unmarked one, which is the case `capability_drift`
+# makes for capability constants and this section makes for pilot gates.
+#
+# WHAT IT COMPARES. The gate ROSTER comes from OPERATIONS §2, which the scorecard itself
+# calls authoritative; the VERDICTS come from `docs/evidence/bolna-pilot-scorecard.md`,
+# which is generated from typed results and drift-guarded against them
+# (`scripts/pilot/scorecard.py --check`). A citation is judged only when it sits in a
+# sentence that MARKS AN ASSUMPTION — "assumed", "unverified", "inferred", "undocumented"
+# and the rest of `_OPEN_ASSUMPTION` — because a sentence that merely says "gate 6 measures
+# the page size" describes the gate and cannot be stale.
+#
+# TWO FAILURES, and the second is the one armed today while the first waits for the pilot:
+#
+#   (a) the cited gate carries a TERMINAL verdict (PASS or FAIL) and the sentence still
+#       says the question is open;
+#   (b) the citation names a gate OPERATIONS §2 does not have — a renumbering, a typo, or
+#       a gate that was removed, which reads as tracked and is tracked by nothing. This is
+#       section 2's `D-xx` rule applied to the other set of numbers this repo cites.
+#
+# Fails OPEN on anything it cannot parse: an unreadable verdict cell counts as NOT RUN, so
+# a scorecard whose format moves makes this section quiet rather than wrong. The ROSTER
+# half is the half that would be wrong instead of quiet, so it is floored in `blind_spots`
+# — see there for why the floor is a subset check and not a count.
+_GATE_ROSTER_DOC = REPO_ROOT / "docs" / "OPERATIONS.md"
+_SCORECARD_DOC = REPO_ROOT / "docs" / "evidence" / "bolna-pilot-scorecard.md"
+
+#: The first cell of an OPERATIONS §2 gate row: an id, then the H/S priority marker.
+#: `\*{0,2}` around the marker is not defensive padding — gate 7 is spelled
+#: `| 7 **H** *(was S — raised by D-261)* |` because D-261 raised it, and a pattern
+#: demanding a bare `H` silently drops that row. It dropped it while this section was
+#: being ported: the roster came back 27 gates instead of 28 and every "assumed … gate 7"
+#: sentence in the tree — including one in `engine/bolna.py` — was reported as citing a
+#: gate that does not exist. A roster that loses a row is the failure mode this whole
+#: section is about, one level down.
+_GATE_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s+\*{0,2}[HS]\*{0,2}\b")
+#: `| 6 | **Webhook loss behaviour** … | automated | _NOT RUN_ | … |` in the scorecard.
+_SCORECARD_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s*\|(.+)$")
+#: A citation: `gate 6b`, `gate 12(f)`, `pilot gate 8a`, `gate 14`.
+_GATE_CITATION = re.compile(r"\bgate\s+(\d+)\s*(?:\(([a-z])\)|([a-z])\b)?", re.IGNORECASE)
+#: What makes a sentence a CLAIM about an open question rather than a description of one.
+_OPEN_ASSUMPTION = re.compile(
+    r"\b(assumed|assumes|assumption|unverified|not verified|never verified|guess(es|ed)?|"
+    r"inferred|undocumented|unconfirmed|open pilot gate)\b",
+    re.IGNORECASE,
+)
+_TERMINAL_VERDICTS = ("**PASS**", "**FAIL**")
+
+
+def gate_roster(path: Path | None = None) -> set[str]:
+    """Every gate id OPERATIONS §2 declares, e.g. {"1", …, "14b", "20c"}."""
+    doc = _GATE_ROSTER_DOC if path is None else path
+    if not doc.exists():
+        return set()
+    return {
+        match.group(1)
+        for line in doc.read_text(encoding="utf-8").splitlines()
+        if (match := _GATE_ROW.match(line))
+    }
+
+
+def _scorecard_gate_ids(path: Path | None = None) -> set[str]:
+    """Every gate id the committed scorecard has a row for, verdict or not.
+
+    Read separately from `gate_verdicts` because the two questions differ: that one asks
+    what has been SETTLED (and is empty today, correctly), this one asks what the
+    scorecard is ABOUT — which is a second reading of the roster and therefore the thing
+    `blind_spots` can hold the roster against.
+    """
+    doc = _SCORECARD_DOC if path is None else path
+    if not doc.exists():
+        return set()
+    return {
+        match.group(1)
+        for line in doc.read_text(encoding="utf-8").splitlines()
+        if (match := _SCORECARD_ROW.match(line))
+    }
+
+
+def gate_verdicts(path: Path | None = None) -> dict[str, str]:
+    """Gate id -> the terminal verdict cell the committed scorecard renders for it.
+
+    A gate with no terminal cell is absent from this mapping rather than present with a
+    falsy value: NOT RUN and unparseable are the same answer here — "nothing has settled
+    this" — and collapsing them is what makes the section fail open.
+    """
+    doc = _SCORECARD_DOC if path is None else path
+    if not doc.exists():
+        return {}
+    verdicts: dict[str, str] = {}
+    for line in doc.read_text(encoding="utf-8").splitlines():
+        match = _SCORECARD_ROW.match(line)
+        if not match:
+            continue
+        cells = [cell.strip() for cell in match.group(2).split("|")]
+        terminal = [cell for cell in cells if cell in _TERMINAL_VERDICTS]
+        if terminal:
+            verdicts[match.group(1)] = terminal[0]
+    return verdicts
+
+
+def answered_assumptions(
+    *,
+    roster: set[str] | None = None,
+    verdicts: dict[str, str] | None = None,
+    files: Iterable[Path] | None = None,
+) -> list[str]:
+    known = gate_roster() if roster is None else roster
+    settled = gate_verdicts() if verdicts is None else verdicts
+    scanned = _citation_files() if files is None else files
+    failures: list[str] = []
+    for path in scanned:
+        if path in (_GATE_ROSTER_DOC, _SCORECARD_DOC):
+            continue  # the artefacts themselves: a roster and a result, not claims
+        if path.name.endswith("_test.py"):
+            # A test's own fixtures say "assumed … (gate <n>)" in order to drive this
+            # check. Excluded HERE rather than in `_citation_files`, because a dangling
+            # `D-xx` in a test IS a citation to nothing while a synthetic gate sentence is
+            # the subject under test. (No example number is spelled out anywhere in this
+            # file, for the reason section 2 gives about `D-xx`: this file is scanned by
+            # its own section, and an illustration would be a citation to nothing.)
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if not _OPEN_ASSUMPTION.search(line):
+                continue
+            for match in _GATE_CITATION.finditer(line):
+                base = match.group(1)
+                letter = match.group(2) or match.group(3) or ""
+                if known and base not in known:
+                    failures.append(
+                        f"{_rel(path)}:{number} marks an assumption against gate "
+                        f"{base}{letter}, and OPERATIONS §2 has no gate {base}. A premise "
+                        "tracked by a gate that does not exist is tracked by nothing "
+                        f"(known gates: {', '.join(sorted(known))}). Sentence: "
+                        f"{line.strip()[:160]!r}"
+                    )
+                    continue
+                verdict = settled.get(base)
+                if verdict:
+                    failures.append(
+                        f"{_rel(path)}:{number} still reads as open — it marks an "
+                        f"assumption against gate {base}{letter}, which "
+                        f"{_rel(_SCORECARD_DOC)} records as {verdict}. An answered "
+                        "assumption that still says 'assumed' is as misleading as an "
+                        "unmarked one: rewrite the sentence with what the gate found. "
+                        f"Sentence: {line.strip()[:160]!r}"
+                    )
+    return failures
+
+
 # --- gate -----------------------------------------------------------------------
 
 
@@ -1667,6 +1858,7 @@ def main() -> int:
         ("a deferral that no longer holds", stale_deferrals()),
         ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
         ("a doc denies a key readiness actually reports", readiness_claim_drift()),
+        ("an assumption the pilot has answered still reads as open", answered_assumptions()),
     )
     failed = False
     for title, offenders in sections:
@@ -1694,7 +1886,8 @@ def main() -> int:
         f"`llm_cost_inr_per_minute`, "
         f"{len(value_claims())} sentences quote one of "
         f"{len(capability_constants())} capability constants correctly, "
-        f"{len(DEFERRED_MIRRORS)} deferred mirror)"
+        f"{len(DEFERRED_MIRRORS)} deferred mirror, "
+        f"{len(gate_roster())} pilot gates with no assumption outliving its answer)"
     )
     return 0
 

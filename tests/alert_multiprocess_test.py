@@ -197,10 +197,12 @@ def test_the_withheld_count_rides_the_next_delivery(
 def test_one_services_alarm_never_silences_anothers(service: str) -> None:
     """`api`, `voice-runtime` and `workers` share codes and do not share meanings.
 
-    A `queue_enqueue_failed` in the workers and the same code in voice-runtime are two
-    different faults on two different call paths, and the subject line already
-    distinguishes them — so folding them into one window would mean the second one is
-    never reported at all.
+    An `outbox_queue_unreachable` in the workers and a same-named code in voice-runtime
+    would be two different faults on two different call paths, and the subject line
+    already distinguishes them — so folding them into one window would mean the second is
+    never reported at all. No code is emitted from two services today, which is why this
+    test uses synthetic ones: the property is what keeps that true. (The example here was
+    `queue_enqueue_failed` until D-412 found that nothing emits it.)
     """
     other = f"{service}-other"
     try:

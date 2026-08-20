@@ -499,15 +499,25 @@ Compliance API (client realm)
 Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working checkout**
 - **Signup**: `POST /v1/auth/signup` (201). Under `rbac.PUBLIC_PREFIXES`, which is the
   honest classification: no permission can gate a caller who has no organization yet. The
-  locks are a verified Clerk identity, a quota of 5 signups per user and 30 per IP per hour
+  locks are a verified **first-party** session with no membership (`current_identity`;
+  D-177 — no permission can gate a caller with no organization, so the credential is the
+  gate), a quota of 5 signups per user and 30 per IP per hour
   consumed on every
   ATTEMPT (a refused slug is not free — free failures are what make a limiter enumerable),
   and two switches: `self_serve_signup_enabled`, which **defaults to OFF** (R-11's kill
   switch — public tenant creation should be something someone switched on), and the
   platform load-shed mode. `/v1/auth` used to be exempt from shedding on the grounds that
-  the exemption is right for signing IN — but nothing under it signs anyone in (Clerk owns
-  sessions), so the exemption's only subject was this route and it is no longer exempt;
-  the route's own mode check stays as the second lock. Creates the organization, its
+  the exemption is right for signing IN — which was hollow while a vendor owned sessions,
+  because the only route the prefix actually covered was this one. The exemption was
+  removed; the route's own mode check stays as the second lock. **⚠ D-177 changed the
+  premise and the list was not revisited**: `/v1/auth/{realm}/login` and `login/otp` are
+  real, mounted, mutating routes now, so an operator holding no live session cannot sign in
+  while the platform is in `reduced`, `emergency` or `maintenance` — including to turn the
+  shed off, which is the one thing `ALWAYS_ALLOWED_PREFIXES` exists to protect
+  (`core/loadshed.py` says a session route "should be exempted BY NAME, with the reason, on
+  the day it exists"; that day has passed). Naming a route rather than restoring the prefix
+  is the fix, and it is a decision about who may sign in during a shed — recorded here
+  rather than made here. Creates the organization, its
   receptionist agent, its extraction schema and its retention policies, and makes the
   caller the owner; `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
   motion and is not self-assignable. The wallet starts empty, so the compliance gate
