@@ -3,7 +3,7 @@
 # was missing from this list, which meant a stray file or directory named `guardrails`
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
-.PHONY: help dev up down check lint lint-check types test db-reset seed-dev eval eval-ci \
+.PHONY: help dev up down check lint lint-check types test db-reset redis-reset seed-dev eval eval-ci \
         qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept
@@ -24,6 +24,7 @@ help:  ## List targets
 	@echo '  make check       - lint-check, mypy, pytest+ratchet, guardrails, eval, web [CI gate]'
 	@echo '  make web-check   - frontend typecheck + vitest suite'
 	@echo '  make db-reset    - drop, migrate, seed'
+	@echo '  make redis-reset - flush the suite'"'"'s Redis db AND its snapshot'
 	@echo '  make seed-dev    - LOCAL ONLY: demo tenant + login credentials for both panels'
 	@echo '  make eval CLIENT=slug - regression harness (core5)'
 	@echo '  make qa-report CLIENT=slug VERTICAL=clinic - client-facing QA report'
@@ -89,8 +90,9 @@ coverage-ratchet-accept:  ## Lock in an improvement: rewrite the baseline (shrin
 	# budget without a RAISED_BUDGETS waiver in the script, so this command can lock in
 	# progress and can never quietly forgive a regression.
 	#
-	# START FROM EMPTY STORES: `make db-reset` AND a Redis with nothing in it
-	# (`make down && make up`, or `redis-cli -n <db> flushdb`). What those two HOLD
+	# START FROM EMPTY STORES: `make db-reset` AND `make redis-reset`. Not a bare
+	# `redis-cli flushdb` — that leaves `dump.rdb` holding the pre-flush keys, and the
+	# next redis restart puts them back. What those two stores HOLD
 	# changes which branches the suite executes — leftover tenants send the dispatch
 	# tick down another path, and a warm cache deletes a read-through fallback from the
 	# measurement entirely (`loadshed.get_platform_status` queries Postgres only on a
@@ -137,6 +139,14 @@ db-reset:
 	uv run python -m scripts.db_reset
 	uv run alembic upgrade head
 	uv run python -m scripts.seed
+
+redis-reset:  ## Empty the Redis db the suite reads — AND its snapshot [pair with db-reset]
+	# `redis-cli flushdb` is NOT this, and believing it was cost a REFUSED-TO-SCORE.
+	# FLUSHDB empties the live dataset and leaves `dump.rdb` alone; a redis started from
+	# the repo root reloads that file at boot, so "flush, restart, run the gate" hands the
+	# suite back every key the flush removed. scripts/redis_reset.py flushes and then
+	# SAVEs, so the snapshot matches. Same two-fact local guard as db-reset.
+	uv run python -m scripts.redis_reset
 
 # NOT part of `db-reset`, and not part of `check`. A developer who wants a populated
 # database asks for one; a developer who wants a clean one must not have three accounts
@@ -228,10 +238,18 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# and a new Settings field arrives managed but unclassified (D-101).
 	uv run python -m scripts.check_config_applies
 	# The SAME doctrine as the two above, on the value whose change is a compliance event
-	# rather than an outage: every Google model endpoint is Vertex AI `asia-south1`, and
-	# the region is a `Final` constant rather than a console field (D-127). Runs BEFORE
-	# the Vertex client exists (PLAN Part 12 before Part 13) — write the guard that makes
-	# a global endpoint impossible before writing the client that could reach one. Needs
+	# rather than an outage: the model region is a `Final` constant (`AZURE_LOCATION`,
+	# `southindia`) rather than a console field, and no Azure endpoint is constructible
+	# outside `azure_openai_base_url()` (D-410, superseding D-127's Vertex form).
+	#
+	# WHAT IT NO LONGER PROVES, because a green line here would otherwise be read as the
+	# old promise: Vertex put the region in the hostname AND the path, so the guard could
+	# prove from the AST where traffic went. `<resource>.openai.azure.com` names no
+	# region — it is a property of the Azure RESOURCE. This step now proves there is no
+	# CODE PATH to change the destination without editing one frozen constant; that the
+	# resource is really in South India, and that its deployment is Regional Standard
+	# rather than Global, are attested by a human at OPERATIONS §2 gates 20 and 20c. The
+	# script prints both caveats on every run, pass or fail. Needs
 	# no network and no credential; it is decidable from syntax. `extraction.py`'s AI
 	# Studio URL is a dated, self-expiring allowance IN the script, not a skip. Negative
 	# controls, including a doctored `us-central1` tree, in tests/model_residency_guard_test.py.
