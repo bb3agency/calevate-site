@@ -420,9 +420,22 @@ ported per client wish.
 
 ## 10. Number Provisioning & DLT Roles (reference)
 
-**No physical SIMs.** All numbers are virtual DIDs provisioned via API (Exotel /
-Vobiz / Plivo, connected to the engine — Bolna guides verified for all three; Vobiz
-inbound unconfirmed, TRD §5), routed over SIP, stored in `phone_numbers`.
+**No physical SIMs.** All numbers are virtual DIDs (Exotel / Vobiz / Plivo, connected to
+the engine — Bolna guides verified for all three; Vobiz inbound unconfirmed, TRD §5),
+routed over SIP, stored in `phone_numbers`.
+
+**BUT "PROVISIONED VIA API" IS TRUE ONLY OF ORDINARY GEOGRAPHIC DIDs, AND THIS LINE USED
+TO SAY IT OF ALL OF THEM.** The 140- and 160-series numbers this product actually sells on
+have **no provisioning endpoint at all** — `POST /phone-numbers/buy` cannot reach them.
+Getting one is a paperwork sequence a human runs: DLT Principal-Entity registration,
+documents mailed to the vendor's compliance address, carrier allocation, then header and
+template approval. Reading the old sentence, someone would plan an onboarding flow around
+an API call that does not exist, and discover the truth at the point a client is waiting.
+
+The carrier is not a preference either — it is fixed by the series, in the vendor's own
+table (`bolna-findings/mirror/pages/guides/inbound/obtaining-regulated-phone-numbers.md`,
+VERIFIED-VENDOR-DOCS): **140-series → Vobiz**, **160-series → Plivo**. TRD §5 carries the
+same split, and `campaigns/provisioning.KNOWN_PROVIDERS` is the one list that names them.
 
 **One number set per client — mandatory**, because: (a) inbound number IS the client's
 public line; (b) DLT ties outbound numbers to one business identity + its templates —
