@@ -117,13 +117,18 @@ from apps.api.core.alerting import (
     record_compliance_block,
     record_dispatch_tick,
 )
-from apps.api.core.errors import InvalidStatusTransitionError
+from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.loadshed import get_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
+
+# OUR normalized engine error, not a vendor payload shape — hard rule 2 bounds what
+# may cross this line and an HTTP status is on the safe side of it. Same standing as
+# `engine_violations.py`'s import of `apps.api.engine.violations`.
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
 
 log = get_logger(__name__)
@@ -908,7 +913,7 @@ async def _dispatch_for_campaign(
                 )
                 log.warning(
                     "campaign_dial_failed",
-                    extra={"campaign_id": str(campaign_id), "reason": type(exc).__name__},
+                    extra={"campaign_id": str(campaign_id), "reason": _dial_failure_reason(exc)},
                 )
                 if spent:
                     exhausted += 1
@@ -1073,6 +1078,36 @@ async def resolve_campaign_contact(
         extra={"tenant_id": str(tenant_id), "call_status": call_status},
     )
     return "failed" if spent else "pending"
+
+
+def _dial_failure_reason(exc: BaseException) -> str:
+    """What `campaign_dial_failed.reason` says. Our vocabulary plus the vendor's number.
+
+    It used to be `type(exc).__name__`, which for every refusal this branch can actually
+    catch is the constant string `ProblemError` — so a campaign that dialled nothing all
+    afternoon produced a log full of lines that named the Python class of the error and
+    not one fact about it. An operator could not tell a revoked API key from a stale
+    agent reference from a wallet at zero without opening a shell.
+
+    Three rungs, widening only as far as each type can be trusted:
+
+    * an `EngineRejectedError` adds the HTTP status and, when their envelope carried one, the
+      vendor's own integer code — the value to quote at their support desk;
+    * any other `ProblemError` is its `code`, which is our stable vocabulary and is what
+      the alarm index is indexed by;
+    * anything else keeps the class name, which is all there is.
+
+    HARD RULE 6 HOLDS BY CONSTRUCTION, not by care at the call site: every part is either
+    a constant of ours, an HTTP status, or an int32 the adapter has already bounded
+    (`vendor_http._vendor_error_code`). The vendor's human `message` — the part that
+    quotes a caller's number back at us — never reaches this process at all.
+    """
+    if isinstance(exc, EngineRejectedError):
+        vendor = f"/{exc.vendor_error}" if exc.vendor_error is not None else ""
+        return f"{exc.code}:{exc.vendor_status}{vendor}"
+    if isinstance(exc, ProblemError):
+        return exc.code
+    return type(exc).__name__
 
 
 async def _refuse_contact(session: Any, contact_id: UUID, *, rule: str) -> None:

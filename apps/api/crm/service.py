@@ -18,7 +18,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, NamedTuple, get_args
 from uuid import UUID
 
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.events import CallStatus
+from calevate_shared.extraction import ExtractionField, OutcomeTag
 from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -2178,8 +2179,8 @@ MAX_CALLBACK_DEPTH = 2
 CALLBACK_WINDOW_DAYS = 7
 # Outcomes a callback makes sense for. `resolved` is excluded on purpose: the whole
 # point of recording an outcome is that we then act differently on it.
-CALLBACK_OUTCOMES = ("needs_follow_up", "dropped")
-CALLBACK_STATUSES = ("no_answer", "busy", "voicemail", "completed")
+CALLBACK_OUTCOMES: tuple[OutcomeTag, ...] = ("needs_follow_up", "dropped")
+CALLBACK_STATUSES: tuple[CallStatus, ...] = ("no_answer", "busy", "voicemail", "completed")
 
 
 @dataclass(frozen=True, slots=True)

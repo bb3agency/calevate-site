@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
@@ -355,7 +355,24 @@ describe("the A/B script test panel", () => {
     expect(container.textContent).toContain("20.0% (11.2%–33.1%)");
     expect(container.textContent).not.toContain("includes 0 inbound");
     // And the calls we placed are 30, not the 40 that completed.
-    expect(screen.getByText("30")).toBeTruthy();
+    //
+    // Read off the cell the claim is ABOUT — arm B's Dialled column — rather than the
+    // bare `screen.getByText("30")` this used to be. A naked number pins neither the arm
+    // nor the column: any element that ever reads exactly "30" anywhere on this screen
+    // satisfies it, and a second one breaks the test with "found multiple elements"
+    // rather than with anything about dialling. That is the same defect class as the
+    // `/600s/` wait in the call-cap test below, which is how CI actually found it.
+    //
+    // The column index is DERIVED from the header row rather than written down, because
+    // a column inserted to its left silently moves it — `leadSources.test.tsx` carries a
+    // comment recording exactly that repair being made by hand.
+    const arms = within(screen.getByRole("region", { name: "Prompt experiment arms" }));
+    const dialled = arms
+      .getAllByRole("columnheader")
+      .findIndex((th) => th.textContent === "Dialled (outbound)");
+    const armB = arms.getByText("B · v2").closest("tr");
+    expect(armB, "no row for arm B").not.toBeNull();
+    expect(within(armB as HTMLElement).getAllByRole("cell")[dialled].textContent).toBe("30");
   });
 
   it("offers a test between two existing versions when none is running, and never authors one", async () => {
@@ -511,11 +528,30 @@ describe("the call cap", () => {
 
     // WAIT FOR THE CAP, not for the card's heading. "Maximum call length" is static and
     // renders before the read lands, so waiting on it and then asserting synchronously was
-    // asserting against a card still showing "Loading…" whenever the query had not settled
-    // inside the same flush — green only by the margin of however many microtasks a
-    // request happened to take. `findByText` returns the instant it matches, so this costs
-    // nothing when the code is right and is the difference between a race and an assertion.
-    await screen.findByText(/600s/);
+    // asserting against a card still showing its skeleton whenever the query had not
+    // settled inside the same flush — green only by the margin of however many microtasks
+    // a request happened to take. `findByText` returns the instant it matches, so this
+    // costs nothing when the code is right and is the difference between a race and an
+    // assertion.
+    //
+    // AND WAIT ON THE VALUE ELEMENT, NOT ON THE DIGITS. This was `/600s/`, a SUBSTRING
+    // match, and the same card's help line reads "Allowed 60–3600s; default 600s." —
+    // "3600s" CONTAINS "600s". So two elements matched, `findByText` throws on more than
+    // one, and the test went red for good the moment the lanes read began landing before
+    // this one — which on a loaded box is every time.
+    //
+    // The exact string cannot go ambiguous the same way, because RTL matches a node's OWN
+    // text: `getNodeText` joins only the DIRECT text children, so the `<dd>` reads as
+    // "600" + "s" while its "(10 minutes, …)" qualifier is a nested `<span>` that does not
+    // count towards it, and the help line reads as its whole sentence. That this query
+    // resolves at all is the proof it is unambiguous — `findByText` refuses a second match.
+    const inForce = await screen.findByText("600s");
+
+    // ...and what it waited on is the cap's own value cell, not prose quoting the number.
+    // The `<dt>`/`<dd>` pair is the semantic hook here, and it is what the substring
+    // matcher could not tell apart from the help text underneath it.
+    expect(inForce.tagName).toBe("DD");
+    expect(within(inForce.closest("div") as HTMLElement).getByText("In force")).toBeTruthy();
     expect(container.textContent).toContain("(10 minutes, platform default)");
   });
 });

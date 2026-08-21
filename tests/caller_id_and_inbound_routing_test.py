@@ -291,6 +291,66 @@ async def test_another_agents_number_cannot_be_the_campaigns_approved_header() -
     )
 
 
+async def test_a_number_bound_to_nobody_cannot_be_the_campaigns_approved_header() -> None:
+    """The other half of the same claim, and the one with the wider blast radius (D-424).
+
+    An approved number bound to a DIFFERENT agent at least dials SOME registered header.
+    A number bound to NO agent resolves to nothing — `resolve_caller_id` returns None,
+    which is a legitimate answer on the single-lead and callback paths — and the dial then
+    goes out on the engine's own pool. So every campaign on the platform would present the
+    vendor's number while its 140/160 series check, its header registration and its whole
+    PE/TM model described a number nobody heard.
+
+    Asked at BOTH gates on purpose. `launch_blockers` is a photograph taken when the
+    button was clicked; a number can be unassigned from an agent while the campaign runs,
+    and `dispatch_blockers` is what re-reads it on every tick.
+    """
+    tenant_id, agent_id = await _tenant()
+    number_id, _ = await _number(tenant_id, agent_id=None)
+
+    async with tenant_session(tenant_id) as session:
+        campaign_id = await campaigns_service.create_campaign(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Reminders",
+            classification="service",
+            number_id=number_id,
+            dlt_template_id=None,
+            concurrency=1,
+            consent_source="existing_customer",
+            consent_collected_at=datetime.now(UTC) - timedelta(days=7),
+        )
+        at_launch = {
+            blocker.rule: blocker.reason
+            for blocker in await campaigns_service.launch_blockers(
+                session, tenant_id=tenant_id, campaign_id=campaign_id
+            )
+        }
+        per_tick = {
+            blocker.rule
+            for blocker in await campaigns_service.dispatch_blockers(
+                session, tenant_id=tenant_id, campaign_id=campaign_id
+            )
+        }
+
+    assert "number_not_bound_to_agent" in at_launch, (
+        "the gate approved a header no agent dials from, so the campaign would have gone "
+        "out on the engine's own pool with our own records showing it cleared"
+    )
+    assert "number_not_bound_to_agent" in per_tick, (
+        "the rule is a photograph at launch only — a number unassigned mid-campaign "
+        "would keep dialling"
+    )
+    # The VERDICT is shared; the REMEDIATION is not. A client who never assigned the
+    # number and a client who assigned it elsewhere have different next actions, and a
+    # single sentence covering both would be actionable for neither.
+    assert at_launch["number_not_bound_to_agent"] == campaigns_service.UNBOUND_NUMBER_REASON
+    assert campaigns_service.UNBOUND_NUMBER_REASON != campaigns_service.OTHER_AGENT_NUMBER_REASON, (
+        "two states, two next actions, and the client can only act on the one they are in"
+    )
+
+
 # --- inbound routing -----------------------------------------------------------------
 
 

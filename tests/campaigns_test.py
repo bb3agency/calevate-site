@@ -140,16 +140,28 @@ async def _create_campaign(session: Any, **kwargs: Any) -> uuid.UUID:
     return await service.create_campaign(session, **kwargs)
 
 
-async def _number(session: Any, tenant_id: uuid.UUID, series: str) -> uuid.UUID:
+async def _number(
+    session: Any, tenant_id: uuid.UUID, series: str, *, agent_id: uuid.UUID
+) -> uuid.UUID:
+    """A registered header BOUND TO `agent_id`, because an unbound one is not launchable.
+
+    `agent_id` is keyword-only and has no default on purpose (D-424). A campaign's number
+    must be the number its agent dials from — `_channel_blockers` refuses the campaign
+    otherwise, since a number bound to nobody resolves to no caller ID and the engine
+    answers from its own pool. A fixture with a default would let the next launch-ready
+    fixture be silently un-launchable, which is exactly the state this helper produced
+    before the gate closed.
+    """
     number_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-            "updated_at) VALUES (:id, :tid, :e, :s, 'registered', now(), now())"
+            "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+            "created_at, updated_at) VALUES (:id, :tid, :aid, :e, :s, 'registered', now(), now())"
         ),
         {
             "id": number_id,
             "tid": tenant_id,
+            "aid": agent_id,
             "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
             "s": series,
         },
@@ -189,7 +201,7 @@ async def _ready_campaign(
     """(tenant_id, agent_id, campaign_id) — launch-ready unless a knob says otherwise."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        number_id = await _number(session, tenant_id, series)
+        number_id = await _number(session, tenant_id, series, agent_id=agent_id)
         template_id = await _template(
             session, tenant_id, template_classification or classification, template_status
         )
@@ -978,7 +990,7 @@ async def test_a_registered_template_starts_submitted_and_only_admin_approval_mo
     under a registration that does not exist."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        number_id = await _number(session, tenant_id, "140")
+        number_id = await _number(session, tenant_id, "140", agent_id=agent_id)
         template_id = await service.register_dlt_template(
             session,
             tenant_id=tenant_id,
@@ -1119,7 +1131,7 @@ async def _windowed_campaign(
     write path, not a raw UPDATE."""
     tenant_id, agent_id = await _tenant()
     async with tenant_session(tenant_id) as session:
-        number_id = await _number(session, tenant_id, "140")
+        number_id = await _number(session, tenant_id, "140", agent_id=agent_id)
         template_id = await _template(session, tenant_id, "promotional", "approved")
         campaign_id = await _create_campaign(
             session,

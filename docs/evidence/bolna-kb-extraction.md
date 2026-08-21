@@ -429,8 +429,15 @@ field reports it. Any future barge-in metric has to come from our own side.
   The Internal-API route (Bearer auth) is the only one that could ever be; we do not use
   any of them today.
 - **`customizations/using-custom-llm.md`** — confirms the `custom` route is dashboard-driven
-  (LLM URL + name, then refresh). D-410 deliberately uses first-class `provider: "azure"`
-  instead. No change.
+  (LLM URL + name, then refresh). D-410 deliberately uses a first-class provider instead.
+  ⚠ **This bullet said `provider: "azure"` when it was written, and that was the wrong wire
+  value.** D-417 settled it from the vendor's own pages as **`"azure-openai"`** — stated
+  twice, and now `_AZURE_LLM_PROVIDER` at `apps/api/engine/bolna.py:321`. The original
+  reading came from a provider matrix and a dashboard dropdown, both human-readable LABELS,
+  which is the wrong class of evidence for a string that goes on the wire. Corrected here
+  because an evidence file that keeps a superseded value is how the wrong one gets copied
+  back into code by the next reader. No change to this lane's conclusion: the `custom`
+  route is still not used.
 - **`api-reference/dispositions/{list,get,update,delete}.md`** — copy-on-write on update is
   the notable one (`update.md:16`): editing a shared disposition through a scoped
   `agent_id` **creates a new id** and returns `201`, and `:19` warns *"update your

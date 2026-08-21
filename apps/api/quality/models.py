@@ -5,7 +5,7 @@ coverage guardrail asserts they exist (`db/registry.TENANT_TABLES`).
 """
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy import CheckConstraint, Date, ForeignKey, Integer, String, UniqueConstraint
@@ -17,7 +17,14 @@ from apps.api.db.base import Base, PKMixin, TenantMixin, TimestampMixin
 #: What a reviewer can conclude about a sampled call. An enum, never free text: this
 #: queue is read across tenants and an operator's prose can carry anything into it
 #: (hard rule 6, the argument `admin/holds.py` makes about rejection reasons).
-QA_VERDICTS = ("clean", "concern", "defect")
+#:
+#: The TYPE lives here beside the tuple rather than in `sampling_routes.py`, where it was
+#: a second spelling of the same three strings. One of the two drove the DB CHECK and the
+#: other drove the API model, nothing tied them together, and widening either alone was a
+#: silent bug in whichever direction it went. `QA_VERDICTS` is now annotated WITH it, so
+#: the tuple that builds the constraint cannot hold a value the Literal does not name.
+Verdict = Literal["clean", "concern", "defect"]
+QA_VERDICTS: tuple[Verdict, ...] = ("clean", "concern", "defect")
 
 #: 5% of calls per client per week (SURFACES §1). One definition, read by the weekly
 #: job that draws the sample and by the queue that explains it.

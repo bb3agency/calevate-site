@@ -33,9 +33,17 @@ Sections A and B are that split, and they are the whole point of the document.
 
 ### A1. The voice engine account (blocks the most)
 
-**One missing thing — a Bolna account with credit — blocks twelve of the fourteen
-operational gates.** OPERATIONS §2 holds the full pass criteria; this is the dependency
-view.
+**One missing thing — a Bolna account with credit — blocks every Bolna-facing gate in
+OPERATIONS §2 except the two human ones** (11, are the humans responsive; 12, commercials in
+writing). The gates it does not block are the ones that are not Bolna's: 15 (ours), 19
+(the Cartesia exit gate), 20/20b/20c (attestations in the Azure portal) — plus 14 and 14b,
+retired by D-410. OPERATIONS §2 holds the full pass criteria and is the roster of record;
+this is the dependency view, and it lists the H gates plus the S gates whose answers move
+money or a compliance surface.
+
+**It is deliberately not a copy of the table** — a second roster that has to be kept in
+step is the drift D-103/D-105 exist for — so a gate present there and absent here is
+still blocked, not still open.
 
 | Gate | Question it settles | Consequence of it staying open |
 |---|---|---|
@@ -45,12 +53,15 @@ view.
 | 4 H | Real-call latency p50/p95, and whether `latency_data` agrees with a stopwatch | `calls.latency` was dropped rather than filled with numbers that are not the caller's experience; this gate chooses the storage shape. |
 | 5 H | Telugu turn-taking, barge-in, endpointing | An orchestration property BYOK models do not fix. |
 | 6 H | Webhook loss + **listing pagination** | `bolna._LISTING_PAGE_SIZES` currently GUESSES the page size from round numbers. |
-| 7 S | Post-call fidelity: cost breakdown, currency, time-to-`completed` | Metering and the 2-minute lead SLO both rest on it. |
+| 7 **H** *(raised from S by D-261)* | Post-call fidelity: cost breakdown, currency, time-to-`completed` | Metering and the 2-minute lead SLO both rest on it. |
 | 8 S | KB retrieval in Telugu, tool-call p95, **and `kb_list_carries_agent_linkage`** | This is the honest limit of the D-158 KB drift sweep: if the listing carries no agent linkage, the sweep is blind in both directions and reports `unreadable`. |
 | 10 H | Is one account for many end-clients permitted | Our entire tenancy model sits on this. |
 | 11 H | Are the humans responsive | Named as "the gate ThinnestAI failed". |
 | 12 H | Commercials in writing — above all the BYOK platform fee | Observed at ~₹1.76/min in the dashboard vs a ≤₹1.50 target; worth ₹5,200/month at 20k platform-min. A dashboard figure is not a commercial term. |
 | 13 S | Concurrency ceiling across engine, Sarvam and the SIP trunk | Effective ceiling is the MIN of three, and none is confirmed. |
+| 29 H *(new, D-425)* | Which key carries the two phone numbers on an execution, and the INBOUND polarity | `ExecutionSnapshot.from_e164`/`to_e164` can be NULL for ever on a payload shaped the way all three of the vendor's captured examples are — which silently disables the DNC opt-out subject, the DPDP erasure lookup on `calls`, and transcript phone redaction. If the polarity is inverted on inbound, the opt-out worker adds OUR OWN published number to DNC. |
+| 31 H *(new, D-425)* | `GET /user/me`: the `wallet` balance and the real `concurrency.max` | `balance-low` is a documented TERMINAL execution status, so an emptied wallet fails every dial as an anonymous `failed` with no cause and no halt. `PLATFORM_LINES_TOTAL = 10` is our typed-in belief about a number the vendor says scales with usage. |
+| 30 S · 32 S · 33 S · 34 S *(new)* | Does `GET /v2/agent/all` paginate · the `status` strings the LISTING endpoint really sends · `Retry-After` on a 429 and the webhook redelivery count · what `agent_status: "seeding"` means | Each sharpens something already working rather than blocking it; all four are answered by the same session that runs the H gates above. |
 
 **Also needed and separately external:** Sarvam BYOK keys (gate 3), and an Exotel/Vobiz
 SIP trunk (gate 13).

@@ -64,6 +64,7 @@ def _engine(
     executions: dict[str, Any] | None = None,
     *,
     agents: list[str] | None = None,
+    agent_pages: dict[int, list[str]] | None = None,
     pages: dict[int, dict[str, Any]] | None = None,
     seen: list[str] | None = None,
 ) -> BolnaEngine:
@@ -72,6 +73,11 @@ def _engine(
     `pages` keys the executions listing by `page_number`, which is the only way to prove
     the walk advanced rather than re-read page one — the exact failure the deleted
     `_next_link` machinery existed to avoid and the new page counter could still commit.
+
+    `agent_pages` does the same for the ROSTER (`GET /v2/agent/all`), which is paginated
+    too and was read one page deep (D-421). Keyed on `page_number` for the same reason:
+    an adapter that re-requested page one would collect one page of agents forever and,
+    because the roster carries no `has_more` to contradict it, report a complete listing.
     """
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -79,6 +85,9 @@ def _engine(
         if seen is not None:
             seen.append(request.url.raw_path.decode())
         if path == "/v2/agent/all":
+            if agent_pages is not None:
+                number = int(request.url.params.get("page_number", "1"))
+                return httpx.Response(200, json=[{"id": a} for a in agent_pages.get(number, [])])
             roster = agents if agents is not None else [AGENT]
             return httpx.Response(200, json=[{"id": a} for a in roster])
         if path.endswith("/executions"):
@@ -116,7 +125,9 @@ async def test_the_listing_is_per_agent_on_the_route_the_vendor_publishes() -> N
     seen: list[str] = []
     await _list(_engine(_page([_row(0)], has_more=False), seen=seen))
 
-    assert seen[0] == "/v2/agent/all", "the fan-out starts by asking which agents exist"
+    assert seen[0].split("?")[0] == "/v2/agent/all", (
+        "the fan-out starts by asking which agents exist"
+    )
     listing_call = seen[1]
     assert listing_call.startswith(f"/v2/agent/{AGENT}/executions?"), (
         f"the listing must be the vendor's per-agent route, got {listing_call!r}"
@@ -259,6 +270,105 @@ async def test_every_agent_on_the_account_is_walked() -> None:
         "/v2/agent/agent_b/executions",
         "/v2/agent/agent_c/executions",
     ]
+
+
+async def test_the_agent_roster_is_asked_for_with_the_vendors_pagination_parameters() -> None:
+    """THE SECOND CLAUSE THIS FILE EXISTS FOR (D-421).
+
+    `GET /v2/agent/all` was sent with no parameters at all, and whatever came back was
+    treated as the whole account. `bolna-findings/mirror/pages/api-reference/
+    pagination.md:9,13-14` documents `page_number` (default `1`) and `page_size` (default
+    **20**, maximum 50) on "the endpoints", and the vendor's own CLI client for this exact
+    route ships `--page`/`--page-size` with the same defaults
+    (`bolna-findings/mirror/pages/cli/commands/agents-list.md:9,24-25`). So an account
+    past its 21st agent was handing the poller a PAGE and being read as an ACCOUNT.
+    """
+    seen: list[str] = []
+    await _list(_engine(_page([_row(0)], has_more=False), seen=seen))
+
+    roster_call = httpx.URL(f"{BASE_URL}{seen[0]}")
+    assert roster_call.params["page_number"] == "1"
+    assert roster_call.params["page_size"] == str(_LISTING_PAGE_SIZE)
+
+
+async def test_the_agent_roster_is_walked_past_its_first_page() -> None:
+    """THE FAILURE THIS FIXES, AND IT WAS SILENT — which is what made it worse than the
+    wrong route (D-353) or the missing `to` (D-412). Those were 400s and 404s on every
+    tick. This one lost every execution belonging to the 21st agent onwards while
+    `list_executions` went on answering `complete=True`, because completeness was decided
+    per agent and never about the agent list itself. One Bolna account holds every
+    tenant's agents, so the ceiling is a handful of clients.
+    """
+    later = f"agent_{_LISTING_PAGE_SIZE}"
+    listing = await _list(
+        _engine(
+            _page([_row(0)], has_more=False),
+            agent_pages={
+                1: [f"agent_{i}" for i in range(_LISTING_PAGE_SIZE)],
+                2: [later],
+            },
+            seen=(seen := []),
+        )
+    )
+
+    walked = {s.split("?")[0] for s in seen if s.split("?")[0].endswith("/executions")}
+    assert f"/v2/agent/{later}/executions" in walked, (
+        "an agent past the first roster page must still be asked about"
+    )
+    assert listing.complete, "a roster walked to a short page is a roster we finished"
+
+
+async def test_a_roster_page_that_repeats_itself_refuses_to_claim_completeness() -> None:
+    """The reading where the platform IGNORES `page_number` — the shape a FastAPI handler
+    with no declared query model has, and their OSS server is FastAPI. Page two then
+    repeats page one, the walk stops rather than looping, and the roster it returns is
+    still every agent the vendor was ever going to name. What it may NOT do is claim
+    completeness: `GET /v2/agent/all` answers a bare array with no `has_more` and no
+    `total` (`bolna-findings/mirror/pages/api-reference/agent/v2/get_all.md:29-51`), so a
+    full page is indistinguishable from a truncated one and `complete=True` is a positive
+    claim the adapter has no grounds for.
+    """
+    full = [f"agent_{i}" for i in range(_LISTING_PAGE_SIZE)]
+    listing = await _list(_engine(_page([_row(0)], has_more=False), agent_pages={1: full, 2: full}))
+
+    assert not listing.complete
+    assert listing.incomplete_reason == "next_link_no_progress"
+
+
+async def test_the_roster_walk_is_bounded_like_every_other_walk_here() -> None:
+    """A roster that keeps offering full pages of new agents must still terminate:
+    unbounded, the guarantee of record becomes an unbounded request loop against the
+    vendor. `page_cap_reached` is the honest verdict — we stopped, and there was more.
+    """
+    listing = await _list(
+        _engine(
+            _page([], has_more=False),
+            agent_pages={
+                n: [f"agent_{n}_{i}" for i in range(_LISTING_PAGE_SIZE)]
+                for n in range(1, _LISTING_MAX_PAGES + 3)
+            },
+        )
+    )
+
+    assert not listing.complete
+    assert listing.incomplete_reason == "page_cap_reached"
+
+
+async def test_a_truncated_roster_survives_a_clean_per_agent_walk() -> None:
+    """THE PRECISE SHAPE OF THE OLD DEFECT, pinned so it cannot come back: every agent we
+    DID ask about answers `has_more: false`, which is the one shape that earns
+    `complete=True` per agent. The listing must still be incomplete, because the thing
+    that was truncated is the list of agents rather than any agent's page — and an
+    adapter that decided completeness only inside the fan-out would publish the all-clear
+    on a roster it never finished.
+    """
+    full = [f"agent_{i}" for i in range(_LISTING_PAGE_SIZE)]
+    listing = await _list(_engine(_page([_row(0)], has_more=False), agent_pages={1: full, 2: full}))
+
+    assert all(s.engine_call_id for s in listing.snapshots)
+    assert not listing.complete, (
+        "a clean per-agent walk over an unfinished roster is still an unfinished listing"
+    )
 
 
 # --- what may be claimed about the answer -------------------------------------

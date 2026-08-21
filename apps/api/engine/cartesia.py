@@ -140,7 +140,7 @@ from calevate_shared.engine import (
     ProvisionedNumber,
     WebhookVerdict,
 )
-from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -438,7 +438,12 @@ def parse_transcript(raw: Any, call_id: str) -> tuple[list[TranscriptTurn], int]
         if not isinstance(text, str) or not text.strip():
             lost += 1
             continue
-        speaker = "agent" if role in _AGENT_ROLES else "caller"
+        # ANNOTATED, and the annotation is the guard. A bare ternary of two string
+        # literals infers `str`, and `TranscriptTurn.speaker` is a `Literal` that a
+        # Pydantic constructor does not type-check — so a typo here ("agnet") passed
+        # `mypy --strict` and surfaced as a `ValidationError` in the post-call pipeline,
+        # on a real customer's call. Naming the domain type moves it to this line.
+        speaker: Speaker = "agent" if role in _AGENT_ROLES else "caller"
         turns.append(
             TranscriptTurn(call_id=call_id, idx=len(turns), speaker=speaker, text=text.strip())
         )

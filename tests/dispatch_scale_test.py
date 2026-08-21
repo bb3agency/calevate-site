@@ -408,14 +408,37 @@ async def _running_campaign(
             tm_link_status="active",
             registered_at=datetime.now(UTC) - timedelta(days=30),
         )
-        number_id = uuid7()
-        await session.execute(
-            text(
-                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-                "updated_at) VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
-            ),
-            {"id": number_id, "tid": tenant_id, "e": f"+9180{uuid.uuid4().int % 100000000:08d}"},
-        )
+        # ONE registered header per AGENT, bound to it, reused by every campaign this
+        # agent runs (D-424). Bound, because the launch gate refuses a campaign whose
+        # approved number is not the number its agent dials from. Reused, because
+        # `resolve_caller_id` refuses an agent carrying two registered headers — and this
+        # suite calls this fixture TWICE for one agent (the shared-tenant-budget test), so
+        # a header per campaign would make every dial refuse while the "share one budget"
+        # assertion still read green on zero dials.
+        number_id = (
+            await session.execute(
+                text(
+                    "SELECT id FROM phone_numbers WHERE agent_id = :aid "
+                    "AND dlt_status = 'registered' ORDER BY created_at, id LIMIT 1"
+                ),
+                {"aid": agent_id},
+            )
+        ).scalar()
+        if number_id is None:
+            number_id = uuid7()
+            await session.execute(
+                text(
+                    "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, "
+                    "dlt_status, created_at, updated_at) "
+                    "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
+                ),
+                {
+                    "id": number_id,
+                    "tid": tenant_id,
+                    "aid": agent_id,
+                    "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
+                },
+            )
         template_id = uuid7()
         await session.execute(
             text(

@@ -179,6 +179,9 @@ warn_unreachable = true
 plugins = ["pydantic.mypy"]
 mypy_path = "packages/shared/src"
 
+[tool.pydantic-mypy]
+init_typed = true
+
 [[tool.mypy.overrides]]
 module = ["tests.*"]
 disallow_untyped_defs = false

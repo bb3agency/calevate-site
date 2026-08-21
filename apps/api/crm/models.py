@@ -8,6 +8,8 @@ circular). campaign_id stays a plain UUID until the campaigns table lands in M2.
 from datetime import datetime
 from uuid import UUID
 
+from calevate_shared.events import CallDirection, CallStatus, Speaker
+from calevate_shared.extraction import OutcomeTag, Sentiment
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -23,10 +25,23 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.crm.schemas import LeadStatus
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
-CALL_DIRECTIONS = ("inbound", "outbound")
-CALL_STATUSES = (
+# EVERY TUPLE BELOW IS ANNOTATED WITH THE TYPE ITS MEMBERS ARE, and that is the whole
+# guard. Each one is interpolated into a `CheckConstraint` below, so it is the DATABASE's
+# copy of a vocabulary whose other copy is a `Literal` — `calevate_shared.events`,
+# `calevate_shared.extraction`, `crm.schemas`. Unannotated they infer `tuple[str, ...]`,
+# which means a typo ("no_ansewr") or an invented member ("abandoned") produced a CHECK
+# the API's Literal did not name, and nothing said a word: the two halves only met at
+# runtime, where Postgres refuses the row or Pydantic refuses the response. Annotated,
+# the mistake is an error on the line that makes it.
+#
+# The annotation catches a WRONG member, not a MISSING one — a shorter tuple is still a
+# valid `tuple[X, ...]`. Completeness is pinned behaviourally where it matters
+# (`tests/dashboard_daily_test.py` walks `CALL_STATUSES` against the classifier).
+CALL_DIRECTIONS: tuple[CallDirection, ...] = ("inbound", "outbound")
+CALL_STATUSES: tuple[CallStatus, ...] = (
     "queued",
     "ringing",
     "in_progress",
@@ -37,11 +52,18 @@ CALL_STATUSES = (
     "voicemail",
 )
 CONSENT_STATES = ("granted", "declined", "na")
-OUTCOME_TAGS = ("resolved", "needs_follow_up", "transferred", "dropped")
-SENTIMENTS = ("positive", "neutral", "negative")
-SPEAKERS = ("agent", "caller")
+OUTCOME_TAGS: tuple[OutcomeTag, ...] = ("resolved", "needs_follow_up", "transferred", "dropped")
+SENTIMENTS: tuple[Sentiment, ...] = ("positive", "neutral", "negative")
+SPEAKERS: tuple[Speaker, ...] = ("agent", "caller")
 LEAD_SOURCES = ("inbound_call", "webhook", "campaign", "manual")
-LEAD_STATUSES = ("new", "contacted", "interested", "hot", "won", "lost")  # fixed enum, D-21
+LEAD_STATUSES: tuple[LeadStatus, ...] = (
+    "new",
+    "contacted",
+    "interested",
+    "hot",
+    "won",
+    "lost",
+)  # fixed enum, D-21
 # `assignment` is a MEMBER rather than another `note` kind, and the choice is not
 # cosmetic. The precedent that governs is `status_change`, not the `note` reuse in
 # `ingest/service.py`: both are "a person changed a field on the lead", and modelling

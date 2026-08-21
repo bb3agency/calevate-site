@@ -14,6 +14,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import TypedDict, Unpack
 
 import httpx
 import pytest
@@ -120,7 +121,30 @@ async def _agent_ref(engine: VoiceEngine, cfg: AgentConfig | None = None) -> str
     return await engine.create_agent(cfg if cfg is not None else _agent_config(engine))
 
 
-def _dial_context(engine: VoiceEngine, cfg: AgentConfig, **fields: str) -> CallContext:
+class _DialFields(TypedDict, total=False):
+    """The per-call scalars a conformance case may vary, and NOTHING ELSE.
+
+    **`**fields: str` COLLIDED WITH `CallContext.fields`, WHICH IS ITSELF A `dict[str,
+    str]`.** Splatting a `dict[str, str]` into a model that HAS a member called `fields`
+    is unsound and mypy said so the moment `init_typed = true` made Pydantic constructors
+    checkable: one key named `fields` would arrive as a `str` where a mapping belongs, and
+    before that flag was set nothing anywhere would have caught it.
+
+    Typed this way (PEP 692) the helper's contract is stated rather than implied: these
+    four are `CallContext`'s scalar prompt inputs, `total=False` because every case sets a
+    different subset, and a typo like `lead_nmae=` is now an error at the call site instead
+    of a silently-dropped kwarg that leaves the assertion passing against an empty context.
+    """
+
+    lead_id: str
+    lead_name: str
+    context_note: str
+    prior_call_summary: str
+
+
+def _dial_context(
+    engine: VoiceEngine, cfg: AgentConfig, **fields: Unpack[_DialFields]
+) -> CallContext:
     """The context `dispatch_call` would build for THIS engine.
 
     The suite must not hand every adapter the same context: on a `control_plane` engine the

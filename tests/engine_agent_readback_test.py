@@ -323,3 +323,137 @@ def test_models_are_readable_when_tasks_come_back_at_the_root() -> None:
     assert models.llm_model == "sarvam-m"
     assert models.tts_provider == "sarvam"
     assert models.tts_voice == "anushka"
+
+
+def test_kb_refs_are_found_at_the_name_the_vendor_actually_documents() -> None:
+    """THE SPELLING THAT WAS MISSING. `_AGENT_KB_REF_KEYS` shipped as five guesses under
+    the premise that "nothing in their published documentation says the agent object
+    carries one at all" — and their read schema does:
+    `tools_config.llm_agent.llm_config` is a `KnowledgebaseAgent` whose
+    `vector_store.provider_config` is a `LanceDbConfig` declaring `vector_id` and
+    `vector_ids` (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,
+    1164-1195`). Neither was in the set, so an agent that HAS a knowledge base read back
+    `readable=False` — D-41's question answered "we could not find the field" from a
+    payload that contained the answer.
+
+    Nested at the vendor's own depth, wrapper included, because that is the other half of
+    the same defect: the walk's bound landed exactly on the last dict it had to open.
+    """
+    agent = {
+        "agent_config": {
+            "tasks": [
+                {
+                    "tools_config": {
+                        "llm_agent": {
+                            "agent_type": "knowledgebase_agent",
+                            "llm_config": {
+                                "model": "gpt-4o-mini",
+                                "vector_store": {
+                                    "provider": "lancedb",
+                                    "provider_config": {
+                                        "vector_ids": [
+                                            "3c90c3cc-0d44-4b50-8822-8dd25736052a",
+                                            "4d91c4dd-1e55-5c61-9933-9ee36847163b",
+                                        ]
+                                    },
+                                },
+                            },
+                        }
+                    }
+                }
+            ]
+        }
+    }
+
+    handles, readable = _agent_kb_refs(agent)
+
+    assert readable is True
+    assert handles == [
+        "3c90c3cc-0d44-4b50-8822-8dd25736052a",
+        "4d91c4dd-1e55-5c61-9933-9ee36847163b",
+    ]
+
+
+def test_the_legacy_single_vector_id_is_read_too() -> None:
+    """Their own schema calls `vector_id` "legacy, use `vector_ids` for multiple" — which
+    means accounts hold both, so both are read."""
+    agent = {
+        "tasks": [
+            {
+                "tools_config": {
+                    "llm_agent": {
+                        "llm_config": {
+                            "vector_store": {"provider_config": {"vector_id": "kb-legacy-1"}}
+                        }
+                    }
+                }
+            }
+        ]
+    }
+
+    handles, readable = _agent_kb_refs(agent)
+
+    assert readable is True
+    assert handles == ["kb-legacy-1"]
+
+
+def test_the_conversation_task_decides_the_models_not_the_first_task() -> None:
+    """Every task carries its OWN required `tools_config`
+    (`api-reference/agent/v2/get.md:201-243`), and `task_type` is an enum of
+    `conversation`/`extraction`/`summarization`. `_agent_models` took `tasks[0]`, so a
+    console-added extraction task landing first made the read-back report the extraction
+    leg's model and voice as the ones the CALLER is hearing — `readable=True` beside a
+    wrong answer, which this function's docstring names as the outcome it must never
+    produce.
+    """
+    agent: dict[str, Any] = {
+        "tasks": [
+            {
+                "task_type": "extraction",
+                "tools_config": {
+                    "transcriber": {"provider": "deepgram", "model": "nova-2"},
+                    "llm_agent": {"llm_config": {"model": "gpt-4o"}},
+                    "synthesizer": {"provider": "polly", "provider_config": {"voice": "Aditi"}},
+                },
+            },
+            {
+                "task_type": "conversation",
+                "tools_config": {
+                    "transcriber": {"provider": "sarvam", "model": "saaras:v3"},
+                    "llm_agent": {"llm_config": {"model": "sunrise-gpt-4o-mini"}},
+                    "synthesizer": {"provider": "sarvam", "provider_config": {"voice": "anushka"}},
+                },
+            },
+        ]
+    }
+
+    models, readable = _agent_models(agent)
+
+    assert readable is True
+    assert models is not None
+    assert models.llm_model == "sunrise-gpt-4o-mini"
+    assert models.tts_voice == "anushka"
+    assert models.stt_model == "saaras:v3"
+
+
+def test_a_task_list_that_names_no_types_still_reads_the_first_one() -> None:
+    """The fallback, unchanged: where nothing declares a `task_type` the first task is the
+    only guess available, and `readable` is the honest part of the answer. This is every
+    agent `_agent_body` publishes, so the clause above changes nothing for them."""
+    agent: dict[str, Any] = {
+        "tasks": [
+            {
+                "tools_config": {
+                    "transcriber": {"provider": "sarvam", "model": "saaras:v3"},
+                    "llm_agent": {"llm_config": {"model": "only-task"}},
+                    "synthesizer": {"provider": "sarvam", "provider_config": {"voice": "anushka"}},
+                }
+            }
+        ]
+    }
+
+    models, readable = _agent_models(agent)
+
+    assert readable is True
+    assert models is not None
+    assert models.llm_model == "only-task"

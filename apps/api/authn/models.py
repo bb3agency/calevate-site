@@ -47,13 +47,14 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.core.context import Realm
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 #: The two realms a credential or a session can belong to. Spelled here, mirrored by a
 #: CHECK constraint in the migration, and mirrored again by `core.context.Realm` — the
 #: `system` member of that Literal is deliberately absent: a background job has no
 #: password and no session.
-AUTHN_REALMS = ("admin", "client")
+AUTHN_REALMS: tuple[Realm, ...] = ("admin", "client")
 
 #: Why a session stopped being usable. A closed vocabulary rather than free text, because
 #: this value is read by an operator during an incident and "logout" vs "reuse_detected"

@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterator
+from typing import cast
 
 import pytest
 from apps.api.admin import service as admin_service
@@ -43,7 +44,15 @@ from apps.api.engine.capabilities import ENGINE_CAPABILITY_ABSENT, EngineCapabil
 from apps.api.engine.fake import EXTERNAL_DEPLOYMENT_CAPABILITIES, FakeEngine
 from sqlalchemy import text
 
-pytestmark = pytest.mark.asyncio
+# NO `pytestmark = pytest.mark.asyncio` HERE, DELIBERATELY. `pyproject.toml` sets
+# `asyncio_mode = "auto"`, so every `async def test_` is collected as a coroutine test with
+# no mark at all — and once this file gained SYNC tests the mark became actively wrong,
+# emitting `PytestWarning: ... is marked with '@pytest.mark.asyncio' but it is not an async
+# function` for each of them on every run. Warnings are not errors here (there is no
+# `filterwarnings = error`), which is exactly why one can sit in a suite unnoticed.
+# Measured across `tests/`: this was the ONLY one of ~158 files mixing sync and async tests
+# that carried the mark; every other one omits it, so removing it follows the convention
+# rather than inventing one.
 
 
 @pytest.fixture
@@ -296,3 +305,97 @@ async def test_the_pending_read_says_publishable_on_a_control_plane_engine() -> 
     tenant_id, agent_id = await _publishable_agent()
     state = await pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
     assert state.engine_verification.publishable is True
+
+
+# --- the agent row's own contract (D-104 / pydantic-mypy `init_typed`) ---------------
+#
+# `_load_agent` hands its row to `_to_config`, which puts `direction` straight into
+# `AgentConfig.direction` — a `Literal["inbound", "outbound", "both"]`. That hop was
+# unchecked in both directions at once: the row was typed `dict[str, object]`, and the
+# Pydantic plugin synthesised `AgentConfig.__init__` with `Any` arguments until
+# `[tool.pydantic-mypy] init_typed = true` was configured, so the type checker verified
+# that arguments were PRESENT and never what they held. These three tests pin the runtime
+# half, which is the half a type checker cannot reach at all.
+
+
+def test_the_direction_vocabulary_has_one_source_and_the_check_constraint_renders_from_it() -> None:
+    """A Literal and a CHECK constraint that can disagree is two vocabularies (D-104).
+
+    The tuple is `get_args(AgentDirection)` rather than three strings typed a second time,
+    so adding a fourth direction changes the type AND the constraint in one edit, or it
+    changes neither. Asserted against the RENDERED constraint text, because that is what
+    reaches Postgres — a check on the tuple alone would pass on a table that had been
+    given the constraint by hand.
+    """
+    from typing import get_args
+
+    from apps.api.agents.models import AGENT_DIRECTIONS, Agent, AgentDirection
+
+    assert get_args(AgentDirection) == AGENT_DIRECTIONS, (
+        "the tuple and the Literal have drifted, so the database and the type now admit "
+        "different sets of directions"
+    )
+    rendered = [
+        constraint.sqltext.text
+        for constraint in Agent.__table__.constraints
+        if getattr(constraint, "name", "") == "ck_agents_direction_enum"
+    ]
+    assert rendered == [f"direction IN {AGENT_DIRECTIONS!r}"], rendered
+
+
+def test_every_direction_the_vocabulary_admits_is_recognised_and_nothing_else_is() -> None:
+    """The predicate, both ways. Only the pair is falsifiable: `return True` passes the
+    first assertion and `return False` passes the second."""
+    from apps.api.agents.models import AGENT_DIRECTIONS
+    from apps.api.agents.service import _is_agent_direction
+
+    for direction in AGENT_DIRECTIONS:
+        assert _is_agent_direction(direction), direction
+    for wrong in ("sideways", "INBOUND", "", "outbound ", None, 0):
+        assert not _is_agent_direction(wrong), wrong
+
+
+async def test_a_direction_the_constraint_would_have_stopped_is_refused_at_the_read() -> None:
+    """The arm that exists FOR the database that has lost its constraint.
+
+    `ck_agents_direction_enum` makes this unreachable through the front door, and that is
+    the point rather than an objection: a restore that lands without constraints
+    (`runbooks/restore-drill.md` walks exactly that path), a table rebuilt by a migration,
+    or one hand-run UPDATE by an operator all produce a row Postgres would now hand back.
+    Before the narrowing, that value went into `AgentConfig.direction` and out to the
+    engine with nothing looking at it.
+
+    Driven with a stub session rather than by dropping the CHECK, deliberately: this suite
+    shares a database with every other suite and with whatever else is running, and DDL
+    that escapes its own test is a failure nobody can reproduce. The stub feeds
+    `_load_agent` exactly the row a constraint-less database would return, which is the
+    whole of what the guard is about.
+    """
+    from typing import Any
+
+    from apps.api.agents.service import _load_agent
+
+    tenant_id, agent_id = await _publishable_agent()
+    async with tenant_session(tenant_id) as session:
+        good = await _load_agent(session, tenant_id, agent_id)
+
+    class _RowWithABadDirection:
+        """One `execute` result whose `direction` column holds a value nothing admits."""
+
+        def first(self) -> tuple[Any, ...]:
+            row = list(good.values())
+            row[2] = "sideways"
+            return tuple(row)
+
+    class _SessionThatReturnsIt:
+        async def execute(self, *_args: Any, **_kwargs: Any) -> _RowWithABadDirection:
+            return _RowWithABadDirection()
+
+    with pytest.raises(ProblemError) as excinfo:
+        await _load_agent(cast(Any, _SessionThatReturnsIt()), tenant_id, agent_id)
+
+    assert excinfo.value.code == "agent_direction_unrecognised", excinfo.value.code
+    assert excinfo.value.kind == "business_rule", excinfo.value.kind
+    # The refusal a person reads must not carry the bad value: it is column content, and
+    # a message is a place content gets copied to (hard rule 6's habit, applied wider).
+    assert "sideways" not in str(excinfo.value.detail)

@@ -107,10 +107,18 @@ async def _launchable_campaign(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uui
         number_id = uuid7()
         await session.execute(
             text(
-                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-                "updated_at) VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+                "created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
             ),
-            {"id": number_id, "tid": tenant_id, "e": f"+9180{uuid.uuid4().int % 10**8:08d}"},
+            {
+                "id": number_id,
+                "tid": tenant_id,
+                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
+                # whose approved number is not the number its agent dials from.
+                "aid": agent_id,
+                "e": f"+9180{uuid.uuid4().int % 10**8:08d}",
+            },
         )
         template_id = uuid7()
         await session.execute(

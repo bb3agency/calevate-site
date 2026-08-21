@@ -143,17 +143,22 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
     return tenant_id, agent_id, str(created["slug"])
 
 
-async def _number_and_template(tenant_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID, str]:
-    """A registered 140-series number and an approved promotional template."""
+async def _number_and_template(
+    tenant_id: uuid.UUID, agent_id: uuid.UUID
+) -> tuple[uuid.UUID, uuid.UUID, str]:
+    """A registered 140-series number BOUND TO `agent_id`, and an approved promotional
+    template. The binding is what makes the campaign launchable (D-424): a number bound to
+    nobody resolves to no caller ID, so the launch gate refuses it."""
     number_id, template_id = uuid7(), uuid7()
     e164 = f"+9180{uuid.uuid4().int % 10**8:08d}"
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-                "updated_at) VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+                "created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
             ),
-            {"id": number_id, "tid": tenant_id, "e": e164},
+            {"id": number_id, "tid": tenant_id, "aid": agent_id, "e": e164},
         )
         await session.execute(
             text(
@@ -167,7 +172,7 @@ async def _number_and_template(tenant_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UU
 
 
 async def _campaign(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
-    number_id, template_id, _e164 = await _number_and_template(tenant_id)
+    number_id, template_id, _e164 = await _number_and_template(tenant_id, agent_id)
     async with tenant_session(tenant_id) as session:
         return await service.create_campaign(
             session,
@@ -215,10 +220,10 @@ async def test_the_number_and_template_lists_are_scoped_by_rls_alone() -> None:
     Both tenants are populated, so "sees only its own" is not satisfied by an empty
     database.
     """
-    tenant_a, _agent_a, slug_a = await _tenant()
-    tenant_b, _agent_b, slug_b = await _tenant()
-    _num_a, tmpl_a, e164_a = await _number_and_template(tenant_a)
-    _num_b, tmpl_b, e164_b = await _number_and_template(tenant_b)
+    tenant_a, agent_a, slug_a = await _tenant()
+    tenant_b, agent_b, slug_b = await _tenant()
+    _num_a, tmpl_a, e164_a = await _number_and_template(tenant_a, agent_a)
+    _num_b, tmpl_b, e164_b = await _number_and_template(tenant_b, agent_b)
 
     async with _client() as http:
         headers_a = await _headers(tenant_a, slug_a)

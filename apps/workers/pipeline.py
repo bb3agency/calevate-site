@@ -2452,8 +2452,10 @@ def _expected_artifacts(
 
 #: What the poller decided about one execution. `settled` is the only answer that means
 #: "do nothing"; the other two are repair kinds, and they are separate because they are
-#: different incidents — `missing_call` is a webhook we never received (the engine's
-#: delivery is at most once, D-31) and `unfinished_pipeline` is a webhook we DID receive
+#: different incidents — `missing_call` is a webhook we never received (the engine
+#: retries on a non-2xx or a timeout but publishes no bound on that retry, so a delivery
+#: can still be lost for good — see `reconcile_executions`) and `unfinished_pipeline` is a
+#: webhook we DID receive
 #: and then dropped on our own side. One counter for both would have made the second
 #: invisible for as long as the first kept happening.
 ReconcileVerdict = Literal["settled", "missing_call", "unfinished_pipeline"]
@@ -2946,12 +2948,28 @@ async def reconcile_outstanding_calls(ctx: dict[str, Any]) -> str:
 async def reconcile_executions(ctx: dict[str, Any]) -> str:
     """The guarantee of record (D-31), not a safety net.
 
-    Bolna delivers webhooks at most once with no retries, so an event lost to a deploy,
-    a network blip or a 500 is lost forever at the webhook layer. This runs every 10
-    minutes, lists executions since the last window, and re-drives anything the post-call
-    pipeline has not actually finished (`_pipeline_settled`). Every repair it makes is a
-    call something dropped — which is why it emits a metric rather than passing quietly,
-    and why the metric names WHICH of the two drops it was.
+    **THIS SAID BOLNA DELIVERS AT MOST ONCE WITH NO RETRIES, AND THEIR OWN DOCUMENTATION
+    SAYS OTHERWISE** — *"Expected response | HTTP `200` — return fast; Bolna retries on
+    non-2xx or timeout"* (VERIFIED-VENDOR-DOCS,
+    `bolna-findings/mirror/pages/api-reference/limits.md:61`). D-352 had already corrected
+    the premise from their skills repo; this is the hosted-docs corroboration that
+    `engine/bolna.py` records as missing, and it lands on the Limits page rather than the
+    webhooks guide, which is why a lane reading the webhooks guide could not find it.
+
+    NOTHING ABOUT THIS JOB CHANGES, and that is the finding rather than an omission. Their
+    retry is unspecified in every dimension that would let us rely on it — no count, no
+    schedule, no ceiling, and no statement that it ever gives up other than by silence —
+    so a delivery lost to a deploy is still a call that may never be mentioned again, and
+    a mechanism whose bound is unpublished cannot be the guarantee of record. What the
+    correction DOES bind is the receiver, which must be idempotent under redelivery rather
+    than merely tolerant of it: `voice-runtime` keys the inbox on the
+    `(execution_id, raw_status)` PAIR, never on the execution id, or the vendor's own
+    retry of `completed` is discarded as a duplicate of `queued`.
+
+    So: this runs every 10 minutes, lists executions since the last window, and re-drives
+    anything the post-call pipeline has not actually finished (`_pipeline_settled`). Every
+    repair it makes is a call something dropped — which is why it emits a metric rather
+    than passing quietly, and why the metric names WHICH of the two drops it was.
 
     And it reports what it could NOT see. The listing is one window onto lost calls, so an
     adapter that cannot vouch for having read all of it (`ExecutionListing.complete`)
@@ -2982,7 +3000,11 @@ async def reconcile_executions(ctx: dict[str, Any]) -> str:
     # this job repairs is a call whose webhook was lost, so an execution missing from the
     # listing is a call that no other mechanism will ever mention: no lead, no usage
     # event, no recording, and no error anywhere. The adapter cannot always know whether
-    # the vendor truncated (Bolna publishes no pagination contract), so it says
+    # the vendor truncated — their pagination contract IS published now (`page_number` /
+    # `page_size` up to 50, and a `has_more` flag to loop on:
+    # `bolna-findings/mirror/pages/api-reference/pagination.md:13-14,50`, which this
+    # comment used to say did not exist), but a page that arrives WITHOUT the documented
+    # flag is exactly the shape that could be hiding rows — so it says
     # `complete=False` with a reason and the decision to be loud is taken HERE — this is
     # the only caller, and a signal nobody reads is not a signal. It does NOT abort the
     # tick: the executions we DID get are still worth repairing.

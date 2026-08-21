@@ -20,7 +20,7 @@ import hashlib
 import hmac
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final, NotRequired, TypedDict, get_args
 
 from calevate_shared.engine import (
     E164,
@@ -43,7 +43,14 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
 )
-from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+from calevate_shared.events import (
+    TERMINAL_STATUSES,
+    CallDirection,
+    CallEvent,
+    CallStatus,
+    Speaker,
+    TranscriptTurn,
+)
 
 from apps.api.billing.rates import ROUNDING
 from apps.api.core.errors import ProblemError
@@ -53,6 +60,7 @@ from apps.api.engine.capabilities import (
     require_speech_leg,
 )
 from apps.api.engine.document import engine_document
+
 
 # A short code-mixed exchange: Telugu with English clinical terms, which is what
 # real calls sound like and what the extraction fixtures must cope with.
@@ -70,7 +78,47 @@ from apps.api.engine.document import engine_document
 # fixture is meant to depict, so the caller now says so. Five turns, deliberately —
 # `smoke_pipeline_test` counts them to prove transcript turns upsert on (call_id, idx)
 # rather than duplicating.
-SAMPLE_TURNS: tuple[tuple[str, str], ...] = (
+class _StoredCall(TypedDict):
+    """The fake's own call record — a TypedDict rather than `dict[str, Any]`.
+
+    `Any` is where a wrong value hides. `_snapshot_from` feeds `status` and `direction`
+    straight into `ExecutionSnapshot`, whose fields are `CallStatus`/`CallDirection`, and
+    with `Any` in between neither mypy nor Pyrefly could see a typo — it surfaced as a
+    Pydantic `ValidationError` inside the poller instead, which on a real engine is a call
+    record lost rather than a red squiggle. Declaring the store is what makes the two
+    writers below (`start_outbound_call`, `seed_inbound_call`) checkable at the line that
+    would make the mistake.
+    """
+
+    agent_ref: str
+    direction: CallDirection
+    status: CallStatus
+    started_at: datetime
+    ended_at: datetime
+    duration_s: int
+    from_e164: str
+    to_e164: str
+    #: Written by `start_outbound_call` only; `seed_inbound_call` stages a call that was
+    #: never dialled through us and so has neither.
+    context: NotRequired[dict[str, Any]]
+    system_prompt: NotRequired[str | None]
+    #: Written by `transfer` only, and only after the capability check passed — the
+    #: read-back that lets a test prove the escalation reached the engine.
+    transferred_to: NotRequired[E164]
+    transfer_warm: NotRequired[bool]
+
+
+#: Raw status → ours, the same shape both real adapters use (`bolna._STATUS_MAP`,
+#: `cartesia._STATUS_MAP`) so all three normalize by one mechanism rather than two. The
+#: fake IS its own vendor, so the map is the IDENTITY — and it is DERIVED from the
+#: Literal rather than retyped, which is the point: the hand-written `set[str]` it
+#: replaces was an eighth copy of `CallStatus` that a new member would have silently
+#: left out, normalizing a status we had just invented to `failed`. Deriving also
+#: retires the `# type: ignore[assignment]` the old membership test needed — a dict
+#: lookup narrows, a set membership test does not.
+_STATUS_MAP: Final[dict[str, CallStatus]] = {status: status for status in get_args(CallStatus)}
+
+SAMPLE_TURNS: tuple[tuple[Speaker, str], ...] = (
     ("agent", "Namaskaram, idi Sunrise Clinic AI assistant. Ee call record avutundi."),
     ("caller", "Namaskaram, naaku appointment kavali."),
     ("agent", "Tappakunda. Ee roju evening 6 gantalaku doctor available unnaru."),
@@ -268,7 +316,7 @@ class FakeEngine:
         #: different engine to every caller rather than a differently-labelled one.
         self.capabilities = capabilities
         self._agents: dict[str, AgentConfig] = {}
-        self._calls: dict[str, dict[str, Any]] = {}
+        self._calls: dict[str, _StoredCall] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
         #: `engine_number_ref → agent ref` — the engine's inbound routing table (D-420).
         self._inbound: dict[str, EngineAgentRef] = {}
@@ -717,17 +765,28 @@ class FakeEngine:
             fx_rate=Decimal("1"),
         )
 
-    def _snapshot_from(self, call_id: str, call: dict[str, Any]) -> ExecutionSnapshot:
-        raw_status = str(call["status"])
-        duration = int(call.get("duration_s") or 0)
+    def _snapshot_from(self, call_id: str, call: _StoredCall) -> ExecutionSnapshot:
+        status = call["status"]
+        duration = call.get("duration_s") or 0
         return ExecutionSnapshot(
             engine_call_id=call_id,
-            engine_agent_ref=str(call.get("agent_ref") or "") or None,
-            direction=call.get("direction", "inbound"),
-            status=raw_status,  # fake only stores our enum
-            raw_status=raw_status,
-            terminal=raw_status in ("completed", "failed", "no_answer", "busy", "voicemail"),
-            billable_ready=raw_status == "completed",
+            engine_agent_ref=call.get("agent_ref") or None,
+            # `call["direction"]`, not `.get(..., "inbound")`. The key is required, so
+            # mypy resolves `.get` to the value type and NEVER type-checks the default —
+            # a `.get("direction", "inboud")` typo is invisible to both checkers AND
+            # unreachable at runtime, which is the worst of both. Subscripting says what
+            # is true (both writers set it) and is the only form a checker can guard.
+            direction=call["direction"],
+            # The fake IS its own vendor and stores OUR enum, so the normalized status
+            # and the raw one are the same string — no map, unlike the two real adapters.
+            status=status,
+            raw_status=status,
+            # `TERMINAL_STATUSES`, not a retyped tuple of the same five members: the
+            # shared constant is what the pipeline branches on, and a fake that decided
+            # terminality from its own copy could disagree with production about when a
+            # call is over while every test still passed.
+            terminal=status in TERMINAL_STATUSES,
+            billable_ready=status == "completed",
             started_at=call.get("started_at"),
             ended_at=call.get("ended_at"),
             duration_s=duration,
@@ -738,7 +797,7 @@ class FakeEngine:
                 TranscriptTurn(call_id=call_id, idx=i, speaker=speaker, text=text)
                 for i, (speaker, text) in enumerate(SAMPLE_TURNS)
             ],
-            cost=self._cost_for(duration) if raw_status == "completed" else None,
+            cost=self._cost_for(duration) if status == "completed" else None,
             engine_extracted={},
             engine=self.name,
         )
@@ -868,17 +927,7 @@ class FakeEngine:
 
     def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
         status = str(payload.get("status") or "completed")
-        known: set[str] = {
-            "queued",
-            "ringing",
-            "in_progress",
-            "completed",
-            "failed",
-            "no_answer",
-            "busy",
-            "voicemail",
-        }
-        normalized: CallStatus = status if status in known else "failed"  # type: ignore[assignment]
+        normalized = _STATUS_MAP.get(status, "failed")
         return CallEvent(
             call_id=str(payload.get("id") or payload.get("execution_id") or ""),
             engine_agent_ref=str(payload["agent_id"]) if payload.get("agent_id") else None,
