@@ -6703,6 +6703,8 @@ export interface components {
          *     COUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.
          */
         KbDriftOut: {
+            /** Engine Supports Knowledge Base */
+            engine_supports_knowledge_base: boolean;
             /** In Sync */
             in_sync: number;
             /** Live Agents */
@@ -11945,7 +11947,9 @@ export interface operations {
     set_tenant_status_v1_admin_tenants__tenant_id__status_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };

@@ -1328,7 +1328,32 @@ function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
           </NoticeBox>
         )}
 
-        {read !== null && !swept && (
+        {/* THE ENGINE HAS NO KNOWLEDGE BASE — checked BEFORE "nothing has been swept",
+            because the two produce identical data and only one of them is a problem.
+            `sweep_kb_drift` returns on its first line when the engine lacks the
+            capability, so on Bolna (`BOLNA_CAPABILITIES.knowledge_base` is False, D-354)
+            it records nothing on every run, for ever, by design. The warning below then
+            told an operator "the reconciliation job is not running" — permanently, about
+            a job running hourly at :23 and doing exactly the right thing. Found by
+            walking the console: the panel had counts and a null pulse, which is the same
+            shape a dead cron makes, and no way to tell them apart until the API grew
+            `engine_supports_knowledge_base`. */}
+        {read !== null && !read.engine_supports_knowledge_base && (
+          <NoticeBox
+            tone="neutral"
+            icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+            title="This engine has no built-in knowledge base"
+          >
+            <p className="mt-1">
+              There is nothing here for the sweep to watch, so it records nothing and the
+              counts below stay at zero. That is the engine&apos;s shape, not a failure —
+              agents answer from the prompt they were published with, and the panel above
+              is what watches that. Nothing to do.
+            </p>
+          </NoticeBox>
+        )}
+
+        {read !== null && read.engine_supports_knowledge_base && !swept && (
           <NoticeBox
             tone="warn"
             icon={<TriangleAlert aria-hidden className="h-5 w-5" />}
