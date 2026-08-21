@@ -49,7 +49,9 @@ services), and nothing has been deployed — `infra/` is templates nobody has ap
 
 ```
 docker compose up -d          # pg16+pgvector, redis, minio
-uv sync                       # python deps (uv only; no pip/poetry)
+uv sync --all-packages        # python deps (uv only; no pip/poetry). --all-packages is
+                              # required: plain `uv sync` skips the workspace members and
+                              # `calevate_shared` then will not import (ci.yml:63).
 uv run alembic upgrade head
 uv run python -m scripts.seed
 pnpm install && pnpm -C apps/web dev
@@ -58,7 +60,11 @@ pnpm install && pnpm -C apps/web dev
 Checks that must pass before any commit:
 ```
 uv run ruff check . && uv run ruff format --check .
-uv run mypy .                 # strict
+uv run mypy apps packages     # strict. NOT `mypy .` — two conftest.py files collide
+                              # under module resolution and it stops before checking
+                              # anything. Needs `--group errors` synced first, or
+                              # sentry-sdk is missing and observability.py is checked
+                              # against Any (Makefile `types:`, ci.yml:404).
 uv run pytest                 # includes RLS + engine-conformance suites
 make guardrails               # executable governance (ENGINEERING-PRACTICES §2)
 make web-check                # frontend: typecheck + lint + vitest (D-53)

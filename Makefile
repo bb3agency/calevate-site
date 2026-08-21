@@ -49,6 +49,29 @@ dev:
 	uv run arq apps.workers.settings.WorkerSettings & \
 	pnpm -C apps/web dev
 
+## The one command to start working: heals the stack, then runs it quietly.
+##
+## Same four services as `dev:`, but it first brings the compose stack up (waiting
+## for the ports to answer, not just for `up -d` to return), migrates to head and
+## seeds — all additive, never destructive; `db-reset` remains the one that drops.
+## Then the terminal prints ONLY the emailed auth codes.
+##
+## `make dev`'s `&`-chained pipeline does not run on Windows at all, and drowns the one
+## string a developer cannot get any other way: the six-digit code (D-170/D-409 — it is
+## stored only as a keyed hash, so the message body is the sole copy). This starts the
+## same four services, prints codes and single-use links as they are sent, and stays
+## quiet otherwise — except about a service that dies, which it reports with its last
+## output. `--verbose` passes everything through. Not an MFA bypass: it reads a log line
+## the local-only ConsoleTransport already writes.
+##
+## COMMENTS AT COLUMN 0, NOT INSIDE THE RECIPE. A `#` line indented with a TAB is part of
+## the recipe and make hands it to the shell — harmless under `sh`, and on Windows
+## `cmd.exe` answers "'#' is not recognized as an internal or external command" and the
+## target fails before running anything. Every explanatory line here therefore sits
+## outside the recipe, which is what `dev:` above already does.
+dev-otp:
+	uv run python -m scripts.dev
+
 lint:  ## Fix in place — the dev loop
 	uv run ruff check --fix .
 	uv run ruff format .
