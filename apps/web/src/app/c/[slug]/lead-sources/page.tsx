@@ -721,131 +721,145 @@ function LeadSourcesCard({
         }}
       >
         <p className="text-sm font-medium text-ink">Add a lead source</p>
-        <div className="flex flex-wrap gap-3">
-          <label className="text-xs text-ink-muted">
-            Where leads come from
-            <select
-              aria-label="Lead source kind"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-              className={`${FIELD} mt-1 block w-full sm:min-w-[16rem]`}
-            >
-              {CREATABLE_SOURCES.map((kind) => (
-                <option key={kind} value={kind}>
-                  {sourceLabel(kind)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="text-xs text-ink-muted">
-            Which agent answers them
-            {/* §52. `agents.data ?? []` left this picker holding ONE option — "Not yet —
-                save leads, don't call" — whenever `/v1/agents` failed, and that option is
-                a legitimate choice, so nothing looked wrong. A client would pick the only
-                thing on offer and walk away having built a source that saves leads and
-                never rings anybody, believing they had no agents to point it at. An empty
-                picker over a failed read is a statement about their business made from a
-                request that never landed. */}
-            {/* `!agents.isLoading && !agents.data` is the same sentence for the
-                non-answer that carries no error: a query TanStack has PAUSED because the
-                browser is offline reports `isLoading === false`, `error === null` and no
-                data, so the picker below rendered "Not yet — save leads, don't call" as
-                the only option and made exactly the claim this branch exists to prevent. */}
-            {agents.error != null || (!agents.isLoading && !agents.data) ? (
-              <span className="mt-1 block max-w-md rounded-md border border-line bg-surface px-3 py-2 text-ink-muted">
-                We could not read your agents just now, so this cannot be chosen yet —
-                saving without it would create a source that never rings anyone. Reload
-                the page to try again.
-              </span>
-            ) : (
+        {/* A `fieldset`, not `disabled` on each control, and this form is why the
+            distinction matters. Every field here stayed fully typeable for an operator
+            in a read-only view-as session while only the submit button was gated — so a
+            person could fill the whole thing in and discover it was inert at the last
+            click. `disabled` on a fieldset cascades to every control it contains,
+            INCLUDING ones added later, which is exactly how this drifted from
+            `integrations/page.tsx` (which gates each input by hand, and is correct, but
+            is one forgotten attribute away from repeating this).
+
+            `m-0 border-0 p-0`: every browser gives a fieldset a default border, padding
+            and margin, and this one is a behaviour wrapper rather than a visual
+            grouping. `space-y-3` reproduces the spacing the form already had. */}
+        <fieldset disabled={!canWrite} className="m-0 space-y-3 border-0 p-0">
+          <div className="flex flex-wrap gap-3">
+            <label className="text-xs text-ink-muted">
+              Where leads come from
               <select
-                aria-label="Agent to answer these leads"
-                value={agentId}
-                disabled={agents.isLoading}
-                onChange={(e) => setAgentId(e.target.value)}
+                aria-label="Lead source kind"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
                 className={`${FIELD} mt-1 block w-full sm:min-w-[16rem]`}
               >
-                {/* Honest, not blank: a source with no agent SAVES leads and never dials
-                    them, which is a legitimate state and a surprising one. Say it. */}
-                <option value="">
-                  {agents.isLoading
-                    ? "Reading your agents…"
-                    : "Not yet — save leads, don't call"}
-                </option>
-                {(agents.data ?? []).map((agent) => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.name}
+                {CREATABLE_SOURCES.map((kind) => (
+                  <option key={kind} value={kind}>
+                    {sourceLabel(kind)}
                   </option>
                 ))}
               </select>
-            )}
-          </label>
-        </div>
+            </label>
+            <label className="text-xs text-ink-muted">
+              Which agent answers them
+              {/* §52. `agents.data ?? []` left this picker holding ONE option — "Not yet —
+                  save leads, don't call" — whenever `/v1/agents` failed, and that option is
+                  a legitimate choice, so nothing looked wrong. A client would pick the only
+                  thing on offer and walk away having built a source that saves leads and
+                  never rings anybody, believing they had no agents to point it at. An empty
+                  picker over a failed read is a statement about their business made from a
+                  request that never landed. */}
+              {/* `!agents.isLoading && !agents.data` is the same sentence for the
+                  non-answer that carries no error: a query TanStack has PAUSED because the
+                  browser is offline reports `isLoading === false`, `error === null` and no
+                  data, so the picker below rendered "Not yet — save leads, don't call" as
+                  the only option and made exactly the claim this branch exists to prevent. */}
+              {agents.error != null || (!agents.isLoading && !agents.data) ? (
+                <span className="mt-1 block max-w-md rounded-md border border-line bg-surface px-3 py-2 text-ink-muted">
+                  We could not read your agents just now, so this cannot be chosen yet —
+                  saving without it would create a source that never rings anyone. Reload
+                  the page to try again.
+                </span>
+              ) : (
+                <select
+                  aria-label="Agent to answer these leads"
+                  value={agentId}
+                  disabled={agents.isLoading}
+                  onChange={(e) => setAgentId(e.target.value)}
+                  className={`${FIELD} mt-1 block w-full sm:min-w-[16rem]`}
+                >
+                  {/* Honest, not blank: a source with no agent SAVES leads and never dials
+                      them, which is a legitimate state and a surprising one. Say it. */}
+                  <option value="">
+                    {agents.isLoading
+                      ? "Reading your agents…"
+                      : "Not yet — save leads, don't call"}
+                  </option>
+                  {(agents.data ?? []).map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </label>
+          </div>
 
-        <fieldset className="flex flex-wrap gap-3">
-          <legend className="text-xs text-ink-muted">
-            What your form calls each field (leave blank to send ours)
-          </legend>
-          <input
-            value={phoneField}
-            onChange={(e) => setPhoneField(e.target.value)}
-            aria-label="Your form's phone field name"
-            placeholder="phone_number"
-            className={`${FIELD} font-mono`}
-          />
-          <input
-            value={nameField}
-            onChange={(e) => setNameField(e.target.value)}
-            aria-label="Your form's name field name"
-            placeholder="full_name"
-            className={`${FIELD} font-mono`}
-          />
-          <input
-            value={consentField}
-            onChange={(e) => setConsentField(e.target.value)}
-            aria-label="Your form's consent field name"
-            placeholder="consent_to_call (optional)"
-            className={`${FIELD} font-mono`}
-          />
-        </fieldset>
-        {/* Consent is not a formality on this path: a lead that does not affirm it is
-            saved and never dialled (FLOWS §4). Say what naming the field does. */}
-        <p className="text-xs text-ink-faint">
-          If your form asks permission to call, name that field — a lead that does not
-          confirm it is saved and never dialled.
-        </p>
-
-        {isMeta && (
-          <label className="block text-xs text-ink-muted">
-            Your Meta app&apos;s App Secret
+          <fieldset className="flex flex-wrap gap-3">
+            <legend className="text-xs text-ink-muted">
+              What your form calls each field (leave blank to send ours)
+            </legend>
             <input
-              required
-              type="password"
-              value={appSecret}
-              onChange={(e) => setAppSecret(e.target.value)}
-              aria-label="Meta App Secret"
-              className={`${FIELD} mt-1 block w-full max-w-md font-mono`}
+              value={phoneField}
+              onChange={(e) => setPhoneField(e.target.value)}
+              aria-label="Your form's phone field name"
+              placeholder="phone_number"
+              className={`${FIELD} font-mono`}
             />
-            <span className="mt-1 block text-ink-faint">
-              Meta signs every notification with this, so we cannot generate it. Find it
-              under App settings → Basic in the Meta App Dashboard.
-            </span>
-          </label>
-        )}
+            <input
+              value={nameField}
+              onChange={(e) => setNameField(e.target.value)}
+              aria-label="Your form's name field name"
+              placeholder="full_name"
+              className={`${FIELD} font-mono`}
+            />
+            <input
+              value={consentField}
+              onChange={(e) => setConsentField(e.target.value)}
+              aria-label="Your form's consent field name"
+              placeholder="consent_to_call (optional)"
+              className={`${FIELD} font-mono`}
+            />
+          </fieldset>
+          {/* Consent is not a formality on this path: a lead that does not affirm it is
+              saved and never dialled (FLOWS §4). Say what naming the field does. */}
+          <p className="text-xs text-ink-faint">
+            If your form asks permission to call, name that field — a lead that does not
+            confirm it is saved and never dialled.
+          </p>
 
-        {/* Blocked while the agent list is unreadable, because otherwise the sentence
-            above it is not true: the form would still POST, with no agent, and produce
-            exactly the silent never-dialling source that sentence promises to prevent. */}
-        <button
-          type="submit"
-          disabled={
-            !canWrite || create.isPending || (isMeta && !appSecret.trim()) || agents.error != null
-          }
-          className={PRIMARY_BUTTON_SM}
-        >
-          <Plus className="h-4 w-4" />
-          {create.isPending ? "Adding…" : "Add lead source"}
-        </button>
+          {isMeta && (
+            <label className="block text-xs text-ink-muted">
+              Your Meta app&apos;s App Secret
+              <input
+                required
+                type="password"
+                value={appSecret}
+                onChange={(e) => setAppSecret(e.target.value)}
+                aria-label="Meta App Secret"
+                className={`${FIELD} mt-1 block w-full max-w-md font-mono`}
+              />
+              <span className="mt-1 block text-ink-faint">
+                Meta signs every notification with this, so we cannot generate it. Find it
+                under App settings → Basic in the Meta App Dashboard.
+              </span>
+            </label>
+          )}
+
+          {/* Blocked while the agent list is unreadable, because otherwise the sentence
+              above it is not true: the form would still POST, with no agent, and produce
+              exactly the silent never-dialling source that sentence promises to prevent. */}
+          <button
+            type="submit"
+            disabled={
+              !canWrite || create.isPending || (isMeta && !appSecret.trim()) || agents.error != null
+            }
+            className={PRIMARY_BUTTON_SM}
+          >
+            <Plus className="h-4 w-4" />
+            {create.isPending ? "Adding…" : "Add lead source"}
+          </button>
+        </fieldset>
       </form>
     </Card>
   );
