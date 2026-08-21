@@ -53,7 +53,11 @@ import Link from "next/link";
 import { ArrowLeft, KeyRound, LogIn, Mail } from "lucide-react";
 
 import { AuthField, AuthProblemNotice } from "@/components/authn/fields";
-import { Card, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import { Card, NoticeBox, PRIMARY_BUTTON, SECONDARY_BUTTON } from "@/components/ui";
+import {
+  SIGN_OUT_INCOMPLETE_PARAM,
+  SIGN_OUT_INCOMPLETE_VALUE,
+} from "@/components/authn/sidebarSignOut";
 import { MAX_PASSWORD_CHARS } from "@/lib/authn/password";
 import type { AuthnSession, RealmAuthn } from "@/lib/authn/realm";
 import { useCountdown } from "@/lib/authn/useCountdown";
@@ -80,10 +84,29 @@ export interface SignInFormProps {
   footer?: React.ReactNode;
 }
 
+/**
+ * Did the sidebar's sign-out reach the server, or only this browser?
+ *
+ * Read from `window.location.search` on mount rather than through `useSearchParams`,
+ * which in the App Router forces every page rendering this form into a Suspense boundary
+ * or fails the build -- a large blast radius for one optional notice. The value is read
+ * ONCE: a person who then signs in and out again gets the state their latest click
+ * produced, not a parameter left in the bar.
+ */
+function useIncompleteSignOut(): boolean {
+  const [incomplete, setIncomplete] = useState(false);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setIncomplete(params.get(SIGN_OUT_INCOMPLETE_PARAM) === SIGN_OUT_INCOMPLETE_VALUE);
+  }, []);
+  return incomplete;
+}
+
 type Step = "credentials" | "code";
 
 export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInFormProps) {
   const [step, setStep] = useState<Step>("credentials");
+  const signOutIncomplete = useIncompleteSignOut();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -288,6 +311,16 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
           value={password}
           onChange={(event) => setPassword(event.target.value)}
         />
+
+        {signOutIncomplete && (
+          <NoticeBox tone="warn" title="Signed out on this device only">
+            <p className="mt-1">
+              Calevate could not be reached to end the session everywhere else, so it may
+              still be open on another device until it times out. Sign in and use
+              &ldquo;Sign out everywhere&rdquo; on your account page to end it now.
+            </p>
+          </NoticeBox>
+        )}
 
         <AuthProblemNotice error={signIn.error} />
 

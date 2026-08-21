@@ -27,8 +27,8 @@ import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { SignInForm } from "@/components/authn/signInForm";
 import {
+  ADMIN_CONSOLE_PATH,
   ADMIN_FORGOT_PATH,
-  ADMIN_SESSION_PATH,
   adminAuthn,
 } from "@/lib/authn/adminAuthn";
 import { AdminGuestOnly } from "@/lib/authn/adminSession";
@@ -49,7 +49,15 @@ export default function AdminSignInPage() {
                 // Hard navigation, per §5.5: a soft one can stall on the way out of a
                 // route group, and a stalled redirect immediately after a sign-in reads
                 // as a sign-in that failed.
-                window.location.assign(ADMIN_SESSION_PATH);
+                //
+                // THE CONSOLE, not `ADMIN_SESSION_PATH`. This used to land every operator
+                // on `/auth/admin` -- a page that says "you are signed in" and whose two
+                // biggest buttons are Sign out and Sign out everywhere -- so the reward
+                // for signing in was a dead end with a link on it. `/auth/admin` is still
+                // reachable and still owns the things a console shell should not carry
+                // (ending a session on a device you no longer hold, verifying the address
+                // the code goes to); it is just not where signing in takes you.
+                window.location.assign(ADMIN_CONSOLE_PATH);
               }}
               footer={
                 <p className="text-xs text-ink-faint">
