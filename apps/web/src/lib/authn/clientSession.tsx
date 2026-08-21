@@ -28,7 +28,7 @@ import { createContext, useContext, useEffect, type ReactNode } from "react";
 import { SessionGate } from "@/components/authn/sessionGate";
 import { Skeleton } from "@/components/ui";
 
-import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "./clientAuthn";
+import { CLIENT_CONSOLE_PATH, CLIENT_SIGN_IN_PATH, clientAuthn } from "./clientAuthn";
 import { RESTORE_DEADLINE_MS, type AuthnSession } from "./realm";
 import { useRealmSession, type RealmSessionState } from "./useRealmSession";
 
@@ -109,7 +109,13 @@ export function ClientGuestOnly({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!alreadyIn || typeof window === "undefined") return;
-    window.location.assign(CLIENT_ACCOUNT_PATH);
+    // THE CONSOLE, and this is the half that would have made the sign-in redirect
+    // unreliable rather than merely wrong — the same pair D-432 found on the admin realm.
+    // `SignInForm.onSignedIn` navigates, and in the same commit the session goes non-null,
+    // so this effect fires too: two `window.location` calls in one tick, later one wins.
+    // While the two named different destinations, where a person landed after signing in
+    // was a race. Both now name `/c`.
+    window.location.assign(CLIENT_CONSOLE_PATH);
   }, [alreadyIn]);
 
   if (status === "restoring" || alreadyIn) return <Skeleton rows={4} label="Checking…" />;

@@ -1,4 +1,6 @@
 import Link from "next/link";
+
+import { MarketingAccountNav } from "@/components/authn/marketingAccountNav";
 import {
   ArrowRight,
   BadgeCheck,
@@ -284,21 +286,13 @@ export default function Home() {
         <header className="sticky top-0 z-20 border-b border-line bg-surface/85 backdrop-blur">
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-4 px-6 py-4">
             <span className="text-base font-semibold tracking-tight text-ink">Calevate</span>
-            <nav className="flex items-center gap-2">
-              <Link
-                href={CLIENT_SIGN_IN_PATH}
-                className="rounded-md px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
-              >
-                Sign in
-              </Link>
-              <Link
-                href="/signup"
-                className="inline-flex items-center gap-1.5 rounded-md bg-brand-strong px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-strong"
-              >
-                {SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
-                <ArrowRight aria-hidden className="h-3.5 w-3.5" />
-              </Link>
-            </nav>
+            {/* A client island in a server page: the session cookie is `HttpOnly`, so
+                whether this visitor is already signed in can only be answered by asking
+                the API. It renders the signed-out header until that lands, and never the
+                other way round. */}
+            <MarketingAccountNav
+              signupLabel={SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
+            />
           </div>
         </header>
 

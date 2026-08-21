@@ -224,7 +224,13 @@ describe("the admin nav, once the console knows who it is", () => {
     // The whole point of the endpoint: no impersonation, so no client is entered and no
     // `admin:impersonate` is spent to find out who we are.
     expect(identity[0]?.headers["X-Impersonate-Org"]).toBeUndefined();
-    expect(identity[0]?.headers["X-Org-Slug"]).toBe("");
+    // ABSENT, not empty, and the change is a strengthening of this same claim.
+    // `apiRequest` used to send `X-Org-Slug` unconditionally, so an admin session — which
+    // has no slug — put an empty one on every request. It is now omitted when there is no
+    // account to name, the way `Authorization` already was, which is what lets `/c` ask
+    // `/v1/me` "which account is mine" before the answer is known. "No tenant attached"
+    // is exactly what this asserted before; it can now assert it literally.
+    expect(identity[0]?.headers["X-Org-Slug"]).toBeUndefined();
   });
 });
 

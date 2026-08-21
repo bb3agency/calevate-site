@@ -60,6 +60,7 @@ import InvitePage from "@/app/invite/page";
 import LegalDocumentRoute from "@/app/legal/[slug]/page";
 import LegalIndexPage from "@/app/legal/page";
 import Home from "@/app/page";
+import ClientConsoleJunction from "@/app/c/page";
 import SignupPage from "@/app/signup/page";
 
 import {
@@ -1255,6 +1256,17 @@ const CLIENT_SCREENS: Screen[] = [
     file: "invite/page.tsx",
     realm: "client",
     element: () => <InvitePage />,
+    routes: { "/v1/me": ME },
+  },
+  {
+    // The junction that turns "I have a session" into "this is my console". It renders a
+    // skeleton while `/v1/me` answers and a refusal if it cannot, so both of its states
+    // are scannable — and the skeleton is the one that matters here, because a junction
+    // that announced nothing would leave a screen-reader user on a silent page while the
+    // redirect was decided.
+    file: "c/page.tsx",
+    realm: "client",
+    element: () => <ClientConsoleJunction />,
     routes: { "/v1/me": ME },
   },
   {
