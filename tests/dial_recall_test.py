@@ -62,7 +62,7 @@ async def _quiet_platform() -> AsyncIterator[None]:
 async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, list[uuid.UUID]]:
     """A routed tenant holding exactly the dials described.
 
-    Each entry is `{status, engine_call_id, recalled}`. Rows rather than the dial path:
+    Each entry is `{status, engine_call_id, recalled, to}`. Rows rather than the dial path:
     this file is about what the scan and the job see, and a bare organization + agent +
     route + calls is the whole input.
     """
@@ -94,8 +94,8 @@ async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, li
             await session.execute(
                 text(
                     "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, "
-                    "status, recall_requested_at, created_at, updated_at) VALUES (:id, :tid, "
-                    ":aid, :ec, 'outbound', :st, "
+                    "status, to_e164, recall_requested_at, created_at, updated_at) VALUES "
+                    "(:id, :tid, :aid, :ec, 'outbound', :st, :to, "
                     "CASE WHEN :recalled THEN now() ELSE NULL END, now(), now())"
                 ),
                 {
@@ -104,6 +104,10 @@ async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, li
                     "aid": agent_id,
                     "ec": dial["engine_call_id"],
                     "st": dial.get("status", "queued"),
+                    # `to_e164` is what the DNC recall's scan matches on
+                    # (`tests/dnc_recall_test.py`); the halt's scan ignores it. Defaulted
+                    # so every case in THIS file keeps describing only what it cares about.
+                    "to": dial.get("to", "+919000000000"),
                     "recalled": dial.get("recalled", False),
                 },
             )

@@ -61,6 +61,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import DNC_REMOVABLE_SOURCES
 from apps.api.core.errors import ProblemError
@@ -181,6 +182,11 @@ async def add_numbers(
                 for phone in fresh
             ],
         )
+        # D-428(b): the suppression is not honoured until the dials the vendor is
+        # ALREADY holding are pulled back. Same transaction as the insert above, so the
+        # two share a fate. `fresh` only — a re-import of an unchanged list enqueues
+        # nothing.
+        await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=fresh)
 
     # Counts only (hard rule 6): the numbers are the whole point of the request and
     # none of them belong in a log line.
@@ -427,6 +433,10 @@ async def add_global_numbers(
             ),
             [{"id": uuid7(), "phone": phone, "source": source} for phone in fresh],
         )
+        # D-428(b), and `tenant_id=None` is load-bearing rather than absent: a global
+        # entry outranks every tenant's own list, so the recall has to reach every
+        # tenant's queue rather than one.
+        await enqueue_dnc_recall(session, tenant_id=None, phones=fresh)
 
     # Counts only (hard rule 6), and no tenant id — there isn't one.
     log.info("dnc_global_added", extra={"added": len(fresh), "source": source})

@@ -32,6 +32,7 @@ from calevate_shared.engine import (
     NumberSeries,
     NumberSpec,
     ProvisionedNumber,
+    RecallOutcome,
     VoiceEngine,
     compose_engine_prompt,
 )
@@ -670,6 +671,33 @@ async def test_ending_a_call_the_engine_does_not_hold_is_reported(
     assert reported is not None, (
         "ending a call the engine does not hold passed quietly — the one failure this "
         "method has is claiming to have stopped a call it did not stop"
+    )
+
+
+async def test_a_stop_says_what_it_caught_and_never_overclaims(engine: VoiceEngine) -> None:
+    """The verdict `end_call` returns is a COMPLIANCE claim, so its floor is honesty.
+
+    A DNC suppression may later have to answer "prove this number was not called", and
+    `RecallOutcome.PREVENTED` is the only value anything is allowed to record that on. So
+    the clause every adapter must meet is not "return PREVENTED" — Cartesia's stop route
+    is inferred and cannot know, and answers `UNKNOWN` on purpose — it is that whatever
+    comes back is a member of the vocabulary, so a caller can branch on it without
+    guessing, and that a stop of a REAL dial never raises.
+
+    Deliberately not asserting WHICH value: that is the adapter's to decide from what its
+    vendor said, and a conformance suite demanding `PREVENTED` would force exactly the
+    unearned claim this return value exists to stop.
+    """
+    handle = await _place_call(engine)
+    if handle is None:
+        # `cartesia` refuses every dial by name (see `_place_call`), so there is no real
+        # execution here to stop. Skipping is the honest answer; stopping a fabricated id
+        # would measure the D-187 clause above a second time instead of this one.
+        pytest.skip("this adapter places no dial, so it holds nothing to stop")
+    outcome = await engine.end_call(handle)
+    assert isinstance(outcome, RecallOutcome), (
+        f"{engine.name} answered {outcome!r}, which no caller can branch on; the DNC "
+        "recall reads this to decide whether a number may be recorded as not called"
     )
 
 

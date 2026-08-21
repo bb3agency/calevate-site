@@ -92,6 +92,7 @@ from apps.workers.dispatcher import (
     report_stalled_pipeline,
     sweep_expired,
 )
+from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
@@ -166,6 +167,14 @@ FUNCTIONS: list[Any] = [
         # which is the `check_job_wiring` shape 3 failure on the one control an operator
         # throws when something is going wrong.
         recall_queued_dials,
+        # D-428(b), the recall's other arm and the one with a regulator behind it.
+        # Published by the outbox in the same transaction as a `dnc_list` insert, so an
+        # unregistered name here does not read as a dormant feature: arq accepts the
+        # enqueue, the outbox row says `published`, `Worker.run_job` drops it with a
+        # warning nothing reads — and the suppression is honoured for the next dispatch
+        # tick while the dials already queued at the vendor ring anyway, with every screen
+        # reporting the number suppressed.
+        recall_dials_for_dnc,
     )
 ]
 

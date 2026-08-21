@@ -117,6 +117,7 @@ from calevate_shared.engine import (
     ModelConfig,
     NumberSpec,
     ProvisionedNumber,
+    RecallOutcome,
     WebhookVerdict,
     compose_engine_prompt,
 )
@@ -286,6 +287,19 @@ _VENDOR_STATUSES: frozenset[str] = frozenset(
         "error",
     }
 )
+
+#: What their stop route answers when it caught a dial before it was executed.
+#:
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/calls/stop_call.md:47`
+#: prints it as the 200 body, and :7 states the route's scope — "stop a call when its
+#: status is `queued` or `scheduled` … cancel pending calls before they are executed".
+#: Both halves matter: the string is what we match, and the sentence is what makes
+#: matching it mean "the phone did not ring".
+#:
+#: A CONSTANT rather than a literal at the one call site, because it is also a key of
+#: `_STATUS_MAP` below — where it maps to `failed`, which is correct for a call ROW and is
+#: exactly why `end_call` has to read it before that mapping erases the distinction.
+_STOPPED_STATUS = "stopped"
 
 _STATUS_MAP: dict[str, CallStatus] = {
     "scheduled": "queued",
@@ -2477,7 +2491,7 @@ class BolnaEngine:
             )
         return handle
 
-    async def end_call(self, call_id: str) -> None:
+    async def end_call(self, call_id: str) -> RecallOutcome:
         """`POST /call/{execution_id}/stop`.
 
         **THE PATH WAS WRONG (D-353).** This was `POST /executions/{id}/stop`, which is not
@@ -2492,8 +2506,29 @@ class BolnaEngine:
         pull a queued dial back after a DNC addition or the big red switch, which is
         exactly the queued/scheduled case. Recorded here rather than assumed, because the
         method's NAME suggests the stronger promise and the next reader will believe it.
+
+        **THE VERDICT COMES FROM THEIR RESPONSE, and this method used to throw it away.**
+        The route answers `{"status": "stopped", "execution_id": ...}` and its own summary
+        says it cancels "pending calls before they are executed"
+        (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/calls/
+        stop_call.md:7,47`). That is the vendor adjudicating the exact question a DNC
+        suppression has to answer, and it is available for free on a call we already make —
+        no second read, no race with one.
+
+        It is read HERE and nowhere else because it is a vendor payload shape (hard rule
+        2), and because after this point the answer is unrecoverable: `_STATUS_MAP` folds
+        `stopped` into our `failed` beside `canceled`, `error` and a genuine post-ring
+        failure, so a caller inspecting `calls.status` later cannot tell which happened.
+
+        ANY OTHER BODY IS `UNKNOWN`, not `PREVENTED`. A 200 whose `status` we did not
+        recognise means the request succeeded and told us nothing about what it caught,
+        and silence is not a denial that the phone rang. `_request` raises on a 4xx, so
+        the vendor's refusal of an already-running call reaches the caller as the
+        exception D-187's clause requires rather than as a verdict.
         """
-        await self._request("POST", f"/call/{call_id}/stop")
+        data = await self._request("POST", f"/call/{call_id}/stop")
+        answered = str(data.get("status") or "").strip().lower() if isinstance(data, dict) else ""
+        return RecallOutcome.PREVENTED if answered == _STOPPED_STATUS else RecallOutcome.UNKNOWN
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
         # NOT "unverified" any more — see `BOLNA_CAPABILITIES.transfer` for what was read
