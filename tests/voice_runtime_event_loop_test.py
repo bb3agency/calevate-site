@@ -31,6 +31,8 @@ import re
 import tomllib
 from pathlib import Path
 
+from tests.platform_support import requires_uvloop_platform
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = REPO_ROOT / "compose.prod.yml"
 VOICE_RUNTIME_PYPROJECT = REPO_ROOT / "apps" / "voice-runtime" / "pyproject.toml"
@@ -44,7 +46,7 @@ def _voice_runtime_command() -> list[str]:
     handful of flags, and adding a parser to the test suite to read four lines would be
     a heavier answer than the question deserves.
     """
-    text = COMPOSE.read_text()
+    text = COMPOSE.read_text(encoding="utf-8")
     block = re.search(r"\n  voice-runtime:\n(.*?)(?=\n  [a-z][a-z0-9-]*:\n)", text, re.S)
     assert block, "compose.prod.yml no longer has a `voice-runtime:` service block"
     # COMMENT LINES ARE PART OF THE RUN. The command list is interleaved with the prose
@@ -61,6 +63,7 @@ def _voice_runtime_command() -> list[str]:
     ]
 
 
+@requires_uvloop_platform
 def test_uvloop_is_actually_installed() -> None:
     """The premise under DEPLOYMENT §2a's 250 acks/s.
 
@@ -82,7 +85,7 @@ def test_the_extra_that_ships_uvloop_is_still_declared() -> None:
     dependency list carries a comment asking for it to be kept "deliberately small" —
     which is a standing invitation to trim exactly this.
     """
-    manifest = tomllib.loads(VOICE_RUNTIME_PYPROJECT.read_text())
+    manifest = tomllib.loads(VOICE_RUNTIME_PYPROJECT.read_text(encoding="utf-8"))
     deps = manifest["project"]["dependencies"]
     assert any(dep.startswith("uvicorn[standard]") for dep in deps), (
         f"apps/voice-runtime no longer declares `uvicorn[standard]` (has: {deps}). The "
@@ -133,7 +136,7 @@ def test_the_document_still_says_what_this_file_is_checking() -> None:
     be revisited in the same change rather than left pinning a number the document no
     longer claims.
     """
-    doc = DEPLOYMENT_DOC.read_text()
+    doc = DEPLOYMENT_DOC.read_text(encoding="utf-8")
     assert "uvloop" in doc, (
         "DEPLOYMENT.md no longer mentions uvloop, but this file pins it as a premise of "
         "the ack budget — re-read §2a and update both together"

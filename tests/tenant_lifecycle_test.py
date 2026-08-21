@@ -36,6 +36,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.admin.routes import close_account_confirmation
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.db.base import uuid7
@@ -69,14 +70,30 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
 
 
-async def _set_status(token: str, tenant_id: UUID, status: str, reason: str | None = None) -> Any:
+async def _set_status(
+    token: str,
+    tenant_id: UUID,
+    status: str,
+    reason: str | None = None,
+    *,
+    confirm: bool = True,
+) -> Any:
+    """`confirm` sends the step-up header that CLOSING now requires.
+
+    Defaulted on so every existing case here keeps testing the transition it was written
+    for rather than the gate; the two cases that test the gate itself pass it explicitly.
+    Suspend and reactivate ignore it -- the route only demands it for the terminal move.
+    """
     body: dict[str, Any] = {"status": status}
     if reason is not None:
         body["reason"] = reason
+    headers = {"Authorization": f"Bearer {token}"}
+    if confirm:
+        headers["X-Confirm-Action"] = close_account_confirmation(tenant_id)
     async with _client() as http:
         return await http.post(
             STATUS.format(tenant_id=tenant_id),
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
             json=body,
         )
 
@@ -412,3 +429,50 @@ async def test_an_account_row_the_session_cannot_read_is_refused_not_waved_throu
     assert decision.allowed is False
     assert decision.rule == "account_missing"
     assert decision.reason, "a refusal a caller cannot read is a refusal they cannot act on"
+
+
+# ─────────────────── the second factor, and where the line is drawn ───────────────────
+
+
+async def test_closing_an_account_for_good_needs_a_second_factor() -> None:
+    """The IRREVERSIBLE move is the one that must be confirmed.
+
+    `churned` is terminal by construction — no entry in `_LIFECYCLE_FROM` lists it as a
+    source — so this ends a client relationship, locks their users out through
+    `core/auth.py` and starts the retention clock. Until this gate existed it was the only
+    irreversible action on the operator console reachable with nothing but a live session,
+    while three REVERSIBLE ones beside it (halting outbound, raising a spend ceiling,
+    minting a view-as grant) each demanded a code.
+    """
+    token = await _make_admin()
+    tenant_id = await _tenant()
+
+    response = await _set_status(token, tenant_id, "churned", "offboarded", confirm=False)
+
+    assert response.status_code == 403, response.text
+    # The account did NOT move. The assertion that matters: a refusal that still closed
+    # the account would be worse than no gate, because the console would report a refusal.
+    assert await _status_of(tenant_id) != "churned"
+    assert f"close_account:{tenant_id}" in response.text
+
+
+async def test_suspending_still_needs_no_second_factor() -> None:
+    """The other half of the split, and the reason this is a test rather than a comment.
+
+    Suspend and reactivate are a PAIR: an operator who suspends the wrong account
+    reactivates it, and the required reason plus the audit row already make them
+    answerable. Gating them too would train operators to clear a step-up prompt for a
+    routine support action, which is how a prompt stops being read — the same argument
+    `tests/authn_stepup_test.py` makes for not gating every mutation in the product.
+
+    It also pins the gate to the TERMINAL status specifically, so a later edit that
+    widens it to every transition fails here instead of silently changing an operator
+    procedure.
+    """
+    token = await _make_admin()
+    tenant_id = await _tenant()
+
+    response = await _set_status(token, tenant_id, "suspended", "card declined", confirm=False)
+
+    assert response.status_code == 200, response.text
+    assert await _status_of(tenant_id) == "suspended"

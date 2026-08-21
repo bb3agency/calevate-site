@@ -19,6 +19,15 @@ export const clientAuthn = createRealmAuthn("client");
 
 export const CLIENT_SIGN_IN_PATH = "/auth/sign-in";
 export const CLIENT_ACCOUNT_PATH = "/auth/account";
+/**
+ * Where a signed-in client user actually WORKS — the destination of a successful sign-in.
+ *
+ * Not a console URL, because there isn't one until the slug is known: `/c` is the junction
+ * that reads `/v1/me` and forwards. Distinct from `CLIENT_ACCOUNT_PATH` for the reason
+ * D-432 separated the admin pair — that page says "you are signed in" and offers two
+ * sign-out buttons, so landing there after signing in is a dead end with a link on it.
+ */
+export const CLIENT_CONSOLE_PATH = "/c";
 export const CLIENT_FORGOT_PATH = "/auth/forgot-password";
 export const CLIENT_RESET_PATH = "/auth/reset-password";
 export const CLIENT_ACCEPT_INVITE_PATH = "/auth/accept-invitation";

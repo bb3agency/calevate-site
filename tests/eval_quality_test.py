@@ -86,7 +86,7 @@ async def _gate(mutate: Mutator) -> tuple[list[str], set[str]]:
 
 
 def _fixtures() -> dict[str, Any]:
-    return json.loads(ev.FIXTURES.read_text())  # type: ignore[no-any-return]
+    return json.loads(ev.FIXTURES.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 # --- The degradations -----------------------------------------------------------
@@ -254,7 +254,7 @@ def test_update_baseline_refuses_to_bless_a_non_waivable_failure(tmp_path: Any) 
         bad.fail(ev.CAPTURE_WRONG, "callback_number: expected 9…9, got 9…8")
         refused = ev.save_baseline("some-model", [good, bad])
         assert refused == ["fabricated"]
-        written = json.loads(baseline.read_text())["some-model"]
+        written = json.loads(baseline.read_text(encoding="utf-8"))["some-model"]
         assert written == {"miss": [ev.CAPTURE_MISS]}
     finally:
         ev.BASELINE = real

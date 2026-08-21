@@ -55,6 +55,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
+from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.first_campaign import (
     FIRST_CAMPAIGN_REVIEW_PENDING_REASON,
     first_campaign_rejected_reason,
@@ -531,6 +532,18 @@ async def add_to_dnc(
             "removable": list(DNC_REMOVABLE_SOURCES),
         },
     )
+    # D-428(b): pull back any dial the vendor is already holding for this number, in this
+    # transaction so the recall shares the suppression's fate.
+    #
+    # UNCONDITIONALLY, unlike the bulk writers, and that is a correctness choice rather
+    # than a shortcut. They enqueue only for numbers that were newly inserted because a
+    # re-import of an unchanged list would otherwise enqueue the whole list. Here there is
+    # no list: the common caller is `record_call_optout`, where somebody is ON a call
+    # saying stop, and "the row already existed" does not mean no dial is queued — the
+    # earlier recall may have been capped, or a campaign may have queued another dial
+    # since. Skipping the case where the suppression is not new would skip exactly the
+    # case where a second dial had time to appear.
+    await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=[phone_e164])
 
 
 __all__ = [

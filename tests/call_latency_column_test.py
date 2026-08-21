@@ -118,7 +118,7 @@ def test_no_source_file_still_promises_the_column(root: Path) -> None:
         f"{path.relative_to(REPO_ROOT)}:{number}"
         for path in sorted(root.rglob("*.py"))
         if "__pycache__" not in path.parts
-        for number, line in enumerate(path.read_text().splitlines(), start=1)
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)
         if _COLUMN_MENTION.search(line) and not _REMOVAL_CONTEXT.search(line)
     ]
     assert offenders == []

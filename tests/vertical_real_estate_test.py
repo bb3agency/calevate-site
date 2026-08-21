@@ -65,7 +65,7 @@ RE_FIELD_KEYS = {
 
 
 def _fixtures() -> dict[str, Any]:
-    return json.loads(ev.FIXTURES.read_text())  # type: ignore[no-any-return]
+    return json.loads(ev.FIXTURES.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 def _cases() -> dict[str, dict[str, Any]]:

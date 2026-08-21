@@ -151,6 +151,16 @@ class Call(PKMixin, TimestampMixin, Base):
     # could never be reached by the same person's standing instruction. Same construction
     # as `deletion_requests.subject_ref`, for the same reason.
     erased_subject_ref: Mapped[str | None] = mapped_column(Text)
+    # The instant the big red switch asked the vendor to drop this dial before it rang
+    # (D-432, migration d5c81f30ab47). NULL means never asked, which is the right reading
+    # for every row written before the recall existed.
+    #
+    # THE JOB DOES NOT SETTLE THE CALL, and this column is what makes that affordable: the
+    # reconciliation poller is the guarantee of record (D-31), so the row stays `queued`
+    # until the poller closes it, and this stamp is the only thing that keeps a second
+    # halt from re-POSTing a stop for every dial already stopped -- and then raising
+    # "could not stop N dials" on work that succeeded.
+    recall_requested_at: Mapped[datetime | None]
 
 
 class TranscriptTurn(PKMixin, TimestampMixin, Base):

@@ -88,7 +88,7 @@ def _boot_modules() -> frozenset[str]:
             check=False,
         )
         assert proc.returncode == 0, f"voice-runtime failed to boot:\n{proc.stderr[-3000:]}"
-        return frozenset(json.loads(out.read_text()))
+        return frozenset(json.loads(out.read_text(encoding="utf-8")))
     finally:
         out.unlink(missing_ok=True)
 
@@ -627,7 +627,7 @@ def test_the_alert_delivery_thread_acquires_only_the_recorded_exception() -> Non
             check=False,
         )
         assert proc.returncode == 0, f"the alert probe failed:\n{proc.stderr[-3000:]}"
-        measured = json.loads(out.read_text())
+        measured = json.loads(out.read_text(encoding="utf-8"))
     finally:
         out.unlink(missing_ok=True)
 
@@ -672,7 +672,7 @@ def test_the_docstring_that_promises_this_file_names_this_file() -> None:
     """`main.py` cites its import guard by name. It cited a file that did not exist for
     long enough that nobody noticed — which is exactly how a guardrail rots. If the name
     drifts again, this fails and says so."""
-    main_py = (REPO_ROOT / "apps" / "voice-runtime" / "main.py").read_text()
+    main_py = (REPO_ROOT / "apps" / "voice-runtime" / "main.py").read_text(encoding="utf-8")
     assert Path(__file__).name in main_py, (
         f"apps/voice-runtime/main.py should cite {Path(__file__).name} as its import guard"
     )

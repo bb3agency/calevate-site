@@ -120,7 +120,7 @@ def test_the_ambient_credentials_list_names_real_variables() -> None:
 
 def _declared_keys(path: Path) -> set[str]:
     keys: set[str] = set()
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -138,7 +138,7 @@ def _is_ignored(relative: str) -> bool:
         return False
     patterns = {
         line.strip().lstrip("/")
-        for line in ignore.read_text().splitlines()
+        for line in ignore.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.startswith("#")
     }
     return relative in patterns or os.path.basename(relative) in patterns

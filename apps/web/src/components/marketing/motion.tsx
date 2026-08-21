@@ -67,7 +67,27 @@ gsap.registerPlugin(useGSAP, ScrollTrigger);
  * first frame for someone who asked for none.
  */
 function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(true);
+  /**
+   * READ SYNCHRONOUSLY ON THE FIRST CLIENT RENDER, and this is the whole entry-animation
+   * glitch rather than a micro-optimisation.
+   *
+   * It used to initialise to `true` and correct itself in an effect. `true` is the right
+   * DEFAULT — never animate until asked — but as an initial STATE it made the hero animate
+   * one render too late: hydration ran `useGSAP` with motion off, the effect then flipped
+   * `reduced` to false, and because `reduced` is a `useGSAP` dependency the hook re-ran and
+   * only THEN called `gsap.from()`. So the browser painted the finished hero, and a tick
+   * later GSAP pulled it back to opacity 0 and animated it in — the page appearing, then
+   * appearing again. Exactly what it looked like.
+   *
+   * The lazy initialiser runs during the first client render, before any paint of the
+   * hydrated tree, so `useGSAP` fires once with the real answer. `typeof window` guards the
+   * server, where the answer is unknowable and `true` is the safe one; it cannot cause a
+   * hydration mismatch because nothing here renders markup — `reduced` is read only by
+   * effects.
+   */
+  const [reduced, setReduced] = useState(
+    () => typeof window === "undefined" || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");

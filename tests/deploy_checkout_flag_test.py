@@ -29,6 +29,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.platform_support import requires_posix_shell
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -114,6 +115,7 @@ def _deploy(root: Path, stub_path: str, *args: str) -> subprocess.CompletedProce
     )
 
 
+@requires_posix_shell
 def test_checkout_moves_the_tree_to_that_commit_and_detaches(
     deploy_host: Path, stub_path: str
 ) -> None:
@@ -140,6 +142,7 @@ def test_checkout_moves_the_tree_to_that_commit_and_detaches(
     assert f"would deploy [api] at {previous}" in result.stdout
 
 
+@requires_posix_shell
 def test_an_ordinary_deploy_refuses_from_a_rolled_back_tree(
     deploy_host: Path, stub_path: str
 ) -> None:
@@ -160,6 +163,7 @@ def test_an_ordinary_deploy_refuses_from_a_rolled_back_tree(
     )
 
 
+@requires_posix_shell
 def test_a_ref_is_not_a_commit(deploy_host: Path, stub_path: str) -> None:
     """`--checkout main` would deploy whatever the branch points at when the line runs,
     which is the ambiguity `--expected-sha` exists to remove."""
@@ -168,6 +172,7 @@ def test_a_ref_is_not_a_commit(deploy_host: Path, stub_path: str) -> None:
     assert "not 'main'" in result.stderr
 
 
+@requires_posix_shell
 def test_an_unknown_commit_aborts_rather_than_deploying_the_tip(
     deploy_host: Path, stub_path: str
 ) -> None:

@@ -23,6 +23,16 @@ export const adminAuthn = createRealmAuthn("admin");
 /** Where an operator signs in. Spelled once so no screen invents a second URL. */
 export const ADMIN_SIGN_IN_PATH = "/auth/admin/sign-in";
 export const ADMIN_SESSION_PATH = "/auth/admin";
+/**
+ * Where a signed-in operator actually WORKS — the destination of a successful sign-in.
+ *
+ * Distinct from `ADMIN_SESSION_PATH`, and the two were conflated: the door sent every
+ * operator to `/auth/admin`, whose entire content is "you are signed in", an email panel,
+ * two sign-out buttons and a link reading "Open the operator console". So signing in put
+ * a person one manual click away from the console every single time, on a page whose most
+ * prominent controls end the session they had just started.
+ */
+export const ADMIN_CONSOLE_PATH = "/admin";
 export const ADMIN_FORGOT_PATH = "/auth/admin/forgot-password";
 export const ADMIN_RESET_PATH = "/auth/admin/reset-password";
 export const ADMIN_BOOTSTRAP_PATH = "/auth/admin/bootstrap";

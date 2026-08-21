@@ -1,5 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+
+import { relPosix } from "./repoPaths";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -118,8 +120,10 @@ const BRAND_FILL_EXEMPT: Record<string, string> = {
     "brand mark in the console the same green as its buttons.",
 };
 
+// `relPosix`: `BRAND_FILL_EXEMPT` is keyed on forward slashes, so on Windows every
+// argued-for exemption stopped matching and the guard reported settled violations.
 function relativeToWeb(file: string): string {
-  return relative(WEB_ROOT, file);
+  return relPosix(WEB_ROOT, file);
 }
 
 /** Every `.tsx`/`.ts` under `src/`, so the scan cannot quietly miss a new screen. */

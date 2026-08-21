@@ -155,7 +155,7 @@ def main() -> int:
         print("Run: uv run python -m scripts.check_openapi_fresh --write")
         return 1
 
-    committed = _shape(json.loads(SNAPSHOT.read_text()))
+    committed = _shape(json.loads(SNAPSHOT.read_text(encoding="utf-8")))
     current = _shape(live)
     if committed == current:
         print(

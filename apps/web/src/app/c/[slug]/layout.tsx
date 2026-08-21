@@ -33,8 +33,10 @@ import {
 } from "lucide-react";
 
 import { Providers } from "@/app/providers";
+import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { NavDrawer } from "@/components/navDrawer";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
+import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { ClientRealmProvider, useClientRealm } from "@/lib/api/session";
@@ -290,6 +292,15 @@ function Sidebar({
               </div>
             ))}
         </div>
+        {/* One control for BOTH client roles. The owner and the staff member see the same
+            shell with different nav groups, so a role-specific sign-out would be two
+            spellings of one thing — and the one person who must always be able to leave
+            is the one whose role the server has not answered for yet. */}
+        <SidebarSignOut
+          authn={clientAuthn}
+          signInPath={CLIENT_SIGN_IN_PATH}
+          isCollapsed={isCollapsed}
+        />
       </div>
     </NavDrawer>
   );
@@ -366,9 +377,50 @@ function ViewAsBanner({ slug }: { slug: string }) {
 
   if (me.data?.impersonating) {
     return (
-      <div className="bg-amber-500 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
-        Viewing as {me.data.organization?.name ?? slug} — read only. Every page view is
-        logged, and anything that would change this account is refused.
+      <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-500 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
+        <span>
+          Viewing as {me.data.organization?.name ?? slug} — read only. Every page view is
+          logged, and anything that would change this account is refused.
+        </span>
+        {/* THE WAY OUT, and it belongs HERE rather than in the sidebar. There was none at
+            all: an operator who had finished looking could only know to edit the URL, and
+            the one control that looked like an exit — "Sign out" at the foot of the
+            sidebar — ends the ADMIN session instead, dropping them at a sign-in page with
+            a warning. So the sentence that says "you are impersonating" is now also the
+            thing that stops it, which is the only place a reader is already looking.
+
+            A hard navigation, for `SidebarSignOut`'s reason: the in-memory grant cache
+            (`admin.ts::grantCache`) and this tab's TanStack cache both hold another
+            account's data, and a client-side route change would carry both into the admin
+            console. `/admin` rather than the tenant's own page because this shell holds
+            the SLUG and never the tenant id — inventing a lookup to land one screen
+            deeper would be a request that can fail on the way out of a session. */}
+        <button
+          type="button"
+          onClick={() => window.location.assign("/admin")}
+          className="shrink-0 rounded border border-amber-950/40 px-2 py-0.5 font-semibold underline-offset-2 hover:bg-amber-950/10 hover:underline"
+        >
+          Exit and return to the admin console
+        </button>
+      </div>
+    );
+  }
+
+  // THE PENDING ARM, and it is a safety property rather than a polish item. The two arms
+  // below cover "the server says you are impersonating" and "the read failed"; while the
+  // read is IN FLIGHT `me.data` is undefined and `me.error` is null, so this component
+  // rendered NOTHING — an operator sitting in a client's account with no marker at all,
+  // on a console otherwise identical to that client's own. That was the visible half of
+  // the `StepUpPrompt` deadlock (`lib/api/session.tsx`), where the read never resolved
+  // and "in flight" lasted forever; the deadlock is fixed, but a slow read reproduces the
+  // same unmarked screen and the marker must not depend on a request having answered.
+  //
+  // It states the INTENT, not the fact, and says which it is: the amber arm below quotes
+  // the server's own `impersonating`, and this one must never be mistaken for it.
+  if (viewAsRequested && me.isPending) {
+    return (
+      <div className="bg-amber-500/60 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
+        Opening as an operator, read only — confirming with the server…
       </div>
     );
   }

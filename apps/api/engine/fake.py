@@ -39,6 +39,7 @@ from calevate_shared.engine import (
     ModelConfig,
     NumberSpec,
     ProvisionedNumber,
+    RecallOutcome,
     WebhookAuthMethod,
     WebhookVerdict,
     compose_engine_prompt,
@@ -544,7 +545,7 @@ class FakeEngine:
         stored = call.get("system_prompt")
         return stored if isinstance(stored, str) else None
 
-    async def end_call(self, call_id: str) -> None:
+    async def end_call(self, call_id: str) -> RecallOutcome:
         call = self._calls.get(call_id)
         if call is None:
             # RAISES, mirroring both real adapters' 404 (D-187). This used to return
@@ -560,8 +561,16 @@ class FakeEngine:
                 title="Voice engine rejected the request",
                 detail="The voice platform does not hold that call.",
             )
+        # THE FAKE IS ITS OWN VENDOR, so unlike the two real adapters it can answer the
+        # verdict from fact rather than from a response body: it knows whether this dial
+        # had left the queue. A dial still `queued` is caught before it rings; anything
+        # else was already running, which is the race D-428 names and the one an offline
+        # pipeline must be able to reproduce (DEV-SETUP §3). Answering `PREVENTED`
+        # unconditionally would make the DNC job's own tests unable to see that case.
+        caught_in_queue = call.get("status") == "queued"
         call["status"] = "completed"
         call["ended_at"] = datetime.now(UTC)
+        return RecallOutcome.PREVENTED if caught_in_queue else RecallOutcome.ALREADY_RUNNING
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
         # Used to succeed unconditionally while the Bolna adapter raised. Two adapters

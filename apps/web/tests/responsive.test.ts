@@ -1,5 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+
+import { relPosix } from "./repoPaths";
 
 import { describe, expect, it } from "vitest";
 
@@ -55,7 +57,9 @@ function sourceFiles(): string[] {
 
 const FILES = sourceFiles();
 const read = (f: string): string => readFileSync(f, "utf8");
-const rel = (f: string): string => relative(process.cwd(), f);
+// `relPosix`, for `authnSourceGuards`' reason: these paths are compared and reported
+// against forward-slash literals.
+const rel = (f: string): string => relPosix(process.cwd(), f);
 
 describe("form controls do not trigger the iOS zoom", () => {
   /**

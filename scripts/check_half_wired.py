@@ -108,9 +108,9 @@ def _display(path: Path) -> str:
     """A path as this check reports it — repo-relative where possible, absolute where the
     scan was pointed at a temporary tree by a negative control."""
     try:
-        return str(path.relative_to(REPO_ROOT))
+        return path.relative_to(REPO_ROOT).as_posix()
     except ValueError:
-        return str(path)
+        return path.as_posix()
 
 
 # ══════════════════════════════════════════════════════════ 1. write-only columns
@@ -178,7 +178,7 @@ def _check_constraint_names(model_files: Iterable[Path]) -> set[str]:
     """
     names: set[str] = set()
     for path in model_files:
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):
                 continue
@@ -248,7 +248,7 @@ def _positions_in(path: Path, *, strings_are_evidence: bool = True) -> tuple[set
     counting prose as wiring blinds the check exactly where the bug lives —
     `check_wiring`'s reasoning, kept identical so the two agree about what a mention is.
     """
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     docstrings = _docstring_nodes(tree)
     written: set[str] = set()
     read: set[str] = set()
@@ -341,7 +341,7 @@ def settings_fields() -> dict[str, int]:
     not a `.env` in the working directory lets the model instantiate.
     """
     path = REPO_ROOT / "packages" / "shared" / "src" / "calevate_shared" / "config.py"
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     fields: dict[str, int] = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "Settings":
@@ -443,7 +443,7 @@ def _public_functions(roots: Iterable[Path] | None = None) -> dict[str, tuple[st
     duplicated: set[str] = set()
     for root in SCAN_ROOTS if roots is None else tuple(roots):
         for path in _python_files(root):
-            tree = ast.parse(path.read_text(), filename=str(path))
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in tree.body:
                 if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                     continue
@@ -520,7 +520,7 @@ def unreferenced_exports(
         # own sections as dead code.
         strings_are_evidence = path.resolve() not in _REGISTRY_FILES
         relative = _display(path)
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         # Docstrings excluded for the reason `_positions_in` excludes them: a symbol that
         # is DESCRIBED somewhere is not a symbol that is called, and a dead function is
         # usually described — including, as this check found on its own negative controls,
@@ -587,7 +587,7 @@ def stub_bodies(roots: Iterable[Path] | None = None) -> list[str]:
     offenders: list[str] = []
     for root in scan:
         for path in _python_files(root):
-            tree = ast.parse(path.read_text(), filename=str(path))
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             protocol_members: set[int] = set()
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef) and _is_protocol_or_abstract(node):
@@ -671,7 +671,7 @@ def swallowed_exceptions(roots: Iterable[Path] | None = None) -> list[str]:
     offenders: list[str] = []
     for root in scan:
         for path in _python_files(root):
-            tree = ast.parse(path.read_text(), filename=str(path))
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ExceptHandler):
                     continue
@@ -734,7 +734,7 @@ def unclosed_deferrals(roots: Iterable[Path] | None = None) -> list[str]:
             relative = _display(path)
             if relative in _MARKER_VOCABULARY_FILES:
                 continue
-            for number, line in enumerate(path.read_text().splitlines(), start=1):
+            for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
                 found = _MARKER.search(line)
                 if found:
                     marker = found.group(1) or found.group(2)
@@ -783,7 +783,7 @@ def blind_spots() -> list[str]:
         isinstance(node, ast.ExceptHandler)
         for root in SCAN_ROOTS
         for path in _python_files(root)
-        for node in ast.walk(ast.parse(path.read_text(), filename=str(path)))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
     )
     if handlers < 50:
         failures.append(

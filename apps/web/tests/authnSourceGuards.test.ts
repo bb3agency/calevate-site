@@ -1,5 +1,7 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+
+import { relPosix } from "./repoPaths";
 
 import { describe, expect, it } from "vitest";
 
@@ -51,7 +53,10 @@ function authnSources(): string[] {
 
 const FILES = authnSources();
 const read = (f: string): string => readFileSync(f, "utf8");
-const rel = (f: string): string => relative(process.cwd(), f);
+// `relPosix`: this feeds `===` comparisons against forward-slash literals below, and
+// on Windows a `relative()` result is `src\lib\authn\adminAuthn.ts` -- which matches
+// none of them, so the realm-separation guard failed on a clean tree.
+const rel = (f: string): string => relPosix(process.cwd(), f);
 
 /**
  * Strip comments so a rule cannot flag the paragraph that explains it.

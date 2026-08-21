@@ -173,7 +173,11 @@ def test_the_flag_that_means_impersonation_is_set_in_exactly_one_place() -> None
 
     root = Path(__file__).resolve().parents[1]
     sites = {
-        f"{path.relative_to(root)}:{number}"
+        # `.as_posix()`, not the bare path: on Windows `relative_to` renders
+        # a backslash-separated path, which never equals the forward-slash literal
+        # below, so this guard failed on a clean tree for a reason that has nothing to do with
+        # the control it protects.
+        f"{path.relative_to(root).as_posix()}:{number}"
         for path in (root / "apps").rglob("*.py")
         if "__pycache__" not in str(path)
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1)

@@ -181,7 +181,7 @@ def declared_routers() -> list[tuple[str, str]]:
     found: list[tuple[str, str]] = []
     for root in (API_ROOT, VOICE_RUNTIME_ROOT):
         for path in _python_files(root):
-            tree = ast.parse(path.read_text(), filename=str(path))
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for node in tree.body:  # module level only
                 if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
                     continue
@@ -331,7 +331,7 @@ def _declared_columns(model_files: Iterable[Path]) -> dict[str, Path]:
     """`{Model.column: file}` for every `Mapped[...]` attribute."""
     columns: dict[str, Path] = {}
     for path in model_files:
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.ClassDef):
                 continue
@@ -374,7 +374,7 @@ def _referenced_names(path: Path) -> set[str]:
     is usually DESCRIBED somewhere — counting prose as wiring would blind the check
     precisely where the bug lives. Comments never reach the AST at all.
     """
-    tree = ast.parse(path.read_text(), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     docstrings = _docstring_nodes(tree)
     names: set[str] = set()
     for node in ast.walk(tree):
@@ -510,11 +510,11 @@ def emitted_alarm_stages(
                     if path.name.endswith("_test.py"):
                         continue
                     try:
-                        emitted |= _alert_call_stages(ast.parse(path.read_text()))
+                        emitted |= _alert_call_stages(ast.parse(path.read_text(encoding="utf-8")))
                     except SyntaxError:
                         continue
                 else:
-                    shell_text.append(path.read_text())
+                    shell_text.append(path.read_text(encoding="utf-8"))
     joined = "\n".join(shell_text)
     emitted |= {stage for stage in vocabulary if stage in joined}
     return emitted

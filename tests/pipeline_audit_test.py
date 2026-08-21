@@ -43,6 +43,7 @@ from tests.conftest import FakeS3, untenanted_session
 # the attempts arq ACTUALLY made, and a second copy of it would be a second thing to get
 # subtly wrong (see its own docstring).
 from tests.ingest_ordering_test import _run_to_exhaustion
+from tests.platform_support import requires_posix_signals
 from tests.retention_test import _tenant_with_old_call
 from tests.smoke_pipeline_test import _seed_tenant
 
@@ -653,6 +654,7 @@ class _RefusingEngine:
         raise self._exc
 
 
+@requires_posix_signals
 async def test_an_engine_blip_gets_the_whole_retry_ladder_on_a_real_worker(
     monkeypatch: pytest.MonkeyPatch, _fast_ladder: list[tuple[str, str]]
 ) -> None:
@@ -686,6 +688,7 @@ async def test_an_engine_blip_gets_the_whole_retry_ladder_on_a_real_worker(
     )
 
 
+@requires_posix_signals
 async def test_an_execution_the_engine_rejects_is_not_retried(
     monkeypatch: pytest.MonkeyPatch, _fast_ladder: list[tuple[str, str]]
 ) -> None:
@@ -719,6 +722,7 @@ async def test_an_execution_the_engine_rejects_is_not_retried(
     assert ("WORKER_TERMINAL", "post_call_abandoned") in _fast_ladder
 
 
+@requires_posix_signals
 async def test_a_malformed_job_payload_is_not_retried(
     _fast_ladder: list[tuple[str, str]],
 ) -> None:

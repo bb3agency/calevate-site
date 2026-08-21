@@ -52,7 +52,7 @@ def test_a_case_that_starts_passing_is_reported_as_fixed() -> None:
 
 
 def test_fixtures_define_a_valid_extraction_schema() -> None:
-    payload = json.loads(FIXTURES.read_text())
+    payload = json.loads(FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     keys = {f.key for f in spec.fields}
     for case in payload["cases"]:
@@ -106,7 +106,7 @@ async def test_the_vertical_filter_returns_a_subset_of_the_gated_suite() -> None
 
 
 def _field(key: str) -> Any:
-    payload = json.loads(FIXTURES.read_text())
+    payload = json.loads(FIXTURES.read_text(encoding="utf-8"))
     return ExtractionSchemaSpec(version=1, fields=payload["schema"]).field_by_key(key)
 
 

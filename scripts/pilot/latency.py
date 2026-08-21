@@ -1241,7 +1241,7 @@ def gate4_from_disk(path_str: str | None = None) -> Any:
             findings=(NOT_MEASURABLE_FINDING, SMALL_N_FINDING, ADAPTER_FINDING),
         )
     try:
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         turns, greetings, vendor = load_gate4_observations(payload)
     except (ObservationsError, ValueError, KeyError, TypeError) as exc:
         # The message may quote the file's own content, which may quote a caller. Type

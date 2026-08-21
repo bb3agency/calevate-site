@@ -79,7 +79,7 @@ applier = _load_applier()
 
 @pytest.fixture
 def policy() -> dict:
-    return json.loads(POLICY_PATH.read_text())
+    return json.loads(POLICY_PATH.read_text(encoding="utf-8"))
 
 
 def _enabled_expiry_rules(policy: dict) -> list[tuple[str, str, int]]:
@@ -265,7 +265,7 @@ def test_rule_ids_are_unique_and_statuses_are_real(policy: dict) -> None:
 def test_terraform_consumes_the_same_policy_file() -> None:
     """One source of truth. Two representations of a lifecycle rule that can disagree
     is how the rule ends up being whichever one was applied last."""
-    main_tf = (REPO_ROOT / "infra" / "terraform" / "main.tf").read_text()
+    main_tf = (REPO_ROOT / "infra" / "terraform" / "main.tf").read_text(encoding="utf-8")
     assert "../object-lifecycle/policy.json" in main_tf
 
 

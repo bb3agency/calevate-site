@@ -45,6 +45,7 @@ from typing import ClassVar
 
 import pytest
 from apps.api.core.settings import get_settings
+from tests.platform_support import requires_posix_shell
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HEALTH = REPO_ROOT / "scripts" / "backup" / "backup-health.sh"
@@ -191,6 +192,7 @@ def _run_health(
 # --- 1. the asymmetry, which IS the mechanism ----------------------------------
 
 
+@requires_posix_shell
 def test_a_healthy_run_feeds_the_external_dead_man(
     tmp_path: Path, monitor: type[PingRecorder]
 ) -> None:
@@ -200,9 +202,10 @@ def test_a_healthy_run_feeds_the_external_dead_man(
     proc = _run_health(tmp_path, heartbeat_url=monitor.url)  # type: ignore[attr-defined]
     assert proc.returncode == 0, proc.stderr
     assert monitor.received == [("GET", f"/{CHECK_TOKEN}", "")], proc.stderr
-    assert (tmp_path / "state" / ".calevate-heartbeat-state").read_text() == "sent"
+    assert (tmp_path / "state" / ".calevate-heartbeat-state").read_text(encoding="utf-8") == "sent"
 
 
+@requires_posix_shell
 def test_a_run_with_a_failing_check_feeds_the_dead_man_nothing_at_all(
     tmp_path: Path, monitor: type[PingRecorder]
 ) -> None:
@@ -232,13 +235,14 @@ def test_the_dead_man_is_fed_by_the_backup_path_itself_not_by_a_second_schedule(
         "calevate-basebackup.timer",
         "calevate-dump-offsite.timer",
     ]
-    health = (REPO_ROOT / "scripts" / "backup" / "backup-health.sh").read_text()
+    health = (REPO_ROOT / "scripts" / "backup" / "backup-health.sh").read_text(encoding="utf-8")
     assert "heartbeat.sh" in health
 
 
 # --- 2. a heartbeat is not a backup --------------------------------------------
 
 
+@requires_posix_shell
 def test_an_undelivered_heartbeat_is_loud_but_does_not_fail_the_backup(
     tmp_path: Path,
 ) -> None:
@@ -249,12 +253,15 @@ def test_an_undelivered_heartbeat_is_loud_but_does_not_fail_the_backup(
     assert proc.returncode == 0, proc.stderr
     assert "backup_heartbeat_undelivered" in proc.stderr
     assert "NOT delivered" in proc.stderr
-    assert (tmp_path / "state" / ".calevate-heartbeat-state").read_text() == "failed"
+    assert (tmp_path / "state" / ".calevate-heartbeat-state").read_text(
+        encoding="utf-8"
+    ) == "failed"
 
 
 # --- 3. unconfigured is stated, never silently passed --------------------------
 
 
+@requires_posix_shell
 def test_an_unconfigured_heartbeat_is_a_no_op_that_says_so(tmp_path: Path) -> None:
     """Local, CI and pre-launch all look like this. It must not crash, must not fail the
     run, and must not look armed."""
@@ -262,24 +269,28 @@ def test_an_unconfigured_heartbeat_is_a_no_op_that_says_so(tmp_path: Path) -> No
     assert proc.returncode == 0, proc.stderr
     assert "BACKUP_HEARTBEAT_URL is not set" in proc.stderr
     assert "NO external dead-man" in proc.stderr
-    assert (tmp_path / "state" / ".calevate-heartbeat-state").read_text() == "unconfigured"
+    assert (tmp_path / "state" / ".calevate-heartbeat-state").read_text(
+        encoding="utf-8"
+    ) == "unconfigured"
 
 
+@requires_posix_shell
 def test_the_unconfigured_notice_is_a_transition_not_a_drumbeat(tmp_path: Path) -> None:
     """Every 15 minutes forever is how a line stops being read. The state stamp is what
     keeps the journal carrying transitions; the stderr line is per-run by design, since
     that stream belongs to whoever ran the script."""
     first = _run_health(tmp_path, heartbeat_url=None)
     stamp = tmp_path / "state" / ".calevate-heartbeat-state"
-    assert stamp.read_text() == "unconfigured"
+    assert stamp.read_text(encoding="utf-8") == "unconfigured"
     second = _run_health(tmp_path, heartbeat_url=None)
     assert first.returncode == second.returncode == 0
-    assert stamp.read_text() == "unconfigured"
+    assert stamp.read_text(encoding="utf-8") == "unconfigured"
 
 
 # --- 4. the ping URL is a credential -------------------------------------------
 
 
+@requires_posix_shell
 def test_the_ping_url_never_reaches_the_operator_log(
     tmp_path: Path, monitor: type[PingRecorder]
 ) -> None:
@@ -325,6 +336,7 @@ def test_the_heartbeat_needs_neither_the_database_nor_redis(
     assert monitor.received == [("GET", f"/{CHECK_TOKEN}", "")]
 
 
+@requires_posix_shell
 def test_the_wrapper_runs_from_a_working_directory_that_is_not_the_repository(
     monitor: type[PingRecorder],
 ) -> None:
@@ -397,7 +409,7 @@ def test_there_is_no_failure_signal_anywhere_in_the_heartbeat_path() -> None:
     # every file that can make the request — that is the property, not the count.
     modules = (REPO_ROOT / "scripts" / "host_heartbeat.py",)
     for module in modules:
-        tree = ast.parse(module.read_text())
+        tree = ast.parse(module.read_text(encoding="utf-8"))
         docstrings = {
             ast.get_docstring(node, clean=False)
             for node in ast.walk(tree)
@@ -423,7 +435,9 @@ def test_there_is_no_failure_signal_anywhere_in_the_heartbeat_path() -> None:
         REPO_ROOT / "scripts" / "backup" / "backup-health.sh",
     ):
         code = "\n".join(
-            line for line in script.read_text().splitlines() if not line.lstrip().startswith("#")
+            line
+            for line in script.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
         )
         assert "/fail" not in code, f"{script.name} appears to emit a failure signal"
         assert "/start" not in code, f"{script.name} appears to emit a start signal"

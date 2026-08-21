@@ -16,6 +16,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -1266,6 +1267,44 @@ class CostBreakdown(BaseModel):
     fx_rate: Decimal | None = None
 
 
+class RecallOutcome(StrEnum):
+    """What a stop actually achieved — OUR word for it, decided in the adapter.
+
+    WHY THIS EXISTS AT ALL. `end_call` returned `None`, so the only thing a caller learned
+    was that the vendor had not raised. That is enough for the big red switch, which is
+    best-effort by decision (D-428): it stops what it can and its alarm says outright that
+    a dial which started ringing will run to its end. It is NOT enough for a DNC
+    suppression, where somebody may later have to answer "prove this number was not
+    called", and where `consent_ledger` is append-only so a wrong claim can only be
+    compensated, never corrected.
+
+    WHY THE CALLER CANNOT WORK IT OUT ITSELF, which is the whole argument for widening the
+    port rather than reading a status. Bolna's stop response says `status: stopped` and its
+    documentation says the route cancels "pending calls before they are executed" — a real
+    adjudication — but `_STATUS_MAP` folds `stopped` into our `failed`, alongside
+    `canceled`, `error`, `balance-low` and a genuine post-ring failure. So `calls.status`
+    after a stop cannot distinguish "we caught it in the queue" from "it rang and failed",
+    and `started_at IS NULL` is a nullable timestamp carrying a compliance claim. The
+    vendor's own string COULD distinguish them, and it is a vendor payload shape: hard rule
+    2 puts that inside `apps/api/engine/` and nowhere else. So the adapter decides and the
+    port carries the verdict.
+
+    THREE MEMBERS, and `UNKNOWN` is the important one. An adapter that cannot tell must say
+    so rather than pick the comfortable answer — a `PREVENTED` guessed from a 200 with no
+    body is exactly the unearned claim this type exists to stop.
+    """
+
+    #: The vendor confirmed it cancelled the dial BEFORE it was executed. The only value
+    #: on which anything may record that a number was not called.
+    PREVENTED = "prevented"
+    #: The vendor refused: the call had already left the queue. It rang, or is ringing.
+    #: Never a failure of ours — it is the race D-428 names, answered honestly.
+    ALREADY_RUNNING = "already_running"
+    #: The stop was accepted and the vendor said nothing about what it caught. Distinct
+    #: from PREVENTED on purpose: silence is not a denial that the phone rang.
+    UNKNOWN = "unknown"
+
+
 class ExecutionSnapshot(BaseModel):
     """The authenticated fetch that is the TRUTH (D-31: webhooks are hints).
 
@@ -1693,8 +1732,22 @@ class VoiceEngine(Protocol):
         """
         ...
 
-    async def end_call(self, call_id: str) -> None:
-        """Hang up a call that is in progress, from OUTSIDE it.
+    async def end_call(self, call_id: str) -> RecallOutcome:
+        """Stop a dial the engine is holding, from OUTSIDE it — and say what that achieved.
+
+        **IT RETURNS A VERDICT, and it used to return `None`.** The name promises the
+        stronger thing and Bolna cannot deliver it: their route stops a call that has not
+        started ("cannot stop a call already in progress"), which is the queued case the
+        campaign path needs and not a hang-up on a live caller. A caller that learns only
+        "the vendor did not raise" therefore cannot tell a dial caught in the queue from
+        one that had already rung — and after the fact nothing can, because `_STATUS_MAP`
+        folds their `stopped` into our `failed` beside `canceled`, `error` and a real
+        post-ring failure. `RecallOutcome` is that missing answer, decided in the adapter
+        because the evidence for it is a vendor payload shape (hard rule 2).
+
+        A caller that does not care may ignore it: the outbound halt does, and is
+        best-effort by decision (D-428). The DNC path does not, because a suppression is
+        the one place somebody may later have to prove a number was not called.
 
         **A CALL THE ENGINE DOES NOT HOLD RAISES** (D-187), and the clause is here rather
         than left to each adapter because the two we ship had already drifted apart on it
@@ -1711,6 +1764,11 @@ class VoiceEngine(Protocol):
         are still being billed. `delete_agent` is the opposite case (a compensation path
         whose postcondition is already satisfied by an absent object), which is why the
         two answers differ.
+
+        AN ADAPTER THAT CANNOT TELL RETURNS `UNKNOWN`. Returning `PREVENTED` from a bare
+        200 would be an unearned claim of exactly the kind this whole return value exists
+        to stop, and `UNKNOWN` costs nothing but honesty — the DNC job reports it as
+        undetermined rather than as a prevented call.
         """
         ...
 
@@ -1938,6 +1996,7 @@ __all__ = [
     "NumberSeries",
     "NumberSpec",
     "ProvisionedNumber",
+    "RecallOutcome",
     "SpeechControl",
     "SpeechLeg",
     "VoiceEngine",

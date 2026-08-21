@@ -974,7 +974,7 @@ class TestOpenApiFresh:
 
     def test_snapshot_file_is_valid_json_at_the_expected_path(self) -> None:
         assert check_openapi_fresh.SNAPSHOT.exists()
-        json.loads(check_openapi_fresh.SNAPSHOT.read_text())
+        json.loads(check_openapi_fresh.SNAPSHOT.read_text(encoding="utf-8"))
 
 
 # ============================================================================

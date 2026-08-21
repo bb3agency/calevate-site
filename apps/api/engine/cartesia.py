@@ -138,6 +138,7 @@ from calevate_shared.engine import (
     LlmCredentialPlacement,
     NumberSpec,
     ProvisionedNumber,
+    RecallOutcome,
     WebhookVerdict,
 )
 from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
@@ -775,7 +776,7 @@ class CartesiaEngine:
             )
         return handle
 
-    async def end_call(self, call_id: str) -> None:
+    async def end_call(self, call_id: str) -> RecallOutcome:
         """`POST /agents/calls/{id}/end` — **INFERRED, and now the weakest path in the
         module.**
 
@@ -792,8 +793,17 @@ class CartesiaEngine:
         so refusing here would be a private code disagreeing with a descriptor that says
         nothing — the divergence D-93 exists to remove. It fails loudly on a 404/405.
         Gate 19(b).
+
+        **`UNKNOWN`, ALWAYS, and that is the honest answer rather than a placeholder.**
+        The verdict `RecallOutcome` carries is "did the vendor confirm it caught this
+        before the phone rang", and this route is INFERRED — its existence is a guess, and
+        no documented response body says what it caught. Returning `PREVENTED` from a 2xx
+        we cannot read would let a DNC suppression record that a number was not called on
+        the strength of an endpoint nobody has confirmed exists. Gate 19(b) is what would
+        change this, not a code change.
         """
         await self._request("POST", f"/agents/calls/{call_id}/end")
+        return RecallOutcome.UNKNOWN
 
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None:
         """Refuses by name: Line's transfer is the AGENT's to perform, not ours to command.

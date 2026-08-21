@@ -223,10 +223,15 @@ def _signature_problems() -> list[str]:
 
 
 def _rel(path: Path) -> str:
+    # `.as_posix()`, never `str()`: on Windows `str()` renders backslashes, so the one
+    # thing this gate PRINTS — the file to go and fix — came out in a spelling that
+    # matches neither CI's output nor the repo-relative paths every other guard emits.
+    # The finding was correct and the report was unusable; three of this gate's own
+    # negative controls failed on the separator alone.
     try:
-        return str(path.relative_to(REPO_ROOT))
+        return path.relative_to(REPO_ROOT).as_posix()
     except ValueError:  # pragma: no cover — every scanned path is under the root
-        return str(path)
+        return path.as_posix()
 
 
 def _call_problems(path: Path, tree: ast.AST) -> tuple[list[str], int, int]:

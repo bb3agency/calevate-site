@@ -43,6 +43,7 @@ from calevate_shared.engine import ExecutionSnapshot
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
+from tests.platform_support import requires_posix_signals
 from tests.smoke_pipeline_test import _seed_tenant
 
 RUN = uuid.uuid4().hex[:12]
@@ -284,6 +285,7 @@ async def test_a_settled_delivery_is_still_absorbed_before_postgres() -> None:
 # --- 2. the inbox row is closed LAST ------------------------------------------
 
 
+@requires_posix_signals
 async def test_the_inbox_row_is_not_closed_before_the_pipeline_is_queued(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -369,6 +371,7 @@ async def test_a_completed_event_still_closes_its_inbox_row() -> None:
 # --- 3. the retry ladder is real, and it is not offered to everything ---------
 
 
+@requires_posix_signals
 async def test_an_unreachable_engine_is_retried_by_a_real_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -400,6 +403,7 @@ async def test_an_unreachable_engine_is_retried_by_a_real_worker(
     assert await _inbox_status(row_id) == "failed", "and every attempt records its own defeat"
 
 
+@requires_posix_signals
 async def test_an_execution_the_engine_never_heard_of_is_not_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

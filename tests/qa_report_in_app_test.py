@@ -94,7 +94,7 @@ async def _member(tenant_id: uuid.UUID, role: str = "owner") -> str:
 
 
 def _spec() -> ExtractionSchemaSpec:
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     return ExtractionSchemaSpec(version=1, fields=payload["schema"])
 
 
@@ -280,7 +280,7 @@ async def test_no_line_any_caller_or_agent_said_reaches_the_served_report() -> N
             )
         ).text
 
-    cases = json.loads(ev.FIXTURES.read_text())["cases"]
+    cases = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))["cases"]
     for case in cases:
         assert case["title"] not in body, case["id"]
         for line in case.get("transcript", []):

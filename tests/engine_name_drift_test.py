@@ -189,7 +189,7 @@ def test_the_receiver_derives_its_engine_set_and_does_not_define_one() -> None:
 
     assert set(KNOWN_ENGINES) == set(WEBHOOK_AUTH_BY_ENGINE)
 
-    source = (REPO_ROOT / "apps" / "voice-runtime" / "engine_intake.py").read_text()
+    source = (REPO_ROOT / "apps" / "voice-runtime" / "engine_intake.py").read_text(encoding="utf-8")
     module = ast.parse(source)
     spelled = {
         name for node in ast.walk(module) for name in _literal_strings(node) & ALL_ENGINE_NAMES

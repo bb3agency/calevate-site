@@ -429,7 +429,7 @@ async def main_async(
         # nothing. Refusing is the only honest output.
         print(f"no scenarios for vertical {vertical!r} — refusing to render an empty report")
         return 2
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     computed = summarize(
         results,

@@ -41,8 +41,10 @@ from __future__ import annotations
 
 import uuid
 
+import pytest
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
+from apps.api.ops import routes as ops_routes
 from apps.api.ops.routes import platform_confirmation
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -317,3 +319,91 @@ async def test_the_halt_records_its_reason_and_the_release_clears_it() -> None:
     assert "ops.set_load_shed" in actions
     assert "ops.release_outbound" in actions
     assert "ops.set_platform_state" not in actions, "the generic action is gone in both halves"
+
+
+async def test_the_halt_queues_the_recall_and_the_release_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-432: the switch has a second arm, and it must fire on the halt and nowhere else.
+
+    Until D-432 `outbound_halted` stopped this platform PLACING dials and recalled none
+    the vendor had already accepted — and the vendor accepts more than it runs, queueing
+    the surplus over the account's concurrency ceiling in a queue we cannot see or scrub.
+    `recall_queued_dials` is that arm; this asserts the WIRING, which is the half a route
+    can silently lose (`scripts/check_job_wiring` shape 3: an enqueue succeeds against any
+    string, and a name no worker answers to fails with every screen green).
+
+    THE RELEASE MUST NOT FIRE IT. Recalling queued dials the moment an operator resumes
+    dialling would cancel the campaign they just restarted, and the job's own halt re-read
+    is the second line of that defence rather than the first.
+    """
+    queued: list[str] = []
+
+    async def _record(job: str, *args: object, **kwargs: object) -> str:
+        queued.append(job)
+        return "job-id"
+
+    monkeypatch.setattr(ops_routes, "enqueue", _record)
+    token = await _make_admin()
+    auth = {"Authorization": f"Bearer {token}"}
+
+    try:
+        async with _client() as http:
+            halted = await http.post(
+                "/v1/ops/platform",
+                headers={**auth, "X-Confirm-Action": "halt_outbound"},
+                json={"outbound_halted": True, "reason": "recall wiring"},
+            )
+            assert halted.status_code == 200, halted.text
+            assert queued == [ops_routes.DIAL_RECALL_JOB]
+
+            queued.clear()
+            released = await http.post(
+                "/v1/ops/platform",
+                headers={**auth, "X-Confirm-Action": "release_outbound"},
+                json={"outbound_halted": False, "reason": "done"},
+            )
+            assert released.status_code == 200, released.text
+            assert queued == []
+    finally:
+        from apps.api.core.loadshed import set_platform_status
+
+        await set_platform_status(
+            mode="normal", outbound_halted=False, halt_reason=None, actor_id=None
+        )
+
+
+async def test_a_queue_that_cannot_be_reached_does_not_refuse_the_halt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The halt is the thing that matters, and it has already landed by then.
+
+    Raising here would tell an operator mid-incident that the switch did not throw when
+    it did, and their next move is to throw it again. So the failure is an ALARM with a
+    runbook row (`dial_recall_not_queued`) and a 200 that truthfully reports the halt.
+    """
+    fired: list[str] = []
+
+    async def _explode(job: str, *args: object, **kwargs: object) -> str:
+        raise RuntimeError("redis is gone")
+
+    monkeypatch.setattr(ops_routes, "enqueue", _explode)
+    monkeypatch.setattr(ops_routes, "alert", lambda stage, code, **kw: fired.append(code))
+    token = await _make_admin()
+
+    try:
+        async with _client() as http:
+            halted = await http.post(
+                "/v1/ops/platform",
+                headers={"Authorization": f"Bearer {token}", "X-Confirm-Action": "halt_outbound"},
+                json={"outbound_halted": True, "reason": "queue down"},
+            )
+            assert halted.status_code == 200, halted.text
+            assert halted.json()["outbound_halted"] is True
+            assert fired == ["dial_recall_not_queued"]
+    finally:
+        from apps.api.core.loadshed import set_platform_status
+
+        await set_platform_status(
+            mode="normal", outbound_halted=False, halt_reason=None, actor_id=None
+        )

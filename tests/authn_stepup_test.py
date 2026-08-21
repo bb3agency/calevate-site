@@ -318,11 +318,18 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
             ):
                 sites += 1
                 assert "StepUpGate" in source, f"{path} calls the gate without declaring it"
-    # 16: the fifteen dangerous mutations, plus D-210's door —
+    # 17: the sixteen dangerous mutations, plus D-210's door —
     # `admin/routes.py::mint_impersonation_grant`, which is a step-up on ENTERING a
     # client account rather than on changing something. Counted the same way because the
     # census is about the pairing, not about the verb.
-    assert sites == 16, f"found {sites} step-up call sites, expected 16; the census went stale"
+    #
+    # The sixteenth mutation is `admin/routes.py::set_tenant_status`, gated on the
+    # TERMINAL transition only. It was the one irreversible action on the operator console
+    # reachable with nothing but a live session, while three reversible ones beside it
+    # each demanded a code; found by walking the console rather than the code, because
+    # `test_no_ops_console_write_can_ship_without_the_gate` below scopes itself to
+    # `apps/api/ops/` and this route is not there.
+    assert sites == 17, f"found {sites} step-up call sites, expected 17; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.
@@ -363,7 +370,11 @@ def test_no_ops_console_write_can_ship_without_the_gate() -> None:
     ungated: list[str] = []
     seen = 0
     for path in sorted((root / "apps" / "api" / "ops").rglob("*.py")):
-        rel = str(path.relative_to(root))
+        # `.as_posix()`: `_OPS_WRITES_WITHOUT_STEP_UP` is keyed on forward slashes, so a
+        # `str()` here made every exemption unmatchable on Windows and the census
+        # reported argued-for handlers as ungated. It failed SAFE -- over-reporting,
+        # not under -- but a guard that cries wolf on a clean tree stops being read.
+        rel = path.relative_to(root).as_posix()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue

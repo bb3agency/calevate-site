@@ -6395,6 +6395,10 @@
         "additionalProperties": false,
         "description": "How far the KNOWLEDGE on the voice platform has drifted from what we approved\n(D-158) \u2014 the same measurement as `EngineDriftOut`, on the other object.\n\nWHY A SECOND FIELD AND NOT A SECOND ENDPOINT: `EngineDriftOut`'s argument exactly \u2014\none read, one permission, and no new entry in `ADMIN_CONSOLE_GETS` (a GET declaring\n`ops:manage` has to be allowlisted, and `tests/impersonation_reads_test.py` warns that\nentries are how that list \"quietly becomes a hole\").\n\nWHY A SECOND FIELD AND NOT MORE COLUMNS ON `EngineDriftOut`: the two sweeps run on\ndifferent schedules over different objects and each `oldest_checked_at` is its OWN\nsweep's pulse. Folding them into one panel would let a healthy agent sweep's timestamp\nvouch for a KB sweep that had died \u2014 which is precisely the \"lying by omission\" the\npulse field exists to prevent.\n\nTHE ALARM IS `out_of_sync`, and `undetermined` is deliberately NOT folded into it. It\ncarries more weight here than on the agent panel: an empty knowledge listing is\nambiguous between \"the documents are gone\" and \"the vendor's listing does not attribute\nrows to agents\" (pilot gate 8, open), so a large `undetermined` is a real and\nactionable signal about the VENDOR rather than a count of drifted clients.\n\nCOUNTS AND TIMESTAMPS ONLY (hard rule 6). No source name, no chunk, no engine handle.",
         "properties": {
+          "engine_supports_knowledge_base": {
+            "title": "Engine Supports Knowledge Base",
+            "type": "boolean"
+          },
           "in_sync": {
             "title": "In Sync",
             "type": "integer"
@@ -6447,7 +6451,8 @@
           "in_sync",
           "undetermined",
           "oldest_drift_at",
-          "oldest_checked_at"
+          "oldest_checked_at",
+          "engine_supports_knowledge_base"
         ],
         "title": "KbDriftOut",
         "type": "object"
@@ -17194,6 +17199,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],

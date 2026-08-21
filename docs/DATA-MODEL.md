@@ -157,6 +157,14 @@ calls(id, tenant_id, agent_id, engine_call_id UNIQUE, direction, from_e164, to_e
   engine_payload_ref TEXT,             -- object-storage key of raw vendor payload (debug only;
                                        -- engine-payloads/{tenant}/{call}/…, so a DPDP erasure can
                                        -- enumerate it — D-126. Write the ref BEFORE the object.)
+  recall_requested_at TIMESTAMPTZ,     -- the instant the big red switch asked the engine to drop
+                                       -- this dial before it rang (D-432, migration d5c81f30ab47).
+                                       -- NULL = never asked. The recall job does NOT settle the
+                                       -- call: the reconciliation poller is the guarantee of
+                                       -- record (D-31), so the row stays `queued` until the poller
+                                       -- closes it, and this stamp is what stops a second halt
+                                       -- re-POSTing a stop for every dial already stopped and then
+                                       -- alarming about work that succeeded.
   erased_subject_ref TEXT)             -- the one-way handle a DPDP erasure leaves when it clears
                                        -- from_e164/to_e164 (D-310, migration c1e9a4f7d302). Those
                                        -- two columns are what the erasure LOCATES a subject's

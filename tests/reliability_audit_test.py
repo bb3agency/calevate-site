@@ -33,6 +33,7 @@ from apps.api.db.session import untenanted_session
 from apps.api.reliability import service as rel
 from redis.exceptions import RedisError
 from sqlalchemy import text
+from tests.platform_support import requires_posix_signals
 
 # Every key this module writes is prefixed with the run id, so a parallel suite's rows
 # can never be mistaken for ours.
@@ -854,6 +855,7 @@ async def test_two_dispatchers_never_claim_the_same_outbox_row() -> None:
 # ============================================================================== REDIS
 
 
+@requires_posix_signals
 async def test_enqueueing_against_a_dead_redis_fails_fast(monkeypatch: pytest.MonkeyPatch) -> None:
     """`enqueue` sits inside the voice-runtime webhook handler, whose ack budget is 500ms
     (hard rule 3, alerted on at `webhook_routes.py:143`). `arq.create_pool` defaults to
@@ -913,6 +915,7 @@ async def test_a_cold_start_burst_builds_exactly_one_pool(monkeypatch: pytest.Mo
         queue_mod._pool = saved
 
 
+@requires_posix_signals
 async def test_a_raising_job_is_actually_retried_by_a_real_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -973,6 +976,7 @@ async def test_a_raising_job_is_actually_retried_by_a_real_worker(
     )
 
 
+@requires_posix_signals
 async def test_a_permanent_rejection_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     """The other half of a retry policy: knowing what NOT to retry.
 
@@ -1019,6 +1023,7 @@ async def test_a_permanent_rejection_is_not_retried(monkeypatch: pytest.MonkeyPa
     assert fired, "and giving up on a client's endpoint must still be said out loud"
 
 
+@requires_posix_signals
 async def test_a_lost_recording_copy_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
     """`StorageUnavailableError` exists, in its own words, "so the ARQ retry ladder can do
     its job" (`apps/workers/storage.py:37-39`), and the post-call pipeline re-raises it

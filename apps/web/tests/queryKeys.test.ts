@@ -1,6 +1,8 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
+import { toPosix } from "./repoPaths";
+
 import { describe, expect, it } from "vitest";
 
 /**
@@ -39,6 +41,14 @@ import { describe, expect, it } from "vitest";
  * `tests/a11y.routePagesOnDisk`.
  */
 const SRC = join(process.cwd(), "src") + "/";
+/**
+ * The src-relative path, spelled the way `EXEMPT` and every offender message are.
+ *
+ * `slice` alone gets the LENGTH right and the separators wrong: on Windows `join`
+ * builds `lib\api\billing.ts`, which matches no exemption key here, so an argued-for
+ * entry stopped applying and the guard reported it as a live offender.
+ */
+const srcRel = (file: string): string => toPosix(file.slice(SRC.length));
 
 /** Every `.ts`/`.tsx` file under `src/`, so a hook cannot hide by moving. */
 function sourceFiles(dir: string): string[] {
@@ -163,10 +173,10 @@ describe("client-realm query keys", () => {
         // A `useQuery` with no `queryKey` does not compile, so this is a parse failure
         // rather than a real state — report it instead of skipping it.
         if (key === null) {
-          offenders.push(`${file.slice(SRC.length)} — could not read its queryKey`);
+          offenders.push(`${srcRel(file)} — could not read its queryKey`);
           continue;
         }
-        const site = `${file.slice(SRC.length)} — ${key}`;
+        const site = `${srcRel(file)} — ${key}`;
         if (!namesATenant(key) && !Object.hasOwn(NOT_TENANT_DATA, site)) {
           offenders.push(site);
         }
@@ -189,7 +199,7 @@ describe("client-realm query keys", () => {
       for (const block of queryOptionBlocks(readFileSync(file, "utf8"))) {
         if (!isClientRealm(block)) continue;
         const key = queryKeyOf(block);
-        if (key !== null) live.add(`${file.slice(SRC.length)} — ${key}`);
+        if (key !== null) live.add(`${srcRel(file)} — ${key}`);
       }
     }
     expect(Object.keys(NOT_TENANT_DATA).filter((site) => !live.has(site))).toEqual([]);
