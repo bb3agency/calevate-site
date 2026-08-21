@@ -29,6 +29,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from tests.platform_support import requires_posix_shell
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -60,6 +61,7 @@ def _strip_comments(text: str) -> str:
 
 
 @pytest.mark.parametrize("script", SHELL_FILES, ids=lambda p: p.name)
+@requires_posix_shell
 def test_shell_parses(script: Path) -> None:
     """`bash -n` on every script this change added.
 
@@ -133,6 +135,7 @@ def _command_lines(text: str) -> list[str]:
     return lines
 
 
+@requires_posix_shell
 def test_two_floors_and_the_purge_floor_is_the_higher_one() -> None:
     """The gap between the floors IS the mechanism.
 
@@ -205,6 +208,7 @@ def test_deploy_refuses_rather_than_building_below_the_hard_floor() -> None:
 # --------------------------------------------------------------------------------------
 
 
+@requires_posix_shell
 def test_deploy_and_hygiene_resolve_the_same_lock_path() -> None:
     """Two callers computing the lock differently is the same as having no lock, and it is
     the kind of divergence that is invisible until the day the two do interleave."""
@@ -223,6 +227,7 @@ def test_lock_is_flock_and_not_a_pid_file() -> None:
     assert "flock" in body
 
 
+@requires_posix_shell
 def test_lock_is_released_when_the_holder_exits(tmp_path: Path) -> None:
     """The property flock buys and a pid file does not: a killed holder leaves no lock."""
     state = tmp_path / "state"
@@ -236,6 +241,7 @@ def test_lock_is_released_when_the_holder_exits(tmp_path: Path) -> None:
     assert "ACQUIRED" in _sourced(script=script)
 
 
+@requires_posix_shell
 def test_a_second_holder_is_refused_while_the_first_holds_it(tmp_path: Path) -> None:
     state = tmp_path / "state"
     child = f'export CALEVATE_DEPLOY_STATE={state}; source "{LOCK}"'

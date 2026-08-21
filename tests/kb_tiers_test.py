@@ -188,7 +188,7 @@ def test_in_call_retrieval_is_not_reimplemented_on_our_side() -> None:
     # which changes no route.
     runtime = REPO_ROOT / "apps" / "voice-runtime"
     sources = [
-        path.read_text().lower()
+        path.read_text(encoding="utf-8").lower()
         for path in runtime.rglob("*.py")
         if "__pycache__" not in path.parts
     ]
@@ -215,7 +215,7 @@ def _app_sources_naming(table: str) -> list[str]:
     for path in (REPO_ROOT / "apps").rglob("*.py"):
         if "__pycache__" in path.parts or path in excluded:
             continue
-        if table in path.read_text():
+        if table in path.read_text(encoding="utf-8"):
             hits.append(str(path.relative_to(REPO_ROOT)))
     return hits
 
@@ -260,7 +260,7 @@ def test_the_knowledge_gap_report_has_no_producer_and_cannot_yet() -> None:
         "outcomes, delete this test and pin the producer; if it is a transcript-derived "
         "guess, see argument (2) above"
     )
-    model_source = (REPO_ROOT / "apps" / "api" / "kb" / "models.py").read_text()
+    model_source = (REPO_ROOT / "apps" / "api" / "kb" / "models.py").read_text(encoding="utf-8")
     assert "GAP (2026-08-11)" in model_source, (
         "the dated gap note on KbRetrievalLog is the only place the table explains why "
         "it is empty; a table with no rows and no explanation gets filled by guesswork"

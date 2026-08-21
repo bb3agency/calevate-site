@@ -141,7 +141,7 @@ def _stamp(state_dir: Path, fingerprint: str) -> Path:
 def _read_window(path: Path) -> tuple[float, int]:
     """(last delivery, repeats counted since). Absent or unreadable = never sent."""
     try:
-        last, _, count = path.read_text().partition(" ")
+        last, _, count = path.read_text(encoding="utf-8").partition(" ")
         return (float(last), int(count or 0))
     except (OSError, ValueError):
         return (0.0, 0)

@@ -282,7 +282,7 @@ async def test_a_wrong_value_is_classified_wrong_and_a_blank_one_is_a_miss() -> 
     files nothing. If those ever produce the same verdict, every per-field column in the
     scorecard silently stops being able to report the failure this harness exists for.
     """
-    payload = json.loads(FIXTURES.read_text())
+    payload = json.loads(FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     case = next(c for c in payload["cases"] if "name" in (c.get("expect") or {}))
 
@@ -301,7 +301,7 @@ async def test_a_wrong_value_is_classified_wrong_and_a_blank_one_is_a_miss() -> 
 async def test_a_field_the_caller_never_mentioned_is_classified_invented() -> None:
     """Restraint, driven the same way. `expect_absent` is the half that quietly ruins a
     CRM, and a verdict that never fires would report a fabricating model as restrained."""
-    payload = json.loads(FIXTURES.read_text())
+    payload = json.loads(FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     # A TEXT field, so the fabricated value survives schema validation and reaches the
     # comparison. A value the validator drops would land as null and be scored
@@ -324,7 +324,7 @@ async def test_the_offline_provider_scores_the_real_fixtures_today() -> None:
     #87 waits on a key. Runs ONE fixture case rather than the suite: this is about the
     plumbing from provider to per-field verdict, and the suite's own coverage is
     `eval_harness_test.py`'s."""
-    payload = json.loads(FIXTURES.read_text())
+    payload = json.loads(FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     case = next(c for c in payload["cases"] if c.get("expect"))
 
@@ -405,7 +405,7 @@ def test_the_committed_scorecard_matches_what_the_harness_writes_today() -> None
     """The artefact in `docs/evidence/` is generated, and a generated file nobody can
     regenerate is a hand-edited one within a month. This pins the two together on the
     parts that do not move: the banner, the regenerate command and the caveats."""
-    document = Path("docs/evidence/extraction-provider-scorecard.md").read_text()
+    document = Path("docs/evidence/extraction-provider-scorecard.md").read_text(encoding="utf-8")
     assert document.startswith("# Extraction provider scorecard — EVIDENCE ARTIFACT")
     assert "<!-- GENERATED FILE — do not hand-edit. -->" in document
     assert "uv run python -m scripts.eval --client=ci --provider=offline" in document

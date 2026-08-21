@@ -1222,7 +1222,13 @@ def uncovered_detail(report: Mapping[str, Any], area: Area) -> list[str]:
     files: Mapping[str, Any] = report.get("files", {})
     detail: list[str] = []
     for name, entry in sorted(files.items()):
-        if not _matches(area, name.replace("\\", "/")):
+        # ONE spelling, used for BOTH the match and the print. This normalised the name
+        # to match the area and then printed the RAW one, so on Windows the gate matched
+        # correctly and then reported `apps\api\compliance\audit.py` -- a path that
+        # matches neither CI's output nor anything a reader can paste into an editor.
+        # Its own guard test asserts the forward-slash spelling and failed on this.
+        display = name.replace("\\", "/")
+        if not _matches(area, display):
             continue
         marks = [str(line) for line in entry.get("missing_lines", [])]
         marks += [f"{start}->{end}" for start, end in entry.get("missing_branches", [])]
@@ -1235,7 +1241,7 @@ def uncovered_detail(report: Mapping[str, Any], area: Area) -> list[str]:
         if marks:
             shown = ", ".join(marks[:DETAIL_MARKS])
             more = f" …+{len(marks) - DETAIL_MARKS}" if len(marks) > DETAIL_MARKS else ""
-            detail.append(f"{name}: {shown}{more}")
+            detail.append(f"{display}: {shown}{more}")
     return detail
 
 

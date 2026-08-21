@@ -146,7 +146,7 @@ def main() -> int:
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:  # pragma: no cover - a broken file fails its own gate
-            problems.append(f"{path.relative_to(REPO_ROOT)}: could not parse ({exc})")
+            problems.append(f"{path.relative_to(REPO_ROOT).as_posix()}: could not parse ({exc})")
             continue
 
         for lineno, function in _peer_reads(tree):
@@ -154,7 +154,7 @@ def main() -> int:
                 seen.add((path, function))
                 continue
             problems.append(
-                f"{path.relative_to(REPO_ROOT)}:{lineno} reads the socket peer "
+                f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno} reads the socket peer "
                 f"in `{function or '<module>'}` — behind nginx that is the PROXY, not the "
                 f"caller. Use `core.auth.{PERMITTED_FUNCTION}(request)`, which asks "
                 f"whether the peer is a trusted proxy before believing its headers "
@@ -165,7 +165,7 @@ def main() -> int:
         if (file, function) in seen:
             continue
         problems.append(
-            f"`{function}` in {file.relative_to(REPO_ROOT)} no longer reads the socket "
+            f"`{function}` in {file.relative_to(REPO_ROOT).as_posix()} no longer reads the socket "
             "peer. Either it stopped resolving the caller — in which case the address it "
             "answered for is now decided somewhere this check cannot see — or it moved, "
             "and this allowance must move with it. An exception that outlives its reason "

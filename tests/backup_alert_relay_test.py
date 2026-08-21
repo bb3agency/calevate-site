@@ -41,6 +41,7 @@ from typing import Any
 import pytest
 from apps.api.core import alerting
 from apps.api.core.settings import get_settings
+from tests.platform_support import requires_posix_shell
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 NOTIFY = REPO_ROOT / "scripts" / "backup" / "notify.sh"
@@ -127,6 +128,7 @@ def _subprocess_env(**extra: str) -> dict[str, str]:
 # --- 1. it is routed, and routed BY DEFAULT ------------------------------------
 
 
+@requires_posix_shell
 def test_notify_sh_reaches_the_applications_alert_path_with_nothing_configured(
     tmp_path: Path,
 ) -> None:
@@ -174,6 +176,7 @@ def test_the_alarm_needs_neither_the_database_nor_redis(tmp_path: Path) -> None:
     assert "host_alert delivered" in proc.stderr
 
 
+@requires_posix_shell
 def test_the_relay_wrapper_runs_without_the_repository_on_the_path(tmp_path: Path) -> None:
     """`alert-to-app.sh` is what the hook actually executes, from an arbitrary cwd.
 
@@ -357,7 +360,7 @@ def test_the_relay_reads_delivery_outcomes_that_alerting_actually_emits() -> Non
     one there and this fails here, rather than the relay reporting success forever."""
     from scripts import host_alert
 
-    source = (REPO_ROOT / "apps" / "api" / "core" / "alerting.py").read_text()
+    source = (REPO_ROOT / "apps" / "api" / "core" / "alerting.py").read_text(encoding="utf-8")
     for event in {host_alert.DELIVERED_EVENT, *host_alert.NOT_DELIVERED_EVENTS}:
         assert f'"{event}"' in source, f"{event} is no longer emitted by alerting.py"
 
@@ -418,6 +421,7 @@ echo "LastTriggerUSec=Mon 2026-01-05 21:00:00 UTC"
 """
 
 
+@requires_posix_shell
 def test_a_timer_that_is_no_longer_armed_is_reported(tmp_path: Path) -> None:
     """The failure `OnFailure=` cannot see, because nothing ran to fail: a timer that
     was masked, disabled, or lost to a deploy that rewrote /etc/systemd/system."""
@@ -426,6 +430,7 @@ def test_a_timer_that_is_no_longer_armed_is_reported(tmp_path: Path) -> None:
     assert "backup_timer_inactive" in proc.stderr, proc.stderr
 
 
+@requires_posix_shell
 def test_a_timer_that_is_armed_but_has_not_fired_is_reported(tmp_path: Path) -> None:
     """Armed and silent — the shape of a `Persistent=true` timer whose stamp file was
     lost, or a calendar expression edited into never matching."""
@@ -434,6 +439,7 @@ def test_a_timer_that_is_armed_but_has_not_fired_is_reported(tmp_path: Path) -> 
     assert "backup_timer_not_firing" in proc.stderr, proc.stderr
 
 
+@requires_posix_shell
 def test_an_armed_and_recently_fired_timer_says_nothing(tmp_path: Path) -> None:
     """A check that alerts on a healthy schedule is noise, and noise is how the real
     alert gets filtered."""
@@ -442,6 +448,7 @@ def test_an_armed_and_recently_fired_timer_says_nothing(tmp_path: Path) -> None:
     assert "backup_timer_not_firing" not in proc.stderr
 
 
+@requires_posix_shell
 def test_a_gap_in_the_health_checks_own_schedule_is_reported_once_it_resumes(
     tmp_path: Path,
 ) -> None:
@@ -459,9 +466,10 @@ def test_a_gap_in_the_health_checks_own_schedule_is_reported_once_it_resumes(
     proc = _run_health(tmp_path, ARMED)
     assert "backup_health_gap" in proc.stderr, proc.stderr
     # And the heartbeat is renewed, so the same gap is not re-reported forever.
-    assert int((state / ".calevate-health-heartbeat").read_text()) > stale_epoch
+    assert int((state / ".calevate-health-heartbeat").read_text(encoding="utf-8")) > stale_epoch
 
 
+@requires_posix_shell
 def test_the_first_ever_run_does_not_report_a_gap(tmp_path: Path) -> None:
     """No heartbeat means "this host has never run the check", which is what a new
     install looks like — alerting on it would train the operator to ignore it."""

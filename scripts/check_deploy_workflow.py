@@ -258,12 +258,21 @@ def check_inputs_documented(document: dict[str, Any]) -> tuple[list[str], list[s
 def check_run_blocks_parse(blocks: list[tuple[str, str]]) -> list[str]:
     failures = []
     for where, block in blocks:
+        # BYTES, NOT `text=True`, and the difference is a false failure on one platform.
+        # `text=True` opens the child's stdin in text mode, which on Windows translates
+        # every `\n` this block holds into `\r\n` on the way down the pipe. bash then
+        # reads the carriage return as part of the last token — `then` is no longer the
+        # keyword — and every conditional in the workflow reports as a syntax error. The
+        # gate called the deploy script broken on a developer's machine and fine in CI,
+        # which is the direction that teaches people to dismiss a gate. The YAML is
+        # already decoded UTF-8 by `_load()`, so encoding it back is exact.
         result = subprocess.run(
-            ["bash", "-n"], input=block, capture_output=True, text=True, check=False
+            ["bash", "-n"], input=block.encode("utf-8"), capture_output=True, check=False
         )
         if result.returncode != 0:
+            stderr = result.stderr.decode("utf-8", errors="replace").strip()
             failures.append(
-                f"{where} is not valid bash: {result.stderr.strip()}. CI shellchecks "
+                f"{where} is not valid bash: {stderr}. CI shellchecks "
                 "`git ls-files '*.sh'` and this block is in no such file, so without this "
                 "the first parse would happen on the production host."
             )

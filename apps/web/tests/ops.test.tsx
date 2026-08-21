@@ -295,6 +295,11 @@ function kbDrift(over: Partial<KbDrift> = {}): KbDrift {
     undetermined: 0,
     oldest_drift_at: null,
     oldest_checked_at: "2026-08-15T00:23:00Z",
+    // TRUE by default, for the same reason the counts are clean: the interesting cases
+    // set it. An engine without a knowledge base records nothing on every run, so a
+    // `false` default would put the "nothing to watch" notice on every unrelated ops
+    // test — and would hide the "sweep has not run" warning those tests do exercise.
+    engine_supports_knowledge_base: true,
     ...over,
   };
 }
@@ -1258,6 +1263,38 @@ describe("what the voice platform is answering from", () => {
 
     await screen.findByText("No agent's knowledge has been checked yet");
     expect(container.textContent).toContain("Every checked agent is running what we published");
+  });
+
+  it("says an engine with no knowledge base has nothing to watch, not that the job is dead", async () => {
+    /* THE PERMANENT FALSE ALARM, and it was live on the engine this product runs.
+
+       `sweep_kb_drift` returns on its first line when the engine has no built-in
+       knowledge base, so on Bolna (`BOLNA_CAPABILITIES.knowledge_base` is False, D-354)
+       it records nothing on EVERY run, by design. The data it leaves behind — all zeroes,
+       null pulse — is byte-identical to a cron that has died, so this panel told an
+       operator "the knowledge reconciliation job is not running, and nobody is watching
+       what the agents are answering from". Permanently. A panel that cries wolf for ever
+       is one nobody reads, which costs the alarm that matters on the day it is real. */
+    const { container } = renderAdminPage(
+      <OpsPage />,
+      routes(
+        platform({
+          kb_drift: kbDrift({
+            live_agents: 3,
+            in_sync: 0,
+            never_checked: 3,
+            oldest_checked_at: null,
+            engine_supports_knowledge_base: false,
+          }),
+        }),
+        SUPERADMIN,
+      ),
+    );
+
+    await screen.findByText("This engine has no built-in knowledge base");
+    // The alarm must be GONE, not merely joined: two notices where one says "nothing to
+    // do" and the other says "nobody is watching" is worse than either alone.
+    expect(container.textContent).not.toContain("reconciliation job is not running");
   });
 
   it("REFUSES to state a knowledge count it could not read, rather than showing zero", async () => {

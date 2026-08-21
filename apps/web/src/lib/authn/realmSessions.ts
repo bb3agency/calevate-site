@@ -44,6 +44,20 @@ export function adminRealmSession(orgSlug = ""): Session {
 }
 
 /** The CLIENT realm's API session. Same shape, its own literal, its own cookie. */
+/**
+ * A client-realm session that names NO account — for the one question that precedes
+ * knowing which account you are in: "which console is mine?"
+ *
+ * Somebody who has just signed in holds a cookie and no slug; the slug lives on
+ * `/v1/me`, which `core/auth._load_client_principal` answers without `X-Org-Slug` when
+ * the caller belongs to exactly one account. So this is not a session with a field
+ * missing, it is the session that asks that question, and `/c/page.tsx` is its only
+ * caller. `apiRequest` omits the header entirely when the slug is empty.
+ */
+export function unscopedClientSession(): Session {
+  return clientRealmSession("");
+}
+
 export function clientRealmSession(orgSlug: string): Session {
   return AUTH_MODE === "dev"
     ? { token: devToken("client", DEV_CLIENT_SUBJECT), orgSlug }

@@ -97,7 +97,7 @@ def test_the_reset_recipe_no_longer_walks_the_chain_backwards() -> None:
     worth nothing if `make db-reset` still calls `alembic downgrade base`."""
     commands: list[str] = []
     inside = False
-    for line in (REPO / "Makefile").read_text().splitlines():
+    for line in (REPO / "Makefile").read_text(encoding="utf-8").splitlines():
         if line.startswith("db-reset:"):
             inside = True
             continue

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+
+import { posixDirPrefix, relPosix } from "./repoPaths";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
@@ -930,7 +932,7 @@ function findViolations(program: ts.Program, sourceFile: ts.SourceFile): Violati
 
   const record = (node: ts.Node, claim: string, fix: string): void => {
     found.push({
-      file: relative(WEB_ROOT, sourceFile.fileName),
+      file: relPosix(WEB_ROOT, sourceFile.fileName),
       line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
       text: quote(node),
       claim,
@@ -1192,7 +1194,7 @@ describe("the §52 guard: a fallback on a query envelope", () => {
       .getSourceFiles()
       .filter(
         (file) =>
-          file.fileName.startsWith(resolve(WEB_ROOT, "src") + "/") &&
+          file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "src")) &&
           // Generated from OpenAPI; it declares types and renders nothing.
           !file.fileName.endsWith("schema.d.ts"),
       );
@@ -1227,7 +1229,7 @@ describe("the §52 guard: a fallback on a query envelope", () => {
     const live = new Set(
       program
         .getSourceFiles()
-        .filter((file) => file.fileName.startsWith(resolve(WEB_ROOT, "src") + "/"))
+        .filter((file) => file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "src")))
         .flatMap((file) => findViolations(program, file))
         .map(siteKey),
     );

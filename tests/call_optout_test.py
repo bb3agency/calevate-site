@@ -189,7 +189,9 @@ def test_the_detector_and_the_golden_fixtures_agree_in_both_directions() -> None
     recall-first list has. `scripts/eval.py` scores the same property on every run, so
     a new fixture cannot land in one place and be forgotten in the other.
     """
-    payload = json.loads((REPO / "tests" / "fixtures" / "golden_transcripts.json").read_text())
+    payload = json.loads(
+        (REPO / "tests" / "fixtures" / "golden_transcripts.json").read_text(encoding="utf-8")
+    )
     disagreed: list[str] = []
     for case in payload["cases"]:
         turns = [

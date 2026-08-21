@@ -75,6 +75,18 @@ export function tenantStatusPath(tenantId: string): string {
   return `/v1/admin/tenants/${tenantId}/status`;
 }
 
+/**
+ * The step-up string for CLOSING one client's account for good — `admin/routes.py`'s
+ * `close_account_confirmation`, mirrored.
+ *
+ * A named function on this side too, for `spendCapConfirmation`'s reason: bound to the
+ * TENANT, so a confirmation captured while closing one client cannot be replayed against
+ * another, and shaped by a deliberate edit rather than by a reformat.
+ */
+export function closeAccountConfirmation(tenantId: string): string {
+  return `close_account:${tenantId}`;
+}
+
 export interface TermsStateCopy {
   label: string;
   /** What this state MEANS for the client's money, in one sentence an operator can act on. */
@@ -242,6 +254,11 @@ export function useSetTenantStatus(session: Session, tenantId: string) {
       apiRequest<LifecycleOut>(session, tenantStatusPath(tenantId), {
         method: "POST",
         body: reason ? { status, reason } : { status },
+        // ONLY on the terminal move, the way `useRecordCommercialTerms` sends its own:
+        // `churned` is irreversible, and a header attached to suspend and reactivate as
+        // well would be a confirmation of nothing and would train an operator to clear
+        // the prompt without reading it. The server demands it for `churned` alone.
+        ...(status === "churned" ? { confirmAction: closeAccountConfirmation(tenantId) } : {}),
       }),
     onSuccess: () => {
       // The directory record carries `status`, and the detail screen prints it under the

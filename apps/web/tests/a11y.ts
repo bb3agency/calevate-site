@@ -1,5 +1,7 @@
 import { readdirSync } from "node:fs";
-import { join, relative } from "node:path";
+import { join } from "node:path";
+
+import { relPosix } from "./repoPaths";
 
 import axe, { type AxeResults, type Result, type RunOptions } from "axe-core";
 import { expect } from "vitest";
@@ -300,7 +302,8 @@ export function routePagesOnDisk(appDir: string = join(process.cwd(), "src", "ap
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
       else if (entry.name === "page.tsx" || entry.name === "layout.tsx")
-        out.push(relative(appDir, full));
+        // `relPosix`: these become route paths compared against the screen list.
+        out.push(relPosix(appDir, full));
     }
   };
   walk(appDir);

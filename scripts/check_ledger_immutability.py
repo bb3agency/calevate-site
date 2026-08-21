@@ -245,7 +245,7 @@ def scan_source(path: Path, source: str, *, classes: dict[str, str] | None = Non
     except SyntaxError:
         tree = None
     findings: set[tuple[int, str, str]] = set()
-    allowed = {table for (file, table) in BOUNDED_MUTATIONS if str(path) == file}
+    allowed = {table for (file, table) in BOUNDED_MUTATIONS if path.as_posix() == file}
     for lineno, table in _sql_hits(source, tree, ledgers):
         if table in allowed:
             continue
@@ -297,7 +297,7 @@ def scanned_files(root: Path | None = None, dirs: tuple[str, ...] | None = None)
         path
         for directory in (SEARCH_DIRS if dirs is None else dirs)
         for path in sorted((root / directory).rglob("*.py"))
-        if not any(part in str(path) for part in EXCLUDED_PARTS)
+        if not any(part in path.as_posix() for part in EXCLUDED_PARTS)
     ]
 
 

@@ -149,7 +149,9 @@ with open(sys.argv[1], "w") as handle:
             check=False,
         )
         assert proc.returncode == 0, proc.stderr[-3000:]
-        assert Path(out).read_text() == "[]", "alert() imported worker code on the caller"
+        assert Path(out).read_text(encoding="utf-8") == "[]", (
+            "alert() imported worker code on the caller"
+        )
     finally:
         out.unlink(missing_ok=True)
 

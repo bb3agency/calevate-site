@@ -760,7 +760,9 @@ def test_the_meter_takes_the_spend_state_lock_before_it_reads_the_ceiling() -> N
     lock that does nothing, and it is the likelier mistake — somebody moving the line
     while tidying, with every behavioural test still passing.
     """
-    source = (Path(__file__).resolve().parents[1] / "apps/workers/pipeline.py").read_text()
+    source = (Path(__file__).resolve().parents[1] / "apps/workers/pipeline.py").read_text(
+        encoding="utf-8"
+    )
     tree = ast.parse(source)
     meter = next(
         node

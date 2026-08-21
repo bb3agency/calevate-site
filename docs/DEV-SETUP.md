@@ -60,7 +60,9 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 git clone <repo> calevate && cd calevate
 cp .env.example .env                  # fill values per §4
 make up                               # = docker compose up -d: postgres:16+pgvector, redis:7, minio
-uv sync
+uv sync --all-packages                # --all-packages, not bare `uv sync`: the bare form
+                                      # installs the root only and leaves calevate_shared
+                                      # uninstalled (matches ci.yml:63)
 uv run alembic upgrade head
 uv run python -m scripts.seed         # reserved slugs, vertical templates, retention defaults
 uv run python -m scripts.seed_dev     # LOCAL ONLY: demo accounts + a tenant with calls in it

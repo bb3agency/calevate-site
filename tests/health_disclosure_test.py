@@ -543,7 +543,7 @@ def test_the_typed_client_is_generated_from_a_file_and_not_from_a_server() -> No
     """The other half of "nothing loses a capability", read off the build rather than
     believed: if `gen:api` pointed at a URL, turning the route off in prod would break
     the frontend build the first time anyone generated against a prod host."""
-    package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text())
+    package = json.loads((REPO_ROOT / "apps" / "web" / "package.json").read_text(encoding="utf-8"))
     generator = package["scripts"]["gen:api"]
     assert "src/lib/api/openapi.json" in generator, generator
     assert "http" not in generator, f"gen:api reaches a server: {generator}"

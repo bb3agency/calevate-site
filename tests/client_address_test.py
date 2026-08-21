@@ -21,6 +21,7 @@ assertion passes on the broken code.
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import uuid
@@ -253,6 +254,26 @@ _FINGERPRINT_PROBE = (
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+def _probe_env(seed: str) -> dict[str, str]:
+    """A near-empty environment so PYTHONHASHSEED is the ONLY difference between probes.
+
+    NEAR-empty, not empty, and the exception is platform-forced rather than a
+    convenience: a Windows interpreter will not start without SYSTEMROOT -- it resolves
+    its own DLLs and seeds os.urandom through it -- so a literally minimal env made the
+    probe exit non-zero and this test reported a fingerprint that had never been
+    computed. The POSIX arm is unchanged, deliberately: CI runs it and a real PATH there
+    would let an ambient interpreter or shim answer instead of `sys.executable`.
+    """
+    env = {"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"}
+    if sys.platform == "win32":
+        env["PATH"] = os.environ.get("PATH", "")
+        for required in ("SYSTEMROOT", "COMSPEC", "PATHEXT"):
+            value = os.environ.get(required)
+            if value is not None:
+                env[required] = value
+    return env
+
+
 def _probe(seed: str) -> tuple[str, str]:
     result = subprocess.run(
         [sys.executable, "-c", _FINGERPRINT_PROBE],
@@ -260,7 +281,7 @@ def _probe(seed: str) -> tuple[str, str]:
         text=True,
         check=True,
         cwd=_REPO_ROOT,
-        env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"},
+        env=_probe_env(seed),
     )
     digest, builtin = result.stdout.split()
     return digest, builtin

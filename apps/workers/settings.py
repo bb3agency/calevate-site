@@ -5,6 +5,11 @@ Run: uv run arq apps.workers.settings.WorkerSettings
 Every job is idempotent and keyed (post-call work is keyed by call_id) and retries 3 times
 with exponential backoff.
 
+Windows: set the selector loop policy at import time. psycopg's async driver cannot run
+on the default ProactorEventLoop (`tests/conftest.py`, `scripts/seed_dev.py`); without
+this, every cron that opens Postgres fails and outbox mail — including the admin OTP —
+never leaves `pending`.
+
 **THERE IS NO ARQ DEAD-LETTER QUEUE, and this docstring used to say there was** (P6.5).
 The sentence promised "lands in a DLQ with an alert on exhaustion", and two more modules
 repeated it. What actually exists is the OUTBOX's `status='failed'`, which is fully wired
@@ -49,9 +54,15 @@ worker that refuses to start because Sarvam is unconfigured takes down recording
 copies and metering too, which is a far worse failure than degraded extraction.
 """
 
+import asyncio
 import logging
+import sys
 from contextlib import suppress
 from typing import Any
+
+# Must run before arq creates its loop. Same policy as tests/conftest.py.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from arq import cron
 
@@ -74,12 +85,14 @@ from apps.api.core.settings import (
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
+from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
     dispatch_outbox,
     report_overdue_erasures,
     report_stalled_pipeline,
     sweep_expired,
 )
+from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
@@ -148,6 +161,20 @@ FUNCTIONS: list[Any] = [
         # an unregistered one means a reset link that is promised, queued, DLQ'd and never
         # sent — while the sign-in screen truthfully reports that an email was on its way.
         deliver_auth_email,
+        # D-432. The big red switch's recall arm. Fired on the halt EDGE by
+        # `ops/routes.set_platform`, not cronned — an unregistered one means the switch
+        # reports outbound stopped while every dial the vendor already accepted rings on,
+        # which is the `check_job_wiring` shape 3 failure on the one control an operator
+        # throws when something is going wrong.
+        recall_queued_dials,
+        # D-428(b), the recall's other arm and the one with a regulator behind it.
+        # Published by the outbox in the same transaction as a `dnc_list` insert, so an
+        # unregistered name here does not read as a dormant feature: arq accepts the
+        # enqueue, the outbox row says `published`, `Worker.run_job` drops it with a
+        # warning nothing reads — and the suppression is honoured for the next dispatch
+        # tick while the dials already queued at the vendor ring anyway, with every screen
+        # reporting the number suppressed.
+        recall_dials_for_dnc,
     )
 ]
 

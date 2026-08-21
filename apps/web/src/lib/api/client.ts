@@ -407,9 +407,18 @@ async function sendRequest<T>(
   const requested = session.token?.();
   const token = typeof requested === "string" ? requested : await requested;
 
-  const headers: Record<string, string> = {
-    "X-Org-Slug": session.orgSlug,
-  };
+  const headers: Record<string, string> = {};
+  // CONDITIONAL, for the reason the token above is: a request with no account named sends
+  // NO header rather than an empty one. `/v1/me` answers a client with exactly one
+  // membership without being told which account (`core/auth._load_client_principal`), and
+  // that is what lets `/c` resolve "my console" for somebody who has just signed in and
+  // does not know their own slug yet. `X-Org-Slug: ` would be a named account that does
+  // not exist, refused before the API looks at the membership.
+  //
+  // Bracket notation, like the four below: `tests/cors_contract_test.py` reads this file
+  // for every header name a request can carry and checks the API's CORS allowlist admits
+  // it, and it knows two spellings — the object literal and a bracket assignment.
+  if (session.orgSlug) headers["X-Org-Slug"] = session.orgSlug;
   // BRACKET NOTATION, deliberately, and it is the same shape as the four conditional
   // headers below rather than a style choice: `tests/cors_contract_test.py` reads this
   // file for every header name it can put on a request and checks the API's CORS

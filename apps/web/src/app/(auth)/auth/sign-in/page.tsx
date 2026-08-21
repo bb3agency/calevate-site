@@ -19,7 +19,7 @@ import { AuthPageFrame } from "@/components/authPage";
 import { SignInForm } from "@/components/authn/signInForm";
 import {
   CLIENT_ACCEPT_INVITE_PATH,
-  CLIENT_ACCOUNT_PATH,
+  CLIENT_CONSOLE_PATH,
   CLIENT_FORGOT_PATH,
   clientAuthn,
 } from "@/lib/authn/clientAuthn";
@@ -36,7 +36,8 @@ export default function ClientSignInPage() {
               authn={clientAuthn}
               forgotPath={CLIENT_FORGOT_PATH}
               onSignedIn={() => {
-                window.location.assign(CLIENT_ACCOUNT_PATH);
+                // The console, not the account page — see `CLIENT_CONSOLE_PATH`.
+                window.location.assign(CLIENT_CONSOLE_PATH);
               }}
               footer={
                 <p className="text-xs text-ink-faint">

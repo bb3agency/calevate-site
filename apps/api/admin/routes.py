@@ -2260,6 +2260,22 @@ _LIFECYCLE_FROM: dict[str, tuple[str, ...]] = {
 # for the same reason).
 _NEEDS_REASON = ("suspended", "churned")
 
+# The one transition on this route that cannot be undone, and therefore the one that is
+# confirmed with a second factor.
+_TERMINAL_STATUS = "churned"
+
+
+def close_account_confirmation(tenant_id: UUID) -> str:
+    """The step-up string for CLOSING one client's account for good.
+
+    A named function for the reason `spend_ceiling_confirmation` gives: the value is part
+    of an operator procedure, so changing its shape has to be a deliberate edit that fails
+    a test rather than a reformat that leaves the console sending a header the API
+    refuses. Bound to the TENANT, so a confirmation captured while closing one client
+    cannot be replayed against another.
+    """
+    return f"close_account:{tenant_id}"
+
 
 class LifecycleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -2307,7 +2323,12 @@ async def set_tenant_status(
     payload: LifecycleIn,
     session: AdminSession,
     request: Request,
+    # Resolved BEFORE the handler body, so the session read cannot happen inside an open
+    # transaction -- `core/stepup.py` on `max_overflow=0`, the same ordering
+    # `ops/routes.py::set_platform` states.
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> LifecycleOut:
     """The repo's shared state-transition primitive, not a second discriminator.
 
@@ -2334,7 +2355,29 @@ async def set_tenant_status(
     the same way), so it is asked here rather than having the predicate copied. `churned`
     still reaches the transition and still gets the 409 that names it: closed and deleted
     are different facts and only one of them is reversible.
+
+    **CLOSING NEEDS A SECOND FACTOR; SUSPENDING DOES NOT**, and the split follows the
+    doctrine `record_commercial_terms` already applies on this router rather than a new
+    one: step-up confirms the move that runs in the DANGEROUS direction, not every write.
+    Suspend and reactivate are a pair — an operator who suspends the wrong account
+    reactivates it, and the reason field and audit row already make them answerable.
+    `churned` has no pair. It is terminal by construction (see `_LIFECYCLE_FROM`: no entry
+    lists it as a source), it locks every one of that client's users out through
+    `core/auth.py`, and it starts the retention clock on their data. Re-opening is a new
+    tenant and a new agreement.
+
+    That made it the only IRREVERSIBLE action reachable from this console with nothing but
+    a live admin session, while three reversible ones beside it — halting outbound
+    calling, raising a spend ceiling, minting a read-only view-as grant — each demanded a
+    code. An operator whose laptop is open at a coffee shop could end a client
+    relationship in two clicks and could not halt the dialler in ten. Found by walking
+    the console rather than the code, which is why it survived every guard: the step-up
+    census in `tests/authn_stepup_test.py` scopes itself to `apps/api/ops/` by an argued
+    rule, and this route is not there.
     """
+    if payload.status == _TERMINAL_STATUS:
+        step_up.require(x_confirm_action, close_account_confirmation(tenant_id))
+
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")

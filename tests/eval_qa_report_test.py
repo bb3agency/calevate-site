@@ -36,12 +36,12 @@ AS_OF = date(2026, 8, 31)
 
 
 def _spec() -> ExtractionSchemaSpec:
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     return ExtractionSchemaSpec(version=1, fields=payload["schema"])
 
 
 def _cases() -> list[dict[str, object]]:
-    return list(json.loads(ev.FIXTURES.read_text())["cases"])
+    return list(json.loads(ev.FIXTURES.read_text(encoding="utf-8"))["cases"])
 
 
 async def _report(vertical: str = "clinic") -> str:
@@ -281,7 +281,7 @@ async def test_the_generator_refuses_to_render_a_report_over_no_scenarios(
     second data source, a mock would keep passing and this will not.
     """
     # Every case belongs to the other vertical, so the clinic filter matches nothing.
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     payload["cases"] = [c for c in payload["cases"] if c["vertical"] == "real_estate"]
     empty_for_clinic = tmp_path / "golden_transcripts.json"
     empty_for_clinic.write_text(json.dumps(payload))

@@ -35,7 +35,9 @@ pytestmark = pytest.mark.asyncio
 #: Read at IMPORT, in a synchronous context. `Path.read_text()` inside an `async def` is
 #: a blocking call on the event loop and ruff (ASYNC240) refuses it — correctly, even for
 #: a test — so the one file this suite inspects as TEXT is loaded once, here.
-_OTP_SOURCE = (Path(__file__).resolve().parents[1] / "apps/api/authn/otp.py").read_text()
+_OTP_SOURCE = (Path(__file__).resolve().parents[1] / "apps/api/authn/otp.py").read_text(
+    encoding="utf-8"
+)
 
 #: Stand-in so a missing constant fails on the ASSERTION below with a sentence a
 #: reader can act on, rather than on `None.group` at import.

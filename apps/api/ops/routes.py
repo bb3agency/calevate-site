@@ -87,7 +87,7 @@ An untenanted session would see zero rows there and report a cheerful nothing.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -99,11 +99,13 @@ from apps.api.agents.reconciliation import read_engine_drift
 from apps.api.billing.caps import read_caps, read_spend_counters, recompute_capped
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import verify_chain, write_audit
+from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
+from apps.api.core.queue import enqueue
 from apps.api.core.rbac import permission_meta
 from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
@@ -120,6 +122,16 @@ from apps.api.reliability.service import read_dead_letter_queue, replay_dead_let
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
+
+#: The ARQ function name of the recall arm of the big red switch (D-432), registered in
+#: `apps/workers/settings.FUNCTIONS` as `recall_queued_dials`.
+#:
+#: Spelled here rather than imported from `apps/workers.dial_recall`, for
+#: `compliance/deletion.DELETION_JOB`'s reason: the API has no business importing a worker
+#: module — with its session factory and its sweep SQL — in order to say one name.
+#: `scripts/check_job_wiring.py` is what pins the two spellings together, in both
+#: directions, and it resolves only same-file constants.
+DIAL_RECALL_JOB: Final = "recall_queued_dials"
 
 
 class TmRegistrationOut(BaseModel):
@@ -274,6 +286,22 @@ class KbDriftOut(BaseModel):
     # THIS SWEEP'S OWN PULSE. If the cron dies every count above freezes and
     # `out_of_sync: 0` reads as "all clear" forever. Null when nothing has been swept.
     oldest_checked_at: datetime | None
+    # WHETHER THERE IS ANYTHING HERE TO WATCH AT ALL, and without it the panel above was
+    # permanently wrong on the engine we actually run.
+    #
+    # `sweep_kb_drift` returns `checked=0 drifted=0` on its first line when the engine has
+    # no built-in knowledge base, deliberately — asking anyway would record `unreachable`
+    # for every live agent and paint a console red about a capability the platform never
+    # had. `BOLNA_CAPABILITIES.knowledge_base` is False (D-354 closed the plan that
+    # assumed otherwise), so on the primary engine that early return is EVERY run.
+    #
+    # The console could not see that. It had counts and a null pulse, which is the same
+    # shape a DEAD CRON produces, so it told an operator "if this persists past an hour the
+    # knowledge reconciliation job is not running" — permanently, about a job running
+    # hourly and behaving exactly as designed. A panel that cries wolf forever is one
+    # nobody reads, which costs the alarm that matters. This field is what lets it say the
+    # true thing instead.
+    engine_supports_knowledge_base: bool
 
 
 class PlatformStateOut(BaseModel):
@@ -596,6 +624,9 @@ async def _platform_out(session: AsyncSession, *, load_shed_mode: str) -> Platfo
             undetermined=kb_drift.undetermined,
             oldest_drift_at=kb_drift.oldest_drift_at,
             oldest_checked_at=kb_drift.oldest_checked_at,
+            # Asked of the SAME engine the sweep asks (`get_engine()`), not of config, so
+            # the panel and the job cannot disagree about which engine is running.
+            engine_supports_knowledge_base=get_engine().capabilities.has("knowledge_base"),
         ),
     )
 
@@ -677,6 +708,36 @@ async def set_platform(
             ip=ip,
             summary={"outbound_halted": halt.outbound_halted, "reason": payload.reason},
         )
+    if payload.outbound_halted:
+        # D-432, the recall arm of the switch. `payload.outbound_halted` rather than
+        # `halt.outbound_halted` is deliberate and they are the same value here — this
+        # arm must fire on an operator ASKING for a halt, including a re-post of one
+        # already in force, because that is the only lever they have to run a second pass
+        # after a capped or partly-refused recall (the job says so in its own alert).
+        #
+        # ENQUEUED DIRECTLY RATHER THAN THROUGH THE OUTBOX, which is this repo's default
+        # and is the wrong tool here. The outbox exists so a side effect cannot outlive a
+        # rolled-back write — but `set_platform_status` writes the halt on its OWN
+        # connection and has already committed by this line, so there is no shared fate
+        # left to preserve, and the outbox's 10-second dispatch tick would be ten seconds
+        # of ringing bought for nothing.
+        #
+        # A FAILURE TO ENQUEUE IS ALARMED, NEVER RAISED. The halt itself has landed and
+        # is the thing that matters; refusing the request now would tell an operator the
+        # switch did not throw when it did, and their next move would be to throw it
+        # again. `dial_recall_not_queued` is the row in `runbooks/alarm-index.md`.
+        try:
+            await enqueue(DIAL_RECALL_JOB)
+        except Exception as exc:
+            alert(
+                "CORE_LOGIC",
+                "dial_recall_not_queued",
+                detail=(
+                    f"outbound was halted but the recall job could not be queued "
+                    f"({exc.__class__.__name__}); dials already accepted by the voice "
+                    "platform will ring unless the halt is re-posted"
+                ),
+            )
     if payload.load_shed_mode is not None:
         await write_audit(
             session,

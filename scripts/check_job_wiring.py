@@ -154,7 +154,7 @@ def _relative(path: Path) -> str:
     rather than returning something outside the root. `check_wiring.unwired_columns` takes
     the same escape for the same reason.
     """
-    return str(path.relative_to(REPO_ROOT)) if REPO_ROOT in path.parents else str(path)
+    return (path.relative_to(REPO_ROOT) if REPO_ROOT in path.parents else path).as_posix()
 
 
 def lifecycle_hook_names() -> set[str]:
@@ -187,7 +187,7 @@ def defined_jobs() -> list[JobDefinition]:
     hooks = lifecycle_hook_names()
     found: list[JobDefinition] = []
     for path in _python_files(WORKERS_ROOT):
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in tree.body:  # module level only — a nested coroutine is a helper
             if not isinstance(node, ast.AsyncFunctionDef):
                 continue
@@ -295,7 +295,7 @@ def enqueue_sites(roots: Iterable[Path] | None = None) -> list[EnqueueSite]:
         if not root.exists():
             continue
         for path in _python_files(root):
-            tree = ast.parse(path.read_text(), filename=str(path))
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             constants = _module_string_constants(tree)
             for node in ast.walk(tree):
                 if not isinstance(node, ast.Call):

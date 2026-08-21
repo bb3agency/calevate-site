@@ -65,6 +65,7 @@ import { Suspense, createContext, useContext, useMemo, type ReactNode } from "re
 
 import { useSearchParams } from "next/navigation";
 
+import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import { AdminSessionGate, AdminSessionProvider } from "@/lib/authn/adminSession";
 import { ClientSessionGate, ClientSessionProvider } from "@/lib/authn/clientSession";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
@@ -135,9 +136,33 @@ function Resolver({ slug, children }: { slug: string; children: ReactNode }) {
   // points at a `#main-content` that does not exist. Measured in a real browser: axe
   // reported `skip-link`, `region` and, on the admin side, `landmark-one-main` and
   // `page-has-heading-one`. See `SessionGate`'s prop.
+  // `StepUpPrompt` IS MOUNTED HERE, and its absence was a DEADLOCK rather than a missing
+  // dialog. Entering a client is a step-up action (D-210), and the grant that carries it
+  // is minted lazily by `impersonationGrant` — inside THIS shell, not the admin one. On a
+  // `step_up_required` refusal `admin.ts::mint` awaits `requireStepUp`, whose promise is
+  // settled by exactly one thing: `completeStepUpPrompt`/`dismissStepUpPrompt`, both
+  // called from `<StepUpPrompt />`. That component was mounted only in
+  // `app/admin/layout.tsx`, so under impersonation `publish()` reached NO listener, no
+  // dialog appeared, and nothing ever settled the promise.
+  //
+  // The failure was silent and total: the grant source never returned, so every request
+  // in the impersonated console awaited it forever. TanStack held every query `pending`
+  // with `data` undefined and `error` null, which meant infinite skeletons on every data
+  // screen AND — because `ViewAsBanner` keys on `me.data.impersonating` — no read-only
+  // banner at all. An operator sat in a client's account with the D-22 marker absent,
+  // looking at a console indistinguishable from that client's own. Found by driving the
+  // browser; no unit test could see it, because the deadlock is between a module-level
+  // promise and a component tree.
+  //
+  // Mounted in the `viewAsRequested` arm ONLY, beside the admin provider whose realm it
+  // belongs to. A client-realm user never has an admin step-up to prove, and mounting
+  // admin-realm machinery in their tree would be the realm bleed CLAUDE.md forbids.
   return viewAsRequested ? (
     <AdminSessionProvider>
-      <AdminSessionGate landmark>{realm}</AdminSessionGate>
+      <AdminSessionGate landmark>
+        <StepUpPrompt />
+        {realm}
+      </AdminSessionGate>
     </AdminSessionProvider>
   ) : (
     <ClientSessionProvider>

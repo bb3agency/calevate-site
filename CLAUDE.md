@@ -104,10 +104,19 @@ human must do before any of it is real — `terraform validate` has never been r
 ## Commands
 
 ```
-uv sync                          # install python deps (never pip install directly)
+uv sync --all-packages           # install python deps (never pip install directly).
+                                 # --all-packages IS REQUIRED: plain `uv sync` installs the
+                                 # root only and leaves every workspace member out, so
+                                 # `import calevate_shared` fails and the suite cannot
+                                 # collect. `.github/workflows/ci.yml:63` uses this form.
 uv run pytest                    # all tests; -k rls for tenancy tests
 uv run ruff check --fix . && uv run ruff format .
-uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below
+uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below.
+                                 # Needs `uv sync --all-packages --group errors` first:
+                                 # without sentry-sdk installed mypy cannot see its real
+                                 # types, `ignore_missing_imports` turns them into Any, and
+                                 # observability.py type-checks in a shape production does
+                                 # not run (`.github/workflows/ci.yml:404`).
 uv run alembic upgrade head      # migrations (autogenerate + hand-review diff)
 pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test)
 docker compose up -d             # local pg16+pgvector, redis, minio

@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+
+import { posixDirPrefix, relPosix } from "./repoPaths";
 import { fileURLToPath } from "node:url";
 
 import { ESLint } from "eslint";
@@ -199,7 +201,7 @@ function findUnsafeReads(program: ts.Program, sourceFile: ts.SourceFile): Unsafe
         isWireString(checker.getTypeAtLocation(node.argumentExpression))
       ) {
         found.push({
-          file: relative(WEB_ROOT, sourceFile.fileName),
+          file: relPosix(WEB_ROOT, sourceFile.fileName),
           line: sourceFile.getLineAndCharacterOfPosition(node.getStart()).line + 1,
           text: node.getText().replace(/\s+/g, " "),
         });
@@ -260,7 +262,7 @@ describe("the type-aware ban on reading a copy table with a wire string", () => 
       .getSourceFiles()
       .filter(
         (file) =>
-          file.fileName.startsWith(resolve(WEB_ROOT, "src") + "/") &&
+          file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "src")) &&
           // Generated from OpenAPI; it declares types, it does not read tables.
           !file.fileName.endsWith("schema.d.ts"),
       );

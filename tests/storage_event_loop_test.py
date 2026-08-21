@@ -232,7 +232,7 @@ def test_no_object_store_call_sits_on_a_coroutines_own_stack() -> None:
     invisible to all of them. That is exactly how this defect outlived `archive_payload`
     fixing a single function while four others kept the old shape.
     """
-    tree = ast.parse(STORAGE_PATH.read_text())
+    tree = ast.parse(STORAGE_PATH.read_text(encoding="utf-8"))
     safe = _to_thread_bodies(tree)
 
     enclosing: dict[int, str] = {}
@@ -271,7 +271,7 @@ def test_every_public_store_function_is_awaitable() -> None:
     network-touching surface `async` means the blocking version cannot be reintroduced
     without a signature change that every call site has to acknowledge.
     """
-    tree = ast.parse(STORAGE_PATH.read_text())
+    tree = ast.parse(STORAGE_PATH.read_text(encoding="utf-8"))
     network = {
         "copy_recording",
         "archive_payload",

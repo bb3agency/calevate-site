@@ -220,12 +220,12 @@ def raised_codes() -> tuple[dict[str, set[str]], list[str]]:
     failures: list[str] = []
 
     def record(code: str, where: Path) -> None:
-        codes.setdefault(code, set()).add(str(where.relative_to(REPO_ROOT)))
+        codes.setdefault(code, set()).add(where.relative_to(REPO_ROOT).as_posix())
 
     for path in _python_files():
-        rel = str(path.relative_to(REPO_ROOT))
+        rel = path.relative_to(REPO_ROOT).as_posix()
         try:
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:  # pragma: no cover - a syntax error fails CI earlier
             failures.append(f"{rel}: could not be parsed ({exc})")
             continue
@@ -289,7 +289,7 @@ def raised_codes() -> tuple[dict[str, set[str]], list[str]]:
     # (5) the host backup chain.
     shell_seen = 0
     for path in sorted(SHELL_ROOT.glob("*.sh")):
-        body = path.read_text()
+        body = path.read_text(encoding="utf-8")
         for match in list(_SHELL_CALL.finditer(body)) + list(_SHELL_JSON.finditer(body)):
             shell_seen += 1
             record(match.group(1), path)
@@ -314,11 +314,11 @@ def _table_rows(text: str, heading: str, pattern: re.Pattern[str]) -> set[str]:
 
 
 def documented_codes() -> set[str]:
-    return _table_rows(INDEX.read_text(), _ALARM_HEADING, _INDEX_ROW)
+    return _table_rows(INDEX.read_text(encoding="utf-8"), _ALARM_HEADING, _INDEX_ROW)
 
 
 def documented_metrics() -> set[str]:
-    return _table_rows(INDEX.read_text(), _METRIC_HEADING, _METRIC_ROW)
+    return _table_rows(INDEX.read_text(encoding="utf-8"), _METRIC_HEADING, _METRIC_ROW)
 
 
 def recorded_metrics() -> tuple[set[str], list[str]]:
@@ -331,9 +331,9 @@ def recorded_metrics() -> tuple[set[str], list[str]]:
     names: set[str] = set()
     failures: list[str] = []
     for path in _python_files():
-        rel = str(path.relative_to(REPO_ROOT))
+        rel = path.relative_to(REPO_ROOT).as_posix()
         try:
-            tree = ast.parse(path.read_text())
+            tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError:  # pragma: no cover - reported by raised_codes already
             continue
         for node in ast.walk(tree):
@@ -382,7 +382,7 @@ def dynamic_site_failures() -> list[str]:
             continue
         if len(reason) < 40:
             failures.append(f"DYNAMIC_ALERT_SITES[{rel}] has no reason a reviewer can weigh.")
-        body = path.read_text()
+        body = path.read_text(encoding="utf-8")
         for code in claimed:
             if f'"{code}"' not in body:
                 failures.append(
@@ -396,8 +396,8 @@ def dynamic_site_failures() -> list[str]:
 def _operator_docs() -> Iterator[tuple[Path, str]]:
     """The text an operator reads at 3am: every runbook, plus OPERATIONS §4."""
     for path in sorted(RUNBOOKS.glob("*.md")):
-        yield path, path.read_text()
-    operations = OPERATIONS.read_text()
+        yield path, path.read_text(encoding="utf-8")
+    operations = OPERATIONS.read_text(encoding="utf-8")
     start = operations.find("## 4. Observability & Alerting")
     end = operations.find("\n## 5.", max(start, 0))
     if start >= 0:
@@ -416,7 +416,7 @@ def dangling_names(known: Iterable[str]) -> list[str]:
         for path in sorted(root.rglob("*")):
             if path.is_file() and path.suffix not in {".pyc", ".png", ".jpg", ".lock"}:
                 try:
-                    corpus.append(path.read_text())
+                    corpus.append(path.read_text(encoding="utf-8"))
                 except (UnicodeDecodeError, OSError):
                     continue
     blob = "\n".join(corpus)
@@ -445,7 +445,7 @@ def dangling_names(known: Iterable[str]) -> list[str]:
 
 
 def broken_runbook_citations() -> list[str]:
-    text = INDEX.read_text()
+    text = INDEX.read_text(encoding="utf-8")
     failures = []
     for match in _RUNBOOK_CITATION.finditer(text):
         if not (RUNBOOKS / match.group(1)).exists():

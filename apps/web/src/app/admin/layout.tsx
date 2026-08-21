@@ -27,7 +27,9 @@ import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import { currentNavItem } from "@/lib/nav";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
+import { SidebarSignOut } from "@/components/authn/sidebarSignOut";
 import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
+import { adminAuthn, ADMIN_SIGN_IN_PATH } from "@/lib/authn/adminAuthn";
 import {
   AdminSessionGate,
   AdminSessionProvider,
@@ -415,6 +417,15 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
           </div>
         )}
       </div>
+      {/* Directly under the identity it ends, because "who am I" and "stop being them"
+          are one question asked twice. NOT gated on the identity read: an operator whose
+          `/v1/admin/me` is failing is exactly the one who most needs the way out, and the
+          nav above already refuses to hide entries for that reason. */}
+      <SidebarSignOut
+        authn={adminAuthn}
+        signInPath={ADMIN_SIGN_IN_PATH}
+        isCollapsed={isCollapsed}
+      />
     </div>
   );
 }
