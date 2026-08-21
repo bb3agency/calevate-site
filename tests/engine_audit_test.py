@@ -1443,6 +1443,91 @@ async def test_a_non_throttle_failure_is_never_retried() -> None:
         assert raised.value.code == "engine_rejected"
 
 
+async def test_the_vendors_own_error_code_reaches_the_log_and_its_message_never_does(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An operator who cannot see the vendor's own reason cannot fix anything.
+
+    Their 4xx/5xx envelope is `{"error": <int32>, "message": "<human text>"}` — required
+    on both fields (`bolna-findings/mirror/pages/api-reference/errors.md:26-33`, schema at
+    `api-reference/calls/make.md:229-239`) — and the ladder used to parse past all of it.
+    `engine_error status=400 route=/call` cannot distinguish a stale agent id from a
+    revoked key, which is the difference between two entirely different pages of runbook.
+
+    The split is not "log a bit more": the INTEGER is a code, bounded to int32 by their own
+    schema and therefore structurally unable to hold an E.164 number, while the MESSAGE is
+    the vendor quoting our request back at us. Only the first is admitted, and this asserts
+    both halves — the code present, every fragment of the message absent from the whole
+    record, attributes included.
+    """
+    engine, _ = _throttling_engine(
+        [
+            httpx.Response(
+                400,
+                json={"error": 1001, "message": "agent_id is required for +919876543210"},
+            )
+        ]
+    )
+    with caplog.at_level("DEBUG"), pytest.raises(vendor_http.EngineRejectedError) as raised:
+        await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+
+    assert raised.value.vendor_error == 1001, "the vendor's own code was parsed past"
+    assert raised.value.vendor_status == 400
+    errors = [r for r in caplog.records if r.getMessage() == "engine_error"]
+    assert errors, "the refusal was not logged at all"
+    assert getattr(errors[0], "vendor_error", None) == 1001
+    blob = " ".join(f"{r.__dict__}" for r in caplog.records)
+    for leak in ("agent_id is required", "919876543210"):
+        assert leak not in blob, f"the vendor's message reached a log record: {leak!r}"
+
+
+async def test_a_non_integer_error_field_is_refused_rather_than_logged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The bound is what makes the line above safe, so it is tested rather than trusted.
+
+    A vendor is free to change what `error` holds, and the day it holds a sentence is the
+    day an unguarded reader turns a log line into a PII channel. `True` is in the table
+    because in Python a `bool` IS an `int`, and `{"error": true}` is not a code.
+    """
+    for body in (
+        {"error": "bad request for +919876543210", "message": "x"},
+        {"error": True},
+        {"error": 919876543210},
+        {"error": None},
+        {"message": "no code at all"},
+        ["not", "an", "object"],
+    ):
+        engine, _ = _throttling_engine([httpx.Response(400, json=body)])
+        with caplog.at_level("DEBUG"), pytest.raises(vendor_http.EngineRejectedError) as raised:
+            await engine.get_agent("agent_xyz")
+        assert raised.value.vendor_error is None, body
+    assert "919876543210" not in " ".join(f"{r.__dict__}" for r in caplog.records)
+
+
+async def test_a_documented_refusal_is_told_apart_from_an_ambiguous_failure() -> None:
+    """`request_refused` is what stops a config typo consuming a contact list.
+
+    The four statuses are read from `api-reference/errors.md:15-18`, each of them a
+    statement about the REQUEST; everything else — every 5xx, and every 4xx they do not
+    document — stays "the phone may be ringing", which is the default `dial_was_not_placed`
+    depends on and the one that must not be widened by reasoning about what feels safe.
+    """
+    for status in (400, 401, 403, 404):
+        engine, seen = _throttling_engine([httpx.Response(status, json={"error": 7})])
+        with pytest.raises(vendor_http.EngineRejectedError) as raised:
+            await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+        assert raised.value.request_refused is True, status
+        assert raised.value.code == "engine_rejected", "the shared code must not fork"
+        assert len(seen) == 1, f"a {status} was retried — that is what dials twice"
+
+    for status in (408, 409, 413, 422, 500, 502, 503, 504):
+        engine, _ = _throttling_engine([httpx.Response(status, json={"error": 7})])
+        with pytest.raises(vendor_http.EngineRejectedError) as raised:
+            await engine.start_outbound_call("agent_xyz", "+919876543210", CallContext())
+        assert raised.value.request_refused is False, status
+
+
 async def test_backoff_is_jittered_and_never_undercuts_retry_after() -> None:
     """Every worker throttled in the same second retries in the same second unless the
     delay carries variance — that is how a rate limit turns into an outage. And when
@@ -1572,6 +1657,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         "subjective",
         "synthesizer",
         "task_1",
+        # WHICH OF AN AGENT'S TASKS IS THE ONE THE CALLER TALKS TO. Bolna's agent holds an
+        # array of tasks — `conversation` / `extraction` / `summarization` — each with its
+        # OWN `tools_config`, so `_agent_models` has to pick before it can report which
+        # model, voice and transcriber are running. Ours is not a word: this repo has one
+        # conversation per agent and no vocabulary for a task at all, which is exactly what
+        # makes the noun theirs.
+        "task_type",
         "tasks",
         "telephony_data",
         "tools_config",
@@ -1585,6 +1677,16 @@ _VENDOR_ONLY_KEYS = frozenset(
         # spreading past the adapter while that stays true.
         "transfer_call_data",
         "transcriber",
+        # THE TWO PHONE NUMBERS, IN THE SPELLING THE VENDOR'S CAPTURED EXAMPLES USE.
+        # `from_number`/`to_number` are shared words (they sit in `_SHARED_PAYLOAD_KEYS`
+        # beside our own `calls.from_e164`/`to_e164` columns); these two are not. They are
+        # ROLE names — the human end and the agent end — which is a way of describing a
+        # call nothing in this repository has a word for, and reading either outside the
+        # adapter would mean a caller had taken on the job of deciding which party is
+        # which. `_party_numbers` is where that decision lives, and it needs the call's
+        # direction to make it.
+        "agent_number",
+        "user_number",
         "user_data",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
         # `docs/vendor/cartesia/` carries the citations since D-270).

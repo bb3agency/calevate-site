@@ -26,16 +26,24 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from calevate_shared.events import CallStatus
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.crm.schemas import LeadStatus
+
 # Statuses that are a dial and never a conversation, whatever the clock says.
-DIAL_ONLY_STATUSES = ("no_answer", "busy", "failed", "voicemail")
+#
+# TYPED, because both tuples below are interpolated into SQL and a typo in one is
+# SILENT: `status NOT IN ('no_ansewr', ...)` is valid SQL that matches every row, so a
+# misspelt member does not fail — it quietly moves the connect rate on every client's
+# dashboard. The annotation is what turns that into an error on this line.
+DIAL_ONLY_STATUSES: tuple[CallStatus, ...] = ("no_answer", "busy", "failed", "voicemail")
 CONNECTED_SQL = (
     "(status = 'completed' OR (duration_s IS NOT NULL AND duration_s > 0 "
     f"AND status NOT IN {DIAL_ONLY_STATUSES!r}))"
 )
-QUALIFIED_STATUSES = ("contacted", "interested", "hot", "won")
+QUALIFIED_STATUSES: tuple[LeadStatus, ...] = ("contacted", "interested", "hot", "won")
 
 # `started_at` is `timestamptz`; EXTRACT renders one in the SESSION's TimeZone, so
 # shifting by a fixed interval only yields IST on a database that happens to be set to

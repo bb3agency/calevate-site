@@ -93,7 +93,7 @@ import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Any, Final
+from typing import Any, Final, NamedTuple
 from urllib.parse import urlsplit
 
 import httpx
@@ -120,7 +120,7 @@ from calevate_shared.engine import (
     WebhookVerdict,
     compose_engine_prompt,
 )
-from calevate_shared.events import CallEvent, CallStatus, TranscriptTurn
+from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
 from pydantic import ValidationError
 
 from apps.api.core.alerting import alert
@@ -516,7 +516,21 @@ _TERMINAL_RAW = frozenset(
 # `agent`/`bot`/`human` below are not in that emitter — they are tolerated spellings, kept
 # because tolerating one costs nothing and the hosted serializer is not this function.
 _TURN_RE = re.compile(r"^\s*(assistant|agent|user|human|bot)\s*:\s*(.*)$", re.IGNORECASE)
-_SPEAKER_MAP = {
+#
+# ANNOTATED WITH OUR OWN DOMAIN TYPE, NOT LEFT TO INFERENCE, and the difference is where a
+# mistake surfaces. Bare, this literal infers `dict[str, str]`, so `.get(..., "caller")`
+# hands a plain `str` to `TranscriptTurn.speaker`, which is `Literal["agent", "caller"]`.
+# Adding one wrong value here — `"operator": "supervisor"`, or a typo like `"agnet"` —
+# would then be caught by NOTHING until Pydantic raised a `ValidationError` at runtime,
+# inside the post-call pipeline, on a real customer's call. Typed, the same mistake is a
+# red squiggle on the line that makes it, and the `.get` default is checked too.
+#
+# Worth recording because it is a gap between our two type checkers rather than a slip:
+# `mypy --strict` passes this file BOTH ways (measured), and Pyrefly rejects only the
+# untyped form. Annotating the constant satisfies both and depends on neither, which is the
+# reason to fix the DEFINITION rather than `cast()` at the call site — a cast would silence
+# the checker while leaving the map itself unguarded, which is the opposite of the point.
+_SPEAKER_MAP: Final[dict[str, Speaker]] = {
     "assistant": "agent",
     "agent": "agent",
     "bot": "agent",
@@ -631,6 +645,24 @@ _CONVERTIBLE_CURRENCIES = frozenset({"USD", "INR"})
 #:       house assumption stands and stays an assumption.
 #:       `CostBreakdown.currency_stated` carries the difference into every row so a later
 #:       correction is re-derivable.
+#:       **A NEIGHBOURING RESOURCE SHOWS THE HOUSE CONVENTION SPELLED OUT THREE WAYS, AND
+#:       IT IS THE ONE ASSUMED HERE.** The phone-number schemas describe ONE price —
+#:       $5/month — three times, and the three reconcile only under "cents = USD minor
+#:       units, divisor 100":
+#:           search.md:124-127  "Price of the number in USD."              example 5
+#:           buy.md:113-117     "Price for the phone number in cents."     example 500
+#:           get_all.md:103-106 "Monthly rental price of the phone number" example $5.0
+#:       (`bolna-findings/mirror/pages/api-reference/phone-numbers/`, VERIFIED-VENDOR-DOCS,
+#:       `docs/evidence/bolna-telephony.md` §3b.) It is the same word, on the same vendor,
+#:       resolving to the same divisor AND to dollars. It bears on (b) rather than on (a):
+#:       (a) is already settled above by a worked execution, and this is a DIFFERENT schema
+#:       on a DIFFERENT endpoint, so reading it as proof about `AgentExecution.total_cost`
+#:       would be the D-350 mistake this block exists to prevent. What it does is put a
+#:       dollar sign next to the word "cents" in the vendor's own hand — which is the one
+#:       thing the execution example could not do, since it prints a bare number.
+#:       **It still does not close (b)**, because the wallet the number is billed against
+#:       is the one whose unit "credits" leaves open, and gate 7 still has to read an
+#:       invoice.
 #:
 #: ONE THING THE GATE MUST NOT ASSUME IT WILL SEE: **`AgentExecution` declares no
 #: `currency` field at all.** The full property list on the page above is id, agent_id,
@@ -950,6 +982,79 @@ def _parse_dt(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
+def _first_e164(*candidates: Any) -> str | None:
+    """The first candidate that is a non-blank string. Nothing is logged: every one of
+    these values is a phone number (hard rule 6)."""
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+    return None
+
+
+def _party_numbers(
+    payload: dict[str, Any], telephony: dict[str, Any], *, inbound: bool
+) -> tuple[str | None, str | None]:
+    """`(from_e164, to_e164)` for one execution, across every spelling the vendor prints.
+
+    **THE SCHEMA AND THE VENDOR'S OWN WORKED EXAMPLES DISAGREE ABOUT WHERE THE TWO PHONE
+    NUMBERS LIVE, AND WE READ ONLY THE SCHEMA'S ANSWER.** `TelephonyData` declares
+    `to_number` ("Phone number of the recipient") and `from_number` ("Phone number of the
+    sender") — `bolna-findings/mirror/pages/api-reference/executions/get_execution.md`
+    lines 285-294 — and one payload example carries them there
+    (`guides/post-call/list-phone-call-status.md:122-123`). But that example is
+    schema-shaped: every property in schema order, `"id": 7432382142914`, `"transcript":
+    "<string>"`. The THREE examples that read like captured traffic put the numbers at the
+    TOP LEVEL under different names and carry NEITHER inside `telephony_data`:
+
+      * `api-reference/executions/get_execution.md:41-42` — the "Completed execution
+        example" for the exact endpoint `get_execution` calls:
+        `"user_number": "+919876543210", "agent_number": "+918035739222"`, with a
+        `telephony_data` holding only duration/recording/call_type/provider/hangup;
+      * `quickstarts/api.md:246-247` — the same pair, same shape;
+      * `quickstarts/batch.md:138` — `"user_number"` alone (no `agent_number`) on a batch
+        execution row.
+
+    **WHAT IT COSTS TO READ ONLY THE SCHEMA'S SPELLING, if the captures are the live
+    shape: nothing raises and three obligations quietly stop working.**
+    `ExecutionSnapshot.from_e164`/`to_e164` become permanently `None`, and downstream
+    `apps/workers/optout.py` has no subject to add to DNC when a caller asks to be
+    removed, `apps/api/compliance/export.py`'s erasure matches `calls` on those two
+    columns and finds nothing, and the pipeline's redaction is handed an empty phone list.
+    That is the shape of defect this reading exists to prevent: silently absent forever.
+
+    **THE VENDOR'S NAMES ARE ROLE-BASED, WHICH IS WHY THE FALLBACK NEEDS THE DIRECTION.**
+    `user_number` is the HUMAN end and `agent_number` ours, stated first-party outside any
+    example: *"`recipient_data.user_number` — Referencing the **caller's** phone number"*
+    (`graph-agent/variables.md:82`). Their `from`/`to` are dial-based. So the two systems
+    only line up once you know which way the call went, and `call_type` is what says.
+    Corroboration for the outbound arm is direct rather than inferred: the same literals
+    appear as `recipient_phone_number: "+919876543210"` and `from_phone_number:
+    "+918035739222"` in `api-reference/calls/make.md:18,38`, on an example whose
+    `call_type` is `outbound`.
+
+    ORDER IS THE POINT AND MAKES THIS PURELY ADDITIVE: the documented `telephony_data`
+    keys win, then the top-level `from_number`/`to_number` spelling this adapter already
+    tolerated, and only then the captured spelling. A payload of either shape gets the
+    same answer it gets today; a payload of the captured shape stops answering `None`.
+    No branch here can OVERWRITE a number the schema path already produced, so the worst
+    case if the role mapping is ever wrong is a swap on payloads that today yield nothing
+    at all — and the pilot closes it by reading one live INBOUND execution and saying
+    which spelling carried the numbers (OPERATIONS §2, "where the two phone numbers
+    live"; proposed as gate 29 in `docs/evidence/bolna-response-contract.md`, which is
+    also where the three captures and the schema are set side by side).
+    """
+    documented_from = _first_e164(telephony.get("from_number"), payload.get("from_number"))
+    documented_to = _first_e164(telephony.get("to_number"), payload.get("to_number"))
+    human = payload.get("user_number")
+    ours = payload.get("agent_number")
+    # An inbound call is dialled BY the human TO our agent, so the roles swap sides.
+    captured_from, captured_to = (human, ours) if inbound else (ours, human)
+    return (
+        documented_from or _first_e164(captured_from),
+        documented_to or _first_e164(captured_to),
+    )
+
+
 # --- Listing executions (D-31: this poller IS the guarantee of record) ----------------
 #
 # **THE ENDPOINT THIS USED TO CALL DOES NOT EXIST (D-353).** It issued
@@ -1039,6 +1144,22 @@ _LISTING_MAX_PAGES = 20
 _LISTING_MAX_WINDOW = timedelta(days=7)
 
 
+class _AgentRoster(NamedTuple):
+    """The account's agents, plus what the walk that found them may honestly claim.
+
+    A bare `list[str]` is what this used to be, and it could not say "there may be more"
+    — which is precisely how a truncated roster reported a complete listing (see
+    `BolnaEngine._agent_refs`). The three fields travel together because
+    `ExecutionListing` needs all three to be one coherent answer: the rows, how many
+    responses were read to get them, and the reason the walk stopped if it stopped early.
+    """
+
+    refs: list[str]
+    #: Responses read. At least 1 — the walk always issues its first page.
+    pages_fetched: int
+    incomplete_reason: ListingIncompleteReason | None
+
+
 def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """The execution rows in one listing response.
 
@@ -1068,18 +1189,57 @@ def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
 #: that is already the agent object falls through unwrapped.
 _AGENT_ENVELOPE_KEYS = ("data", "agent", "agent_data")
 
-#: Field names that MIGHT hold the agent's knowledge-base reference. Pure guesswork —
-#: nothing in their published documentation says the agent object carries one at all
-#: (see `get_agent`). Present-but-empty is an answer ("this agent references nothing");
-#: absent everywhere is NOT an answer, and `_agent_kb_refs` reports the difference.
+#: Field names that hold the agent's knowledge-base reference.
+#:
+#: **THE DOCUMENTED NAME WAS MISSING AND EVERY NAME HERE WAS A GUESS.** This set shipped
+#: as "pure guesswork — nothing in their published documentation says the agent object
+#: carries one at all", and that premise is retired: `AgentV2.tasks[].tools_config
+#: .llm_agent.llm_config` is a `KnowledgebaseAgent` whose `vector_store.provider_config`
+#: is a `LanceDbConfig` declaring exactly two — `vector_id` ("Vector id of a single
+#: knowledgebase (legacy, use `vector_ids` for multiple)") and `vector_ids` ("Array of
+#: vector ids to use multiple knowledgebases simultaneously")
+#: (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,1164-1195`).
+#:
+#: NEITHER WAS IN THIS SET, and the adapter's own KB block already named both in prose
+#: while looking for five other spellings — so `_agent_kb_refs` answered
+#: `readable=False` on every agent that HAS a knowledge base, forever, and D-41's
+#: question ("does deleting a knowledge base leave the agent pointing at a dead handle?")
+#: could not be answered even from a payload that contained the answer. Note the shape of
+#: that failure: not a wrong ref, an unreadable one — which is the honest verdict for the
+#: wrong key and a useless one for the right question.
+#:
+#: The five guessed spellings stay. A guess that costs one set membership per key is not
+#: worth removing, an account may still hold agents written by the older `rag_id` path
+#: this adapter itself used, and `found_key` is a disjunction — an extra name can only
+#: turn "we could not find it" into an answer, never the reverse. Present-but-empty is an
+#: answer ("this agent references nothing"); absent everywhere is NOT, and
+#: `_agent_kb_refs` reports the difference.
 _AGENT_KB_REF_KEYS = frozenset(
-    {"rag_id", "rag_ids", "knowledgebase_id", "knowledge_base_id", "vector_store_id"}
+    {
+        "vector_id",
+        "vector_ids",
+        "rag_id",
+        "rag_ids",
+        "knowledgebase_id",
+        "knowledge_base_id",
+        "vector_store_id",
+    }
 )
 
-#: How deep the KB-reference search walks. Their agent object nests
-#: agent_config → tasks[] → tools_config → <component>, i.e. four or five levels; the
-#: bound stops a pathological or hostile payload from turning a read-back into a hang.
-_AGENT_WALK_MAX_DEPTH = 8
+#: How deep the KB-reference search walks. The bound stops a pathological or hostile
+#: payload from turning a read-back into a hang.
+#:
+#: TEN RATHER THAN EIGHT, and eight was not "four or five levels" with room to spare — it
+#: was EXACTLY the documented path with none. The reference lives at
+#: `agent_config → tasks[] → [item] → tools_config → llm_agent → llm_config →
+#: vector_store → provider_config → vector_ids`, which is depth 8 counting the list as a
+#: level of its own (it is: `walk` recurses through it). So the bound landed on the last
+#: dict it had to open, and one more envelope — the `agent_config` wrapper their write
+#: path uses and their read schema does not, or a `provider_config` gaining a nested
+#: block — would have made a present reference read as an ABSENT one. That is the same
+#: silent-`readable=False` this key set was just widened to fix, arriving by arithmetic
+#: instead of by spelling.
+_AGENT_WALK_MAX_DEPTH = 10
 
 
 def _agent_object(payload: dict[str, Any]) -> dict[str, Any]:
@@ -1194,8 +1354,27 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     tasks = source.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         return None, False
-    first = tasks[0]
-    tools = first.get("tools_config") if isinstance(first, dict) else None
+    # THE CONVERSATION TASK, NOT WHICHEVER TASK IS FIRST. `TasksConfigV2.task_type` is an
+    # enum of `conversation` / `extraction` / `summarization`
+    # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:109-116`) and every task
+    # carries its OWN required `tools_config` with its own `llm_agent`, `synthesizer` and
+    # `transcriber`. `_agent_body` sends exactly one task and it is the conversation one,
+    # so index 0 is right for every agent this tree publishes — and wrong the moment a
+    # console adds a second, because an extraction task's LLM is not the model the caller
+    # is talking to and its synthesizer is not the voice they hear. That would be a
+    # CONFIDENT WRONG answer with `readable=True` beside it, which the docstring above
+    # names as the one outcome this function must never produce; index 0 stays as the
+    # fallback for a task list that declares no types at all, where a wrong guess is the
+    # only guess available and `readable` is the honest part.
+    chosen = next(
+        (
+            task
+            for task in tasks
+            if isinstance(task, dict) and task.get("task_type") == "conversation"
+        ),
+        tasks[0],
+    )
+    tools = chosen.get("tools_config") if isinstance(chosen, dict) else None
     if not isinstance(tools, dict):
         return None, False
 
@@ -1454,9 +1633,34 @@ def _is_extraction_category(value: Any) -> bool:
 
 
 def _extraction_value(leaf: dict[str, Any]) -> Any:
-    """The answer out of one result object: the pre-defined value, else the free text."""
+    """The answer out of one result object: the pre-defined value, else the free text.
+
+    **AN EMPTY `objective` IS THE UNCONFIGURED HALF, NOT AN ANSWER, AND `is not None` READ
+    IT AS ONE.** A Bolna disposition is `is_subjective` and/or `is_objective`
+    (`bolna-findings/mirror/pages/api-reference/dispositions/get.md:112,117`), so one of
+    the two leaf fields belongs to a half the operator never turned on — and the vendor
+    demonstrably emits that half as an EMPTY STRING rather than omitting it:
+
+        Escalation:
+          Agent Handover Needed:
+            subjective: ''
+            objective: 'No'
+
+    (`api-reference/dispositions/test.md:127-129`, whose response schema is documented as
+    "the same format as post-call execution data".) That example is the objective-only
+    case; the subjective-only one is its mirror, `{"subjective": "…", "objective": ""}`,
+    and on it a bare `is not None` returned `""` — so the free text the model actually
+    extracted never reached the CRM column, on every call, with the field still PRESENT in
+    `engine_extracted` so nothing downstream could tell. Pilot gate 7 compares field NAMES
+    and would have passed it.
+
+    Blank is treated as absent for the string case only. `False` and `0` are answers and
+    stay answers: they are what the older flat shape carries
+    (`extracted_data: {"user_interested": true, "callback_user": false}`), and a truthiness
+    test here would drop them — the same defect one type over.
+    """
     objective = leaf.get("objective")
-    if objective is not None:
+    if objective is not None and not (isinstance(objective, str) and not objective.strip()):
         return objective
     return leaf.get("subjective")
 
@@ -2080,10 +2284,16 @@ class BolnaEngine:
         answering `{"message": "success", "state": "deleted"}`, and 400 as the only other
         documented status. The OSS server's own `API.md` documents the same route shape
         (`DELETE /agent/{agent_id}` → `{"agent_id": ..., "state": "deleted"}`).
-        Retrieved 2026-08-15 via search summary of https://docs.bolna.ai/api-reference/agent/v2/delete
-        and read at source at https://github.com/bolna-ai/bolna/blob/master/API.md —
-        the hosted docs host itself is refused by this environment's egress proxy, so the
-        first is REPORTED, NOT READ and the second is READ AT SOURCE for the OSS server.
+        **THAT SENTENCE WAS REPORTED-NOT-READ AND IS NOW VERIFIED-VENDOR-DOCS**, which is
+        worth correcting in place rather than leaving a stale evidence class on a
+        destructive verb. It used to end "retrieved 2026-08-15 via search summary of
+        docs.bolna.ai ... the hosted docs host itself is refused by this environment's
+        egress proxy". The host is still refused; the PAGE is mirrored, and it says exactly
+        what the summary claimed: `bolna-findings/mirror/pages/api-reference/agent/v2/
+        delete.md:32-55` declares `/v2/agent/{agent_id}` `delete:`, `agent_id` as a path
+        parameter with `required: true`, a 200 example of `{message: success, state:
+        deleted}`, and 400 as the only other response. The OSS half stays READ AT SOURCE
+        at https://github.com/bolna-ai/bolna/blob/master/API.md.
 
         **THE RESPONSE BODY IS NOT PARSED, deliberately.** `{"state": "deleted"}` is the
         only signal the vendor offers and it is a string we would be checking against our
@@ -2636,7 +2846,9 @@ class BolnaEngine:
         # `telephony_data` first, the old spelling kept as a fallback because it costs
         # nothing and an unknown payload shape should degrade rather than flip.
         raw_direction = telephony.get("call_type") or payload.get("direction")
+        inbound = raw_direction == "inbound"
         duration_s = int(duration) if isinstance(duration, int | float) else None
+        from_e164, to_e164 = _party_numbers(payload, telephony, inbound=inbound)
         # SCORED HERE RATHER THAN INSIDE `_cost`, because the judgement needs the call's
         # LENGTH and `_cost` sees only the cost keys. Every path that produces a snapshot
         # runs it — the poller's listing as well as `get_execution` — which is what makes
@@ -2658,8 +2870,11 @@ class BolnaEngine:
             started_at=started,
             ended_at=ended,
             duration_s=duration_s,
-            from_e164=telephony.get("from_number") or payload.get("from_number"),
-            to_e164=telephony.get("to_number") or payload.get("to_number"),
+            # Both numbers, across every spelling the vendor prints — see
+            # `_party_numbers` for why the documented one is not the only one that has to
+            # be read, and for what goes silently missing when it is.
+            from_e164=from_e164,
+            to_e164=to_e164,
             recording_url=telephony.get("recording_url") or payload.get("recording_url"),
             transcript=turns,
             transcript_lines_unparsed=unparsed,
@@ -2815,10 +3030,12 @@ class BolnaEngine:
             update={"raw_document": engine_document(payload, engine=self.name)}
         )
 
-    async def _agent_refs(self) -> list[str]:
-        """Every agent id on this Bolna account. `GET /v2/agent/all` -> a bare JSON array
-        of `AgentV2` objects, each with a top-level `id` (VERIFIED-OAS: `AgentListV2` is
-        declared `type: array` of `AgentV2`, and `AgentV2.id` is the uuid).
+    async def _agent_refs(self) -> _AgentRoster:
+        """Every agent id on this Bolna account, and whether that roster is all of them.
+
+        `GET /v2/agent/all` -> a bare JSON array of `AgentV2` objects, each with a
+        top-level `id` (VERIFIED-OAS: `AgentListV2` is declared `type: array` of
+        `AgentV2`, and `AgentV2.id` is the uuid).
 
         `_request` wraps a bare array as `{"data": [...]}`, which is why this reads
         `_listing_rows` rather than the payload directly. `agent_id` is accepted beside
@@ -2829,16 +3046,88 @@ class BolnaEngine:
         is deliberately global — the poller's job is to find executions nobody told us
         about, and scoping it to agents we currently know about would hide exactly the call
         placed by an agent our routing table has lost.
+
+        **THE ROSTER IS PAGINATED AND THIS METHOD ASKED FOR ONE PAGE (D-421).** It sent
+        `GET /v2/agent/all` with no parameters and treated whatever came back as the whole
+        account. Two first-party pages say that is a page, not an account:
+
+            `bolna-findings/mirror/pages/api-reference/pagination.md:9,13-14` — "The
+            endpoints also support pagination using the `page_number` and `page_size`
+            query parameters ... `page_number` ... Defaults to `1` ... `page_size` ...
+            Defaults to `20`. You can request up to `50` results per page."
+
+            `bolna-findings/mirror/pages/cli/commands/agents-list.md:9,24-25` — the
+            vendor's OWN CLI client for this route: "List every agent on the account
+            **with pagination**", `--page int` default `1`, `--page-size int` default
+            `20`.
+
+        WHY THIS WAS WORSE THAN THE TWO FAILURES BEFORE IT (D-353's wrong route, D-412's
+        missing `to`): both of those were 400s or 404s — loud, every tick, with
+        `reconcile_executions` reporting `reconciliation_fetch_failed`. This one is
+        SILENT. On the 21st agent the fan-out simply stops asking about the rest, and
+        `list_executions` still answers `complete=True`, because completeness was decided
+        per agent and never about the agent list itself. An execution belonging to agent
+        21 produces no lead, no usage event, no recording and no alarm — the exact
+        sentence D-31 wrote this poller to make false. One Bolna account holds EVERY
+        tenant's agents, so 20 is a handful of clients, not a distant ceiling.
+
+        WHAT MAKES THIS SAFE UNDER BOTH READINGS OF THE VENDOR, which is the same
+        intersection discipline `_LISTING_MAX_WINDOW` uses. The route's own OpenAPI block
+        declares NO parameters and answers a bare array with no `has_more` and no `total`
+        (`api-reference/agent/v2/get_all.md:29-51`), so truncation is not detectable from
+        the response and the two pages above are the only evidence paging exists here.
+        If the platform HONOURS `page_number`, this walks the roster to its end. If it
+        IGNORES the parameter — the shape a FastAPI handler with no declared query model
+        has, and their OSS server is FastAPI — page one already carried every agent, page
+        two repeats it, the walk sees no new id and stops. Either way the roster returned
+        is right; only the VERDICT differs, and an ambiguous verdict may not claim
+        completeness (`ExecutionListing._verdict_and_reason_agree`).
+
+        THE REASONS ARE THE ONES THE POLLER ALREADY ALERTS ON, deliberately: a roster the
+        walk could not finish is the same operator event as a listing it could not finish,
+        and inventing a fifth `ListingIncompleteReason` for it would add a runbook entry
+        for a distinction nobody acts on differently. `next_link_no_progress` is a full
+        page that yielded no agent we had not already seen; `page_cap_reached` is our own
+        bound. Both are wired to OPERATIONS §2 gate 30, which settles with one live
+        account whether `page_number=2` returns different agents at all.
         """
-        payload = await self._request("GET", "/v2/agent/all")
         refs: list[str] = []
-        for row in _listing_rows(payload):
-            for key in ("id", "agent_id"):
-                value = row.get(key)
-                if isinstance(value, str) and value.strip():
-                    refs.append(value.strip())
-                    break
-        return refs
+        seen: set[str] = set()
+        reason: ListingIncompleteReason | None = None
+        page_number = 1
+        pages = 0
+        while True:
+            payload = await self._request(
+                "GET",
+                "/v2/agent/all",
+                params={"page_number": page_number, "page_size": _LISTING_PAGE_SIZE},
+            )
+            pages += 1
+            rows = _listing_rows(payload)
+            new_refs = 0
+            for row in rows:
+                for key in ("id", "agent_id"):
+                    value = row.get(key)
+                    if isinstance(value, str) and value.strip():
+                        ref = value.strip()
+                        if ref not in seen:
+                            seen.add(ref)
+                            refs.append(ref)
+                            new_refs += 1
+                        break
+            # A SHORT PAGE ENDS THE ROSTER and cannot be hiding anything — the vendor
+            # returned fewer rows than we asked for. This is the only exit that claims
+            # completeness, and it is the one every account below the page size takes.
+            if len(rows) < _LISTING_PAGE_SIZE:
+                break
+            if new_refs == 0:
+                reason = "next_link_no_progress"
+                break
+            if page_number >= _LISTING_MAX_PAGES:
+                reason = "page_cap_reached"
+                break
+            page_number += 1
+        return _AgentRoster(refs=refs, pages_fetched=pages, incomplete_reason=reason)
 
     async def list_executions(self, *, since: datetime) -> ExecutionListing:
         """The guarantee of record (D-31) — rewritten from the vendor's real contract.
@@ -2907,13 +3196,17 @@ class BolnaEngine:
             )
         snapshots: list[ExecutionSnapshot] = []
         seen_ids: set[str] = set()
-        # The `GET /v2/agent/all` response IS a response we read, so it counts:
+        # The `GET /v2/agent/all` responses ARE responses we read, so they count:
         # `pages_fetched` is "how many responses were read", and understating it would make
         # a fan-out look like a single-page vendor in the one metric that shows the walk ran.
-        pages = 1
-        reason: ListingIncompleteReason | None = None
+        # The roster is itself a paginated walk (D-421), so it contributes its own count
+        # AND its own incompleteness — a roster we could not finish makes the listing
+        # incomplete no matter how cleanly every agent in it answered.
+        roster = await self._agent_refs()
+        pages = roster.pages_fetched
+        reason: ListingIncompleteReason | None = roster.incomplete_reason
 
-        for agent_ref in await self._agent_refs():
+        for agent_ref in roster.refs:
             page_number = 1
             while True:
                 payload = await self._request(
@@ -3025,6 +3318,15 @@ class BolnaEngine:
         parser and drops to the event fields."""
         snapshot = self._snapshot(payload)
         agent_ref = payload.get("agent_id")
+        # A STATED ZERO IS A COST AND THE TRUTHINESS TEST ERASED IT. This read the key
+        # TWICE and gated on the value, so `total_cost: 0` — which the vendor's own worked
+        # example produces per LEG on a short call, and which a whole execution can carry
+        # when nothing billable happened — reported the same `None` as a payload with no
+        # cost key at all. Those are different facts: "the engine says this call cost
+        # nothing" versus "the engine has not said yet", and `billable_ready` is what
+        # separates them everywhere else in this adapter. Read once, and let `is None` be
+        # the question — the same shape `_cost` above already uses on the same key.
+        total_cost = payload.get("total_cost")
         # DIRECTION COMES FROM THE SNAPSHOT, and this was a SECOND COPY of the same wrong
         # read (D-359): `payload.get("direction")`, a field `AgentExecution` does not
         # declare. The vendor puts it on `telephony_data.call_type`, `_snapshot` reads it
@@ -3045,7 +3347,7 @@ class BolnaEngine:
             from_e164=snapshot.from_e164,
             to_e164=snapshot.to_e164,
             recording_url=snapshot.recording_url,
-            cost_raw=str(payload.get("total_cost")) if payload.get("total_cost") else None,
+            cost_raw=str(total_cost) if total_cost is not None else None,
             engine="bolna",
         )
 

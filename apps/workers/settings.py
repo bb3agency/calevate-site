@@ -183,8 +183,9 @@ CRON_JOBS = [
     # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see
     # what `list_executions` returns, and that listing is filtered on when an execution
     # was CREATED — so a call that runs longer than the 30-minute window has fallen out of
-    # it before its terminal transition ever happens, and one lost at-most-once webhook
-    # left it unrecoverable. This asks the engine directly about every call row still
+    # it before its terminal transition ever happens, and one webhook lost past whatever
+    # unbounded retry the vendor makes of it (`api-reference/limits.md:61`) left it
+    # unrecoverable. This asks the engine directly about every call row still
     # non-terminal past the stall window.
     #
     # HALF-HOURLY, AND OFFSET. It is O(tenants) — `calls` is FORCE-RLS'd, so the question

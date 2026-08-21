@@ -5,6 +5,7 @@ agents) use use_alter so Alembic emits them as separate ALTERs after both tables
 """
 
 from datetime import datetime
+from typing import Literal, get_args
 from uuid import UUID
 
 from calevate_shared.config import SELECTABLE_ENGINES
@@ -23,7 +24,23 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
-AGENT_DIRECTIONS = ("inbound", "outbound", "both")
+#: WHICH WAY AN AGENT'S CALLS GO, as a type rather than as three strings.
+#:
+#: This existed only as the tuple below, so every value read out of the `direction` column
+#: was a `str` to the type checker while `AgentConfig.direction` is
+#: `Literal["inbound", "outbound", "both"]` — and `agents/service.py::_to_config` passed
+#: one straight into the other. Nothing checked it: not mypy (the value was `str`, and
+#: until `[tool.pydantic-mypy] init_typed = true` the model's synthesised `__init__` took
+#: `Any` anyway), not Pydantic on the way out. A `direction` this table's CHECK constraint
+#: somehow let through would have reached the engine payload unexamined.
+#:
+#: Derived, never retyped (D-104), and in this direction rather than the other: the
+#: LITERAL is the source and `get_args` renders the tuple, because a tuple cannot be
+#: turned back into a type. `ck_agents_direction_enum` is rendered from the tuple, so the
+#: constraint and the type cannot disagree — adding a fourth direction to the Literal
+#: changes the CHECK in the same edit or it changes neither.
+AgentDirection = Literal["inbound", "outbound", "both"]
+AGENT_DIRECTIONS: tuple[AgentDirection, ...] = get_args(AgentDirection)
 AGENT_STATUSES = ("draft", "live", "paused")
 
 #: Derived, never retyped (D-104). This WAS `("fake", "bolna")`, spelled here by hand, and

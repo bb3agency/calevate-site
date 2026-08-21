@@ -66,7 +66,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.crm.performance import IST_ZONE
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
-from apps.api.quality.models import QA_SAMPLE_RATE, QA_VERDICTS
+from apps.api.quality.models import QA_SAMPLE_RATE, QA_VERDICTS, Verdict
 
 #: The zone, from the one place that names it (`crm/performance.IST_ZONE`) — a second
 #: literal 'Asia/Kolkata' is not a duplicate string, it is a second answer to "which
@@ -201,7 +201,12 @@ class SampledCall:
     outcome_tag: str | None
     sentiment: str | None
     disclosure_played: bool | None
-    verdict: str | None
+    #: The DB CHECK (`quality.models.QaCallSample.verdict_enum`) allows exactly these
+    #: three strings or NULL, and `record_review` refuses anything else before the write,
+    #: so the narrow type states an invariant the schema enforces rather than one this
+    #: function checks. `str | None` here is what made `QaSampleOut(verdict=...)` — a
+    #: Literal field — accept a widened CHECK without a word from either checker.
+    verdict: Verdict | None
     reviewed_at: datetime | None
 
 

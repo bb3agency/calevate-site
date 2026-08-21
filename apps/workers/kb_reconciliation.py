@@ -31,14 +31,31 @@ output is a RECORDED VERDICT (`engine_agent_routes.kb_drift_state`, read by
 `list_kb` and nothing else.
 
 WHAT IT COSTS, AND THE BOUNDS THAT KEEP IT AFFORDABLE
+
+**TODAY IT COSTS NOTHING, AND THIS PARAGRAPH USED TO SAY OTHERWISE.** It described
+`bolna.list_kb` as reading `GET /knowledgebase/all` — the WHOLE ACCOUNT's knowledge
+list — once per agent per tick. Since D-354 that is not what happens: `BolnaEngine.
+list_kb` opens with `require_capability("knowledge_base")`, which raises because
+`BOLNA_CAPABILITIES.knowledge_base is False`, so the sweep makes NO vendor call on this
+engine at all. The blockers are the vendor's and are re-confirmed against their own docs
+(`docs/evidence/bolna-kb-extraction.md` §1): `POST /knowledgebase` is multipart and takes
+a PDF or a URL, never our `KBSourceRef.text`. A cost model that overstates a round trip
+is not a harmless comment — the three bounds below are justified BY it, and a reader
+tuning them against a listing that is never fetched would be tuning against arithmetic
+that does not exist.
+
+So the bounds below are stated for the engine that WILL make the call, which is what
+they were designed for and what they must survive: the amplification is real the day the
+capability flips or a second adapter carries it, and the sweep must not have to be
+re-reasoned then.
 ------------------------------------------------------
-One vendor round trip per live agent per tick, and here that round trip is dearer than the
-agent sweep's: `bolna.list_kb` reads `GET /knowledgebase/all` — the WHOLE ACCOUNT's
-knowledge list — and filters it to one agent on our side. So a tick of N agents pulls the
-account listing N times, and the listing itself grows with every source every client
-publishes. D-35 makes vendor limits a CONCURRENCY input, and an unbounded sweep is a
-self-inflicted rate-limit incident that arrives on a schedule. Three bounds, each chosen
-against that arithmetic rather than for looking tidy:
+One vendor round trip per live agent per tick, and there that round trip is dearer than
+the agent sweep's: an engine that answers `list_kb` reads the WHOLE ACCOUNT's knowledge
+list and filters it to one agent on our side. So a tick of N agents pulls the account
+listing N times, and the listing itself grows with every source every client publishes.
+D-35 makes vendor limits a CONCURRENCY input, and an unbounded sweep is a self-inflicted
+rate-limit incident that arrives on a schedule. Three bounds, each chosen against that
+arithmetic rather than for looking tidy:
 
 1. **`KB_SWEEP_BATCH_SIZE = 15` agents per tick**, stalest first (`claim_kb_drift_batch`).
    Smaller than the agent sweep's 25 for the amplification above. The ordering is what

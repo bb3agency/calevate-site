@@ -44,6 +44,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, TenantWork
 from calevate_shared.engine import CallContext
@@ -129,15 +130,29 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     return tenant_id, agent_id
 
 
-async def _dlt_rows(tenant_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
+async def _dlt_rows(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
+    """ONE registered 140 header bound to `agent_id`, and one approved template (D-424).
+
+    One, and shared by every campaign in a test: the launch gate refuses a campaign whose
+    approved number is not the number its agent dials from, and `resolve_caller_id`
+    refuses an agent that carries two registered headers. A header per campaign would
+    satisfy the first rule by breaking the second, and the dispatcher under test here
+    would then place no calls while the budget assertions still read green.
+    """
     number_id, template_id = uuid7(), uuid7()
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-                "updated_at) VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+                "created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
             ),
-            {"id": number_id, "tid": tenant_id, "e": f"+9180{uuid.uuid4().int % 100000000:08d}"},
+            {
+                "id": number_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
+            },
         )
         await session.execute(
             text(
@@ -260,7 +275,7 @@ async def test_a_reserve_that_swallows_the_pool_stops_every_dial_and_says_so(
     to dial, so the tick alerts instead of returning quietly.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Squeezed", phones=("9876610001",)
     )
@@ -291,7 +306,7 @@ async def test_the_shared_pool_is_spent_once_and_the_second_campaign_waits(
     the extra call comes out of the inbound reserve.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     first = await _launched_campaign(
         tenant_id,
         agent_id,
@@ -350,8 +365,8 @@ async def test_a_tenant_that_gets_no_line_before_the_budget_runs_out_is_reported
     """
     first_id, first_agent = await _tenant()
     second_id, second_agent = await _tenant()
-    first_number, first_template = await _dlt_rows(first_id)
-    second_number, second_template = await _dlt_rows(second_id)
+    first_number, first_template = await _dlt_rows(first_id, first_agent)
+    second_number, second_template = await _dlt_rows(second_id, second_agent)
     await _launched_campaign(
         first_id,
         first_agent,
@@ -444,7 +459,7 @@ async def test_a_ceiling_above_the_pool_does_not_let_one_tenant_claim_lines_that
     that let this defect ship.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     for name in ("First", "Second", "Third"):
         await _launched_campaign(
             tenant_id,
@@ -493,7 +508,7 @@ async def test_a_campaign_paused_between_the_scan_and_the_budget_read_is_not_dia
     not believe in, and "stopping fast" is the entire point of those safeties.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Paused", phones=("9876630001",)
     )
@@ -549,7 +564,7 @@ async def test_a_dial_the_vendor_may_have_started_ends_the_contact_rather_than_r
     while the refused one is closed as `failed`.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Last rung", phones=("9876640001",)
     )
@@ -634,7 +649,7 @@ async def test_a_refusal_that_proves_no_line_was_seized_spends_the_ladder_and_co
     `queued` intent row the unconfirmed path deliberately leaves for the reaper.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Throttled", phones=("9876660001",)
     )
@@ -676,6 +691,165 @@ async def test_a_refusal_that_proves_no_line_was_seized_spends_the_ladder_and_co
     assert int(escalations or 0) == 1, "the exhausted contact is escalated exactly once"
 
 
+class _VendorRefusingEngine(FakeEngine):
+    """The vendor answering `POST /call` with a documented refusal of the REQUEST.
+
+    `400 {"error": 1001, "message": "agent_id is required"}` is the vendor's own first
+    worked example for this endpoint (`bolna-findings/mirror/pages/api-reference/calls/
+    make.md:62`), and `errors.md:15` defines the status as *"Invalid or missing parameter"*
+    — a statement about the request, so no line was seized and nobody's phone rang.
+
+    It is raised the way the real ladder raises it (`vendor_http.EngineRejectedError`, the
+    exception `vendor_request` builds from the response) rather than as a bare
+    `ProblemError`, because the status is the whole fact under test.
+    """
+
+    async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+        raise EngineRejectedError(status=400, vendor_error=1001)
+
+
+async def test_a_documented_vendor_refusal_keeps_the_contact_on_the_ladder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `400` from the vendor is not "this person may have been rung".
+
+    THE DEFECT THIS PINS. Every 4xx and every 5xx used to arrive as one indistinguishable
+    `engine_rejected`, and `dispatch_call` classified the whole of it as unconfirmed — so
+    a stale `engine_agent_ref`, a revoked API key or a mistyped calling number settled
+    each contact TERMINALLY on its FIRST attempt, with an escalation telling the client a
+    human should check a call that was never placed. One config mistake consumed a whole
+    contact list irreversibly, because "failed, may have rung" is not a state anything
+    re-dials from.
+
+    The vendor documents four statuses as refusals of the request
+    (`vendor_http.REQUEST_REFUSED_STATUSES`), so this contact keeps its place: one attempt
+    spent, back to `pending`, nothing exhausted and nobody escalated. The `calls` row is
+    the other half of the proof — `failed`, closed by `_close_unplaced_dial`, rather than
+    the `queued` intent row the unconfirmed path deliberately leaves behind.
+
+    Its sibling above (`_RefusingEngine`, a raise from inside the vendor call) is the
+    behaviour that must NOT change: ambiguity still ends the contact.
+    """
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+    campaign_id = await _launched_campaign(
+        tenant_id, agent_id, number_id, template_id, name="Bad param", phones=("9876670001",)
+    )
+
+    monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: _VendorRefusingEngine())
+
+    result = await campaign_dispatch._dispatch_for_campaign(
+        tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+    )
+
+    assert result == {"dialled": 0, "blocked": 0, "exhausted": 0}, result
+    assert await _contacts(tenant_id, campaign_id) == [("pending", 1)], (
+        "a refusal the vendor documents as 'I did not do this' must spend one rung of the "
+        "ladder, not the whole contact"
+    )
+    async with tenant_session(tenant_id) as session:
+        rows = (
+            await session.execute(text("SELECT status FROM calls WHERE direction = 'outbound'"))
+        ).all()
+    assert [str(r[0]) for r in rows] == ["failed"], (
+        "the intent row must be CLOSED: the vendor proved nothing rang, so leaving it "
+        "`queued` would hold an outbound line for an hour over a typo"
+    )
+    async with tenant_session(tenant_id) as session:
+        escalations = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages "
+                    "WHERE payload->>'campaign_id' = :c AND job LIKE '%escalat%'"
+                ),
+                {"c": str(campaign_id)},
+            )
+        ).scalar()
+    assert int(escalations or 0) == 0, (
+        "nothing is exhausted, so nobody is told this lead could not be reached"
+    )
+
+
+async def test_an_undocumented_vendor_status_is_still_treated_as_a_possible_ring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The default has to stay conservative or the fix above becomes the defect.
+
+    A `502` is a proxy answering AFTER the vendor may have committed, and `422` is a
+    status Bolna documents on other routes but never as a `POST /call` outcome. Neither
+    proves anything, so both keep D-181's terminal treatment — the contact is finished
+    with and the client is told, rather than dialled a second time on a guess.
+    """
+    for status in (500, 502, 504, 409, 422):
+
+        class _Ambiguous(FakeEngine):
+            vendor_status = status
+
+            async def start_outbound_call(self, ref: str, to: str, ctx: CallContext) -> str:
+                raise EngineRejectedError(status=self.vendor_status, vendor_error=None)
+
+        tenant_id, agent_id = await _tenant()
+        number_id, template_id = await _dlt_rows(tenant_id, agent_id)
+        campaign_id = await _launched_campaign(
+            tenant_id,
+            agent_id,
+            number_id,
+            template_id,
+            name=f"Ambiguous {status}",
+            phones=(f"9876{status}001",),
+        )
+        monkeypatch.setattr("apps.api.agents.service.get_engine", lambda: _Ambiguous())
+
+        result = await campaign_dispatch._dispatch_for_campaign(
+            tenant_id, campaign_id, 3, campaigns.DEFAULT_RETRY_POLICY
+        )
+
+        assert result == {"dialled": 0, "blocked": 0, "exhausted": 1}, (status, result)
+        assert await _contacts(tenant_id, campaign_id) == [("failed", 1)], status
+        async with tenant_session(tenant_id) as session:
+            engine_call_id = (
+                await session.execute(
+                    text(
+                        "SELECT engine_call_id FROM calls WHERE direction = 'outbound' "
+                        "ORDER BY created_at DESC LIMIT 1"
+                    )
+                )
+            ).scalar()
+        assert str(engine_call_id).startswith(UNCONFIRMED_ENGINE_CALL_PREFIX), (
+            f"a {status} left a row claiming the vendor named this call"
+        )
+
+
+def test_the_dial_failure_log_line_names_the_refusal_rather_than_the_python_class() -> None:
+    """`campaign_dial_failed.reason` is what an operator greps at 3am.
+
+    It was `type(exc).__name__`, which is the constant `ProblemError` for every refusal
+    this branch can catch — a log full of lines naming the exception CLASS and no fact
+    about the failure. Hard rule 6 is the reason the vendor's human `message` is still
+    not here: only our own codes, an HTTP status and the int32 the adapter bounded.
+    """
+    assert (
+        campaign_dispatch._dial_failure_reason(EngineRejectedError(status=400, vendor_error=1001))
+        == "engine_rejected:400/1001"
+    )
+    assert (
+        campaign_dispatch._dial_failure_reason(EngineRejectedError(status=503))
+        == "engine_rejected:503"
+    )
+    assert (
+        campaign_dispatch._dial_failure_reason(
+            ProblemError(
+                kind="dependency",
+                code="engine_rate_limited",
+                title="t",
+                detail="d",
+            )
+        )
+        == "engine_rate_limited"
+    )
+    assert campaign_dispatch._dial_failure_reason(RuntimeError("boom")) == "RuntimeError"
+
+
 async def test_the_ladder_still_ends_when_the_caller_has_no_campaign_to_escalate_to() -> None:
     """`_record_failure`'s two optional ids are the escalation's context, and its
     docstring promises that without them the contact is still failed correctly and the
@@ -686,7 +860,7 @@ async def test_the_ladder_still_ends_when_the_caller_has_no_campaign_to_escalate
     would be the other: it stays claimable and the ladder never ends.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="No context", phones=("9876650001",)
     )
@@ -727,7 +901,7 @@ async def test_a_campaign_cancelled_during_a_tick_is_not_written_back_to_complet
     investigates, on the surface where "why did this keep dialling" gets asked.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
     campaign_id = await _launched_campaign(
         tenant_id, agent_id, number_id, template_id, name="Cancelled", phones=("9876660001",)
     )
@@ -774,7 +948,7 @@ async def test_a_campaign_cannot_be_created_with_a_slider_of_zero() -> None:
     silent skip) rather than to re-add a guard nobody exercises.
     """
     tenant_id, agent_id = await _tenant()
-    number_id, template_id = await _dlt_rows(tenant_id)
+    number_id, template_id = await _dlt_rows(tenant_id, agent_id)
 
     with pytest.raises(Exception) as excinfo:
         async with tenant_session(tenant_id) as session:

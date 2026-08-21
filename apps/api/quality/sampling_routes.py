@@ -58,7 +58,7 @@ PERMISSIONS
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Annotated, Literal
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -76,7 +76,7 @@ from apps.api.crm import service as crm
 from apps.api.crm.schemas import CallDetailOut
 from apps.api.db.session import tenant_session
 from apps.api.quality import sampling
-from apps.api.quality.models import QA_SAMPLE_RATE, QA_VERDICTS
+from apps.api.quality.models import QA_SAMPLE_RATE, QA_VERDICTS, Verdict
 
 router = APIRouter(prefix="/v1/admin/qa-samples", tags=["admin"])
 
@@ -87,8 +87,6 @@ AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 QueueReader = Annotated[Principal, Depends(requires("org:read", realm="admin"))]
 CallReader = Annotated[Principal, Depends(requires("calls:read", realm="admin"))]
 Reviewer = Annotated[Principal, Depends(requires("admin:tenants", realm="admin"))]
-
-Verdict = Literal["clean", "concern", "defect"]
 
 _DIRECTORY = "SELECT id, name, slug FROM organizations WHERE deleted_at IS NULL ORDER BY name"
 

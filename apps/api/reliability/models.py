@@ -20,12 +20,13 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.core.loadshed import LoadShedMode
 from apps.api.db.base import Base, PKMixin
 
 OUTBOX_STATUSES = ("pending", "published", "failed")
 INBOX_STATUSES = ("processing", "enqueued", "processed", "failed")
 IDEMPOTENCY_STATUSES = ("processing", "completed", "failed")
-LOAD_SHED_MODES = ("normal", "reduced", "emergency", "maintenance")
+LOAD_SHED_MODES: tuple[LoadShedMode, ...] = ("normal", "reduced", "emergency", "maintenance")
 # Calevate's own telemarketer registration (SEC-COMP §3). Declared beside the column
 # it constrains so the CHECK and the service that writes it cannot drift apart.
 TM_REGISTRATION_STATUSES: tuple[str, ...] = (

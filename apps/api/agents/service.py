@@ -76,13 +76,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import cast
+from typing import NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.engine import (
     AgentConfig,
     CallContext,
     DisclosurePosture,
+    LlmProvider,
     ModelConfig,
     NumberSeries,
     ProvisionedNumber,
@@ -96,7 +97,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
-from apps.api.agents.models import CALL_CAP_DEFAULT_S
+from apps.api.agents.models import AGENT_DIRECTIONS, CALL_CAP_DEFAULT_S, AgentDirection
 from apps.api.agents.verification import verify_publish
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
@@ -108,6 +109,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, require_capability
 from apps.api.engine.capabilities import ENGINE_COMPLIANCE_FLOOR_ABSENT
+from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.tenancy.lifecycle import assert_account_open
 
 # THE ONE READER OF THE THREE `azure_openai_*` CREDENTIAL FIELDS, imported rather than
@@ -149,15 +151,22 @@ UNCONFIRMED_ENGINE_CALL_PREFIX = "local:"
 #: is the conservative reading and is chosen on the cost asymmetry: a wrongly-retried
 #: dial is a second unsolicited call to a real person (the behaviour the whole compliance
 #: gate exists to bound), while a wrongly-abandoned dial is one contact a human has to
-#: look at. `engine_rejected` is the uncomfortable member of the "unconfirmed" side — the
-#: adapters collapse every 4xx AND 5xx into it, so it mixes "the vendor refused this
-#: request" with "a proxy answered 502 after the vendor had committed", and we cannot
-#: tell them apart from here without an adapter that separates them.
+#: look at.
 #:
-#: What would let us do better is a vendor-side idempotency key on `POST /call`: with
-#: one, a retry is safe whatever the failure was. Bolna's support for it is unverified
-#: (D-31/D-32's rule: an unverified vendor behaviour is never a silent premise), so it is
-#: not assumed here.
+#: THIS IS A SET OF CODES AND THE DECISION IS NOT — read `dial_was_not_placed`, which is
+#: what callers use. `engine_rejected` used to be the uncomfortable member of the
+#: "unconfirmed" side, because the ladder collapsed every 4xx AND 5xx into one code and
+#: nothing downstream could tell "the vendor refused this request" from "a proxy answered
+#: 502 after the vendor had committed". The ladder now carries the status
+#: (`vendor_http.EngineRejectedError`), so the four statuses the vendor documents as refusals
+#: are separated from the ambiguous rest — by the exception, not by adding four codes here.
+#:
+#: What would let us do better STILL is a vendor-side idempotency key on `POST /call`:
+#: with one, a retry is safe whatever the failure was, including the 5xx half. **Bolna
+#: documents none** — no idempotency key, no client request id, no dedupe window anywhere
+#: in their 333 published pages (searched: `idempoten`, `request-id`, `dedup` — zero
+#: hits). That is a stated negative, not an assumption (D-31/D-32's rule), and it is why
+#: the 5xx half stays "the phone may be ringing".
 DIAL_NOT_PLACED_CODES = frozenset(
     {
         # 429 with the ladder exhausted. The adapter's own note says a throttle "says
@@ -179,6 +188,37 @@ DIAL_NOT_PLACED_CODES = frozenset(
         ENGINE_COMPLIANCE_FLOOR_ABSENT,
     }
 )
+
+
+def dial_was_not_placed(exc: BaseException) -> bool:
+    """Did this failure PROVE that no line was seized? The one place that decides.
+
+    Two ways to be sure, and both are read from the vendor rather than guessed:
+
+    * the failure has one of `DIAL_NOT_PLACED_CODES` — a throttle, or one of the
+      pre-flight refusals raised before any request left this process;
+    * the vendor answered with a status its own documentation defines as a refusal of the
+      REQUEST (`vendor_http.REQUEST_REFUSED_STATUSES` carries the four rows and their
+      citations).
+
+    THE SECOND ARM IS NEW AND IT CLOSES A REAL DEFECT, not a theoretical one. Before it,
+    a `400 agent_id is required` — the vendor's own first worked example for `POST /call`
+    — reached the campaign dispatcher as `DialUnconfirmedError`, which settles the contact
+    TERMINALLY (`_settle_unconfirmed_dial`), escalates to the client, and never dials them
+    again, on the grounds that their phone may have rung. It had not. One stale
+    `engine_agent_ref` or one revoked API key therefore consumed a whole contact list,
+    irreversibly, with an escalation per contact telling the client a human should check
+    calls that were never placed. On the two CRM buttons it produced the same sentence to
+    a tenant's face — *"it may have started the call anyway ... calling again could ring
+    them twice"* — about a request the vendor threw away unread.
+
+    Anything else is still "the phone may be ringing": every 5xx, every transport failure,
+    and every 4xx the vendor does not document. See `REQUEST_REFUSED_STATUSES` for why
+    that default cannot be relaxed by reasoning about which statuses feel safe.
+    """
+    if isinstance(exc, EngineRejectedError):
+        return exc.request_refused
+    return isinstance(exc, ProblemError) and exc.code in DIAL_NOT_PLACED_CODES
 
 
 class DialUnconfirmedError(Exception):
@@ -212,9 +252,77 @@ def effective_call_cap(max_call_duration_s: int | None) -> int:
     return CALL_CAP_DEFAULT_S if max_call_duration_s is None else max_call_duration_s
 
 
+class AgentRow(TypedDict):
+    """The agent record as the config builders below need it — declared, not `object`.
+
+    **WHY THIS EXISTS, and it is not tidiness.** `_load_agent` returned
+    `dict[str, object]`, and `_to_config` fed those values straight into `AgentConfig` and
+    `ModelConfig` — including `direction`, whose field is
+    `Literal["inbound", "outbound", "both"]`. Nothing checked the hop. mypy could not:
+    `object` is not `str`, but `AgentConfig`'s Pydantic-synthesised `__init__` took `Any`
+    for every argument until `[tool.pydantic-mypy] init_typed = true` was turned on, so
+    the checker was verifying that arguments were PRESENT and never what they held. So a
+    `direction` the CHECK constraint somehow admitted, or a column renamed under a
+    SELECT that still parses, would have reached the vendor payload unexamined, and the
+    first symptom would have been a Pydantic `ValidationError` inside a publish — or, for
+    a value Pydantic also accepts, no symptom at all.
+    Same instrument and same argument as `apps/api/engine/fake.py::_StoredCall`.
+
+    **A TypedDict IS NOT A CAST**, and the difference is `_load_agent`'s `direction` line.
+    Annotating a row that is built from `row[i]` (SQLAlchemy hands back `Any`) would move
+    the unchecked hop rather than close it — the values would be *declared* rather than
+    *known*. So the ONE field that lands on a `Literal` is narrowed by a real predicate
+    with a real refusal at the read, and the rest are widths a `TEXT NOT NULL` column
+    genuinely guarantees.
+
+    Consumers take `AgentRow` rather than `dict[str, object]` for the same reason: a
+    TypedDict is deliberately not assignable to `dict[str, X]`, so the type cannot be
+    widened back to `object` halfway along the path by accident.
+    """
+
+    id: UUID
+    name: str
+    direction: AgentDirection
+    language_primary: str
+    #: The legacy bundled sentence (D-163). Still read for the drift comparison; never
+    #: composed into a new `opening_line`.
+    disclosure_line: str | None
+    stt_provider: str | None
+    stt_model: str | None
+    #: What an OPERATOR configured. On an Azure leg it is deliberately ignored —
+    #: `in_call_llm` explains why the endpoint and the identifier cannot be split.
+    llm_model: str | None
+    tts_provider: str | None
+    tts_voice: str | None
+    engine: str
+    #: NULL until the first successful publish, which is what `agent_not_published` means.
+    engine_agent_ref: str | None
+    status: str
+    #: The APPLIED prompt body, or NULL when no version has been applied —
+    #: `_assert_has_a_script` is the one place that refusal is worded.
+    prompt: str | None
+    #: NULL means "the platform default", never "unlimited" (`effective_call_cap`).
+    max_call_duration_s: int | None
+    ai_disclosure_line: str
+    ai_disclosure_enabled: bool
+    recording_notice_line: str
+    recording_notice_enabled: bool
+
+
+def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
+    """Is this database value one of the three directions an agent can have?
+
+    A `TypeGuard` rather than a `cast` because the two are opposites in the only way that
+    matters: a cast asserts and moves on, while this ASKS — the runtime check is real, and
+    the checker's narrowing is a consequence of the check rather than a substitute for it.
+    One place, so the vocabulary cannot be re-spelled at a second call site.
+    """
+    return value in AGENT_DIRECTIONS
+
+
 async def _load_agent(
     session: AsyncSession, tenant_id: UUID, agent_id: UUID, *, for_update: bool = False
-) -> dict[str, object]:
+) -> AgentRow:
     """The agent as an `AgentConfig` needs it, optionally under a row lock.
 
     `for_update` is the publish path's, and only the publish path's. The read alone is a
@@ -257,10 +365,31 @@ async def _load_agent(
     ).first()
     if row is None:
         raise ProblemError.not_found("Agent")
+    direction = row[2]
+    if not _is_agent_direction(direction):
+        # UNREACHABLE THROUGH THE FRONT DOOR, and asked anyway. `ck_agents_direction_enum`
+        # renders from the same Literal this narrows to, so the column cannot hold
+        # anything else while that constraint is attached — and "while that constraint is
+        # attached" is the whole reason this is a check rather than a cast. A migration
+        # that drops and rebuilds the table, a restore that lands without constraints
+        # (`runbooks/restore-drill.md` walks exactly that path), or a hand-run UPDATE by
+        # an operator all produce a row this narrowing refuses. Refusing costs one agent's
+        # publish and names the cause; the alternative is a direction the engine has never
+        # heard of on an agent that answers a client's phone.
+        log.error(
+            "agent_direction_unrecognised",
+            extra={"agent_id": str(agent_id), "tenant_id": str(tenant_id)},
+        )
+        raise ProblemError.business_rule(
+            "agent_direction_unrecognised",
+            "This agent's calling direction is not one we recognise, so it cannot be "
+            "published or dialled.",
+            remediation="Set the agent to inbound, outbound or both and try again.",
+        )
     return {
         "id": row[0],
         "name": row[1],
-        "direction": row[2],
+        "direction": direction,
         "language_primary": row[3],
         "disclosure_line": row[4],
         "stt_provider": row[5],
@@ -280,7 +409,7 @@ async def _load_agent(
     }
 
 
-def posture_of(agent: dict[str, object]) -> DisclosurePosture:
+def posture_of(agent: AgentRow) -> DisclosurePosture:
     """The agent row's four disclosure columns as the one value the composer takes.
 
     Here rather than inline in `_to_config` because `_variant_config` needs the same
@@ -296,7 +425,7 @@ def posture_of(agent: dict[str, object]) -> DisclosurePosture:
     )
 
 
-def _assert_has_a_script(agent: dict[str, object]) -> str:
+def _assert_has_a_script(agent: AgentRow) -> str:
     """The agent's applied script, or a refusal — never a stand-in.
 
     `_to_config` used to read `str(agent["prompt"] or "You are a helpful receptionist.")`,
@@ -332,7 +461,22 @@ def _assert_has_a_script(agent: dict[str, object]) -> str:
     )
 
 
-def in_call_llm(configured_model: object) -> dict[str, object]:
+class InCallLLM(TypedDict):
+    """The three `ModelConfig` LLM fields `in_call_llm` decides, as a shape.
+
+    `llm_provider` and `llm_base_url` are `NotRequired` because the two arms genuinely
+    differ in ARITY, not just in value: an unconfigured deployment returns the model alone
+    and leaves the other two at `ModelConfig`'s defaults, which is what "no Azure leg"
+    means. Spelling them `| None` instead would make the difference invisible to a reader
+    and would let a future arm send `llm_provider=None` beside a real `llm_base_url`.
+    """
+
+    llm_model: str | None
+    llm_provider: NotRequired[LlmProvider]
+    llm_base_url: NotRequired[str]
+
+
+def in_call_llm(configured_model: str | None) -> InCallLLM:
     """The LLM leg's three `ModelConfig` fields for one agent — D-410's one decision point.
 
     THE WHOLE SWITCH LIVES HERE, and that is the reason this function exists rather than
@@ -401,7 +545,10 @@ def in_call_llm(configured_model: object) -> dict[str, object]:
 
     Returns a dict rather than a `ModelConfig` because the caller is building one with the
     speech legs alongside, and two `ModelConfig`s merged is a second place for the LLM
-    fields to be decided.
+    fields to be decided. `InCallLLM` rather than `dict[str, object]`, so that dict stays
+    CHECKED where it is splatted into `ModelConfig`: an `object` value unpacked through
+    `**` widens EVERY keyword at that call site, which is how these three fields and the
+    four speech fields beside them all became unverified together.
     """
     credentials = azure_credentials()
     if credentials is None:
@@ -414,13 +561,16 @@ def in_call_llm(configured_model: object) -> dict[str, object]:
     }
 
 
-def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
+def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
     settings = get_settings()
     return AgentConfig(
         tenant_id=str(tenant_id),
         agent_id=str(agent["id"]),
         name=str(agent["name"]),
-        direction=str(agent["direction"]),
+        # Not `str(...)`: the row narrowed this to the same Literal `AgentConfig`
+        # declares (`_is_agent_direction`), and re-widening it here would put the
+        # unchecked hop back in the one place it mattered.
+        direction=agent["direction"],
         language_primary=str(agent["language_primary"]),
         system_prompt=_assert_has_a_script(agent),
         # WHAT THE AGENT VOLUNTEERS FIRST, composed from this agent's two toggles by the
@@ -442,13 +592,11 @@ def _to_config(tenant_id: UUID, agent: dict[str, object]) -> AgentConfig:
         webhook_url=f"{settings.webhook_base_url}/hooks/v1/engine/{settings.engine}",
         # The cost-runaway guard. Resolved here rather than defaulted in the model, so
         # an agent that has never been given a cap is still published with one.
-        max_call_duration_s=effective_call_cap(
-            cast(int | None, agent.get("max_call_duration_s")),
-        ),
+        max_call_duration_s=effective_call_cap(agent["max_call_duration_s"]),
     )
 
 
-def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: dict[str, object]) -> str | None:
+def _call_prompt_for(engine: VoiceEngine, tenant_id: UUID, agent: AgentRow) -> str | None:
     """The prompt this dial must CARRY, or None when the engine already holds it.
 
     THE PRODUCTION WRITER OF `CallContext.system_prompt` (D-282), and the reason the field
@@ -842,7 +990,7 @@ _VARIANT_CONFIG_SQL = (
 
 def _variant_config(
     tenant_id: UUID,
-    agent: dict[str, object],
+    agent: AgentRow,
     variant_id: UUID,
     label: str,
     body: str,
@@ -1302,8 +1450,13 @@ async def dispatch_call(
         # cancellation survivable — the contact stays `dialing` pointing at an
         # unconfirmed call, and `_reap_stuck_dialing` settles it without a second ring.
         code = exc.code if isinstance(exc, ProblemError) else type(exc).__name__
-        if isinstance(exc, ProblemError) and exc.code in DIAL_NOT_PLACED_CODES:
-            await _close_unplaced_dial(tenant_id, call_id=call_id, code=code)
+        if dial_was_not_placed(exc):
+            await _close_unplaced_dial(
+                tenant_id,
+                call_id=call_id,
+                code=code,
+                vendor_status=exc.vendor_status if isinstance(exc, EngineRejectedError) else None,
+            )
             raise
         # No number, no vendor text: ids and our own code (hard rule 6).
         log.error(
@@ -1351,12 +1504,18 @@ async def _confirm_dial(tenant_id: UUID, *, call_id: UUID, handle: str) -> None:
         log.warning("dial_handle_not_stamped", extra={"call_id": str(call_id)})
 
 
-async def _close_unplaced_dial(tenant_id: UUID, *, call_id: UUID, code: str) -> None:
+async def _close_unplaced_dial(
+    tenant_id: UUID, *, call_id: UUID, code: str, vendor_status: int | None = None
+) -> None:
     """The vendor refused before seizing a line: finish the intent row as `failed`.
 
     Left `queued`, it would sit in the `in_flight` bucket forever and read as a call that
     might yet connect. `failed` is the honest terminal state, and it is only ever written
-    for `DIAL_NOT_PLACED_CODES` — the failures that PROVE nothing rang.
+    where `dial_was_not_placed` holds — the failures that PROVE nothing rang.
+
+    `vendor_status` rides the log line because `engine_rejected` alone no longer says
+    which side of that judgement a refusal fell on, and "why was this dial abandoned" is
+    a question an operator asks about one call id.
     """
     async with tenant_session(tenant_id) as session:
         await session.execute(
@@ -1366,7 +1525,10 @@ async def _close_unplaced_dial(tenant_id: UUID, *, call_id: UUID, code: str) -> 
             ),
             {"id": call_id},
         )
-    log.info("dial_not_placed", extra={"call_id": str(call_id), "code": code})
+    log.info(
+        "dial_not_placed",
+        extra={"call_id": str(call_id), "code": code, "vendor_status": vendor_status},
+    )
 
 
 async def provision_number(
@@ -1473,6 +1635,7 @@ __all__ = [
     "ArmToPublish",
     "DialUnconfirmedError",
     "InboundRouting",
+    "dial_was_not_placed",
     "dispatch_call",
     "effective_call_cap",
     "provision_number",

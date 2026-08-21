@@ -130,20 +130,42 @@ async def _campaign(
     slider: int = 3,
     dlt_status: str = "registered",
 ) -> uuid.UUID:
-    """A launch-ready promotional campaign: 140 number, approved matching template."""
-    number_id = uuid7()
-    await session.execute(
-        text(
-            "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-            "updated_at) VALUES (:id, :tid, :e, '140', :dlt, now(), now())"
-        ),
-        {
-            "id": number_id,
-            "tid": tenant_id,
-            "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
-            "dlt": dlt_status,
-        },
-    )
+    """A launch-ready promotional campaign: 140 number, approved matching template.
+
+    THE NUMBER IS BOUND TO `agent_id` AND REUSED ACROSS THIS AGENT'S CAMPAIGNS (D-424).
+    Both halves matter. Bound, because the launch gate refuses a campaign whose approved
+    number is not the number its agent dials from — an unbound number resolves to no
+    caller ID and the engine answers from its own pool. Reused, because
+    `agents.service.resolve_caller_id` REFUSES an agent carrying two registered headers
+    (it cannot tell which class of traffic is dialling), so a fixture that minted a second
+    one per campaign would model a state production rejects — and these tests would then
+    measure a dispatcher that placed no calls at all while still satisfying their
+    `<= ceiling` assertions.
+    """
+    number_id = (
+        await session.execute(
+            text(
+                "SELECT id FROM phone_numbers WHERE agent_id = :aid AND dlt_status = :dlt "
+                "ORDER BY created_at, id LIMIT 1"
+            ),
+            {"aid": agent_id, "dlt": dlt_status},
+        )
+    ).scalar()
+    if number_id is None:
+        number_id = uuid7()
+        await session.execute(
+            text(
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, :e, '140', :dlt, now(), now())"
+            ),
+            {
+                "id": number_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
+                "dlt": dlt_status,
+            },
+        )
     template_id = uuid7()
     await session.execute(
         text(

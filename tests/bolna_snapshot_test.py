@@ -740,3 +740,169 @@ def test_an_absent_or_unreadable_extraction_is_no_extraction(empty: object) -> N
     field out of a shape nothing here models would be worse than reporting none."""
     snapshot = _engine()._snapshot(_payload(extracted_data=empty))
     assert snapshot.engine_extracted == {}
+
+
+def test_an_empty_predefined_value_does_not_erase_the_free_text() -> None:
+    """A disposition can be `is_subjective` and/or `is_objective`, and the vendor emits
+    the half the operator never configured as an EMPTY STRING rather than omitting it —
+    `{"subjective": "", "objective": "No"}` in their own worked example
+    (`bolna-findings/mirror/pages/api-reference/dispositions/test.md:127-129`, whose
+    response is documented as "the same format as post-call execution data").
+
+    So the mirror case is a subjective-only disposition: `{"subjective": "<the answer>",
+    "objective": ""}`. A bare `is not None` returned `""` — the free text the model
+    extracted never reached the CRM column, on every call of that shape, with the field
+    still PRESENT in `engine_extracted` so nothing downstream could tell and pilot gate 7,
+    which compares field NAMES, passed it.
+    """
+    snapshot = _engine()._snapshot(
+        _payload(
+            extracted_data={
+                "General": {
+                    "Call Summary": {
+                        "subjective": "Customer confirmed appointment for Friday.",
+                        "objective": "",
+                    }
+                }
+            }
+        )
+    )
+    assert snapshot.engine_extracted == {
+        "Call Summary": "Customer confirmed appointment for Friday."
+    }
+
+
+@pytest.mark.parametrize("blank", ["", "   ", "\n"])
+def test_any_blank_predefined_value_falls_through(blank: str) -> None:
+    """Whitespace is not an answer either — non-vacuity for the clause above."""
+    snapshot = _engine()._snapshot(
+        _payload(
+            extracted_data={"General": {"Outcome": {"subjective": "spoke", "objective": blank}}}
+        )
+    )
+    assert snapshot.engine_extracted == {"Outcome": "spoke"}
+
+
+@pytest.mark.parametrize("falsy", [False, 0])
+def test_a_falsy_but_real_predefined_value_survives(falsy: object) -> None:
+    """The line one type over, and the reason blankness is tested for on STRINGS only.
+    Their older flat shape carries booleans (`"callback_user": false`), so a truthiness
+    test here would drop a real extracted answer exactly as the `is not None` test dropped
+    a real free-text one."""
+    snapshot = _engine()._snapshot(
+        _payload(extracted_data={"General": {"Callback": {"subjective": "no", "objective": falsy}}})
+    )
+    assert snapshot.engine_extracted == {"Callback": falsy}
+
+
+# --- the two phone numbers, which the vendor's captures spell differently -------------
+
+
+def test_the_documented_telephony_spelling_is_still_read_first() -> None:
+    """Non-vacuity, and the guarantee that the fallback below is purely additive:
+    `TelephonyData.to_number`/`from_number` is what the OAS declares
+    (`api-reference/executions/get_execution.md:285-294`) and it must keep winning."""
+    snapshot = _engine()._snapshot(
+        _payload(
+            telephony_data={
+                "call_type": "outbound",
+                "from_number": "+918035739222",
+                "to_number": "+919876543210",
+            },
+            user_number="+910000000000",
+            agent_number="+911111111111",
+        )
+    )
+    assert snapshot.from_e164 == "+918035739222"
+    assert snapshot.to_e164 == "+919876543210"
+
+
+def test_an_outbound_execution_shaped_like_the_vendors_own_capture_still_has_numbers() -> None:
+    """THE DEFECT. The vendor's three captured examples put the numbers at the TOP LEVEL
+    as `user_number`/`agent_number` and carry NEITHER inside `telephony_data`
+    (`api-reference/executions/get_execution.md:41-42,51-58`, `quickstarts/api.md:246-247`,
+    `quickstarts/batch.md:138`). Read only at the schema's spelling, both came back None
+    on every call — and nothing raises: the opt-out worker then has no subject to add to
+    DNC, the DPDP erasure matches `calls` on those two columns and finds nothing, and the
+    pipeline's redaction is handed an empty phone list."""
+    snapshot = _engine()._snapshot(
+        _payload(
+            telephony_data={
+                "call_type": "outbound",
+                "recording_url": "https://api.bolna.ai/recordings/call/b7140255",
+            },
+            user_number="+919876543210",
+            agent_number="+918035739222",
+        )
+    )
+    assert snapshot.direction == "outbound"
+    assert snapshot.to_e164 == "+919876543210", "we dialled the human"
+    assert snapshot.from_e164 == "+918035739222", "our agent's number presented the call"
+
+
+def test_an_inbound_execution_swaps_the_two_roles() -> None:
+    """Their names are ROLE-based — *"`recipient_data.user_number` — Referencing the
+    caller's phone number"* (`graph-agent/variables.md:82`) — while `from`/`to` are
+    dial-based, so the two only line up once the direction is known. An inbound call is
+    dialled BY the human TO our agent. Getting this backwards would make the opt-out
+    worker DNC our own published number."""
+    snapshot = _engine()._snapshot(
+        _payload(
+            telephony_data={"call_type": "inbound"},
+            user_number="+919876543210",
+            agent_number="+918035739222",
+        )
+    )
+    assert snapshot.direction == "inbound"
+    assert snapshot.from_e164 == "+919876543210", "the human dialled us"
+    assert snapshot.to_e164 == "+918035739222", "they reached our agent's number"
+
+
+def test_a_batch_row_carrying_only_the_human_still_yields_the_side_it_names() -> None:
+    """`quickstarts/batch.md:138` prints a batch execution row with `user_number` and no
+    `agent_number` at all. Half an answer is worth having: the missing side stays None
+    rather than costing us the side the vendor did state."""
+    snapshot = _engine()._snapshot(
+        _payload(telephony_data={"call_type": "outbound"}, user_number="+919876543210")
+    )
+    assert snapshot.to_e164 == "+919876543210"
+    assert snapshot.from_e164 is None
+
+
+def test_a_blank_number_is_not_a_number() -> None:
+    """An empty string in either place is absence, not an E.164 — and it must not shadow
+    a real value sitting in the other spelling."""
+    snapshot = _engine()._snapshot(
+        _payload(
+            telephony_data={"call_type": "outbound", "to_number": "   ", "from_number": ""},
+            user_number="+919876543210",
+            agent_number="+918035739222",
+        )
+    )
+    assert snapshot.to_e164 == "+919876543210"
+    assert snapshot.from_e164 == "+918035739222"
+
+
+def test_the_webhook_carries_the_same_two_numbers_the_snapshot_derived() -> None:
+    """One way per problem: `parse_webhook` reads them off the snapshot, so the live path
+    that fires on every status transition cannot drift from the poller's."""
+    event = _engine().parse_webhook(
+        _payload(
+            telephony_data={"call_type": "inbound"},
+            user_number="+919876543210",
+            agent_number="+918035739222",
+        )
+    )
+    assert event.from_e164 == "+919876543210"
+    assert event.to_e164 == "+918035739222"
+
+
+def test_a_stated_zero_cost_is_reported_as_a_cost_and_not_as_silence() -> None:
+    """`cost_raw` gated on truthiness, so `total_cost: 0` reported the same `None` as a
+    payload with no cost key at all. Those are different facts — "the engine says this
+    call cost nothing" versus "the engine has not said yet" — and `billable_ready` is what
+    separates them everywhere else in this adapter."""
+    assert _engine().parse_webhook(_payload(total_cost=0)).cost_raw == "0"
+    payload = _payload()
+    del payload["total_cost"]
+    assert _engine().parse_webhook(payload).cost_raw is None

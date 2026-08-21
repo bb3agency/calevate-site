@@ -63,14 +63,23 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     return tenant_id, agent_id
 
 
-async def _number(session: Any, tenant_id: uuid.UUID) -> uuid.UUID:
+async def _number(session: Any, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
+    """A registered 140 header BOUND TO `agent_id` (D-424) — the launch gate refuses a
+    campaign whose approved number is not the number its agent dials from, and every
+    campaign here is meant to be green on everything except the provenance under test."""
     number_id = uuid7()
     await session.execute(
         text(
-            "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, created_at, "
-            "updated_at) VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
+            "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+            "created_at, updated_at) "
+            "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
         ),
-        {"id": number_id, "tid": tenant_id, "e": f"+9180{uuid.uuid4().int % 100000000:08d}"},
+        {
+            "id": number_id,
+            "tid": tenant_id,
+            "aid": agent_id,
+            "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
+        },
     )
     return number_id
 
@@ -105,7 +114,7 @@ async def _campaign(
         agent_id=agent_id,
         name="Diwali offers",
         classification="promotional",
-        number_id=await _number(session, tenant_id),
+        number_id=await _number(session, tenant_id, agent_id),
         dlt_template_id=await _template(session, tenant_id),
         concurrency=3,
         consent_source=consent_source,
@@ -276,7 +285,7 @@ async def test_a_campaign_predating_the_columns_is_blocked_not_silently_consente
                 "id": legacy_id,
                 "tid": tenant_id,
                 "aid": agent_id,
-                "nid": await _number(session, tenant_id),
+                "nid": await _number(session, tenant_id, agent_id),
                 "did": await _template(session, tenant_id),
             },
         )

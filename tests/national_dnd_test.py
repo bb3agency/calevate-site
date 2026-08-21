@@ -181,12 +181,16 @@ async def _campaign(
         number_id, template_id = uuid7(), uuid7()
         await session.execute(
             text(
-                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, "
-                "created_at, updated_at) VALUES (:id, :tid, :e, :s, 'registered', now(), now())"
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
+                "created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :e, :s, 'registered', now(), now())"
             ),
             {
                 "id": number_id,
                 "tid": tenant_id,
+                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
+                # whose approved number is not the number its agent dials from.
+                "aid": agent_id,
                 "e": f"+9180{uuid.uuid4().int % 100000000:08d}",
                 "s": series,
             },

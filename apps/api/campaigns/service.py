@@ -96,6 +96,18 @@ PURCHASED_LIST_REASON = (
     "This list is recorded as purchased. Calevate does not dial bought or rented "
     "contact lists — there is no consent artefact behind them (policy, SEC-COMP §3)."
 )
+# The TWO ways one campaign's number can fail to be the number its calls come from
+# (D-420), beside each other for this block's reason. Both are the same rule —
+# `number_not_bound_to_agent` — because both are the same violated claim; only the
+# remediation differs, and a client can act on neither without being told which it is.
+UNBOUND_NUMBER_REASON = (
+    "This number is not assigned to any agent, so calls from this campaign would go out "
+    "from a platform number instead of it. Assign it to this campaign's agent."
+)
+OTHER_AGENT_NUMBER_REASON = (
+    "This number is assigned to a different agent, so calls from this campaign would not "
+    "come from it. Assign it to this campaign's agent, or pick this agent's own number."
+)
 # The two DLT-entity reasons moved to `compliance/registration.py`, next to the read of
 # `dlt_registrations` and the predicate that emits them — this module held a second
 # `SELECT status, tm_link_status` of its own, and one condition with two spellings is the
@@ -266,22 +278,29 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
         # check, DLT header registration and whole PE/TM model describe one number while
         # another one dials. The gate was reading a real column and reporting green.
         #
-        # WHAT IT DOES AND DOES NOT CATCH, stated plainly because the residue is real. It
-        # refuses the CONTRADICTION — an approved number bound to somebody else's agent —
-        # which is the state a console misconfiguration produces and the one where the two
-        # numbers are both real and different. It does NOT yet refuse an approved number
-        # bound to NO agent, which resolves to no header at all and dials on the engine's
-        # own pool: that rule is one `is None` away here and is held back only because
-        # every campaign fixture in `tests/` provisions its number unbound, so landing it
-        # in the same change would turn eighteen unrelated test files red in a tree three
-        # agents are writing in at once. It is named in D-420 as the remaining half and it
-        # is ours, not a vendor's.
-        if facts.number_agent_id is not None and facts.number_agent_id != facts.agent_id:
+        # THE RULE IS ONE EQUALITY, DELIBERATELY, AND THAT IS THE POINT (D-424). It first
+        # shipped as `number_agent_id is not None and number_agent_id != agent_id`, which
+        # refused the CONTRADICTION (an approved number bound to somebody else's agent)
+        # and let the ABSENCE through — a number bound to NO agent resolves to no header
+        # at all and dials on the engine's own pool, which is the same compliance failure
+        # with a worse blast radius: every campaign on the platform presents the vendor's
+        # number rather than one client's registered header. The `is not None` guard was
+        # the whole of the hole, so the fix is to delete it rather than to add a second
+        # branch beside it. What remains is a single `!=` that cannot be loosened by
+        # deleting a clause, because there is no clause left to delete: any state in which
+        # the campaign's number is not this campaign's agent's number refuses, and `None`
+        # is one of those states rather than a case that has to be remembered.
+        #
+        # The `is None` below chooses the WORDING, never the verdict. A client who has not
+        # assigned the number and a client who assigned it elsewhere need different next
+        # actions, and both need the verdict to be identical.
+        if facts.number_agent_id != facts.agent_id:
             blockers.append(
                 LaunchBlocker(
                     "number_not_bound_to_agent",
-                    "This number is assigned to a different agent, so calls from this "
-                    "campaign would not come from it.",
+                    UNBOUND_NUMBER_REASON
+                    if facts.number_agent_id is None
+                    else OTHER_AGENT_NUMBER_REASON,
                 )
             )
         # The number-side twin of the template check. `dlt_status` moves to `registered`

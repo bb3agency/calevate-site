@@ -200,15 +200,23 @@ async def _campaign(
 ) -> uuid.UUID:
     """A campaign that is green on every gate except the one under test."""
     tenant_id = uuid.UUID(str(org["id"]))
+    agent_id = uuid.UUID(str(org["agent_id"]))
     async with tenant_session(tenant_id) as session:
         number_id = uuid7()
         await session.execute(
             text(
-                "INSERT INTO phone_numbers (id, tenant_id, e164, series, dlt_status, "
+                "INSERT INTO phone_numbers (id, tenant_id, agent_id, e164, series, dlt_status, "
                 "created_at, updated_at) "
-                "VALUES (:id, :tid, :e, '140', 'registered', now(), now())"
+                "VALUES (:id, :tid, :aid, :e, '140', 'registered', now(), now())"
             ),
-            {"id": number_id, "tid": tenant_id, "e": f"+9180{uuid.uuid4().int % 10**8:08d}"},
+            {
+                "id": number_id,
+                "tid": tenant_id,
+                # BOUND TO THE CAMPAIGN'S AGENT (D-424): the launch gate refuses a campaign
+                # whose approved number is not the number its agent dials from.
+                "aid": agent_id,
+                "e": f"+9180{uuid.uuid4().int % 10**8:08d}",
+            },
         )
         template_id = uuid7()
         await session.execute(
@@ -226,7 +234,7 @@ async def _campaign(
         campaign_id = await campaigns.create_campaign(
             session,
             tenant_id=tenant_id,
-            agent_id=uuid.UUID(str(org["agent_id"])),
+            agent_id=agent_id,
             name=name,
             classification="promotional",
             number_id=number_id,
