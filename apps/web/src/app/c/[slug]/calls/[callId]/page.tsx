@@ -188,261 +188,288 @@ export default function CallDetailPage({
 
       {callback.error && <ProblemNotice error={callback.error} />}
 
-      {/* D-21 M2. Rendered whenever the API has an opinion — disabled WITH the reason
-          rather than hidden, so "why can't I follow this up?" is answered on screen.
-          The refusals are mostly protective (we have already followed up twice; the
-          call is a fortnight old), and a client who cannot see them assumes a bug.
+      {/* A BENTO GRID, not a column of full-width strips.
 
-          The two branches below exist because the card was doing the thing it says it
-          exists to prevent: `eligibility.data` is undefined while the read is in flight
-          and again after it fails, so a 503 on `/callback-eligibility` deleted the whole
-          card — no button, no reason, nothing to reload. §52: failure is a refusal, and
-          nothing is not a refusal. */}
-      {eligibility.isLoading && (
-        <Card title="Follow up">
-          <Skeleton rows={2} />
-        </Card>
-      )}
-      {eligibility.error != null && (
-        <Card title="Follow up">
-          <ProblemNotice
-            error={eligibility.error}
-            onRetry={() => void eligibility.refetch()}
-          />
-          <p className="mt-3 text-sm text-ink-muted">
-            We could not check whether this call can be followed up, so the button stays
-            closed rather than ringing somebody we were not allowed to ring.
-          </p>
-        </Card>
-      )}
-      {eligibility.data && (
-        <Card title="Follow up">
-          {callback.data?.status === "queued" ? (
-            <NoticeBox tone="ok" icon={<PhoneForwarded className="h-5 w-5" />}>
-              Calling back now — follow-up #{callback.data.follow_up_number}. It will appear in
-              your call log in a moment.
-            </NoticeBox>
-          ) : callback.data?.status === "blocked" ? (
-            /* A refusal by the compliance gate comes back 200 with a reason, not as an
-               error. Falling through to the enabled button rendered it as a no-op: the
-               client presses "Call back", nothing visibly happens, and they press it
-               again. The server has already recorded the answer against this call, so
-               it says why instead of offering another attempt. */
-            <NoticeBox tone="warn" icon={<ShieldAlert className="h-5 w-5" />}>
-              {callback.data.blocked_reason ?? "This follow-up call was not allowed."}
-              {callback.data.blocked_rule ? ` (${callback.data.blocked_rule})` : ""}
-            </NoticeBox>
-          ) : eligibility.data.eligible && write.allowed ? (
-            <div className="space-y-3">
-              <p className="text-sm text-ink-muted">
-                Our agent will call back and pick up where this conversation stopped.
-              </p>
-              <button
-                type="button"
-                disabled={callback.isPending}
-                onClick={() => callback.mutate()}
-                className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <PhoneForwarded className="h-4 w-4" />
-                {callback.isPending ? "Calling…" : "Call back with AI"}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {/* Two different refusals, one presentation. The server's eligibility
-                  reason ("we have already followed this up twice") and D-22's
-                  read-only both end in the same dead button, and both belong NEXT to
-                  it — the eligibility query exists so this button never answers with a
-                  403, and the read-only sweep would have reintroduced exactly that. */}
-              <p className="text-sm text-ink-muted">
-                {eligibility.data.eligible
-                  ? (write.reason ?? "Checking what you can do in this account…")
-                  : eligibility.data.reason}
-              </p>
-              <button
-                type="button"
-                disabled
-                className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink-faint"
-              >
-                <PhoneForwarded className="h-4 w-4" />
-                Call back with AI
-              </button>
-            </div>
-          )}
-        </Card>
-      )}
+          Every panel below is a SHORT fact — a follow-up verdict, a two-sentence
+          summary, a handful of captured fields, a recording control — and each was
+          rendered as its own full-bleed row. On a desktop that is a metre of
+          whitespace to the right of every one of them, and the reader scrolls past
+          six screens to reach the transcript. Two columns put the short things side
+          by side and cost nothing on a phone, where the grid is one column and the
+          order is exactly the DOM order it already had.
 
-      {detail.summary && (
-        <Card title="Summary">
-          {/* The summary as the API redacted it: it is transcript-DERIVED prose and goes
-              through the same `redact()` pass as `text_redacted` (crm/schemas.py). */}
-          <p className="text-sm text-ink">{detail.summary}</p>
-          {detail.lead_id && (
-            <Link
-              href={href(`/c/${slug}/leads`)}
-              className="mt-3 inline-block text-sm font-medium text-brand-strong hover:underline"
-            >
-              View the lead this call created
-            </Link>
-          )}
-        </Card>
-      )}
+          `auto-rows-min` so a card is as tall as its content rather than stretching
+          to its neighbour, and `grid-flow-row-dense` because most of these panels are
+          CONDITIONAL: with a full-width tile in the middle of the flow, a missing
+          card would otherwise leave a hole rather than closing up. Dense flow is safe
+          here precisely because these are independent panels — it can reorder them
+          visually, and none of them reads as a sequence.
 
-      {/* D-127. Rendered UNCONDITIONALLY, above the transcript and below the summary it
-          offers a second reading of — not hidden behind "the extraction failed", because
-          the reasons a person wants another reading are not knowable from this row: a
-          summary that is thin, a call they are about to ring back, a lead they are
-          writing up. The card carries its own refusals; nothing about it depends on a
-          read this page has not made. */}
-      <AssistCard session={session} callId={callId} />
+          The two that stay full width earn it: the transcript is long-form reading
+          and the assistant is an input people type sentences into, and both are
+          worse in a half-width column than a stat card is in a full-width one. */}
+      <div className="grid auto-rows-min grid-flow-row-dense gap-4 lg:grid-cols-2">
+        {/* D-21 M2. Rendered whenever the API has an opinion — disabled WITH the reason
+            rather than hidden, so "why can't I follow this up?" is answered on screen.
+            The refusals are mostly protective (we have already followed up twice; the
+            call is a fortnight old), and a client who cannot see them assumes a bug.
 
-      {Object.keys(detail.extraction ?? {}).length > 0 && (
-        <Card title="Captured details">
-          {/* These keys are the agent's extraction schema (TRD §7) — the same
-              definition that becomes the Leads table columns and the CSV export. */}
-          <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
-            {Object.entries(detail.extraction as Record<string, unknown>).map(([key, value]) => (
-              <div key={key} className="flex justify-between gap-4 border-b border-line py-1.5 text-sm">
-                <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
-                <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
-              </div>
-            ))}
-          </dl>
-          {!detail.extraction_valid && (
-            <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-              Some fields could not be captured cleanly from this call.
-            </p>
-          )}
-        </Card>
-      )}
-
-      {detail.has_recording && (
-        <RecordingCard
-          recording={recording}
-          playerRef={playerRef}
-          onTimeUpdate={setPlayhead}
-          durationS={detail.duration_s ?? null}
-        />
-      )}
-
-      {detail.moments.length > 0 && (
-        <KeyMomentsCard
-          moments={detail.moments}
-          audioLoaded={audioLoaded}
-          playhead={playhead}
-          onSeek={seekToMs}
-        />
-      )}
-
-      <Card
-        title="Transcript"
-        action={
-          <RawTranscriptControl
-            access={rawAccess}
-            showRaw={showRaw}
-            pending={raw.isPending}
-            onToggle={toggleRaw}
-          />
-        }
-      >
-        <div className="space-y-4">
-          {/* The state of the transcript in front of you, said before you read it.
-              Hard rule 5 is invisible otherwise: a client sees an odd-looking number in
-              a line and assumes the agent misheard it. */}
-          {showingRaw ? (
-            <NoticeBox tone="warn" icon={<Eye className="h-5 w-5" />} title="Unredacted transcript">
-              You are reading the full text, personal details included. This view was recorded
-              in your account&apos;s audit log against your name.
-            </NoticeBox>
-          ) : (
-            <NoticeBox tone="neutral" icon={<ShieldCheck className="h-5 w-5" />}>
-              Personal details — phone numbers, account numbers, dates of birth — are hidden in
-              this view.
-            </NoticeBox>
-          )}
-
-          {/* The raw request failing must not take the redacted transcript with it. The
-              refusal is stated and the turns below stay exactly as they were. */}
-          {showRaw && raw.error && (
-            <ProblemNotice error={raw.error} onRetry={() => raw.mutate()} />
-          )}
-
-          {turns.length ? (
-            <ol className="space-y-3">
-              {turns.map((turn, i) => {
-                const speaker = lookup(SPEAKERS, turn.speaker);
-                const Icon = speaker?.icon ?? User;
-                // A turn is seekable only once the audio is actually loaded AND this
-                // turn carries a timestamp. Both halves matter: `start_ms` is nullable
-                // (an engine that gives us no per-turn offsets is a supported engine),
-                // and offering to seek audio that is not playing yet is a control that
-                // does nothing. Where either is missing the turn renders as plain text
-                // rather than as a dead button.
-                const at = turn.start_ms;
-                const seekable = audioLoaded && at !== null && at !== undefined;
-                // "Being spoken now" = this turn has started and the next has not. The
-                // NEXT turn's start is the right boundary rather than this turn's
-                // `end_ms`, which is nullable independently and would leave gaps
-                // un-highlighted between two turns that are actually adjacent.
-                const nextAt = turns[i + 1]?.start_ms;
-                const active =
-                  playhead !== null &&
-                  at !== null &&
-                  at !== undefined &&
-                  playhead * 1000 >= at &&
-                  (nextAt === null || nextAt === undefined || playhead * 1000 < nextAt);
-                const body = (
-                  <>
-                    <span
-                      className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                        speaker?.medallion ?? "bg-black/5 text-ink-muted dark:bg-white/10"
-                      }`}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
-                        {speaker?.label ?? turn.speaker}
-                        {at !== null && at !== undefined && (
-                          <span className="font-normal normal-case tabular-nums">
-                            {formatClock(at / 1000)}
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-sm text-ink">{turn.text}</p>
-                    </div>
-                  </>
-                );
-                const highlight = active
-                  ? "bg-brand-strong/10 dark:bg-brand-bright/10"
-                  : "bg-transparent";
-                return (
-                  <li key={turn.idx}>
-                    {seekable ? (
-                      <button
-                        type="button"
-                        onClick={() => seekToMs(at)}
-                        aria-label={`Play from ${formatClock(at / 1000)}, ${speaker?.label ?? turn.speaker}`}
-                        aria-current={active ? "true" : undefined}
-                        className={`flex w-full gap-3 rounded-md p-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${highlight}`}
-                      >
-                        {body}
-                      </button>
-                    ) : (
-                      <div className={`flex gap-3 rounded-md p-1.5 ${highlight}`}>{body}</div>
-                    )}
-                  </li>
-                );
-              })}
-            </ol>
-          ) : (
-            <EmptyState
-              title="No transcript yet"
-              hint="Transcripts arrive a couple of minutes after the call ends."
+            The two branches below exist because the card was doing the thing it says it
+            exists to prevent: `eligibility.data` is undefined while the read is in flight
+            and again after it fails, so a 503 on `/callback-eligibility` deleted the whole
+            card — no button, no reason, nothing to reload. §52: failure is a refusal, and
+            nothing is not a refusal. */}
+        {eligibility.isLoading && (
+          <Card title="Follow up">
+            <Skeleton rows={2} />
+          </Card>
+        )}
+        {eligibility.error != null && (
+          <Card title="Follow up">
+            <ProblemNotice
+              error={eligibility.error}
+              onRetry={() => void eligibility.refetch()}
             />
-          )}
+            <p className="mt-3 text-sm text-ink-muted">
+              We could not check whether this call can be followed up, so the button stays
+              closed rather than ringing somebody we were not allowed to ring.
+            </p>
+          </Card>
+        )}
+        {eligibility.data && (
+          <Card title="Follow up">
+            {callback.data?.status === "queued" ? (
+              <NoticeBox tone="ok" icon={<PhoneForwarded className="h-5 w-5" />}>
+                Calling back now — follow-up #{callback.data.follow_up_number}. It will appear in
+                your call log in a moment.
+              </NoticeBox>
+            ) : callback.data?.status === "blocked" ? (
+              /* A refusal by the compliance gate comes back 200 with a reason, not as an
+                 error. Falling through to the enabled button rendered it as a no-op: the
+                 client presses "Call back", nothing visibly happens, and they press it
+                 again. The server has already recorded the answer against this call, so
+                 it says why instead of offering another attempt. */
+              <NoticeBox tone="warn" icon={<ShieldAlert className="h-5 w-5" />}>
+                {callback.data.blocked_reason ?? "This follow-up call was not allowed."}
+                {callback.data.blocked_rule ? ` (${callback.data.blocked_rule})` : ""}
+              </NoticeBox>
+            ) : eligibility.data.eligible && write.allowed ? (
+              <div className="space-y-3">
+                <p className="text-sm text-ink-muted">
+                  Our agent will call back and pick up where this conversation stopped.
+                </p>
+                <button
+                  type="button"
+                  disabled={callback.isPending}
+                  onClick={() => callback.mutate()}
+                  className="inline-flex items-center gap-2 rounded-md bg-brand-strong px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <PhoneForwarded className="h-4 w-4" />
+                  {callback.isPending ? "Calling…" : "Call back with AI"}
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {/* Two different refusals, one presentation. The server's eligibility
+                    reason ("we have already followed this up twice") and D-22's
+                    read-only both end in the same dead button, and both belong NEXT to
+                    it — the eligibility query exists so this button never answers with a
+                    403, and the read-only sweep would have reintroduced exactly that. */}
+                <p className="text-sm text-ink-muted">
+                  {eligibility.data.eligible
+                    ? (write.reason ?? "Checking what you can do in this account…")
+                    : eligibility.data.reason}
+                </p>
+                <button
+                  type="button"
+                  disabled
+                  className="inline-flex cursor-not-allowed items-center gap-2 rounded-md border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink-faint"
+                >
+                  <PhoneForwarded className="h-4 w-4" />
+                  Call back with AI
+                </button>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {detail.summary && (
+          <Card title="Summary">
+            {/* The summary as the API redacted it: it is transcript-DERIVED prose and goes
+                through the same `redact()` pass as `text_redacted` (crm/schemas.py). */}
+            <p className="text-sm text-ink">{detail.summary}</p>
+            {detail.lead_id && (
+              <Link
+                href={href(`/c/${slug}/leads`)}
+                className="mt-3 inline-block text-sm font-medium text-brand-strong hover:underline"
+              >
+                View the lead this call created
+              </Link>
+            )}
+          </Card>
+        )}
+
+        {/* D-127. Rendered UNCONDITIONALLY, above the transcript and below the summary it
+            offers a second reading of — not hidden behind "the extraction failed", because
+            the reasons a person wants another reading are not knowable from this row: a
+            summary that is thin, a call they are about to ring back, a lead they are
+            writing up. The card carries its own refusals; nothing about it depends on a
+            read this page has not made. */}
+        {/* Full width: this is a prompt box, and a half-column one invites two-word
+            questions. `AssistCard` owns its own `Card`, so the span goes on a wrapper. */}
+        <div className="lg:col-span-2">
+          <AssistCard session={session} callId={callId} />
         </div>
-      </Card>
+
+        {Object.keys(detail.extraction ?? {}).length > 0 && (
+          <Card title="Captured details">
+            {/* These keys are the agent's extraction schema (TRD §7) — the same
+                definition that becomes the Leads table columns and the CSV export. */}
+            <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2">
+              {Object.entries(detail.extraction as Record<string, unknown>).map(([key, value]) => (
+                <div key={key} className="flex justify-between gap-4 border-b border-line py-1.5 text-sm">
+                  <dt className="capitalize text-ink-muted">{key.replace(/_/g, " ")}</dt>
+                  <dd className="text-right font-medium text-ink">{formatValue(value)}</dd>
+                </div>
+              ))}
+            </dl>
+            {!detail.extraction_valid && (
+              <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+                Some fields could not be captured cleanly from this call.
+              </p>
+            )}
+          </Card>
+        )}
+
+        {detail.has_recording && (
+          <RecordingCard
+            recording={recording}
+            playerRef={playerRef}
+            onTimeUpdate={setPlayhead}
+            durationS={detail.duration_s ?? null}
+          />
+        )}
+
+        {detail.moments.length > 0 && (
+          <KeyMomentsCard
+            moments={detail.moments}
+            audioLoaded={audioLoaded}
+            playhead={playhead}
+            onSeek={seekToMs}
+          />
+        )}
+
+        <Card
+          className="lg:col-span-2"
+          title="Transcript"
+          action={
+            <RawTranscriptControl
+              access={rawAccess}
+              showRaw={showRaw}
+              pending={raw.isPending}
+              onToggle={toggleRaw}
+            />
+          }
+        >
+          <div className="space-y-4">
+            {/* The state of the transcript in front of you, said before you read it.
+                Hard rule 5 is invisible otherwise: a client sees an odd-looking number in
+                a line and assumes the agent misheard it. */}
+            {showingRaw ? (
+              <NoticeBox tone="warn" icon={<Eye className="h-5 w-5" />} title="Unredacted transcript">
+                You are reading the full text, personal details included. This view was recorded
+                in your account&apos;s audit log against your name.
+              </NoticeBox>
+            ) : (
+              <NoticeBox tone="neutral" icon={<ShieldCheck className="h-5 w-5" />}>
+                Personal details — phone numbers, account numbers, dates of birth — are hidden in
+                this view.
+              </NoticeBox>
+            )}
+
+            {/* The raw request failing must not take the redacted transcript with it. The
+                refusal is stated and the turns below stay exactly as they were. */}
+            {showRaw && raw.error && (
+              <ProblemNotice error={raw.error} onRetry={() => raw.mutate()} />
+            )}
+
+            {turns.length ? (
+              <ol className="space-y-3">
+                {turns.map((turn, i) => {
+                  const speaker = lookup(SPEAKERS, turn.speaker);
+                  const Icon = speaker?.icon ?? User;
+                  // A turn is seekable only once the audio is actually loaded AND this
+                  // turn carries a timestamp. Both halves matter: `start_ms` is nullable
+                  // (an engine that gives us no per-turn offsets is a supported engine),
+                  // and offering to seek audio that is not playing yet is a control that
+                  // does nothing. Where either is missing the turn renders as plain text
+                  // rather than as a dead button.
+                  const at = turn.start_ms;
+                  const seekable = audioLoaded && at !== null && at !== undefined;
+                  // "Being spoken now" = this turn has started and the next has not. The
+                  // NEXT turn's start is the right boundary rather than this turn's
+                  // `end_ms`, which is nullable independently and would leave gaps
+                  // un-highlighted between two turns that are actually adjacent.
+                  const nextAt = turns[i + 1]?.start_ms;
+                  const active =
+                    playhead !== null &&
+                    at !== null &&
+                    at !== undefined &&
+                    playhead * 1000 >= at &&
+                    (nextAt === null || nextAt === undefined || playhead * 1000 < nextAt);
+                  const body = (
+                    <>
+                      <span
+                        className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                          speaker?.medallion ?? "bg-black/5 text-ink-muted dark:bg-white/10"
+                        }`}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-ink-faint">
+                          {speaker?.label ?? turn.speaker}
+                          {at !== null && at !== undefined && (
+                            <span className="font-normal normal-case tabular-nums">
+                              {formatClock(at / 1000)}
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-sm text-ink">{turn.text}</p>
+                      </div>
+                    </>
+                  );
+                  const highlight = active
+                    ? "bg-brand-strong/10 dark:bg-brand-bright/10"
+                    : "bg-transparent";
+                  return (
+                    <li key={turn.idx}>
+                      {seekable ? (
+                        <button
+                          type="button"
+                          onClick={() => seekToMs(at)}
+                          aria-label={`Play from ${formatClock(at / 1000)}, ${speaker?.label ?? turn.speaker}`}
+                          aria-current={active ? "true" : undefined}
+                          className={`flex w-full gap-3 rounded-md p-1.5 text-left transition hover:bg-black/5 dark:hover:bg-white/5 ${highlight}`}
+                        >
+                          {body}
+                        </button>
+                      ) : (
+                        <div className={`flex gap-3 rounded-md p-1.5 ${highlight}`}>{body}</div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ol>
+            ) : (
+              <EmptyState
+                title="No transcript yet"
+                hint="Transcripts arrive a couple of minutes after the call ends."
+              />
+            )}
+          </div>
+        </Card>
+      </div>
     </div>
   );
 }
