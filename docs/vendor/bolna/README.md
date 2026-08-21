@@ -5,13 +5,14 @@ written largely from reasoning and said so, in blocks marked MARKED ASSUMPTION a
 UNVERIFIED. This directory is where the reasoning got replaced with sources, so the next
 reader inherits **evidence rather than conclusions** (CLAUDE.md, quality bar).
 
-## The four evidence classes, and why the label is the point
+## The evidence classes, and why the label is the point
 
 A conclusion filed under the wrong class is worse than no conclusion — that is the exact
 defect D-31/D-32 exist to prevent. Every fact in this directory carries one of:
 
 | Class | Means | Worth |
 |---|---|---|
+| **VERIFIED-VENDOR-DOCS** | Read in the vendor's own hosted documentation, mirrored read-only at `bolna-findings/mirror/pages/**` with a per-page SHA-256 `MANIFEST.json` (335 pages, 20 Aug 2026). Cited as `<path>:<line>` with the line quoted. | **Ranks WITH VERIFIED-OAS, not below it**: first-party, hash-pinned, and about the HOSTED platform we POST to. It carries what a spec has no slot for — rate limits, concurrency tiers, residency, telephony procedures, changelog breaking changes. Where it and the pinned OAS disagree, REPORT the disagreement: the vendor's own repo says the spec wins, but the observed case went the other way — `api-reference/errors.md` enumerates SIXTEEN execution statuses where the pinned OAS carried fifteen, and the missing one (`prepared`) was a real call our adapter scored as terminally failed (D-414 lane). The ten lane reports over this mirror are `docs/evidence/bolna-*.md`. |
 | **VERIFIED-OAS** | Read in the vendor's own pinned OpenAPI document (`hosted-oas.md`). | The strongest class available without an account: first-party, versioned, machine-checkable, and about the **hosted** contract. Where it and a vendor prose file disagree, the vendor's own repo says the spec wins. |
 | **VERIFIED-VENDOR-REPO** | Read in a prose file of `bolna-ai/skills` — the SKILL.md set and `references/`. | First-party and current, but prose. Carries operational facts the spec has no slot for: rate limits, webhook retry behaviour, source IP, provider matrix. |
 | **VERIFIED-OSS** | Read at source in `bolna-ai/bolna`, the open-source self-hosted framework. | Authoritative for how the engine **behaves** — call flow, transcript construction, config validation. **Not proof of the hosted REST contract, and demonstrably misleading about it**: its one-shot webhook delivery is where this repo's false "webhooks are at-most-once" claim came from (D-352). Ranks BELOW the two above. |
@@ -53,8 +54,18 @@ showed the implementation missing them. That is the whole reason the class exist
 
 `docs.bolna.ai`, `www.bolna.ai`, `docs.bolna.dev` and `api.bolna.ai` are all refused by
 this environment's egress proxy (gateway 403 on CONNECT, for `curl` and `WebFetch` alike).
-That is still true, re-measured 18 Aug 2026, and it is why every LIVE gate in OPERATIONS §2
-remains open.
+That is still true, re-measured **20 Aug 2026** (`https://www.bolna.ai/docs/index.md` →
+403 on CONNECT), and it is why every LIVE gate in OPERATIONS §2 remains open.
+
+**But the DOCUMENT-answerable half of those gates is no longer open, and that is a
+different thing.** On 20 Aug 2026 all 335 hosted doc pages were fetched **outside this
+environment** and delivered into the repo at `bolna-findings/mirror/` (the manifest's own
+`path` values still read `vendor\bolna\mirror\pages\…`, which is where the fetcher was
+pointed when it ran on the founder's machine). Nothing here can refresh that tree, and
+nothing here may edit it: it is read-only evidence, excluded from ruff with
+`force-exclude`, and `tests/vendor_evidence_guard_test.py` fails if any page drifts from
+its recorded hash. What remains open in OPERATIONS §2 is what needs an ACCOUNT — a real
+call, an invoice, a `GET /providers` — not what needs a page.
 
 **What it does not excuse (D-350).** This section previously concluded "no hosted
 documentation page in this repository has been read by anyone here", and thirty-one places
@@ -71,6 +82,9 @@ you can reach: their GitHub org, their SDK packages, PyPI, npm.
 | `hosted-oas.md` | **VERIFIED-OAS.** The hosted OpenAPI spec: where it is, its checksum, the complete endpoint inventory, and the facts it settles. Pinned to `bolna-ai/skills@28b24aa`. Read this first. |
 | `oss-harvest.md` | VERIFIED-OSS facts, each with the file it was read in. Pinned to `bolna-ai/bolna@cd2e192600ae94daeeb627d26c604b69cfc50de4`. |
 | `hosted-reported.md` | The retired REPORTED-DOCS harvest, kept for provenance. Where it and `hosted-oas.md` disagree, `hosted-oas.md` wins. |
+| `GAP-WORKLIST.md` | **Superseded 20 Aug 2026** — the pre-mirror leads, each now answered, with the verdict beside it. Provenance, not a worklist. |
+| `mirror/` | The `llms.txt` index that ordered the fetch, and its provenance. **The pages themselves are at `bolna-findings/mirror/`**, not here. |
+| `bolna-findings/mirror/` *(repo root, not this directory)* | **VERIFIED-VENDOR-DOCS.** The 335 fetched pages + `MANIFEST.json`. Read-only. Lane reports: `docs/evidence/bolna-*.md`; the decisions they produced: ROADMAP §6 D-414…D-424, OPERATIONS §2 gates 9v and 21–27. |
 
 The reconciliation — every assumption, its evidence class, and what changed in the code —
 is `docs/evidence/vendor-bolna-reconciliation.md`.

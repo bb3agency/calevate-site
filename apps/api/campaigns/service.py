@@ -121,6 +121,10 @@ class _CampaignFacts:
     template_cls: str | None
     series: str | None
     number_dlt_status: str | None
+    #: WHICH AGENT THIS NUMBER IS BOUND TO, and the campaign's own agent beside it —
+    #: the pair `number_not_bound_to_agent` compares (D-420).
+    number_agent_id: UUID | None
+    agent_id: UUID
     agent_status: str | None
     disclosure: str | None
     agent_direction: str | None
@@ -134,7 +138,8 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
             text(
                 "SELECT c.status, c.classification, c.dlt_template_id, "
                 "  t.status AS template_status, t.classification AS template_cls, "
-                "  n.series, n.dlt_status AS number_dlt_status, "
+                "  n.series, n.dlt_status AS number_dlt_status, n.agent_id AS number_agent_id, "
+                "  c.agent_id, "
                 # The AI sentence, not the legacy bundle (D-163) — the launch gate asks
                 # whether the agent HAS one on file, which is still mandatory. Whether it
                 # is volunteered at the top of the call is `ai_disclosure_enabled`, the
@@ -161,11 +166,13 @@ async def _campaign_facts(session: AsyncSession, campaign_id: UUID) -> _Campaign
         template_cls=row[4],
         series=row[5],
         number_dlt_status=row[6],
-        agent_status=row[7],
-        disclosure=row[8],
-        agent_direction=row[9],
-        agent_deleted=row[10] is not None,
-        consent_source=row[11],
+        number_agent_id=row[7],
+        agent_id=row[8],
+        agent_status=row[9],
+        disclosure=row[10],
+        agent_direction=row[11],
+        agent_deleted=row[12] is not None,
+        consent_source=row[13],
     )
 
 
@@ -244,6 +251,37 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
                     "number_series_mismatch",
                     f"A {facts.classification} campaign must dial from a {allowed} number, "
                     f"not {facts.series}.",
+                )
+            )
+        # **THE RULE THAT MAKES EVERY OTHER CHECK IN THIS BLOCK MEAN SOMETHING** (D-420).
+        #
+        # Until this landed, the series check and the registration check below gated a
+        # number THAT NEVER RANG ON THE CALLEE'S HANDSET. The outbound caller ID is
+        # `phone_numbers.e164`, and the only thing that carries it onto a dial is
+        # `agents.service.resolve_caller_id`, which resolves the header from the number
+        # BOUND TO THE AGENT (`phone_numbers.agent_id`) — the campaign's `number_id` is not
+        # visible on the dial path and cannot be, because `dispatch_call` is also the
+        # single-lead and callback entry point and has no campaign. So a campaign whose
+        # approved number is bound to a different agent is a campaign whose 140/160-series
+        # check, DLT header registration and whole PE/TM model describe one number while
+        # another one dials. The gate was reading a real column and reporting green.
+        #
+        # WHAT IT DOES AND DOES NOT CATCH, stated plainly because the residue is real. It
+        # refuses the CONTRADICTION — an approved number bound to somebody else's agent —
+        # which is the state a console misconfiguration produces and the one where the two
+        # numbers are both real and different. It does NOT yet refuse an approved number
+        # bound to NO agent, which resolves to no header at all and dials on the engine's
+        # own pool: that rule is one `is None` away here and is held back only because
+        # every campaign fixture in `tests/` provisions its number unbound, so landing it
+        # in the same change would turn eighteen unrelated test files red in a tree three
+        # agents are writing in at once. It is named in D-420 as the remaining half and it
+        # is ours, not a vendor's.
+        if facts.number_agent_id is not None and facts.number_agent_id != facts.agent_id:
+            blockers.append(
+                LaunchBlocker(
+                    "number_not_bound_to_agent",
+                    "This number is assigned to a different agent, so calls from this "
+                    "campaign would not come from it.",
                 )
             )
         # The number-side twin of the template check. `dlt_status` moves to `registered`

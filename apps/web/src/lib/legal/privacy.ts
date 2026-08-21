@@ -607,11 +607,15 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               term: "The voice platform",
               detail:
-                "Our voice platform's own copies of call recordings have been observed on " +
-                "infrastructure in the United States. Our own copy is the system of " +
-                "record; theirs is an additional copy we are working to have pinned " +
-                "contractually. Until that is agreed in writing, treat it as a transfer " +
-                "outside India and see the sub-processor page.",
+                "The company that runs the call itself documents that its services run on " +
+                "United States infrastructure by default, and that processing calls inside " +
+                "India is an enterprise option a customer buys and configures. We have not " +
+                "bought it. So the live audio, the transcript that platform produces and " +
+                "its own copy of the recording should be treated as processed and stored " +
+                "outside India — not only the recording, which is all an earlier version " +
+                "of this notice said. Our own copies are the system of record and are held " +
+                "as described above. The sub-processor page carries the detail, including " +
+                "why buying that option would not by itself move our calls to India.",
             },
             {
               term: "Transactional email and error monitoring",

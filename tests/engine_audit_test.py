@@ -72,6 +72,16 @@ from httpx import ASGITransport, AsyncClient
 from main import app as voice_app
 from sqlalchemy import event, text
 
+# RELATIVE TO NOW, NOT A LITERAL DATE — the same time bomb `bolna_listing_test.SINCE`
+# defused, in the file that inherited it. This was `datetime(2026, 8, 10)`, correct on the
+# day it was written and stale the moment `list_executions` grew `_LISTING_MAX_WINDOW`: a
+# fixture pinned to a fixed past instant drifts further from `now()` every day until the
+# window it asks for is one the vendor will not serve. The whole file then fails on
+# `engine_listing_window_too_wide` — a refusal that is CORRECT — and it fails in a test
+# about PII redaction, which has nothing to do with listing windows. Nothing here asserts
+# the absolute value; the call only has to be inside the served window.
+_LISTING_SINCE = datetime.now(UTC)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFORMANCE_DIR = REPO_ROOT / "packages" / "shared" / "tests" / "engine_conformance"
 
@@ -1528,16 +1538,52 @@ _VENDOR_ONLY_KEYS = frozenset(
         # was a duplicate a frozenset silently absorbed — ruff's B033 caught it. It stays
         # HERE rather than there because this is the first block: the set is a ban list,
         # not a per-vendor inventory, and a word only has to be banned once.
+        # THE CALLER ID, IN THE VENDOR'S SPELLING (D-420) — `recipient_phone_number`'s
+        # opposite number, and banned for exactly its reason. OUR word for the header a dial
+        # presents is `from_e164`, on `CallContext`; theirs is this. The concept is ours, the
+        # spelling is theirs, so `from_e164` outside the adapter is ordinary while
+        # `from_phone_number` there would be a vendor shape that escaped. (The conformance
+        # suite's stub uses it freely — that stub IS a pretend Bolna, and this guard reads
+        # shipped modules, not test doubles.)
+        "from_phone_number",
         "has_more",
+        # THE VENDOR'S OWN WRAPPER AROUND AN AGENT'S MODEL LEG AND ITS SEMANTIC ROUTES
+        # (D-420). `llm_agent` holds `routes`, and each route carries a `route_name`; the
+        # adapter reads all three ONLY to alarm that a console-set route exists, because a
+        # route answers from a static response with the LLM never consulted — which would
+        # bypass `TRUTHFUL_ANSWER_DIRECTIVE`. `route_name` is the one field of a route this
+        # repo may touch: it names the route without carrying what the route SAYS, which is
+        # what keeps the alarm inside hard rule 6.
+        "llm_agent",
         "llm_config",
+        "route_name",
+        # THE TWO HALVES OF A BOLNA DISPOSITION, read since the extraction-flattening fix.
+        # Their `extracted_data` nests `{category: {field: {"subjective": ..., "objective":
+        # ...}}}` while OUR `engine_extracted` is a FLAT `{field: value}`, so the adapter
+        # reaches through both words to get at a value. They are vendor-only for
+        # `call_type`'s reason rather than `currency`'s: the CONCEPT is ours — the value of
+        # an extracted field — but the spelling is entirely theirs, and neither word appears
+        # in a single shipped module outside the adapter (measured: 0 files each). A
+        # `subjective` in `apps/workers` would be a vendor shape that escaped, which is what
+        # this list exists to catch.
+        "objective",
         "rag_id",
         "recipient_phone_number",
+        "subjective",
         "synthesizer",
         "task_1",
         "tasks",
         "telephony_data",
         "tools_config",
         "total_cost",
+        # A SECOND CALL LEG, AND WHY IT IS ALARMED RATHER THAN PARSED. When an agent
+        # transfers to a human, Bolna attaches a whole nested record under this key — its
+        # own `recording_url`, `cost` and `duration`. Nothing in this repository models it:
+        # that audio would never be copied, never retained under our policy, and
+        # unreachable by a DPDP erasure. `_check_transfer_leg` therefore pages on its
+        # PRESENCE rather than reading its contents, and this entry keeps the noun from
+        # spreading past the adapter while that stays true.
+        "transfer_call_data",
         "transcriber",
         "user_data",
         # Cartesia Line (TRD §10.5; the adapter marks which shapes are sourced, and
@@ -1624,8 +1670,22 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "completed_at",
         "content",
         "context_note",
+        # OURS AS MUCH AS THEIRS — the whole test for this list rather than the one above.
+        # `cost` is read off the transfer leg, but it is also our own word in 102 shipped
+        # modules (`unit_cost_paid`, `CostBreakdown`, `billing/cost_unit.py`), so finding it
+        # outside the adapter proves NOTHING about a leaked vendor shape. Contrast
+        # `cost_breakdown`, `cost_currency` and `total_cost` in the block above: those are
+        # compound nouns only Bolna spells, and they stay banned.
+        "cost",
         "created_at",
         "currency",
+        # OURS OVERWHELMINGLY, AND THIS IS THE CLEAREST CASE IN EITHER LIST. `routes` is
+        # Bolna's name for an agent's semantic-match shortcuts, and it is also the word
+        # every FastAPI module in this tree uses for its own endpoints — 82 shipped files
+        # outside the adapter contain it. Banning it would fire on `apps/api/*/routes.py`
+        # forever, which is why the ban list is a list of words only ONE side uses. Note the
+        # contrast with `route_name` a few entries up: that spelling is Bolna's alone.
+        "routes",
         "data",
         "direction",
         "documents",
@@ -1975,9 +2035,9 @@ async def test_no_adapter_logs_a_phone_number_a_transcript_or_an_extraction(
 
     with caplog.at_level("DEBUG"):
         snapshot = await engine.get_execution("exec_pii_one")
-        listing = await engine.list_executions(since=datetime(2026, 8, 10, tzinfo=UTC))
+        listing = await engine.list_executions(since=_LISTING_SINCE)
         with pytest.raises(ProblemError):
-            await engine.list_executions(since=datetime(2026, 8, 10, tzinfo=UTC))
+            await engine.list_executions(since=_LISTING_SINCE)
         with pytest.raises(ProblemError):
             await engine.get_agent("agent_pii")
         engine.parse_webhook(_pii_execution("exec_pii_hook"))

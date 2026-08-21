@@ -99,8 +99,10 @@ export const SUBPROCESSORS: LegalDocument = {
                 "and returns the transcript and call record.",
               "Caller phone number, live call audio, full transcript, call metadata, and the " +
                 "agent configuration we send it.",
-              "India for the platform. Their own copies of call recordings have been " +
-                "observed on Amazon S3 in us-east-1 — see the note below.",
+              "United States. Their documentation states that all of their services run on " +
+                "US infrastructure unless an enterprise data-residency option is purchased, " +
+                "which we have not purchased. Read the note below before relying on this " +
+                "row either way — it is the most important caution on this page.",
               "Core (primary engine). The verification pilot has not yet been run, and the " +
                 "shipped default engine is a local stub.",
             ],
@@ -248,21 +250,59 @@ export const SUBPROCESSORS: LegalDocument = {
       subsections: [
         {
           id: "bolna-residency",
-          heading: "3.1 The voice platform's own recording storage",
+          heading: "3.1 Where the voice platform runs the call, and why that is not India",
           blocks: [
             {
               kind: "callout",
               tone: "warning",
-              title: "Observed in us-east-1",
+              title: "Assume the call itself is handled outside India",
               text:
-                "Our voice platform's call recordings have been observed on Amazon S3 in " +
-                "us-east-1. Their enterprise tier offers full India data residency for " +
-                "audio, transcripts, logs and inference; we have not yet pinned that in a " +
-                "signed contract. Until we have, a client should assume that a second " +
-                "copy of their call recordings exists outside India for as long as the " +
-                "platform retains it. Our own copy — the system of record, the one the " +
-                "product reads and the one our retention periods govern — is in the " +
-                "storage described in the register above.",
+                "The company that runs our voice platform documents that its services run " +
+                "on United States infrastructure by default, and that processing calls " +
+                "inside India is an enterprise option a customer buys and configures. We " +
+                "have not bought it, and no contract pins it. So a client should assume " +
+                "that the live audio of their calls, the transcript the platform produces, " +
+                "and the platform's own copy of the recording are handled outside India " +
+                "for as long as the platform keeps them.",
+            },
+            {
+              kind: "para",
+              text:
+                "There is a second reason, and it is a design consequence rather than a " +
+                "purchasing one, so we state it plainly. The platform's published " +
+                "conditions for running a call on Indian servers require that the speech " +
+                "and language models be the platform's own integrations — and this product " +
+                "is built the other way round, on our own accounts with each model " +
+                "provider, which is what lets us tell you exactly which model hears your " +
+                "caller. Their documentation says that connecting your own provider keys " +
+                "sends the call through their US servers whatever else is configured. " +
+                "Buying the residency option would therefore not by itself move our calls " +
+                "to India: it is a choice between two things we have said elsewhere on " +
+                "this page that we value, and we would rather you saw the trade-off than " +
+                "read a sentence that hides it.",
+            },
+            {
+              kind: "para",
+              text:
+                "What this does NOT change: the speech provider is Indian and the language " +
+                "model runs in an Indian region, so the model inference itself does not " +
+                "leave the country — but the platform that orchestrates the call, holds " +
+                "the audio in flight and stores its copy of the recording and transcript " +
+                "sits outside it. Our own copy of the recording and transcript — the " +
+                "system of record, the one the product reads and the one our retention " +
+                "periods govern — is in the storage described in the register above.",
+            },
+            {
+              kind: "para",
+              text:
+                "An earlier version of this page said the platform was in India and " +
+                "described only its recording storage as being in the United States. That " +
+                "was based on recording links we had seen, which pointed at Amazon S3 in " +
+                "the us-east-1 region; the platform has since moved those links behind its " +
+                "own address, so the storage region can no longer be read off them. The " +
+                "correction above comes from the platform's own published documentation " +
+                "rather than from an observation, and it is broader than what the old " +
+                "sentence said.",
             },
           ],
         },

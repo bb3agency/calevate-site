@@ -67,7 +67,8 @@ Each tick returns one string (ARQ job result / worker logs). Match it:
 | `no_outbound_pool` | Reserve ≥ total lines; pool is zero. Also fires alert `WORKER_STALL` / `outbound_pool_empty` | step 3 |
 | `pool_saturated active=N` | Pool exists but N active calls consume it all | step 3 |
 | `no_running_campaigns` | No campaign in status `running` had slots > 0 | steps 4–5 |
-| `dialled=X blocked=Y exhausted=Z` | Tick is working; the problem is per-campaign or per-contact | steps 6–8 |
+| `dialled=X blocked=Y exhausted=Z started=S starved=W` | Tick is working; the problem is per-campaign or per-contact | steps 6–8 |
+| …with `starved=W`, W > 0 | The tick dialled, but W tenants got NO line before the pool ran out. Also fires alert `WORKER_STALL` / `dispatch_budget_starved`, whose detail names up to five of them | step 4a |
 
 All strings from `dispatch_campaign_tick` in `apps/workers/campaign_dispatch.py`.
 
@@ -99,22 +100,95 @@ GROUP BY status;
 - `no_outbound_pool` (pool ≤ 0) means config, not traffic: someone changed
   `inbound_reserve_ratio` or `PLATFORM_LINES_TOTAL`. Fix the config, not the data.
 
+### 3a. Is `PLATFORM_LINES_TOTAL` still the vendor's real number?
+
+`PLATFORM_LINES_TOTAL = 10` is OUR typed-in belief about the engine account's ceiling,
+and Bolna publishes the true value: `GET /user/me` returns
+`concurrency: {max, current}` — the account's limit and its live in-flight count
+(`bolna-findings/mirror/pages/api-reference/user/info.md`, `User.concurrency`). Read it
+before touching the constant. It also cross-checks step 3's SQL: `concurrency.current`
+is the vendor's own count of live outbound calls, so a large gap against our `calls`
+total is stranded rows, not a busy platform. The account's tier moves under us without a
+deploy — *"Paid accounts — Starts at 10 concurrent calls, **scaling automatically with
+monthly usage**"* (`bolna-findings/mirror/pages/pricing/outbound-calling-concurrency.md`)
+— so a number that was right when it was typed is not evidence it is right now.
+
+**A constant set too HIGH does not surface as errors, and that is the dangerous
+direction.** Bolna queues rather than rejects: *"Outbound calls that don't fit your
+concurrency limit are **queued, not rejected**. They dial automatically as active calls
+finish"* (same page). So over-dialling looks like a healthy tick — the engine accepted
+everything — while the surplus sits in a vendor queue we cannot see, cancel, or DNC-scrub,
+and dials whenever capacity frees up. That is a compliance exposure, not a throughput one:
+`compliance.service.check_dispatch` runs at DISPATCH time, so a contact cleared at 20:55
+can be dialled by the engine after 21:00 IST, outside the TRAI window our own gate exists
+to enforce. Treat the global budget as a calling-hours control, not an optimisation.
+
 ## 4. Per-tenant ceiling
 
 The tick computes, per tenant: `tenant_budget = concurrency_ceiling − active`, then
 `slots = min(campaign.concurrency, tenant_budget)`; only `slots > 0` campaigns join the
 dial list (`apps/workers/campaign_dispatch.py`). Ceiling comes from
-`plans.concurrency_ceiling`, `COALESCE(..., 10)`:
+`plans.concurrency_ceiling`, defaulting to `PLATFORM_LINES_TOTAL` and then **clamped to
+the outbound pool** (`_tenant_ceiling`) — a plan sold with a ceiling above the pool cannot
+be honoured, and the dispatcher caps it rather than handing one tenant the switchboard:
 
 ```sql
-SELECT c.id, c.status, c.concurrency, COALESCE(p.concurrency_ceiling, 10) AS ceiling
+SELECT c.id, c.status, c.concurrency,
+       COALESCE(p.concurrency_ceiling, 10) AS ceiling_on_the_plan,
+       least(COALESCE(p.concurrency_ceiling, 10), 6) AS ceiling_in_effect  -- 6 = the pool, step 3
 FROM campaigns c
 LEFT JOIN plans p ON p.tenant_id = c.tenant_id
 WHERE c.status = 'running';
 ```
 
+A gap between those two columns is a **commercial** problem, not a dispatcher one: the
+client was sold lines the platform does not have. Raise the pool (step 3a) or reprice —
+never widen the clamp.
+
 A tenant whose active-call count (step 3) ≥ ceiling gets zero slots every tick — that is
 the design working (one client must not starve another's inbound), not a bug.
+
+### 4a. The tenant got slots and still dialled nothing — `dispatch_budget_starved`
+
+There is a fourth stall this table does not name, and it USED to report as a wholly
+healthy tick (`dialled=X ...`, never `pool_saturated`) while one tenant dialled zero. It
+is now named twice — `starved=W` in the tick's own return string, and the alarm
+`WORKER_STALL` / `dispatch_budget_starved`, whose detail carries the pool, the
+platform-wide active count and up to five starved tenant ids. **If you were paged by that
+alarm you are already in the right section and the ids in the detail are your answer to
+"who".** The rest of this section is how it happens and what to do about it. The tick builds
+`running` — every (tenant, campaign, slots) that cleared rules 3 and 4 — and then spends
+`global_budget = pool − total_active` down that list in order, breaking out when it hits
+zero (`_run_tick`, `apps/workers/campaign_dispatch.py`). The list's order is
+`dispatch_scan()`'s, which is `ORDER BY tenant_id` (migration `a8d4f21c9b06`), and
+`tenant_id` is uuid_v7 — **time-ordered**. So under a saturated pool the spend order is
+oldest tenant first, on every tick, and the newest tenant is served last every time.
+Caps we have; guarantees we do not, and nothing rotates.
+
+Confirm it before chasing anything tenant-specific: if the tick's `dialled` is at or near
+the pool while the complaining tenant's own contacts stayed `pending`, and that tenant's
+UUID sorts late among the tenants with running campaigns, this is the cause and it is not
+a defect in that tenant's campaign, plan or list.
+
+```sql
+-- who is ahead of the complaining tenant in spend order, and holding how many lines
+SELECT DISTINCT r.tenant_id
+FROM engine_agent_routes r
+ORDER BY 1;   -- the tick's own order; anything sorting before yours spends first
+```
+
+Immediate relief is to lower the earlier tenants' `plans.concurrency_ceiling` or their
+campaign sliders so the budget reaches the tail, or raise `PLATFORM_LINES_TOTAL` if
+step 3a shows the vendor ceiling is genuinely higher than we believe. The durable fix is
+a per-tenant guaranteed FLOOR alongside the cap — see
+`docs/evidence/bolna-subaccounts-platform.md` §2.3, which sets out the mechanism and the
+engine's own reference algorithm for it. Do not "fix" this by editing the scan's
+`ORDER BY`: a different fixed order starves a different tenant. Rotation was considered
+and deliberately not shipped — it is a second, weaker answer that the floor has to remove
+again, and it would make "which campaign dials next" non-deterministic tick to tick. The
+alarm exists so that the gap between today and the floor is *visible* rather than *quiet*;
+a `dispatch_budget_starved` that keeps firing with the same ids is the evidence that
+buys the plan column.
 
 ## 5. Campaign status
 

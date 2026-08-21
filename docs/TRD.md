@@ -156,18 +156,42 @@ Models (per-agent config, BYOK):
     setting from `azure_openai_model`** because on Azure a deployment id is NOT a model
     name — you deploy a model under an id you choose and call THAT id — so it is config
     and can never be derived. `engine/bolna.py::_llm_routing` maps our vocabulary to
-    `provider: "azure"`, a **first-class Bolna provider**: it is on their published
-    provider list, `azure` is in the live per-agent LLM dropdown, and their OSS
-    `LLMProvider` carries both `azure` and `azure-openai`. So the `custom` route — whose
-    credential path was never verified, and whose doubt is what moved this product
-    (retired gate 16c) — is not used. **There is no rotation cron, no dead man, no org
-    policy and no 12-hour ceiling**: all of that existed because a regional Vertex
+    **`provider: "azure-openai"`** — **and this said `"azure"` until the vendor's own
+    documentation was read (D-417).** D-410 picked `azure` from two human-readable
+    LABELS (a provider matrix reading "Azure OpenAI" and the dashboard dropdown), which
+    is the wrong class of evidence for a wire value; the docs give a machine-readable one
+    twice, in a copy-pasteable `llm_config` body and in the Key-settings table —
+    *"`"llm_config": { "provider": "azure-openai",`"*
+    (`bolna-findings/mirror/pages/providers/llm-model/azure-openai.md:20`) and
+    *"| `provider` | string | `"azure-openai"` | Provider name |"* (`:59`) — and the same
+    form is corroborated on every sibling page (`openai`, `anthropic`, `google`,
+    `deepseek`, `openrouter`). It is still a FIRST-CLASS provider, so the `custom` route
+    — whose credential path was never verified, and whose doubt is what moved this
+    product (retired gate 16c) — is not used, and the docs make `custom` WORSE rather
+    than better: its whole documented surface is two values, `custom_model_name` and
+    `custom_model_url` (`api-reference/user/add_model.md:39-45`), with **no credential
+    field anywhere** (`providers.md:111-112`), while our Azure endpoint needs
+    `Authorization: Bearer` on every request. **There is no rotation cron, no dead man,
+    no org policy and no 12-hour ceiling**: all of that existed because a regional Vertex
     endpoint took no static key, and it is deleted with the endpoint.
-    ⚠ ONE MARKED ASSUMPTION REMAINS: which credential FIELDS Bolna's Azure provider
-    expects. Their docs are egress-blocked from this environment, so nothing here invents
-    a field name. `Settings.bolna_llm_credential_name` (default `AZURE`, `applies: live`)
-    names the credential-store entry, so a wrong guess is a console edit rather than a
-    deploy — OPERATIONS §2 gate 16f.
+    **THE CREDENTIAL-FIELD ASSUMPTION IS CLOSED AND THE GUESS WAS WRONG (D-417).** Their doc
+    HOST is still egress-blocked from this environment (403 on CONNECT, re-measured 20 Aug
+    2026); what changed is that the pages were fetched elsewhere and delivered as a
+    hash-manifested read-only mirror at `bolna-findings/mirror/`. Their Azure provider takes **four** flat credential entries, none of them `AZURE`:
+    `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`,
+    `AZURE_OPENAI_API_VERSION`, under *"All these keys **must** be added for the
+    respective provider"* (`providers.md:40,96-102`). The store is flat —
+    `ProviderRequest` is `{provider_name, provider_value}`
+    (`api-reference/providers/add.md:55-68`) — so four keys means four `POST /providers`
+    calls, not one. `Settings.bolna_llm_credential_name` now defaults to
+    `AZURE_OPENAI_API_KEY` (`applies: live`), because a documented name and a live
+    account's actual name are still different claims. ⚠ ONE HALF STAYS OPEN AND IT GOT
+    SHARPER: `AZURE_OPENAI_API_VERSION` contradicts the v1-surface premise above, and the
+    vendor contradicts itself about it — `providers.md:40` says all four are mandatory,
+    while `providers/llm-model/azure-openai.md:32` describes the same connection as three
+    things (*"your Azure endpoint URL, API key, and deployment name"*). Vestigial /
+    classic-surface / required-but-unvalidated all survive the pages; **no value is
+    invented here and none is in the code** — OPERATIONS §2 gate 16f.
   - **Dashboard AI** (user-triggered, over the REDACTED copy) — same resource, same
     region, same constants. Every rule D-127 wrote (G-1..G-7: redaction before the call,
     no raw PII, the disclosed Sarvam fallback) is unchanged and now binds Azure.
@@ -210,10 +234,18 @@ Models (per-agent config, BYOK):
   ~₹1.20–1.35/min) [docs-verified; cost model §10 updated]. Ear-test at verification
   (item 3) is now V3 vs their bundled voices, not a v2/v3 bake-off.
 - Telephony: Bolna guides verified for **Exotel (inbound+outbound+connect-your-account),
-  Plivo (in+out), Twilio (in+out), Vobiz (connect + outbound only — no inbound guide;
-  the inbound-DID plan must confirm Vobiz inbound at pilot or shift inbound DIDs to
-  Exotel)** [docs-verified Aug 2026]. DLT-aware (their regulated-numbers runbook: 140
-  via Vobiz, 160 via Plivo).
+  Plivo (in+out), Twilio (in+out), Vobiz (connect + outbound guides published;
+  **inbound is ASSERTED IN THEIR CAPABILITY MATRIX AND HAS NO PROVIDER-SPECIFIC GUIDE** —
+  `bolna-findings/mirror/pages/supported-telephony-providers.md:33` reads
+  "| [Vobiz](/docs/vobiz) | India | ✅ Yes | ✅ Yes | ✅ Yes |" (Inbound / Outbound / BYOA)
+  and `guides/telephony/vobiz.md:22-24` links "Accept incoming calls using Vobiz" at the
+  GENERIC `/docs/guides/inbound/receiving-incoming-calls`, while Twilio, Plivo and Exotel
+  each have their own inbound page and each does it differently. This line used to say
+  "outbound only — no inbound guide": half of that moved, half did not, and the
+  operational consequence is unchanged — the inbound-DID plan must still confirm Vobiz
+  inbound at pilot or shift inbound DIDs to Exotel)** [docs-verified Aug 2026 against the
+  mirror]. DLT-aware, and the carrier↔series map is their own TABLE, not prose: **140 via
+  Vobiz, 160 via Plivo** (`guides/inbound/obtaining-regulated-phone-numbers.md:13-16`).
 - Embeddings: provider-managed if the D-28 RAG service bundles them; otherwise
   **Cohere Embed v4** (strongest hosted cross-lingual ~0.955), BGE-M3 as fallback.
   Whoever embeds: model name+version recorded per source version (embedding model
@@ -404,10 +436,21 @@ scorecard — D-31]:
 - **Outbound**: POST /call {agent_id, recipient_phone_number E.164} → execution_id;
   per-call context via `user_data` dynamic variables rendered into the agent prompt —
   OUR CallContext mechanism for lead callbacks; scheduled_at ISO-8601+tz built in.
-  Dispatch pacing / API rate limits unpublished (pilot).
+  **API rate limits ARE published and this line used to say they were not**: 500
+  requests/minute each on `/call`, `/v2/agent/{id}` and `/v2/agent/{id}/executions`,
+  1000/min default elsewhere, counted **per ORGANIZATION** (shared across every user in
+  it) with a 429 on breach — `bolna-findings/mirror/pages/api-reference/rate-limiting.md:18-27`.
+  Dispatch PACING is a different quantity and is still unpublished (pilot): the rate
+  limit bounds our request rate, not how fast the platform will actually dial.
 - **Execution payload** (polling and webhooks share one shape — GET /executions/{id}):
-  15-value status enum; terminal = {completed, no-answer, busy, failed, canceled,
-  stopped, error, balance-low}. **total_cost / recording_url / extracted_data populate
+  **SIXTEEN-value status enum — this said fifteen, and the missing one had a real call
+  attached.** `api-reference/errors.md:41-56` enumerates them, including
+  `prepared` — *"Execution record created and validated (recipient number, from/to number
+  assigned) but not yet handed off to the dial queue"* (`:42`) — which our adapter's
+  unmapped default scored as `failed`, i.e. terminal, on a call the vendor had accepted
+  and was about to dial. Terminal = {completed, no-answer, busy, failed, canceled,
+  stopped, error, balance-low}; `call-disconnected` is **soft** terminal and the vendor
+  says so in a warning of its own (`errors.md:57-59`). **total_cost / recording_url / extracted_data populate
   only at `completed` (~2–3 min after disconnect)** — the post-call pipeline triggers
   on `completed`, never on `call-disconnected`. Costs arrive in **USD cents** with
   breakdown {platform, network, llm, synthesizer, transcriber} — the adapter converts
@@ -417,42 +460,124 @@ scorecard — D-31]:
   turn and no turn latency is derivable from what we ingest. Their docs DO describe a
   `latency_data` object on Get Execution — unverified against a live account, and a
   pilot gate 4 capture rather than an adapter field (see §4).
-- **Webhooks — UNSIGNED, at-most-once** [verified in docs AND the OSS delivery code:
-  a single aiohttp POST, no retry, no timeout, errors swallowed]: per-agent
-  webhook_url in agent_config; fires on status transitions (scheduled → queued →
-  in-progress → completed); pre-call webhooks from tools share the shape. No delivery
-  history, no replay tooling. Authenticity = **source-IP allowlist (13.203.39.153)
+- **Webhooks — UNSIGNED; delivery guarantee UNSETTLED** [this line said "at-most-once"
+  and cited the OSS delivery code — a single aiohttp POST, no retry, errors swallowed —
+  which is a *different program* from the hosted deliverer (D-352). The skills repo says
+  the hosted platform "retries on non-2xx"; the vendor's own hosted webhook page
+  (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`) says
+  **nothing at all** about retries, signing or guarantees. So the retry claim rests on one
+  first-party source and is not corroborated — treat delivery as lossy in both
+  directions]: per-agent webhook_url in agent_config; fires on status transitions
+  (scheduled → queued → in-progress → completed); pre-call webhooks from tools share the
+  shape — and a tool that sets `pre_call_webhook_param` with no `pre_call_webhook_url`
+  of its own delivers its **in-progress** pre-call webhook to THIS url
+  (`bolna-findings/mirror/pages/tool-calling/custom-function-calls.md:268,749`), which is why the dedupe key
+  below is the pair and not the id. Since 7 Jul 2026 the set of transitions is
+  FILTERABLE — *"choose which call statuses trigger your webhook… By default, **all
+  statuses** are sent"* (`changelog/july-2026.md:119-125`) — an unused lever, recorded
+  because we receive every transition and drop most.
+  No delivery history, no replay tooling. Authenticity = **source-IP allowlist
+  (13.203.39.153, 13.126.9.249, 13.202.133.53 — THREE addresses; this said one until
+  D-414, and the allowlist fails safe, so two of three senders were being rejected)
   enforced IN-APP, and there only** (nginx does D-27 real_ip restoration and no `allow`;
   SECURITY-COMPLIANCE §5 carries why the edge layer is declined rather than pending),
-  plus dedupe on execution_id; webhook payloads are
-  treated as hints — the authenticated Get Execution fetch is the truth. Consequently
+  plus dedupe on the **(execution_id, status) PAIR** — never on execution_id alone, or the
+  `completed` transition is discarded as a duplicate of `queued` (D-352); webhook payloads
+  are treated as hints — the authenticated Get Execution fetch is the truth. Consequently
   the **10-min List-Executions reconciliation poller (FLOWS §3) is the guarantee of
   record**, not a safety net. Empirical delivery behavior re-tested at pilot.
-- **Recordings**: direct S3 URL (us-east-1), no documented expiry — the recording-copy
-  step stays FIRST in the pipeline regardless (our storage is system of record).
-  Vendor-side retention + deletion API undocumented (pilot; DPDP erasure — SEC-COMP §4
-  — depends on it). Enterprise **India data-residency** option exists (audio,
-  transcripts, logs + in-India inference) — required before any BFSI-adjacent client.
+- **Recordings — BOTH HALVES OF THIS LINE EXPIRED ON 1 JUNE 2026 AND IT USED TO SAY
+  "direct S3 URL (us-east-1), no documented expiry".** The vendor retired the raw S3
+  shape in a dated breaking change: *"Direct Amazon S3 recording URLs will stop working
+  after **June 1, 2026**"* (`bolna-findings/mirror/pages/changelog/may-2026.md:91`),
+  replaced by `https://api.bolna.ai/recordings/call/{execution-id}` (`:99`, plus a
+  `…/recordings/transfer/…` variant for a transfer leg), and *"The **resolved pre-signed
+  link it returns expires after 24 hours** — do not store or cache it"* (`:118`). **The
+  change passed without touching us, and copy-first is why**: nothing in this tree parses,
+  stores or re-uses a vendor URL — `storage._fetch_recording` walks the redirect itself
+  and `calls.recording_url` holds OUR object key — so the vendor's 24-hour window only has
+  to outlive one fetch. The recording-copy step stays FIRST in the pipeline (our storage
+  is system of record), and the 24h ceiling is now a real bound on
+  `recording_copy_failed`'s recovery window. Vendor-side retention + deletion API still
+  undocumented — *"contact support for retention policy"* (`concepts/security.md`) — so
+  the erasure certificate keeps reporting engine-side deletion as
+  `unconfirmed_pending_vendor_api` (pilot; DPDP erasure — SEC-COMP §4 — depends on it).
+- **Residency — the option is real, it is Enterprise-gated, and OUR OWN ARCHITECTURE
+  FORECLOSES IT (D-415); this line used to offer it as the answer for BFSI-adjacent
+  clients and it is not one.** Default is the United States for EVERYTHING, not just
+  storage: *"By default, all Bolna AI services operate in United States (US)-hosted
+  infrastructure"* (`enterprise/data-residency.md:12`), *"By default, Bolna processes
+  calls on infrastructure in the US (AWS us-east-1)"* (`concepts/security.md:29`). India
+  residency stores audio, transcripts, logs and configurations in India and runs *"All
+  inference, transcription, and response generation … within Indian borders"* on
+  `ap-south-1` — **but its requirements exclude BYOK**: *"Use Bolna's default provider
+  integrations. Do not connect your own API keys for the transcriber, synthesizer, or LLM
+  providers"*, and *"If you connect your own API keys for any provider … calls will
+  automatically route through US servers regardless of other configuration settings"*
+  (`enterprise/indian-server-configuration.md:65,68`). BYOK on all three legs is what this
+  product IS (D-31/D-36/D-410), so buying residency today would move **zero calls**, and
+  its Indian-server routing names Plivo only — the 140-series promotional half of the
+  business dials through Vobiz. What survives is narrower and is still worth having: the
+  MODEL legs stay Indian (Sarvam sovereign by vendor; Azure OpenAI pinned to South India
+  by gates 20/20b/20c), so the inference does not leave the country while the orchestration
+  does. The fork — accept US orchestration and say so in the DPA, or move to their
+  integrations and lose BYOK — is gates 9 and 12, laid out in
+  `docs/evidence/bolna-compliance-residency.md` §5. SEC-COMP §4's cross-border row is the
+  client-facing statement of the same fact.
 - **Multi-tenancy**: Enterprise **sub-accounts** — CRUD + per-sub-account usage APIs,
   auto-provisioned `sa-` API keys (org-admin controlled); isolates agents + call logs;
   phone numbers, providers and billing stay org-level (consolidated). Tenant ↔
   sub-account mapping lives in OUR db (D-16's reasoning unchanged); per-tenant
-  metering derives from our usage_events, never their billing.
+  metering derives from our usage_events, never their billing. **Since 29 Jun 2026 the
+  platform also enforces per-account concurrency** — `min_concurrency` ("Guaranteed floor
+  for the account") and `max_concurrency` ("Hard cap … Omit (or `null`) for **elastic** …
+  `0` **pauses** the account"), org-admin only (`enterprise/concurrency-management.md:42-43,119`)
+  — which is the thing `campaign_dispatch` reimplements in SQL. Adopting it is a founder
+  decision with a compliance edge (a vendor-side queue we cannot DNC-scrub), not a
+  refactor; gate 13.
 - **Campaign built-ins** (configure, don't rebuild): batch APIs with per-contact retry
-  on outcome (no-answer/busy/failed/error/voicemail, ≤3 attempts, spaced delays) —
-  exact API mechanics, pacing and limits unpublished (pilot). Built-in KB: rag_id CRUD
+  on outcome (no-answer/busy/failed/error/voicemail, ≤3 attempts, spaced delays).
+  **THE MECHANICS ARE PUBLISHED NOW AND THEY ARGUE AGAINST ADOPTING BATCHES, WHICH IS WHY
+  `campaign_dispatch` DIALS PER CONTACT THROUGH `POST /call`.** A batch is a CSV upload
+  (`contact_number` required, E.164 — `api-reference/batches/create.md:19`), started by
+  `POST /batches/{id}/schedule`, and the only lever once it runs is
+  `POST /batches/{id}/stop`, which answers *"Batch is not queued or running"* otherwise
+  (`batches/stop.md:59`). So a per-contact DNC withdrawal mid-batch can only be honoured
+  by stopping the WHOLE batch — a hard-rule-5 argument, not a preference. Two sharp edges
+  we would inherit: the start time takes a **numeric UTC offset** (`Z` is rejected with a
+  500) and Bolna **rounds the start up to the next 10-minute mark**, silently moving a
+  window we told a client about (`batches/create.md:57`). Batch `status` is a DIFFERENT
+  enum from execution status (`created → scheduled → running → completed`, plus `stopped`
+  / `failed` — `batches/get_batch.md:79-87`); both are called "status" and neither maps to
+  `CallStatus`. Built-in KB: rag_id CRUD
   API (POST /knowledgebase, GET /knowledgebase/all, GET|DELETE /knowledgebase/{rag_id}),
-  multiple KBs per agent; multilingual mode
-  names Hindi/Tamil — **Telugu KB quality is a pilot gate**. **THE BUILT-IN KB IS NOT
-  DRIVABLE THROUGH OUR PORT AND THE ENGINE NOW DECLARES THE CAPABILITY ABSENT (D-354).**
-  `POST /knowledgebase` is `multipart/form-data` taking a PDF (max 20 MB) OR a `url` —
-  never raw text, which is all `KBSourceRef` carries — and the created object has NO
-  agent field: an agent references a knowledge base by `vector_id` inside
-  `llm_agent.llm_config.vector_store.provider_config.vector_ids`, not by the `rag_id`
+  multiple KBs per agent (`api-reference/knowledgebase/overview.md:7`); the dashboard
+  label for multilingual mode names Hindi/Tamil while the API claims "cross-lingual
+  retrieval across 100+ languages" (`knowledgebase/create.md:73-77`) and **no page
+  enumerates Telugu — Telugu KB quality is a pilot gate**, and the mode is immutable at
+  creation (*"cannot be switched … create a new one"*,
+  `getting-started/knowledge-base.md:120-122`). **THE BUILT-IN KB IS NOT
+  DRIVABLE THROUGH OUR PORT AND THE ENGINE DECLARES THE CAPABILITY ABSENT (D-354) — both
+  blockers were RE-CONFIRMED against the vendor's own docs on 20 Aug 2026.**
+  `POST /knowledgebase` is `multipart/form-data` taking a PDF (max 20 MB) OR a `url`,
+  "not both" — never raw text, which is all `KBSourceRef` carries
+  (`knowledgebase/create.md:31-80`) — and the created object has NO
+  agent field (`get_knowledgebase.md:55-118`): an agent references a knowledge base by
+  `vector_id` inside `llm_agent.llm_config.vector_store.provider_config.vector_ids`
+  (`agent/v2/create.md:1302-1319`), not by the `rag_id`
   this port returned and deleted by. Both of gate 8's questions are therefore answered
-  (the list carries no agent linkage, so `list_kb` reported every agent empty forever),
-  and in-call retrieval stays OURS — the D-28 managed vector service behind the RAG tool
-  endpoint, which is where every tier above T0 already lives. Custom functions follow
+  (the list carries no agent linkage, so `list_kb` reported every agent empty forever).
+  Two things the mirror ADDS: create does not return `vector_id`
+  (`create.md:86-127`), so any re-opening is create → GET → PATCH the agent, three calls;
+  and `DELETE /knowledgebase/{rag_id}` says nothing about the agent's dangling
+  `vector_ids` (`knowledgebase/delete.md:30-47`) where the *dispositions* delete page in
+  the same API explicitly promises to "remove its link to any associated agents"
+  (`dispositions/delete.md:39-41`) — a dangling vector id after an erasure is a DPDP
+  finding, and it is a gate 8 probe rather than an inference. **So in-call retrieval today
+  is T0 and nothing else** — §6.2 states that fork and neither arm is built (D-424; this
+  bullet used to end "in-call retrieval stays OURS — the D-28 managed vector service behind
+  the RAG tool endpoint", which names a provider nobody has selected and an endpoint that
+  does not exist). Custom functions follow
   the OpenAI function-calling schema (bearer/custom-header auth, pre_call_message
   filler line).
 - **BYOK key custody — where the keys actually live.** First, a terminology fix: in this
@@ -491,14 +616,42 @@ scorecard — D-31]:
   leave our infrastructure. That is a **security** argument for owning the pipeline that
   sits alongside the ₹0.9–1.5/min cost argument in §10.3, and it should be weighed at the
   phase-2 gate.
-- **Not yet verified on Bolna** (all (pilot)): agent draft/publish versioning,
-  recording-consent + DNC built-ins, voicemail detection / transfer / DTMF specifics,
-  concurrency by plan, KB size limits. Whatever is missing lands in OUR layer
+- **Not yet verified on Bolna** (pilot), NARROWED by the doc mirror on 20 Aug 2026 —
+  what is left needs an ACCOUNT, not a page: agent draft/publish versioning,
+  recording-consent + DNC built-ins, voicemail detection. Four things left this list:
+  **KB size limit** is published (PDF ≤ 20 MB, `knowledgebase/create.md:36-80`);
+  **concurrency by plan** is published *and readable* — free "Up to **2 concurrent
+  calls**", paid "Starts at **10 concurrent calls**, scaling automatically with monthly
+  usage" (`pricing/outbound-calling-concurrency.md:15,19`), with the account's live
+  numbers on `GET /user/me` as `concurrency: {max, current}`
+  (`api-reference/user/info.md:78-87`), so `PLATFORM_LINES_TOTAL` should be READ rather
+  than typed (FLOWS §5, gate 13); **transfer** is an agent-object tool keyed
+  `transfer_call` in their hosted OAS with **no REST route that transfers a live
+  execution**, so `VoiceEngine.transfer(call_id, to, warm)` names a shape the vendor does
+  not have and `warm` names a distinction no page in the mirror makes — no page uses
+  warm, cold, attended, blind or consultative, and the only briefing channel offered is
+  explicitly *"fire-and-forget … never blocks or delays the transfer"*
+  (`tool-calling/transfer-calls.md:39`), which cannot be a warm handoff (gate 18);
+  and **DTMF** is fully documented and is now PINNED OFF rather than unknown — digits
+  arrive as a conversation message (`dtmf_number: <digits>`,
+  `guides/inbound/dtmf.md:68`), i.e. into the transcript, and a short PIN passes straight
+  through `text_redacted` (D-419). Whatever is missing lands in OUR layer
   (workers + compliance gate), never as a reason to bypass hard rule 5.
 - **Commercials**: full BYOK leaves a flat per-minute platform fee — **unpublished**;
   negotiation target ₹0.9–1.5/min to hold the §10 all-in budget. Bundled tiers
   6¢ → 4.51¢/min otherwise; Pilots plan = 10k min @ 6¢ + 20% bonus, $5 free signup
-  credits, "up to 100 concurrent". INR/GST invoicing undocumented (ask in writing).
+  credits, "up to 100 concurrent" — **that last figure came from their marketing pricing
+  page and NO page in the doc mirror repeats it**; what the docs publish is 2 concurrent
+  on free and "Starts at 10" on paid (`pricing/outbound-calling-concurrency.md:15,19`),
+  so treat 100 as a plan claim to confirm from `GET /user/me` and not as a number to
+  size against. **The 6¢ is a SUM, not a floor, and the docs say so**: *"When you bring
+  your own keys (BYOK), Bolna does not charge for those components. You only pay your
+  providers directly, plus Bolna's platform fee"* (`pricing/call-pricing.md:75`) — so BYOK
+  deletes the 3.5¢ voice-agent line rather than adding our provider bill on top of it, and
+  the platform fee is OBSERVED at 2.0¢/min ≈ ₹1.84 on a founder dashboard screenshot
+  (D-423, evidence class VERIFIED-DASHBOARD). That does **not** close gate 12 — one
+  agent's configured models are not a universal constant and a panel is not a commercial
+  term. INR/GST invoicing undocumented (ask in writing).
   Structurally important (D-32): billing is prepaid credits with **no monthly floor** —
   at launch volume that beats a lower headline rate carrying a fixed floor.
 - **Production evidence** [first-party, Aug 2026]: 8 named customers — GoKwik
@@ -509,8 +662,13 @@ scorecard — D-31]:
 - **Latency claims are NOT plannable**: their site says "<300ms" with no definition or
   methodology (a third-party comparison inflated this to "sub-600ms end-to-end" —
   unsupported). Our p50 ≤1.1s is established by OUR measurement on real PSTN calls
-  (OPERATIONS §2 gate 4), never by a vendor number. Compute region is also unverified
-  (recordings observed on S3 us-east-1) — pilot gate 9.
+  (OPERATIONS §2 gate 4), never by a vendor number. **Compute region is no longer
+  "unverified": it is DOCUMENTED as the US by default** — *"By default, Bolna processes
+  calls on infrastructure in the US (AWS us-east-1)"* (`concepts/security.md:29`) — and
+  the old inference from a recording URL is dead evidence twice over (the URL shape was
+  retired 1 Jun 2026, and an India bucket demonstrably existed alongside it,
+  `changelog/may-2026.md:105-109`). Gate 9 therefore tests a DECISION, not a measurement
+  (D-415): the residency bullet above.
 
 The ThinnestAI integration surface documented in v1.0 of this section was retired by
 D-31 (vendor due diligence failed: no verifiable customers, no SLA, unresponsive);
@@ -548,7 +706,14 @@ call, not memory persisting across calls. Two consequences:
   it to our deployment, and on what terms, is NOT verified here and is not folded into any
   number** — the same discipline retired gate 14c applied to a Vertex surcharge.
   **UNVERIFIED (pilot gate 8):** whether Bolna truncates or summarises history at a
-  window limit, and whether it enables any provider-side caching on BYOK keys.
+  window limit, and whether it enables any provider-side caching on BYOK keys. ⚠ **A
+  PARTIAL ANSWER EXISTS AND IS DELIBERATELY NOT GENERALISED**: *"The response LLM only sees
+  the most recent **50 messages** of conversation history … on very long flows the agent can
+  lose earlier turns"* (`bolna-findings/mirror/pages/graph-agent/debugging.md:73`). It is
+  the first number we have, and it is stated of GRAPH agents — which we do not use — so it
+  is a marked assumption about ours, not a fact. If it binds, H1 is a CAPPED window rather
+  than a growing one, which changes the §10.1 LLM curve as well as what the agent remembers
+  at minute 12. Gate 8 measures it on a call we place, not on this sentence.
 - **Swapping the KB does not change H1.** H1 is orchestration; the KB choice below is
   retrieval. They are independent decisions.
 
@@ -563,34 +728,55 @@ architectures, not different keys:
 | BYOK required | **No** | n/a — it is entirely ours |
 | Billing | no KB line on the pricing page → **inferred included in the platform fee; confirm in writing** (gates 8 + 12) | provider unit cost ≈ ₹0.02–0.05/min at our volumes |
 | In-call latency | inside their pipeline, zero network hops from the orchestrator | two extra hops (engine → our endpoint → provider, and back): realistically **+150–400ms**, against a 100ms budget and an **undocumented tool-call timeout** |
-| Telugu | multilingual mode names Hindi/Tamil, **not Telugu**; mode is immutable at KB creation | ours — no constraint |
+| Telugu | dashboard label for multilingual mode names Hindi/Tamil, the API claims "100+ languages", and **no page names Telugu**; mode is immutable at KB creation | ours — no constraint |
+| Ingestible shape | **PDF ≤ 20 MB or a URL, never prose** (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:31-80`) | anything we parse |
 | Portability | engine-locked | portable |
 
 **Cost is not the deciding variable** (₹0.02–0.05 against ₹1.70–2.34/min of BYOK model
-cost is noise; D-410 moved that subtotal by pennies and did not move this conclusion). **Latency is** — which is exactly the D-28 gate below. So v1 keeps in-call
-retrieval on the built-in KB, with the T3 filler utterance as the only mask we rely on.
-If pilot gate 8 shows Telugu retrieval quality is poor in multilingual mode, the external
-custom-function route becomes the fallback and we accept the masked round trip.
+cost is noise; D-410 moved that subtotal by pennies and did not move this conclusion).
+**Latency was going to be the decider and INGESTION got there first (D-424).** This section used
+to conclude "v1 keeps in-call retrieval on the built-in KB"; D-354 closed that route and
+the vendor's own pages re-confirmed both blockers on 20 Aug 2026 — the create endpoint
+takes a PDF or a URL and has no text field, so `KBSourceRef.text` (parsed, chunked and
+APPROVED prose, which is the whole point of our ingestion gate) has nothing to be posted
+to, and the knowledgebase object carries no agent id, so `list_kb` could never prove a
+detach. `BOLNA_CAPABILITIES.knowledge_base` is `False` and `attach_kb` is not wired.
+**So the honest statement of the shipped system is: in-call retrieval is T0 and nothing
+else** — hot facts compiled into the system prompt at publish time — and the two arms
+below are both UNBUILT, one foreclosed and one ungated. Neither is a plan with a date:
+re-opening the built-in arm needs `KBSourceRef` to carry a PDF or a public URL and
+`attach_kb` to become create → GET → PATCH the agent's `vector_ids` (D-354, D-41's
+question (b) and gate 8's erasure probe), and the external arm needs the D-28 bake-off
+plus gate 8's round-trip measurement. `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side`
+holds the second arm shut in the meantime, by ROUTE INVENTORY, so it cannot be opened by
+accident.
 
 Latency doctrine (D-08's physics still binds — it now selects the provider REGION
 instead of forbidding external services):
-- **In-call retrieval (100ms budget)**: v1 stays on **the engine's built-in knowledge
-  base** (zero network hops from their pipeline; Bolna's rag_id KB API is the
-  ingestion target — Telugu multilingual-mode quality is a pilot gate, D-31). The
+- **In-call retrieval (100ms budget)**: **T0 only today.** The built-in KB was the
+  intended v1 home — zero network hops from their pipeline — and D-354 closed it on
+  ingestion shape rather than on latency (above); Telugu multilingual quality remains a
+  pilot gate if it ever re-opens (D-31). The
   managed service takes over in-call retrieval ONLY once its measured p95 from the
-  engine's region (Bolna hosting region: pilot-measured; Enterprise India-residency
-  exists) fits the budget — wired either as an engine custom function calling the
+  engine's region (US by default, `concepts/security.md:29`; their India residency is
+  Enterprise-gated AND foreclosed by our BYOK posture — §5, D-415) fits the budget — wired either as an engine custom function calling the
   provider directly, or through a thin endpoint of ours; whichever the bake-off shows
   is faster. Region-matching is the deciding
-  factor: nearest serverless regions today are Singapore-class (~35–70ms RTT from
-  Mumbai) — tight but plausible; measure, don't assume.
+  factor, **and this paragraph used to match the wrong pair of regions**: it reasoned from
+  Mumbai to a Singapore-class serverless region (~35–70ms RTT) as if the caller of our
+  tool endpoint were in India. The orchestrator that calls it is documented as US-hosted
+  by default (above), so the leg to measure is **engine → endpoint** from wherever their
+  compute actually runs — a gate 9 question the pages settle only for the default. Measure,
+  don't assume; and note the trend is against the built-in arm anyway — not one of the 15
+  agents in their own template library is Telugu (`agents-library.md`, Quick Reference).
 - **CRM/context paths (latency-tolerant)**: the managed service serves these from day
   one — repeat-caller context injection (their webhook's ~5s budget), post-call
   memory writes, CRM semantic features, knowledge-gap analysis.
 
 **MEASURED, 15 Aug 2026 — the server half of the 100ms budget, which had never been
 measured despite CLAUDE.md saying to.** The budget names an in-call RAG tool endpoint that
-does not exist (D-33 keeps T3 in the engine, and
+does not exist (D-33 kept T3 out of our layer, and D-354 then closed the engine's own
+route too, so today T3 has no home at all — above; and
 `tests/kb_tiers_test.py::test_in_call_retrieval_is_not_reimplemented_on_our_side` fails
 the day one appears). What DOES sit on the audio path is the engine custom function
 `POST /tools/v1/{engine}/opt-out`, which shares every layer a retrieval endpoint would
@@ -608,7 +794,9 @@ reaching Postgres **zero** times — 1.4% of the budget. The cost is CONCURRENCY
 handler: the distribution is flat at every width (D-55's convoy signature — one event
 loop, ~1,750 acks/s per process), so `latency ≈ in-flight ÷ 1,750` and **100ms is reached
 at ~175 concurrent in-flight tool calls per process**. D-32 records Bolna at 100
-concurrent on Pilots and 250+ in production, so at production width our own server time
+concurrent on Pilots and 250+ in production (the 100 is a marketing-page plan claim no
+page in the doc mirror repeats — §5 Commercials; the 250+ is customer evidence and is the
+half that matters here), so at production width our own server time
 exceeds the whole budget before any network is counted — a process-count question
 (DEPLOYMENT §2a), on this endpoint as on the receiver.
 
@@ -827,7 +1015,7 @@ Telephony (~₹0.35–0.50) is likewise constant. Only the platform fee and late
 
 | Platform | Platform fee (BYOK; excludes STT/TTS/LLM) | Latency posture |
 |---|---|---|
-| **Bolna** (primary, D-31) | **unpublished** — pilot gate 12; bundled ₹5.52→₹4.15; rumoured ~₹1.8 (unverified); target ≤₹1.5. **No monthly floor** (prepaid credits) | undefined "<300ms" marketing claim; compute region UNVERIFIED (recordings on S3 us-east-1) |
+| **Bolna** (primary, D-31) | **unpublished as a commercial term** — pilot gate 12; bundled ₹5.52→₹4.15; **OBSERVED at 2.0¢/min ≈ ₹1.84 on a dashboard panel (D-423, VERIFIED-DASHBOARD — the "rumoured ~₹1.8" line was closer than it deserved to be, and one agent's panel is still not a contract)**; target ≤₹1.5. **No monthly floor** (prepaid credits) | undefined "<300ms" marketing claim; compute region **documented as US by default** — *"Bolna processes calls on infrastructure in the US (AWS us-east-1)"* (`bolna-findings/mirror/pages/concepts/security.md:29`), not the URL inference this cell used to carry; India residency is Enterprise-gated and foreclosed by BYOK (D-415) |
 | LiveKit Cloud (phase-2 candidate) | marginal ₹1.23 (agent + third-party SIP, two meters) but **$50/mo Ship floor dominates**: ₹4.40/min @1k min, ₹0.88/min @5k min; concurrency capped 5/20/600 | ✅ ap-south (Mumbai) VERIFIED — best-evidenced |
 | Pipecat Cloud (phase-2 candidate) | ~₹0.88 claimed — **entirely unverified** | regions unverified |
 | Self-host (DO BLR / Vultr Mumbai) | ₹2.1/min @1k, ₹0.85–1.2/min @5k (₹2,112/node ≈ 8–9 concurrent) | best possible physics (co-located), unmeasured |

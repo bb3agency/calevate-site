@@ -564,14 +564,22 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
 
 1. **Verify**: per engine capability (TRD §5). Signed engines: HMAC over raw body,
    timestamp window, timing-safe compare. **Bolna (unsigned)**: source-IP allowlist
-   (13.203.39.153, via D-27 real_ip restoration) in-app, and there only — the edge layer
+   (**13.203.39.153, 13.126.9.249, 13.202.133.53 — THREE addresses; this named one until
+   D-414, and the parser fails safe, so two of the vendor's three senders were being
+   REJECTED**; via D-27 real_ip restoration) in-app, and there only — the edge layer
    is declined, not pending (SECURITY-COMPLIANCE §5); payloads are
    hints — truth comes from the authenticated Get Execution fetch. Unexpected
    source ⇒ 401 + alert (treat as attack until proven config drift — runbook).
 2. **Dedupe**: replay-cache on the event key (Redis SETNX, 24h TTL; for Bolna:
    execution_id + status) AND idempotency keys on processing — dedupe at the door and
-   at every side effect. Bolna delivery is at-most-once (no vendor retries), but OUR
-   poller re-surfaces the same executions, so duplicates still occur downstream.
+   at every side effect. **Bolna's delivery guarantee is UNSETTLED, not "at-most-once"**
+   — the OSS single-POST deliverer D-31 read is a different program from the hosted one
+   (D-352), their skills repo claims the hosted platform retries on non-2xx, and their own
+   hosted webhook page says nothing about retries or guarantees
+   (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`). Either
+   way OUR poller re-surfaces the same executions, so duplicates occur downstream and the
+   dedupe above is load-bearing under BOTH readings — which is why nothing here depends on
+   settling it.
 3. **Persist-then-ack**: write the minimal event row + archive raw payload to object
    storage, ack 2xx < 500ms. Never process inline (hard rule 3).
 4. **Process async**: ARQ jobs keyed by event/call id; every side effect is an upsert
@@ -585,10 +593,17 @@ Queue-first, idempotent, replayable — the industry-standard shape, mapped to o
    either way (D-31).
 5. **Replay tooling exists BEFORE the first incident** (industry lesson): admin
    surface to inspect webhook_deliveries, re-run a delivery, and re-run a pipeline
-   step for a call id. The engine's own per-delivery retry API supplements ours.
-6. **Reconcile**: Bolna webhook delivery has NO retries at all (verified: docs + OSS
-   delivery code — single POST, errors swallowed), so the 10-min List-Executions
-   poller (FLOWS §3) is the guarantee of record, promoted from safety net (D-31).
+   step for a call id. **There is no engine-side supplement to it**: this line used to say
+   "the engine's own per-delivery retry API supplements ours", and Bolna publishes no
+   delivery history, no replay endpoint and no per-delivery retry anywhere in their
+   documentation (`bolna-findings/mirror/`, TRD §5). Ours is the only replay there is.
+6. **Reconcile**: **Bolna's delivery guarantee is UNSETTLED — this bullet claimed "NO
+   retries at all (verified)" and the verification did not cover the hosted platform.**
+   The OSS single-POST deliverer is a different program (D-352); their skills repo says the
+   hosted platform retries on non-2xx; their own hosted webhook page says nothing about
+   retries, signing or guarantees. Design for loss either way — which is what makes the
+   10-min List-Executions poller (FLOWS §3) the guarantee of record rather than a safety
+   net (D-31), a conclusion that holds under BOTH readings.
    Reconciliation closes the loop: exactly-once PROCESSING = idempotency +
    reconciliation, not delivery magic.
 
@@ -645,22 +660,35 @@ that a truncated copy says so.
 
 ### 3.3 Engine API usage rules (adapter-internal)
 
-- Client-side throttle with 429 ⇒ backoff + jitter; Bolna's API/dispatch rate limits
-  are unpublished (pilot) — OUR dispatcher paces outbound creation regardless
-  (FLOWS §5), with the pilot-measured limit as the config value.
+- Client-side throttle with 429 ⇒ backoff + jitter. **Bolna's API rate limits ARE
+  published and this line used to say they were not**: 500 req/min each on `/call`,
+  `/v2/agent/{id}` and `/v2/agent/{id}/executions`, 1000/min elsewhere, counted per
+  ORGANIZATION (`bolna-findings/mirror/pages/api-reference/rate-limiting.md:18-27`).
+  DISPATCH pacing — how fast the platform will actually dial — is a different quantity and
+  is still unpublished (pilot); OUR dispatcher paces outbound creation regardless
+  (FLOWS §5).
 - Get Execution on `completed` (webhook and poller share the payload shape — TRD §5;
   cost/recording/extraction fields are null before `completed`); recording copy is
-  the first pipeline step (Bolna URLs have no documented expiry — copy-first anyway,
-  our storage is system of record).
+  the first pipeline step — and copy-first is what carried us through the vendor's one
+  dated breaking change: raw S3 recording URLs stopped working 1 Jun 2026, replaced by
+  `https://api.bolna.ai/recordings/call/{execution-id}` whose *"resolved pre-signed link …
+  expires after 24 hours — do not store or cache it"*
+  (`bolna-findings/mirror/pages/changelog/may-2026.md:91,99,118`). We never parse, store or
+  re-use a vendor URL; `calls.recording_url` holds our own object key, so the 24h window
+  only has to outlive one fetch. Our storage is system of record.
 - All engine calls carry timeouts + circuit breakers (TRD §12); breaker-open ⇒
   degrade to reconciliation mode, never drop work. **Shipped today: the timeout only**
   (`REQUEST_TIMEOUT_S = 10.0` in `apps/api/engine/bolna.py`). The 429 throttle above and
   the breaker are DECIDED and unbuilt — the dispatcher's own pacing and the
   reconciliation poller are what currently stand in for them, so treat both bullets as
   intent until an adapter carries them.
-- No vendor OpenAPI spec (Bolna): typed adapter models are hand-maintained from
-  docs.bolna.ai + pilot-captured payloads committed as fixtures; payload drift is
-  caught by the conformance suite, diff-review before adopting new fields.
+- **A vendor OpenAPI spec DOES exist and this line used to deny it**: Bolna publishes an
+  OpenAPI 3.1 document (`docs/vendor/bolna/hosted-oas.md` holds the pin, the checksum and
+  the endpoint inventory), and their full documentation set is mirrored read-only under
+  `bolna-findings/mirror/` with a per-page SHA-256 manifest. Typed adapter models are read
+  from those rather than from recollection. A spec is still what the vendor SAYS the server
+  does: pilot-captured payloads are committed as fixtures, payload drift is caught by the
+  conformance suite, and new fields get a diff-review before adoption.
 
 ---
 

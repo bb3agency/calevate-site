@@ -84,6 +84,8 @@ from calevate_shared.engine import (
     CallContext,
     DisclosurePosture,
     ModelConfig,
+    NumberSeries,
+    ProvisionedNumber,
     VoiceEngine,
     azure_openai_base_url,
     compose_engine_prompt,
@@ -96,6 +98,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import assignment
 from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.agents.verification import verify_publish
+from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
@@ -165,6 +168,10 @@ DIAL_NOT_PLACED_CODES = frozenset(
         "engine_capability_unverified",
         "engine_capability_absent",
         "engine_caller_id_not_configured",
+        # This agent has more than one registered header and nothing here may pick
+        # (`resolve_caller_id`). Raised before the adapter is touched, so no line was
+        # seized — same standing as the two above.
+        "agent_caller_id_ambiguous",
         # The dial arrived without the truthful-answer rule on it, or reached an engine
         # that has nowhere to put one (D-282). Refused inside the adapter before the
         # request is built, so no line was seized and the contact keeps its place — the
@@ -351,14 +358,20 @@ def in_call_llm(configured_model: object) -> dict[str, object]:
        deployment ID the operator chose, and the v1 surface addresses THAT. A resource
        with no deployment addresses a host and no model.
 
-    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, because the gap is real.** It proves WE
-    hold a key. It does not prove the ENGINE holds it: Bolna authenticates from its own
-    credential store, which `VoiceEngine.set_llm_credential` writes and which nobody has
-    observed for a first-class Azure provider (`Settings.bolna_llm_credential_name`
-    defaults to `AZURE` and is a MARKED ASSUMPTION — OPERATIONS §2 gate 16f). So the
-    condition is "this deployment holds a key it could install", which is the strongest
-    thing a publish path can check without doing the vendor's bookkeeping for it. The
-    same gap existed under D-404 and was closed by the same gate.
+    ⚠ **WHAT THE KEY CHECK CAN AND CANNOT PROVE, AND THE GAP GOT WIDER RATHER THAN
+    NARROWER WHEN THE VENDOR'S DOCS WERE READ.** It proves WE hold a key. It does not
+    prove the ENGINE holds it: Bolna authenticates from its own credential store, which
+    `VoiceEngine.set_llm_credential` writes. The store's field NAMES are no longer a
+    guess — their Azure OpenAI provider documents FOUR required entries
+    (`apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS`), and
+    `Settings.bolna_llm_credential_name` now defaults to the first of them,
+    `AZURE_OPENAI_API_KEY`. But the platform can only PUSH that one: the endpoint, the
+    deployment and an api-version whose value nothing here can derive are the operator's
+    to install, so "the engine is configured" is further from "we hold a key" than it was
+    when this comment believed one entry was the whole of it. The condition stays "this
+    deployment holds a key it could install", which is the strongest thing a publish path
+    can check without doing the vendor's bookkeeping for it, and OPERATIONS §2 gate 16f
+    is where the rest is observed.
 
     WHAT D-410 DELETED FROM THIS LADDER, said plainly rather than left as an absence:
     the founder's constant (`VERTEX_IN_CALL_CREDENTIAL_DELIVERABLE`) is gone with the
@@ -521,6 +534,135 @@ async def _reclaim_orphan(engine: VoiceEngine, agent_id: UUID, ref: str, reason:
     log.warning("engine_agent_orphan_reclaimed", extra=ids)
 
 
+#: Every number an admin has pointed at this agent (`phone_numbers.agent_id`), with the
+#: engine's own handle for each. `dlt_status` is NOT filtered: inbound answering is not a
+#: DLT-header question — that regime governs what a number may be used to SEND — and a
+#: receptionist that refuses to answer until the outbound paperwork clears would be a
+#: compliance rule invented here.
+_AGENT_NUMBERS_SQL = (
+    "SELECT id, e164, series, provider, engine_number_ref FROM phone_numbers "
+    "WHERE agent_id = :aid ORDER BY created_at, id"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class InboundRouting:
+    """What reaching the engine about this agent's numbers actually achieved (D-420).
+
+    Returned rather than logged-and-forgotten because "the console said it worked" is the
+    defect being closed: a caller that wants to tell an operator what happened needs the
+    counts, and a test that wants to prove a number was routed needs something to assert.
+    """
+
+    #: Numbers the engine will now answer with this agent.
+    bound: int
+    #: Numbers the engine will no longer answer with this agent — an outbound-only agent.
+    released: int
+    #: Numbers that could not be reached about. Each one has raised an alarm.
+    failed: int
+    #: Numbers not attempted because this engine cannot route them at all.
+    unsupported: int
+
+
+async def route_inbound_numbers(
+    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, ref: str, direction: str
+) -> InboundRouting:
+    """Make the engine agree with `phone_numbers.agent_id` (D-420).
+
+    **THE STEP THAT WAS MISSING BETWEEN OUR DATABASE AND A RINGING PHONE.** Assigning an
+    agent to a number wrote `phone_numbers.agent_id` — with real care, including D-331's
+    cross-tenant FK check — and stopped there. The vendor's own instruction is not
+    ambiguous: *"You will need to assign a phone number to your Bolna Voice AI agent for
+    automatically answering all incoming calls on that phone number"*, and the route that
+    does it (`POST /inbound/setup`) was called nowhere in this repository. So an admin
+    assigned a receptionist, the console said it worked, and the number answered with
+    whatever was last set in the vendor's dashboard — or did not answer at all. Inbound is
+    half this product, and its first configuration step was a screen with nothing behind it.
+    `engine_agent_routes` was never this wire: it maps `engine_agent_ref → (tenant, agent)`
+    so an INCOMING webhook can be attributed, which is the opposite direction.
+
+    **AN `outbound` AGENT RELEASES ITS NUMBERS RATHER THAN BEING SKIPPED**, and that is the
+    half a symmetry-free implementation would have missed. `agents.direction` is editable:
+    an agent that was `both` and is republished as `outbound` must STOP answering, and
+    leaving the engine's binding in place would keep a receptionist live on a number whose
+    owner has just switched it off in our console — the same class of lie in the opposite
+    direction. This is also `unbind_inbound_number`'s production caller, which is why the
+    Protocol has both halves rather than only the one this function needed first.
+
+    **A FAILURE ALARMS AND DOES NOT FAIL THE PUBLISH**, deliberately, and it is not
+    swallowing. The agent itself published and verified; the number binding is a separate
+    engine fact, and whether a non-Twilio Indian number binds through that route at all is
+    an OPEN vendor question (OPERATIONS §2 gate 25). Raising here would make every publish
+    on this platform depend on an endpoint nobody has yet exercised against an Indian
+    number — turning a known-unknown into an outage — while a named alarm per number tells
+    an operator exactly which one is not answering and why. What is NOT acceptable, and was
+    the state before this function, is neither.
+
+    Ids and counts in every log line and every alarm; no phone number (hard rule 6).
+    """
+    rows = (await session.execute(text(_AGENT_NUMBERS_SQL), {"aid": agent_id})).all()
+    if not rows:
+        return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    # ASKED ONCE, not per number. An engine that cannot route numbers at all is a
+    # deployment fact, not an incident: it refuses at the console through the same
+    # capability, and one alarm per number per publish would page about a platform
+    # property rather than an event. NOT unreachable, and this comment used to say it was:
+    # no `external_deployment` engine can reach here THROUGH `publish_agent` (it has no
+    # agent of ours to publish), but the arm is a property of the ENGINE, not of that one
+    # path — `EXTERNAL_DEPLOYMENT_CAPABILITIES` answers `inbound_binding=False` and
+    # `caller_id_and_inbound_routing_test` drives this line with it directly.
+    if not engine.capabilities.has("inbound_binding"):
+        log.info(
+            "engine_inbound_binding_unsupported",
+            extra={"agent_id": str(agent_id), "engine": engine.name, "numbers": len(rows)},
+        )
+        return InboundRouting(bound=0, released=0, failed=0, unsupported=len(rows))
+
+    answers = direction in ("inbound", "both")
+    bound = released = failed = 0
+    for number_id, e164, series, provider, engine_number_ref in rows:
+        # The DB's own CHECK constraint is what makes this cast safe: `phone_numbers.series`
+        # is `IN ('140', '160', 'standard')`, which is `NumberSeries` exactly.
+        spec = ProvisionedNumber(
+            e164=str(e164),
+            provider=provider,
+            engine_number_ref=engine_number_ref,
+            series=cast(NumberSeries, str(series)),
+        )
+        try:
+            if answers:
+                await engine.bind_inbound_number(ref, spec)
+                bound += 1
+            else:
+                await engine.unbind_inbound_number(spec)
+                released += 1
+        except ProblemError as exc:
+            failed += 1
+            alert(
+                "CORE_LOGIC",
+                "engine_inbound_binding_failed",
+                detail=(
+                    "the voice platform was not told which agent answers this number, so "
+                    "an incoming call on it reaches whatever the vendor console was last "
+                    f"set to — or nothing. Intent: {'answer' if answers else 'stop answering'}. "
+                    f"Refusal: {exc.code}."
+                ),
+                agent_id=str(agent_id),
+                number_id=str(number_id),
+            )
+    log.info(
+        "agent_inbound_numbers_routed",
+        extra={
+            "agent_id": str(agent_id),
+            "engine": engine.name,
+            "bound": bound,
+            "released": released,
+            "failed": failed,
+        },
+    )
+    return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
+
+
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -661,6 +803,19 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             "updated_at = now()"
         ),
         {"engine": engine.name, "ref": ref, "tid": tenant_id, "aid": agent_id},
+    )
+    # THE INBOUND HALF OF PUBLISHING (D-420). Publishing is "make the engine hold what our
+    # database says", and until now that covered the agent and stopped short of the one
+    # fact that decides whether a client's number rings anything at all. It runs AFTER the
+    # routing row so the two engine-side facts about this agent — who it is, and which
+    # numbers it answers — are written in one transaction's worth of intent; it cannot fail
+    # the publish (see the function) because the agent itself is already verified live.
+    await route_inbound_numbers(
+        session,
+        engine,
+        agent_id=agent_id,
+        ref=ref,
+        direction=str(agent["direction"]),
     )
     await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
@@ -928,6 +1083,80 @@ async def republish_running_variants(
     )
 
 
+#: The header an agent dials from: its own bound, DLT-REGISTERED number (D-420).
+#:
+#: `dlt_status = 'registered'` IS PART OF THE QUERY, not a check afterwards, and that is
+#: what makes this resolution and `campaigns.service._channel_blockers` the same fact
+#: rather than two opinions: the gate refuses a campaign whose number is not `registered`,
+#: so a number this query would skip is a number no campaign can be dialling on.
+#: `pending` and `blocked` headers are invisible here for the same reason.
+#:
+#: ORDERED so that the AMBIGUOUS case below is deterministic across connections — a
+#: refusal that depended on the planner's row order would be a refusal that came and went.
+_AGENT_CALLER_ID_SQL = (
+    "SELECT e164 FROM phone_numbers "
+    "WHERE agent_id = :aid AND dlt_status = 'registered' ORDER BY created_at, id"
+)
+
+
+async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | None:
+    """The number this agent's calls must present to the callee, or None (D-420).
+
+    **THE MISSING HOP THAT MADE A COMPLIANCE CONTROL DECORATIVE.**
+    `campaigns.service._channel_blockers` refuses a launch — and every dispatch tick —
+    unless the campaign's number carries the right 140/160 series for its classification
+    and `dlt_status = 'registered'`. The dial then carried no caller ID at all, so the
+    engine answered from its own pool and the callee, the TSP and the complaint trail saw
+    the vendor's number while our gate reported the client's registered header approved.
+    Every half of that was correct in isolation; nothing stated that the GATED number and
+    the DIALLED number are the same number, because there was no seam at which to state it.
+    This function and `_channel_blockers`' `number_not_bound_to_agent` rule are that seam,
+    and they are two halves of one claim: the gate proves the campaign's approved number is
+    the one bound to the campaign's agent, and this resolves the header FROM that binding.
+
+    **NONE IS A LEGITIMATE ANSWER AND MUST STAY ONE.** An agent with no registered header
+    dials on the engine's own number, which is what happens today for every call and is
+    fine for the paths where it is fine: a D-21 "call this lead" click, a CRM callback, an
+    account whose DLT paperwork is still in flight. Refusing those would be a self-inflicted
+    outage on a rule that governs CAMPAIGNS. What must never happen is a campaign dial
+    resolving to None, and that is closed on the campaign side — a campaign cannot launch
+    or tick without a registered number bound to its own agent — rather than by a guess here
+    about which caller this is.
+
+    **MORE THAN ONE REGISTERED HEADER IS A REFUSAL, NOT A CHOICE**, and this is the one
+    place the honest answer is unwelcome. An agent may legitimately end up bound to a
+    140-series and a 160-series number (promotional and transactional traffic), and nothing
+    in this function's inputs says which campaign is dialling — so any pick is a coin toss
+    between a promotional header and a transactional one, i.e. a DLT misclassification with
+    the client's Principal Entity on the complaint. Refusing costs an operator one
+    configuration change (an agent per classification, which is what the 140/160 split means
+    anyway); picking costs the client their registration. The refusal is in
+    `DIAL_NOT_PLACED_CODES`, so nothing was seized and the contact keeps its place on the
+    ladder.
+
+    Ids and counts in the log line, never a number (hard rule 6).
+    """
+    rows = (await session.execute(text(_AGENT_CALLER_ID_SQL), {"aid": agent_id})).all()
+    if not rows:
+        return None
+    if len(rows) > 1:
+        log.error(
+            "agent_caller_id_ambiguous",
+            extra={"agent_id": str(agent_id), "registered_numbers": len(rows)},
+        )
+        raise ProblemError.business_rule(
+            "agent_caller_id_ambiguous",
+            "This agent has more than one registered calling number, so we cannot tell "
+            "which one its calls should come from.",
+            remediation=(
+                "Give this agent a single registered number — a campaign's number class "
+                "(140 for promotional, 160 for transactional and service) decides which — "
+                "and use a separate agent for the other class."
+            ),
+        )
+    return str(rows[0][0])
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -1008,6 +1237,13 @@ async def dispatch_call(
             remediation="Publish the agent from the admin console first.",
         )
 
+    # THE HEADER THIS CALL PRESENTS, resolved before anything is written or dialled
+    # (D-420). On the caller's session, so it is read under this tenant's RLS and can only
+    # ever see this tenant's numbers; and BEFORE the intent row, so the ambiguity refusal
+    # costs one indexed read and leaves no `queued` call behind for a dial that was never
+    # going to be placed.
+    from_e164 = await resolve_caller_id(session, agent_id=agent_id)
+
     # The stable unit: the lead when there is one, the destination otherwise. See
     # `agents/assignment.py` for why it is not the call id.
     arm = await assignment.assign(
@@ -1055,6 +1291,7 @@ async def dispatch_call(
                 lead_name=lead_name,
                 context_note=context_note,
                 system_prompt=_call_prompt_for(engine, tenant_id, agent),
+                from_e164=from_e164,
             ),
         )
     except Exception as exc:
@@ -1192,6 +1429,32 @@ async def provision_number(
             "This number is already provisioned.",
             remediation="It may belong to another account — check before reassigning it.",
         ) from exc
+    # AND TELL THE ENGINE, if there is anything to tell it (D-420). A number assigned to an
+    # agent that is already published must start being answered NOW — waiting for the next
+    # publish would mean an assignment that works only if somebody happens to edit the
+    # agent afterwards, which is the "screen with nothing behind it" this closes.
+    #
+    # The unpublished case is a no-op rather than a refusal, and deliberately: provisioning
+    # a number BEFORE the agent exists is the ordinary onboarding order (it is why
+    # `agent_id` is nullable), and `publish_agent` routes every bound number when it runs.
+    if agent_id is not None:
+        published = (
+            await session.execute(
+                text(
+                    "SELECT engine_agent_ref, direction FROM agents "
+                    "WHERE id = :aid AND deleted_at IS NULL"
+                ),
+                {"aid": agent_id},
+            )
+        ).first()
+        if published is not None and published[0]:
+            await route_inbound_numbers(
+                session,
+                get_engine(),
+                agent_id=agent_id,
+                ref=str(published[0]),
+                direction=str(published[1]),
+            )
     return number_id
 
 
@@ -1209,6 +1472,7 @@ __all__ = [
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
     "ArmToPublish",
     "DialUnconfirmedError",
+    "InboundRouting",
     "dispatch_call",
     "effective_call_cap",
     "provision_number",
@@ -1216,6 +1480,8 @@ __all__ = [
     "publish_variant",
     "publish_variants",
     "republish_running_variants",
+    "resolve_caller_id",
+    "route_inbound_numbers",
     "set_number_dlt_status",
     "unconfirmed_engine_call_id",
 ]

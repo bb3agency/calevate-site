@@ -324,9 +324,13 @@ Against the tree:
 - `docs/DEPLOYMENT.md` §1: *"Object storage: Cloudflare R2 (recordings, raw payloads,
   exports)"*, with `AWS_REGION=auto`. R2 chooses location automatically and offers no
   India-only jurisdiction.
-- `docs/SECURITY-COMPLIANCE.md` §4 CAUTION: **Bolna call recordings observed on S3
-  `us-east-1`**; the residency posture "must be pinned in the Bolna contract" and has not
-  been.
+- `docs/SECURITY-COMPLIANCE.md` §4 CAUTION, **restated Aug 2026 from Bolna's own docs
+  and materially worse than the line it replaced (F-12 below)**: the observation used to
+  be "call recordings on S3 `us-east-1`", i.e. storage. Their documentation says the
+  whole platform runs on US infrastructure by default, that India is an Enterprise
+  purchase, and that connecting our own model keys — which is what BYOK IS — routes
+  calls through US servers whatever else is configured. The residency posture "must be
+  pinned in the Bolna contract" and has not been, and a contract alone would not fix it.
 - Resend and Sentry are operated outside India. *(**Clerk** stood in this list until
   D-177 and no longer does: authentication, the credential and the session are ours and
   live in our Postgres — see §2.2. That is one sub-processor fewer outside India, and it
@@ -658,6 +662,56 @@ single exported list of sub-processor identities that both the page and a test r
 adding or removing a vendor in the tree fails a test that names the document it did not
 reach. Owner: ours. No external dependency.
 
+### F-12 — The published documents placed the voice platform in India. Bolna's own documentation says the United States. **CLOSED on the client-facing copy, 20 Aug 2026; the ENGINE decision it reopens is not ours to close.**
+
+**What was wrong.** `/legal/subprocessors` gave the voice platform's Location as *"India for
+the platform"* and confined the United States to a footnote about recording storage;
+`/legal/privacy` §8 and the DPA §9 said the same, narrower thing (*"the voice platform's own
+copies of recordings have been observed outside India"*). Every one of those sentences was
+written from an OBSERVATION — recording URLs on `s3.us-east-1` — rather than from the
+vendor's documentation, which nobody in this repository had been able to reach.
+
+**What their documentation says**, now mirrored at `bolna-findings/mirror/pages/`:
+
+- *"By default, all Bolna AI services operate in United States (US)-hosted infrastructure,
+  but customers on enterprise plans can choose to have their data processed exclusively in
+  India."* — `enterprise/data-residency.md`
+- *"By default, Bolna processes calls on infrastructure in the US (AWS us-east-1)."* —
+  `concepts/security.md`
+- *"Data residency is an Enterprise feature."* — `enterprise/data-residency.md`
+- And the one that decides it: *"If you connect your own API keys for any provider
+  (transcriber, synthesizer, or LLM), calls will automatically route through US servers
+  regardless of other configuration settings."* — `enterprise/indian-server-configuration.md`
+
+**Why the last quote is the finding rather than a footnote.** This product is BYOK on all
+three legs by design (D-31/D-36/D-410). So the residency option is not something we have
+merely failed to buy — it is something our architecture currently forecloses. A DPA that
+told a client their calls are handled in India would be a misstatement in a contract, and
+it would stay one after any amount of procurement.
+
+**What was fixed, in the same change.** The sub-processor register's Location cell now
+reads United States and its §3.1 caution states both halves (the default and the BYOK
+exclusion); `/legal/privacy` §8 widens from recordings to the live audio, the transcript
+and the platform's copy; the DPA §9 transfer clause says the same in the operative text
+rather than in a notice. `tests/legal.test.tsx::does not place the voice platform in India,
+and says where it actually is` asserts it on the ROW — the sentence a buyer's counsel reads
+— so the old copy cannot come back. `docs/SECURITY-COMPLIANCE.md` §4's cross-border row
+carries the quotes and drops the sentence *"Everything the caller says is processed in
+India"*, which was false at the orchestration layer.
+
+**What is NOT fixed and is not ours.** Whether to keep BYOK and accept US orchestration,
+or move to Bolna's own provider integrations (losing BYOK's cost control, its named-model
+transparency and the Azure South India pinning D-410 exists for) and buy the Enterprise
+residency, is an engine-level decision with a commercial half — OPERATIONS §2 gates 9 and
+12. `docs/evidence/bolna-compliance-residency.md` §5 lays out the fork and what each arm
+costs. **Nothing in the client-facing copy waits on it**: the documents now describe what
+is true today.
+
+**What still survives of the residency story, stated because it is easy to lose:** the
+MODEL legs are Indian. Sarvam is sovereign by vendor and Azure OpenAI is region-pinned to
+South India, so the inference does not leave the country — the ORCHESTRATION does. §4's
+model-residency paragraph is unaffected.
+
 ---
 
 ## 6. What the public documents deliberately do NOT claim
@@ -674,6 +728,9 @@ Recorded so a later edit cannot quietly reinstate them, and each is asserted by
 - No claim that the erasure reaches engine-side copies — reported as
   `unconfirmed_pending_vendor_api`, exactly as the certificate does.
 - No always-on AI disclosure. The documents describe the toggle.
+- No claim that the voice platform runs the call in India — it runs it in the United
+  States, and the documents say so (F-12). (`does not place the voice platform in
+  India, and says where it actually is`)
 
 ---
 
@@ -763,6 +820,19 @@ publication — that is the first thing §10 asks for.
 **Consumer protection**
 - Trilegal, *Consumer Protection (E-Commerce) Rules, 2020 — analysis* — https://trilegal.com/wp-content/uploads/2021/11/Consumer-Protection-E-Commerce-Rules-2020.pdf (16 Aug 2026) — rule 4(6) grievance officer, 48h acknowledgement, one-month redress, display of legal name and address
 - Khaitan & Co, *Stricter regulations on e-commerce* — https://www.khaitanco.com/thought-leaderships/Stricter-Regulations-on-E-Commerce-The-Consumer-Protection-E-Commerce-Rules-2020 (16 Aug 2026)
+
+**Voice-platform residency and compliance (F-12) — first-party vendor documentation**
+
+Mirrored locally at `bolna-findings/mirror/pages/`, read 20 Aug 2026. These are the vendor's
+own pages, not third-party reporting, and every residency sentence in the client documents
+now traces to one of them.
+
+- `enterprise/data-residency.md` — "By default, all Bolna AI services operate in United States (US)-hosted infrastructure"; "Data residency is an Enterprise feature"; what India residency covers when bought (storage AND processing)
+- `enterprise/indian-server-configuration.md` — the conditions for Indian-server routing: Plivo telephony, listed transcriber/synthesizer, Azure OpenAI, and **no customer-supplied provider keys**
+- `concepts/security.md` — US default (`us-east-1`) and `ap-south-1` when residency is on; TLS 1.2+; no webhook HMAC; the three webhook egress addresses; VAPT A+ on request; GDPR named and DPDP not
+- `compliance-application/introduction.md` and `how-to-submit-guide.md` — the account-level compliance application: CIN certificate, GST number and certificate, 12–24h review
+- `guides/inbound/obtaining-regulated-phone-numbers.md` — 140-series via Vobiz (TATA DLT portal, PE registration ₹5,900, LOA), 160-series via Plivo (RBI/SEBI certificate, PE/TM IDs, URN, header and template registration)
+- `api-reference/violations/{overview,list,submit}.md` — the Violations API and the fields it carries
 
 **GST and payments**
 - Tax Garden, *GST on IT/software/SaaS services India 2026: SAC codes and rates* — https://taxgarden.in/blog/gst-on-software-it-services-saas-india-2026-sac-codes (16 Aug 2026) — SAC 998315, 18%

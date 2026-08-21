@@ -278,9 +278,18 @@ A-4 RESOLVED (Jul 2026, docs-verified): the voice.call.ended webhook is a trigge
 A-5 Measured voice-to-voice latency ≤ ~1.1s p50 on a real PSTN call — measure.
 A-6 Exotel/Vobiz effective rates within researched bands — confirm on rate card.
 A-7 Entity choice does not delay DLT beyond 4 weeks.
-A-8 UPDATED by D-31 (engine now Bolna): Pilots plan advertises "up to 100 concurrent
-    calls" but per-plan concurrency, API rate limits and dispatch pacing are otherwise
-    unpublished. Real ceiling = MIN(platform concurrency, Sarvam BYOK-tier
-    concurrency, SIP trunk channels). Closed by pilot item 8 — all three numbers in
-    writing.
+A-8 UPDATED by D-31 (engine now Bolna), NARROWED 20 Aug 2026 against the vendor's own
+    documentation: the "up to 100 concurrent calls" figure is a MARKETING-PAGE plan claim
+    that no page in `bolna-findings/mirror/` repeats. What they document is 2 concurrent on
+    free and "Starts at 10 concurrent calls, scaling automatically with monthly usage" on
+    paid (`pricing/outbound-calling-concurrency.md:15,19`), the account's live ceiling is
+    readable on `GET /user/me` as `concurrency:{max,current}`
+    (`api-reference/user/info.md:78-87`), and **API rate limits are published** (500/min on
+    `/call`, `api-reference/rate-limiting.md:18-27`). Dispatch PACING remains unpublished.
+    Two terms the MIN() had no room for: capacity is "split evenly across its providers"
+    (`enterprise/concurrency-management.md:73`), and a BYOT SIP trunk does NOT add an
+    independent ceiling — "those calls run on Bolna's SIP infrastructure, so they share
+    platform capacity even though the trunk is yours" (`:80`). Real ceiling = MIN(platform
+    concurrency ÷ providers-with-queued-work, Sarvam BYOK-tier concurrency, Azure TPM/RPM
+    quota). Closed by pilot item 8 — the numbers in writing, and `max` read from the API.
 Each assumption has an owner (Sri) and is closed by the verification session (OPERATIONS.md §2) or week-1 admin tasks.

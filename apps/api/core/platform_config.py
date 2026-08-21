@@ -171,7 +171,7 @@ _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
 #: WHY IT HAD TO EXIST. The `credential` fragment was added for "the naming a future
 #: field is likely to use", and the future field arrived: `bolna_llm_credential_name`
 #: holds which ENTRY in the engine's credential store our LLM key was written to —
-#: `AZURE` — which is a pointer, not a secret. It matched, so it was sealed into
+#: `AZURE_OPENAI_API_KEY` — which is a pointer, not a secret. It matched, so it was sealed into
 #: `platform_secrets`, and `calevate_shared.config` asserted the opposite in a comment
 #: (it believed the sealing keyed on `_json`/`_key` shapes). Two concrete harms, neither
 #: visible from either file alone:

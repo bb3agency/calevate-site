@@ -628,7 +628,8 @@ def test_the_field_that_names_a_credential_is_editable_and_readable() -> None:
     """`bolna_llm_credential_name` is a POINTER to a credential, not a credential.
 
     It holds which entry in the engine's credential store our LLM key was written to
-    (`AZURE`), and it matched `_SECRET_NAME_FRAGMENTS`' bare `credential` fragment, so it
+    (`AZURE_OPENAI_API_KEY`, the vendor's own name for it), and it matched
+    `_SECRET_NAME_FRAGMENTS`' bare `credential` fragment, so it
     was sealed into `platform_secrets` — write-only, `last_four` and nothing else. Two
     things broke that nobody could see from either file alone: OPERATIONS §2 gate 16f is
     an operator trying values against a dead LLM leg with the vendor's docs unreachable,

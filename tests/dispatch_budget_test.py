@@ -225,6 +225,18 @@ def _capture_alerts(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
     return fired
 
 
+def _capture_alert_details(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str, str]]:
+    """Like `_capture_alerts`, but keeps the `detail` — an alarm whose detail does not
+    name WHO was starved is a page with no next step, so the detail is under test."""
+    fired: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        campaign_dispatch,
+        "alert",
+        lambda stage, code, **kwargs: fired.append((stage, code, str(kwargs.get("detail", "")))),
+    )
+    return fired
+
+
 def _pin_scan(monkeypatch: pytest.MonkeyPatch, work: list[TenantWork]) -> None:
     async def _scan() -> list[TenantWork]:
         return work
@@ -312,6 +324,157 @@ async def test_the_shared_pool_is_spent_once_and_the_second_campaign_waits(
     assert await _contacts(tenant_id, second) == [("pending", 0), ("pending", 0)], (
         "the second campaign is not even claimed: no attempts spent waiting for a line"
     )
+
+
+# ------------------------------------ the spend order does not rotate, and says so
+
+
+async def test_a_tenant_that_gets_no_line_before_the_budget_runs_out_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**Starvation is indefinite here, so it must not also be invisible.**
+
+    The tick spends `global_budget` down `running` in `dispatch_scan()`'s order, which is
+    `ORDER BY tenant_id` over uuid_v7 — TIME-ORDERED. Nothing rotates, so the tenant at
+    the tail of a saturated pool dials zero on this tick and on every following tick,
+    while the tick's own return string reports a perfectly healthy `dialled=1`.
+
+    The fix here is deliberately NOT rotation (see the comment at the `break` in
+    `_run_tick`: floors-then-proportional-surplus is the durable answer and it is a plan
+    column, and a second ordering mechanism would have to be removed again). What is
+    fixed is that the fact is now recoverable by an operator: a count in the return
+    string and an alarm naming the tenant ids.
+
+    Two tenants, one line left. The first spends it; the second must be REPORTED, not
+    merely skipped.
+    """
+    first_id, first_agent = await _tenant()
+    second_id, second_agent = await _tenant()
+    first_number, first_template = await _dlt_rows(first_id)
+    second_number, second_template = await _dlt_rows(second_id)
+    await _launched_campaign(
+        first_id,
+        first_agent,
+        first_number,
+        first_template,
+        name="Ahead in the order",
+        phones=("9876640001",),
+    )
+    starved_campaign = await _launched_campaign(
+        second_id,
+        second_agent,
+        second_number,
+        second_template,
+        name="Behind in the order",
+        phones=("9876640002",),
+    )
+
+    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    # pool = 6, five lines already busy platform-wide: exactly one dial this tick, and
+    # the tenant holding those five is ahead in the spend order.
+    _pin_scan(
+        monkeypatch,
+        [TenantWork(first_id, 5, True, False), TenantWork(second_id, 0, True, False)],
+    )
+    fired = _capture_alert_details(monkeypatch)
+
+    outcome = await campaign_dispatch._run_tick()
+
+    assert outcome.endswith("starved=1"), outcome
+    assert outcome.startswith("dialled=1 "), (
+        "the tick looks healthy from its dial count alone — that is the whole problem"
+    )
+    assert [(stage, code) for stage, code, _ in fired] == [
+        ("WORKER_STALL", "dispatch_budget_starved")
+    ], fired
+    detail = fired[0][2]
+    assert str(second_id) in detail, "an alarm that does not name who was starved is a dead end"
+    assert str(first_id) not in detail, "the tenant that DID dial is not starved"
+    assert "9876640002" not in detail, "hard rule 6: ids, never phone numbers"
+    assert await _calls_placed(second_id) == 0
+    assert await _contacts(second_id, starved_campaign) == [("pending", 0)], (
+        "and no attempt burned on the tenant that never got a line"
+    )
+
+
+# ------------------- rule 3 under rules 1+2: a ceiling above the pool is not a ceiling
+
+
+async def test_a_tenant_ceiling_can_never_exceed_the_pool_that_exists() -> None:
+    """The relationship between the two constants is ASSERTED here, not coincidental.
+
+    This shipped as `PLATFORM_LINES_TOTAL = 10`, `MIN_INBOUND_RESERVE = 4` (outbound pool
+    = 6) and `DEFAULT_CONCURRENCY_CEILING = 10` — a per-tenant ceiling half again larger
+    than the entire platform, which is not a ceiling at all. It was only ever safe
+    because a SECOND check downstream (`global_budget`) happened to catch it.
+
+    Two things are asserted, because two different edits break this:
+
+    1. the default ceiling is DERIVED from the line total, so raising one without the
+       other is not something a person can do by typing;
+    2. `_tenant_ceiling` clamps, so a `plans` row selling 50 lines on a 6-line platform
+       narrows to 6 rather than granting a tenant the switchboard.
+    """
+    assert campaign_dispatch.DEFAULT_CONCURRENCY_CEILING <= campaign_dispatch.PLATFORM_LINES_TOTAL
+    pool = campaign_dispatch._outbound_pool()
+    assert pool > 0, "the fixture depends on a non-empty pool"
+    for configured in (None, 0, 1, pool, pool + 1, 50, 10_000):
+        effective = campaign_dispatch._tenant_ceiling(configured, pool)
+        assert 0 <= effective <= pool, (configured, effective, pool)
+    assert campaign_dispatch._tenant_ceiling(None, pool) == pool, (
+        "a tenant with no plans row gets the pool, not a number typed beside it"
+    )
+    assert campaign_dispatch._tenant_ceiling(2, pool) == 2, "the clamp narrows, never widens"
+
+
+async def test_a_ceiling_above_the_pool_does_not_let_one_tenant_claim_lines_that_do_not_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One tenant, three campaigns, a 6-line pool and no `plans` row.
+
+    Rule 3 is a TENANT budget spent once across that tenant's campaigns. With the ceiling
+    clamped to the pool that budget is 6, so the third campaign is never handed slots —
+    the tick does not promise lines the platform does not have. With the shipped ceiling
+    of 10 it WAS handed slots: the tenant claimed 9 lines out of a 6-line platform and
+    the surplus was only caught by the platform budget one loop later.
+
+    `_dispatch_for_campaign` is pinned so the slots the tick HANDS OUT are observable
+    rather than inferred from dials — and returning zero dials keeps `global_budget`
+    from masking the tenant-level arithmetic under test, which is exactly the masking
+    that let this defect ship.
+    """
+    tenant_id, agent_id = await _tenant()
+    number_id, template_id = await _dlt_rows(tenant_id)
+    for name in ("First", "Second", "Third"):
+        await _launched_campaign(
+            tenant_id,
+            agent_id,
+            number_id,
+            template_id,
+            name=f"{name} of three",
+            phones=(f"98766{abs(hash(name)) % 100000:05d}",),
+        )
+    monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
+    pool = campaign_dispatch._outbound_pool()
+    assert pool == 6, pool
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False)])
+
+    handed: list[int] = []
+
+    async def _record(
+        _t: uuid.UUID, _c: uuid.UUID, slots: int, _r: dict[str, object]
+    ) -> dict[str, int]:
+        handed.append(slots)
+        return {"dialled": 0, "blocked": 0, "exhausted": 0}
+
+    monkeypatch.setattr(campaign_dispatch, "_dispatch_for_campaign", _record)
+
+    await campaign_dispatch._run_tick()
+
+    assert sum(handed) <= pool, (
+        f"the tick handed one tenant {sum(handed)} lines out of a {pool}-line platform"
+    )
+    assert handed == [3, 3], handed
 
 
 # ------------------------------- rule 3: the scan is stale, and the client wins races
@@ -598,14 +761,17 @@ async def test_a_campaign_cancelled_during_a_tick_is_not_written_back_to_complet
 
 
 async def test_a_campaign_cannot_be_created_with_a_slider_of_zero() -> None:
-    """Why `slots > 0` in the tick is a guard rather than a reachable branch.
+    """Why the tick claims `slots` UNCONDITIONALLY, with no `if slots > 0` around it.
 
     The tick computes `slots = min(slider, tenant_budget)` AFTER breaking out when the
     budget is spent, so the only way to reach zero there is a campaign whose own slider
     is zero — and the database refuses to hold one (`concurrency BETWEEN 1 AND 10`,
-    migration e16c96e68bc5). This test is the check on that claim: if the constraint is
-    ever relaxed, it fails here and the branch needs a test of its own rather than an
-    argument.
+    migration e16c96e68bc5). The guard that used to stand there was therefore a branch no
+    state could take: it read as a case that happens and it cost the coverage gate a
+    waiver, so it is gone and this test is what holds the argument up. If the constraint
+    is ever relaxed, it fails HERE — which is the signal to decide what a zero-line
+    campaign should mean (it belongs in the `WHERE c.status = 'running'` query, not in a
+    silent skip) rather than to re-add a guard nobody exercises.
     """
     tenant_id, agent_id = await _tenant()
     number_id, template_id = await _dlt_rows(tenant_id)

@@ -54,12 +54,20 @@ from calevate_shared.events import CallEvent
 
 from scripts.pilot.results import GateRun, SubCheck, failed, not_run, passed
 
-# Bolna's documented egress (TRD §5, D-31). Written here as the value gate 1 TESTS
+# Bolna's documented egresses (TRD §5, D-31). Written here as the values gate 1 TESTS
 # rather than imported from the adapter on purpose: importing the constant would make
 # the check tautological — "does the adapter accept the address the adapter allows" is
 # a question with only one answer. The gate's real subject is whether deliveries in the
-# wild come from THIS address, which is a fact about the vendor.
-DOCUMENTED_EGRESS_IP = "13.203.39.153"
+# wild come from THESE addresses, which is a fact about the vendor.
+#
+# **THREE, NOT ONE, AND EVERY ONE OF THEM IS SCORED (D-412).** This was a single address
+# and so was `DEFAULT_BOLNA_SOURCE_IPS`; Bolna renumbered to three and their docs say
+# "whitelist all three ... to ensure you receive all webhook events"
+# (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`).
+# Scoring one of three would have been the worst available outcome for a gate: a green
+# `accepts_documented_egress` on an allowlist that rejects two thirds of real deliveries.
+# The loop below is what makes the gate fail if the set and the vendor ever part again.
+DOCUMENTED_EGRESS_IPS: tuple[str, ...] = ("13.203.39.153", "13.126.9.249", "13.202.133.53")
 
 # An address that must never be accepted. RFC 5737 TEST-NET-1 — reserved for
 # documentation, routable by nobody, so it can never collide with a real egress the
@@ -180,7 +188,26 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
         ),
         models=ModelConfig(
             stt_provider="sarvam",
-            stt_model="saaras:v2.5",
+            # **`saaras:v3`, NOT `saaras:v2.5`, AND THE TWO ARE DIFFERENT PRODUCTS RATHER
+            # THAN TWO VERSIONS.** Both are supported on this engine, so nothing 400s
+            # either way — which is exactly why the wrong one was survivable and silent.
+            # VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/transcriber/
+            # sarvam.md`: *"Saaras v2.5: Translates speech directly to English text with
+            # automatic language detection"* against *"Saaras v3: Configured for direct
+            # transcription in the original spoken language"*. This pilot dials a real
+            # Indian telephone and its whole subject is Telugu; a transcriber that returns
+            # ENGLISH would have made gate 1 pass on a leg the product does not run, and
+            # would have fed English to the Telugu-shaped machinery downstream
+            # (`workers/redaction.py`'s transliterated digit words,
+            # `compliance/optout.py`'s romanised opt-out phrases). It also disagreed with
+            # `scripts/pilot/scorecard.py`, which has always priced "Sarvam Saaras V3
+            # STT", and with the conformance suite, which configures `saaras:v3`.
+            #
+            # NOT `saaras:v4`, which the same table lists as the latest and which adds
+            # automatic language detection to original-language transcription. That is a
+            # product choice with an unmeasured Telugu quality consequence, and a pilot is
+            # for measuring the stack we ship, not for introducing an untested leg into it.
+            stt_model="saaras:v3",
             llm_model=SARVAM_DEFAULT_LLM,
             tts_provider="sarvam",
             tts_voice="bulbul:v3",
@@ -631,7 +658,10 @@ async def run_gate_1(ctx: GateContext) -> GateRun:
     checks: list[SubCheck] = []
     findings: list[str] = []
 
-    verdict = ctx.engine.verify_webhook({}, b"{}", DOCUMENTED_EGRESS_IP)
+    # The FIRST address decides whether this engine performs a source check at all; the
+    # loop below then scores every one of them. Reading `method` off any single verdict is
+    # equivalent — it is a property of the adapter, not of the address.
+    verdict = ctx.engine.verify_webhook({}, b"{}", DOCUMENTED_EGRESS_IPS[0])
     if verdict.method == "none":
         # Not a failure — a statement about which engine is loaded. The `fake` adapter
         # accepts everything by design (that is how the pipeline runs offline), so
@@ -645,20 +675,28 @@ async def run_gate_1(ctx: GateContext) -> GateRun:
         checks.append(not_run("accepts_documented_egress", reason))
         checks.append(not_run("rejects_other_sources", reason))
     else:
-        if verdict.ok:
+        # EVERY documented address, not the first one that answers. Which sender carries a
+        # given status transition is not ours to choose, so an allowlist holding a strict
+        # subset does not lose "some" webhooks — it loses whichever transitions happen to
+        # leave from the addresses it omits, `completed` included.
+        rejected = [
+            ip for ip in DOCUMENTED_EGRESS_IPS if not ctx.engine.verify_webhook({}, b"{}", ip).ok
+        ]
+        if not rejected:
             checks.append(
                 passed(
                     "accepts_documented_egress",
-                    f"a delivery from {DOCUMENTED_EGRESS_IP} is accepted "
-                    f"(method `{verdict.method}`)",
+                    f"deliveries from all {len(DOCUMENTED_EGRESS_IPS)} documented egress "
+                    f"addresses are accepted (method `{verdict.method}`)",
                 )
             )
         else:
             checks.append(
                 failed(
                     "accepts_documented_egress",
-                    "the documented egress address is NOT accepted — every real delivery "
-                    "would 401 and every call would wait for the 10-minute poller",
+                    f"{len(rejected)} of {len(DOCUMENTED_EGRESS_IPS)} documented egress "
+                    f"addresses are NOT accepted ({', '.join(rejected)}) — deliveries from "
+                    "them would 401 and those calls would wait for the 10-minute poller",
                 )
             )
         hostile = ctx.engine.verify_webhook({}, b"{}", HOSTILE_SOURCE_IP)
@@ -1192,7 +1230,7 @@ GATES = {1: run_gate_1, 2: run_gate_2, 6: run_gate_6}
 __all__ = [
     "ATTESTABLE",
     "COMPARED_FIELDS",
-    "DOCUMENTED_EGRESS_IP",
+    "DOCUMENTED_EGRESS_IPS",
     "GATES",
     "HOSTILE_SOURCE_IP",
     "GateContext",

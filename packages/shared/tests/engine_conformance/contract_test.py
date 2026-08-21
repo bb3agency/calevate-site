@@ -1369,6 +1369,165 @@ async def test_number_provisioning_matches_the_declared_series(engine: VoiceEngi
         )
 
 
+#: The header a conformance dial asks to present. A 160-series-shaped Indian number,
+#: because that is the class every agent this platform publishes runs on today (D-05).
+CONFORMANCE_CALLER_ID = "+911160000001"
+
+#: A number the engine has been told about, and one it has not — the pair every inbound
+#: clause below needs. `engine_number_ref` is the vendor's OWN handle for a number
+#: (Bolna's `phone_number_id`), which is why it is opaque here: `phone_numbers.
+#: engine_number_ref` stores whatever the vendor issued and hands it straight back, and
+#: OPERATIONS §2 gate 25 is open on what that string even looks like.
+LINKED_NUMBER = ProvisionedNumber(
+    e164="+911160000001", provider="plivo", engine_number_ref="num_known_to_engine", series="160"
+)
+UNLINKED_NUMBER = ProvisionedNumber(
+    e164="+911160000002", provider="plivo", engine_number_ref=None, series="160"
+)
+
+
+async def test_a_declared_caller_id_reaches_the_dial_or_is_refused_by_name(
+    engine: VoiceEngine,
+) -> None:
+    """THE NUMBER OUR COMPLIANCE GATE APPROVES IS THE NUMBER THAT RINGS (D-420).
+
+    `campaigns.service._channel_blockers` refuses a launch, and every dispatch tick, unless
+    the campaign's number carries the right 140/160 series for its classification and
+    `dlt_status = 'registered'`. For as long as `CallContext` had no from-number, that gate
+    described a number the callee never saw: the engine dialled from its own pool, and the
+    callee, the TSP and the complaint trail saw the vendor's number instead — **a
+    compliance control that controls nothing and reports green.**
+
+    So the claim is checkable in exactly two shapes and an adapter must satisfy the one it
+    declares:
+
+    **`caller_id=True`** — the value REACHES THE VENDOR. Asserted through the execution
+    read-back rather than by peeking at a request body, for `transfer`'s reason: this
+    method returns a handle and nothing else, so "it sent our number" and "it dropped our
+    number" are otherwise the same observation. `ExecutionSnapshot.from_e164` is the
+    contract's own answer to "what did the callee see", which makes this a property of the
+    port rather than of one stub.
+
+    **`caller_id=False`** — the dial is REFUSED, naming `caller_id`, never placed with the
+    platform's own number substituted. Silent substitution is the entire defect: the dial
+    succeeds, the handset shows a number nobody gated, and nothing anywhere reports it. An
+    adapter that refuses EVERY dial for a prior reason (the compliance floor) has nothing
+    to measure here and says so — `fake-deployed` is the profile that exercises the refusal
+    with the floor satisfied, which is why that fixture declares `caller_id=False`.
+    """
+    caps = engine.capabilities
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    ctx = _dial_context(engine, cfg).model_copy(update={"from_e164": CONFORMANCE_CALLER_ID})
+
+    refusal: Exception | None = None
+    handle: str | None = None
+    try:
+        handle = await engine.start_outbound_call(ref, "+919876543210", ctx)
+    except Exception as exc:
+        refusal = exc
+
+    if caps.caller_id:
+        assert refusal is None, (
+            "this adapter advertises a per-call caller id and refused a dial carrying "
+            f"one: {refusal!r}"
+        )
+        assert handle is not None
+        snapshot = await engine.get_execution(handle)
+        assert snapshot.from_e164 == CONFORMANCE_CALLER_ID, (
+            "this adapter advertises a per-call caller id and the execution came back "
+            f"presenting {snapshot.from_e164!r} — the DLT-registered header the campaign "
+            "gate approved is not the number that rang"
+        )
+        return
+
+    assert refusal is not None, (
+        "this adapter declares it cannot present a caller id we name and accepted one "
+        "anyway; the callee sees a number nobody gated and nothing reports it"
+    )
+    code, _ = _refusal(refusal)
+    if code == "engine_compliance_floor_absent":
+        # This adapter refuses EVERY dial one step earlier, so the caller-id refusal is
+        # unreachable here. Not a pass by omission: the same refusal is exercised on the
+        # `fake-deployed` profile, which satisfies the floor and declares `caller_id=False`.
+        return
+    assert getattr(refusal, "capability", None) == "caller_id", (
+        "the refusal does not name `caller_id`, so a console cannot tell it apart from a "
+        "transient engine failure and will offer the number again"
+    )
+
+
+async def test_inbound_binding_matches_the_declaration_either_way(engine: VoiceEngine) -> None:
+    """AN AGENT ASSIGNED TO A NUMBER IS AN AGENT THE ENGINE KNOWS ABOUT (D-420).
+
+    Inbound is half this product, and its first configuration step wrote
+    `phone_numbers.agent_id` and stopped at our database — no protocol method could carry
+    it to the engine, so an admin assigned a receptionist, the console said it worked, and
+    the number answered with whatever was last set in the vendor's own dashboard, or did
+    not answer at all.
+
+    Three properties, and the negative one is the one that catches an adapter that binds
+    nothing:
+
+    1. `inbound_binding=False` ⇒ both methods REFUSE, naming `inbound_binding`. An
+       operator must get the same answer from the descriptor before calling as from the
+       call, which is what stops a console offering a receptionist control the engine
+       cannot honour.
+    2. A number the engine has never been told about (`engine_number_ref is None`) is
+       REFUSED by name, not bound on the E.164. An engine addresses a number by its own
+       handle; ours are bought from the telephony vendor directly (D-05), so "the engine
+       has never heard of this number" is the ordinary state and a person's job to fix,
+       not an error to retry.
+    3. UNBINDING A NUMBER THE ENGINE DOES NOT HOLD SUCCEEDS. The postcondition is
+       "nothing of ours answers this number", which is already true — and this is an
+       OFFBOARDING path, so a step that raised on "there was nothing to undo" would block
+       the release of a number a client has stopped paying for. The opposite of
+       `end_call`, deliberately, and the same reasoning `delete_agent` uses.
+    """
+    caps = engine.capabilities
+    ref = await _agent_ref(engine)
+
+    if not caps.inbound_binding:
+        for call, name in (
+            (engine.bind_inbound_number(ref, LINKED_NUMBER), "bind_inbound_number"),
+            (engine.unbind_inbound_number(LINKED_NUMBER), "unbind_inbound_number"),
+        ):
+            refused: Exception | None = None
+            try:
+                await call
+            except Exception as exc:
+                refused = exc
+            assert refused is not None, (
+                f"{name} declares no inbound binding and accepted one anyway — the console "
+                "reports a receptionist assigned to a number the engine was never told about"
+            )
+            assert getattr(refused, "capability", None) == "inbound_binding", (
+                f"{name}'s refusal does not name `inbound_binding`, so it cannot be told "
+                "apart from a transient engine failure"
+            )
+        return
+
+    # A number the engine holds: binds, and unbinds again.
+    await engine.bind_inbound_number(ref, LINKED_NUMBER)
+    await engine.unbind_inbound_number(LINKED_NUMBER)
+    # ABSENT IS SUCCESS — the second unbind has nothing left to undo and must not raise.
+    await engine.unbind_inbound_number(LINKED_NUMBER)
+
+    unlinked: Exception | None = None
+    try:
+        await engine.bind_inbound_number(ref, UNLINKED_NUMBER)
+    except Exception as exc:
+        unlinked = exc
+    assert unlinked is not None, (
+        "this adapter bound a number the engine has no handle for, so nothing it does on "
+        "this method can be distinguished from doing nothing"
+    )
+    assert _refusal(unlinked)[0] == "engine_number_not_linked", (
+        "a number the engine was never told about must be refused by that name — an "
+        "operator's next step is to connect it, not to retry"
+    )
+
+
 async def test_agent_hosting_decides_where_the_truthful_answer_rule_lives(
     engine: VoiceEngine,
 ) -> None:

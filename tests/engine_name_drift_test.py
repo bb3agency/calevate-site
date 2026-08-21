@@ -68,7 +68,7 @@ CANONICAL_HOMES: dict[str, str] = {
 }
 
 #: The Python trees a copy could hide in. `tests/` is deliberately EXCLUDED: a test that
-#: restates the set is doing the thing `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IP`
+#: restates the set is doing the thing `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IPS`
 #: argues for — "a gate that imported the value it tests would be asking the code whether
 #: it agrees with itself" — and `tests/engine_capability_test.py` restates the shipped
 #: set for exactly that reason. `alembic/versions` is excluded because a migration is a

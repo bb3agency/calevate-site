@@ -42,6 +42,7 @@ import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.engine import bolna as bolna_module
 from apps.api.engine.bolna import BASE_URL, BOLNA_CAPABILITIES, BolnaEngine, _agent_models
+from calevate_shared.config import Settings
 from calevate_shared.engine import AgentConfig, CallContext, KBSourceRef, ModelConfig
 
 
@@ -178,6 +179,33 @@ async def test_the_toolchain_and_prompt_envelope_match_the_spec() -> None:
     }
 
 
+async def test_every_publish_states_the_agent_is_single_language() -> None:
+    """The multilingual switch is the ONE documented way the running prompt stops being
+    the prompt we published, so every body states it OFF rather than leaving it off.
+
+    `MultilingualConfig` keeps a `system_prompt` per language and the vendor's own
+    description says the platform "switches them, along with the active system prompt,
+    during the call" (`bolna-findings/mirror/pages/api-reference/agent/v2/create.md`).
+    `compose_engine_prompt` puts `TRUTHFUL_ANSWER_DIRECTIVE` into
+    `agent_prompts.task_1.system_prompt` and `verification.judge` reads it back from
+    there — so an agent switched to multilingual in the vendor's dashboard would run a
+    per-language prompt carrying none of the floor, and read back as fully applied. Hard
+    rule 5 forbids exactly that: a config row withdrawing the directive.
+
+    The key must be PRESENT and null, not absent: an omitted key is a field left as it
+    was, which is the same argument `agent_welcome_message` already makes in
+    `_agent_body`. `null` is the vendor's own value for it (`default: null`,
+    `nullable: true`), so stating it can neither be rejected nor mean anything else.
+    """
+    tools = (await _created_body())["agent_config"]["tasks"][0]["tools_config"]
+
+    assert "multilingual_config" in tools, (
+        "an omitted key leaves the vendor's stored value alone; the floor is not a thing "
+        "to rest on unobserved PUT merge semantics"
+    )
+    assert tools["multilingual_config"] is None
+
+
 # --- reading an agent back ----------------------------------------------------
 
 
@@ -290,11 +318,13 @@ def _provider_row(provider_id: str, name: str) -> dict[str, str]:
 
 async def test_installing_the_llm_credential_posts_the_documented_body() -> None:
     """`ProviderRequest` is `{provider_name, provider_value}`, both required. The name
-    comes from `Settings.bolna_llm_credential_name` rather than a literal, because it is a
-    MARKED ASSUMPTION an operator must be able to correct from the ops console without a
-    deploy — nothing published says which entry the hosted platform reads `llm_key` from
-    for a `provider: "azure"` leg (D-410 moved the default from `CUSTOM` to `AZURE` with
-    the provider; OPERATIONS §2 gate 16c is unchanged and still open).
+    comes from `Settings.bolna_llm_credential_name` rather than a literal, because a
+    documented name and a live account's actual name are different claims and an operator
+    must be able to correct one from the ops console without a deploy. The DEFAULT is no
+    longer a derivation: `AZURE_OPENAI_API_KEY` is the vendor's own name for the entry
+    (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers.md`, "LLMs" tab, "Azure
+    OpenAI" — four required keys, of which this is the one the platform pushes). It
+    replaced the derived guess `AZURE`, which appears nowhere in that table.
 
     THE EXPECTED NAME IS A LITERAL HERE AND A SETTING THERE, deliberately. Reading the
     setting on both sides would make this assertion true by construction and prove only
@@ -315,7 +345,9 @@ async def test_installing_the_llm_credential_posts_the_documented_body() -> None
     assert placement.replaced_in_place is True
     assert placement.superseded_removed == 0
     posts = [(path, body) for method, path, body in seen if method == "POST"]
-    assert posts == [("/providers", {"provider_name": "AZURE", "provider_value": "ya29.fresh"})]
+    assert posts == [
+        ("/providers", {"provider_name": "AZURE_OPENAI_API_KEY", "provider_value": "ya29.fresh"})
+    ]
 
 
 async def test_a_store_that_appends_is_reported_rather_than_tolerated() -> None:
@@ -329,11 +361,11 @@ async def test_a_store_that_appends_is_reported_rather_than_tolerated() -> None:
 
     Detected by IDENTITY, not by count: an id present before the write and still present
     after it cannot be the entry we just made."""
-    stale = _provider_row("p-old", "AZURE")
+    stale = _provider_row("p-old", "AZURE_OPENAI_API_KEY")
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "GET":
-            return httpx.Response(200, json=[stale, _provider_row("p-new", "AZURE")])
+            return httpx.Response(200, json=[stale, _provider_row("p-new", "AZURE_OPENAI_API_KEY")])
         return httpx.Response(200, json={"message": "successful", "status": "added"})
 
     with pytest.raises(ProblemError) as raised:
@@ -359,6 +391,89 @@ async def test_other_providers_are_never_counted_as_ours() -> None:
     placement = await _engine(handler).set_llm_credential("ya29.fresh")
 
     assert placement.replaced_in_place is True
+
+
+def test_the_credential_name_we_push_is_one_the_vendor_documents() -> None:
+    """**THE LAST MARKED ASSUMPTION IN D-410, PINNED TO ITS ANSWER.**
+
+    `Settings.bolna_llm_credential_name` spent D-410 holding a DERIVATION: their provider
+    matrix names single-key entries after the provider in upper case (`OPENAI`, `GOOGLE`,
+    `SARVAM`), so `azure` became `AZURE`. The vendor's credential-store documentation
+    names four entries for Azure OpenAI and **`AZURE` is not one of them** — the rule the
+    guess generalised from is real for one-key providers and does not survive a provider
+    that needs a key, an endpoint, a model and a version
+    (`bolna-findings/mirror/pages/providers.md`, "LLMs" tab, "Azure OpenAI", under *"All
+    these keys must be added for the respective provider."*).
+
+    THIS IS WHAT MAKES `_AZURE_PROVIDER_KEYS` LOAD-BEARING RATHER THAN A COMMENT, which
+    is the same job `_VENDOR_STATUSES` does for `_STATUS_MAP` in the same module: the
+    constant is never read at runtime, so without a test reading it, a correction to the
+    vendor's list and a correction to the default could drift apart silently. The
+    assertion is on the API-KEY entry specifically, because that is the one and only one
+    of the four this platform PUSHES — the other three have no secret in them and are
+    installed by an operator (`set_llm_credential`'s docstring says why).
+
+    It is a DEFAULT that is pinned, not the live value: the field is `applies: live`
+    precisely so a real account may disagree with the page, and asserting the effective
+    setting would refuse the correction the field exists to allow.
+    """
+    documented = bolna_module._AZURE_PROVIDER_KEYS
+    assert "AZURE" not in documented, (
+        "if the vendor ever does document a bare `AZURE` entry, this test and the "
+        "default below both need re-deciding rather than one of them quietly moving"
+    )
+
+    default = Settings.model_fields["bolna_llm_credential_name"].default
+    assert default in documented, (
+        f"the credential entry this platform writes is named {default!r}, which is not "
+        f"one of the entries the vendor's Azure OpenAI provider documents "
+        f"({sorted(documented)}). A key installed under a name nothing reads authenticates "
+        "nothing, and the symptom is a 401 from Azure on the first turn of the first call."
+    )
+    assert default == "AZURE_OPENAI_API_KEY", (
+        "the API key is the only one of the four whose value is a secret this platform "
+        "holds and must never ask a human to type; the endpoint, the deployment and the "
+        "api-version are the operator's"
+    )
+
+
+async def test_the_other_three_azure_entries_are_not_mistaken_for_ours() -> None:
+    """**THE NEAR-MISS THE FOUR-KEY REQUIREMENT CREATES, AND IT DID NOT EXIST BEFORE.**
+
+    Their Azure OpenAI provider needs four entries (`_AZURE_PROVIDER_KEYS`), so a
+    configured account's store holds `AZURE_OPENAI_API_KEY` beside `AZURE_OPENAI_MODEL`,
+    `AZURE_OPENAI_API_BASE` and `AZURE_OPENAI_API_VERSION`. Under the old derived name
+    `AZURE` the store held one entry that looked anything like ours; now it holds four
+    that share a prefix, and three of them are present before AND after every write we
+    make.
+
+    If identity were ever loosened from `provider_name == name` to anything
+    prefix-shaped or `in`-shaped, those three would read as SUPERSEDED COPIES of our key
+    on the very first install: `set_llm_credential` would raise
+    `engine_credential_not_replaced` on a store that behaved perfectly, and the
+    remediation it prints tells an operator to delete the entry — which here would be the
+    endpoint or the deployment their agent needs. A correct install reporting a failure
+    whose fix breaks the leg is worse than either half alone.
+
+    The companion values are the vendor's own descriptions rather than realistic ones,
+    because what is under test is the NAME comparison and a realistic endpoint here would
+    invite somebody to assert on it instead.
+    """
+    companions = [
+        _provider_row("p-model", "AZURE_OPENAI_MODEL"),
+        _provider_row("p-base", "AZURE_OPENAI_API_BASE"),
+        _provider_row("p-version", "AZURE_OPENAI_API_VERSION"),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=list(companions))
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    placement = await _engine(handler).set_llm_credential("azure-static-key")
+
+    assert placement.replaced_in_place is True
+    assert placement.superseded_removed == 0
 
 
 async def test_the_write_happens_before_any_delete_could() -> None:

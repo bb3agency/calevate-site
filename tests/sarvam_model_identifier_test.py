@@ -75,6 +75,7 @@ from calevate_shared.engine import (
     GEMINI_RETIRED_LLMS,
     SARVAM_DEFAULT_LLM,
     SARVAM_RETIRED_LLMS,
+    SARVAM_TRANSLATING_STT,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -132,6 +133,43 @@ def test_no_shipped_module_sends_a_retired_sarvam_model() -> None:
         "these modules name a Sarvam model identifier the vendor has retired; a request "
         f"carrying one fails at the vendor: {ChainMapLike(offenders)}. Import "
         "`calevate_shared.engine.SARVAM_DEFAULT_LLM` instead."
+    )
+
+
+def test_no_shipped_module_configures_a_translating_sarvam_transcriber() -> None:
+    """THE SAME SCAN, FOR A FAILURE WITH NO VENDOR-SIDE SYMPTOM AT ALL.
+
+    Every other name this file bans produces a 4xx from somebody. `saaras:v2.5` does
+    not: the engine supports it, the request succeeds, and a well-formed transcript comes
+    back — in ENGLISH, because that model translates rather than transcribes
+    (`SARVAM_TRANSLATING_STT` carries the vendor's own sentence). So the agent works, the
+    pilot gate goes green, and the Telugu-shaped machinery downstream matches nothing:
+    `workers/redaction.py` hunts transliterated Telugu digit words and
+    `compliance/optout.py` hunts romanised Telugu opt-out phrases, and neither survives a
+    translation. An unrecognised opt-out is a compliance failure rather than a quality
+    one, which is why this is a scan and not a preference.
+
+    THE DEFECT THAT PROMPTED IT WAS REAL AND HAD SURVIVED REVIEW: `scripts/pilot/
+    gates_api.py` configured `saaras:v2.5` while `scripts/pilot/scorecard.py` priced
+    "Sarvam Saaras V3 STT" and the conformance suite configured `saaras:v3` — three
+    spellings of one leg, of which the one that dialled a real Indian telephone was the
+    one that would have returned English.
+    """
+    offenders: dict[str, set[str]] = {}
+    for path in _shipped_python():
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if relative == CANONICAL_HOME:
+            continue
+        translating = _string_literals(path) & SARVAM_TRANSLATING_STT
+        if translating:
+            offenders[relative] = translating
+
+    assert not offenders, (
+        "these modules configure a Sarvam transcriber that returns an ENGLISH "
+        "TRANSLATION rather than the caller's own words, on a Telugu-first product: "
+        f"{ChainMapLike(offenders)}. Nothing will fail loudly — the transcript arrives "
+        "well-formed and the Telugu opt-out and redaction matchers silently match "
+        "nothing. Use an original-language model (`saaras:v3`)."
     )
 
 

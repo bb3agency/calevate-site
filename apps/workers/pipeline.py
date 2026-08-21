@@ -682,11 +682,30 @@ async def _copy_recording_once(tenant_id: UUID, call_id: UUID, snapshot: Executi
     is the one participant that can refuse. `_pipeline_settled` re-drives a call whose
     EXTRACTION or USAGE is missing — the recording is not even in `_expected_artifacts`
     — and the re-drive starts here, at step 1, because the recording comes first. So a
-    vendor link that has since expired (Bolna's are direct S3 links with no documented
-    expiry, TRD §5) turned a repair for a missing lead into a `StorageUnavailableError`
-    that failed the whole job, three times, every hour, forever: the artefact the poller
-    came to repair was never reached, and the guarantee of record silently stopped
-    guaranteeing that call. Skipping the copy we already hold is what unblocks it.
+    vendor link that has since expired turned a repair for a missing lead into a
+    `StorageUnavailableError` that failed the whole job, three times, every hour, forever:
+    the artefact the poller came to repair was never reached, and the guarantee of record
+    silently stopped guaranteeing that call. Skipping the copy we already hold is what
+    unblocks it.
+
+    **THE EXPIRY IS NO LONGER HYPOTHETICAL AND THIS PARAGRAPH USED TO SAY IT WAS.** It
+    read "Bolna's are direct S3 links with no documented expiry, TRD §5", which was true
+    of a URL shape the vendor retired on 1 June 2026 (VERIFIED-DOCS,
+    `bolna-findings/mirror/pages/changelog/may-2026.md:87-119`, tagged *Breaking Change*):
+    `https://bolna-recordings-india.s3.amazonaws.com/...` stopped working and
+    `telephony_data.recording_url` now carries
+    `https://api.bolna.ai/recordings/call/{execution-id}`. That endpoint is *"permanent
+    and stable"*, but *"the resolved pre-signed link it returns expires after 24 hours —
+    do not store or cache it"*.
+
+    WE ALREADY DO THE RIGHT THING, WHICH IS WHY THIS IS A COMMENT AND NOT A FIX: nothing
+    here parses, stores or re-uses the vendor URL. We fetch through whatever
+    `snapshot.recording_url` says at the moment we hold it — `storage._fetch_recording`
+    walks the redirect to the pre-signed link itself (`RECORDING_REDIRECT_LIMIT`), never
+    persisting it — and `calls.recording_url` is overwritten with OUR key. The vendor's
+    24-hour window therefore only has to outlive one fetch, not one retention period.
+    What DOES land on the expiry is a re-drive of a call older than a day, and the guard
+    below is exactly what keeps that from re-fetching at all.
 
     `calls.recording_url` holds OUR object key and nothing else — this stage is its only
     writer and the retention sweep is its only clearer — so a non-null value is proof the

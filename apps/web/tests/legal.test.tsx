@@ -298,6 +298,43 @@ describe("what each document must contain", () => {
     }
   });
 
+  it("does not place the voice platform in India, and says where it actually is", () => {
+    /*
+     * The narrower version of the test above, on the one vendor where getting it wrong is
+     * a live legal exposure rather than a marketing overreach.
+     *
+     * This register said "India for the platform" for the voice engine and described only
+     * that vendor's RECORDING STORAGE as being in the United States. Their own published
+     * documentation says the opposite and says it twice: "By default, all Bolna AI
+     * services operate in United States (US)-hosted infrastructure" (enterprise/data-
+     * residency) and "By default, Bolna processes calls on infrastructure in the US (AWS
+     * us-east-1)" (concepts/security). India is an enterprise option nobody here has
+     * bought — and their own India-routing requirements exclude the bring-your-own-model-
+     * key posture this product is built on, so buying it would not by itself move the
+     * calls. `docs/evidence/bolna-compliance-residency.md` §2 carries the quotes.
+     *
+     * A DPA that tells a client their calls are handled in India when they are handled in
+     * the United States is a misstatement in a contract, which is why this is asserted on
+     * the ROW rather than left to the prose sweep above: the Location cell is the sentence
+     * a buyer's counsel reads.
+     */
+    const register = bySlug("subprocessors");
+    const voiceRows = blocksOf(register).flatMap((block) =>
+      block.kind === "table"
+        ? block.rows.filter((row) => (row[0] ?? "").startsWith("Bolna"))
+        : [],
+    );
+    expect(voiceRows, "the voice platform must have exactly one register row").toHaveLength(1);
+    const location = voiceRows[0]?.[3] ?? "";
+    expect(location).toMatch(/United States/);
+    expect(location, "the Location cell may not place the voice platform in India").not.toMatch(
+      /India/,
+    );
+    for (const slug of ["subprocessors", "privacy", "dpa"]) {
+      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(/United States infrastructure/);
+    }
+  });
+
   it("describes the AI disclosure as a client setting with a truthful-answer floor", () => {
     // The founder's posture, and the one paragraph a template would get wrong: the
     // announcement is a toggle, the truthful answer is not, and the duty sits with the

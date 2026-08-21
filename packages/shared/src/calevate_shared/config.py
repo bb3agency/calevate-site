@@ -104,14 +104,40 @@ SELECTABLE_ENGINES: frozenset[str] = frozenset(get_args(EngineName))
 # records come out in the same format as everything else.
 _log = logging.getLogger(__name__)
 
-# Bolna's documented egress address (D-31, TRD §5). THE only copy of this literal on any
-# runtime path — `Settings.bolna_webhook_source_ips` defaults to it, and both the
+# Bolna's documented egress addresses (D-31, TRD §5). THE only copy of these literals on
+# any runtime path — `Settings.bolna_webhook_source_ips` defaults to them, and both the
 # receiver (`apps/voice-runtime/engine_intake.py`) and the adapter
 # (`apps/api/engine/bolna.py`) resolve their effective allowlist through
-# `bolna_source_ips()` below. `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IP` restates it
+# `bolna_source_ips()` below. `scripts/pilot/gates_api.DOCUMENTED_EGRESS_IPS` restates them
 # ON PURPOSE and argues why: a gate that imported the value it tests would be asking the
 # code whether it agrees with itself.
-DEFAULT_BOLNA_SOURCE_IPS: frozenset[str] = frozenset({"13.203.39.153"})
+#
+# **THERE ARE THREE, AND THIS SET HELD ONE (D-412).** Every source this repository had
+# read — the pinned OAS, `bolna-core.md`, `setup-webhook/SKILL.md`, `execution-payload.md`
+# — named a single address, and they were current when they were read. Bolna has since
+# renumbered to three, and their live docs say so in six places, with the consequence
+# spelled out: *"Webhooks are sent from the following IP addresses. **Whitelist all
+# three** on your server to ensure you receive all webhook events."*
+# (`bolna-findings/mirror/pages/guides/post-call/polling-call-status-webhooks.md`;
+# identically in `api-reference/executions/get_execution.md`, `concepts/security.md`,
+# `api-reference/limits.md`, `concepts/call-flow.md` and `build-with-ai/agents-md.md`).
+# The mirrored `llms-full.txt` in the same evidence tree still shows the OLD single-IP
+# wording, so the two snapshots together date the change rather than merely asserting it.
+#
+# WHAT THE MISSING TWO COST, and it is not "some webhooks": `parse_source_ip_allowlist`
+# fails SAFE, so a delivery from an address not in this set is REJECTED. Two of Bolna's
+# three senders were being turned away at the receiver, and which sender carries a given
+# transition is not ours to choose — so roughly two thirds of every status transition,
+# `completed` included, never reached the post-call pipeline. That is survivable only
+# because the executions poller is the guarantee of record (TRD §5, "payloads as hints,
+# poller as truth") — and D-412 found that poller sending a malformed listing request at
+# the same time. Both halves of the guarantee were down together.
+#
+# A NEW ADDRESS IS A CONFIG CHANGE, NOT A DEPLOY: `Settings.bolna_webhook_source_ips`
+# overrides this default, which is why the vendor renumbering again costs an env edit.
+DEFAULT_BOLNA_SOURCE_IPS: frozenset[str] = frozenset(
+    {"13.203.39.153", "13.126.9.249", "13.202.133.53"}
+)
 
 
 @lru_cache(maxsize=8)
@@ -451,6 +477,24 @@ class Settings(BaseSettings):
     # THAT name, so it cannot be derived from `azure_openai_model` and must not be guessed
     # from it. `ModelConfig.llm_model` is where this value lands on the wire.
     #
+    # ⚠ **THE ENGINE READS THIS NAME AND INFERS THINGS FROM IT, WHICH NOTHING HERE KNEW
+    # UNTIL THEIR DOCS WERE READ.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/
+    # providers/llm-model/azure-openai.md:69`: *"Azure deployment names are chosen freely,
+    # so `model` here is often not the model name. Keep the underlying model name inside
+    # the deployment name — `prod-gpt-5.4-mini` rather than `prod-voice-01`. Bolna resolves
+    # the deployment to the model it serves, and that resolution is what selects GPT-5
+    # handling and the right default `reasoning_effort`. A name it cannot resolve is
+    # treated as a non-GPT-5 model and gets the wrong defaults."*
+    #
+    # HARMLESS FOR US TODAY AND A TRAP THE DAY IT IS NOT. `AzureOpenAIModel` is closed to
+    # two GPT-4-class models, and "treated as a non-GPT-5 model" is the CORRECT handling
+    # for both — so an opaque deployment id costs nothing right now. It stops being free
+    # the moment a GPT-5 model is added to that Literal: a deployment named `prod-voice-01`
+    # would then be served with GPT-4-era defaults on a GPT-5 model, silently, with no
+    # error anywhere. Naming deployments after the model they serve costs nothing and
+    # removes the failure in advance, so it is the instruction OPERATIONS §2's Azure gates
+    # carry. The other half of that trap is in `AzureOpenAIModel`'s own comment.
+    #
     # Bounded to the shape Azure accepts for a deployment id — letters, digits, hyphens
     # and underscores, up to 64 — so a value with a slash or a space cannot reach a URL.
     azure_openai_deployment: str | None = Field(
@@ -478,24 +522,37 @@ class Settings(BaseSettings):
     # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE LLM KEY (D-404, re-aimed by
     # D-410).
     #
-    # A SETTING RATHER THAN A CONSTANT, AND THE REASON IS UNCHANGED BY THE MIGRATION:
-    # NOBODY HERE HAS READ THE RIGHT VALUE. It is one of the two things D-410 could not
-    # settle — Bolna's docs are refused by this environment's egress proxy — so it is a
-    # MARKED ASSUMPTION with a named gate (OPERATIONS §2), never a fact. What changed is
-    # only which provider it names a key for.
+    # ⚠ **THE MARKED ASSUMPTION THIS FIELD CARRIED IS CLOSED, AND THE GUESS WAS WRONG.**
+    # It defaulted to `AZURE` — a DERIVATION, and the comment said so: their published
+    # provider matrix names credential entries after the provider in upper case (`OPENAI`,
+    # `GOOGLE`, `SARVAM`), so `azure` became `AZURE`. The vendor's own credential-store
+    # documentation is now readable and names FOUR keys for Azure OpenAI, none of them
+    # `AZURE`:
     #
-    # `AZURE` IS A DERIVED DEFAULT, NOT A VENDOR STATEMENT, and the derivation is the
-    # whole of its standing: their published provider matrix names credential entries
-    # after the provider in upper case (`OPENAI`, `GOOGLE`, `SARVAM`), and the provider we
-    # send for this leg is `azure` (Azure OpenAI is in their published provider list and
-    # their live agent dropdown, which is what made D-410 cheaper than D-404). So this is
-    # their own naming rule applied to our provider string. It may still be wrong —
-    # `AZURE_OPENAI` is the obvious alternative — and a wrong value fails LOUD, as a 401
-    # from Azure on the first turn of the first call.
+    #     | `AZURE_OPENAI_API_KEY`     | Your Azure API key           |
+    #     | `AZURE_OPENAI_MODEL`       | Your Azure OpenAI model      |
+    #     | `AZURE_OPENAI_API_BASE`    | Your Azure URL               |
+    #     | `AZURE_OPENAI_API_VERSION` | Your Azure Model API version |
     #
-    # Console-managed (`applies: live`) precisely so the operator who gets the answer
-    # types it into a screen instead of waiting for a deploy — the difference between a
+    # VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers.md`, "LLMs" tab, "Azure
+    # OpenAI" accordion, under *"All these keys **must** be added for the respective
+    # provider."* (fetched 20 Aug 2026, sha256 63231b2b7a0c5a338dd1d6342dc65ea4ac055
+    # 46f7ddb6a28bc3c9a4ec24791b9). The derivation was not merely off by a spelling: the
+    # per-provider naming rule it generalised from is real for single-key providers and
+    # does not hold for this one, which needs a key, an endpoint, a model and a version.
+    # `apps/api/engine/bolna.py::_AZURE_PROVIDER_KEYS` holds all four with the evidence,
+    # because vendor field names are an ENGINE concern (hard rule 2); this field carries
+    # only the one the platform must PUSH rather than an operator type.
+    #
+    # A SETTING RATHER THAN A CONSTANT, STILL, AND THE REASON CHANGED. It used to be a
+    # setting because nobody had read the right value. Now it is a setting because a
+    # documented name and an account's actual name are different claims: the docs are a
+    # snapshot, the store is a live system, and OPERATIONS §2 gate 16f is a `GET
+    # /providers` against a real account that can still disagree with the page. If it
+    # does, this is a console edit rather than a deploy — the difference between a
     # five-minute fix and an outage lasting until the next release.
+    #
+    # Console-managed (`applies: live`) for exactly that.
     #
     # NOT a credential itself: it is the NAME of one, it is not secret, and it must stay
     # out of `platform_secrets` so an operator can actually SEE what is currently
@@ -514,9 +571,13 @@ class Settings(BaseSettings):
     # `platform_config._CREDENTIAL_REFERENCE_KEYS`.
     #
     # Bounded to the shape a credential-store key can take: their examples are
-    # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores.
+    # `OPENAI_API_KEY`-style, so upper-case ASCII, digits and underscores. The documented
+    # default now fits that shape exactly, which it did not have to before.
     bolna_llm_credential_name: str = Field(
-        default="AZURE", min_length=2, max_length=64, pattern=r"^[A-Z][A-Z0-9_]{1,63}$"
+        default="AZURE_OPENAI_API_KEY",
+        min_length=2,
+        max_length=64,
+        pattern=r"^[A-Z][A-Z0-9_]{1,63}$",
     )
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
@@ -966,13 +1027,16 @@ class Settings(BaseSettings):
     # other name resolves to `provider_not_implemented` rather than looking configured.
     payment_provider: str | None = Field(default=None, max_length=64)
     # WHICH telephony vendor may sell this deployment a phone number (D-05: Exotel, with
-    # Vobiz for the 140-series). Config rather than an inference from a credential, for
-    # the same reason `payment_provider` is: a key is not a statement that the
-    # capability exists. NO ADAPTER EXISTS FOR ANY VALUE — `apps/api/campaigns/
+    # Vobiz for the 140-series and Plivo for the 160-series — the engine's own
+    # regulated-numbers table, `bolna-findings/mirror/pages/guides/inbound/
+    # obtaining-regulated-phone-numbers.md:15-16`). Config rather than an inference from a
+    # credential, for the same reason `payment_provider` is: a key is not a statement that
+    # the capability exists. NO ADAPTER EXISTS FOR ANY VALUE — `apps/api/campaigns/
     # provisioning.py` owns the one selector and `PROVISIONING_IMPLEMENTED` is False —
     # so this setting currently decides only WHICH refusal an operator sees. A name
-    # outside {exotel, vobiz} resolves to `provider_not_implemented` rather than looking
-    # configured.
+    # outside {exotel, plivo, vobiz} resolves to `provider_not_implemented` rather than
+    # looking configured; that module's comment carries the evidence for each name,
+    # including why `twilio` is deliberately not one of them.
     number_provider: str | None = Field(default=None, max_length=64)
     # The PUBLIC key id, handed to the browser's checkout. Unset = the top-up intent
     # answers "payments not configured" rather than returning an unusable intent.

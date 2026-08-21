@@ -211,23 +211,37 @@ def test_an_unset_provider_renders_exactly_what_the_adapter_sent_before() -> Non
     }
 
 
-def test_an_azure_leg_renders_the_spelling_the_live_platform_offers() -> None:
-    """`azure`, NOT `azure-openai`, AND NOT `custom` — three real candidates and the
-    choice between them is the whole of D-410's engine-side bet.
+def test_an_azure_leg_renders_the_spelling_the_vendor_documents() -> None:
+    """`azure-openai`, NOT `azure`, AND NOT `custom` — three real candidates, and this
+    assertion moved once already, which is the reason it is pinned by `==`.
 
     Their `LLMProvider` enum carries both `azure` and `azure-openai` (VERIFIED-OSS), so
-    this is one of two names their server will recognise; the tiebreak is the HOSTED
-    platform, whose published provider matrix lists `Azure OpenAI` and whose live agent
-    dropdown offers `azure`. `custom` is the better-evidenced value — VERIFIED-OSS to
-    construct `AsyncOpenAI(base_url=…, api_key=…)`, which is literally the client our v1
-    endpoint wants — and it was abandoned because the credential route it depends on is
-    the one gate 16c put in doubt.
+    the question was never "is the name right" but "which of two real names". D-410 chose
+    `azure` from the best evidence then available: a published provider matrix reading
+    `Azure OpenAI` and a live agent dropdown offering `azure`. **Both of those are
+    HUMAN-READABLE LABELS**, and a label cannot settle a wire value. The vendor's own
+    documentation states the wire value twice — as a copy-pasteable `llm_config` body
+    and again in a Key settings table:
+
+        | `provider` | string | `"azure-openai"` | Provider name |
+
+    VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/llm-model/
+    azure-openai.md`. Every sibling provider page states `provider` the same way in the
+    same two places, and each of those values (`openai`, `anthropic`, `google`,
+    `deepseek`, `openrouter`) is a spelling this repository already treats as the wire
+    name — so the form is corroborated, not just the one entry.
+
+    `custom` is the value with the best CLIENT evidence — VERIFIED-OSS to construct
+    `AsyncOpenAI(base_url=…, api_key=…)`, literally the client our v1 endpoint wants —
+    and the docs made it worse rather than better: the entire documented custom-LLM flow
+    takes a URL and a name and has **no credential field anywhere**, so there is no way
+    to carry the API key our endpoint requires on every request.
 
     Pinned by `==` rather than by "not google": the value is a decision with a written
     reason, and a change to it is a change to that decision.
     """
     body = _llm_routing(_azure_models())
-    assert body["provider"] == "azure"
+    assert body["provider"] == "azure-openai"
     assert body["family"] == "openai", "cosmetic on their side, and `openai` is what the wire is"
     assert body["base_url"] == ENDPOINT
 
@@ -259,7 +273,7 @@ def test_the_agent_body_carries_the_endpoint_into_the_llm_block() -> None:
     llm_agent = body["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]
     assert llm_agent["agent_type"] == "simple_llm_agent"
     llm = llm_agent["llm_config"]
-    assert llm["provider"] == "azure"
+    assert llm["provider"] == "azure-openai"
     assert llm["base_url"] == ENDPOINT
     # The flat v1 spelling must NOT also be present: two spellings of one endpoint is
     # how a corrected URL gets applied in one place and ignored in the other.
@@ -323,7 +337,7 @@ def test_our_endpoint_read_back_is_recognised_as_an_azure_leg() -> None:
                     "tools_config": {
                         "llm_agent": {
                             "model": DEPLOYMENT,
-                            "provider": "azure",
+                            "provider": "azure-openai",
                             "base_url": ENDPOINT,
                         }
                     }
@@ -352,7 +366,7 @@ def test_the_v2_nesting_this_adapter_actually_writes_reads_back_too() -> None:
                             "agent_type": "simple_llm_agent",
                             "llm_config": {
                                 "model": DEPLOYMENT,
-                                "provider": "azure",
+                                "provider": "azure-openai",
                                 "base_url": ENDPOINT,
                             },
                         }
@@ -386,7 +400,7 @@ def test_another_resource_reads_back_as_no_provider_and_never_raises() -> None:
                     "tools_config": {
                         "llm_agent": {
                             "model": DEPLOYMENT,
-                            "provider": "azure",
+                            "provider": "azure-openai",
                             "base_url": "https://someone-elses.openai.azure.com/openai/v1/",
                         }
                     }

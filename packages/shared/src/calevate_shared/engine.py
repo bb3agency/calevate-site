@@ -108,6 +108,8 @@ EngineCapabilityName = Literal[
     "campaigns",
     "knowledge_base",
     "numbers",
+    "caller_id",
+    "inbound_binding",
     "transfer",
 ]
 
@@ -185,6 +187,36 @@ class EngineCapabilities(BaseModel):
     #: 140/160 series are Indian DLT classes; an engine with no Indian telephony path
     #: cannot offer them even if it can sell a number somewhere else.
     number_series: frozenset[NumberSeries]
+    #: Will this engine present a caller ID **WE NAME, PER CALL**, on an outbound dial
+    #: (`CallContext.from_e164`)? (D-420.)
+    #:
+    #: **NOT "does this engine have a caller ID".** Every telephony platform has one; the
+    #: question is whose. Under False the engine dials from ITS OWN pool and our
+    #: `from_e164` addresses nothing — so an adapter must REFUSE a context that carries one
+    #: rather than drop it, for the reason `SpeechControl` gives about a dictated voice, and
+    #: with a consequence one order worse. A dropped voice is a caller hearing the wrong
+    #: accent; a dropped caller ID on a campaign dial is our DLT gate certifying a
+    #: 140/160-series header that never reaches the callee's handset, while the callee, the
+    #: TSP and the complaint trail see the vendor's number. That is what D-420 found: a
+    #: compliance control that controls nothing and reports green.
+    #:
+    #: **ADAPTER-WIDE CONFIGURATION IS `False`, NOT `True`, and this is the distinction the
+    #: field exists to make.** `CartesiaEngine` refuses to dial without a `from_number_id`
+    #: — which looks like caller-ID support and is not: one number for the whole platform,
+    #: read from adapter config, on a product where each tenant's Principal Entity has its
+    #: own registered header. "The platform has a from-number" and "this dial presents the
+    #: number our gate approved" are different facts, and only the second one is this.
+    caller_id: bool
+    #: Can this engine be told **which agent answers which number** — `bind_inbound_number`
+    #: / `unbind_inbound_number` (D-420)? Under False both must refuse by name, and inbound
+    #: routing is a manual step in the vendor's console that our onboarding runbook owns
+    #: rather than a screen in ours.
+    #:
+    #: SEPARATE FROM `numbers`, which is about PROVISIONING — buying a number. Bolna
+    #: provisions none of ours (D-05: numbers come from the telephony vendor directly) and
+    #: still routes them, so one boolean for both would have made the engine that can do the
+    #: half we need look like the engine that can do neither.
+    inbound_binding: bool
     #: Will `VoiceEngine.transfer` — a CONTROL-PLANE command issued from outside the call
     #: — actually work? False ⇒ it must refuse by name.
     #:
@@ -248,6 +280,10 @@ class EngineCapabilities(BaseModel):
             return self.knowledge_base
         if name == "numbers":
             return bool(self.number_series)
+        if name == "caller_id":
+            return self.caller_id
+        if name == "inbound_binding":
+            return self.inbound_binding
         return self.transfer
 
 
@@ -338,6 +374,39 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
     {"sarvam-m", "sarvam-30b", "sarvam-30b-16k", "sarvam-105b-32k"}
 )
 
+#: Sarvam SPEECH-TO-TEXT identifiers that do not return what was said — they return an
+#: ENGLISH TRANSLATION of it. Banned from shipped code on a Telugu-first product, and
+#: scanned for by `tests/sarvam_model_identifier_test.py` exactly as the retired names are.
+#:
+#: **WHY A BAN AND NOT A PREFERENCE, WHICH IS THE HALF THAT IS EASY TO GET WRONG.** These
+#: are not retired, not deprecated and not second-rate: the engine supports them, a
+#: request naming one succeeds, and the transcript comes back well-formed. **Nothing
+#: 400s.** So the failure has no vendor-side symptom at all — it surfaces as an agent that
+#: works in a demo and a pipeline whose Telugu-shaped machinery quietly matches nothing:
+#: `apps/workers/redaction.py` looks for transliterated Telugu digit words, and
+#: `apps/api/compliance/optout.py` looks for romanised Telugu opt-out phrases, and neither
+#: is in an English translation. A CONSENT WITHDRAWAL WE DO NOT RECOGNISE IS A COMPLIANCE
+#: FAILURE, not a quality one, which is what makes this a hard-banned set rather than a
+#: note in a docstring. It is also the reason the ban is by IDENTIFIER: "did the caller's
+#: own words reach us" is not a property any downstream check can recover once they have
+#: not.
+#:
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/providers/transcriber/sarvam.md`
+#: (fetched 20 Aug 2026) lists four supported Sarvam STT models and separates them on
+#: exactly this axis — *"Saarika v2.5: Transcribes speech to text in the original spoken
+#: language"*, *"Saaras v2.5: Translates speech directly to English text with automatic
+#: language detection"*, *"Saaras v3: Configured for direct transcription in the original
+#: spoken language"*, *"Saaras v4: Latest Saaras model, transcribes directly in the
+#: original spoken language and can auto-detect the spoken language"*. One of the four
+#: translates. This set is that one.
+#:
+#: DELIBERATELY NOT AN ALLOW-LIST OF THE OTHER THREE. A vendor adds models and a
+#: closed set of "good" names turns their next release into our outage, for a leg where
+#: being a release behind costs nothing. A DENY-list of the one behaviour we cannot
+#: tolerate keeps working when the catalogue grows, and the next translating model is one
+#: entry here.
+SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
+
 
 #: THE Azure region this platform's Azure OpenAI resource lives in. South India (D-410).
 #:
@@ -388,6 +457,29 @@ AZURE_LOCATION: Final = "southindia"
 #: annotation. A free-form string would let a typo become a model identifier that 404s from
 #: a third party in the middle of a live phone call, which is the failure class
 #: `SARVAM_RETIRED_LLMS` above already exists for.
+#: ⚠ **BOTH MEMBERS ARE CONFIRMED SELECTABLE ON THE ENGINE, AND ADDING A THIRD IS NOT A
+#: ONE-LINE CHANGE.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/
+#: llm-model/azure-openai.md:44-47`: their Azure "Supported models" table lists `gpt-4.1`,
+#: `gpt-4.1-mini`, `gpt-4o` AND `gpt-4o-mini`, each as *"Previous gen; still available /
+#: Stable if already deployed"*. So the fear that our two identifiers were absent from a
+#: fixed allow-list — and that every publish would be rejected at create time — is
+#: ANSWERED NO. The same page settles the mechanism too (`:69`, `:97-98`): the field is a
+#: DEPLOYMENT name chosen freely, which is what this module has argued all along.
+#:
+#: **WHAT A NEW MEMBER COSTS, listed here because two of the three are invisible from
+#: this line.** `AZURE_LIST_PRICE_USD_PER_MTOK` must gain the same key or metering
+#: `KeyError`s on the first call after the switch. And on a **GPT-5-class** model there
+#: are two more, both of which fail at PUBLISH rather than in review:
+#:
+#:   1. `apps/api/engine/bolna.py::_agent_body` sends `temperature: 0.1`, and their
+#:      GPT-5 models accept ONLY `1` — *"Any other value is rejected with `400 For GPT-5
+#:      models, temperature must be 1`"* (`azure-openai.md:29`). Every publish would 400.
+#:   2. Bolna infers GPT-5 handling and the default `reasoning_effort` by resolving the
+#:      DEPLOYMENT NAME back to a model (`azure-openai.md:69`), so a deployment not named
+#:      after its model gets GPT-4-era defaults on a GPT-5 model with no error at all.
+#:      `Settings.azure_openai_deployment` carries that half.
+#:
+#: None of this is a reason not to move — it is the checklist that makes moving safe.
 AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 
 #: The same set as a value — `get_args` on the Literal, never a second tuple beside it.
@@ -614,12 +706,14 @@ def _azure_resource_of(base_url: str) -> str | None:
 #: once for exactly that reason.
 #:
 #: WHAT THE VOCABULARY BUYS HERE, now that the engine has a first-class name for this
-#: provider. Bolna lists Azure OpenAI in its published provider set and its live agent
-#: dropdown (`azure`), so `apps/api/engine/bolna.py::_llm_routing` maps this member onto a
-#: provider the platform advertises — not onto the `custom` route, whose one unverified
-#: premise (which credential-store entry a custom model's key is read from) is what put the
-#: Vertex leg in doubt. Ours stays a separate name from theirs because the mapping is the
-#: adapter's job and because "azure" is a vendor's word for a cloud, not ours for a leg.
+#: provider. Bolna documents Azure OpenAI as a provider in its own right, with a wire
+#: spelling (`azure-openai`) and a four-key credential-store entry, so
+#: `apps/api/engine/bolna.py::_llm_routing` maps this member onto a provider the platform
+#: advertises — not onto the `custom` route, whose credential path their own docs still do
+#: not describe (the whole documented custom-LLM flow is a URL and a name, with no field
+#: for a key), which is what put the Vertex leg in doubt. Ours stays a separate name from
+#: theirs because the mapping is the adapter's job and because "azure-openai" is a
+#: vendor's word for a cloud product, not ours for a leg.
 #:
 #: ONE MEMBER, AND THAT IS THE HONEST COUNT rather than a stub. `None` — "whatever the
 #: engine's own default is" — remains what an agent resolves to on a deployment that has
@@ -1064,6 +1158,37 @@ class CallContext(BaseModel):
     context_note: str | None = None
     prior_call_summary: str | None = None
     fields: dict[str, str] = Field(default_factory=dict)
+    #: THE NUMBER THIS DIAL MUST PRESENT TO THE CALLEE — the client's own DLT-registered
+    #: header, resolved from the `phone_numbers` row bound to the agent (D-420).
+    #:
+    #: **WHY THE PORT HAD NO FIELD FOR IT FOR SO LONG, AND WHAT THAT COST.** `phone_numbers`
+    #: has always carried `e164`, `series`, `provider` and `agent_id`, and this contract
+    #: could express none of it: numbers could be BOUGHT (`provision_number`) and nothing
+    #: else. So `campaigns.service._channel_blockers` refused a launch — and every dispatch
+    #: tick — unless the campaign's number carried the right 140/160 series for its
+    #: classification and `dlt_status = 'registered'`, while the dial itself carried no
+    #: caller ID at all and the vendor answered from its own pool. The gate was reading a
+    #: real column, the adapter was sending a valid body, and between them nothing ever
+    #: stated that the GATED number and the DIALLED number are the same number. **A protocol
+    #: that cannot express a claim cannot be tested for it either**, which is why three
+    #: audits found the parts and none found the gap.
+    #:
+    #: `None` MEANS "THE ENGINE'S OWN POOL", and it is honest rather than a default worth
+    #: having: a single-lead callback from an account with no registered header is a real
+    #: case and refusing it would be a self-inflicted outage. What must never happen is a
+    #: CAMPAIGN dial resolving to None — `agents.service.dispatch_call` resolves the header
+    #: and `campaigns.service` refuses a campaign whose approved number is not the one that
+    #: will dial, so the two cannot disagree.
+    #:
+    #: **AN ADAPTER THAT CANNOT PRESENT IT MUST REFUSE, NEVER DROP IT**
+    #: (`EngineCapabilities.caller_id`). Dropping is the failure this whole field exists to
+    #: end: the dial succeeds, the callee sees somebody else's number, and nothing anywhere
+    #: reports a problem.
+    #:
+    #: NOT A LOG TARGET (hard rule 6) — it is a phone number. It is dumped into vendor
+    #: request bodies by design and into nothing else; an alarm or a log line about a dial
+    #: names the call id and the number's ROW id, never this.
+    from_e164: E164 | None = None
     #: THE WHOLE SYSTEM PROMPT, for engines whose agent record cannot hold one
     #: (`EngineCapabilities.agent_hosting == "external_deployment"`, D-280).
     #:
@@ -1547,6 +1672,16 @@ class VoiceEngine(Protocol):
         and a platform where we cannot prevent it is a platform we do not dial from. The
         refusal is named and carries a remediation; a silent dial is not an option.
 
+        **AND `ctx.from_e164` IS THE SECOND THING THAT MAY NOT BE DROPPED** (D-420). Where
+        `capabilities.caller_id` is True the adapter SENDS it as the outbound caller ID;
+        where it is False the adapter REFUSES a context that carries one, through
+        `engine_lacks("caller_id")`. Dropping it silently is the defect the field was added
+        to end: the campaign gate certifies a DLT-registered 140/160-series header, the
+        vendor dials from its own pool, and the callee's handset shows a number nobody
+        gated. Same argument as the floor above and the same reason it is checked HERE —
+        this method returns a handle, not a read-back, so "it sent our number" and "it
+        dropped our number" are otherwise the same observation.
+
         THE CHECK IS THE ADAPTER'S, not the caller's, and deliberately so. `dispatch_call`
         composes the prompt and hands it over, but a guard in the caller is a guard one
         future caller can route around — and this method has three callers already. The
@@ -1582,6 +1717,62 @@ class VoiceEngine(Protocol):
     async def transfer(self, call_id: str, to: E164, warm: bool) -> None: ...
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber: ...
+
+    async def bind_inbound_number(self, ref: EngineAgentRef, number: ProvisionedNumber) -> None:
+        """Make agent `ref` the one that ANSWERS `number` — at the engine (D-420).
+
+        **THE HALF OF THE PRODUCT THAT REACHED OUR DATABASE AND STOPPED.** Inbound is half
+        of what this platform sells (a receptionist), and its first configuration step —
+        an admin assigning an agent to a number — wrote `phone_numbers.agent_id`, with real
+        care (D-331's cross-tenant FK check), and then ended. No protocol method could
+        carry it further, so the console said the assignment worked and the number went on
+        answering with whatever was last set in the vendor's own dashboard, or did not
+        answer at all. `engine_agent_routes` is not this: it maps
+        `engine_agent_ref → (tenant, agent)` so an INCOMING webhook can be attributed,
+        which is the opposite direction and cannot make a phone ring.
+
+        **IT TAKES A `ProvisionedNumber`, NOT AN `E164`, AND THAT IS THE WHOLE INTERFACE
+        DECISION.** An engine addresses a number by ITS OWN handle — Bolna's
+        `POST /inbound/setup` takes `{agent_id, phone_number_id}`, where `phone_number_id`
+        is a row in their phone-number list, not a dialable string — and that handle is
+        `ProvisionedNumber.engine_number_ref`, the same field `provision_number` returns
+        and `phone_numbers.engine_number_ref` stores. Passing the E.164 would have made
+        every adapter guess at a lookup we have no route for. The E.164 travels too because
+        an engine may key on it instead, and because an adapter that has neither must say
+        which one it wanted.
+
+        **A NUMBER THE ENGINE HAS NEVER HEARD OF IS A NAMED REFUSAL, NOT A BIND.** An
+        adapter that needs `engine_number_ref` and is handed None must refuse — the number
+        was bought from the telephony vendor directly (D-05) and never introduced to the
+        engine, which is an onboarding step a person has to do, not an error to retry.
+
+        IDEMPOTENT BY INTENT: binding a number already bound to `ref` is the state the
+        caller asked for, so an adapter treats the vendor's "already linked" answer as
+        success. Re-binding a number held by a DIFFERENT agent is a legitimate re-point
+        and not a conflict — our `phone_numbers.agent_id` is the authority on which agent
+        owns a number, and this method's job is to make the engine agree with it.
+
+        REFUSES BY NAME where `capabilities.inbound_binding` is False, through
+        `engine_lacks("inbound_binding")` — the reason `create_agent` refuses on an
+        `external_deployment` engine rather than 404ing mid-transaction.
+        """
+        ...
+
+    async def unbind_inbound_number(self, number: ProvisionedNumber) -> None:
+        """Stop any agent of ours answering `number` at the engine (D-420).
+
+        THE REVERSE, AND IT IS NOT OPTIONAL SYMMETRY. A number that keeps answering after
+        the client is offboarded, the agent is deleted or the number is released is a
+        stranger reaching an AI that will collect their details — the same failure
+        `engine_agent_route_withdrawn` alarms about, one layer earlier and with a phone
+        actually ringing. Bolna's is `POST /inbound/unlink {phone_number_id}`.
+
+        **ABSENT IS SUCCESS**, unlike `end_call` and like `delete_agent`: the caller's
+        postcondition is "nothing of ours answers this number", and a number the engine
+        does not hold already satisfies it. Raising there would make an offboarding path
+        fail on a step that had nothing left to do.
+        """
+        ...
 
     async def set_llm_credential(self, secret: str) -> LlmCredentialPlacement:
         """Install the secret the configured LLM endpoint authenticates with, replacing
