@@ -53,6 +53,36 @@ touching a single campaign (`apps/workers/campaign_dispatch.py`).
    `step_up_required` whose `remediation` prints the exact header to repeat with. Never
    flip the row with SQL: that skips the cache invalidation in `set_platform_status`,
    the audit entry, and the reason.
+
+4. **A halt has a SECOND arm, and it is the one to check when phones ring anyway**
+   (D-432). The switch stops this platform placing dials; it does not by itself stop the
+   ones the voice platform has already accepted, because that vendor answers
+   `status: queued` for every dial and holds the surplus over the account's concurrency
+   ceiling in a queue we cannot see. So `POST /v1/ops/platform` with
+   `outbound_halted: true` also queues `recall_queued_dials`, which asks the engine to
+   drop every outbound call still `queued` with a vendor-issued id and stamps
+   `calls.recall_requested_at` on each one it pulled back.
+
+   **What it CANNOT do**: the vendor's stop route *"cannot stop a call already in
+   progress"*. A dial that started ringing between the scan and the stop runs to its
+   end, and no route in their API hangs up on a live caller. `dial_recall_unstopped`
+   names those; treat the count as the number of phones that will still ring.
+
+   **To run another pass** — after a `dial_recall_incomplete` (the scan hit its cap) or
+   after clearing whatever caused `dial_recall_abandoned` / `dial_recall_not_queued` —
+   re-post the SAME halt with the same `halt_outbound` header. Re-posting a halt already
+   in force is safe and is the intended lever: the stamp means the second pass sees only
+   the dials the first did not reach. What is still queued at the vendor:
+
+   ```sql
+   SELECT count(*) FROM calls
+   WHERE direction = 'outbound' AND status = 'queued'
+     AND recall_requested_at IS NULL AND engine_call_id NOT LIKE 'local:%';
+   ```
+
+   (Run it as an admin/owner role — `calls` is RLS'd, so an app-role session sees only
+   its own tenant. `local:` ids are pre-dial intent rows the vendor never named; nothing
+   can be stopped for them and `_reap_stuck_dialing` settles them.)
 4. Note the read path is memo (5s) → Redis (`calevate:platform_state`) → Postgres
    (`apps/api/core/loadshed.py`). Worst-case staleness after an un-halt is seconds, not
    minutes — if dialling doesn't resume within two ticks, keep going down this list.
