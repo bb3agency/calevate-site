@@ -67,12 +67,12 @@ OTHER_LEADERS = ("+91 call me", "-1+1", "@SUM(A1)")
 
 
 def _fixture(case_id: str) -> dict[str, Any]:
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     return next(c for c in payload["cases"] if c["id"] == case_id)
 
 
 def _name_field() -> ExtractionField:
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     field = spec.field_by_key("name")
     assert field is not None
@@ -98,7 +98,7 @@ async def test_the_offline_extractor_files_nothing_from_the_dictated_formula() -
     downstream tests are only interesting if the value can reach a column at all — and
     on a model that resists, it does not."""
     case = _fixture("rt_cl_extraction_poison_formula_in_name")
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     output = await extract_call(spec, "\n".join(case["transcript"]), extractor=OfflineExtractor())
     assert {k: v for k, v in output.data.items() if v is not None} == {}
@@ -335,7 +335,7 @@ def test_an_absurd_magnitude_is_accepted_because_no_range_is_declared() -> None:
     ),
 )
 async def test_a_quoted_enum_token_is_not_filed_as_the_callers_own_fact() -> None:
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     transcript = "\n".join(
         [
@@ -363,7 +363,7 @@ async def test_a_quoted_enum_token_is_not_filed_as_the_callers_own_fact() -> Non
     ),
 )
 async def test_a_flood_of_schema_vocabulary_inside_one_enquiry_files_nothing() -> None:
-    payload = json.loads(ev.FIXTURES.read_text())
+    payload = json.loads(ev.FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     transcript = "\n".join(
         [

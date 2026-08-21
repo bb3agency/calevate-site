@@ -46,7 +46,9 @@ REPO = Path(__file__).resolve().parent.parent
 
 def _union_schema() -> ExtractionSchemaSpec:
     """The suite's own schema, so a pin here scores the columns a client really has."""
-    payload = json.loads((REPO / "tests" / "fixtures" / "golden_transcripts.json").read_text())
+    payload = json.loads(
+        (REPO / "tests" / "fixtures" / "golden_transcripts.json").read_text(encoding="utf-8")
+    )
     return ExtractionSchemaSpec(version=1, fields=payload["schema"])
 
 

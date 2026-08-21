@@ -513,7 +513,7 @@ async def run_suite(
     baseline to a model that did not produce them, which is the one way this flag could
     corrupt the ratchet.
     """
-    payload = json.loads(FIXTURES.read_text())
+    payload = json.loads(FIXTURES.read_text(encoding="utf-8"))
     spec = ExtractionSchemaSpec(version=1, fields=payload["schema"])
     cases = [c for c in payload["cases"] if vertical is None or c["vertical"] == vertical]
     results = [await run_case(spec, case, extractor) for case in cases]
@@ -548,7 +548,7 @@ def load_baseline() -> dict[str, Baseline]:
     """
     if not BASELINE.exists():
         return {}
-    data = json.loads(BASELINE.read_text())
+    data = json.loads(BASELINE.read_text(encoding="utf-8"))
     return {k: v for k, v in data.items() if not k.startswith("_")}
 
 
@@ -570,7 +570,7 @@ def save_baseline(model: str, results: list[CaseResult]) -> list[str]:
     or an invented field could be blessed by a tired reviewer skimming a diff — it
     refuses instead, and those cases stay regressions until the extractor is fixed.
     """
-    data = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
+    data = json.loads(BASELINE.read_text(encoding="utf-8")) if BASELINE.exists() else {}
     data["_doc"] = (
         "Known-failing regression cases per extraction model, as {case_id: [waived "
         "failure kinds]}. The gate is a RATCHET: only the kinds listed here are "

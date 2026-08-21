@@ -58,6 +58,7 @@ from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
 from tests.ingest_ordering_test import _inbox_status, _run_to_exhaustion, _seed_inbox
+from tests.platform_support import requires_posix_signals
 from tests.smoke_pipeline_test import _seed_tenant
 
 RUN = uuid.uuid4().hex[:12]
@@ -358,6 +359,7 @@ async def _staged_engine_call(label: str) -> tuple[UUID, str, str]:
 
 
 @pytest.mark.parametrize("stage", ["_upsert_call", "mark_inbox_processed"])
+@requires_posix_signals
 async def test_a_blip_in_the_ingest_jobs_middle_gets_the_ladder_and_says_so(
     monkeypatch: pytest.MonkeyPatch, stage: str
 ) -> None:
@@ -420,6 +422,7 @@ async def test_a_blip_in_the_ingest_jobs_middle_gets_the_ladder_and_says_so(
     )
 
 
+@requires_posix_signals
 async def test_an_ingest_payload_with_no_execution_id_is_not_retried(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

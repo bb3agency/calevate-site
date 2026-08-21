@@ -49,7 +49,7 @@ DOCUMENTS_RESTING_ON_IT = (
 
 def _configure_calls() -> list[ast.Call]:
     """Every `context.configure(...)` in env.py — offline and online both."""
-    tree = ast.parse(ENV_PY.read_text())
+    tree = ast.parse(ENV_PY.read_text(encoding="utf-8"))
     return [
         node
         for node in ast.walk(tree)
@@ -100,7 +100,7 @@ def test_every_document_that_rests_on_the_setting_still_names_it() -> None:
     outliving the sentences it was added for.
     """
     for relative in DOCUMENTS_RESTING_ON_IT:
-        text = (REPO_ROOT / relative).read_text()
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
         assert "transaction_per_migration" in text, (
             f"{relative} states a per-revision migration failure model but no longer "
             "names `transaction_per_migration`, which is the only reason that model is "

@@ -103,7 +103,7 @@ OFFLINE_SCORED_KEYS = ("expect_absent", "requires_dnc", "must_redact")
 
 
 def _fixtures() -> dict[str, Any]:
-    return json.loads(ev.FIXTURES.read_text())  # type: ignore[no-any-return]
+    return json.loads(ev.FIXTURES.read_text(encoding="utf-8"))  # type: ignore[no-any-return]
 
 
 def _cases() -> list[dict[str, Any]]:

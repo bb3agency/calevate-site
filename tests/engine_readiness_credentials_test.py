@@ -182,7 +182,9 @@ def test_the_engine_clause_is_gone_from_core_settings() -> None:
     line this decision removed, and re-adding one is easier than noticing it."""
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parents[1] / "apps/api/core/settings.py").read_text()
+    source = (Path(__file__).resolve().parents[1] / "apps/api/core/settings.py").read_text(
+        encoding="utf-8"
+    )
     for vendor_key in ("BOLNA_API_KEY", "CARTESIA_API_KEY"):
         assert f'"{vendor_key}"' not in source, (
             f"{vendor_key} is named in core/settings.py again — vendor credential names "

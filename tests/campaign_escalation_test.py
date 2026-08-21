@@ -64,6 +64,7 @@ from apps.workers.whatsapp import (
 from arq import Retry
 from sqlalchemy import text
 from tests.national_dnd_test import record_test_scrub
+from tests.platform_support import requires_posix_signals
 
 # The contact we dial and then fail to reach. A documented test-range number: it exists
 # so the hard-rule-6 assertions have something to search the log output FOR.
@@ -892,6 +893,7 @@ async def _run_one_job_to_exhaustion(func: Any, payload: Any, *, max_tries: int)
     return attempts
 
 
+@requires_posix_signals
 async def test_a_transport_blip_really_is_retried_by_a_real_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -918,6 +920,7 @@ async def test_a_transport_blip_really_is_retried_by_a_real_worker(
     assert events[0]["attempts"] == WORKER_MAX_TRIES
 
 
+@requires_posix_signals
 async def test_a_rejection_stops_on_the_first_attempt_on_a_real_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

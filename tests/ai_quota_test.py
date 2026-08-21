@@ -308,7 +308,7 @@ def test_the_writer_repeats_the_migrations_index_predicate_verbatim() -> None:
     The migration is read as TEXT rather than imported: `alembic/versions` is not a
     package, and the point is that the file on disk says this.
     """
-    source = MIGRATION.read_text()
+    source = MIGRATION.read_text(encoding="utf-8")
     migration_predicate = re.search(r'INDEX_PREDICATE = "(?P<p>[^"]+)"', source)
     assert migration_predicate is not None, "migration no longer declares INDEX_PREDICATE"
     assert migration_predicate.group("p") == ai_quota.INDEX_PREDICATE, (
@@ -448,13 +448,13 @@ async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked()
             # A real yield with B's INSERT already in flight: without it the "overlap"
             # would be two coroutines that never ran at the same time.
             await asyncio.sleep(0.05)
-            seen["a_commit_at"] = time.monotonic()
+            seen["a_commit_at"] = time.perf_counter()
 
     async def writer_b() -> None:
         await a_inserted.wait()
         async with tenant_session(tenant_id) as session:
             b_in_transaction.set()
-            seen["b_insert_at"] = time.monotonic()
+            seen["b_insert_at"] = time.perf_counter()
             result = await record_ai_assist_usage(
                 session,
                 tenant_id=tenant_id,
@@ -464,11 +464,17 @@ async def test_two_interleaved_clicks_meter_once_and_the_second_really_blocked()
                 model=ASSIST_MODEL,
                 feature="resummarise",
             )
-            seen["b_done_at"] = time.monotonic()
+            seen["b_done_at"] = time.perf_counter()
             seen["b_recorded"] = result.recorded
 
     await asyncio.gather(writer_a(), writer_b())
 
+    # `perf_counter`, not `monotonic`, at all three stamps above. `time.monotonic()` is
+    # GetTickCount64 on Windows -- 15.625ms granularity -- so A's commit and B's unblocked
+    # insert landed in ONE tick and compared EQUAL, failing the strict `>` below on a
+    # clock artefact rather than on the lock behaviour. `perf_counter` is the documented
+    # clock for short intervals and is sub-microsecond everywhere, which keeps the
+    # assertion strict instead of relaxing it to `>=`.
     assert seen["b_open_while_a_open"] is True, "the two writers never overlapped"
     assert seen["b_insert_at"] < seen["a_commit_at"], "B started after A had finished"
     assert seen["b_done_at"] > seen["a_commit_at"], (

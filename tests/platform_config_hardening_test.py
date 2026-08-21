@@ -47,6 +47,7 @@ from scripts import check_config_applies as guard
 from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 from tests.admin_security_test import _make_admin
+from tests.platform_support import requires_graceful_sigterm
 
 #: A `Decimal` money field, so every round trip here also proves hard rule 7.
 KEY = "self_serve_inr_per_min"
@@ -1072,6 +1073,7 @@ except BaseException as exc:
 """
 
 
+@requires_graceful_sigterm
 def test_a_sigterm_mid_request_drains_it_instead_of_aborting_it(tmp_path) -> None:  # type: ignore[no-untyped-def]
     """THE FOUNDER'S FEAR, MEASURED — and it was real before this slice.
 

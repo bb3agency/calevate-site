@@ -842,7 +842,7 @@ def load_gate13_inputs(path_str: str | None = None) -> Gate13Inputs | None:
     path = Path(path_str or os.environ.get(INPUTS_ENV) or DEFAULT_INPUTS_PATH)
     if not path.exists():
         return None
-    return Gate13Inputs.model_validate_json(path.read_text())
+    return Gate13Inputs.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 async def run_gate_13(ctx: Any) -> Any:

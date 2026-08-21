@@ -74,6 +74,7 @@ _SUBJECTS: dict[str, str] = {
     "password_reset": "Reset your Calevate password",
     "otp_email_verify": "Your Calevate verification code",
     "otp_login_challenge": "Your Calevate sign-in code",
+    "otp_step_up": "Your Calevate authorization code",
     "invite_password": "You have been invited to Calevate",
 }
 
@@ -127,8 +128,13 @@ def _body(kind: str, realm: str, secret: str) -> str:
             "This link works once and expires in 72 hours. If you were not expecting it, "
             "you can ignore this email — nothing happens until you open it."
         )
-    # Both OTP kinds. One code, one sentence about what it is for.
-    what = "sign in" if kind == "otp_login_challenge" else "confirm your email address"
+    # OTP kinds. One code, one sentence about what it is for.
+    if kind == "otp_login_challenge":
+        what = "sign in"
+    elif kind == "otp_step_up":
+        what = "authorize this action"
+    else:
+        what = "confirm your email address"
     return (
         f"Your Calevate code to {what} is:\n\n    {secret}\n\n"
         "It expires in 10 minutes. If you did not ask for it, you can ignore this email."

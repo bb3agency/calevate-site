@@ -32,7 +32,7 @@ KB_MODULE = REPO_ROOT / "apps" / "api" / "kb"
 
 def _kb_sources() -> dict[str, str]:
     return {
-        str(path.relative_to(REPO_ROOT)): path.read_text()
+        str(path.relative_to(REPO_ROOT)): path.read_text(encoding="utf-8")
         for path in sorted(KB_MODULE.rglob("*.py"))
         if "__pycache__" not in path.parts
     }
@@ -68,7 +68,7 @@ def test_the_engine_handle_is_persisted_under_a_neutral_key() -> None:
     source") rather than the vendor, which is the same convention
     `agents.engine_agent_ref` already sets.
     """
-    service = (KB_MODULE / "service.py").read_text()
+    service = (KB_MODULE / "service.py").read_text(encoding="utf-8")
     assert "'engine_kb_ref'" in service
     assert "meta ->> 'engine_kb_ref'" in service, (
         "the handle is no longer read from the neutral key the migration reserved"

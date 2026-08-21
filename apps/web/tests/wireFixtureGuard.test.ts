@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
-import { dirname, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+
+import { posixDirPrefix, relPosix, toPosix } from "./repoPaths";
 import { fileURLToPath } from "node:url";
 
 import ts from "typescript";
@@ -117,7 +119,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const FIXTURE = "tests/fixtures/wireFixtureShapes.ts";
-const SCHEMA = resolve(WEB_ROOT, "src/lib/api/schema.d.ts");
+// `toPosix`, and this one line is why the guard found nothing on Windows: it is
+// compared with `===` against a TypeScript `SourceFile.fileName`, which TS spells
+// with forward slashes on every platform. A backslash spelling here matched no
+// declaration, so NO type was ever recognised as a wire type and the scan reported a
+// clean tree by construction -- the exact false negative the premise checks below
+// exist to catch.
+const SCHEMA = toPosix(resolve(WEB_ROOT, "src/lib/api/schema.d.ts"));
+/** The negative-control fixture, in the spelling `fileName` uses. */
+const FIXTURE_FILE = toPosix(resolve(WEB_ROOT, FIXTURE));
 
 /**
  * Explicit and generous, for the reason the two guards beside it give: a whole-tree
@@ -256,7 +266,7 @@ function findViolations(program: ts.Program, sourceFile: ts.SourceFile): Violati
       if (targetsWireType(checker, node.type)) {
         const text = node.expression.getText().replace(/\s+/g, " ");
         found.push({
-          file: relative(WEB_ROOT, sourceFile.fileName),
+          file: relPosix(WEB_ROOT, sourceFile.fileName),
           // The TYPE node, not the expression: on a multi-line fixture the expression
           // starts at `return {` and the `as` is thirteen lines further down, which is
           // the line whoever has to delete it needs.
@@ -369,13 +379,13 @@ describe("the wire-fixture guard: a type assertion onto a generated schema type"
   it("finds no unexempted assertion anywhere in tests/ or src/", () => {
     const sources = program.getSourceFiles().filter(
       (file) =>
-        (file.fileName.startsWith(resolve(WEB_ROOT, "src") + "/") ||
-          file.fileName.startsWith(resolve(WEB_ROOT, "tests") + "/")) &&
+        (file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "src")) ||
+          file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "tests"))) &&
         // Generated from OpenAPI; it DECLARES the wire types rather than asserting onto
         // them, and it is not hand-edited.
         file.fileName !== SCHEMA &&
         // The negative control, whose whole job is to contain violations.
-        file.fileName !== resolve(WEB_ROOT, FIXTURE),
+        file.fileName !== FIXTURE_FILE,
     );
     // A premise check: if the glob ever stops matching, "no violations" becomes true for
     // the wrong reason and this whole file silently stops testing anything.
@@ -408,10 +418,10 @@ describe("the wire-fixture guard: a type assertion onto a generated schema type"
         .getSourceFiles()
         .filter(
           (file) =>
-            (file.fileName.startsWith(resolve(WEB_ROOT, "src") + "/") ||
-              file.fileName.startsWith(resolve(WEB_ROOT, "tests") + "/")) &&
+            (file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "src")) ||
+              file.fileName.startsWith(posixDirPrefix(WEB_ROOT, "tests"))) &&
             file.fileName !== SCHEMA &&
-            file.fileName !== resolve(WEB_ROOT, FIXTURE),
+            file.fileName !== FIXTURE_FILE,
         )
         .flatMap((file) => findViolations(program, file))
         .map(siteKey),

@@ -35,6 +35,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from tests.platform_support import requires_posix_shell
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEPLOY_SCRIPT = REPO_ROOT / "scripts" / "vps-deploy.sh"
 ALEMBIC_VERSIONS = REPO_ROOT / "alembic" / "versions"
@@ -57,7 +59,9 @@ def _a_real_revision() -> str:
     """
     for path in sorted(ALEMBIC_VERSIONS.glob("*.py")):
         match = re.search(
-            r"^revision(?::\s*str)?\s*=\s*[\"']([0-9a-f]+)[\"']", path.read_text(), re.M
+            r"^revision(?::\s*str)?\s*=\s*[\"']([0-9a-f]+)[\"']",
+            path.read_text(encoding="utf-8"),
+            re.M,
         )
         if match:
             return match.group(1)
@@ -79,6 +83,7 @@ def test_no_argument_is_unanswerable_rather_than_absent() -> None:
         assert _run(*argv).returncode == 2, argv
 
 
+@requires_posix_shell
 def test_the_checker_needs_no_database() -> None:
     """It reads the script directory only.
 

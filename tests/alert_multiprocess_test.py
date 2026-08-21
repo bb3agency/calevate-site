@@ -84,7 +84,7 @@ def _fire_in_a_separate_process(*, service: str, code: str) -> int:
             check=False,
         )
         assert proc.returncode == 0, f"the alert worker failed:\n{proc.stderr[-3000:]}"
-        return int(json.loads(out.read_text())["delivered"])
+        return int(json.loads(out.read_text(encoding="utf-8"))["delivered"])
     finally:
         out.unlink(missing_ok=True)
 
