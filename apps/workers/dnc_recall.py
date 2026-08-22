@@ -101,7 +101,15 @@ async def _queued_dials_to(
 
 
 async def _stamp(tenant_id: UUID, call_ids: list[UUID]) -> None:
-    """The one-way stamp both recall paths share, so neither re-stops the other's work."""
+    """The one-way stamp both recall paths share, so neither re-stops the other's work.
+
+    ITS OWN COMMITTED TRANSACTION, PER DIAL, AND THAT IS THE POINT (see `_recall`). Batched
+    after the loop it was a stamp that only existed if the loop finished, which is the one
+    condition under which it was needed.
+
+    A list rather than one id because `dial_recall._stamp_recalled` takes a list and the
+    two are read side by side; the caller passes one.
+    """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -125,7 +133,6 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
         )
         return "found=0"
 
-    stamped: dict[UUID, list[UUID]] = defaultdict(list)
     verdicts: dict[RecallOutcome, list[UUID]] = defaultdict(list)
     refused: list[UUID] = []
 
@@ -145,10 +152,23 @@ async def _recall(phones: list[str], tenant_id: UUID | None) -> str:
             refused.append(dial.call_id)
             continue
         verdicts[outcome].append(dial.call_id)
-        stamped[dial.tenant_id].append(dial.call_id)
-
-    for scoped_tenant, call_ids in stamped.items():
-        await _stamp(scoped_tenant, call_ids)
+        # STAMPED HERE, NOT AFTER THE LOOP, AND IT IS THIS JOB'S OWN DOCSTRING THAT SAYS
+        # WHY. Batched at the end, the stamp existed only if the loop ran to completion —
+        # and the loop not completing is the single condition the stamp is for. The
+        # per-dial `except` below catches an `Exception`; what ends this loop early is a
+        # `BaseException` the worker cannot catch: a redeploy or a `job_timeout` arriving
+        # as `CancelledError`, the same death `campaign_dispatch` has a test for. Every
+        # stamp for a dial already stopped was then lost, the retry re-POSTed a stop for
+        # it, the vendor refused an already-stopped execution, and those refusals landed
+        # in `undetermined` — firing `dnc_recall_undetermined`, which says these numbers
+        # "may have been called AFTER the suppression was recorded". A false alarm on a
+        # DNC control is worse than no alarm: it is the one an operator learns to mute.
+        #
+        # The cost is one single-row UPDATE by primary key per dial, against a scan capped
+        # at DNC_RECALL_SCAN_LIMIT and a vendor round trip on the line above that is three
+        # orders of magnitude slower. Durable-before-the-next-call is the only ordering
+        # that survives the crash, so batching cannot be recovered by making it smaller.
+        await _stamp(dial.tenant_id, [dial.call_id])
 
     prevented = verdicts[RecallOutcome.PREVENTED]
     # EVERYTHING THAT IS NOT `PREVENTED`, together, because the distinction that matters to

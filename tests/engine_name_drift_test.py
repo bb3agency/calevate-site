@@ -83,8 +83,8 @@ SCANNED_TREES: tuple[str, ...] = ("apps", "packages/shared/src", "scripts")
 #:
 #: EMPTY, and it got here the way it was designed to. D-103 recorded
 #: `apps/api/agents/models.py::ENGINES` — the copy with teeth, because it renders the
-#: `ck_agents_engine_enum` CHECK and `admin/service.py::_default_engine` writes
-#: `get_settings().engine` into that column at tenant birth, so `ENGINE=cartesia` failed
+#: `ck_agents_engine_enum` CHECK and `agents/lifecycle.py::create_agent` writes
+#: `get_settings().engine` into that column on every agent, so `ENGINE=cartesia` failed
 #: client creation with an IntegrityError. D-104 derived that tuple from
 #: `SELECTABLE_ENGINES` and widened the constraint in migration `d7b1c48a2e93`, and the
 #: equality assertion below is what forced this entry's deletion in the same change.
@@ -235,8 +235,9 @@ def test_every_selectable_engine_has_an_authenticity_story() -> None:
 def test_the_model_admits_every_selectable_engine() -> None:
     """The CONSEQUENCE of the third copy, closed by D-104 and kept closed here.
 
-    `admin/service.py::_default_engine` writes `get_settings().engine` into `agents.engine`
-    on the tenant-birth path, and that column carries a CHECK rendered from `ENGINES`. So
+    `agents/lifecycle.py::create_agent` writes `get_settings().engine` into `agents.engine`
+    on every agent the platform mints, and that column carries a CHECK rendered from
+    `ENGINES`. So
     the drift was never a style complaint about a tuple: under `ENGINE=cartesia` the first
     thing a new client does — exist — failed with an IntegrityError out of Postgres rather
     than with a refusal anyone authored.

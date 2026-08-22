@@ -87,7 +87,7 @@ describe("the invite link", () => {
     // longer carries a token at all, so there is nothing to print.
     const created = {
       id: "0192f0aa-6666-7000-8000-0000000000c1",
-      email_masked: "p••••@clinic.example",
+      email: "priya@clinic.example",
       role: "staff",
       invited_at: "2026-08-15T04:00:00Z",
       expires_at: "2026-08-18T04:00:00Z",

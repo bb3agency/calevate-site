@@ -19,6 +19,23 @@ typed client. The contract is:
   the required list. A field flipping `str -> int` or optional -> required breaks the
   generated client exactly as loudly as a renamed field.
 
+AND IT CHECKS THE OTHER HALF OF THE SAME SEAM: that `schema.d.ts` — the TypeScript the
+screens actually compile against — was regenerated from that snapshot. Two files go stale
+here, not one, and only this one was ever guarded: a lane that ran `--write` and skipped
+`pnpm gen:api` left the frontend compiling against the PREVIOUS contract, `tsc --noEmit`
+green, and the drift invisible until a field came back undefined in a browser. That is not
+hypothetical — it is how `LifecycleOut` was renamed to `AgentLifecycleOut` on the server
+while two `lib/api/*.ts` modules still aliased the collision-qualified names the generator
+had stopped emitting.
+
+The comparison is the NAME SETS — every path, every component schema, every operationId —
+and deliberately not the property types: openapi-typescript's output format is its own to
+change between versions, and a guardrail that re-implements a generator is a guardrail that
+fails on an upgrade. Names are what the modules under `src/lib/api/` index into by hand
+(`components["schemas"]["AgentLifecycleOut"]`), so a name set that matches is the property
+those aliases depend on. This half needs no Node, which is why it can run in CI's Python
+job beside the snapshot check rather than in the frontend one.
+
 Run: `uv run python -m scripts.check_openapi_fresh`  (`--write` to refresh)
 """
 
@@ -29,9 +46,10 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SNAPSHOT = (
-    Path(__file__).resolve().parent.parent / "apps" / "web" / "src" / "lib" / "api" / "openapi.json"
-)
+_API_DIR = Path(__file__).resolve().parent.parent / "apps" / "web" / "src" / "lib" / "api"
+SNAPSHOT = _API_DIR / "openapi.json"
+#: What `pnpm -C apps/web gen:api` writes FROM the snapshot. Guarded together with it.
+GENERATED = _API_DIR / "schema.d.ts"
 
 METHODS = ("get", "post", "patch", "put", "delete")
 # Prose. It changes constantly and breaks nothing downstream.
@@ -137,6 +155,114 @@ def diff(committed: dict[str, Any], current: dict[str, Any]) -> list[str]:
     return lines
 
 
+# ------------------------------------------------------------------ the generated half
+#
+# openapi-typescript writes ONE `export interface <block> {` per section and one key per
+# name inside it, at a fixed indent. Reading those key lines is the whole parser: it needs
+# no Node, no TypeScript AST and no knowledge of how the generator renders a TYPE — which
+# is the part that is free to change under an upgrade.
+
+#: `interface <name> {` -> the indent its own keys sit at. `components` is skipped and
+#: `schemas` read directly, because the schema names are one level further in.
+_BLOCKS = (
+    ("paths", "export interface paths {", 4),
+    ("schemas", "    schemas: {", 8),
+    ("operations", "export interface operations {", 4),
+)
+
+
+def _keys_at(text: str, header: str, indent: int) -> set[str]:
+    """The key names declared directly inside `header`'s block, at exactly `indent`.
+
+    Stops at the first line that dedents past the block — the closing brace — so a nested
+    object's own keys (which sit deeper) are never mistaken for the block's.
+    """
+    lines = text.splitlines()
+    try:
+        start = lines.index(header)
+    except ValueError:
+        return set()
+    pad = " " * indent
+    names: set[str] = set()
+    for line in lines[start + 1 :]:
+        stripped = line.strip()
+        if stripped and not line.startswith(pad):
+            break  # the block's own closing brace, at a shallower indent
+        if not line.startswith(pad) or line.startswith(pad + " "):
+            continue
+        key, sep, _ = stripped.partition(":")
+        if not sep:
+            continue
+        names.add(key.rstrip("?").strip('"'))
+    return names
+
+
+def _generated_names(spec: dict[str, Any]) -> dict[str, set[str]]:
+    """The names `gen:api` MUST have emitted for this snapshot."""
+    operations = {
+        operation["operationId"]
+        for methods in spec.get("paths", {}).values()
+        for method, operation in methods.items()
+        if method in METHODS and isinstance(operation, dict) and operation.get("operationId")
+    }
+    return {
+        "paths": set(spec.get("paths", {})),
+        "schemas": set(spec.get("components", {}).get("schemas", {})),
+        "operations": operations,
+    }
+
+
+def generated_drift(spec: dict[str, Any], generated: str) -> list[str]:
+    """Names the snapshot declares that `schema.d.ts` does not carry, and vice versa.
+
+    THE PREMISE IS ASSERTED, not assumed. This reads openapi-typescript's OUTPUT FORMAT —
+    one `export interface <block> {` per section, one key per name at a fixed indent — and
+    that format is the generator's to change on an upgrade. A parser that quietly stopped
+    matching would report every name as MISSING, which at least fails loudly; a parser that
+    matched a block and found it empty would too. What would NOT fail is the shape in
+    between, so an empty block against a non-empty expectation is called out as a broken
+    PARSER rather than as a stale client — the two have completely different fixes, and
+    sending somebody to `pnpm gen:api` for a parser bug is how a guardrail gets deleted.
+    """
+    expected = _generated_names(spec)
+    lines: list[str] = []
+    for label, header, indent in _BLOCKS:
+        found = _keys_at(generated, header, indent)
+        want = expected[label]
+        if want and not found:
+            lines.append(
+                f"  ! {label}: the snapshot declares {len(want)} but schema.d.ts appears to "
+                f"declare none. That is this checker failing to read "
+                f"`{header.strip()}`, not a stale client — openapi-typescript's output "
+                f"format has probably moved. Fix _BLOCKS/_keys_at in this file."
+            )
+            continue
+        lines += [
+            f"  + {label} {name} (in openapi.json, not in schema.d.ts)"
+            for name in sorted(want - found)
+        ]
+        lines += [
+            f"  - {label} {name} (in schema.d.ts, not in openapi.json)"
+            for name in sorted(found - want)
+        ]
+    return lines
+
+
+def check_generated(spec: dict[str, Any]) -> int:
+    if not GENERATED.exists():
+        print(f"OPENAPI: FAIL — no generated client at {GENERATED}")
+        print("Run: pnpm -C apps/web gen:api")
+        return 1
+    drift = generated_drift(spec, GENERATED.read_text(encoding="utf-8"))
+    if drift:
+        print("OPENAPI: FAIL — schema.d.ts was not regenerated from openapi.json")
+        for line in drift:
+            print(line)
+        print("\nRegenerate: pnpm -C apps/web gen:api")
+        return 1
+    return 0
+
+
 def main() -> int:
     from apps.api.main import app
 
@@ -155,12 +281,17 @@ def main() -> int:
         print("Run: uv run python -m scripts.check_openapi_fresh --write")
         return 1
 
-    committed = _shape(json.loads(SNAPSHOT.read_text(encoding="utf-8")))
+    snapshot = json.loads(SNAPSHOT.read_text(encoding="utf-8"))
+    committed = _shape(snapshot)
     current = _shape(live)
     if committed == current:
+        # Only now: a stale snapshot makes a schema.d.ts diff a CONSEQUENCE rather than a
+        # finding, and printing both would send the reader to the wrong `pnpm` command.
+        if check_generated(snapshot) != 0:
+            return 1
         print(
             f"OPENAPI: OK ({len(current['paths'])} paths, {len(current['schemas'])} schemas; "
-            "permissions, parameters and property types compared)"
+            "permissions, parameters and property types compared, schema.d.ts regenerated)"
         )
         return 0
 

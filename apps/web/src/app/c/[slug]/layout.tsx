@@ -11,6 +11,7 @@ import {
   Blocks,
   Bot,
   BookOpen,
+  Coins,
   FileText,
   GitMerge,
   LayoutDashboard,
@@ -73,7 +74,7 @@ function navigation(slug: string): NavGroup[] {
       items: [
         { href: `/c/${slug}`, label: "Dashboard", icon: LayoutDashboard },
         { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
-        { href: `/c/${slug}/agents`, label: "Voice agents", icon: Bot },
+        { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
         { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
         { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
         { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
@@ -108,6 +109,13 @@ function navigation(slug: string): NavGroup[] {
         { href: `/c/${slug}/settings/alerts`, label: "Alerts", icon: BellRing },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
+        // WHERE the Usage number came from, one screen over. Usage answers "how much and
+        // how much is left"; this answers "which agent and which call", which is the
+        // question an owner asks the moment the first one has a figure in it. Its own
+        // entry rather than a panel on Usage because it is a per-call table that grows
+        // with the month, and because a client following up on a bill is looking for the
+        // word "Spend" rather than scrolling a summary screen.
+        { href: `/c/${slug}/spend`, label: "Spend", icon: Coins },
         // What the console's AI help has used against the allowance the plan includes,
         // and the one place a person can agree to spend money on more (D-127 G-5). It
         // sits beside Usage rather than inside it because it is a different wallet
@@ -203,7 +211,7 @@ function Sidebar({
               <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
                 Calevate
               </span>
-              <span className="block text-[11px] font-medium text-ink-muted">AI voice agents</span>
+              <span className="block text-[11px] font-medium text-ink-muted">AI agents</span>
             </span>
           )}
         </div>

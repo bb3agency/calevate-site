@@ -95,6 +95,12 @@ from apps.workers.dispatcher import (
 from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
+from apps.workers.kb_aggregation import (
+    DIGEST_HOUR,
+    DIGEST_MINUTE,
+    DIGEST_WEEKDAY,
+    send_agent_knowledge_digests,
+)
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -285,6 +291,27 @@ CRON_JOBS = [
         weekday={0},
         hour={2},
         minute={20},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE WEEKLY KNOWLEDGE DIGEST. What callers asked, as counts drawn from our own closed
+    # enums and the client's own extraction schema — never from a transcript
+    # (`apps/api/kb/patterns.py` is the guard and carries the argument).
+    #
+    # Monday morning, and the schedule does NOT decide which week is summarised: arq
+    # evaluates cron fields in the WORKER's timezone, so `kb_aggregation.closed_week`
+    # converts the firing instant to IST and only ever asks for the seven days that have
+    # already closed. The same separation `draw_qa_samples` above makes, for the same
+    # reason.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. This one is
+    # weekly, so a tick finished by its first transient error is not a job that self-heals
+    # in half an hour — it is a week in which no client heard anything.
+    cron(
+        traced_job(send_agent_knowledge_digests),
+        weekday={DIGEST_WEEKDAY},
+        hour={DIGEST_HOUR},
+        minute={DIGEST_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # OPERATIONS §4's cert-expiry alarm. DAILY and not hourly: the quantity it measures

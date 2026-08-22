@@ -243,10 +243,11 @@ async def test_the_export_and_the_list_agree_on_what_the_filters_mean() -> None:
 
     assert listed.status_code == 200 and exported.status_code == 200
     assert listed.json()["total"] == 7
-    # Masked on screen, full in the file — same seven people either way.
+    # The same seven people either way, and since D-436 the same seven NUMBERS: the
+    # screen and the file no longer render one column under two rules, so this compares
+    # the whole value rather than the two digits the mask used to leave.
     assert len(_csv_phones(exported.text)) == listed.json()["total"]
-    suffixes = {item["phone_masked"][-2:] for item in listed.json()["items"]}
-    assert {p[-2:] for p in _csv_phones(exported.text)} == suffixes
+    assert {p["phone_e164"] for p in listed.json()["items"]} == set(_csv_phones(exported.text))
 
 
 async def test_agent_id_filters_rows_on_both_routes_not_just_columns() -> None:

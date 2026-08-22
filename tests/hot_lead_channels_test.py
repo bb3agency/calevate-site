@@ -140,16 +140,23 @@ async def _add_owner_with_phone(tenant_id: UUID, phone: str) -> None:
 
 
 class _EmailTransport:
-    """Counts attempts so "did it try again?" is answerable."""
+    """Counts attempts so "did it try again?" is answerable, and keeps the BODIES.
+
+    The bodies are what actually leaves the building on this channel, so an assertion
+    about what the client's inbox receives has to read them rather than the row we
+    wrote about having sent them.
+    """
 
     name = "test"
 
     def __init__(self, delivered: bool) -> None:
         self.delivered = delivered
         self.attempts = 0
+        self.bodies: list[str] = []
 
     def send(self, *, to: str, subject: str, body: str) -> bool:
         self.attempts += 1
+        self.bodies.append(body)
         return self.delivered
 
 
@@ -583,3 +590,62 @@ async def test_the_queued_payload_carries_no_caller_data(monkeypatch: pytest.Mon
     queued = json.dumps((await _queued_whatsapp_payloads(payload))[0])
     assert CALLER_TEST_E164 not in queued and CALLER_TEST_E164.lstrip("+") not in queued
     assert "Ravi" not in queued
+
+
+async def test_the_alert_email_masks_the_number_and_links_to_the_screen_that_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-436 stops at the mail boundary, and the link is what makes that affordable.
+
+    THE DECISION, pinned as a behaviour because a docstring is not a control
+    (`notifications._compose` carries the argument). D-436 unmasked the client's own
+    customer contact data on every SCREEN, where four things stand behind the reader: a
+    session, a role holding `leads:read`, RLS, and — for an operator — an impersonation
+    grant plus an audit row. The recipient here is `organizations.billing_email`, one
+    column collected to send invoices to: no membership, no role, frequently a shared
+    alias, and the one address on this platform a `leads:read` check has never been
+    applied to.
+
+    What was broken was not the mask but its absence of an exit: the body said "open the
+    lead in your dashboard" and gave no way to. Both halves are asserted here, because
+    fixing either alone is the wrong answer — a masked number with no link is an alert
+    nobody can act on inside the 2-minute SLO, and a full number is a disclosure to an
+    unauthenticated party.
+    """
+    payload = await _hot_lead("maskedlink")
+    tenant_id = UUID(payload["tenant_id"])
+    # A summary that SPEAKS a number, so the transcript-derived half is decidable rather
+    # than absent by luck. `_hot_lead`'s default summary quotes nobody.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET summary = :s WHERE id = :cid"),
+            {
+                "s": f"Caller asked us to ring {CALLER_TEST_E164} back about a booking.",
+                "cid": UUID(payload["call_id"]),
+            },
+        )
+        slug = (
+            await session.execute(
+                text("SELECT slug FROM organizations WHERE id = :tid"), {"tid": tenant_id}
+            )
+        ).scalar_one()
+
+    transport = _email(monkeypatch, delivered=True)
+    assert await notifications.notify_hot_lead({"job_try": 1}, payload) == "sent"
+
+    (body,) = transport.bodies
+    # Anti-vacuity: the alert really did say something, in both spellings that matter.
+    assert "Ravi" in body, "the name is what makes the alert recognisable at a glance"
+    assert "booking" in body, "redaction is targeted, not a blanket wipe of the summary"
+
+    # Hard rule 6's half: neither the lead's own number nor the one spoken in the call
+    # leaves on this channel, in E.164 or as bare national digits.
+    for spelling in (CALLER_TEST_E164, CALLER_TEST_E164.removeprefix("+91")):
+        assert spelling not in body, f"the alert email carried {spelling!r} to an inbox"
+
+    # D-436's half: one tap to the screen where the number IS shown in full, behind the
+    # role check the inbox does not have.
+    assert f"{notifications.CONSOLE_BASE}/c/{slug}/leads/{payload['lead_id']}" in body, (
+        "a masked number with no way through to the real one is an obstruction, not a "
+        f"control: {body}"
+    )

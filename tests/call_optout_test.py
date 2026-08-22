@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from collections.abc import Callable
@@ -152,6 +153,58 @@ def test_what_is_not_an_opt_out_does_not_become_one(utterance: str) -> None:
     is not a licence to be sloppy: suppressing the caller who just asked to be rung back
     is a lead the client paid for and a promise we then break."""
     assert detect_opt_out([_Turn("caller", utterance)]) is None
+
+
+@pytest.mark.parametrize(
+    "utterance",
+    [
+        # Five of the fifteen rules bridge their two anchors with a wildcard —
+        # `[\w ]{0,20}`, `[\w ]{0,25}`, `[^\n]{0,20}` — and a ten-digit mobile fits
+        # inside every one. One utterance per rule, so a narrowed pattern that stops
+        # matching shows up here as a failure rather than as a silently unproven claim.
+        "naa number 9876543210 teeseyandi",
+        "mera number 9876543210 hata do",
+        "phone 9876543210 band karo",
+        "\u0928\u0902\u092c\u0930 9876543210 \u0939\u091f\u093e \u0926\u094b",
+        "\u0c28\u0c02\u0c2c\u0c30\u0c4d 9876543210 "
+        "\u0c24\u0c40\u0c38\u0c47\u0c2f\u0c02\u0c21\u0c3f",
+    ],
+)
+def test_the_evidence_a_ledger_row_keeps_forever_carries_no_phone_number(
+    utterance: str,
+) -> None:
+    """`consent_ledger` is APPEND-ONLY (hard rule 4), so this one is not correctable.
+
+    THE DEFECT, measured before it was fixed: a caller who says their number out loud
+    while asking to be removed — which is the single most natural way to ask — had that
+    number matched WHOLE by the rule and stored as `evidence.matched`. `record_call_optout`
+    said "Never the number" two lines above the INSERT that wrote it, and the row can
+    never be edited: no retention policy a tenant can set reaches it, and no erasure
+    path rewrites an append-only ledger.
+
+    The fix is redaction of the evidence rather than narrower patterns, because this
+    detector is deliberately recall-over-precision and a missed opt-out is a TRAI
+    violation — so both halves are asserted here: the rule still FIRES (the opt-out is
+    still honoured) and the phrase it stores has no digits left in it.
+    """
+    signal = detect_opt_out([_Turn("caller", utterance)])
+    assert signal is not None, f"the opt-out must still be recognised: {utterance!r}"
+    assert "9876543210" not in signal.matched, (
+        f"a phone number reached an append-only ledger's evidence: {signal.matched!r}"
+    )
+    # NOTHING LONGER THAN THE TWO-DIGIT TAIL the transcript redactor deliberately keeps
+    # (`[phone \u2022\u202210]`), asserted as a shape rather than as the one fixture number: a
+    # partial run is still a partial number, and a test that only searched for the whole
+    # string would pass on a mask that leaked six digits of it.
+    runs = re.findall(r"\d+", signal.matched)
+    assert all(len(run) <= 2 for run in runs), (
+        f"more than the redactor's two-digit tail survived: {signal.matched!r}"
+    )
+    # Anti-vacuity: the evidence is still evidence — it says what the caller asked for.
+    assert signal.matched.strip(), "an empty phrase is not a non-repudiable record"
+    assert "[phone" in signal.matched, (
+        "the number was dropped rather than masked, which loses the fact that the caller quoted one"
+    )
 
 
 def test_a_wordless_caller_turn_is_skipped_and_a_later_opt_out_is_still_found() -> None:

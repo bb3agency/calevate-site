@@ -709,10 +709,11 @@ async def test_one_tenants_invitation_is_not_cancellable_from_another_tenants_pa
     assert alive == 1, "the invitation must survive a cross-tenant cancel attempt"
 
 
-async def test_the_console_lists_pending_invitations_masked_and_per_tenant() -> None:
+async def test_the_console_lists_pending_invitations_in_full_and_per_tenant() -> None:
     """What makes the duplicate refusal actionable when this session did not mint the
-    first link. Two properties: the address is MASKED (it is `RAW_PII_FIELDS`, and an
-    operator needs to recognise a row rather than read it), and the list is one tenant's.
+    first link. Two properties: the address is WHOLE (D-436 — an operator on the phone to
+    a client has to read it back, and the console and the client realm must not render
+    one row two ways), and the list is one tenant's.
     """
     token = await _admin()
     tenant_id, _agent_id, _slug = await _new_client(token)
@@ -733,9 +734,9 @@ async def test_the_console_lists_pending_invitations_masked_and_per_tenant() -> 
     rows = listed.json()
     assert [row["id"] for row in rows] == [minted.json()["id"]]
     assert rows[0]["role"] == "owner"
-    assert email not in listed.text, "a raw address must never reach this response"
-    assert rows[0]["email_masked"].startswith(email[0])
-    assert rows[0]["email_masked"].endswith("@clinic.example")
+    # WAS `email not in listed.text` + a first-letter/domain shape assertion.
+    assert rows[0]["email"] == email
+    assert "•" not in listed.text, "no dots survive anywhere in the body"
     assert elsewhere.json() == [], "another account's keys are not this account's list"
 
 

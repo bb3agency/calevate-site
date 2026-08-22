@@ -12,10 +12,10 @@ import { browserOffline, problem, renderClientPage } from "./harness";
  *
  * Ranked by what a wrong render costs:
  *
- * 1. A caller's number printed in full. Every row carries one, so a mistake here is a
- *    mistake a hundred times over, on the screen most likely to be screenshotted into
- *    a WhatsApp group. `caller_masked` is the only form the API sends and the only one
- *    that may reach the DOM (hard rule 6).
+ * 1. A caller's number in a LINK TARGET. Since D-436 the number is printed in full —
+ *    ringing back is the only action this screen leads to — but every row carries one,
+ *    so an `href` that picked it up would be a hundred log entries at once. URLs reach
+ *    access logs, referrers and browser history; that half of hard rule 6 is unmoved.
  * 2. An empty list that is actually a failed request. "No calls" and "we could not
  *    read your calls" are opposite facts — the first sends an owner to check their
  *    phone line, the second to check with us.
@@ -43,7 +43,7 @@ function call(over: Partial<CallSummary> = {}): CallSummary {
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",
-    caller_masked: "+9198765•••10",
+    caller_e164: "+919876543210",
     started_at: "2026-08-13T04:30:00Z",
     duration_s: 92,
     outcome_tag: "appointment_booked",
@@ -61,14 +61,14 @@ function routes(calls: unknown, over: Record<string, unknown> = {}) {
 }
 
 describe("the call log", () => {
-  it("never renders a caller's number unmasked", async () => {
+  it("renders the caller's number and keeps it out of every link target", async () => {
     const { container } = await renderClientPage(page, routes([call()]));
 
-    expect(await screen.findByText("+9198765•••10")).toBeTruthy();
-    // The identifying digits, in any grouping — a partial leak is still a leak.
-    expect(container.textContent).not.toContain("9876543210");
-    // And nothing in a link target either: an id is fine in a URL, a phone number is
-    // not, because URLs reach logs, referrers and the browser's history.
+    // WAS `not.toContain("9876543210")`. D-436 reversed it: a call log nobody can ring
+    // back from is a list of things that already happened and cannot be acted on.
+    expect(await screen.findByText("+919876543210")).toBeTruthy();
+    // The half that did NOT change: an id is fine in a URL, a phone number is not,
+    // because URLs reach logs, referrers and the browser's history.
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toMatch(/\d{10}/);
     }
@@ -89,7 +89,7 @@ describe("the call log", () => {
 
   it("says how many rows the filter matched, and only once it knows", async () => {
     const { container } = await renderClientPage(page, routes([call(), call({ id: "c2" })]));
-    await screen.findByText("Caller numbers are masked here; open a call to see its details.");
+    await screen.findByText("Open a call to see its transcript, recording and captured fields.");
     expect(container.textContent).toContain("2");
     expect(container.textContent).toContain("calls");
   });
@@ -131,7 +131,7 @@ describe("the call log", () => {
       routes([call({ status: "abandoned" })]),
     );
 
-    await screen.findByText("+9198765•••10");
+    await screen.findByText("+919876543210");
     // Fails visible: the row is there and the unfamiliar word is printed, because a
     // status this build does not know is the one a reader most needs to see.
     expect(container.textContent).toContain("abandoned");

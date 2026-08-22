@@ -221,14 +221,15 @@ class InvitationIn(BaseModel):
 class InvitationOut(BaseModel):
     """A pending invitation — a live key to this account sitting in an inbox.
 
-    `email_masked`, never `email`: see `members.mask_email` for why the guardrail
-    forbids the raw field here and what the mask keeps.
+    `email` is the whole address (D-436): an owner has to be able to see that the
+    address they typed is the one they meant, and to tell two invites at one domain
+    apart. `org:read` gates the list; `PendingInvitation` records what the dots cost.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    email_masked: str
+    email: str
     role: str
     invited_at: datetime
     expires_at: datetime
@@ -310,7 +311,7 @@ async def invite_member(
     await enqueue_invitation_email(session, to=str(row[0]), token=token)
     return InvitationCreatedOut(
         id=invitation_id,
-        email_masked=members_service.mask_email(str(row[0])),
+        email=str(row[0]),
         role=payload.role,
         invited_at=row[1],
         expires_at=row[2],
@@ -337,7 +338,7 @@ async def list_invitations(
     return [
         InvitationOut(
             id=row.id,
-            email_masked=row.email_masked,
+            email=row.email,
             role=row.role,
             invited_at=row.invited_at,
             expires_at=row.expires_at,
@@ -380,7 +381,7 @@ async def revoke_invitation(
     )
     return InvitationOut(
         id=invitation_id,
-        email_masked=members_service.mask_email(str(row[0])),
+        email=str(row[0]),
         role=str(row[1]),
         invited_at=row[2],
         expires_at=row[3],

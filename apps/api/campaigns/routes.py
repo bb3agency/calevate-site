@@ -792,7 +792,11 @@ async def pause(
         "running returns 204. 409 means the campaign is in some other state and the "
         "response names it. 404 means no campaign of yours has that id. Resuming does "
         "not re-run the launch gate — the per-dial compliance check does, on every "
-        "contact, which is what catches paperwork that lapsed while it was paused."
+        "contact, which is what catches paperwork that lapsed while it was paused.\n\n"
+        "One exception: a campaign whose agent has been ARCHIVED is refused with "
+        "`agent_archived`, because that is the one condition the per-dial check can "
+        "never clear — it would refuse every contact for ever while the campaign said "
+        "it was running. Restore the agent, or point the campaign at another one."
     ),
 )
 async def resume(
@@ -801,9 +805,17 @@ async def resume(
     request: Request,
     principal: Principal = Depends(requires("leads:dispatch")),
 ) -> None:
-    """NO GATE HERE, and that is the design (`service.dispatch_blockers` argues it in
-    full): a campaign can sit paused for a week, so a gate at the moment of resuming
+    """NO COMPLIANCE GATE HERE, and that is the design (`service.dispatch_blockers` argues
+    it in full): a campaign can sit paused for a week, so a gate at the moment of resuming
     proves nothing about the moment it dials. The dial-time check is the enforcement.
+
+    THE ONE REFUSAL THAT ARGUMENT DOES NOT COVER IS AN ARCHIVED AGENT (D-440), because it
+    is the one fact here that cannot become true again by itself.
+    `service.assert_agent_still_assignable` carries the full reasoning; the short version
+    is that resuming behind a retired agent produces a campaign that says "running" and
+    dials nobody for ever, refused contact by contact with nothing on the screen to say
+    why — the state `agents/lifecycle.archive_agent` refuses to manufacture from its own
+    side, reached through this door instead.
 
     Audited on a real transition only, exactly like `pause` above — and this is the half
     of the pair that matters most after an incident: "calls started going out again at
@@ -814,6 +826,7 @@ async def resume(
     to explain.
     """
     assert principal.tenant_id is not None
+    await service.assert_agent_still_assignable(session, campaign_id=campaign_id)
     if await service.set_campaign_status(
         session, campaign_id=campaign_id, to_status="running", from_statuses=("paused",)
     ):

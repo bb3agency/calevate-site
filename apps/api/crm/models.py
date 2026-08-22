@@ -227,6 +227,16 @@ class CallExtraction(PKMixin, TimestampMixin, Base):
     #: `workers/retention.py` — a marker outliving the extraction it indexes would be a
     #: second copy of erased data under a column nobody thought of.
     moments: Mapped[list[dict[str, object]] | None] = mapped_column(JSONB)
+    #: WHEN WE DESTROYED THIS ROW'S CONTENTS — never when the agent captured nothing
+    #: (migration f2a6d81b39c4). `data = '{}'` is written both by an extraction that found
+    #: nothing and by all three sweeps in `workers/retention.py` that empty one, and the
+    #: two facts are opposites: the weekly knowledge digest reads this column to answer
+    #: "which required fields does the agent keep missing", and without the marker a
+    #: tenant whose lead retention is shorter than the digest window was told a working
+    #: agent had missed a field on calls where it had not. Stamped by the scrubber in the
+    #: same UPDATE that empties `data`; NULL means "not scrubbed", which is also the
+    #: honest reading for every row written before the column existed.
+    scrubbed_at: Mapped[datetime | None]
 
 
 class Lead(PKMixin, TimestampMixin, Base):

@@ -59,31 +59,9 @@ __all__ = [
     "create_team_invitation",
     "list_pending_invitations",
     "lock_owner_ids",
-    "mask_email",
     "remove_member",
     "revoke_invitation",
 ]
-
-
-def mask_email(value: str) -> str:
-    """`priya@clinic.in` → `p••••@clinic.in`.
-
-    An owner has to RECOGNISE the invitation they sent, and the address is the only
-    thing that distinguishes two pending invites — but `email` is in
-    `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, so a response model
-    declaring it fails the guardrail unless the route is role-checked AND audited, which
-    a list of pending invites is not and should not have to be. `phone_masked` on the
-    DNC list is the precedent this follows.
-
-    The DOMAIN is kept whole on purpose: it is what makes "did I invite the accountant
-    or the vendor?" answerable, and it is a fact about a business, not about a person.
-    A value that is not address-shaped is masked entirely rather than echoed — this
-    function must never become a way to print whatever was stored.
-    """
-    local, at, domain = value.partition("@")
-    if not at or not local:
-        return "•" * max(len(value), 1)
-    return f"{local[0]}{'•' * max(len(local) - 1, 1)}@{domain}"
 
 
 def assert_role_is_grantable(actor_role: str | None, target_role: str) -> None:
@@ -367,11 +345,17 @@ async def create_team_invitation(
 
 @dataclass(frozen=True, slots=True)
 class PendingInvitation:
-    """One live invitation, already masked. The route's response model mirrors these
-    fields; the mask happens HERE so no caller can reach the raw address by accident."""
+    """One live invitation. The route's response model mirrors these fields.
+
+    `email` is the whole address (D-436). It used to be `p••••@clinic.in`, on the
+    argument that an owner only has to RECOGNISE the invite they sent — which fails the
+    moment two people at one domain are invited a week apart, and left the owner unable
+    to see that the address they typed has a typo in it. Reading this list is
+    `org:read`; nothing here is logged.
+    """
 
     id: UUID
-    email_masked: str
+    email: str
     role: str
     invited_at: datetime
     expires_at: datetime
@@ -400,7 +384,7 @@ async def list_pending_invitations(
     return [
         PendingInvitation(
             id=UUID(str(row[0])),
-            email_masked=mask_email(str(row[1])),
+            email=str(row[1]),
             role=str(row[2]),
             invited_at=row[3],
             expires_at=row[4],

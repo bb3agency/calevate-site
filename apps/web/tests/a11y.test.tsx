@@ -16,6 +16,8 @@ import ClientForgotPasswordPage from "@/app/(auth)/auth/forgot-password/page";
 import ClientResetPasswordPage from "@/app/(auth)/auth/reset-password/page";
 import ClientFirstPartySignInPage from "@/app/(auth)/auth/sign-in/page";
 import ClientHealthPage from "@/app/admin/health/page";
+import FleetSpendPage from "@/app/admin/spend/page";
+import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
@@ -30,6 +32,8 @@ import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campai
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
+import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
+import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import AgentsPage from "@/app/c/[slug]/agents/page";
 import AiAssistPage from "@/app/c/[slug]/ai-assist/page";
 import AttentionPage from "@/app/c/[slug]/attention/page";
@@ -39,6 +43,7 @@ import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
+import ClientSpendPage from "@/app/c/[slug]/spend/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -194,6 +199,103 @@ const IST_MONTH = new Date()
   .slice(0, 7);
 
 /**
+ * A month with money in it, in BOTH realms — the client's half and the operator's.
+ *
+ * POPULATED and NOT balanced on purpose: `itemised_charge_inr` is deliberately less than
+ * `period_charge_inr` with a `residual_reason` beside it, because the residual panel is
+ * markup this sweep would otherwise never see — it renders only when the server says
+ * there is something to explain.
+ *
+ * The client fixture carries NO cost or margin field, and that is not an omission: the
+ * response model declares none (`spend_routes.SpendOut`), and a fixture that invented one
+ * would be a fixture the screen could accidentally learn to read.
+ */
+const SPEND = {
+  month: IST_MONTH,
+  charge_basis: "allocated",
+  calls: 2,
+  minutes_used: "18.5000",
+  retainer_inr: "4999.00",
+  period_charge_inr: "1250.00",
+  itemised_charge_inr: "1200.00",
+  itemisation_residual_inr: "50.00",
+  residual_reason: "no_billable_minutes",
+  by_agent: [
+    {
+      agent_id: "agent-1",
+      agent_name: "Front desk",
+      calls: 2,
+      minutes: "18.5000",
+      charged_inr: "1200.00",
+    },
+  ],
+  top_calls: [
+    {
+      call_id: "c1",
+      agent_id: "agent-1",
+      agent_name: "Front desk",
+      started_at: "2026-08-12T09:00:00Z",
+      direction: "inbound",
+      minutes: "12.0000",
+      charged_inr: "900.00",
+    },
+  ],
+  top_calls_truncated: false,
+};
+
+/** The operator's half of the same month: both directions, and the currency caveat. */
+const TENANT_SPEND = {
+  ...SPEND,
+  plan_tier: "managed",
+  revenue_inr: "6249.00",
+  cost_inr: "2100.00",
+  margin_inr: "4149.00",
+  margin_pct: "66.40",
+  cost_currency: "INR",
+  cost_currency_stated: false,
+  unattributed: { minutes: "0.0000", cost_inr: "120.00" },
+  by_unit: [{ unit_type: "telephony_s", qty: "1110", cost_inr: "480.00" }],
+  by_agent: [{ ...SPEND.by_agent[0], cost_inr: "700.00", margin_inr: "500.00", cost_currency_assumed: true }],
+  top_calls: [{ ...SPEND.top_calls[0], cost_inr: "540.00", margin_inr: "360.00", cost_currency_assumed: true }],
+};
+
+/** The fleet board, with one client LOSING money so the marked row is swept too. */
+const FLEET_SPEND = {
+  month: IST_MONTH,
+  clients: 2,
+  revenue_inr: "6249.00",
+  cost_inr: "7100.00",
+  margin_inr: "-851.00",
+  margin_pct: null,
+  tenants: [
+    {
+      tenant_id: "t2",
+      name: "Vasavi Dental",
+      slug: "vasavi",
+      plan_tier: "prepaid",
+      minutes_used: "40.0000",
+      calls: 9,
+      revenue_inr: "0.00",
+      cost_inr: "5000.00",
+      margin_inr: "-5000.00",
+      margin_pct: null,
+    },
+    {
+      tenant_id: "t1",
+      name: "Sri Traders",
+      slug: "sri-traders",
+      plan_tier: "managed",
+      minutes_used: "18.5000",
+      calls: 2,
+      revenue_inr: "6249.00",
+      cost_inr: "2100.00",
+      margin_inr: "4149.00",
+      margin_pct: "66.40",
+    },
+  ],
+};
+
+/**
  * One invoice fixture for BOTH realms, because there is one document: the admin screen
  * and the client screen render the same `components/invoiceDocument.tsx`. A configured,
  * GST-registered supply, so the sweep sees the fullest markup — identity block, place of
@@ -260,7 +362,7 @@ const CALL = {
   // `string` is not the closed union the wire declares.
   direction: "inbound" as const,
   status: "completed",
-  caller_masked: "+9198765•••10",
+  caller_e164: "+919876543210",
   started_at: "2026-08-13T04:30:00Z",
   duration_s: 92,
   outcome_tag: "appointment_booked",
@@ -288,13 +390,42 @@ const AGENT = {
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
+  // D-440 widened `AgentOut`: when it was retired (NULL until it is) and how many lines it
+  // answers in parallel. Both are REQUIRED on the wire.
+  archived_at: null,
+  inbound_number_count: 2,
   extraction_fields: [{ key: "name", label: "Name", type: "string", required: true }],
 };
+
+/** A retired agent, so the roster sweep covers the archive section as well as the roster. */
+const ARCHIVED_AGENT = {
+  ...AGENT,
+  id: "agent-old",
+  name: "Old receptionist",
+  status: "archived",
+  archived_at: "2026-07-02T09:30:00Z",
+  published: false,
+  inbound_number_count: 0,
+};
+
+/** One agent's activity, for the roster's second line. */
+const AGENT_STATS = [
+  {
+    agent_id: "agent-1",
+    status: "live",
+    calls_total: 412,
+    calls_inbound: 400,
+    calls_outbound: 12,
+    calls_connected: 380,
+    outcomes: { appointment_booked: 120 },
+    last_call_at: "2026-08-20T11:05:00Z",
+  },
+];
 
 const LEAD = {
   id: "lead-a",
   name: "Ramesh Kumar",
-  phone_masked: "+9198••••3210",
+  phone_e164: "+919876543210",
   status: "new",
   source: "call",
   data: { name: "Ramesh Kumar" },
@@ -875,19 +1006,63 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/agents": [AGENT],
+      // The archive is a SECOND request (`GET /v1/agents` excludes it), and it is answered
+      // with a row so the sweep covers the archive section rather than the two it would
+      // otherwise see.
+      "/v1/agents?status=archived": [ARCHIVED_AGENT],
+      "/v1/agents/stats": AGENT_STATS,
       "/v1/agents/lanes": {
         precedence_rule: "Script decides content.",
-        lanes: [],
+        lanes: [
+          { field: "script", lane: "staged", precedence: 1, why: "It waits for Apply." },
+          { field: "voice", lane: "live", precedence: 3, why: "Delivery only." },
+        ],
         call_cap_default_s: 600,
         call_cap_min_s: 60,
         call_cap_max_s: 3600,
       },
+    },
+  },
+  {
+    file: "c/[slug]/agents/[agentId]/page.tsx",
+    realm: "client",
+    element: () => (
+      <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
+    ),
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents/agent-1": AGENT,
+      "/v1/kb/sources": [
+        {
+          id: "src-1",
+          agent_id: "agent-1",
+          name: "Clinic hours",
+          kind: "text",
+          status: "pending_approval",
+          version: 1,
+          is_active: false,
+          published_at: null,
+          chunks: 2,
+        },
+      ],
       "/v1/agents/agent-1/pending": {
         agent_id: "agent-1",
         agent_status: "live",
         published: true,
-        has_pending: false,
-        pending: [],
+        // STAGED, so the sweep covers the amber "changes waiting" block — the state with
+        // the most markup, of which the settled one is a subset.
+        has_pending: true,
+        pending: [
+          {
+            field: "script",
+            lane: "staged",
+            staged_version: 9,
+            live_version: 4,
+            staged_at: "2026-08-12T09:30:00Z",
+            headline: "Script v9 is waiting to go live.",
+            why: "It waits for Apply.",
+          },
+        ],
         effective_call_cap_s: 600,
         call_cap_is_platform_default: true,
         worst_case_call_cost_inr: "12.50",
@@ -900,8 +1075,6 @@ const CLIENT_SCREENS: Screen[] = [
           republish_required: true,
           headline: "Callers still hear anushka; vidya reaches them at the next publish.",
         },
-        // UNCONFIRMED, so the sweep covers the amber "nothing here is wrong yet"
-        // block — the state with the most markup, of which `applied` is a subset.
         engine_verification: {
           state: "unreachable",
           confirmed: false,
@@ -909,6 +1082,21 @@ const CLIENT_SCREENS: Screen[] = [
           headline:
             "The voice platform accepted this publish and did not answer when we read it back, so we cannot confirm it is running it. Publish again to re-check.",
         },
+      },
+    },
+  },
+  {
+    file: "c/[slug]/agents/new/page.tsx",
+    realm: "client",
+    element: () => <NewAgentPage params={slug} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/agents/lanes": {
+        precedence_rule: "Script decides content.",
+        lanes: [],
+        call_cap_default_s: 600,
+        call_cap_min_s: 60,
+        call_cap_max_s: 3600,
       },
     },
   },
@@ -925,7 +1113,7 @@ const CLIENT_SCREENS: Screen[] = [
           {
             kind: "lead_blocked",
             id: "att-1",
-            title: "+9198765•••10 was not called",
+            title: "+919876543210 was not called",
             detail: "This person asked not to be called.",
             rule: "dnc",
             occurred_at: "2026-08-13T04:30:00Z",
@@ -1107,7 +1295,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/dnc?limit=500": {
         items: [
-          { id: "dnc-1", phone_masked: "+9198••••3210", reason: "requested_on_call", source: "call", created_at: "2026-08-11T10:00:00Z", note: null },
+          { id: "dnc-1", phone_e164: "+919876543210", reason: "requested_on_call", source: "call", created_at: "2026-08-11T10:00:00Z", note: null },
         ],
         total: 1,
       },
@@ -1191,7 +1379,7 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/members": MEMBERS,
       "/v1/invitations": [
-        { id: "inv-1", email_masked: "k•••@example.com", role: "staff", created_at: "2026-08-12T09:00:00Z", expires_at: "2026-08-19T09:00:00Z" },
+        { id: "inv-1", email: "kiran@example.com", role: "staff", created_at: "2026-08-12T09:00:00Z", expires_at: "2026-08-19T09:00:00Z" },
       ],
     },
   },
@@ -1221,6 +1409,15 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <AiAssistPage />,
     routes: { "/v1/me": ME, "/v1/billing/ai-quota": AI_QUOTA_AT_CEILING },
+  },
+  {
+    // Per-rupee attribution, the client's half. Swept with a NON-ZERO residual so the
+    // explanation panel is in the scan — it is the one block on this screen that renders
+    // conditionally on something the server says rather than on a request landing.
+    file: "c/[slug]/spend/page.tsx",
+    realm: "client",
+    element: () => <ClientSpendPage params={slug} />,
+    routes: { "/v1/me": ME, [`/v1/billing/spend?month=${IST_MONTH}`]: SPEND },
   },
   {
     // The client's own invoice — the same sheet the admin entry below renders, from the
@@ -1404,7 +1601,7 @@ const ADMIN_SCREENS: Screen[] = [
       "/v1/ops/dnc/global?limit=500": [
         {
           id: "0192f0aa-7777-7000-8000-000000000001",
-          phone_masked: "+9198••••3210",
+          phone_e164: "+919876543210",
           scope: "global",
           source: "regulator",
           added_at: "2026-08-12T09:00:00Z",
@@ -1412,7 +1609,7 @@ const ADMIN_SCREENS: Screen[] = [
         },
         {
           id: "0192f0aa-7777-7000-8000-000000000002",
-          phone_masked: "+9198••••7788",
+          phone_e164: "+919812347788",
           scope: "global",
           source: "platform_block",
           added_at: "2026-08-11T09:00:00Z",
@@ -1512,6 +1709,20 @@ const ADMIN_SCREENS: Screen[] = [
     realm: "admin",
     element: () => <TenantInvoicePage params={tenant} />,
     routes: { [`/v1/admin/tenants/t1/invoice?month=${IST_MONTH}`]: INVOICE },
+  },
+  {
+    file: "admin/tenants/[tenantId]/spend/page.tsx",
+    realm: "admin",
+    element: () => <TenantSpendPage params={tenant} />,
+    routes: { [`/v1/admin/tenants/t1/spend?month=${IST_MONTH}`]: TENANT_SPEND },
+  },
+  {
+    // Swept with a client in the RED, because the losing row carries markup the healthy
+    // one does not — the warning glyph and its screen-reader-only prefix.
+    file: "admin/spend/page.tsx",
+    realm: "admin",
+    element: () => <FleetSpendPage />,
+    routes: { [`/v1/admin/spend?month=${IST_MONTH}`]: FLEET_SPEND },
   },
   {
     file: "admin/tenants/[tenantId]/first-campaign-review/page.tsx",

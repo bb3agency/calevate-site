@@ -23,13 +23,14 @@ import { problem, renderClientPage } from "./harness";
  *   separate reads and either can fail alone: a dead timeline must not blank the header,
  *   and a dead header must not imply the history is gone.
  *
- * Hard rule 6 has its own case: the API projects each event into prose server-side
- * rather than serializing `lead_events.payload`, and the phone planted below is in no
- * payload this screen receives — so if it renders, this screen put it there.
+ * The TIMELINE has its own case, and it is not a masking rule: the API projects each
+ * event into prose server-side rather than serializing `lead_events.payload`, so the
+ * lead's number is in the header payload and in no timeline payload at all. The header
+ * prints it in full (D-436); a number appearing in a timeline ROW would mean the API
+ * started serializing stored payloads.
  */
 
-const RAW_PHONE = "+919876543210";
-const MASKED = "+9198••••3210";
+const PHONE = "+919876543210";
 
 const ME: Me = {
   user_id: "u1",
@@ -48,7 +49,7 @@ const MEMBERS: Member[] = [
 const LEAD: Lead = {
   id: "lead-a",
   name: "Ramesh Kumar",
-  phone_masked: MASKED,
+  phone_e164: PHONE,
   status: "hot",
   source: "inbound_call",
   data: {},
@@ -226,8 +227,7 @@ describe("an empty history and a failed one are different sentences", () => {
     await screen.findByRole("alert");
     // The lead itself read fine, so the header is real data and stays.
     expect(container.textContent).toContain("Ramesh Kumar");
-    expect(container.textContent).toContain(MASKED);
-    expect(container.textContent).not.toContain(RAW_PHONE);
+    expect(container.textContent).toContain(PHONE);
   });
 
   it("keeps the history when only the lead failed", async () => {

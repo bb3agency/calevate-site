@@ -30,12 +30,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.holds import NO_HOLDS, read_tenant_holds
+from apps.api.agents.lifecycle import create_agent
 from apps.api.compliance.disclosure import (
     AI_DISCLOSURE_TEMPLATES,
     RECORDING_NOTICE_TEMPLATES,
-    ai_disclosure_for,
     bundled_disclosure_line,
-    recording_notice_for,
 )
 from apps.api.compliance.service import SELF_SERVE_TIERS, spend_capped
 from apps.api.core.errors import ProblemError
@@ -238,7 +237,6 @@ async def create_organization(
     back into the SAME 409 the probe would have produced — see the handler below.
     """
     tenant_id = uuid7()
-    agent_id = uuid7()
     schema_id = uuid7()
 
     # The uniqueness probe MUST see every tenant's slug. Under `untenanted_session`
@@ -248,24 +246,19 @@ async def create_organization(
         await assert_slug_available(probe, slug)
 
     fields = VERTICAL_TEMPLATES.get(vertical_template, VERTICAL_TEMPLATES.get("clinic", []))
-    disclosure = DISCLOSURE_TEMPLATES.get(language, DISCLOSURE_TEMPLATES["en-IN"]).format(
-        business=name
-    )
 
     # FORCE RLS derives WITH CHECK from USING, so creating a tenant root requires the
     # new org's own GUC — generate the id first, then insert under it (the pattern the
     # RLS tests pin down).
     try:
-        await _write_tenant_root(
+        agent_id = await _write_tenant_root(
             tenant_id=tenant_id,
-            agent_id=agent_id,
             schema_id=schema_id,
             name=name,
             slug=slug,
             vertical_template=vertical_template,
             billing_email=billing_email,
             language=language,
-            disclosure=disclosure,
             fields=fields,
             created_by=created_by,
             plan_tier=plan_tier or DEFAULT_PLAN_TIER,
@@ -305,21 +298,27 @@ async def create_organization(
 async def _write_tenant_root(
     *,
     tenant_id: UUID,
-    agent_id: UUID,
     schema_id: UUID,
     name: str,
     slug: str,
     vertical_template: str,
     billing_email: str | None,
     language: str,
-    disclosure: str,
     fields: Any,
     created_by: UUID | None,
     plan_tier: str,
     owner_user_id: UUID | None,
     on_created: TenantRootHook | None,
-) -> None:
-    """The single transaction the tenant is born in — see `create_organization`."""
+) -> UUID:
+    """The single transaction the tenant is born in — see `create_organization`.
+
+    Returns the receptionist's id, which it now MINTS rather than receives: the agent row
+    is written by `agents/lifecycle.create_agent`, the one INSERT into `agents` in this
+    repository (D-440). It used to be spelled out here, which was fine while a tenant got
+    exactly one agent and nobody else could make another — the moment a client can create
+    their own, a second INSERT is a second place deciding what a new agent is born with,
+    and four of those columns are hard rule 5.
+    """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -351,32 +350,17 @@ async def _write_tenant_root(
                     "action": policy["action"],
                 },
             )
-        await session.execute(
-            text(
-                "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
-                "disclosure_line, ai_disclosure_line, recording_notice_line, "
-                "ai_disclosure_enabled, recording_notice_enabled, "
-                "status, engine, created_at, updated_at) VALUES (:id, :tid, "
-                ":name, 'inbound', :lang, :disclosure, :ai_line, :rec_line, "
-                "true, true, 'draft', :engine, now(), now())"
-            ),
-            {
-                "id": agent_id,
-                "tid": tenant_id,
-                # D-38: the inbound receptionist is the headline capability, so the
-                # default agent a new client gets IS the receptionist.
-                "name": f"{name} receptionist",
-                "lang": language,
-                # The legacy bundle (step 1 of D-163's two-step) beside the two halves it
-                # is composed of. Both toggles start TRUE and are spelled here rather than
-                # left to the column default: a new client's agent discloses, and that is
-                # a statement worth reading at the INSERT rather than inferring from a
-                # `server_default` three files away.
-                "disclosure": disclosure,
-                "ai_line": ai_disclosure_for(language=language, business=name),
-                "rec_line": recording_notice_for(language=language),
-                "engine": _default_engine(),
-            },
+        # D-38: the inbound receptionist is the headline capability, so the default agent
+        # a new client gets IS the receptionist. Everything else about how it is born —
+        # both disclosure sentences, both toggles, the legacy bundle, the platform engine,
+        # `status = 'draft'` — belongs to `create_agent`, which is now the only writer of
+        # this table (D-440).
+        agent_id = await create_agent(
+            session,
+            tenant_id=tenant_id,
+            name=f"{name} receptionist",
+            direction="inbound",
+            language_primary=language,
         )
         await session.execute(
             text(
@@ -406,12 +390,7 @@ async def _write_tenant_root(
             )
         if on_created is not None:
             await on_created(session, tenant_id)
-
-
-def _default_engine() -> str:
-    from apps.api.core.settings import get_settings
-
-    return get_settings().engine
+    return agent_id
 
 
 def _json(value: Any) -> str:

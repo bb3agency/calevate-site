@@ -68,7 +68,9 @@ class AddNumbersOut(Strict):
 
 class DncEntryOut(Strict):
     id: UUID
-    phone_masked: str
+    #: In full (D-436). A suppression list a client cannot read back is a list they
+    #: cannot check against the caller who is complaining at them.
+    phone_e164: str
     scope: str
     source: str | None
     added_at: datetime
@@ -134,7 +136,7 @@ async def add_numbers(
     "",
     response_model=list[DncEntryOut],
     openapi_extra=permission_meta("leads:read"),
-    summary="The suppression list, masked — this tenant's entries and the global ones",
+    summary="The suppression list — this tenant's entries and the global ones",
 )
 async def list_entries(
     session: Session,
@@ -145,7 +147,7 @@ async def list_entries(
     return [
         DncEntryOut(
             id=entry.id,
-            phone_masked=entry.phone_masked,
+            phone_e164=entry.phone_e164,
             scope=entry.scope,
             source=entry.source,
             added_at=entry.added_at,

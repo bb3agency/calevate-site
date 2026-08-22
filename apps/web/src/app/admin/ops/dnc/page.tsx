@@ -70,13 +70,15 @@ import {
  *    are different strings the API binds separately. The typed word says WHICH act was
  *    meant on this click; admin-realm MFA already says who holds the session.
  * 3. **The destructive direction is confirmed PER ROW.** Releasing opens a block naming
- *    the masked number it would un-suppress, states what happens next, and takes RELEASE
+ *    the number it would un-suppress, states what happens next, and takes RELEASE
  *    typed into it — the discipline the tenant erasure and the credit adjustment already
  *    use for acts bound to one object. A list of forty rows with forty live Release
  *    buttons is a mis-click away from calling a complainant.
- * 4. **Counts, never numbers.** The API answers an add with three integers and lists
- *    entries masked to their last two digits; the only unmasked number on this screen is
- *    the one an operator typed into the box, on its way out (hard rule 6).
+ * 4. **Counts, never numbers, out of a BULK ADD.** The API answers an add with three
+ *    integers rather than echoing the pasted list back — an operator who pasted the
+ *    wrong column needs a count that disagrees with theirs, not their own text repeated.
+ *    The LIST is a different question and answers it in full (D-436): releasing a
+ *    platform-wide suppression means reading the number back to whoever asked for it.
  *
  * NOT HERE, and argued rather than forgotten: `POST /v1/admin/tenants/{tenant_id}/
  * campaigns/{campaign_id}/preference-scrub`. It is the national customer preference
@@ -151,8 +153,7 @@ export default function GlobalDncPage() {
             <span className="text-xs text-ink-faint">
               {truncated
                 ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
-                : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}{" "}
-              · last two digits only
+                : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}
             </span>
           ) : undefined
         }
@@ -447,9 +448,10 @@ function EntryRow({
         >
           <Globe2 className="h-4 w-4" />
         </span>
-        {/* MASKED at the API — `phone_masked` is the only form of the number that exists
-            on this response, and the only one this screen may render (hard rule 6). */}
-        <span className="font-mono tabular-nums text-ink">{entry.phone_masked}</span>
+        {/* IN FULL (D-436). An operator releasing a platform-wide suppression has to be
+            able to read the number back to the TSP or regulator who asked for it — and
+            the confirmation below asks them to match it, which dots made impossible. */}
+        <span className="font-mono tabular-nums text-ink">{entry.phone_e164}</span>
         {/* Fails VISIBLE: a source this build cannot name still gets its row and its raw
             value, because a suppression an operator cannot see is one they will be asked
             to explain. */}
@@ -468,9 +470,9 @@ function EntryRow({
             type="button"
             onClick={() => setConfirming(true)}
             // Named for the row: forty buttons called "Release" are forty identical
-            // announcements to a screen reader. The masked number is what the API gave us
-            // and is safe to speak.
-            aria-label={`Release the platform-wide suppression on ${entry.phone_masked}`}
+            // announcements to a screen reader, and "release which one?" is exactly the
+            // question a mis-click answers wrongly.
+            aria-label={`Release the platform-wide suppression on ${entry.phone_e164}`}
             className={SECONDARY_BUTTON}
           >
             <Undo2 aria-hidden className="h-3.5 w-3.5" />
@@ -488,7 +490,7 @@ function EntryRow({
             <TriangleAlert aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
             <div className="min-w-0">
               <p className="font-semibold text-ink">
-                Releasing {entry.phone_masked} lets every client dial it again
+                Releasing {entry.phone_e164} lets every client dial it again
               </p>
               <p className="mt-1 text-ink-muted">
                 From the next dispatch tick, any campaign holding this number may call it.
@@ -510,12 +512,12 @@ function EntryRow({
 
           <label className="block">
             <span className={FIELD_LABEL}>
-              Type RELEASE to confirm, for {entry.phone_masked}
+              Type RELEASE to confirm, for {entry.phone_e164}
             </span>
             <input
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              aria-label={`Type RELEASE to confirm lifting the suppression on ${entry.phone_masked}`}
+              aria-label={`Type RELEASE to confirm lifting the suppression on ${entry.phone_e164}`}
               placeholder="RELEASE"
               className={`${FIELD} font-mono`}
             />
@@ -529,7 +531,7 @@ function EntryRow({
               className={DANGER_BUTTON}
             >
               <Undo2 aria-hidden className="h-4 w-4" />
-              {releasing ? "Releasing…" : `Release ${entry.phone_masked}`}
+              {releasing ? "Releasing…" : `Release ${entry.phone_e164}`}
             </button>
             <button
               type="button"

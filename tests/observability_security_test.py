@@ -9,7 +9,12 @@ against exactly that.
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
+from typing import Any
 
+import sentry_sdk
+from apps.api.core.logging import REDACTED
 from apps.api.core.observability import scrub_breadcrumb, scrub_event
 
 PHONE = "9876543210"
@@ -208,3 +213,137 @@ def test_request_cookies_are_dropped_not_merely_header_scrubbed() -> None:
     assert scrubbed is not None
     assert "cookies" not in scrubbed["request"]
     assert scrubbed["request"]["headers"]["Host"] == "app.calevate.tech"
+
+
+# --- The SDK's own capture, driven for real ------------------------------------
+#
+# Everything above hands `scrub_event` a hand-built event, which tests the hook and
+# nothing else. The hook is not the whole control: `sentry_sdk` decides WHAT to collect
+# before the hook decides what to keep, and `serialize()` runs BEFORE `before_send`
+# (`sentry_sdk/client.py::_prepare_event`) — so a value the SDK gathers arrives already
+# flattened to a `repr` string, with only `redact_mapping`'s key patterns and phone
+# regex left to judge it. The tests below therefore drive a REAL client with the real
+# options and read the envelope, which is the only way to see that difference.
+
+
+class _CapturingTransport(sentry_sdk.transport.Transport):
+    """Every envelope the client would have sent, kept in memory."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.events: list[dict[str, Any]] = []
+
+    def capture_envelope(self, envelope: Any) -> None:
+        for item in envelope.items:
+            payload = item.payload.json
+            if payload is not None:
+                self.events.append(payload)
+
+
+@contextmanager
+def _capturing_client(**overrides: Any) -> Iterator[_CapturingTransport]:
+    """A client configured exactly as `init_observability` configures it.
+
+    The options are spelled here rather than read out of `init_observability`, because
+    that function needs a DSN, a settings object and a live `configure_alerts`. What
+    keeps the two in step is `scripts/check_observability_ready.check_sentry_hooks`,
+    which fails the build if `sentry_sdk.init` stops passing any of them —
+    `tests/observability_readiness_guard_test.py::TestSentryHooks` is that half.
+    """
+    transport = _CapturingTransport()
+    options: dict[str, Any] = {
+        "dsn": "https://public@o0.ingest.example.invalid/1",
+        "environment": "local",
+        "send_default_pii": False,
+        "max_request_body_size": "never",
+        "include_local_variables": False,
+        "before_send": scrub_event,
+        "before_breadcrumb": scrub_breadcrumb,
+        "transport": transport,
+    }
+    client = sentry_sdk.Client(**{**options, **overrides})
+    scope = sentry_sdk.get_global_scope()
+    previous = scope.client
+    scope.set_client(client)
+    try:
+        yield transport
+    finally:
+        client.close()
+        scope.set_client(previous)
+
+
+def _crash_holding_a_lead() -> None:
+    """The shape `workers/notifications._compose` and `crm.service._lead_out` both have
+    in scope when something throws: a captured name, a number, an owner address and the
+    transcript-derived summary, as four ordinary locals."""
+    # `noqa: F841` FOUR TIMES, and the unusedness is the subject: what Sentry captures
+    # is the frame's locals, so a variable that were read afterwards would prove nothing
+    # the raise does not already carry. These four exist to BE locals at the moment of
+    # the raise.
+    name = "Ravi Kumar"  # noqa: F841
+    phone = f"+91{PHONE}"  # noqa: F841
+    billing_email = "owner@sunriseclinic.example"  # noqa: F841
+    summary = "Caller asked for a callback."  # noqa: F841
+    raise ValueError("transport refused")
+
+
+def test_a_captured_exception_ships_no_frame_locals_at_all() -> None:
+    """`include_local_variables=False`, proved by reading the envelope.
+
+    THE LEAK IT CLOSES, measured before it was closed: with the SDK default (True) and
+    this exact scrubber, `phone` and `billing_email` came out `[redacted]` — their keys
+    match `REDACT_KEYS` — while `name` came out `'Ravi Kumar'` and `summary` came out
+    `'Caller asked for a callback.'`. A caller's captured name and the transcript-derived
+    call summary, verbatim, to a third-party error tracker. Neither key is on any
+    denylist and neither value is phone-shaped, which is the point: a local is named for
+    the reader, not for the filter.
+
+    `test_local_variables_in_a_stack_frame_are_scrubbed` above still pins the hook, and
+    still matters — it is the backstop for the day an integration puts `vars` back.
+    """
+    with _capturing_client() as transport:
+        try:
+            _crash_holding_a_lead()
+        except ValueError:
+            sentry_sdk.capture_exception()
+
+    assert transport.events, "nothing was captured — the assertions below prove nothing"
+    (event,) = transport.events
+    frames = event["exception"]["values"][0]["stacktrace"]["frames"]
+    assert frames, "the stack is still a stack"
+    assert all("vars" not in frame for frame in frames), (
+        f"a frame carried its locals: {[f.get('vars') for f in frames if f.get('vars')]}"
+    )
+    # And the diagnosis survives, which is what makes withholding affordable: the type
+    # Sentry titles the issue with, and the frames that say where.
+    assert event["exception"]["values"][0]["type"] == "ValueError"
+    assert any(frame.get("function") == "_crash_holding_a_lead" for frame in frames)
+
+
+def test_the_frame_locals_control_is_the_option_and_not_the_scrubber() -> None:
+    """The control on the control. An absence proves nothing unless the same crash, with
+    the SDK's own default restored, would have carried the value out — so this asserts
+    the leak that `include_local_variables=False` exists to stop, rather than trusting
+    that the previous test's `vars` were ever going to be there.
+
+    It also pins WHY the scrubber alone is not the answer: the two names below survive
+    `redact_mapping` in full, and both are hard rule 6 data (`name` is an extraction
+    field, `summary` is transcript-derived prose that
+    `scripts/check_redaction_exposure.RAW_TRANSCRIPT_FIELDS` refuses on every response).
+    """
+    with _capturing_client(include_local_variables=True) as transport:
+        try:
+            _crash_holding_a_lead()
+        except ValueError:
+            sentry_sdk.capture_exception()
+
+    (event,) = transport.events
+    frames = event["exception"]["values"][0]["stacktrace"]["frames"]
+    leaky = next(frame for frame in frames if frame.get("function") == "_crash_holding_a_lead")
+    variables = leaky["vars"]
+    # The key-based half of `redact_mapping` really does work — these two are covered.
+    assert variables["phone"] == REDACTED
+    assert variables["billing_email"] == REDACTED
+    # And these two are what it cannot see, which is the whole finding.
+    assert "Ravi Kumar" in variables["name"]
+    assert "callback" in variables["summary"]

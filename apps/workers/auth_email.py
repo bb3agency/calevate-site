@@ -82,7 +82,13 @@ _SUBJECTS: dict[str, str] = {
 #: PAGE, never of an API route — the page then POSTs it — which is what keeps the secret
 #: out of the API's access logs and out of any `Referer` an outbound link on that page
 #: would send.
-_CONSOLE_BASE = "https://app.calevate.tech"
+#:
+#: `CONSOLE_BASE` is PUBLIC because `workers/notifications.py` links a hot-lead alert
+#: back to the lead it is about, and a second literal of this host is the defect class
+#: D-103 exists for. It is exported rather than moved because both readers are worker
+#: email composers and a module holding one constant is not a better home than the one
+#: that already mints links.
+CONSOLE_BASE = "https://app.calevate.tech"
 _ADMIN_BASE = "https://admin.calevate.tech"
 
 #: Seconds to wait before each retry, indexed by the attempt that just failed. One entry
@@ -100,7 +106,7 @@ def _retry_after(attempt: int) -> float:
 def _body(kind: str, realm: str, secret: str) -> str:
     """The message. Plain text, because a transactional secret does not need HTML and an
     HTML mail is one more thing that can render wrong in a client we have never seen."""
-    base = _ADMIN_BASE if realm == "admin" else _CONSOLE_BASE
+    base = _ADMIN_BASE if realm == "admin" else CONSOLE_BASE
     if kind == "password_reset":
         return (
             "Someone asked to reset the password for this Calevate account.\n\n"
@@ -200,4 +206,4 @@ async def deliver_auth_email(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     return "sent"
 
 
-__all__ = ["RETRY_BACKOFF_S", "deliver_auth_email"]
+__all__ = ["CONSOLE_BASE", "RETRY_BACKOFF_S", "deliver_auth_email"]

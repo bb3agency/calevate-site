@@ -260,6 +260,14 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # Added by the D-193 pass: six `{id}` routes the sweep did not drive. All six already
     # refused correctly — they are here so that stays true, not because they broke.
     ("PATCH", "/v1/agents/{agent_id}/disclosure", {"ai_disclosure_enabled": False}, {}),
+    # The D-440 lifecycle surface. Every one of these MOVES a neighbour's agent if it
+    # resolves, and two of them reach the voice platform, so a miss here is a stranger
+    # taking another business's receptionist off its phone line.
+    ("PATCH", "/v1/agents/{agent_id}", {"name": "idor sweep"}, {}),
+    ("POST", "/v1/agents/{agent_id}/activate", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/deactivate", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/archive", {}, {}),
+    ("POST", "/v1/agents/{agent_id}/restore", {}, {}),
     (
         "POST",
         "/v1/calls/{call_id}/assist",

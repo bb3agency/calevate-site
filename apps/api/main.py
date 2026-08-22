@@ -66,6 +66,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
     from apps.api.billing.routes import client_router as billing_invoice_router
     from apps.api.billing.routes import router as billing_admin_router
+    from apps.api.billing.spend_routes import client_router as billing_spend_router
+    from apps.api.billing.spend_routes import router as spend_admin_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
@@ -218,6 +220,13 @@ def _mount_routers(application: FastAPI) -> None:
     # G-3/G-4/G-5). Literal `/v1/billing/ai-quota`, declared with the other `/v1/billing/*`
     # routers and for the same ordering reason they give.
     application.include_router(ai_quota_router)
+    # Where every rupee went, per agent and per call (D-12). TWO routers because it is
+    # two realms over one computation: the client's is `/v1/billing/spend` and publishes
+    # only what they were CHARGED, the admin's is `/v1/admin/spend` + one per tenant and
+    # adds what we PAID. Declared with the other `/v1/billing/*` routers for the ordering
+    # reason they give.
+    application.include_router(billing_spend_router)
+    application.include_router(spend_admin_router)
     # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
     # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
     # we make to the client, the queue is the evidence we collect for it.

@@ -167,9 +167,18 @@ async def _recall() -> str:
             unstoppable.append(dial.call_id)
             continue
         stopped[dial.tenant_id].append(dial.call_id)
-
-    for tenant_id, call_ids in stopped.items():
-        await _stamp_recalled(tenant_id, call_ids)
+        # STAMPED HERE, NOT AFTER THE LOOP — `dnc_recall._recall` carries the full
+        # argument and this is the same defect in the same shape. In short: batched at the
+        # end, the stamp existed only if the loop finished, and the loop not finishing is
+        # what it is for. The per-dial `except` above catches `Exception`; a redeploy or a
+        # `job_timeout` arrives as `CancelledError`, which it does not. The re-run then
+        # re-POSTs a stop for every dial the first run already stopped, takes the vendor's
+        # refusal for an already-stopped execution, and reports them as `unstoppable` —
+        # alarming `dial_recall_unstopped`, whose detail tells an operator mid-incident
+        # that dials "will run to its end" when they were stopped on the first pass. One
+        # indexed UPDATE beside a vendor round trip, on the path where being wrong is
+        # most expensive.
+        await _stamp_recalled(dial.tenant_id, [dial.call_id])
 
     total_stopped = sum(len(v) for v in stopped.values())
     capped = len(dials) >= RECALL_SCAN_LIMIT

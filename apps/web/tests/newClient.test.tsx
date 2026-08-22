@@ -335,7 +335,7 @@ describe("cancelling an invite the wizard already issued", () => {
       [`GET ${INVITATIONS}`]: [
         {
           id: MINTED.id,
-          email_masked: "o\u2022\u2022\u2022\u2022@sunrise.example",
+          email: "owner@sunrise.example",
           role: "owner",
           invited_at: "2026-08-14T09:00:00Z",
           expires_at: "2026-08-17T09:00:00Z",
@@ -351,7 +351,7 @@ describe("cancelling an invite the wizard already issued", () => {
 
     await screen.findByText("There is already an unused invitation for that address.");
     // The masked address is what an operator recognises; the raw one is never printed.
-    await screen.findByText("o\u2022\u2022\u2022\u2022@sunrise.example");
+    await screen.findByText("owner@sunrise.example");
     expect(screen.getByRole("button", { name: "Cancel this invite" })).toBeTruthy();
   });
 

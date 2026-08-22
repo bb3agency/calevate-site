@@ -104,6 +104,12 @@ const AGENT: Agent = {
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "bolna",
   published: true,
+  // D-440 widened `AgentOut`: an agent knows when it was retired (NULL until it is) and
+  // how many lines it answers in parallel, which is the one honest per-agent deployment
+  // fact the API carries. Both are REQUIRED on the wire, so a fixture without them is not
+  // an agent this server can send.
+  archived_at: null,
+  inbound_number_count: 1,
   extraction_fields: [],
 };
 

@@ -24,8 +24,9 @@ import { browserOffline, problem, renderClientPage, stillLoading } from "./harne
  *    indistinguishable from "your number" to the person reading it.
  * 2. A zero is rendered as zero. The tile that says 0 calls today is the tile that
  *    makes an owner ring us, which is the entire point of the screen.
- * 3. No raw phone number reaches the DOM (hard rule 6) — the list renders
- *    `caller_masked` and nothing else, and the mock printed full numbers here.
+ * 3. The recent-calls rail prints `caller_e164` in full (D-436) and never puts it in a
+ *    URL — the rail is the fastest route from "somebody rang" to ringing them back, and
+ *    a link target is still the one place a number may not go (hard rule 6).
  * 4. The after-hours tile says WHICH definition produced its number, because a guess
  *    and a fact must not render identically (`after_hours_basis`).
  */
@@ -130,15 +131,15 @@ describe("the dashboard renders what the server said, or says it could not", () 
     expect(container.textContent).toContain("No calls yet");
   });
 
-  it("never puts a caller's number on screen unmasked (hard rule 6)", async () => {
-    const RAW = "+919876543210";
+  it("prints the caller's number and keeps it out of every link target", async () => {
+    const PHONE = "+919876543210";
     const call: CallSummary = {
       id: "c1",
       agent_id: "a1",
       agent_name: "Reception",
       direction: "inbound",
       status: "completed",
-      caller_masked: "+9198765•••10",
+      caller_e164: PHONE,
       started_at: "2026-08-13T04:30:00Z",
       duration_s: 92,
       outcome_tag: "booked",
@@ -152,11 +153,12 @@ describe("the dashboard renders what the server said, or says it could not", () 
       routes({ "/v1/calls?limit=6": [call] }),
     );
 
-    expect(await screen.findByText("+9198765•••10")).toBeTruthy();
-    expect(container.textContent).not.toContain(RAW);
-    // Not merely "the raw string is absent" — the last ten digits in sequence are what
-    // would identify the person, and a partial leak is still a leak.
-    expect(container.textContent).not.toContain("9876543210");
+    // WAS `not.toContain(RAW)`. D-436 reversed it: the rail exists to be acted on.
+    expect(await screen.findByText(PHONE)).toBeTruthy();
+    // The half that did NOT change — URLs reach logs, referrers and browser history.
+    for (const link of Array.from(container.querySelectorAll("a"))) {
+      expect(link.getAttribute("href") ?? "").not.toContain("9876543210");
+    }
   });
 
   it("says which definition of after-hours produced the number", async () => {

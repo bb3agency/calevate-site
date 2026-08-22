@@ -51,6 +51,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.lifecycle import assert_assignable, hold_agent_for_campaign_start
 from apps.api.campaigns.models import CONSENT_SOURCES, REFUSED_CONSENT_SOURCES
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
@@ -596,6 +597,14 @@ async def create_campaign(
     await assert_visible(session, "agent", agent_id)
     await assert_visible(session, "phone_number", number_id)
     await assert_visible(session, "dlt_template", dlt_template_id)
+    # AND THE AGENT MUST NOT BE RETIRED (D-440). `assert_visible` is the TENANCY question
+    # and answers 404 for a neighbour's id; this is the LIFECYCLE question and answers 409
+    # for one of the caller's own. A draft or paused agent is still assignable on purpose —
+    # a campaign is assembled before its agent is published and `launch_blockers` refuses
+    # the launch with `agent_not_live` until it is — but an archived one can never become
+    # launchable, so binding it produces a campaign the client owns and can never explain,
+    # which is the same defect `assert_visible`'s own docstring describes.
+    await assert_assignable(session, agent_id)
 
     # Validated HERE, at the only write path, so the column can never hold a window
     # the dispatcher would have to second-guess. None = "platform window applies".
@@ -851,6 +860,41 @@ async def record_dlt_registration(
     )
 
 
+def launch_refusal_for_agent_status(status: str) -> LaunchBlocker | None:
+    """Why an agent in `status` may not be launched against, or `None` when it may.
+
+    THE LAUNCH GATE'S HALF OF THE PAIR (D-440), lifted out beside
+    `compliance.service.dial_refusal_for_agent_status` and for the same reason: these two
+    are independent enumerations of one policy — which lifecycle state may place calls —
+    and the only thing that used to hold them together was that the same person wrote
+    both. `scripts/check_compliance_invariants.py` runs BOTH over `AGENT_STATUSES` and
+    fails if they ever disagree about a state, which is the shape of the drift
+    `launch_blockers`' own docstring warns about: "a launch screen that explained one of
+    them differently from the dispatcher's refusal would be two gates disagreeing in front
+    of a client".
+
+    THE TWO REFUSALS ARE DIFFERENT ON PURPOSE and that is not a disagreement. The gates
+    must agree on WHETHER a state may dial; they are free to differ on what to tell
+    somebody about it, and `agent_archived` exists precisely because "publish it first" is
+    a dead end for an agent the platform refuses to publish.
+    """
+    if status == "archived":
+        # ITS OWN BLOCKER, not `agent_not_live`, because the two need different next
+        # actions from the client and only one of them is "publish it" (D-440). An
+        # archived agent is not waiting to go live; the campaign has to be pointed at a
+        # different agent, or the agent restored and activated. Telling somebody to
+        # publish an agent the platform refuses to publish is a dead end with a green
+        # button at the end of it.
+        return LaunchBlocker(
+            "agent_archived",
+            "The agent this campaign uses has been archived. Restore it, or point the "
+            "campaign at another agent.",
+        )
+    if status != "live":
+        return LaunchBlocker("agent_not_live", "The agent must be published first.")
+    return None
+
+
 async def launch_blockers(
     session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
 ) -> list[LaunchBlocker]:
@@ -893,8 +937,13 @@ async def launch_blockers(
         blockers.append(
             LaunchBlocker("agent_missing", "The agent this campaign uses has been deleted.")
         )
-    elif facts.agent_status != "live":
-        blockers.append(LaunchBlocker("agent_not_live", "The agent must be published first."))
+    else:
+        # `_campaign_facts` joins `agents` INNER, so a campaign whose agent row is absent
+        # 404s there and never reaches this line: `agent_status` is optional to the type
+        # checker and never None here, which is what `str()` is for.
+        refusal = launch_refusal_for_agent_status(str(facts.agent_status))
+        if refusal is not None:
+            blockers.append(refusal)
     if facts.agent_direction == "inbound":
         blockers.append(
             LaunchBlocker(
@@ -1032,6 +1081,14 @@ async def launch_campaign(
     place-holder "non-draft" this used to raise, and an id no visible campaign has is a
     404 rather than a 409 asserting a row exists.
     """
+    # BEFORE THE GATE READ, so the gate's answer is still true when the CAS below acts on
+    # it. `launch_blockers` reads `agents.status` unlocked, and an `archive_agent` that has
+    # already counted this campaign as not-yet-running commits between the two — the
+    # measured interleaving is `OUTCOME agent='archived' campaign='running'`. The lock is
+    # taken here rather than inside `launch_blockers` because that function is also
+    # `dispatch_blockers`' neighbour and is called to RENDER a disabled button, and a
+    # screen refresh must not take locks on the row an operator is trying to retire.
+    await hold_agent_for_campaign_start(session, await _agent_of_campaign(session, campaign_id))
     blockers = await launch_blockers(session, tenant_id=tenant_id, campaign_id=campaign_id)
     if blockers:
         raise ProblemError(
@@ -1092,6 +1149,55 @@ async def launch_campaign(
         "dialable": int(dialable or 0),
         "dnc_scrubbed": rowcount_of(scrubbed),
     }
+
+
+async def _agent_of_campaign(session: AsyncSession, campaign_id: UUID) -> UUID:
+    """This campaign's agent, or a 404 — one read, so the two start paths share a spelling.
+
+    Under RLS a neighbour's campaign reads as absent, which is deliberately the same
+    answer `set_campaign_status` and `_campaign_facts` would have given a moment later.
+    """
+    agent_id = (
+        await session.execute(
+            text("SELECT agent_id FROM campaigns WHERE id = :cid"), {"cid": campaign_id}
+        )
+    ).scalar()
+    if agent_id is None:
+        raise ProblemError.not_found("Campaign")
+    return UUID(str(agent_id))
+
+
+async def assert_agent_still_assignable(session: AsyncSession, *, campaign_id: UUID) -> None:
+    """Refuse to put a campaign back on the road behind an ARCHIVED agent (D-440).
+
+    **RESUME STILL HAS NO COMPLIANCE GATE AND THIS IS NOT ONE.** `dispatch_blockers`
+    argues at length why a check at the moment of resuming proves nothing about the moment
+    it dials: a registrar can withdraw a template, a TSP can pull a header registration,
+    and a campaign can sit paused for a week while any of it happens — so the dial-time
+    check is the enforcement and a resume-time photograph of the paperwork would be
+    theatre. Every one of those facts can become true again by itself.
+
+    AN ARCHIVED AGENT IS THE ONE REFUSAL THAT ARGUMENT DOES NOT COVER, because it cannot.
+    `check_dispatch` refuses it CONTACT BY CONTACT: the campaign goes `running`, claims its
+    next batch every tick, is refused, refunded and rescheduled — for ever, showing the
+    client a campaign that says "running" and calls nobody, with nothing on the screen to
+    say why. `agents/lifecycle.archive_agent` refuses to manufacture that state (it will
+    not archive an agent a running or scheduled campaign is dialling through) and this is
+    the OTHER DOOR into the same room: pause the campaign, archive the agent, press Resume.
+    Nothing rings either way — the gate holds, and that is a compliance question this is
+    not the answer to — but the client is left holding a campaign nobody can explain.
+
+    Through `assert_assignable` rather than a second read of `agents.status`, so "an
+    archived agent is never assignable" keeps one definition: `create_campaign` asks the
+    same function the same way, and the client gets the same sentence and the same two
+    remedies (restore the agent, or point the campaign at another one).
+    """
+    agent_id = await _agent_of_campaign(session, campaign_id)
+    # The LOCK before the RULE, so the answer is still true when it is given — see
+    # `hold_agent_for_campaign_start`. Resume writes `running` exactly as launch does and
+    # races an archive exactly as launch does.
+    await hold_agent_for_campaign_start(session, agent_id)
+    await assert_assignable(session, agent_id)
 
 
 async def set_campaign_status(
@@ -1363,6 +1469,7 @@ __all__ = [
     "SERIES_FOR_CLASSIFICATION",
     "LaunchBlocker",
     "add_contacts",
+    "assert_agent_still_assignable",
     "campaign_dialable_now",
     "campaign_progress",
     "campaign_window_open",
@@ -1371,6 +1478,7 @@ __all__ = [
     "dispatch_blockers",
     "launch_blockers",
     "launch_campaign",
+    "launch_refusal_for_agent_status",
     "list_campaigns",
     "record_dlt_registration",
     "register_dlt_template",

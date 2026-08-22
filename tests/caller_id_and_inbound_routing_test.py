@@ -471,7 +471,7 @@ async def test_assigning_a_number_to_a_published_agent_reaches_the_engine_at_onc
                     )
                 ).scalar()
             ),
-            direction="inbound",
+            answers=True,
         )
     assert engine.inbound_agent_for("num_clinic_3") is not None
 
@@ -508,7 +508,7 @@ async def test_an_engine_that_cannot_route_numbers_reports_it_once_and_pages_nob
                 engine,
                 agent_id=agent_id,
                 ref="deployment_receptionist",
-                direction="inbound",
+                answers=True,
             )
 
     assert routing == agents_service.InboundRouting(bound=0, released=0, failed=0, unsupported=2), (

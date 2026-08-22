@@ -58,6 +58,26 @@ REDACTED = "[redacted]"
 
 # +91XXXXXXXXXX and friends: 8+ digits with optional +, spaces or dashes.
 _PHONE_RE = re.compile(r"\+?\d[\d\s-]{7,}\d")
+# AN ADDRESS IS AN IDENTIFIER TOO, and this was the asymmetry D-436 made expensive.
+# `REDACT_KEYS` covers `email` and `recipient` by KEY, and until D-436 that was the whole
+# exposure: no response model carried an address, so the only way one reached a log line
+# was somebody deliberately putting it in an extra called `email`. `PendingInviteOut.email`
+# and `InvitationOut.email` now return the whole address, so a handler holds one where it
+# used to hold `p••••@clinic.in` — and a value-level backstop existed for phone numbers
+# and for nothing else, so `extra={"invitee": row.email}` shipped it whole.
+#
+# The same shape as `apps/workers/redaction._EMAIL_RE`, deliberately, and a SECOND copy
+# for the reason the phone rule is already duplicated: `apps/voice-runtime` holds this
+# module on its 500ms ack path and `apps.workers` is on its FORBIDDEN import list
+# (`tests/voice_runtime_import_surface_test.py`), so the transcript redactor cannot be
+# imported here. The pair is kept honest by `tests/log_redaction_test.py`, which asserts
+# the two agree on the same address.
+#
+# Whole-value replacement rather than a partial mask: the local part is the person and
+# the domain is the business, and a log line needs neither. `recipient_domain` is the
+# extra that exists for when an operator does need the second half (`auth_email.py`),
+# and it carries no `@`, so it is untouched by this.
+_EMAIL_RE = re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")
 # A uuid is digits and hyphens too, and uuid_v7 is TIME-PREFIXED, so its leading
 # segments are mostly decimal — `019fef30-ef78-7420-900b-c603a569b465` contains
 # `78-7420-900`, which the phone pattern matches. Masking it corrupts the one thing a
@@ -120,7 +140,10 @@ def _mask(value: str) -> str:
         return f"{_STASH}{len(held) - 1}{_STASH}"
 
     held_ids = _ISO_DATE_RE.sub(_hold, _HEX_ID_RE.sub(_hold, _UUID_RE.sub(_hold, value)))
-    masked = _PHONE_RE.sub("[phone]", held_ids)
+    # EMAIL FIRST. An address can contain a digit run — `9876543210@example.com`, or a
+    # numeric mailbox — and the phone pass would otherwise eat half of it and leave the
+    # domain behind, which is both a worse log line and a partially disclosed address.
+    masked = _PHONE_RE.sub("[phone]", _EMAIL_RE.sub(REDACTED, held_ids))
     for index, original in enumerate(held):
         masked = masked.replace(f"{_STASH}{index}{_STASH}", original)
     return masked

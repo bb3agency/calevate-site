@@ -1,10 +1,26 @@
-"""Guardrail: raw transcript text and raw PII never appear in a default response
-(hard rule 5; ENGINEERING-PRACTICES §2 "critical four").
+"""Guardrail: raw transcript text never appears in a default response, and a contact
+identifier never reaches a caller who holds no role (hard rule 5; ENGINEERING-PRACTICES
+§2 "critical four").
 
-The rule it enforces: `text_redacted` is what every API response returns; raw `text`
-requires a role check AND an audit_log write. Review catches that on the day it is
-written and misses it six months later, which is exactly when the codebase is growing
-fastest.
+TWO RULES, NOT ONE — and they used to be one, which is the defect D-436 fixed.
+
+1. **Transcript text and the recording it came from** (`RAW_TRANSCRIPT_FIELDS`):
+   `text_redacted` is what every API response returns; raw `text` requires a role check
+   AND an audit_log write. Unchanged, to the field.
+2. **Contact identifiers** (`CONTACT_PII_FIELDS` — phone numbers and email addresses):
+   returned in full by any operation that DECLARES a permission, reported on any that
+   does not. The founder's decision of 22 Aug 2026 — full numbers and full addresses for
+   clients and operators alike — and the reason it is a decision rather than a slip is
+   that dotted numbers made a lead-capture product unable to yield a lead: nobody could
+   ring back the caller whose row they were looking at.
+
+Both used to live in one `RAW_PII_FIELDS` under rule 1, so unmasking anything meant
+either deleting the guardrail or lying to it. Splitting the registry keeps every
+transcript protection at full strength and keeps the one contact protection that still
+means something — the unauthenticated intake receipt, which answers a SENDER, not a role.
+
+Review catches that on the day it is written and misses it six months later, which is
+exactly when the codebase is growing fastest.
 
 Mechanism (raghava's `serializer:exposure-check` pattern, adapted). Three parts, because
 there are three ways raw text reaches a browser:
@@ -43,6 +59,11 @@ access document may echo the subject's own `phone_e164` back at them while every
 field in it stays under inspection. A whole-path skip is the widest form this registry
 has, and it is the right shape only where there is no response model to judge.
 
+A field-scoped entry also OPTS OUT of rule 2 and is the only way to do so: that document
+is addressed to a person outside the tenant rather than to a colleague with a login, so
+"the route declares a permission" is not the question to ask of it. `to_e164` on one of
+its calls is a party who did not ask for anything, and it is still reported.
+
 Run: `uv run python -m scripts.check_redaction_exposure`
 """
 
@@ -53,9 +74,32 @@ import sys
 from dataclasses import dataclass
 from typing import Any, get_args
 
-# Field names that carry raw personal data or raw transcript text. A response model may
-# only expose these from a route on ALLOWED_ROUTES, each role-checked and audited.
-RAW_PII_FIELDS: frozenset[str] = frozenset(
+# Field names that carry a CONTACT IDENTIFIER — a phone number or an email address.
+#
+# These used to sit in one list with the transcript names below, under one rule: never in
+# a default response. D-436 separates them, because they were never the same risk and the
+# single rule was costing the product its reason to exist. A number on the leads screen is
+# the client's own captured customer data and the ONE field that makes the row actionable
+# — a receptionist ringing back a missed lead — while a transcript line is a recording of
+# a conversation, held under a different promise, for a different reason, with a different
+# regime over it.
+#
+# The rule for THIS set is therefore not "never" but "not to an anonymous caller": a
+# contact field may be returned by an operation that DECLARES a permission, and by no
+# other. That declaration cannot be decoration — `apps.api.core.rbac.assert_routes_declare
+# _permissions` refuses to boot the app when a route declares one it does not enforce, and
+# `check_allowlist` below re-proves it for the allowlist — so reading it off the OpenAPI
+# operation is reading an enforced fact, not a comment.
+#
+# What still fails, and is the reason this set is not simply deleted: a contact field on a
+# response with NO permission at all. `POST /hooks/v1/ingest/{webhook_id}` is the live
+# example — HMAC-authenticated as a SENDER, holding the sender's entire payload in scope
+# of its `return`, and answering nobody who holds a role.
+#
+# Hard rule 6 is untouched by any of this and is enforced somewhere else entirely: this
+# check walks the OpenAPI schema, and a log line has no schema. `core.logging`'s redaction
+# hook is that guard, `tests/pii_logging_sweep_test.py` is its negative control.
+CONTACT_PII_FIELDS: frozenset[str] = frozenset(
     {
         "phone_e164",
         "from_e164",
@@ -64,6 +108,14 @@ RAW_PII_FIELDS: frozenset[str] = frozenset(
         "phone",
         "phone_number",
         "email",
+    }
+)
+
+# Field names that carry raw transcript text or the artefact it came from. A response
+# model may only expose these from a route on ALLOWED_ROUTES, each role-checked AND
+# audited. This is hard rule 5 and D-436 does not move it by one field.
+RAW_TRANSCRIPT_FIELDS: frozenset[str] = frozenset(
+    {
         # Hard rule 5 names transcript text specifically: `text` vs `text_redacted`.
         "text",
         "raw_text",
@@ -89,6 +141,10 @@ RAW_PII_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+#: Every name this check knows about, in one place for the summary line and for readers
+#: who want the whole surface without caring which rule governs which half.
+RAW_PII_FIELDS: frozenset[str] = CONTACT_PII_FIELDS | RAW_TRANSCRIPT_FIELDS
+
 
 @dataclass(frozen=True)
 class RawDisclosure:
@@ -104,6 +160,10 @@ class RawDisclosure:
     had, and it turns "this route may disclose the subject's own number" into "this route
     may disclose anything forever" — which is how a route earns an exemption for one field
     and keeps it for the next ten.
+
+    Naming a field set ALSO holds the route to the pre-D-436 rule for contact fields:
+    every other route may return a number in full once it declares a permission, and a
+    route on this list may return exactly the names below. `check()` states why.
     """
 
     reason: str
@@ -133,8 +193,11 @@ ALLOWED_ROUTES: dict[str, RawDisclosure] = {
         "Scoped to `phone_e164` — the subject's OWN number, echoed back so the recipient "
         "can check the document is about them (compliance/export.py decision 3). "
         "Everything else in the document is inspected normally: the transcript text is "
-        "`text_redacted`, the call summary is masked, and a raw field added to any of "
-        "these models tomorrow is reported like any other",
+        "`text_redacted`, foreign numbers are masked out of the call summary, and a raw "
+        "field added to any of these models tomorrow is reported like any other. THIS "
+        "ENTRY IS WHAT KEEPS D-436 OUT OF THIS DOCUMENT: every other response may carry "
+        "a number in full once it declares a permission, and this one carries the named "
+        "field and no other, because it is read by someone outside the tenant",
         fields=frozenset({"phone_e164"}),
     ),
 }
@@ -189,7 +252,8 @@ KNOWN_SAFE_FIELDS: dict[str, str] = {
 ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
     "LeadOut.data": (
         "the tenant's OWN extraction payload — the schema-driven CRM columns ARE the "
-        "product (TRD §7). Tenant-scoped by RLS; the phone column beside it is masked."
+        "product (TRD §7). Tenant-scoped by RLS and behind `leads:read`; `ingest.service"
+        ".lead_data` keeps the lead's own number OUT of it so one column holds it."
     ),
     "CallDetailOut.extraction": (
         "the tenant's own extracted fields for this call, same schema-driven surface as "
@@ -272,13 +336,31 @@ def check(spec: dict[str, Any], safe_fields: dict[str, str] | None = None) -> li
         # inspection with a named set of raw fields permitted — see `RawDisclosure`.
         permitted: frozenset[str] = frozenset()
         allowance = ALLOWED_ROUTES.get(path)
+        field_scoped = False
         if allowance is not None:
             if allowance.fields is None:
                 continue
             permitted = allowance.fields
+            field_scoped = True
         for method, operation in operations.items():
             if method not in _METHODS or not isinstance(operation, dict):
                 continue
+            # WHICH NAMES ARE BANNED ON THIS OPERATION, and it is not one answer.
+            #
+            # Transcript fields are always banned off an allowlisted route (hard rule 5).
+            # Contact fields are banned only where nobody had to hold a role to get here
+            # — `x-calevate-permission` is written by `permission_meta()` and the RBAC
+            # boot assertion refuses to start the app if it is not also enforced, so its
+            # presence is a fact rather than a claim (D-436).
+            #
+            # A FIELD-SCOPED allowance overrides both and governs the whole response.
+            # The DPDP subject-access document is the one that needs it: it is addressed
+            # to a person OUTSIDE the tenant, so what it may disclose is the named list
+            # and nothing else — a `to_e164` appearing beside the subject's own number
+            # is somebody who did not ask for anything.
+            banned = RAW_TRANSCRIPT_FIELDS
+            if field_scoped or not operation.get("x-calevate-permission"):
+                banned = RAW_PII_FIELDS
             for status, response in operation.get("responses", {}).items():
                 if not str(status).startswith("2"):
                     continue
@@ -286,7 +368,7 @@ def check(spec: dict[str, Any], safe_fields: dict[str, str] | None = None) -> li
                     properties = schemas.get(model_name, {}).get("properties", {})
                     exposed = {
                         field
-                        for field in (RAW_PII_FIELDS & set(properties)) - permitted
+                        for field in (banned & set(properties)) - permitted
                         if f"{model_name}.{field}" not in known_safe
                     }
                     if exposed:
@@ -414,10 +496,15 @@ def main() -> int:
         for offender in offenders:
             print(f"  - {offender}")
         print(
-            "\nHard rule 5: responses return masked/redacted values by default. Either mask "
-            "the field in the response model, or add the route to ALLOWED_ROUTES in this "
-            "script WITH its role check and audit_log write (a free-form dict field is "
-            "acknowledged in ACKNOWLEDGED_PASSTHROUGH with the reason it is safe)."
+            "\nTranscript text (hard rule 5): responses return `text_redacted` by default "
+            "— redact the field, or add the route to ALLOWED_ROUTES in this script WITH "
+            "its role check and audit_log write.\n"
+            "Contact identifiers (D-436): a phone number or an address may be returned in "
+            "full, but only by an operation that declares a permission — give the route "
+            "`openapi_extra=permission_meta(...)` and enforce it, or stop returning the "
+            "field.\n"
+            "A free-form dict field is acknowledged in ACKNOWLEDGED_PASSTHROUGH with the "
+            "reason it is safe."
         )
         return 1
 
@@ -430,8 +517,9 @@ def main() -> int:
 
     print(
         f"REDACTION EXPOSURE: OK ({len(ALLOWED_ROUTES)} role-gated exceptions verified "
-        f"role-checked + audited, {len(RAW_PII_FIELDS)} field patterns checked "
-        f"transitively, {len(KNOWN_SAFE_FIELDS)} redacted-value fields, "
+        f"role-checked + audited, {len(RAW_TRANSCRIPT_FIELDS)} transcript patterns and "
+        f"{len(CONTACT_PII_FIELDS)} contact patterns checked transitively, "
+        f"{len(KNOWN_SAFE_FIELDS)} redacted-value fields, "
         f"{len(ACKNOWLEDGED_PASSTHROUGH)} acknowledged passthroughs)"
     )
     return 0

@@ -28,10 +28,14 @@ empty page also contains no phone number.
 
 THE FIXTURE CARRIES REAL-SHAPED NUMBERS, and two of them, deliberately:
 
-* `LEAD_NUMBER` is the lead's own contact number. It is MASKED everywhere on screen and
-  UNMASKED in the CSV export, which is the one documented, role-gated, audit-logged
-  exception (`crm.routes.export_leads`). Both halves are asserted, because "we mask it"
-  and "we mask it except where we said" are different claims.
+* `LEAD_NUMBER` is the lead's own contact number. Since D-436 it is shown IN FULL on
+  every screen behind the ordinary `leads:read` gate — it is the client's own captured
+  customer data and the field that makes a lead actionable — and it still leaves in the
+  CSV only through the role-gated, audit-logged export. What is asserted about it here
+  is therefore no longer "it is masked" but the two things that ARE still true: it never
+  reaches a NEIGHBOUR (§4, RLS), and it never reaches a THIRD-PARTY system — the signed
+  CRM webhook and the Google Sheets row — unless that endpoint holds the raw-phone
+  opt-in (§3). Those are consent decisions about data leaving us, not display rules.
 * `CALLER_NUMBER` is a number the caller reads out loud DURING the call. It exists only
   inside the transcript and the summary derived from it. There is no surface at all,
   including the CSV, on which it may appear without `calls:read_raw` and an audit row.
@@ -215,6 +219,29 @@ async def test_no_list_surface_carries_a_number_spoken_in_a_call(path: str, mark
     _assert_clean(response, must_contain=marker)
 
 
+async def test_the_call_list_and_detail_carry_the_callers_own_number_in_full() -> None:
+    """The counterparty's number, on the two screens a missed call is worked from.
+
+    NEW WITH D-436 and pinned here rather than only in the web suite, because the
+    decision is a SERVER one: `caller_e164` replaced `caller_masked`, and the value is
+    `from_e164` on an inbound leg. Asserted as bytes for the same reason everything else
+    in this file is — a field assertion passes when the key is absent.
+
+    The pairing is the point of the file: the number the caller DIALLED FROM is theirs
+    and the client's to act on, while a number they SPOKE mid-call lives only in the
+    transcript and is absent from both responses (`_assert_clean`, hard rule 5).
+    """
+    fx = await _fixture()
+    async with _client() as http:
+        listing = await http.get("/v1/calls", headers=fx.headers)
+        detail = await http.get(f"/v1/calls/{fx.call_id}", headers=fx.headers)
+
+    _assert_clean(listing, must_contain="needs_follow_up")
+    _assert_clean(detail, must_contain="transcript")
+    assert listing.json()[0]["caller_e164"] == LEAD_NUMBER
+    assert detail.json()["caller_e164"] == LEAD_NUMBER
+
+
 async def test_the_call_detail_redacts_both_the_turn_and_the_summary() -> None:
     """The detail is where the transcript actually is, so it is the strongest case.
 
@@ -235,11 +262,21 @@ async def test_the_call_detail_redacts_both_the_turn_and_the_summary() -> None:
     assert payload["summary"] and "[phone" in payload["summary"]
 
 
-async def test_the_lead_detail_and_timeline_mask_the_leads_own_number_too() -> None:
-    """`phone_masked` is the only phone on the wire, and the timeline projects keys.
+async def test_the_lead_detail_carries_its_own_number_and_the_timeline_carries_none() -> None:
+    """Two surfaces, two different answers, and the difference is the point.
 
-    The lead's OWN number is checked here rather than only the spoken one: on screen the
-    two are treated identically, and the CSV is the single documented divergence.
+    THIS TEST ASSERTED THE OPPOSITE OF ITS FIRST HALF until D-436: the detail's own
+    number had to be absent. It is now present in full — a lead nobody can ring is not a
+    lead — and the assertion is inverted rather than dropped, so the new behaviour is
+    pinned as deliberately as the old one was.
+
+    The TIMELINE half is unchanged and was never about masking: the API projects each
+    lead event into prose it composed (`crm.service._timeline_copy`) instead of
+    serializing the stored payload, so no number is on that wire under any rule. A
+    change that started echoing payloads would fail here.
+
+    The spoken number (`CALLER_NUMBER`) is absent from BOTH, via `_assert_clean` — that
+    is hard rule 5 and D-436 does not touch it.
     """
     fx = await _fixture()
     async with _client() as http:
@@ -248,14 +285,18 @@ async def test_the_lead_detail_and_timeline_mask_the_leads_own_number_too() -> N
 
     # Different markers because the two responses are different shapes: the detail
     # names the lead, the timeline names what happened to it and never repeats the id.
-    for response, marker in ((detail, str(fx.lead_id)), (timeline, "Call completed")):
-        _assert_clean(response, must_contain=marker)
-        for spelling in _both_spellings(LEAD_NUMBER):
-            assert spelling.encode() not in response.content
+    _assert_clean(detail, must_contain=str(fx.lead_id))
+    _assert_clean(timeline, must_contain="Call completed")
 
     body = detail.json()
-    assert body["phone_masked"].endswith("10"), "masked, and still recognisable"
+    assert body["phone_e164"] == LEAD_NUMBER, "the detail is where a callback starts"
     assert body["data"] == {"intent": "book"}, "the acknowledged passthrough is intact"
+
+    for spelling in _both_spellings(LEAD_NUMBER):
+        assert spelling.encode() not in timeline.content, (
+            "the timeline projects events into prose; a number here means it began "
+            "serializing stored payloads"
+        )
     assert timeline.json()["items"], "the timeline returned no rows, so it proves nothing"
 
 

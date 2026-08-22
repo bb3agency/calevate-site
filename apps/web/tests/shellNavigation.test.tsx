@@ -171,6 +171,12 @@ describe("where am I", () => {
   const CLIENT_DETAIL_ROUTES = [
     "/c/acme/calls/018f3c00-0000-7000-8000-000000000001",
     "/c/acme/leads/018f3c00-0000-7000-8000-000000000002",
+    // The agents console has two routes under its nav entry (D-440): one agent, and the
+    // form that builds one. Both must carry the section up to "Agents" — a detail screen
+    // that highlights nothing is the exact defect this block exists for, and these are the
+    // newest two places to reintroduce it.
+    "/c/acme/agents/018f3c00-0000-7000-8000-000000000005",
+    "/c/acme/agents/new",
   ];
   const ADMIN_DETAIL_ROUTES = [
     "/admin/tenants/018f3c00-0000-7000-8000-000000000003",
@@ -202,6 +208,17 @@ describe("where am I", () => {
       expect(heading?.textContent?.trim()).toBe(link!.textContent?.trim());
     },
   );
+
+  it("names the section 'Agents', not 'Voice agents'", async () => {
+    // The rename is copy, and copy regresses silently. It is pinned HERE rather than in a
+    // screen test because the nav list is the ONE place the word is written — the shell
+    // prints the page title from it, so this assertion covers the sidebar entry and the
+    // header of every screen in the section at once.
+    const container = await renderClientShell("/c/acme/agents");
+    const link = currentLink(container);
+    expect(link?.textContent?.trim()).toBe("Agents");
+    expect(container.textContent).not.toContain("Voice agents");
+  });
 
   it("marks nothing on a path no nav entry owns", async () => {
     // Fail-closed the other way: inventing a highlight for an unknown path would tell a

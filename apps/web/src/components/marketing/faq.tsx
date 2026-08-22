@@ -77,10 +77,16 @@ const QUESTIONS: { q: string; a: string }[] = [
   },
   {
     q: "Who can see our callers' phone numbers?",
+    // WAS "nobody, by default", which stopped being true when the screens unmasked
+    // (D-436) — and a marketing page is the last place a stale privacy claim should
+    // outlive the product. What is still true is the part that matters to a prospect:
+    // it is their staff, on their account, not us and not the internet.
     a:
-      "Nobody, by default. Transcripts come back with numbers masked in every screen and " +
-      "every response. Seeing the raw text or exporting full numbers takes the right " +
-      "role, and it writes an audit entry naming who looked.",
+      "Your team, on your account — a lead nobody can ring back is not a lead. Who on " +
+      "your team is your choice: roles decide who sees the CRM at all, and downloading " +
+      "the whole contact list is a separate permission that writes an audit entry naming " +
+      "who took it. Transcripts are stricter still: they come back with numbers, IDs and " +
+      "card details stripped out, and reading the raw text takes that same audited role.",
   },
   {
     q: "Can we get our leads out again?",

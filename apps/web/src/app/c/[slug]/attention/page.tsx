@@ -90,8 +90,8 @@ const UNKNOWN_TONE = "bg-black/5 text-ink-muted dark:bg-white/10";
  *   N most recent of M" are now true, M included, and each source is fetched to the
  *   merged limit so "most recent" means most recent across all four.
  *
- * Hard rule 6 holds at the row and it holds SERVER-side: `title` names a blocked lead by
- * its captured name, falling back to a MASKED number (crm/attention.py::blocked_leads),
+ * The row's sentence is composed SERVER-side: `title` names a blocked lead by its
+ * captured name, falling back to its number in full (crm/attention.py::blocked_leads),
  * and this screen renders what it is given without reconstructing anything from it.
  */
 export default function AttentionPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -209,11 +209,11 @@ export default function AttentionPage({ params }: { params: Promise<{ slug: stri
                       >
                         {copy?.label ?? item.kind.replace(/_/g, " ")}
                       </span>
-                      {/* The server's own sentence. A blocked lead is named by its
-                          captured name or a MASKED number and never a raw one (hard rule
-                          6) — this screen renders it and builds nothing from it. */}
-                      {/* `min-w-0 break-words`: the title carries a MASKED E.164 number
-                          (`+9198765•••10`), which has no space to wrap at, and a flex item
+                      {/* The server's own sentence — this screen renders it and builds
+                          nothing from it. A blocked lead is named by its captured name,
+                          falling back to its number in full (D-436). */}
+                      {/* `min-w-0 break-words`: the title carries an E.164 number
+                          (`+919876543210`), which has no space to wrap at, and a flex item
                           defaults to `min-width: auto` — so at 320px the sentence painted
                           17px outside the row instead of wrapping onto a second line. */}
                       <span className="min-w-0 break-words text-sm font-semibold text-ink">

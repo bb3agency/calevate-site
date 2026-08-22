@@ -9,7 +9,7 @@
  * So the sign-in door could not name a destination, and sent people to `/auth/account`
  * instead — a page whose entire content is "you are signed in", an email panel and two
  * sign-out buttons. The reward for signing in was a dead end, and the same dead end the
- * admin realm had until D-432 (`ADMIN_CONSOLE_PATH`); the client half was harder only
+ * admin realm had until D-441 (`ADMIN_CONSOLE_PATH`); the client half was harder only
  * because `/admin` needs no slug and this does.
  *
  * ONE RESOLVER, THREE CALLERS. The sign-in door, the guest guard that bounces an

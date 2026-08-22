@@ -380,7 +380,9 @@ async def test_the_inviter_is_handed_nothing_they_could_redeem(planted: Planted)
         for key, value in body.items()
         if isinstance(value, str)
         and len(value) >= 20
-        and key != "email_masked"
+        # The invited ADDRESS, which is long and hyphen-free and is not a credential
+        # (D-436 renamed it from `email_masked`). The token is what this filter hunts.
+        and key != "email"
         and "-" not in value
     ]
     assert smuggled == [], f"a credential-shaped value survives in the response: {smuggled}"

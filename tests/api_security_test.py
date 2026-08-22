@@ -185,9 +185,18 @@ async def test_a_member_cannot_borrow_another_orgs_slug() -> None:
     assert response.json()["kind"] == "permission"
 
 
-async def test_lead_list_masks_phone_numbers() -> None:
-    """Hard rule 6 at the serialization boundary: the list page is the most-screenshotted
-    surface in the product, so it never carries a full number."""
+async def test_lead_list_carries_the_full_phone_number_behind_the_role_gate() -> None:
+    """WAS `test_lead_list_masks_phone_numbers`, and the reversal is D-436.
+
+    The old assertion (`real_phone not in payload`) read hard rule 6 as a rule about
+    response bodies. It is a rule about LOG LINES, and applying it here made the leads
+    list — the screen a receptionist works the queue on — unable to say who to ring. The
+    number is the client's own captured customer data and it ships in full.
+
+    What still holds and is asserted below: the gate. `/v1/leads` is `leads:read` and an
+    anonymous caller gets nothing, which is what `check_redaction_exposure`'s contact
+    rule now depends on route-wide.
+    """
     tenant_id, slug, token = await _make_tenant()
     async with tenant_session(tenant_id) as session:
         real_phone = (await session.execute(text("SELECT phone_e164 FROM leads LIMIT 1"))).scalar()
@@ -196,9 +205,11 @@ async def test_lead_list_masks_phone_numbers() -> None:
         response = await http.get(
             "/v1/leads", headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
         )
-    payload = response.text
-    assert real_phone not in payload
-    assert response.json()["items"][0]["phone_masked"].startswith("•")
+        anonymous = await http.get("/v1/leads", headers={"X-Org-Slug": slug})
+
+    assert response.json()["items"][0]["phone_e164"] == real_phone
+    assert "•" not in response.text, "no dots survive anywhere in the body"
+    assert anonymous.status_code == 401, "the number rides on the role check and nothing else"
 
 
 async def test_staff_cannot_read_raw_transcripts_but_owner_can_and_it_is_audited() -> None:

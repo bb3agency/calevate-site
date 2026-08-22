@@ -326,6 +326,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every live client's month — revenue, our cost, margin — worst margin first
+         * @description The board that answers "which client is costing us money", one row per client.
+         *
+         *     ONE directory query, then ONE `tenant_session` per client, exactly as
+         *     `admin/health.py::client_health` does — the directory comes from the `app.admin`
+         *     session (which widens `organizations` and nothing else) and every rupee is read under
+         *     ordinary RLS inside the client's own scope. Nothing here can see two tenants at once
+         *     and no policy is widened to make it faster.
+         *
+         *     Nothing truncates, for the reason the health board does not: hiding the client at the
+         *     bottom of a money board defeats the board. The walk is watched instead.
+         */
+        get: operations["fleet_spend_v1_admin_spend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -922,7 +951,7 @@ export interface paths {
         };
         /**
          * Invitations to this account that can still be redeemed
-         * @description The keys to this client's account that exist in somebody's inbox right now. Addresses are masked. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.
+         * @description The keys to this client's account that exist in somebody's inbox right now. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.
          */
         get: operations["list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get"];
         put?: never;
@@ -1144,6 +1173,39 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's month, both directions — what we paid, what we charged, margin
+         * @description Admin realm only, for the reason `tenant_margin` is: `unit_cost_paid` is our
+         *     supplier pricing.
+         *
+         *     Runs the reads inside the client's own `tenant_session` because `usage_events`,
+         *     `calls` and `agents` are RLS'd and stay that way — `app.admin` opens the client
+         *     DIRECTORY, never their data (migration b57e2f9c4a13). The existence check comes first
+         *     for the reason it does on the margin card: a mistyped id and a client with no usage
+         *     both aggregate to zero, and a ₹0 page about a client that does not exist is worse
+         *     than a 404.
+         *
+         *     ONE ATTRIBUTION, and the margin is folded out of it — see `TenantSpendOut` for why a
+         *     second `margin_for_tenant` read would let this page's header disagree with its own
+         *     lines. It also removes the whole question of the two reads landing either side of a
+         *     month boundary, which is what `month=period.month` used to have to defend against.
+         */
+        get: operations["tenant_spend_v1_admin_tenants__tenant_id__spend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/status": {
         parameters: {
             query?: never;
@@ -1195,10 +1257,21 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Agents */
+        /**
+         * This account's agents — active, inactive, draft, or the archive
+         * @description `status` selects one bucket: `live` (active — on the frontline), `paused` (inactive — switched off, reversible), `draft` (being written, never published) or `archived` (retired).
+         *
+         *     **Omitting `status` returns everything EXCEPT archived agents.** The archive is history: it grows without limit while the working roster does not, so a default of 'everything' would let retired agents push live ones past the page bound. Ask for `status=archived` to read it.
+         */
         get: operations["list_agents_v1_agents_get"];
         put?: never;
-        post?: never;
+        /**
+         * Create an agent (starts as a draft)
+         * @description The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.
+         *
+         *     Both opening notices — the AI disclosure and the recording notice — are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.
+         */
+        post: operations["create_agent_route_v1_agents_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1218,6 +1291,42 @@ export interface paths {
          *     every client, which is the point of publishing it rather than describing it.
          */
         get: operations["list_lanes_v1_agents_lanes_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Call counts, outcomes and last-active for each of this account's agents
+         * @description One row per agent INCLUDING the archived ones, which is the opposite default to the
+         *     roster above and is not an inconsistency.
+         *
+         *     The roster answers "what can I work with", so the archive is noise. This answers "what
+         *     has happened", and an archived agent's history is the largest part of the answer — a
+         *     client who retired their old receptionist last week still needs the 4,000 calls it took
+         *     to be somewhere. Nothing here is unbounded either way: it is one row per agent, and the
+         *     agent list is what the `LIMIT` bounds.
+         *
+         *     TWO QUERIES, NOT ONE, and the reason is which columns the tag counts would force into a
+         *     GROUP BY. Counting outcomes in the first statement means naming each tag in a
+         *     `FILTER (WHERE outcome_tag = '...')`, which retypes a vocabulary that already exists as
+         *     a `Literal` (D-104) — the second statement groups by the tag instead, so the four names
+         *     appear nowhere in this file's SQL and a fifth outcome needs no edit here at all.
+         *
+         *     LEFT JOINed from `agents`, so an agent that has never taken a call is a row of zeroes
+         *     rather than a gap the caller has to interpret.
+         */
+        get: operations["agent_stats_v1_agents_stats_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1274,6 +1383,74 @@ export interface paths {
         get: operations["get_agent_v1_agents__agent_id__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename an agent, or change its calling direction or language
+         * @description Applies immediately. A live agent is re-published to the voice platform in the same transaction — including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up — and if that push fails nothing is saved.
+         *
+         *     An archived agent is refused: restore it first.
+         */
+        patch: operations["update_agent_route_v1_agents__agent_id__patch"];
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Put the agent on the frontline (draft or inactive -> active)
+         * @description Publishes the agent to the voice platform and reads it back to confirm the platform is running this script, this opening line and the answer it must give when a caller asks whether they are talking to an AI. Only then is it recorded as active; a platform that did not take the change is a refusal, not a warning.
+         *
+         *     Refused with `agent_has_no_script` if nothing has been written for it yet, and with `agent_archived` if it has been retired. An agent that is already active is a success that publishes nothing.
+         */
+        post: operations["activate_agent_route_v1_agents__agent_id__activate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retire the agent (draft, active or inactive -> archived)
+         * @description An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving an active agent also releases the numbers it was answering.
+         */
+        post: operations["archive_agent_route_v1_agents__agent_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Take the agent off the frontline (active -> inactive)
+         * @description Stops it placing calls from the next dispatch tick, and tells the voice platform to stop answering the numbers bound to it — so an inactive agent really does go quiet on both legs. Everything is kept: the script, the numbers, the call history. Activate it again to put it back.
+         */
+        post: operations["deactivate_agent_route_v1_agents__agent_id__deactivate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1366,6 +1543,26 @@ export interface paths {
         get: operations["pending_v1_agents__agent_id__pending_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Bring an agent back out of the archive (archived -> inactive)
+         * @description It comes back INACTIVE, not active. Nothing can prove the voice platform still holds a retired agent's configuration, and the only thing that establishes it is a publish — so activate it afterwards, deliberately.
+         */
+        post: operations["restore_agent_route_v1_agents__agent_id__restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2044,6 +2241,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/spend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This month's bill, itemised by agent and by call
+         * @description Every rupee on this account's calling charge, attributed to the agent and the call that produced it. `charge_basis` says what kind of number the per-call figure is: `wallet_debit` is the exact amount taken off a prepaid balance for that call, `allocated` is that call's share of a month priced as a whole. Requires `billing:read`, which account owners hold and staff do not. Calevate's own supplier cost never appears here.
+         */
+        get: operations["my_spend_v1_billing_spend_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/billing/topups/capability": {
         parameters: {
             query?: never;
@@ -2425,6 +2642,8 @@ export interface paths {
         /**
          * Dial again from where it stopped — the compliance re-check is at dial time
          * @description Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 204. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate — the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.
+         *
+         *     One exception: a campaign whose agent has been ARCHIVED is refused with `agent_archived`, because that is the one condition the per-dial check can never clear — it would refuse every contact for ever while the campaign said it was running. Restore the agent, or point the campaign at another one.
          */
         post: operations["resume_v1_campaigns__campaign_id__resume_post"];
         delete?: never;
@@ -2750,7 +2969,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The suppression list, masked — this tenant's entries and the global ones */
+        /** The suppression list — this tenant's entries and the global ones */
         get: operations["list_entries_v1_dnc_get"];
         put?: never;
         /** Suppress numbers — live before the next dispatch tick (hard rule 5) */
@@ -3316,7 +3535,7 @@ export interface paths {
          *     `_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.
          *     That mirroring is a correctness requirement here rather than a nicety: the screen and
          *     the file must not disagree about which rows and which columns, because the file is the
-         *     one carrying unmasked numbers out of the building.
+         *     one carrying the whole contact list out of the building in a single click.
          */
         post: operations["export_leads_v1_leads_export_csv_post"];
         delete?: never;
@@ -3659,7 +3878,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Every platform-wide suppression, masked — what we refuse to dial for anyone */
+        /** Every platform-wide suppression — what we refuse to dial for anyone */
         get: operations["list_global_v1_ops_dnc_global_get"];
         put?: never;
         /**
@@ -4071,14 +4290,95 @@ export interface components {
              */
             user_id: string;
         };
+        /**
+         * AgentChargeOut
+         * @description What one agent added to this month's bill. No cost field, and there never is one.
+         */
+        AgentChargeOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Calls */
+            calls: number;
+            /** Charged Inr */
+            charged_inr: string;
+            /** Minutes */
+            minutes: string;
+        };
+        /**
+         * AgentCreateIn
+         * @description A new agent, in the three facts a business owner actually has at creation time.
+         *
+         *     NO DISCLOSURE FIELDS, deliberately. Both sentences are generated from the language
+         *     templates by `lifecycle.create_agent` and are not accepted from the caller: the create
+         *     form is the one place a client is not yet thinking about TRAI, and a free-text field
+         *     called "AI disclosure" on it is how an agent ends up announcing "Hi there!". Changing
+         *     the wording is a reviewed surface, not a text input on the new-agent screen.
+         *
+         *     NO SCRIPT FIELD either, and that is what `draft` is for: the agent exists, the owner
+         *     writes and trains it, and `publish_agent` refuses to activate one with no prompt
+         *     version by name (`agent_has_no_script`).
+         */
+        AgentCreateIn: {
+            /**
+             * Direction
+             * @default inbound
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
+            /**
+             * Language Primary
+             * @default te-IN
+             * @enum {string}
+             */
+            language_primary: "te-IN" | "hi-IN" | "en-IN";
+            /** Max Call Duration S */
+            max_call_duration_s?: number | null;
+            /** Name */
+            name: string;
+        };
+        /**
+         * AgentLifecycleOut
+         * @description The result of a lifecycle move, as the screen that pressed the button needs it.
+         *
+         *     NAMED `AgentLifecycleOut` AND NOT `LifecycleOut`, which is what it was called for an
+         *     hour. `admin/routes.py` already has a `LifecycleOut` (the TENANT lifecycle), and two
+         *     models of the same name in one app make FastAPI qualify BOTH in the OpenAPI document —
+         *     so the admin console's generated type silently renamed itself to
+         *     `apps__api__admin__routes__LifecycleOut` and every screen using it broke, from a change
+         *     in a different module. The collision is invisible until the snapshot is regenerated,
+         *     which is why it is recorded here rather than just fixed.
+         */
+        AgentLifecycleOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Changed */
+            changed: boolean;
+            /** Numbers Released */
+            numbers_released: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "archived";
+        };
         /** AgentOut */
         AgentOut: {
             /** Ai Disclosure Enabled */
             ai_disclosure_enabled: boolean;
             /** Ai Disclosure Line */
             ai_disclosure_line: string;
-            /** Direction */
-            direction: string;
+            /** Archived At */
+            archived_at: string | null;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "inbound" | "outbound" | "both";
             /** Disclosure Line */
             disclosure_line: string;
             /** Engine */
@@ -4093,6 +4393,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Inbound Number Count */
+            inbound_number_count: number;
             /** Language Primary */
             language_primary: string;
             /** Name */
@@ -4105,13 +4407,95 @@ export interface components {
             recording_notice_enabled: boolean;
             /** Recording Notice Line */
             recording_notice_line: string;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "archived";
             /**
              * Truthful Answer Rule
              * @default Whatever these settings say, the agent always answers honestly when a caller asks. "Am I speaking to a person?" is answered "I am an AI assistant", and "is this call being recorded?" is answered yes. This cannot be switched off and no script can override it.
              */
             truthful_answer_rule: string;
+        };
+        /**
+         * AgentSpendOut
+         * @description One agent: what the client paid, what we paid, and the difference.
+         */
+        AgentSpendOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Calls */
+            calls: number;
+            /** Charged Inr */
+            charged_inr: string;
+            /** Cost Currency Assumed */
+            cost_currency_assumed: boolean;
+            /** Cost Inr */
+            cost_inr: string;
+            /** Margin Inr */
+            margin_inr: string;
+            /** Minutes */
+            minutes: string;
+        };
+        /**
+         * AgentStatsOut
+         * @description What one agent has actually done — the numbers a roster card shows (D-440).
+         *
+         *     A SEPARATE ROUTE FROM THE ROSTER, deliberately. The roster is opened on every
+         *     navigation and reads a handful of small rows; this aggregates `calls`, which is the
+         *     biggest table a tenant owns and the one that only ever grows. Folding it into
+         *     `AgentOut` would make the cheapest screen in the product pay for the most expensive
+         *     query on every render, and nothing about an agent's identity depends on it.
+         *
+         *     Lifetime figures, not a window. A window is a second decision (how long? whose
+         *     timezone?) that every caller would then have to agree with, and "this agent has taken
+         *     4,102 calls" is the number a business owner asked for. `last_call_at` is what answers
+         *     "is this one still being used", which is the question a window was standing in for.
+         */
+        AgentStatsOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Calls Connected */
+            calls_connected: number;
+            /** Calls Inbound */
+            calls_inbound: number;
+            /** Calls Outbound */
+            calls_outbound: number;
+            /** Calls Total */
+            calls_total: number;
+            /** Last Call At */
+            last_call_at: string | null;
+            /** Outcomes */
+            outcomes: {
+                [key: string]: number;
+            };
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "draft" | "live" | "paused" | "archived";
+        };
+        /**
+         * AgentUpdateIn
+         * @description What an owner may change about an existing agent. `null` on a field leaves it alone.
+         *
+         *     `DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever
+         *     one moved, and a PATCH that could only send all three would make renaming an agent a
+         *     read-modify-write race against a direction change.
+         */
+        AgentUpdateIn: {
+            /** Direction */
+            direction?: ("inbound" | "outbound" | "both") | null;
+            /** Language Primary */
+            language_primary?: ("te-IN" | "hi-IN" | "en-IN") | null;
+            /** Name */
+            name?: string | null;
         };
         /**
          * AgentVoiceOut
@@ -4239,8 +4623,10 @@ export interface components {
          * AttentionItemOut
          * @description One thing the platform refused to do quietly (crm/attention.py).
          *
-         *     `title` and `detail` are already client-safe prose: a blocked lead is named by its
-         *     lead NAME, falling back to a MASKED number, never a raw one.
+         *     `title` and `detail` are already client-safe prose composed by us — never a vendor
+         *     string and never transcript text. A blocked lead is named by its captured lead NAME,
+         *     falling back to its number in full, because "ring this person" is the action the row
+         *     exists to prompt (D-436).
          */
         AttentionItemOut: {
             /** Detail */
@@ -4376,6 +4762,26 @@ export interface components {
             /** Worst Case Call Cost Inr */
             worst_case_call_cost_inr: string | null;
         };
+        /**
+         * CallChargeOut
+         * @description One call, and what it added to this month's bill.
+         */
+        CallChargeOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Call Id */
+            call_id: string;
+            /** Charged Inr */
+            charged_inr: string;
+            /** Direction */
+            direction: string | null;
+            /** Minutes */
+            minutes: string;
+            /** Started At */
+            started_at: string | null;
+        };
         /** CallDetailOut */
         CallDetailOut: {
             /**
@@ -4385,8 +4791,8 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name?: string | null;
-            /** Caller Masked */
-            caller_masked?: string | null;
+            /** Caller E164 */
+            caller_e164?: string | null;
             /**
              * Direction
              * @enum {string}
@@ -4491,6 +4897,32 @@ export interface components {
              */
             source: "derived" | "model";
         };
+        /**
+         * CallSpendOut
+         * @description One call, both directions.
+         */
+        CallSpendOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
+            /** Call Id */
+            call_id: string;
+            /** Charged Inr */
+            charged_inr: string;
+            /** Cost Currency Assumed */
+            cost_currency_assumed: boolean;
+            /** Cost Inr */
+            cost_inr: string;
+            /** Direction */
+            direction: string | null;
+            /** Margin Inr */
+            margin_inr: string;
+            /** Minutes */
+            minutes: string;
+            /** Started At */
+            started_at: string | null;
+        };
         /** CallSummaryOut */
         CallSummaryOut: {
             /**
@@ -4500,8 +4932,8 @@ export interface components {
             agent_id: string;
             /** Agent Name */
             agent_name?: string | null;
-            /** Caller Masked */
-            caller_masked?: string | null;
+            /** Caller E164 */
+            caller_e164?: string | null;
             /**
              * Direction
              * @enum {string}
@@ -5601,8 +6033,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Phone Masked */
-            phone_masked: string;
+            /** Phone E164 */
+            phone_e164: string;
             /** Removable */
             removable: boolean;
             /** Scope */
@@ -6117,6 +6549,59 @@ export interface components {
              */
             source: "platform_default" | "tenant_override";
         };
+        /**
+         * FleetSpendOut
+         * @description GET /v1/admin/spend — every live client's month, worst margin first.
+         *
+         *     The totals are sums of the rows, computed here rather than queried: `usage_events` is
+         *     FORCE RLS'd and an untenanted session sees zero rows by design, so a cross-tenant
+         *     `SUM` is unaskable in app code and reaching for the admin DB role to get one would
+         *     break hard rule 1. `billing/models.PlatformAiSpend` records the same constraint and
+         *     the same answer one ledger over. Each client's numbers are read INSIDE that client's
+         *     own `tenant_session`, so no query here sees two tenants at once.
+         */
+        FleetSpendOut: {
+            /** Clients */
+            clients: number;
+            /** Cost Inr */
+            cost_inr: string;
+            /** Margin Inr */
+            margin_inr: string;
+            /** Margin Pct */
+            margin_pct: string | null;
+            /** Month */
+            month: string;
+            /** Revenue Inr */
+            revenue_inr: string;
+            /** Tenants */
+            tenants: components["schemas"]["FleetTenantOut"][];
+        };
+        /**
+         * FleetTenantOut
+         * @description One client on the fleet board.
+         */
+        FleetTenantOut: {
+            /** Calls */
+            calls: number;
+            /** Cost Inr */
+            cost_inr: string;
+            /** Margin Inr */
+            margin_inr: string;
+            /** Margin Pct */
+            margin_pct: string | null;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Name */
+            name: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Revenue Inr */
+            revenue_inr: string;
+            /** Slug */
+            slug: string;
+            /** Tenant Id */
+            tenant_id: string;
+        };
         /** GlobalEntryOut */
         GlobalEntryOut: {
             /**
@@ -6129,8 +6614,8 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Phone Masked */
-            phone_masked: string;
+            /** Phone E164 */
+            phone_e164: string;
             /** Removable */
             removable: boolean;
             /** Scope */
@@ -6439,8 +6924,8 @@ export interface components {
         InvitationCreatedOut: {
             /** Delivery */
             delivery: string;
-            /** Email Masked */
-            email_masked: string;
+            /** Email */
+            email: string;
             /**
              * Expires At
              * Format: date-time
@@ -6476,12 +6961,13 @@ export interface components {
          * InvitationOut
          * @description A pending invitation — a live key to this account sitting in an inbox.
          *
-         *     `email_masked`, never `email`: see `members.mask_email` for why the guardrail
-         *     forbids the raw field here and what the mask keeps.
+         *     `email` is the whole address (D-436): an owner has to be able to see that the
+         *     address they typed is the one they meant, and to tell two invites at one domain
+         *     apart. `org:read` gates the list; `PendingInvitation` records what the dots cost.
          */
         InvitationOut: {
-            /** Email Masked */
-            email_masked: string;
+            /** Email */
+            email: string;
             /**
              * Expires At
              * Format: date-time
@@ -6940,8 +7426,8 @@ export interface components {
          * @description One selectable column of the Leads table — `crm.columns.LeadColumn` on the wire.
          *
          *     `kind` is what lets the screen render a column without knowing its name: `fixed`
-         *     columns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,
-         *     which is hard rule 6 and not a rendering choice), `extraction` columns come out of
+         *     columns come off `LeadOut`'s own attributes (the `phone` column is `phone_e164`
+         *     there, the same full number the export writes), `extraction` columns come out of
          *     `LeadOut.data` under `key`.
          */
         LeadColumnOut: {
@@ -7079,8 +7565,8 @@ export interface components {
             last_call_id?: string | null;
             /** Name */
             name?: string | null;
-            /** Phone Masked */
-            phone_masked: string;
+            /** Phone E164 */
+            phone_e164: string;
             /** Schema Version */
             schema_version?: number | null;
             /** Source */
@@ -7767,15 +8253,14 @@ export interface components {
          * PendingInviteOut
          * @description One live key to a client's account, as the console may see it.
          *
-         *     MASKED, like the client realm's own list: `email` is in
-         *     `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, and an operator deciding
-         *     which pending invite to cancel needs to RECOGNISE it, not to read it. Same mask, same
-         *     function (`members.mask_email`), so the two realms cannot show a client's staff two
-         *     different renderings of one row.
+         *     The address IN FULL, like the client realm's own list — one row, one rendering, in
+         *     both realms (D-436). An operator cancelling a duplicate invite has to be able to say
+         *     which address it was for, and the console is the desk a client rings when they
+         *     cannot see the invite themselves.
          */
         PendingInviteOut: {
-            /** Email Masked */
-            email_masked: string;
+            /** Email */
+            email: string;
             /**
              * Expires At
              * Format: date-time
@@ -8974,6 +9459,39 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * SpendOut
+         * @description GET /v1/billing/spend — this month's bill, itemised by agent and by call.
+         */
+        SpendOut: {
+            /** By Agent */
+            by_agent: components["schemas"]["AgentChargeOut"][];
+            /** Calls */
+            calls: number;
+            /**
+             * Charge Basis
+             * @enum {string}
+             */
+            charge_basis: "wallet_debit" | "allocated";
+            /** Itemisation Residual Inr */
+            itemisation_residual_inr: string;
+            /** Itemised Charge Inr */
+            itemised_charge_inr: string;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Period Charge Inr */
+            period_charge_inr: string;
+            /** Residual Reason */
+            residual_reason: string | null;
+            /** Retainer Inr */
+            retainer_inr: string | null;
+            /** Top Calls */
+            top_calls: components["schemas"]["CallChargeOut"][];
+            /** Top Calls Truncated */
+            top_calls_truncated: boolean;
+        };
+        /**
          * StaffMember
          * @description `pronunciation` is not decoration — PROMPT-GUIDE §3 requires proper nouns to be
          *     spelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the
@@ -9421,6 +9939,68 @@ export interface components {
             /** Webhook Bodies Erased */
             webhook_bodies_erased: number | null;
         };
+        /**
+         * TenantSpendOut
+         * @description GET /v1/admin/tenants/{tenant_id}/spend — one client's month, both directions.
+         *
+         *     The four header figures are D-12's margin, in D-12's OWN definitions — the retainer
+         *     plus `calling_revenue_inr` against the sum of `_ROW_COST_SQL`, with `margin_pct` the
+         *     one shared function `margin_for_tenant` and the fleet board both call. They are folded
+         *     out of `period_attribution`'s single scan rather than read from a second
+         *     `margin_for_tenant` call, and that is a partition fix rather than a shortcut: a second
+         *     call is a second statement at a second instant over an append-only table the meter
+         *     writes to all month, so on an open month the header's `cost_inr` could exceed the
+         *     `by_unit` lines beneath it by one completing call — the parts silently not adding up,
+         *     on the page whose whole promise is that they do. Same rows, same expressions, so on a
+         *     month nobody is dialling in this is `margin_for_tenant` to the paisa, which is the
+         *     identity `tests/spend_attribution_test.py` pins.
+         */
+        TenantSpendOut: {
+            /** By Agent */
+            by_agent: components["schemas"]["AgentSpendOut"][];
+            /** By Unit */
+            by_unit: components["schemas"]["UnitSpendOut"][];
+            /** Calls */
+            calls: number;
+            /**
+             * Charge Basis
+             * @enum {string}
+             */
+            charge_basis: "wallet_debit" | "allocated";
+            /** Cost Currency */
+            cost_currency: string | null;
+            /** Cost Currency Stated */
+            cost_currency_stated: boolean;
+            /** Cost Inr */
+            cost_inr: string;
+            /** Itemisation Residual Inr */
+            itemisation_residual_inr: string;
+            /** Itemised Charge Inr */
+            itemised_charge_inr: string;
+            /** Margin Inr */
+            margin_inr: string;
+            /** Margin Pct */
+            margin_pct: string | null;
+            /** Minutes Used */
+            minutes_used: string;
+            /** Month */
+            month: string;
+            /** Period Charge Inr */
+            period_charge_inr: string;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Residual Reason */
+            residual_reason: string | null;
+            /** Retainer Inr */
+            retainer_inr: string | null;
+            /** Revenue Inr */
+            revenue_inr: string;
+            /** Top Calls */
+            top_calls: components["schemas"]["CallSpendOut"][];
+            /** Top Calls Truncated */
+            top_calls_truncated: boolean;
+            unattributed: components["schemas"]["UnattributedSpendOut"] | null;
+        };
         /** TenantSummary */
         TenantSummary: {
             /** Calls 7D */
@@ -9634,6 +10214,16 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * UnattributedSpendOut
+         * @description Cost this month that belongs to no call — `number_rental` and nothing else today.
+         */
+        UnattributedSpendOut: {
+            /** Cost Inr */
+            cost_inr: string;
+            /** Minutes */
+            minutes: string;
+        };
         /** UndoOut */
         UndoOut: {
             /**
@@ -9676,6 +10266,21 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * UnitSpendOut
+         * @description What one metered unit type contributed to OUR cost.
+         *
+         *     `qty` is not money and is not rounded like it — seconds, minutes and character counts
+         *     are published as the ledger holds them.
+         */
+        UnitSpendOut: {
+            /** Cost Inr */
+            cost_inr: string;
+            /** Qty */
+            qty: string;
+            /** Unit Type */
+            unit_type: string;
         };
         /**
          * UsagePanelOut
@@ -10456,6 +11061,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QaSampleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    fleet_spend_v1_admin_spend_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FleetSpendOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -11944,6 +12580,40 @@ export interface operations {
             };
         };
     };
+    tenant_spend_v1_admin_tenants__tenant_id__spend_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantSpendOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     set_tenant_status_v1_admin_tenants__tenant_id__status_post: {
         parameters: {
             query?: never;
@@ -12051,6 +12721,7 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                status?: ("draft" | "live" | "paused" | "archived") | null;
             };
             header?: never;
             path?: never;
@@ -12065,6 +12736,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    create_agent_route_v1_agents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -12094,6 +12798,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LanesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    agent_stats_v1_agents_stats_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentStatsOut"][];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -12154,6 +12889,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    update_agent_route_v1_agents__agent_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentUpdateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    activate_agent_route_v1_agents__agent_id__activate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    archive_agent_route_v1_agents__agent_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    deactivate_agent_route_v1_agents__agent_id__deactivate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -12282,6 +13145,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PendingOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    restore_agent_route_v1_agents__agent_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentLifecycleOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -13293,6 +14187,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvoiceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    my_spend_v1_billing_spend_get: {
+        parameters: {
+            query?: {
+                month?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpendOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

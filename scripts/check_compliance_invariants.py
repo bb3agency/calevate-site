@@ -62,6 +62,29 @@ what actually exists, never against a list of the paths we happen to remember:
    publish and every half-hourly drift sweep, and a syntax checker claiming it would be
    the true-by-construction move P3.3 exists to record.
 
+7. **No lifecycle state but the active one can dial** (D-440, and the section this file
+   was missing the day an agent grew a fourth state). The dial gate's status test and the
+   launch gate's are two independent enumerations of ONE policy — which state may place
+   calls — and until now nothing held them together but the fact that one person wrote
+   both. `dialable_lifecycle_states()` runs each of them over the WHOLE `AGENT_STATUSES`
+   vocabulary, read off the live `Literal`, and fails when:
+
+   * more than one state is dialable, or none is. The gate is an ALLOW-LIST of the ACTIVE
+     state; two dialable states means an agent its owner switched off can place calls, and
+     zero means the enumeration matches nothing and every section here is watching a gate
+     that refuses everything;
+   * the two gates disagree about any state. That is the drift `launch_blockers`' own
+     docstring names — "a launch screen that explained one of them differently from the
+     dispatcher's refusal would be two gates disagreeing in front of a client" — and it is
+     the shape a widening actually takes, because nobody edits both files at once.
+
+   NO STATE NAME IS WRITTEN DOWN HERE, deliberately: the check is about the SHAPE of the
+   allow-list, not about the word `live`, so a renamed state passes and a widened gate
+   fails. And because the vocabulary comes from the type rather than from a list, a FIFTH
+   status enrolls itself in this check on the day it is declared — which is the exact
+   failure the first four states' section could not have caught, since `archived` did not
+   exist when this file was written.
+
 WHAT THIS DELIBERATELY DOES NOT DO
 ----------------------------------
 * **Ledger immutability is not re-implemented here.** Hard rule 4 is fully covered by
@@ -84,10 +107,14 @@ WHAT THIS DELIBERATELY DOES NOT DO
   launch gate on it — the dial-time check is what catches a lapsed registration. A
   guardrail whose first act is to fire on correct code is a guardrail with an exemption
   list, and the exemption list is the end of it.
-* **Nothing about polarity, values or ordering INSIDE the gate.** Whether the DNC read
-  comes before the caps read, whether a rule returns the right string — behaviour, and
-  behaviour is what the pytest suites above are for. This file only asserts that the
-  gate is on the path, unbypassable, and backed by the schema it assumes.
+* **Nothing about polarity, values or ordering INSIDE the gate**, with ONE exception,
+  named because the caveat used to be absolute. Whether the DNC read comes before the
+  caps read, whether a rule returns the right string — behaviour, and behaviour is what
+  the pytest suites above are for. Section 7 is the exception and it is not a behaviour
+  claim: it asserts the SHAPE of one allow-list (exactly one lifecycle state dials) and
+  that two gates agree about it, neither of which any single pytest can hold, because the
+  thing being guarded is that a state added NEXT WEEK does not quietly land on the
+  dialable side of either.
 
 Run: `uv run python -m scripts.check_compliance_invariants`  (also in `make guardrails`)
 
@@ -196,6 +223,66 @@ ENGINE_REACH_EXEMPTIONS: dict[str, str] = {
     ),
 }
 
+# WHO MAY DECIDE WHETHER AN AGENT EXISTS AND WHAT STATE IT IS IN (D-440, hard rule 5).
+#
+# `agents.status` is the column the dial gate reads, and `INSERT INTO agents` is the
+# statement that decides whether a new agent has an AI disclosure on file at all. Both
+# were single-writer by CONVENTION and by a docstring — `agents/lifecycle.py::create_agent`
+# opened with "THE ONE INSERT INTO `agents` IN THIS REPOSITORY", which was not true when it
+# was written: `scripts/restore_drill.py::_seed` is a second, spelling the two disclosure
+# sentences out in English rather than composing them from the language templates. It is
+# legitimate (a scratch-database fixture, see its entry) and that is exactly the point — an
+# unenumerated second writer is indistinguishable from a third nobody meant to add.
+#
+# Keyed per FILE::FUNCTION for `ENGINE_REACH_EXEMPTIONS`' reason: a module-level entry
+# would cover the next function somebody adds to that module. Verified live by
+# `unregistered_agent_state_writers`, which fails on an entry that names nothing (a hiding
+# place waiting for the next function to land on the name) and on a reason too thin to
+# review.
+AGENT_STATE_WRITERS: dict[str, str] = {
+    "apps/api/agents/lifecycle.py::create_agent": (
+        "THE BIRTH. Both disclosure sentences are composed from the language templates "
+        "here and never taken from the caller, both toggles are written TRUE, the legacy "
+        "bundle is composed from the pair, and the row is born `draft` — so there is no "
+        "argument to any create surface that produces an agent with no AI sentence on "
+        "file. CLOSED BY: nothing; a second birth path takes an entry of its own and the "
+        "reviewer then has to say why two places decide what a new agent discloses"
+    ),
+    "apps/api/agents/service.py::publish_agent": (
+        "THE ONLY WRITER OF `live`, and it earns the word: the agent is created or "
+        "updated at the engine and READ BACK (D-64) before any column claims it, so "
+        "`status = 'live'` is a fact about the vendor rather than an intention of ours. "
+        "The lifecycle's `activate` deliberately writes no status and calls this instead"
+    ),
+    "apps/api/agents/lifecycle.py::deactivate_agent": (
+        "`live -> paused` through the transition primitive, with the agent's inbound "
+        "numbers released at the vendor in the same transaction — outbound stops by "
+        "itself at the dial gate, inbound does not"
+    ),
+    "apps/api/agents/lifecycle.py::archive_agent": (
+        "`draft`/`live`/`paused` -> `archived`, stamping `archived_at` in the same "
+        "statement so `ck_agents_archived_at_matches_status` is never momentarily false, "
+        "and releasing the numbers for `deactivate_agent`'s reason"
+    ),
+    "apps/api/agents/lifecycle.py::restore_agent": (
+        "`archived -> paused` and nothing else. Never straight to `live`: an agent that "
+        "sat retired has no proof left that the engine still holds its configuration, "
+        "and only a publish with its read-back can establish one"
+    ),
+    "scripts/restore_drill.py::_seed": (
+        "THE BACKUP-RESTORE DRILL'S FIXTURE, and the one entry here that is not a product "
+        "path. It writes two agent rows into a SCRATCH database whose name has already "
+        "been through `assert_scratch` (refused if it is named in `.env` or does not match "
+        "the scratch pattern), so that the restored copy can be compared row-for-row "
+        "against the source. The rows are `draft` with both disclosure sentences and the "
+        "legacy bundle set, carry no script and are never published or dialled — the "
+        "drill has no engine and no dispatcher. It cannot call `create_agent`: that needs "
+        "an `AsyncSession` against an open tenant, and the drill drives raw psycopg over "
+        "databases it creates and drops. CLOSED BY: the drill growing a session, at which "
+        "point the fixture becomes the product path like every other agent"
+    ),
+}
+
 # A bypass arrives as a parameter, never as a comment. Names taken from the narrow
 # version in `tests/campaign_dispatch_audit_test.py` (which scans the campaign dispatcher
 # only) and widened to the whole gate-bearing surface — see `gate_bypasses`.
@@ -273,16 +360,29 @@ class GateRegistry:
     call_prompt_field: str
     hosting_shapes: frozenset[str]
     external_hosting: str
+    #: D-440. Section 7's subject: the whole agent-lifecycle vocabulary and the two gates
+    #: that decide which of it may dial. The vocabulary comes off the live `Literal`, so a
+    #: fifth status enrolls itself; the gates come off the imported callables, so a rename
+    #: either updates this registry or fails `blind_spots()`.
+    agent_statuses: frozenset[str]
+    dial_status_refusal: Callable[[str], tuple[str, str] | None]
+    launch_status_refusal: Callable[[str], object | None]
 
 
 def gate_registry() -> GateRegistry:
+    from apps.api.agents.models import AGENT_STATUSES
     from apps.api.agents.service import dispatch_call
-    from apps.api.campaigns.service import dispatch_blockers, launch_blockers
+    from apps.api.campaigns.service import (
+        dispatch_blockers,
+        launch_blockers,
+        launch_refusal_for_agent_status,
+    )
     from apps.api.compliance.service import (
         add_to_dnc,
         assert_dispatch_allowed,
         check_dispatch,
         credits_exhausted,
+        dial_refusal_for_agent_status,
         first_campaign_hold_blocker,
         kyc_blocker,
         spend_capped,
@@ -333,6 +433,9 @@ def gate_registry() -> GateRegistry:
         # shape owes hard rule 5 instead of silently exempting it.
         hosting_shapes=frozenset(AgentHosting.__args__),
         external_hosting="external_deployment",
+        agent_statuses=frozenset(AGENT_STATUSES),
+        dial_status_refusal=dial_refusal_for_agent_status,
+        launch_status_refusal=launch_refusal_for_agent_status,
     )
 
 
@@ -517,6 +620,175 @@ def stale_exemptions(
                 f"exemption {key} has a reason too thin to review: {reason!r}. Say what "
                 "makes this reach legitimate and what would close it"
             )
+    return failures
+
+
+# --- 8. who may create an agent, and who may move its status ---------------------
+
+#: An agent row being created, or its `status` being assigned. `RETURNING status` must NOT
+#: match — `set_call_cap` and `set_agent_voice` read the column back to decide whether to
+#: republish, which is not a write — so the SET clause is isolated before looking.
+_AGENT_INSERT = re.compile(r"insert\s+into\s+agents\b", re.IGNORECASE)
+_AGENT_UPDATE = re.compile(
+    r"update\s+agents\s+set\b(?P<assignments>.*?)(?=\bwhere\b|$)", re.S | re.IGNORECASE
+)
+_STATUS_ASSIGNED = re.compile(r"\bstatus\s*=", re.IGNORECASE)
+_STATUS_LIVE = re.compile(r"\bstatus\s*=\s*'live'", re.IGNORECASE)
+
+
+def _writes_agent_state(sql: str) -> bool:
+    """Does this SQL literal create an agent row or assign its `status`?"""
+    if _AGENT_INSERT.search(sql):
+        return True
+    return any(
+        _STATUS_ASSIGNED.search(match.group("assignments")) for match in _AGENT_UPDATE.finditer(sql)
+    )
+
+
+def _agent_state_sites(roots: Iterable[Path] | None = None) -> Iterator[tuple[str, str, bool]]:
+    """`(file::function, sql, writes_live)` for every place that decides an agent's state.
+
+    TWO SHAPES, because the tree has two. A literal `INSERT INTO agents` / `UPDATE agents
+    SET status = ...` is found in the string constant (Python joins adjacent literals at
+    parse time, so a statement written across ten lines is one `ast.Constant`). The other
+    is `db/transition.py::transition_status`, which BUILDS the UPDATE from its arguments —
+    invisible to any scan of SQL text, and the shape three of the four lifecycle movers
+    use. It is matched on `table="agents"` instead, which is the only literal it leaves.
+
+    A BARE STRING EXPRESSION IS SKIPPED, which is docstrings and nothing else that matters.
+    Not tidiness: this file's own docstrings quote the statements it hunts for, so without
+    it the check's first act was to report itself — and the general rule ("a string nobody
+    passes anywhere is not a statement anybody runs") is the one that also keeps the next
+    module's prose out of a compliance failure list.
+    """
+    for path in _python_files(roots):
+        tree = _parse(path)
+        key = _key(path, roots)
+        stack: list[str] = []
+
+        def walk(
+            node: ast.AST, stack: list[str] = stack, key: str = key
+        ) -> Iterator[tuple[str, str, bool]]:
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef):
+                    stack.append(child.name)
+                    yield from walk(child)
+                    stack.pop()
+                    continue
+                if isinstance(child, ast.Expr) and isinstance(child.value, ast.Constant):
+                    continue
+                where = f"{key}::{'.'.join(stack) or '<module>'}"
+                if isinstance(child, ast.Constant) and isinstance(child.value, str):
+                    if _writes_agent_state(child.value):
+                        yield (where, child.value, bool(_STATUS_LIVE.search(child.value)))
+                elif isinstance(child, ast.Call) and any(
+                    keyword.arg == "table"
+                    and isinstance(keyword.value, ast.Constant)
+                    and keyword.value.value == "agents"
+                    for keyword in child.keywords
+                ):
+                    yield (where, "transition_status(table='agents')", False)
+                yield from walk(child)
+
+        yield from walk(tree)
+
+
+def unregistered_agent_state_writers(
+    roots: Iterable[Path] | None = None, writers: dict[str, str] | None = None
+) -> list[str]:
+    """Only the registered places may create an agent or move its status (hard rule 5).
+
+    THE CLAIM THIS TURNS INTO A GATE. Everything hard rule 5 promises about an agent —
+    that it has an AI disclosure on file, that `live` was earned by a read-back rather
+    than asserted, that a retired one stays retired — is a claim about the writers of two
+    things: the row, and the column the dial gate reads. Those were single-writer by
+    convention and by a docstring that was already wrong, which is a rule with no
+    enforcement and a comment that reads like enforcement.
+
+    THREE FAILURES, and the third is the one worth the section on its own: a writer that
+    is not registered; a registration that names nothing real (a hiding place waiting for
+    the next function to land on the name — `stale_exemptions`' argument); and any writer
+    other than `publish_agent` assigning the literal `'live'`. That last one is D-64: the
+    word means the ENGINE was read back and observed to be holding this agent's script and
+    the truthful-answer directive, and a second place writing it would be a claim about a
+    vendor derived from a fact about ourselves.
+    """
+    registry = AGENT_STATE_WRITERS if writers is None else writers
+    live_writer = "apps/api/agents/service.py::publish_agent"
+    failures: list[str] = []
+    seen: set[str] = set()
+    for where, sql, writes_live in _agent_state_sites(roots):
+        seen.add(where)
+        if where not in registry:
+            failures.append(
+                f"{where} creates an agent row or moves `agents.status` and is not in "
+                f"AGENT_STATE_WRITERS: {' '.join(sql.split())[:120]}. Every writer of the "
+                "compliance floor is registered with the reason it is allowed to be one — "
+                "add it there, or route it through `agents/lifecycle.py`"
+            )
+        if writes_live and where != live_writer:
+            failures.append(
+                f"{where} writes `status = 'live'` and is not {live_writer}. `live` means "
+                "the engine was READ BACK and observed to be holding this agent's script, "
+                "opening line and truthful-answer directive (D-64); a second writer of "
+                "that word is a claim about the vendor derived from a fact about us"
+            )
+    for where, reason in sorted(registry.items()):
+        if where not in seen:
+            failures.append(
+                f"AGENT_STATE_WRITERS names {where}, which no longer creates an agent or "
+                "moves its status — remove it before it starts covering something else"
+            )
+        if len(reason.strip()) < 40:
+            failures.append(
+                f"AGENT_STATE_WRITERS entry {where} has a reason too thin to review: "
+                f"{reason!r}. Say what makes this writer legitimate and what would close it"
+            )
+    return failures
+
+
+# --- 7. no lifecycle state but the active one can dial --------------------------
+
+
+def dialable_lifecycle_states(registry: GateRegistry | None = None) -> list[str]:
+    """Run both status gates over the whole agent vocabulary and report the disagreements.
+
+    THE ONLY SECTION HERE THAT EXECUTES CODE RATHER THAN READING IT, and the reason is
+    that the question is about a SET the gates compute, not about a call somebody made.
+    The two predicates are pure and take a string, so running them costs nothing and needs
+    no database — and running them is what makes this immune to the way a widening is
+    actually written: `status not in ("live", "archived")` is one green character to an AST
+    scan and a second dialable state to this.
+
+    `registry` is injectable so the negative controls can hand it two gates that disagree;
+    a check whose subject cannot be replaced in a test is one nobody can prove still sees
+    anything (`check_redaction_exposure`'s allowlist argument).
+    """
+    live = gate_registry() if registry is None else registry
+    dialable = sorted(
+        status for status in live.agent_statuses if live.dial_status_refusal(status) is None
+    )
+    launchable = sorted(
+        status for status in live.agent_statuses if live.launch_status_refusal(status) is None
+    )
+    failures: list[str] = []
+    if len(dialable) != 1:
+        failures.append(
+            f"the dial gate admits {len(dialable)} agent lifecycle states ({dialable}) out "
+            f"of {sorted(live.agent_statuses)}, and hard rule 5 admits exactly one — the "
+            "ACTIVE state. More than one means an agent its owner switched off, retired or "
+            "never published can place calls; none means the gate refuses everything and "
+            "every other section here is watching a door that is already welded shut"
+        )
+    if dialable != launchable:
+        failures.append(
+            f"the dial gate admits {dialable} and the campaign launch gate admits "
+            f"{launchable}. These are two enumerations of one policy and they have drifted "
+            "— one of them will let a client launch a campaign the dispatcher then refuses "
+            "contact by contact, or (worse) dial an agent the launch screen would have "
+            "stopped. Fix `dial_refusal_for_agent_status` / "
+            "`launch_refusal_for_agent_status` so they agree about every state"
+        )
     return failures
 
 
@@ -1226,6 +1498,11 @@ def main() -> int:
         ("a message sent without evidence of an opt-in", unevidenced_messages()),
         ("a bypass on the gate-bearing path", gate_bypasses()),
         ("the truthful answer became switchable", truthful_answer_unfalsifiable()),
+        ("a lifecycle state other than the active one can dial", dialable_lifecycle_states()),
+        (
+            "an unregistered writer of an agent's existence or status",
+            unregistered_agent_state_writers(),
+        ),
         ("an exemption that no longer holds", stale_exemptions()),
     )
     failed = False
@@ -1274,7 +1551,9 @@ def main() -> int:
         f"{len(_adapter_files())} adapter modules holding the truthful-answer rule in the "
         f"home their declared agent hosting gives it, {len(SCHEMA_INVARIANTS)} schema "
         "invariants verified against "
-        "pg_catalog)"
+        f"pg_catalog, 1 of {len(gate_registry().agent_statuses)} agent lifecycle states "
+        f"dialable and both gates agreeing on which, {len(AGENT_STATE_WRITERS)} registered "
+        "writers of an agent's existence or status)"
     )
     return 0
 

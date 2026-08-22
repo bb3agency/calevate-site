@@ -9,6 +9,7 @@ import {
   BellRing,
   BookOpenCheck,
   Bot,
+  Coins,
   Eye,
   FileCheck2,
   Flag,
@@ -165,6 +166,14 @@ export default function TenantDetailPage({
             icon={<ReceiptIndianRupee className="h-4 w-4" />}
           >
             Invoice
+          </NavLink>
+          {/* WHERE the margin card below came from, per agent and per call. Its own screen
+              rather than another panel here because it is three tables that grow with the
+              month, and because it is the operator's half of the screen the client reads
+              at /c/<slug>/spend — one attribution, two audiences, so a support call is two
+              people looking at the same rupees. */}
+          <NavLink href={`/admin/tenants/${tenantId}/spend`} icon={<Coins className="h-4 w-4" />}>
+            Spend
           </NavLink>
           {/* What the invoice above is DERIVED FROM. `plans` had no writer at all until
               this screen landed, so every number on the invoice rested on a row somebody

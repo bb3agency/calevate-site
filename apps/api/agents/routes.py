@@ -44,18 +44,31 @@ until someone regenerates them (`pnpm gen:api`) — deliberately not done here.
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from datetime import datetime
+from typing import Annotated, Any, get_args
 from uuid import UUID
 
 from calevate_shared.engine import DisclosurePosture, compose_opening_line
-from calevate_shared.extraction import ExtractionField
+from calevate_shared.extraction import ExtractionField, OutcomeTag
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel, ConfigDict, model_validator
+from fastapi import status as http_status
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import lifecycle
+from apps.api.agents.models import (
+    CALL_CAP_MAX_S,
+    CALL_CAP_MIN_S,
+    AgentDirection,
+    AgentStatus,
+)
 from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
 from apps.api.agents.service import publish_agent
+
+# The languages the product sells, imported rather than respelled: this repo already
+# carries three copies of that Literal and a fourth is the D-103 defect class.
+from apps.api.agents.voices import Language
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
 from apps.api.core.auth import client_request_ip, requires
@@ -64,6 +77,12 @@ from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
+
+#: The four outcome tags, zero-filled into every `AgentStatsOut.outcomes` so a screen never
+#: has to guard a missing key. Derived from the contract's Literal, never retyped (D-104):
+#: `crm/models.OUTCOME_TAGS` renders the CHECK from the same type, so this map and the
+#: column cannot come to disagree about what an outcome is.
+OUTCOME_TAGS: tuple[str, ...] = get_args(OutcomeTag)
 
 # No prefix — see the module docstring: the reads and the admin mutation live in
 # different path spaces.
@@ -81,8 +100,20 @@ class AgentOut(BaseModel):
 
     id: UUID
     name: str
-    direction: str
-    status: str
+    #: TYPED, not `str` (D-440). Both columns carry a CHECK constraint rendered from these
+    #: exact Literals (`agents/models.py`), `tests/orm_schema_fidelity_test.py` proves the
+    #: constraint is really in the database, and a generated TypeScript client that gets a
+    #: union here can exhaustively switch on it instead of comparing strings. A row that
+    #: somehow held anything else fails serialization loudly, which is the same trade
+    #: `_load_agent`'s direction TypeGuard makes and for the same reason: a status the
+    #: platform has never heard of, on an agent answering a client's phone, is not a thing
+    #: to render.
+    direction: AgentDirection
+    #: `live` IS "active" and `paused` IS "inactive" — the labels are the UI's, the
+    #: vocabulary is the database's, and `agents/models.AgentStatus` argues why they differ.
+    status: AgentStatus
+    #: Set only while `status == "archived"`; a CHECK constraint holds the pair together.
+    archived_at: datetime | None
     language_primary: str
     # THE LEGACY BUNDLE, kept on the wire for step 1 of D-163's two-step deprecation:
     # both sentences joined whatever the toggles say. Read it as "the notices this agent
@@ -106,6 +137,18 @@ class AgentOut(BaseModel):
     truthful_answer_rule: str = TRUTHFUL_ANSWER_PROMISE
     engine: str
     published: bool
+    #: HOW MANY LINES THIS AGENT ANSWERS IN PARALLEL — the honest per-agent deployment
+    #: fact, and deliberately the only one (D-440). Inbound concurrency is a per-number
+    #: binding at the engine and the vendor documents no inbound limit, so a live agent
+    #: bound to three numbers picks up three simultaneous calls. OUTBOUND concurrency is
+    #: not a property of an agent at all: it is an account-level pool shared by every
+    #: campaign on the platform (`workers/campaign_dispatch.py`), so there is no per-agent
+    #: number that could be true, and this response does not invent one.
+    #:
+    #: Counts the numbers BOUND to the agent in our records. A non-live agent shows its
+    #: bindings too — they are what activating it would start answering — and the engine
+    #: is told to release them on deactivate and archive.
+    inbound_number_count: int
     extraction_fields: list[ExtractionField] = []
 
 
@@ -126,11 +169,19 @@ class PublishOut(BaseModel):
 #: found by nothing except the person whose screen it is. Asking for the one row by id is
 #: also the query that should always have been here — one indexed lookup instead of a
 #: scan of every agent plus their extraction schemas, on the route a dashboard opens most.
+#:
+#: The inbound-number count is a CORRELATED SUBQUERY rather than a fourth join, because
+#: `phone_numbers` is one-to-many against `agents` while `extraction_schemas` is joined by
+#: primary key: a `LEFT JOIN ... GROUP BY` would multiply every agent by its numbers and
+#: then need every selected column in the grouping key, including the schema's JSONB. The
+#: subquery is one index lookup on `phone_numbers.agent_id` per row of a per-tenant list
+#: this route already bounds at 200.
 _AGENT_ROSTER = (
     "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
     "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
     "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-    "a.recording_notice_line, a.recording_notice_enabled "
+    "a.recording_notice_line, a.recording_notice_enabled, a.archived_at, "
+    "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id) "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
     "WHERE a.deleted_at IS NULL"
 )
@@ -151,6 +202,8 @@ def _agent_out(r: Any) -> AgentOut:
         ai_disclosure_enabled=bool(r[10]),
         recording_notice_line=r[11],
         recording_notice_enabled=bool(r[12]),
+        archived_at=r[13],
+        inbound_number_count=int(r[14]),
         # Through the ONE composer, so the roster, the publish path and the engine
         # cannot disagree about what this agent opens with (D-163).
         opening_line=compose_opening_line(
@@ -165,7 +218,19 @@ def _agent_out(r: Any) -> AgentOut:
 
 
 @router.get(
-    "/v1/agents", response_model=list[AgentOut], openapi_extra=permission_meta("agents:read")
+    "/v1/agents",
+    response_model=list[AgentOut],
+    openapi_extra=permission_meta("agents:read"),
+    summary="This account's agents — active, inactive, draft, or the archive",
+    description=(
+        "`status` selects one bucket: `live` (active — on the frontline), `paused` "
+        "(inactive — switched off, reversible), `draft` (being written, never published) "
+        "or `archived` (retired).\n\n"
+        "**Omitting `status` returns everything EXCEPT archived agents.** The archive is "
+        "history: it grows without limit while the working roster does not, so a default "
+        "of 'everything' would let retired agents push live ones past the page bound. Ask "
+        "for `status=archived` to read it."
+    ),
 )
 async def list_agents(
     session: Session,
@@ -174,15 +239,152 @@ async def list_agents(
     # anyone editing this file — each row here carries the agent's whole extraction
     # schema, so the response grows in two dimensions at once.
     limit: int = Query(200, ge=1, le=200),
+    status: AgentStatus | None = Query(None),
     _: Principal = Depends(requires("agents:read")),
 ) -> list[AgentOut]:
+    """One roster query, one optional bucket (D-440).
+
+    THE DEFAULT HIDES THE ARCHIVE, and that is the one surprising thing here. Every other
+    filter in this repo defaults to "no filter"; this one cannot, because the set it would
+    include is the only unbounded one — a client who retires an agent a month for two years
+    has an archive longer than the `LIMIT`, and the agents they actually use would fall off
+    the end of their own roster with nothing on the screen to say so. The description says
+    it in the OpenAPI so the UI does not have to discover it.
+
+    `ORDER BY` is by status bucket first and creation second, so the archive — when it is
+    asked for — reads newest-retirement-first and the working roster keeps the stable order
+    it had. `archived_at DESC NULLS LAST` does both in one clause: it is NULL for every
+    non-archived row, which leaves those rows to the second key.
+    """
     rows = (
         await session.execute(
-            text(f"{_AGENT_ROSTER} ORDER BY a.created_at LIMIT :limit"),
-            {"limit": limit},
+            text(
+                f"{_AGENT_ROSTER} "
+                # Two spellings of one parameter, and neither is caller text: the
+                # filter applies when it is given, and the `IS NULL` arm is what "no
+                # bucket asked for" means. An f-string branch here would be two SQL
+                # statements to keep in step (`scripts/check_raw_sql.py`).
+                #
+                # CAST because the parameter's only other appearance is compared to a
+                # `character varying` column, which leaves `$1 IS NULL` with no type to
+                # infer and makes Postgres refuse the whole statement as ambiguous.
+                "AND (CAST(:status AS text) IS NULL AND a.status <> 'archived' "
+                "OR a.status = CAST(:status AS text)) "
+                "ORDER BY a.archived_at DESC NULLS LAST, a.created_at LIMIT :limit"
+            ),
+            {"limit": limit, "status": status},
         )
     ).all()
     return [_agent_out(r) for r in rows]
+
+
+class AgentStatsOut(BaseModel):
+    """What one agent has actually done — the numbers a roster card shows (D-440).
+
+    A SEPARATE ROUTE FROM THE ROSTER, deliberately. The roster is opened on every
+    navigation and reads a handful of small rows; this aggregates `calls`, which is the
+    biggest table a tenant owns and the one that only ever grows. Folding it into
+    `AgentOut` would make the cheapest screen in the product pay for the most expensive
+    query on every render, and nothing about an agent's identity depends on it.
+
+    Lifetime figures, not a window. A window is a second decision (how long? whose
+    timezone?) that every caller would then have to agree with, and "this agent has taken
+    4,102 calls" is the number a business owner asked for. `last_call_at` is what answers
+    "is this one still being used", which is the question a window was standing in for.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    status: AgentStatus
+    calls_total: int
+    calls_inbound: int
+    calls_outbound: int
+    #: Calls the engine reported as `completed`. NOT "successful" — a completed call may
+    #: have gone badly; it is the one that connected and ran to its end, as opposed to
+    #: `no_answer`, `busy`, `voicemail` or `failed`.
+    calls_connected: int
+    #: Keyed by every value of `OUTCOME_TAGS` and zero-filled, so a screen can index it
+    #: without guarding. A call the post-call pipeline has not tagged (or could not) is in
+    #: `calls_total` and in none of these — the difference is calls awaiting extraction.
+    #: NO DEFAULT, deliberately: a field with one is `outcomes?:` in the generated client,
+    #: and every screen then guards a value the server always sends.
+    outcomes: dict[str, int]
+    #: LAST ACTIVE. The end of this agent's most recent call, falling back to when the call
+    #: started and then to when we filed it — a queued dial that never rang still says the
+    #: agent was used. NULL means it has never taken a call.
+    last_call_at: datetime | None
+
+
+@router.get(
+    "/v1/agents/stats",
+    response_model=list[AgentStatsOut],
+    openapi_extra=permission_meta("agents:read"),
+    summary="Call counts, outcomes and last-active for each of this account's agents",
+)
+async def agent_stats(
+    session: Session,
+    limit: int = Query(200, ge=1, le=200),
+    _: Principal = Depends(requires("agents:read")),
+) -> list[AgentStatsOut]:
+    """One row per agent INCLUDING the archived ones, which is the opposite default to the
+    roster above and is not an inconsistency.
+
+    The roster answers "what can I work with", so the archive is noise. This answers "what
+    has happened", and an archived agent's history is the largest part of the answer — a
+    client who retired their old receptionist last week still needs the 4,000 calls it took
+    to be somewhere. Nothing here is unbounded either way: it is one row per agent, and the
+    agent list is what the `LIMIT` bounds.
+
+    TWO QUERIES, NOT ONE, and the reason is which columns the tag counts would force into a
+    GROUP BY. Counting outcomes in the first statement means naming each tag in a
+    `FILTER (WHERE outcome_tag = '...')`, which retypes a vocabulary that already exists as
+    a `Literal` (D-104) — the second statement groups by the tag instead, so the four names
+    appear nowhere in this file's SQL and a fifth outcome needs no edit here at all.
+
+    LEFT JOINed from `agents`, so an agent that has never taken a call is a row of zeroes
+    rather than a gap the caller has to interpret.
+    """
+    totals = (
+        await session.execute(
+            text(
+                "SELECT a.id, a.status, count(c.id), "
+                "count(c.id) FILTER (WHERE c.direction = 'inbound'), "
+                "count(c.id) FILTER (WHERE c.direction = 'outbound'), "
+                "count(c.id) FILTER (WHERE c.status = 'completed'), "
+                "max(coalesce(c.ended_at, c.started_at, c.created_at)) "
+                "FROM agents a LEFT JOIN calls c ON c.agent_id = a.id "
+                "WHERE a.deleted_at IS NULL "
+                "GROUP BY a.id, a.status, a.created_at "
+                "ORDER BY a.created_at LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    tagged = (
+        await session.execute(
+            text(
+                "SELECT c.agent_id, c.outcome_tag, count(*) FROM calls c "
+                "WHERE c.outcome_tag IS NOT NULL GROUP BY c.agent_id, c.outcome_tag"
+            )
+        )
+    ).all()
+    by_agent: dict[UUID, dict[str, int]] = {}
+    for agent_id, tag, count in tagged:
+        by_agent.setdefault(agent_id, {})[str(tag)] = int(count)
+    return [
+        AgentStatsOut(
+            agent_id=row[0],
+            status=row[1],
+            calls_total=int(row[2]),
+            calls_inbound=int(row[3]),
+            calls_outbound=int(row[4]),
+            calls_connected=int(row[5]),
+            outcomes={tag: by_agent.get(row[0], {}).get(tag, 0) for tag in OUTCOME_TAGS},
+            last_call_at=row[6],
+        )
+        for row in totals
+    ]
 
 
 @router.get(
@@ -204,6 +406,363 @@ async def get_agent(
     if row is None:
         raise ProblemError.not_found("Agent")
     return _agent_out(row)
+
+
+# --- the agent's life: create, edit, activate, deactivate, archive, restore (D-440) ----
+#
+# CLIENT REALM, `org:manage`, WHICH IS THE OWNER'S PERMISSION — and that is the decision,
+# argued the same way `set_disclosure` argues it below. An agent is the object a business
+# owner builds and trains; the calls it makes go out under THEIR DLT Principal Entity and
+# their identity, and whether their receptionist is on the line at 6pm on a Sunday is not a
+# support ticket. `agents:write` would have been the neighbouring choice and is wrong here
+# for the same two reasons it was wrong for the disclosure toggles: it is admin-only, so we
+# would be deciding a client's roster for them, and D-22 makes impersonation read-only so
+# an operator could not do it on their behalf either.
+#
+# WHAT DOES NOT MOVE TO THE CLIENT. The extraction schema stays admin-only (D-21's
+# managed-service moat: a schema change regenerates prompt hints and needs a regression
+# run), and so do the prompt-version, voice and experiment surfaces in this module's
+# sibling routers. The `POST .../publish` route below is unchanged — an operator publishing
+# on a client's behalf — and the two doors reach the SAME function: `publish_agent` is what
+# earns `live`, here and there, so there is one definition of going live rather than two
+# that drift.
+#
+# NOTHING HERE CAN REACH THE COMPLIANCE FLOOR. Creation writes both notices from the
+# language templates and cannot be told otherwise; activation is `publish_agent`, which
+# appends the truthful-answer directive through `compose_engine_prompt` and REFUSES a
+# publish whose read-back shows the engine has lost it; and every transition is written to
+# the hash-chained ledger. There is no argument, body field or state in this section that
+# produces an agent without an AI disclosure on file.
+
+
+class AgentCreateIn(BaseModel):
+    """A new agent, in the three facts a business owner actually has at creation time.
+
+    NO DISCLOSURE FIELDS, deliberately. Both sentences are generated from the language
+    templates by `lifecycle.create_agent` and are not accepted from the caller: the create
+    form is the one place a client is not yet thinking about TRAI, and a free-text field
+    called "AI disclosure" on it is how an agent ends up announcing "Hi there!". Changing
+    the wording is a reviewed surface, not a text input on the new-agent screen.
+
+    NO SCRIPT FIELD either, and that is what `draft` is for: the agent exists, the owner
+    writes and trains it, and `publish_agent` refuses to activate one with no prompt
+    version by name (`agent_has_no_script`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    #: Defaulted to `inbound` because D-38 says the receptionist is the headline
+    #: capability, and because an agent that can only be called is the safe default: an
+    #: `outbound` default would make "I clicked create" the first step of a dialling motion.
+    direction: AgentDirection = "inbound"
+    language_primary: Language = "te-IN"
+    #: The cost-runaway guard. `null` means the platform default (600s), never unlimited.
+    max_call_duration_s: int | None = Field(default=None, ge=CALL_CAP_MIN_S, le=CALL_CAP_MAX_S)
+
+    @model_validator(mode="after")
+    def _name_is_not_blank(self) -> AgentCreateIn:
+        # `min_length` counts characters, so "   " passes it and reaches a NOT NULL column
+        # as an agent nobody can find in a list. Stripped here rather than in the service
+        # so the stored name and the validated name are the same string.
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("name must not be blank")
+        return self
+
+
+class AgentUpdateIn(BaseModel):
+    """What an owner may change about an existing agent. `null` on a field leaves it alone.
+
+    `DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever
+    one moved, and a PATCH that could only send all three would make renaming an agent a
+    read-modify-write race against a direction change.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    direction: AgentDirection | None = None
+    language_primary: Language | None = None
+
+    @model_validator(mode="after")
+    def _at_least_one(self) -> AgentUpdateIn:
+        if self.name is not None:
+            self.name = self.name.strip()
+            if not self.name:
+                raise ValueError("name must not be blank")
+        if self.name is None and self.direction is None and self.language_primary is None:
+            raise ValueError("name at least one of name, direction, language_primary")
+        return self
+
+
+class AgentLifecycleOut(BaseModel):
+    """The result of a lifecycle move, as the screen that pressed the button needs it.
+
+    NAMED `AgentLifecycleOut` AND NOT `LifecycleOut`, which is what it was called for an
+    hour. `admin/routes.py` already has a `LifecycleOut` (the TENANT lifecycle), and two
+    models of the same name in one app make FastAPI qualify BOTH in the OpenAPI document —
+    so the admin console's generated type silently renamed itself to
+    `apps__api__admin__routes__LifecycleOut` and every screen using it broke, from a change
+    in a different module. The collision is invisible until the snapshot is regenerated,
+    which is why it is recorded here rather than just fixed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    status: AgentStatus
+    #: False when the agent was ALREADY in this state — the second click, or the retry of
+    #: a request whose response was lost. A success, not a conflict (RFC 9110 §9.2.2), and
+    #: the signal the audit ledger keys off so a double-click writes one entry.
+    changed: bool
+    #: How many of this agent's numbers the voice platform was told to stop answering.
+    #: Zero on an agent that was never published and on an engine that cannot route
+    #: numbers; always zero on activate and restore, which bind nothing by themselves.
+    numbers_released: int
+
+
+async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
+    """The freshly-written agent, read back through the ONE roster query.
+
+    Read back rather than composed from the request body, so a create and a subsequent
+    `GET` cannot disagree about a single field — the generated disclosure sentences and the
+    server-composed `opening_line` are not in the body at all.
+    """
+    row = (
+        await session.execute(text(f"{_AGENT_ROSTER} AND a.id = :aid"), {"aid": agent_id})
+    ).first()
+    if row is None:  # pragma: no cover - written in this transaction, under this session
+        raise ProblemError.not_found("Agent")
+    return _agent_out(row)
+
+
+@router.post(
+    "/v1/agents",
+    response_model=AgentOut,
+    status_code=http_status.HTTP_201_CREATED,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Create an agent (starts as a draft)",
+    description=(
+        "The agent is created in `draft`: it takes no calls and places none until it is "
+        "activated, and it cannot be activated until it has a script.\n\n"
+        "Both opening notices — the AI disclosure and the recording notice — are written "
+        "for you from the chosen language and are switched on. They cannot be supplied "
+        "here: every agent on this platform has an AI disclosure on file, the voice "
+        "platform is verified against it on every publish, and no field on this form can "
+        "change that."
+    ),
+)
+async def create_agent_route(
+    payload: AgentCreateIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentOut:
+    """Mint a draft agent for the caller's own tenant."""
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    agent_id = await lifecycle.create_agent(
+        session,
+        tenant_id=principal.tenant_id,
+        name=payload.name,
+        direction=payload.direction,
+        language_primary=payload.language_primary,
+        max_call_duration_s=payload.max_call_duration_s,
+    )
+    await write_audit(
+        session,
+        action="agent.created",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=client_request_ip(request),
+    )
+    return await _agent_row(session, agent_id)
+
+
+@router.patch(
+    "/v1/agents/{agent_id}",
+    response_model=AgentOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Rename an agent, or change its calling direction or language",
+    description=(
+        "Applies immediately. A live agent is re-published to the voice platform in the "
+        "same transaction — including the numbers it answers, so switching a two-way "
+        "agent to outbound-only really does stop it picking up — and if that push fails "
+        "nothing is saved.\n\n"
+        "An archived agent is refused: restore it first."
+    ),
+)
+async def update_agent_route(
+    agent_id: UUID,
+    payload: AgentUpdateIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentOut:
+    assert principal.tenant_id is not None
+    await lifecycle.update_agent(
+        session,
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        name=payload.name,
+        direction=payload.direction,
+        language_primary=payload.language_primary,
+    )
+    await write_audit(
+        session,
+        action="agent.updated",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="agent",
+        object_id=str(agent_id),
+        ip=client_request_ip(request),
+        # Field NAMES, never values (hard rule 6's neighbourhood): what an auditor needs
+        # is which property of a live phone agent moved and when.
+        summary={"fields": sorted(payload.model_dump(exclude_none=True))},
+    )
+    return await _agent_row(session, agent_id)
+
+
+@router.post(
+    "/v1/agents/{agent_id}/activate",
+    response_model=AgentLifecycleOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Put the agent on the frontline (draft or inactive -> active)",
+    description=(
+        "Publishes the agent to the voice platform and reads it back to confirm the "
+        "platform is running this script, this opening line and the answer it must give "
+        "when a caller asks whether they are talking to an AI. Only then is it recorded "
+        "as active; a platform that did not take the change is a refusal, not a warning."
+        "\n\n"
+        "Refused with `agent_has_no_script` if nothing has been written for it yet, and "
+        "with `agent_archived` if it has been retired. An agent that is already active is "
+        "a success that publishes nothing."
+    ),
+)
+async def activate_agent_route(
+    agent_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentLifecycleOut:
+    """Activation IS a publish — see `lifecycle.activate_agent` for why it cannot be a
+    column write."""
+    assert principal.tenant_id is not None
+    result = await lifecycle.activate_agent(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id
+    )
+    return await _audited_move(session, result, "agent.activated", principal, request)
+
+
+@router.post(
+    "/v1/agents/{agent_id}/deactivate",
+    response_model=AgentLifecycleOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Take the agent off the frontline (active -> inactive)",
+    description=(
+        "Stops it placing calls from the next dispatch tick, and tells the voice platform "
+        "to stop answering the numbers bound to it — so an inactive agent really does go "
+        "quiet on both legs. Everything is kept: the script, the numbers, the call "
+        "history. Activate it again to put it back."
+    ),
+)
+async def deactivate_agent_route(
+    agent_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentLifecycleOut:
+    assert principal.tenant_id is not None
+    result = await lifecycle.deactivate_agent(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id
+    )
+    return await _audited_move(session, result, "agent.deactivated", principal, request)
+
+
+@router.post(
+    "/v1/agents/{agent_id}/archive",
+    response_model=AgentLifecycleOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Retire the agent (draft, active or inactive -> archived)",
+    description=(
+        "An archived agent is never dialled and cannot be given to a campaign. It is NOT "
+        "deleted: the agent, its scripts and every call it ever took stay readable, and "
+        "it can be restored. Archiving an active agent also releases the numbers it was "
+        "answering."
+    ),
+)
+async def archive_agent_route(
+    agent_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentLifecycleOut:
+    assert principal.tenant_id is not None
+    result = await lifecycle.archive_agent(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id
+    )
+    return await _audited_move(session, result, "agent.archived", principal, request)
+
+
+@router.post(
+    "/v1/agents/{agent_id}/restore",
+    response_model=AgentLifecycleOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Bring an agent back out of the archive (archived -> inactive)",
+    description=(
+        "It comes back INACTIVE, not active. Nothing can prove the voice platform still "
+        "holds a retired agent's configuration, and the only thing that establishes it is "
+        "a publish — so activate it afterwards, deliberately."
+    ),
+)
+async def restore_agent_route(
+    agent_id: UUID,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> AgentLifecycleOut:
+    assert principal.tenant_id is not None
+    result = await lifecycle.restore_agent(
+        session, tenant_id=principal.tenant_id, agent_id=agent_id
+    )
+    return await _audited_move(session, result, "agent.restored", principal, request)
+
+
+async def _audited_move(
+    session: AsyncSession,
+    result: lifecycle.LifecycleResult,
+    action: str,
+    principal: Principal,
+    request: Request,
+) -> AgentLifecycleOut:
+    """Write the ledger entry for a transition that ACTUALLY HAPPENED, then answer.
+
+    `result.changed` is the whole reason this is not four copies of `write_audit`: a
+    repeated click, or the retry of a request whose response was lost, is a success that
+    moved nothing, and an audit row for it would claim a decision nobody took. Same signal
+    and same reasoning as `integrations/routes.py::deactivate_endpoint` and as
+    `set_disclosure` below, which iterates `result.changed` for the same purpose.
+    """
+    assert principal.tenant_id is not None
+    if result.changed:
+        await write_audit(
+            session,
+            action=action,
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(result.agent_id),
+            ip=client_request_ip(request),
+            summary={"numbers_released": result.numbers_released},
+        )
+    return AgentLifecycleOut(
+        agent_id=result.agent_id,
+        status=result.status,
+        changed=result.changed,
+        numbers_released=result.numbers_released,
+    )
 
 
 @router.post(

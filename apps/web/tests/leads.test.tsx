@@ -30,19 +30,23 @@ import {
  * 2. **A confident empty state over a failed request.** The board painted six "No leads"
  *    columns when the list request 503'd. "Your pipeline is empty" and "we could not read
  *    your pipeline" are different sentences and only one of them was true.
- * 3. **A raw phone number.** `LeadOut` carries `phone_masked` and nothing else (hard
- *    rule 6); the number planted below appears in no payload this screen receives, so
- *    every "must not appear" assertion is load-bearing.
+ * 3. **A phone number in a URL.** The number RENDERS in full since D-436 — this is the
+ *    screen a receptionist rings back from — but `PHONE_A` must never reach a path or a
+ *    query string, because that is where hard rule 6 still bites: browser history, the
+ *    edge's access log, the next request's `Referer`. Search is a POST body for exactly
+ *    this reason, and the assertion over `calls[].url` below is what proves it.
  * 4. **A compliance verdict on the wrong row.** D-21's dispatch answer is per-lead state
  *    for a stated reason — `callLead.data` is one slot, so a shared verdict would move
  *    the first lead's refusal onto the second lead the client calls. That is the failure
  *    the page comment predicts, and the test below reproduces the exact sequence.
  */
 
-/** A full E.164 number that appears in NO payload here — if it renders, we put it there. */
-const RAW_PHONE = "+919876543210";
-const MASKED_A = "+9198••••3210";
-const MASKED_B = "+9199••••7788";
+/** The two leads' own numbers. Since D-436 these ARE what the screen prints, so the
+ *  assertions below moved from "must not appear" to "must appear, and never in a URL". */
+const PHONE_A = "+919876543210";
+const PHONE_B = "+919912347788";
+/** The national-format digits of `PHONE_A`, which is the form a URL would carry. */
+const PHONE_A_DIGITS = "9876543210";
 
 const ME: Me = {
   user_id: "u1",
@@ -79,6 +83,12 @@ const DIALER: Agent = {
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "bolna",
+  // D-440 widened `AgentOut`: an agent knows when it was retired (NULL until it is) and
+  // how many lines it answers in parallel, which is the one honest per-agent deployment
+  // fact the API carries. Both are REQUIRED on the wire, so a fixture without them is not
+  // an agent this server can send.
+  archived_at: null,
+  inbound_number_count: 1,
   extraction_fields: [],
 };
 
@@ -107,7 +117,7 @@ function lead(over: Partial<Lead> = {}): Lead {
   return {
     id: "lead-a",
     name: "Ramesh Kumar",
-    phone_masked: MASKED_A,
+    phone_e164: PHONE_A,
     status: "new",
     source: "call",
     data: {},
@@ -262,7 +272,10 @@ describe("what the screen says when it could not read the leads", () => {
 });
 
 describe("the number on the row", () => {
-  it("renders phone_masked and never a raw number, in the DOM or in a URL", async () => {
+  // WAS "renders phone_masked and never a raw number, in the DOM or in a URL". D-436
+  // split that claim in two and kept the half that is still a rule: the DOM gets the
+  // number, a URL never does.
+  it("renders the number in full and never puts it in a URL", async () => {
     const { container, calls } = await renderClientPage(
       <LeadsPage />,
       routes({
@@ -272,14 +285,17 @@ describe("the number on the row", () => {
       }),
     );
 
-    expect(await screen.findByText(MASKED_A)).toBeTruthy();
-    expect(container.textContent).not.toContain(RAW_PHONE);
-    // Not merely "the raw string is absent": the ten digits in sequence are what would
-    // identify the person, and a partial leak is still a leak.
-    expect(container.textContent).not.toContain("9876543210");
+    expect(await screen.findByText(PHONE_A)).toBeTruthy();
+    // Rendered as TEXT, never as a `tel:` href — an `href` is a URL wherever it points,
+    // and URLs reach logs, referrers and browser history.
+    for (const link of Array.from(container.querySelectorAll("a"))) {
+      expect(link.getAttribute("href") ?? "").not.toContain(PHONE_A_DIGITS);
+    }
+    // Not merely "the `+91…` string is absent from the URL": the ten digits in sequence
+    // are what identify the person, and a query string carrying them is a log entry.
     for (const call of calls) {
-      expect(call.url, `${call.method} ${call.path} carries a raw number`).not.toContain(
-        "9876543210",
+      expect(call.url, `${call.method} ${call.path} carries a phone number`).not.toContain(
+        PHONE_A_DIGITS,
       );
     }
   });
@@ -290,7 +306,7 @@ describe("the number on the row", () => {
       routes({ "POST /v1/leads/search": leadList([lead({ name: null })]) }),
     );
 
-    await screen.findByText(MASKED_A);
+    await screen.findByText(PHONE_A);
     expect(container.textContent).toContain("No name");
     // The masked number is the identifier for a nameless lead; nothing else stands in.
     expect(container.textContent).not.toContain("Unknown caller");
@@ -299,8 +315,8 @@ describe("the number on the row", () => {
 
 describe("the D-21 dispatch verdict, per lead", () => {
   const TWO_LEADS = leadList([
-    lead({ id: "lead-a", name: "Ramesh Kumar", phone_masked: MASKED_A }),
-    lead({ id: "lead-b", name: "Priya Nair", phone_masked: MASKED_B }),
+    lead({ id: "lead-a", name: "Ramesh Kumar", phone_e164: PHONE_A }),
+    lead({ id: "lead-b", name: "Priya Nair", phone_e164: PHONE_B }),
   ]);
 
   function row(text: string): HTMLElement {
@@ -337,10 +353,10 @@ describe("the D-21 dispatch verdict, per lead", () => {
     fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
     await screen.findByText("Calling now");
 
-    expect(row(MASKED_A).textContent).toContain("This number is on your do-not-call list.");
-    expect(row(MASKED_A).textContent).not.toContain("Calling now");
-    expect(row(MASKED_B).textContent).toContain("Calling now");
-    expect(row(MASKED_B).textContent).not.toContain("do-not-call");
+    expect(row(PHONE_A).textContent).toContain("This number is on your do-not-call list.");
+    expect(row(PHONE_A).textContent).not.toContain("Calling now");
+    expect(row(PHONE_B).textContent).toContain("Calling now");
+    expect(row(PHONE_B).textContent).not.toContain("do-not-call");
     // One refusal was issued, so exactly one may be on screen.
     expectTextCount(container, "This number is on your do-not-call list.", 1);
   });
@@ -373,7 +389,7 @@ describe("the counts come from the server or are not shown", () => {
   const HOT_PAGE = leadList(
     [
       lead({ status: "hot" }),
-      lead({ id: "lead-b", name: "Priya Nair", phone_masked: MASKED_B, status: "hot" }),
+      lead({ id: "lead-b", name: "Priya Nair", phone_e164: PHONE_B, status: "hot" }),
     ],
     {
       total: 2,

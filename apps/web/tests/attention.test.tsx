@@ -16,9 +16,10 @@ import { problem, renderClientPage } from "./harness";
  * 1. **"Nothing needs you right now" under a failed request.** The one sentence this
  *    screen must never say by accident: it sends an owner away from a queue of blocked
  *    calls they have not seen. An empty Card says it just as effectively as the words.
- * 2. **A raw phone number.** The queue names a blocked lead by its captured name,
- *    falling back to a MASKED number (crm/attention.py) — hard rule 6 holds here as it
- *    does on the calls log, and this screen is the one an owner forwards to their staff.
+ * 2. **A phone number in a link target.** The queue names a blocked lead by its
+ *    captured name, falling back to its number IN FULL (crm/attention.py, D-436) —
+ *    "ring this person" is the action the row exists to prompt. What must never carry
+ *    it is an `href`, because URLs reach logs, referrers and history (hard rule 6).
  * 3. **A count that disagrees with the list.** The API caps the list and does not cap
  *    the total — `counts`/`total` are counted separately from the rows, so they are the
  *    size of the SET — and a busy account sees 50 rows under a badge reading 78. Saying
@@ -39,11 +40,11 @@ const ME: Me = {
   organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
 };
 
-/** A blocked lead with no captured name: the API sends the MASKED number as the title. */
+/** A blocked lead with no captured name: the API composes the title from its number. */
 const BLOCKED: AttentionItem = {
   kind: "lead_blocked",
   id: "0192f0aa-1111-7000-8000-000000000001",
-  title: "+9198765•••10 was not called",
+  title: "+919876543210 was not called",
   detail: "This person asked not to be called. Nothing to do — we will not dial them.",
   rule: "dnc",
   occurred_at: "2026-08-13T04:30:00Z",
@@ -76,15 +77,13 @@ function routes(over: Record<string, unknown> = {}) {
 }
 
 describe("the needs-attention queue", () => {
-  it("never puts a caller's number on screen unmasked (hard rule 6)", async () => {
+  it("prints the server's title in full and keeps it out of every link target", async () => {
     const { container } = await renderClientPage(page, routes());
 
-    expect(await screen.findByText("+9198765•••10 was not called")).toBeTruthy();
-    // Not merely "the E.164 string is absent" — the ten identifying digits in sequence
-    // are what name the person, and a partial leak is still a leak.
-    expect(container.textContent).not.toContain("9876543210");
-    expect(container.textContent).not.toContain("+919876543210");
-    // And nothing in a link target either: URLs reach logs, referrers and history.
+    // WAS `not.toContain("+919876543210")`. D-436 reversed it: a to-do whose subject
+    // cannot be dialled is a to-do nobody can do.
+    expect(await screen.findByText("+919876543210 was not called")).toBeTruthy();
+    // The half that did NOT change: URLs reach logs, referrers and history.
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toMatch(/\d{10}/);
     }

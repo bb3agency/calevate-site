@@ -481,9 +481,17 @@ async def test_the_callback_button_refuses_a_number_that_joined_the_dnc_list() -
 # ------------------------------------------------------- the two plain reads nearby
 
 
-async def test_the_lead_detail_route_answers_for_the_session_tenant_with_a_masked_number() -> None:
-    """`GET /v1/leads/{id}` is the screen the call button sits on. Hard rule 6 rides
-    with it: the detail body carries a masked number, never the dialable one."""
+async def test_the_lead_detail_route_answers_with_the_dialable_number() -> None:
+    """`GET /v1/leads/{id}` is the screen the call button sits on, and it now carries
+    the number that button dials.
+
+    THIS TEST ASSERTED THE OPPOSITE (`phone_masked.startswith("•")`, and `phone not in
+    response.text`). That was hard rule 6 misapplied to a response body: the rule is
+    about LOG LINES, and what it produced here was a CRM detail screen that could not
+    tell a receptionist who to ring back. D-436 reversed it, and the assertion is
+    reversed with it rather than deleted, so the new behaviour is pinned as deliberately
+    as the old one was.
+    """
     tenant_id, agent_id, _slug, headers = await _dialable_tenant()
     lead_id, phone = await _lead(tenant_id, agent_id)
 
@@ -493,8 +501,8 @@ async def test_the_lead_detail_route_answers_for_the_session_tenant_with_a_maske
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["id"] == str(lead_id)
-    assert phone not in response.text, "the full number does not leave on a read"
-    assert body["phone_masked"].startswith("•")
+    assert body["phone_e164"] == phone, "the row is only actionable if the number is on it"
+    assert "•" not in response.text, "no dots survive anywhere in the body"
 
 
 async def test_a_recording_link_is_presigned_and_the_read_is_audited() -> None:

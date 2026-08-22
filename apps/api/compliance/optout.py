@@ -159,6 +159,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.ingest.service import normalize_phone
+from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
@@ -336,7 +337,32 @@ def detect_opt_out(turns: Sequence[SpokenTurn]) -> OptOutSignal | None:
                 rule=rule,
                 language=language,
                 turn_idx=idx,
-                matched=found.group(0)[:_EVIDENCE_CHARS],
+                # THROUGH THE TRANSCRIPT REDACTOR, and this line is the one that makes
+                # `record_call_optout`'s "Never the number" true rather than intended.
+                # Five of the rules above bridge their two anchors with a wildcard —
+                # `[\w ]{0,20}`, `[\w ]{0,25}`, `[^\n]{0,20}` — and a phone number fits
+                # inside every one of them, so "naa number 9876543210 teeseyandi" matched
+                # WHOLE and `9876543210` became `consent_ledger.evidence.matched`.
+                # `consent_ledger` is in `APPEND_ONLY_TABLES` (hard rule 4), so that row
+                # cannot be corrected: the number would be there for the life of the
+                # ledger, outside every retention policy a tenant can set. Measured on
+                # all five: `te` number_teeseyandi, `hi` number_hata_do, `hi` band_karo,
+                # `hi` remove_number_deva, `te` remove_number_telu.
+                #
+                # Narrowing the wildcards was the alternative and it is the wrong trade:
+                # this detector is deliberately RECALL-over-precision (module docstring),
+                # a missed opt-out is a TRAI violation, and a pattern tightened to dodge
+                # digits would also drop "number list lo nunchi teeseyandi". Redacting
+                # the EVIDENCE costs nothing the evidence is for — `number [phone ••10]
+                # teeseyandi` still shows a human exactly what the caller said.
+                #
+                # `redact()` rather than `core.logging.redact_text`, for the reason
+                # `crm.service.redacted_summary` gives about the same class of string:
+                # this is transcript text, and the transcript redactor is the one way
+                # this repo redacts transcript text. Redaction runs BEFORE the cap so the
+                # cap measures what is stored; capping first could cut a number into a
+                # 5-digit stub the redactor no longer recognises.
+                matched=redact(found.group(0)).text[:_EVIDENCE_CHARS],
             )
     return None
 
@@ -419,7 +445,12 @@ async def record_call_optout(
             "language": signal.language,
             "turn_idx": signal.turn_idx,
             # The caller's own words, which is what "robust, non-repudiable record of
-            # the revocation" means in practice. Never the number.
+            # the revocation" means in practice. NEVER THE NUMBER — and that sentence was
+            # an intention rather than a fact until `detect_opt_out` started putting the
+            # phrase through `redact()`: five of the rules bridge their anchors with a
+            # wildcard wide enough for a ten-digit mobile, and this table is append-only,
+            # so the row could never have been corrected. See the comment on `matched`
+            # there; `tests/call_optout_test.py` holds it down per rule.
             "matched": signal.matched,
         }
     )

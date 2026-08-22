@@ -777,7 +777,7 @@ function CreatedPanel({
               ) : (
                 pending.data.map((row) => (
                   <div key={row.id} className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-mono text-ink">{row.email_masked}</span>
+                    <span className="font-mono text-ink">{row.email}</span>
                     <span className="text-ink-muted">
                       {row.role} · expires {formatIST(row.expires_at)}
                     </span>

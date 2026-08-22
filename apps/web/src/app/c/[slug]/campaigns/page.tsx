@@ -62,6 +62,7 @@ import {
 import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { canDialOut, isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 
 import { LaunchConfirm } from "./LaunchConfirm";
@@ -711,12 +712,23 @@ export default function CampaignsPage() {
   const blockedOnFirstCampaign = clientBlockers.some((b) =>
     FIRST_CAMPAIGN_BLOCKERS.includes(b.rule),
   );
-  // Which agent dials decides the script, the voice and the disclosure line. A
-  // silent `agents[0]` picks one for a client who has more than one — including
-  // an inbound-only receptionist that cannot dial at all — so the choice is on
-  // screen whenever there IS a choice, defaulted to the first.
-  const agentOptions = agents.data ?? [];
+  /**
+   * Which agent dials decides the script, the voice and the disclosure line, so the
+   * choice is ALWAYS on screen — not only when there is more than one. A campaign that
+   * silently bound `agents[0]` was a campaign whose caller nobody chose, and with the
+   * agents console able to mint a second agent in a minute, "there is only one" stopped
+   * being a safe assumption the moment the form rendered.
+   *
+   * ARCHIVED AGENTS ARE NOT OFFERED, and that is the server's rule rather than taste:
+   * `lifecycle.ASSIGNABLE_STATUSES` refuses one outright, because no amount of waiting
+   * makes a campaign bound to a retired agent launchable. Every other state IS offered —
+   * a draft agent is a legitimate choice while its script is being written, and
+   * `launch_blockers` refuses the LAUNCH with `agent_not_live` until it is published,
+   * which is a wait a client can act on rather than a dead end.
+   */
+  const agentOptions = (agents.data ?? []).filter(isAssignable);
   const selectedAgentId = agentId || agentOptions[0]?.id || "";
+  const selectedAgent = agentOptions.find((option) => option.id === selectedAgentId);
   /**
    * This account has no agent — as a FACT FROM THE SERVER, not as "the list is empty
    * right now". `agentOptions` is also empty while `/v1/agents` is in flight and after
@@ -987,8 +999,11 @@ export default function CampaignsPage() {
               />
             </label>
 
-            {/* Only when there is something to choose: one agent needs no question. */}
-            {agentOptions.length > 1 && (
+            {/* Rendered whenever the server has ANSWERED with at least one assignable
+                agent — never off a list that is empty because the read is in flight or
+                failed, which is the same `Boolean(agents.data)` test `hasNoAgents` uses
+                four lines up. */}
+            {Boolean(agents.data) && agentOptions.length > 0 && (
               <label className="block max-w-sm">
                 <span className={FIELD_LABEL}>
                   Which agent makes these calls
@@ -1000,12 +1015,20 @@ export default function CampaignsPage() {
                 >
                   {agentOptions.map((agent) => (
                     <option key={agent.id} value={agent.id}>
+                      {/* The state travels WITH the name. An agent that cannot dial yet
+                          is a legal choice here and an `agent_not_live` blocker at
+                          launch; saying so at the point of choosing turns a refusal
+                          nobody expected into a wait somebody planned. */}
                       {agent.name}
+                      {canDialOut(agent) ? "" : " — not able to call out yet"}
                     </option>
                   ))}
                 </select>
                 <span className={FIELD_HINT}>
                   Its script and voice are what your customers will hear.
+                  {selectedAgent &&
+                    !canDialOut(selectedAgent) &&
+                    " This one cannot make calls yet — you can still build the campaign, but it will not launch until the agent is switched on and able to dial out."}
                 </span>
               </label>
             )}

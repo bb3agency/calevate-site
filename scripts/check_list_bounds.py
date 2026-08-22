@@ -188,6 +188,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`extraction_fields` is one agent's extraction schema, bounded by the schema "
         "editor's own field ceiling."
     ),
+    # The two D-440 writes answer with the SAME `AgentOut` — one agent, read back through
+    # the one roster query — so they inherit the bound above rather than needing a page.
+    "POST /v1/agents": BoundedByConstruction(
+        by="one agent's `AgentOut`; `extraction_fields` is that agent's extraction schema, "
+        "bounded by the schema editor's own field ceiling (and empty on a fresh agent)."
+    ),
+    "PATCH /v1/agents/{agent_id}": BoundedByConstruction(
+        by="one agent's `AgentOut` — the same bound as its GET immediately above."
+    ),
     "GET /v1/agents/{agent_id}/pending": BoundedByConstruction(
         by="one entry per publishable ATTRIBUTE of one agent — a fixed list of fields."
     ),
@@ -240,6 +249,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per signed client, ranked worst-first — a LIMIT would truncate BEFORE "
         "the triage sort and hide the account most in trouble. Watched by "
         "`WALK_BUDGET_S`, same as the directory above."
+    ),
+    "GET /v1/admin/spend": BoundedByConstruction(
+        by="one row per live client, ranked worst-margin-first — a LIMIT would truncate "
+        "BEFORE that sort and hide the account we are losing the most on, which is the "
+        "one an operator opened the board for. Watched by `FLEET_BUDGET_S` in "
+        "`billing/spend_routes.py`, the same trade `GET /v1/admin/client-health` makes."
     ),
     "GET /v1/admin/compliance/holds": BoundedByConstruction(
         by="one row per signed client currently held by a human gate — a work queue that "

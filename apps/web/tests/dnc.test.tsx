@@ -27,14 +27,17 @@ import { problem, renderClientPage } from "./harness";
  *   "not on the do-not-call list" under a failed check reads as clearance to dial. Both
  *   are sentences about a request that never landed, and both have a test below.
  *
- * The number planted below is a full E.164 string that appears NOWHERE in any masked
- * payload. Every "must not appear" assertion in this file is therefore load-bearing: if
- * it shows up, the screen put it there.
+ * The number below is what the list renders since D-436 — the whole E.164 string, so a
+ * client can check it against the caller complaining that we rang them again. One
+ * constant serves both the payload and the box an operator types into, which is the
+ * point: they are the same number and the screen no longer renders it two ways. What is
+ * still asserted is that it never reaches a URL (hard rule 6): the check is a POST body
+ * and the delete carries an id.
  */
 
-const RAW_PHONE = "+919876543210";
-/** What `crm.service.mask_phone` actually produces: six dots and the last two digits. */
-const MASKED = "••••••10";
+const PHONE = "+919876543210";
+/** The national-format digits, which is the form a URL would carry. */
+const PHONE_DIGITS = "9876543210";
 
 const ME: Me = {
   impersonating: false,
@@ -53,7 +56,7 @@ const LIST_PATH = `/v1/dnc?limit=${DNC_LIST_LIMIT}`;
 function entry(over: Partial<DncEntry> = {}): DncEntry {
   return {
     id: "0192f0aa-4444-7000-8000-000000000001",
-    phone_masked: MASKED,
+    phone_e164: PHONE,
     added_at: "2026-07-01T10:00:00Z",
     removable: true,
     scope: "tenant",
@@ -65,9 +68,9 @@ function entry(over: Partial<DncEntry> = {}): DncEntry {
 /**
  * Every Remove button on screen, by its ACCESSIBLE name rather than its label.
  *
- * The buttons are named for the row they act on ("Remove ••••••10 from the do-not-call
- * list") because forty identically-named buttons are forty identical announcements to a
- * screen reader. A literal `{ name: "Remove" }` would therefore match none of them and
+ * The buttons are named for the row they act on ("Remove +919876543210 from the
+ * do-not-call list") because forty identically-named buttons are forty identical
+ * announcements to a screen reader. A literal `{ name: "Remove" }` would therefore match none of them and
  * every `queryByRole(...).toBeNull()` in this file would pass without testing anything.
  */
 function removeButtons(): HTMLElement[] {
@@ -85,7 +88,7 @@ describe("what the list says may be undone", () => {
   it("offers Remove only where the server said removable", async () => {
     const { container } = await renderList([entry({ source: "manual" })]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(1);
     expect(container.textContent).toContain("Added by your team");
   });
@@ -98,7 +101,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: false, source: "call_optout", scope: "tenant" }),
     ]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain("opt-out — cannot be undone");
     // The reason takes the button's place — a row with neither is a dead end.
@@ -113,7 +116,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: false, scope: "global", source: "regulator" }),
     ]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(container.textContent).toContain("national list");
     expect(container.textContent).toContain("removed by operations only");
     expect(container.textContent).not.toContain("opt-out — cannot be undone");
@@ -129,7 +132,7 @@ describe("what the list says may be undone", () => {
       entry({ removable: false, source: "manual", scope: "tenant" }),
     ]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain("cannot be undone");
   });
@@ -140,7 +143,7 @@ describe("what the list says may be undone", () => {
     // screen must follow it that day and not at the next frontend release.
     await renderList([entry({ removable: true, source: "call_optout", scope: "tenant" })]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(1);
   });
 
@@ -150,7 +153,7 @@ describe("what the list says may be undone", () => {
     // ask us to explain.
     const { container } = await renderList([entry({ source: "a_source_added_later" })]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(container.textContent).toContain("a_source_added_later");
     expect(removeButtons()).toHaveLength(1);
   });
@@ -160,7 +163,7 @@ describe("what the list says may be undone", () => {
     // both. Rendering the button for a `staff` viewer would be rendering a 403.
     const { container } = await renderList([entry()], READ_ONLY_ME);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(0);
     expect(container.textContent).toContain("Only an account owner can add or remove numbers");
     // …and the row must not acquire the permanence copy it has not earned: this entry
@@ -173,15 +176,15 @@ describe("what the list says may be undone", () => {
   it("deletes by entry id, and never sends the number anywhere", async () => {
     const { calls } = await renderList([entry()]);
 
-    await screen.findByText(MASKED);
+    await screen.findByText(PHONE);
     fireEvent.click(removeButtons()[0]);
 
     const deletes = () => calls.filter((call) => call.method === "DELETE");
     await waitFor(() => expect(deletes()).toHaveLength(1));
     expect(deletes()[0].path).toBe("/v1/dnc/0192f0aa-4444-7000-8000-000000000001");
-    // Not even the masked form travels: the row is addressed by its own id.
-    expect(deletes()[0].url).not.toContain("•");
-    expect(deletes()[0].url).not.toContain("10");
+    // The number does not travel at all: the row is addressed by its own id, so the
+    // one string a URL must never carry (hard rule 6) is absent from it.
+    expect(deletes()[0].url).not.toContain(PHONE_DIGITS);
   });
 });
 
@@ -200,8 +203,8 @@ describe("when the list itself does not load", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("Nobody is suppressed yet");
-    // …and no count either: the header states one only when the server sent rows.
-    expect(container.textContent).not.toContain("last two digits only");
+    // …and no rows either: a failed list renders no number at all.
+    expect(container.textContent).not.toContain(PHONE);
   });
 
   it("says so when it cannot even find out whether you may write", async () => {
@@ -225,7 +228,7 @@ describe("when the list itself does not load", () => {
     const rows = Array.from({ length: DNC_LIST_LIMIT }, (_, i) =>
       entry({
         id: `0192f0aa-4444-7000-8000-${String(i).padStart(12, "0")}`,
-        phone_masked: `••••••${String(i % 100).padStart(2, "0")}`,
+        phone_e164: `+9198765400${String(i % 100).padStart(2, "0")}`,
       }),
     );
     const { container } = await renderClientPage(<DoNotCallPage />, {
@@ -258,7 +261,7 @@ describe("adding numbers", () => {
       "/v1/dnc": answer,
     });
     const box = (await screen.findByLabelText("Numbers to suppress")) as HTMLTextAreaElement;
-    fireEvent.change(box, { target: { value: `${RAW_PHONE}\n9876543211` } });
+    fireEvent.change(box, { target: { value: `${PHONE}\n9876543211` } });
     fireEvent.click(screen.getByRole("button", { name: /^Add 2 numbers/ }));
     return { ...rendered, box };
   }
@@ -274,7 +277,7 @@ describe("adding numbers", () => {
       expect(
         call.url,
         `${call.method} ${call.path} carries a number in its URL`,
-      ).not.toContain("9876543210");
+      ).not.toContain(PHONE_DIGITS);
     }
   });
 
@@ -319,7 +322,7 @@ describe("checking a number", () => {
       "/v1/dnc/check": answer,
     });
     fireEvent.change(await screen.findByLabelText("Phone number to check"), {
-      target: { value: RAW_PHONE },
+      target: { value: PHONE },
     });
     fireEvent.click(screen.getByRole("button", { name: "Check" }));
     return rendered;
@@ -336,7 +339,7 @@ describe("checking a number", () => {
     const posted = calls.filter((c) => c.path === "/v1/dnc/check");
     expect(posted).toHaveLength(1);
     expect(posted[0].method).toBe("POST");
-    expect(posted[0].body).toBe(JSON.stringify({ phone: RAW_PHONE }));
+    expect(posted[0].body).toBe(JSON.stringify({ phone: PHONE }));
 
     for (const call of calls) {
       expect(call.url, `${call.method} ${call.path} carries the number in its URL`).not.toContain(
