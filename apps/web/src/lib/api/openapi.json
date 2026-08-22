@@ -4538,6 +4538,38 @@
         "title": "EngineDriftOut",
         "type": "object"
       },
+      "EngineLatencyReport": {
+        "description": "Every group in the window, plus the target each is judged against.",
+        "properties": {
+          "complete": {
+            "default": true,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/LatencyGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "llm_ttft_budget_ms": {
+            "default": 350.0,
+            "title": "Llm Ttft Budget Ms",
+            "type": "number"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "groups"
+        ],
+        "title": "EngineLatencyReport",
+        "type": "object"
+      },
       "EngineStateOut": {
         "additionalProperties": false,
         "description": "The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.\n\nDistinct from `VerificationOut` because it is asked at a different moment and costs a\nvendor round trip. It is the only instrument that can see the two divergences that\nappear with no code of ours running: an edit made in the vendor's own dashboard, and\na publish that failed on our side after the vendor had already committed.\n\n`state` adds `not_published` (there is nothing to compare) and `not_applied` (the\nengine is running something else) to the four `VerificationOut` values. A\n`not_applied` here is a finding, not a refusal \u2014 nothing is being written.",
@@ -7319,6 +7351,100 @@
           "call_cap_max_s"
         ],
         "title": "LanesOut",
+        "type": "object"
+      },
+      "LatencyGroup": {
+        "description": "One (engine, region) pair's LLM time-to-first-token distribution.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "measured",
+              "insufficient_samples"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "budget_breached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Breached"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "llm_ttft_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Ttft Max Ms"
+          },
+          "llm_ttft_p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Ttft P50 Ms"
+          },
+          "llm_ttft_p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Ttft P95 Ms"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "turns": {
+            "title": "Turns",
+            "type": "integer"
+          },
+          "turns_over_budget": {
+            "title": "Turns Over Budget",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engine",
+          "region",
+          "calls",
+          "turns",
+          "basis",
+          "turns_over_budget"
+        ],
+        "title": "LatencyGroup",
         "type": "object"
       },
       "LaunchCheckOut": {
@@ -24175,6 +24301,51 @@
           }
         },
         "summary": "Lift a platform-wide suppression (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/engine-latency": {
+      "get": {
+        "description": "The LLM time-to-first-token distribution per (engine, region).\n\n**NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and\ndemanding a confirmation to run a read teaches operators to type past confirmations.\n\n**NO AUDIT ROW.** The payload is milliseconds, counts and a region code \u2014 nothing from\nany call and nothing about any person \u2014 and it is a page an operator refreshes while\nwatching a pilot. An audit chain that grows a row per refresh stops being readable,\nwhich is the argument `quality/routes.py` and `holds_routes.py` both make.\n\n**WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices\nacross every tenant \u2014 specifically whether D-410's South India deployment costs the\ncaller more than a US one would (OPERATIONS \u00a72 gate 4). A client's own screen has\nnothing to do with it, and `flags.registry.call_timing_breakdown` is where the\nper-client version waits with its blocker written down.",
+        "operationId": "read_engine_latency_v1_ops_engine_latency_get",
+        "parameters": [
+          {
+            "description": "How many days of calls to include.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "description": "How many days of calls to include.",
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineLatencyReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the voice engine reported its own pipeline cost, by region (gate 4)",
         "tags": [
           "ops"
         ],

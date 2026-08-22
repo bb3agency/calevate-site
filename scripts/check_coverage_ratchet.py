@@ -952,14 +952,59 @@ def _ledger_model_files() -> dict[str, str]:
     return found
 
 
+#: Column-name suffixes that are NUMERIC for exactness rather than because they are money.
+#: `Numeric` is the right type for anything compared or aggregated — a latency percentile as
+#: much as a rupee — so the type alone cannot say which rule a column falls under.
+#: DELIBERATELY NARROW AND FAIL-SAFE: a file is exempt only when EVERY `Numeric` column in
+#: it matches one of these, so a money column added later to the same module pulls the whole
+#: file back under the floor. An unrecognised name counts as money, which is the safe
+#: direction — hard rule 7 is where sloppiness gets expensive.
+_NON_MONEY_NUMERIC_SUFFIXES: Final = ("_ms", "_seconds", "_s", "_bytes", "_pct", "_ratio")
+
+_NUMERIC_COLUMN = re.compile(r"^\s*(\w+)\s*:\s*Mapped\[[^\]]*\]\s*=\s*mapped_column\(\s*$")
+
+
+def _numeric_column_names(source: str) -> list[str]:
+    """Names of the columns a module declares with `Numeric(...)`.
+
+    Reads the attribute the `Numeric(` sits under, so the decision is about the COLUMN and
+    not about the file mentioning a type name somewhere.
+    """
+    names: list[str] = []
+    lines = source.split("\n")
+    for index, line in enumerate(lines):
+        if "Numeric(" not in line:
+            continue
+        for back in range(index, max(-1, index - 6), -1):
+            match = re.match(r"\s*(\w+)\s*:\s*Mapped\[", lines[back])
+            if match:
+                names.append(match.group(1))
+                break
+        else:
+            names.append("")  # could not attribute it — counts as money, see above
+    return names
+
+
 def _money_files() -> dict[str, str]:
-    """Modules declaring NUMERIC columns — where hard rule 7 lives in the schema."""
+    """Modules declaring NUMERIC MONEY columns — where hard rule 7 lives in the schema.
+
+    Was a bare `"Numeric(" in source`, which is why it once demanded a coverage floor for
+    `crm/models.py` on the strength of `time_to_first_audio_ms` — a latency measurement in
+    NUMERIC because it is aggregated into percentiles, and not a rupee anywhere. Widening
+    the ANSWER (bolting the module onto `ledgers-and-money`) would have put a latency column
+    inside a money budget and called that rigour.
+    """
     found: dict[str, str] = {}
     for root in (REPO_ROOT / "apps", REPO_ROOT / "packages"):
         for path in _python_files(root):
             source = path.read_text(encoding="utf-8")
-            if "Numeric(" in source:
-                found[_rel(path)] = "declares NUMERIC money columns (hard rule 7)"
+            if "Numeric(" not in source:
+                continue
+            names = _numeric_column_names(source)
+            if names and all(name.endswith(_NON_MONEY_NUMERIC_SUFFIXES) for name in names if name):
+                if all(name for name in names):
+                    continue
+            found[_rel(path)] = "declares NUMERIC money columns (hard rule 7)"
     return found
 
 

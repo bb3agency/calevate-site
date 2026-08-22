@@ -3918,6 +3918,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/engine-latency": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What the voice engine reported its own pipeline cost, by region (gate 4)
+         * @description The LLM time-to-first-token distribution per (engine, region).
+         *
+         *     **NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and
+         *     demanding a confirmation to run a read teaches operators to type past confirmations.
+         *
+         *     **NO AUDIT ROW.** The payload is milliseconds, counts and a region code — nothing from
+         *     any call and nothing about any person — and it is a page an operator refreshes while
+         *     watching a pilot. An audit chain that grows a row per refresh stops being readable,
+         *     which is the argument `quality/routes.py` and `holds_routes.py` both make.
+         *
+         *     **WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices
+         *     across every tenant — specifically whether D-410's South India deployment costs the
+         *     caller more than a US one would (OPERATIONS §2 gate 4). A client's own screen has
+         *     nothing to do with it, and `flags.registry.call_timing_breakdown` is where the
+         *     per-client version waits with its blocker written down.
+         */
+        get: operations["read_engine_latency_v1_ops_engine_latency_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/outbox/replay": {
         parameters: {
             query?: never;
@@ -6132,6 +6166,26 @@ export interface components {
             undetermined: number;
         };
         /**
+         * EngineLatencyReport
+         * @description Every group in the window, plus the target each is judged against.
+         */
+        EngineLatencyReport: {
+            /**
+             * Complete
+             * @default true
+             */
+            complete: boolean;
+            /** Groups */
+            groups: components["schemas"]["LatencyGroup"][];
+            /**
+             * Llm Ttft Budget Ms
+             * @default 350
+             */
+            llm_ttft_budget_ms: number;
+            /** Window Days */
+            window_days: number;
+        };
+        /**
          * EngineStateOut
          * @description The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.
          *
@@ -7312,6 +7366,35 @@ export interface components {
             lanes: components["schemas"]["LaneOut"][];
             /** Precedence Rule */
             precedence_rule: string;
+        };
+        /**
+         * LatencyGroup
+         * @description One (engine, region) pair's LLM time-to-first-token distribution.
+         */
+        LatencyGroup: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "measured" | "insufficient_samples";
+            /** Budget Breached */
+            budget_breached?: boolean | null;
+            /** Calls */
+            calls: number;
+            /** Engine */
+            engine: string;
+            /** Llm Ttft Max Ms */
+            llm_ttft_max_ms?: number | null;
+            /** Llm Ttft P50 Ms */
+            llm_ttft_p50_ms?: number | null;
+            /** Llm Ttft P95 Ms */
+            llm_ttft_p95_ms?: number | null;
+            /** Region */
+            region: string | null;
+            /** Turns */
+            turns: number;
+            /** Turns Over Budget */
+            turns_over_budget: number;
         };
         /** LaunchCheckOut */
         LaunchCheckOut: {
@@ -17076,6 +17159,38 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_engine_latency_v1_ops_engine_latency_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of calls to include. */
+                days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngineLatencyReport"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

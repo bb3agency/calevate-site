@@ -36,6 +36,14 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": "prompt history, admin only",
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
+    "/v1/ops/engine-latency": (
+        "the fleet-wide engine latency board (D-445) — superadmin surface. It aggregates "
+        "every tenant's calls to answer one question about OUR infrastructure (what the "
+        "US-hosted orchestrator costs a South-India model in time-to-first-token), so it "
+        "is not a view of any one client and there is nothing here for a support person "
+        "to be looking at ALONGSIDE a client. Impersonation shows a client's own screen; "
+        "this screen has no client-realm counterpart to show."
+    ),
     "/v1/ops/secrets": (
         "installed credentials — superadmin surface, and the one list a view-as session "
         "must never reach. It returns no plaintext at all, so hiding it from "

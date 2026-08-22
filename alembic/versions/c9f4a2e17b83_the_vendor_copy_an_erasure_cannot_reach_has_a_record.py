@@ -87,7 +87,16 @@ def upgrade() -> None:
         # No server default: ids are uuid_v7 minted in Python (`db/base.PKMixin`, and
         # `open_tasks_for_request` for the raw-SQL writer). One generator, one ordering.
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=False),
+        # FK to `organizations`, matching every other tenant-scoped table and the ORM
+        # model that declares it. It was missing here and the model declared it anyway,
+        # which `orm_schema_fidelity_test` caught: a model is not a place to record an
+        # intention, and the next autogenerate would have proposed adding it.
+        sa.Column(
+            "tenant_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("organizations.id", ondelete="RESTRICT"),
+            nullable=False,
+        ),
         # The erasure this obligation came from. NOT a foreign key: it points at either
         # `deletion_requests` or `tenant_erasure_requests` depending on `request_kind`,
         # and a nullable pair of FKs would let a row name both or neither. The kind is
