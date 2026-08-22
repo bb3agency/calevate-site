@@ -14,6 +14,7 @@ or omits it — it never leaks its own shape upward.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -445,6 +446,15 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: requires, so shipping the regional hostname would trade a confirmed-working endpoint for
 #: a stronger guard on an unconfirmed one. Revisit if the portal gate confirms v1 answers
 #: there — the change is this constant, the builder, and nothing else.
+#:
+#: WHY THERE IS EXACTLY ONE OF THESE, stated here because D-432 made it checkable in BOTH
+#: directions rather than one. `DECLARED_POSTURE_NAME` below declares which residency
+#: posture is in force; `scripts/check_model_residency.POSTURES` says, independently, what
+#: each posture obliges. Under the declared `india-azure-openai` that obligation is "exactly
+#: one frozen constant spells the region, and it is this one, here". Under a posture pinning
+#: NO region the obligation INVERTS to "no shipped constant spells one at all" — so this
+#: line cannot survive a declaration that has moved on, which is a failure the hard-wired
+#: posture had no way to notice.
 AZURE_LOCATION: Final = "southindia"
 
 #: THE MODELS this platform may configure into an Azure OpenAI leg, as a CLOSED set
@@ -725,6 +735,147 @@ def _azure_resource_of(base_url: str) -> str | None:
 #: because Bolna does not care where a model runs; ours is closed because we do, and
 #: `ModelConfig`'s validator is what makes that more than a naming convention.
 LlmProvider = Literal["azure_openai"]
+
+
+# --- THE DECLARED RESIDENCY POSTURE (D-432) -----------------------------------
+
+
+@dataclass(frozen=True)
+class ResidencyPosture:
+    """WHERE this product's language-model traffic is declared to run, as one record.
+
+    WHAT THIS IS FOR, because "make residency configurable" is the opposite of it. Before
+    D-432 the India posture was not declared anywhere: it was IMPLIED by thirty-odd files
+    agreeing with each other — a `Final` region here, a provider Literal there, a builder,
+    four settings, two price tables, a console panel and two guards. Nothing named the
+    decision, so nothing could check that the pieces still agreed, and changing it was a
+    refactor nobody would attempt. A decision that expensive to revisit is not a decision
+    that has been made; it is one that has been frozen by accident, and the freezing gets
+    mistaken for rigour.
+
+    So the posture becomes a NAME in source, declared once (`DECLARED_POSTURE_NAME`), and
+    `scripts/check_model_residency.py` holds — independently, never imported from here —
+    the SPEC each name obliges the tree to satisfy. The guard then proves the tree matches
+    the declaration and FAILS BOTH WAYS: code that drifts from the declaration, and a
+    declaration edited to describe a tree that has not moved. That is strictly more than
+    the tree could prove before, because before there was nothing to disagree with.
+
+    ⚠ **IT IS SOURCE, AND IT MUST STAY SOURCE.** This is a frozen dataclass built from
+    module `Final`s. It is NOT a `Settings` field, NOT an environment variable and NOT a
+    `platform_config` row — `check_model_residency.console_config_failures` refuses any
+    settings name carrying `posture`/`residency`/`region`, and `declaration_failures`
+    refuses a declaration that is not a `Final` string literal in this module. D-95 §4's
+    doctrine is unchanged and is the whole reason the mechanism is shaped this way: a
+    residency posture invertible from a web form at 3am is not a posture. Changing it is a
+    commit, reviewed by a human, with a decision-log entry.
+
+    WHAT IT DOES NOT DO: it does not make the switch free. Switching still edits the
+    settings that carry the vendor's credentials, the price tables, the adapter's routing
+    and the console panel. What it removes is the part that had no owner — the tree
+    silently disagreeing with itself about which posture it is in, with no line to point at.
+    """
+
+    #: The declared name. The guard's `POSTURES` table is keyed on it, so a name that table
+    #: does not know is a hard failure rather than an unchecked tree.
+    name: str
+    #: Our vocabulary for the leg (`LlmProvider`), never the engine's.
+    llm_provider: LlmProvider
+    #: The region this posture PINS, or `None` for a posture that makes no regional claim.
+    #: Under a pinning posture the guard requires exactly one frozen constant spelling it;
+    #: under a non-pinning one it requires ZERO, so a leftover `AZURE_LOCATION` cannot sit
+    #: in a tree whose declaration has moved on.
+    region: str | None
+    #: Does the API address a DEPLOYMENT id the operator chose, rather than the model's own
+    #: name? See `ModelBinding` — this is the answer to "is `azure_openai_deployment`
+    #: genuinely a different thing from `azure_openai_model`".
+    addresses_a_deployment: bool
+
+
+#: THE DECLARATION. One `Final` string literal, in the portability contract, and the only
+#: place this product says where its language models run.
+#:
+#: SPELLED AS A BARE LITERAL ON PURPOSE. The guard reads it from the AST rather than by
+#: importing this module (`check_bootstrap_keys.BOOTSTRAP_KEYS`' doctrine: a guardrail that
+#: imported the value it checks would be asking the code whether it agrees with itself), so
+#: it has to be a `Constant` a parser can see — not an f-string, not a computed value, not
+#: `os.environ.get(...)` with a default that reads like one.
+DECLARED_POSTURE_NAME: Final = "india-azure-openai"
+
+#: The declared posture itself. Every runtime decision that depends on WHERE the models run
+#: reads this record rather than re-deciding: `agents.service.in_call_llm` takes the
+#: provider name from it, and `bind_model` takes the deployment-versus-model question from
+#: it.
+DECLARED_POSTURE: Final = ResidencyPosture(
+    name=DECLARED_POSTURE_NAME,
+    llm_provider="azure_openai",
+    region=AZURE_LOCATION,
+    addresses_a_deployment=True,
+)
+
+
+@dataclass(frozen=True)
+class ModelBinding:
+    """The two model strings that are ONE string everywhere except Azure.
+
+    **THE QUESTION THIS SETTLES:** is `Settings.azure_openai_deployment` genuinely distinct
+    from `Settings.azure_openai_model`, or is the distinction only an artefact of Azure?
+    **It is an artefact of Azure, and it is a real one.** On Azure you deploy a model under
+    an id you choose and the API addresses THAT id, so the addressed string cannot be
+    derived from the model name; on a provider that takes the model's own name, the two are
+    the same string and a second setting for it would be a second way to say one thing —
+    the defect class hard rule "one way per problem" exists for.
+
+    So the distinction is not hard-wired and it is not wished away: it is a PROPERTY OF THE
+    DECLARED POSTURE (`ResidencyPosture.addresses_a_deployment`), and this record makes the
+    type system carry it. Two roles, two attributes, one object:
+
+    * `addressed` — what goes on the wire (`ModelConfig.llm_model`, and what the engine
+      sends as `model`). Never priced.
+    * `priced` — which model the deployment was made from (`AZURE_LIST_PRICE_USD_PER_MTOK`'s
+      key). Never sent.
+
+    THE REJECTED ALTERNATIVE was leaving two plain `str | None` settings and a comment on
+    each. It is what the tree had, and the comments are long precisely because nothing
+    enforced them: a caller that reached for `azure_openai_model` when it meant the
+    deployment gets a 404 from a third party in the middle of a live phone call, and a
+    caller that reached the other way prices a model nobody is running. Both are `str`, so
+    neither mypy nor a reviewer's eye distinguishes them at a call site. Here they cannot
+    be confused, because the object that carries one carries the other under a different
+    name and `bind_model` is the only thing that builds it.
+    """
+
+    addressed: str
+    priced: str
+
+
+def bind_model(*, deployment: str | None, model: str) -> ModelBinding:
+    """Bind the wire identifier and the priced identifier under the DECLARED posture.
+
+    ONE function, so the deployment-versus-model rule is applied in one place and follows
+    the declaration instead of being re-decided per call site. Under a posture that
+    addresses a deployment, a deployment is REQUIRED and the two strings differ; under one
+    that does not, a deployment is a configuration error rather than an ignored value —
+    silently dropping it is how an operator ends up believing a field they filled in is
+    doing something.
+
+    Raises `ValueError` rather than returning `None`: both arms are configuration mistakes
+    a caller cannot recover from, and every caller here already refuses to publish an agent
+    whose LLM leg is half-configured (`agents.service.in_call_llm`).
+    """
+    if DECLARED_POSTURE.addresses_a_deployment:
+        if not deployment:
+            raise ValueError(
+                f"posture {DECLARED_POSTURE.name!r} addresses a deployment id, so a "
+                "deployment name is required — the model name cannot stand in for it"
+            )
+        return ModelBinding(addressed=deployment, priced=model)
+    if deployment:
+        raise ValueError(
+            f"posture {DECLARED_POSTURE.name!r} addresses the model by its own name, so a "
+            "separate deployment id has nowhere to go — remove it rather than leaving a "
+            "configured value that nothing sends"
+        )
+    return ModelBinding(addressed=model, priced=model)
 
 
 #: THE ONE SENTENCE A SCRIPT MAY NOT CONTRADICT, and the string every read-back is
@@ -1157,7 +1308,16 @@ class CallContext(BaseModel):
     lead_id: str | None = None
     lead_name: str | None = None
     context_note: str | None = None
-    prior_call_summary: str | None = None
+    # NO `prior_call_summary`. It was declared here, was read by the Bolna adapter into a
+    # `user_data` dynamic variable, and was written by NOTHING in `apps/api` — the defect
+    # class CLAUDE.md's "leave no half-wired feature" rule exists for. Deleted rather than
+    # wired, because wiring it would have been the SECOND way to do one thing: the only
+    # producer of a prior-call summary is `crm.service.plan_callback`, which already folds
+    # it into `context_note` ("What happened last time: ...") after passing it through
+    # `redacted_summary`. A second channel for transcript-derived text into the prompt is
+    # a second channel that can forget the redaction — and this one had no producer to
+    # inherit it from, so the first caller to fill it would have shipped raw summary text
+    # to the engine and out of the agent's mouth (SEC-COMP §4).
     fields: dict[str, str] = Field(default_factory=dict)
     #: THE NUMBER THIS DIAL MUST PRESENT TO THE CALLEE — the client's own DLT-registered
     #: header, resolved from the `phone_numbers` row bound to the agent (D-420).
@@ -1305,6 +1465,115 @@ class RecallOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
+#: OUR budget for the LLM leg of one conversational turn, in milliseconds (TRD §4,
+#: "LLM TTFT <= 350ms"). A TARGET, and the only number in this file that is not a
+#: measurement — it is what a measurement is judged against, and it is never copied into
+#: a result. It lives here rather than in an adapter because it is a property of the
+#: product, not of whoever is renting us the audio path this quarter.
+#:
+#: WHY IT SUDDENLY MATTERS. The engine's orchestrator is US-hosted
+#: (`bolna-findings/mirror/pages/concepts/security.md:29`) and our Azure OpenAI deployment
+#: is pinned to South India (D-410), so every turn's LLM call is a US->India->US round
+#: trip on the caller's audio path. Nobody has ever measured what that costs; this
+#: constant is the line the measurement lands on either side of.
+LLM_TTFT_BUDGET_MS: Final[float] = 350.0
+
+
+class TurnLatency(BaseModel):
+    """What one conversational turn cost, per pipeline leg, AS THE ENGINE REPORTS IT.
+
+    **NOT voice-to-voice.** That distinction is the whole reason `calls.latency` was dropped
+    (migration `f1a7c39d5be2`, D-52): voice-to-voice is the interval between the
+    caller stopping speaking and the caller hearing audio, both ends of which exist on the
+    PSTN leg that our stack is not in. These three numbers are the engine's own view of
+    its own pipeline. They are worth having — they are the only per-turn evidence that
+    exists at all, and the LLM leg is the one WE chose the geography of — and they are
+    worth having only if nothing ever prints them under the other name.
+
+    Every field is optional and ABSENT IS ABSENT, never 0: a component the payload did not
+    carry is `None`, because a zero here would read as "instant" and would move a median.
+
+    NOTHING HERE IS TEXT (hard rule 6). The engine reports recognised caller speech beside
+    these timings; adapters read the numbers and drop the text without storing it, and this
+    model has nowhere to put it.
+    """
+
+    #: 1-based turn index within the call, as the engine numbers them.
+    turn: int
+    #: Speech-to-text: audio in -> text out for the turn's final recognition.
+    stt_ms: float | None = None
+    #: Time to FIRST token from the language model. The number this whole model exists
+    #: for — see `LLM_TTFT_BUDGET_MS`.
+    llm_ttft_ms: float | None = None
+    #: Time to first AUDIO from the synthesizer.
+    tts_ttfa_ms: float | None = None
+
+    @property
+    def component_sum_ms(self) -> float | None:
+        """STT + LLM TTFT + TTS TTFA, or NOTHING.
+
+        A partial sum is not a smaller latency, it is a different quantity wearing the same
+        name — so a turn missing any leg contributes to no comparison at all. Same rule as
+        `scripts/pilot/latency.VendorTurnLatency`, which compares this sum against a
+        stopwatch at pilot gate 4.
+        """
+        parts = (self.stt_ms, self.llm_ttft_ms, self.tts_ttfa_ms)
+        if any(part is None for part in parts):
+            return None
+        return sum(part for part in parts if part is not None)
+
+
+class CallLatency(BaseModel):
+    """Per-turn engine timings for one execution, normalized. Numbers and codes only.
+
+    **WHY THIS EXISTS NOW AND NOT BEFORE.** The adapter used to drop the engine's
+    `latency_data` on the floor, and said so in its docstring: the field was an unverified
+    claim with no captured payload. It is no longer unverified — the vendor's own page is
+    in the read-only mirror
+    (`bolna-findings/mirror/pages/concepts/call-latencies.md:22-45,99-140`) — and the
+    quantity it carries became the largest open question in the product the day D-410 put
+    the language model in South India while the orchestrator stayed in the US. Capturing
+    it does not settle OPERATIONS §2 gate 4; it is what makes gate 4 settleable by running
+    two calls instead of by arguing.
+
+    **`region` IS THE POINT.** The engine stamps each execution with where it ran (`in`,
+    `us`, ...). Two pilot calls — one with the South India Azure deployment, one with a US
+    one — produce two TTFT distributions under this field, and the difference between them
+    is the cost of the geography, measured rather than estimated.
+    """
+
+    #: Where the engine says this execution ran. A short vendor code (`in`, `us`), kept
+    #: verbatim because it is an identifier rather than a message: it is only ever
+    #: compared and grouped by, never rendered into a sentence.
+    region: str | None = None
+    #: End of the caller's utterance -> start of the agent's audio, as the engine measures
+    #: it. The closest thing the engine has to the caller's experience, and STILL not
+    #: voice-to-voice: it is measured inside the orchestrator, not in the caller's ear.
+    time_to_first_audio_ms: float | None = None
+    turns: list[TurnLatency] = Field(default_factory=list)
+    #: What the reader could not make sense of, in OUR words (never a vendor message).
+    #: An unparsed payload must announce itself: silently returning an empty object would
+    #: read as "the engine reported nothing", which is a different and more interesting
+    #: result.
+    parse_warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def llm_ttft_samples(self) -> list[float]:
+        """Every turn that reported an LLM TTFT, in turn order."""
+        return [t.llm_ttft_ms for t in self.turns if t.llm_ttft_ms is not None]
+
+    @property
+    def llm_ttft_over_budget(self) -> int:
+        """How many turns spent more than OUR budget in the language model.
+
+        A COUNT, not a verdict. One turn over budget on one call is not an incident and
+        must never page (the first turn of a call carries connection setup and is over
+        budget in the vendor's own worked example — `call-latencies.md:99`, 1633.04ms);
+        a fleet where this is routinely most of the turns is the geography bill coming due.
+        """
+        return sum(1 for value in self.llm_ttft_samples if value > LLM_TTFT_BUDGET_MS)
+
+
 class ExecutionSnapshot(BaseModel):
     """The authenticated fetch that is the TRUTH (D-31: webhooks are hints).
 
@@ -1344,6 +1613,12 @@ class ExecutionSnapshot(BaseModel):
     #: operator took to look.
     billable_ready_at: datetime | None = None
     engine_extracted: dict[str, Any] = Field(default_factory=dict)
+    #: What the engine's own pipeline cost, per turn. `None` means the engine reported
+    #: nothing — which is the honest answer for a LISTING row (the timings ride on the
+    #: single-execution fetch) and for an engine that publishes no timings at all.
+    #: Distinct from `CallLatency()` with no turns, which means it reported an object we
+    #: could read nothing out of; `parse_warnings` then says what.
+    latency: CallLatency | None = None
     engine: str = "fake"
     #: The vendor's OWN answer for this execution, serialized — the ONE thing in this
     #: contract that is not in our vocabulary, and the reason it is `bytes`.
@@ -1992,11 +2267,13 @@ __all__ = [
     "ListingIncompleteReason",
     "LlmCredentialPlacement",
     "LlmProvider",
+    "ModelBinding",
     "ModelConfig",
     "NumberSeries",
     "NumberSpec",
     "ProvisionedNumber",
     "RecallOutcome",
+    "ResidencyPosture",
     "SpeechControl",
     "SpeechLeg",
     "VoiceEngine",

@@ -212,7 +212,14 @@ export const GRIEVANCE: LegalDocument = {
               detail:
                 "Complain to the Data Protection Board of India. The Digital Personal " +
                 "Data Protection Act 2023 gives a data principal the right to complain to " +
-                "the Board about a Data Fiduciary or a Consent Manager.",
+                "the Board about a Data Fiduciary or a Consent Manager — and we would " +
+                "rather tell you the timing than let you find it out at the Board's door: " +
+                "that right sits in the part of the Act commencing on 13 May 2027, though " +
+                "the Board itself has existed since November 2025. Until that date a " +
+                "complaint about personal data is made under the Information Technology " +
+                "Act 2000 and the 2011 rules made under it, which is exactly why the " +
+                "Grievance Officer named above is the first step and why we publish their " +
+                "name rather than a role title.",
             },
             {
               term: "Unsolicited or unlawful commercial calls",

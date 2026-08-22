@@ -442,7 +442,10 @@ def test_a_builder_that_grew_a_region_parameter_is_caught() -> None:
     )
     offenders = guard.builder_failures(source)
     assert any("'location'" in offender for offender in offenders), offenders
-    assert any("exactly one argument" in offender for offender in offenders), offenders
+    # "exactly 1" rather than "exactly one argument" since D-432: the permitted arity is
+    # a property of the DECLARED posture (`PostureSpec.builder_arity`) rather than a
+    # constant of this check, so the refusal prints the number the declaration allows.
+    assert any("permits exactly 1" in offender for offender in offenders), offenders
 
 
 def test_a_builder_that_interpolates_a_runtime_value_is_caught() -> None:
@@ -604,7 +607,8 @@ def test_the_guard_states_what_it_cannot_prove_on_every_run(
 
     # …and the failure path, driven through a synthetic failure so the notice is proved to
     # survive the branch where a reader is busiest and least likely to go looking for it.
-    monkeypatch.setattr(guard, "delegation_failures", lambda: ["synthetic"])
+    # `*_` since D-432: every check now takes the resolved `PostureSpec` main() hands it.
+    monkeypatch.setattr(guard, "delegation_failures", lambda *_: ["synthetic"])
     assert guard.main() == 1
     failed = capsys.readouterr().out
     assert "MODEL RESIDENCY: FAIL" in failed

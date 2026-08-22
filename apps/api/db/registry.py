@@ -59,6 +59,10 @@ TENANT_TABLES = [
     "calls",
     "transcript_turns",
     "call_extractions",
+    # What the ENGINE reported its own pipeline cost on one call, per turn (migration
+    # b7d3e91c4a05). Numbers and a region code, no text — but derived from a tenant's call,
+    # so it is isolated like everything else derived from one.
+    "call_engine_latency",
     "leads",
     "lead_events",
     # Per-user-per-tenant Leads-table state (SURFACES §2 saved views, migration
@@ -132,6 +136,14 @@ TENANT_TABLES = [
     # object key of its audio. NOT append-only — `erased_at` is stamped when the bytes
     # go, and the append-only artifact of an erasure is `deletion_requests.proof`.
     "recording_erasure_holds",
+    # One erasure obligation at a SUB-PROCESSOR that no API of ours can discharge
+    # (migration c9f4a2e17b83, D-433). Tenant data: it names one of this client's
+    # erasures and the vendor-side ids an operator must quote to get the copy deleted.
+    # NOT append-only, deliberately — the row's whole purpose is to move
+    # `open -> requested -> confirmed|refused`, and an append-only version would need a
+    # second table to answer the one question it exists to answer. The immutable trail
+    # of the transitions is `audit_log`.
+    "processor_erasure_tasks",
     "inbound_webhooks",
     "outbound_webhooks",
     "kb_sources",

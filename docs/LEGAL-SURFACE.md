@@ -140,7 +140,7 @@ s.43A + SPDI Rules 2011 remain operative (§3.3). Sources §9.
 | DP-14 | Third Schedule erasure periods + 48h pre-erasure notice | Rule 8(3) | **NOT ENGAGED** | Correctly analysed already in SEC-COMP §4: they bind e-commerce/gaming/social-media fiduciaries above 2 crore / 50 lakh user thresholds. Calevate is none of those. |
 | DP-15 | Children: verifiable parental consent, no tracking/behavioural ads | §9 | **PARTIAL** | We build no profiles and run no advertising, so the prohibition half is met by construction. **Nothing detects or handles a child caller**, and it is the client's duty. Disclosed in `/legal/privacy` §11 and `/legal/acceptable-use` §3. |
 | DP-16 | Significant Data Fiduciary duties (DPO, DPIA, annual audit) | §10, Rule 12 | **NOT ENGAGED** | SDF status arises only on Government notification. None. Must be re-checked if the Government notifies a class covering voice/AI processors. Add to the OPERATIONS quarterly re-verify list. |
-| DP-17 | Cross-border transfer: permitted except to notified countries; observe conditions | §16, Rule 15 | **MET, but see F-1** | No restricted-country list notified as at Aug 2026, so the transfers are lawful. The obligation that bites today is **disclosure**, and F-1 is where we were failing it. |
+| DP-17 | Cross-border transfer: permitted except to notified countries; observe conditions | §16, Rule 15, **Rule 13(4)** | **NOT ENGAGED YET — this row said MET, and "met" was the wrong word for a section that is not in force** | §16 sits in sections 3–17 and **commences 13 May 2027**. No restricted-country list is notified, which is an ABSENCE OF NOTIFICATION and not a permission you can cite; the operative transfer test today is SPDI rule 7 (§3.3, S-5). **Rule 15** affirms permission and hooks only making data available to a foreign State or a State-controlled entity — nothing imposed on us. **Rule 13(4)** — the real localisation power over a Significant Data Fiduciary, reaching specified categories *and the traffic data pertaining to their flow* — is dormant on three unmet conditions (no SDF notification of us, no class covering voice-AI processors, no category specified) and is what DP-16's quarterly re-check actually arms. The obligation that bites today is **disclosure**, and that is F-1. Corrected in `/legal/dpa` clause 9 and `/legal/privacy` §8 on 22 Aug 2026 — both previously stated the §16 permission with no commencement date. |
 
 ### 3.2 TRAI / TCCCPR 2018 (as amended) and the Telecommunications Act 2023
 
@@ -169,6 +169,8 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | S-2 | Designate a Grievance Officer and **publish their name** and contact (Rule 5(9)); redress in one month | **PARTIAL** | Published as `{{GRIEVANCE_OFFICER_NAME}}`. **A placeholder is not a designation** — this is UNMET until a person is appointed. It is the single cheapest unmet obligation on this page. |
 | S-3 | Reasonable security practices; ISO 27001 is the safe harbour (Rule 8) | **PARTIAL** | We hold **no certification of any kind**. Rule 8 also admits a "comprehensive documented information security programme"; `docs/SECURITY-COMPLIANCE.md` §5 plus DPA Annex B is the closest thing and is not yet a formal ISMS document. |
 | S-4 | Consent before collecting sensitive personal data | **PARTIAL** | Health/financial detail volunteered on a call is SPDI. Disclosed in `/legal/privacy` §3.3 and DPA Annex A; the *consent* is the client's to obtain. |
+| S-5 | **Transfer of SPDI outside India (rule 7): comparable protection at the destination, PLUS consent or necessity for performance of a contract** | **MET on the necessity leg; UNEVIDENCED on the protection leg** | This is the transfer test that is ACTUALLY IN FORCE, and the tree cited DPDP §16 instead — a section that commences 13 May 2027 (DP-17). Necessity is straightforward: the service IS the calls, and the calls run on these suppliers. Comparable protection is a judgement per vendor against its own published terms, and **F-10 records that no sub-processor agreement has been signed**, so the leg has no evidence behind it beyond those terms. What closes it: F-10, and counsel confirming the judgement is one we may make ourselves. Stated to clients in `/legal/dpa` clause 9 since 22 Aug 2026. |
+| S-6 | **Is a call recording "biometric information"? The 2011 definition of biometrics includes VOICE PATTERNS** | **UNDECIDED, AND LIVE UNTIL 13 MAY 2027 — the single most consequential open question on this page** | If YES, every call recording is SPDI: S-4's consent duty and S-5's transfer test bind the whole product, including the voice platform's own copy of the recording in the **United States** (F-12). If NO, the position is what the published documents already describe. **No Indian court or regulator has decided it**, and the definition reads as though drafted for authentication rather than for a call recording. DPDP abolishes the sensitive tier on 13 May 2027 — i.e. the question expires exactly after the window in which client #1 goes live. **Nothing in this tree may answer it.** What we do instead is right under either answer: treat call audio as though it may be SPDI, name every place it goes, and ask counsel a yes/no — OPERATIONS §2 **gate 37** (the advocate gate). Asked of clients in `/legal/dpa` clause 9 and pointed at from `/legal/privacy` §8. |
 
 ### 3.4 Consumer Protection Act 2019 + E-Commerce Rules 2020
 
@@ -303,10 +305,27 @@ finding was about is closed, and C-3 with it. The 17 Aug audit found the same cl
 surviving in `docs/BRD.md` and `docs/README.md`, where a salesperson would read it after
 engineering had removed it from what a customer reads; both are now corrected too.
 
-**What is NOT closed is the underlying fact**: no host is chosen, so the claim could not be
-made truthfully even if someone wanted to make it. That is the founder decision tracked as
-F-1 in the go-live list, and until it is made **nothing in this repository may assert
-residency** — the evidence below is what says why.
+**The host WAS chosen — D-180, a Hostinger VPS in India — and that does not reopen the
+claim.** This paragraph used to read "no host is chosen, so the claim could not be made
+truthfully even if someone wanted to make it", which invited the reading that choosing one
+would make it true. It would not: the host is one of at least five places tenant personal
+data lives, and the two that matter most are unmoved — R2 offers no India-only
+jurisdiction, and the voice platform runs the call itself on US infrastructure with our
+BYOK posture foreclosing its India routing (F-12, D-415). **So the ban stands: nothing in
+this repository may assert residency**, and the decision is a fact for the sub-processor
+register rather than a differentiator for a card.
+
+**22 Aug 2026 — the omission half.** Every ban above stops the page SAYING something
+false; none stopped it implying it. The card headed "The AI runs on Indian endpoints",
+inside a section headed "Your customers' data", reads to a prospect as "the call is
+handled in India". One clause was added — the models are the Indian part, the platform
+that carries the call runs it on US infrastructure today — and `publicLanding.test.tsx`
+now pins that clause the same way it pins "checked, not proved by a build". This is the
+consumer-law axis rather than the DPDP one: a residency claim on a marketing page is a
+promise to a prospect. The competitor teardown is the reason to bother getting it right
+rather than merely legal — Outpero admits offshore processing in a privacy policy nobody
+reads (`docs/evidence/outpero-teardown-aug2026.md` §9b), and a differentiator that only
+survives because the buyer did not check is not one.
 
 The finding as recorded:
 
@@ -747,8 +766,14 @@ declared token stops being used — so this list cannot silently drift.
 `JURISDICTION_CITY` · `EFFECTIVE_DATE` · `DLT_TELEMARKETER_ID` · `PRIMARY_HOSTING_LOCATION` ·
 `REFUND_PROCESSING_DAYS` · `TERMINATION_NOTICE_DAYS` · `DATA_RETURN_WINDOW_DAYS`
 
-`{{PRIMARY_HOSTING_LOCATION}}` is not an administrative blank: filling it in **is** the F-1
-decision.
+`{{PRIMARY_HOSTING_LOCATION}}` was not an administrative blank: filling it in **was** the F-1
+decision, and D-180 took it. **It is filled as of 22 Aug 2026** — it carries a `value` in
+`placeholders.ts` and the renderer substitutes it, so it is no longer one of the eighteen blanks
+above; the entry stays because the data centre is named in the change that provisions one.
+The mechanism is the durable part: a decided fact now reaches every document from one place, and
+`assertLegalSetPublishable` refuses to render the set if `PENDING_LEGAL_REVIEW` is ever removed
+while any blank remains. Between D-180 and that change the token rendered raw on `/legal/dpa`
+clause 9 and `/legal/privacy` §8 — a decision taken and a document that never heard about it.
 
 ---
 
@@ -757,6 +782,10 @@ decision.
 - **14 November 2026** — DPDP Consent Manager provisions commence. Re-check whether any
   Calevate flow needs a registered Consent Manager. (Assessment today: no — we collect no
   consent in our own right.)
+- **13 May 2027** — **sections 3–17 of the DPDP Act commence, §16 among them.** Until that date §16
+  neither permits nor restricts a transfer: it forecloses a restriction nobody has made. Two
+  consequences fall on the same day — the SPDI transfer test (S-5) stops applying, and the
+  sensitive tier that makes S-6 a live question disappears with it.
 - **13 May 2027** — DPDP substantive obligations commence; IT Act s.43A and the SPDI Rules
   2011 fall away. Until then §3.3 is the operative regime and the privacy notice must keep
   citing it.
@@ -767,8 +796,11 @@ decision.
   `AZURE_OPENAI_DEFAULT_MODEL`, it comes back here and into a date-carrying constant, which
   is the mechanism that worked.
 - **Quarterly** — re-check: whether the TCCCPR Third Amendment has been notified (T-10);
-  whether a restricted-country list has been notified under DPDP §16 (DP-17); whether any SDF
-  class notification could reach us (DP-16); whether GST turnover has crossed the ₹5 crore
+  whether a restricted-country list has been notified under DPDP §16 (DP-17); **whether MeitY's
+  January 2026 consultation on pulling the cross-border provisions forward and compressing the SDF
+  deadline has been notified** (reported, moderate confidence; the advocate gate, OPERATIONS §2 gate 37); whether any SDF class
+  notification could reach us — which is what would arm **Rule 13(4)**'s localisation power over
+  specified categories and their traffic data (DP-16); whether GST turnover has crossed the ₹5 crore
   e-invoicing threshold (GST-6).
 
 ---
@@ -865,8 +897,17 @@ now traces to one of them.
 7. **F-7 (now a review, not a question).** The backup-retention window IS disclosed on the
    certificate as of D-164. What counsel should check is the clause's wording against DPDP
    §8(7), not whether to have one.
-8. **Every citation in §9** against the gazette. Several were retrieved as secondary
-   summaries because the primary sources are unreachable from this environment.
+8. **S-6 — is a call recording biometric information?** Yes or no. The 2011 definition of
+   biometrics includes voice patterns; nobody has decided whether an ordinary business call
+   recording falls in it; and it governs until 13 May 2027, which is the whole window in which
+   this product goes live. If yes, SPDI's consent and transfer duties bind every leg including a
+   voice platform in the United States. This one is ahead of most of the list above and it is
+   OPERATIONS §2 gate 37(a). Gate 38(b) is its companion: does the phased commencement leave any
+   gap in the lawful basis for transfer before May 2027?
+9. **Every citation in §9** against the gazette. Several were retrieved as secondary
+   summaries because the primary sources are unreachable from this environment. Add the DPDP
+   Rules' notification date to that check: this document says 14 Nov 2025 and a later synthesis
+   says 13 Nov, and neither lane could reach the gazette to settle one day.
 
 ---
 
@@ -880,5 +921,5 @@ now traces to one of them.
 | ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
 | ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |
 | FOLLOW-UP-8 | **Bind the published sub-processor list to a constant.** One exported inventory of sub-processor identities that `apps/web/src/lib/legal/subprocessors.ts` renders and `tests/legal.test.tsx` asserts against, so a vendor added to or removed from this tree fails a test naming the legal document it did not reach. F-11's mechanism half: two vendor changes three days apart both survived in a client-facing document because nothing could see the divergence. | `apps/web/**` and `tests/legal.test.tsx` are outside this session's edit scope. **OURS, no external dependency.** |
-| FOLLOW-UP-6 | **Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate. |
+| ~~FOLLOW-UP-6~~ **DONE 22 Aug 2026** — both callouts rewritten to say what the mechanisms do, and the two retention categories added to the `/legal/privacy` §9 table with the periods `scripts/seed.py` actually installs (90 / 365). The deliberate limit that remains — an erasure SEARCHES knowledge content and reports the count but never edits a client's own writing — is now stated as a reasoned limit rather than as a gap. | ~~**Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate.~~ |
 | ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |

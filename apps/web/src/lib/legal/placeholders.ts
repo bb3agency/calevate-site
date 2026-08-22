@@ -13,12 +13,29 @@
  * declares is a fact nobody told the founder to fill in.
  */
 
+import { lookup } from "@/lib/lookup";
+
 /** What one unfilled fact is, and where its value comes from. */
 export interface Placeholder {
   /** What the value is, in the founder's words. */
   readonly describes: string;
   /** Where the real value comes from — a registrar, a portal, a decision. */
   readonly source: string;
+  /**
+   * The decided value, once it exists. Present = the fact is KNOWN, and the renderer
+   * substitutes it everywhere the token appears; absent = still a blank.
+   *
+   * This field is the fix for a defect that had been live on `/legal/dpa` clause 9 and
+   * `/legal/privacy` §8: `{{PRIMARY_HOSTING_LOCATION}}` rendered as a raw token on two
+   * client-facing pages for weeks AFTER the decision that answers it (D-180) was taken.
+   * Nothing was wrong with the token machinery — nothing connected a taken decision to
+   * the prose, so the only way to fill a blank was to edit every document that used it
+   * and hope none was missed. One value here reaches all of them at once, the documents
+   * keep the token so `textOf` can still audit both directions, and
+   * `assertLegalSetPublishable` below makes the remaining blanks a publication blocker
+   * rather than a thing a reader discovers.
+   */
+  readonly value?: string;
 }
 
 /**
@@ -155,13 +172,15 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
   },
   PRIMARY_HOSTING_LOCATION: {
     describes:
-      "The country and city of the server that runs the application and holds the " +
-      "database. This is UNRESOLVED in the blueprint — DEPLOYMENT.md §0 says a " +
-      "general-purpose VPS with India co-location NOT required, and nothing has been " +
-      "provisioned. It must be decided and stated before this notice is published, " +
-      "because it decides whether the privacy notice describes a cross-border transfer " +
-      "of every transcript and lead in the system.",
-    source: "The hosting decision (ROADMAP D-25), and then the provisioned host itself.",
+      "Where the server that runs the application and holds the database is. It decides " +
+      "whether the privacy notice describes a cross-border transfer of every transcript " +
+      "and lead in the system, which is why it was the one blank that mattered most. " +
+      "D-180 answered it — a Hostinger VPS in India, superseding D-25's 'Hetzner-class, " +
+      "co-location not required' as to provider and region — so it carries a value. What " +
+      "the decision does NOT fix is the data centre, because nothing is provisioned yet " +
+      "(`infra/README.md` §5); name the city here in the change that provisions it.",
+    source: "The hosting decision (ROADMAP D-180), and then the provisioned host itself.",
+    value: "a Hostinger data centre in India",
   },
   REFUND_PROCESSING_DAYS: {
     describes:
@@ -188,4 +207,60 @@ export const PLACEHOLDERS: Readonly<Record<string, Placeholder>> = {
 /** Every token used anywhere in `text`. */
 export function placeholdersIn(text: string): string[] {
   return [...text.matchAll(PLACEHOLDER_PATTERN)].map((match) => match[1]);
+}
+
+/**
+ * Substitute every token whose fact has been DECIDED, and leave the rest standing.
+ *
+ * Called by the renderer before anything is marked up, so a decided fact can never reach
+ * a reader as `{{A_TOKEN}}` — which is what happened with the hosting location. An
+ * undeclared token is left alone rather than dropped: `tests/legal.test.tsx` already
+ * fails on one, and silently swallowing it here would turn a loud test failure into a
+ * page with a hole in it.
+ */
+export function resolvePlaceholders(text: string): string {
+  return text.replace(
+    new RegExp(PLACEHOLDER_PATTERN.source, "g"),
+    (token, name: string) => lookup(PLACEHOLDERS, name)?.value ?? token,
+  );
+}
+
+/**
+ * The facts still missing — every declared placeholder with no value yet, in declaration
+ * order. This is the founder's remaining to-do list, computed rather than maintained.
+ */
+export function unresolvedPlaceholders(): string[] {
+  return Object.entries(PLACEHOLDERS)
+    .filter(([, entry]) => entry.value === undefined)
+    .map(([token]) => token);
+}
+
+/**
+ * Refuse to publish the legal set while any fact in it is still a blank.
+ *
+ * The renderer calls this on every document. While `PENDING_LEGAL_REVIEW` stands, blanks
+ * are the POINT — they render as visible marks under a banner that tells the reader not
+ * to rely on the page, and that is how the founder and their advocate see what is still
+ * missing. The moment somebody deletes that banner they are publishing, and a published
+ * legal document containing `{{GSTIN}}` is not a cosmetic defect: it is a document that
+ * announces its own drafting state to a regulator or a buyer's counsel.
+ *
+ * So the two constants are wired together rather than left as two independent decisions
+ * a person has to remember to take in the right order. Turning the banner off with blanks
+ * outstanding throws here, loudly, naming every one of them — it cannot be reached by a
+ * reader, because it fails the build's own render first.
+ *
+ * `pendingReview` is a parameter so the refusal itself is testable; nothing but the test
+ * should pass it.
+ */
+export function assertLegalSetPublishable(pendingReview: boolean = PENDING_LEGAL_REVIEW): void {
+  if (pendingReview) return;
+  const missing = unresolvedPlaceholders();
+  if (missing.length === 0) return;
+  throw new Error(
+    `The pending-review banner has been removed while ${missing.length} fact(s) in the ` +
+      `legal documents are still blank, so these tokens would publish as literal text: ` +
+      `${missing.join(", ")}. Give each one a \`value\` in ` +
+      `src/lib/legal/placeholders.ts, or put the banner back.`,
+  );
 }

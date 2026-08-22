@@ -58,9 +58,11 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *   object storage on Cloudflare R2 with `AWS_REGION=auto`; SECURITY-COMPLIANCE §4
  *   records Bolna call recordings observed on S3 `us-east-1` and marks the residency
  *   posture as something to be pinned in a CONTRACT that does not exist yet; Clerk,
- *   Resend and Sentry were all outside India (Clerk has since gone, D-177); and no deploy has ever run, so the hosting
- *   region is genuinely undecided rather than merely unwritten — a founder's decision
- *   this page must not pre-empt. What survives is the one narrow claim about MODEL
+ *   Resend and Sentry were all outside India (Clerk has since gone, D-177); and no deploy has ever run.
+ *   The hosting region has since been decided (D-180, an Indian VPS) and is STILL not a
+ *   claim this page makes: one Indian leg out of five does not make the data plane
+ *   India-resident, and the founder's decision is a fact for the sub-processor register,
+ *   not a differentiator for a card. What survives is the one narrow claim about MODEL
  *   ENDPOINTS, and D-410 made even that one weaker: `scripts/check_model_residency.py`
  *   proves that our code has a single endpoint builder which cannot emit a non-India
  *   region and that no setting can carry one, but an Azure OpenAI hostname names no
@@ -585,9 +587,21 @@ export default function Home() {
                      * hand. A marketing page claiming a build PROVES where processing
                      * happens is the same misrepresentation as the sentence it replaced,
                      * one degree quieter, and the DPA had to drop the identical claim.
-                     * Nothing here is said about where the database, the object store or
-                     * the recordings sit: that is undecided (DEPLOYMENT §0) and is the
-                     * founder's call to make.
+                     *
+                     * NARROWED A THIRD TIME, 22 Aug 2026. Everything above was true and
+                     * still left a prospect with the wrong impression: a card headed
+                     * "the AI runs on Indian endpoints", in a section about their
+                     * customers' data, reads as "the call is handled in India" — which
+                     * is what the ORCHESTRATOR does not do (Bolna is US by default, and
+                     * our BYOK posture forecloses their India routing, D-415). A
+                     * residency claim on a marketing page is a promise to a prospect and
+                     * a consumer-law exposure if it is untrue, and the fix is one clause
+                     * rather than a paragraph: name the half that is Indian and the half
+                     * that is not, and point at the page that carries the detail. Where
+                     * the database and the object store sit is no longer undecided for
+                     * the database (D-180 — an Indian VPS) and remains outside an
+                     * India-only jurisdiction for R2; neither is claimed here, because a
+                     * card is the wrong place to qualify one.
                      *
                      * AND DO NOT SPELL THE AZURE HOSTNAME IN THIS COMMENT. `check_model_
                      * residency` has no AST for TypeScript, so it line-scans, and a `//`
@@ -605,7 +619,10 @@ export default function Home() {
                       "account configured for South India: no part of our code can " +
                       "send it anywhere else without editing one frozen constant, and " +
                       "the account's own region is checked by a person against " +
-                      "Microsoft's console and filed — checked, not proved by a build.",
+                      "Microsoft's console and filed — checked, not proved by a build. " +
+                      "The models are the Indian part; the platform that carries the " +
+                      "call runs it on US infrastructure today, and the sub-processor " +
+                      "page says which does what before you sign.",
                   },
                   {
                     term: "One business cannot see another",

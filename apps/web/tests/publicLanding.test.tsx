@@ -116,6 +116,21 @@ describe("the landing page's claims", () => {
     // deleting that clause is how the over-claim comes back looking like a tidy-up.
     // `docs/LEGAL-SURFACE.md` F-1 is where the wording comes from.
     expect(text).toContain("checked, not proved by a build");
+    /*
+     * AND THE OTHER HALF OF THE PICTURE IS PINNED TOO, for the same reason.
+     *
+     * "The AI runs on Indian endpoints", sitting in a section headed "Your customers'
+     * data", reads to a prospect as "the call is handled in India" — and the platform
+     * that actually carries the call runs it on US infrastructure by default, with our
+     * BYOK posture foreclosing that vendor's India routing (D-415,
+     * `docs/evidence/bolna-compliance-residency.md` §2/§5). Every ban above stops the
+     * page SAYING something false; none of them stops it implying it by omission, which
+     * is the shape a competitor teardown found on the other side of this market
+     * (`docs/evidence/outpero-teardown-aug2026.md` §9b: they admit offshore processing
+     * in a privacy policy nobody reads). So the qualifying clause is asserted, not
+     * merely permitted.
+     */
+    expect(text).toContain("runs it on US infrastructure today");
   });
 
   /**

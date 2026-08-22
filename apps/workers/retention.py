@@ -92,6 +92,9 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.processor_erasure import (
+    open_tasks_for_request,
+)
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
@@ -1644,10 +1647,73 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                 "usage_events": "retained — append-only ledger, carries no personal data",
                 "consent_ledger": "retained — append-only proof that consent existed",
             },
-            # Stated, not asserted: Bolna's deletion API is undocumented (pilot gate),
-            # so the certificate must not claim an engine-side deletion we cannot show.
+            # Stated, not asserted. The wire token is kept as-is because it is written
+            # into durable proofs that have already been rendered into certificates
+            # somebody may be holding, and hard rule 4 forbids back-filling those; what
+            # it MEANS is now settled rather than open, and the register in
+            # `compliance/deletion.py` (ENGINE_OUTCOME) carries the settled version to
+            # the reader. In short: the vendor documents no subject-granular deletion,
+            # so this erasure genuinely cannot reach their copy, and the obligation is
+            # carried by the `processor_erasure_tasks` rows opened just below rather
+            # than by a hope that an API appears.
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
+
+        # THE OBLIGATION THIS ERASURE COULD NOT DISCHARGE, RECORDED RATHER THAN IMPLIED
+        # (D-433). Opened INSIDE the erasure's own transaction, so the tasks and the
+        # certificate commit together: a certificate that tells a data principal "a
+        # written request to the platform is how those copies go" while no task exists
+        # is a promise with no keeper, and it is worse than not saying it.
+        #
+        # The vendor ids are read here rather than reused from `calls` above because
+        # that query selects `id` only, and what a support desk needs quoted is the
+        # vendor's OWN execution id. They are read BEFORE the erasure's UPDATEs would
+        # matter — `engine_call_id` is not one of the columns an erasure clears, since
+        # it names no person — and they are the whole point of the row: without them an
+        # operator can only ask the vendor to delete "some calls".
+        engine_call_ids = [
+            str(ref)
+            for ref in (
+                await session.execute(
+                    text(
+                        "SELECT engine_call_id FROM calls WHERE id = ANY(:ids) "
+                        "AND engine_call_id IS NOT NULL ORDER BY engine_call_id"
+                    ),
+                    {"ids": list(calls)},
+                )
+            )
+            .scalars()
+            .all()
+        ]
+        # THE VOICE PLATFORM ONLY, and the omission of the other two is the design.
+        #
+        # A task exists to be CLOSED by a person. The voice platform's copy can be: it
+        # holds per-execution records, we hold the execution ids, and a written request
+        # naming them is something a support desk can act on. The speech and language
+        # processors are different in kind — neither exposes a per-subject handle we
+        # could even quote, so a task against them could never move past `open` and
+        # would page every 30 days forever. An alarm that cannot be resolved by any
+        # action is one people learn to close without reading, which would cost us the
+        # voice-platform task sitting next to it.
+        #
+        # Their gap is real and is NOT dropped: it is a standing structural fact rather
+        # than a per-erasure errand, so it lives in the certificate's register
+        # (`deletion.PROCESSOR_OUTCOME`, which names both) and in OPERATIONS §2 gate 36,
+        # where the remedy actually is — a processing term for Sarvam, and Microsoft's
+        # modified-abuse-monitoring approval for Azure, which removes the copy by never
+        # creating it. A tenant erasure DOES open all three, because ending an
+        # engagement is the one moment a "delete everything you hold for this customer"
+        # letter to each vendor is both meaningful and answerable.
+        if engine_call_ids:
+            await open_tasks_for_request(
+                session,
+                tenant_id=tenant_id,
+                request_ref=request_id,
+                request_kind="subject",
+                subject_ref=subject_handle,
+                vendor_refs=engine_call_ids,
+                processors=("voice_engine",),
+            )
         # The number goes in the SAME write that records the proof. Until this statement
         # the row is the worker's only handle on the subject; after it, the row would
         # otherwise be the last surviving copy of a number we just certified as erased,
@@ -2054,6 +2120,53 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
             },
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }
+
+        # THE OBLIGATION, RECORDED (D-433) — and on THIS path the vendor genuinely can
+        # perform it, which is the difference from the per-subject erasure above.
+        #
+        # `DELETE /v2/agent/{agent_id}` removes an agent together with "ALL agent data
+        # including all batches, all executions" (the vendor's own warning,
+        # `bolna-findings/mirror/pages/api-reference/agent/v2/delete.md:10`). That
+        # granularity is useless for one data principal — it would destroy every other
+        # caller's records — but a TENANT erasure is abandoning these agents anyway, so
+        # here it is exactly the right instrument.
+        #
+        # WHY THE CALL IS STILL NOT MADE FROM HERE. `_WITHDRAW_ROUTES_SQL` already
+        # records the reason and it is sound: a third-party round trip inside the one
+        # transaction that must not half-commit would let a slow vendor roll back an
+        # erasure. What did NOT follow from it, and was the defect, is the conclusion
+        # that the deletion is therefore unreachable. A task row is how an obligation
+        # survives a transaction boundary it must not cross, and the refs below are what
+        # make it actionable rather than a reminder.
+        agent_refs = [
+            str(ref)
+            for ref in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT engine_agent_ref FROM engine_agent_routes "
+                        "WHERE tenant_id = :tid AND engine_agent_ref IS NOT NULL "
+                        "ORDER BY engine_agent_ref"
+                    ),
+                    {"tid": tenant_id},
+                )
+            )
+            .scalars()
+            .all()
+        ]
+        if agent_refs:
+            await open_tasks_for_request(
+                session,
+                tenant_id=tenant_id,
+                request_ref=request_id,
+                request_kind="tenant",
+                subject_ref=None,
+                vendor_refs=agent_refs,
+                # A tenant erasure ends the engagement, so the speech and model
+                # processors' copies are in scope too — they are not reachable by any
+                # API of ours either, and the certificate now says so.
+                processors=("voice_engine", "speech", "llm"),
+            )
+
         await session.execute(
             text(
                 "UPDATE tenant_erasure_requests SET completed_at = now(), "

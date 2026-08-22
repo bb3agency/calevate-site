@@ -13,8 +13,11 @@ import type { LegalDocument } from "./types";
  *    SECURITY-COMPLIANCE §4 quotes, which differ. Where the two disagree the notice
  *    states the enforced number and the disagreement is a finding, not a rounding.
  * 2. **The residency claim is the narrow one that is enforced.** "Everything stays in
- *    India" is not available: the application host is undecided, object storage is
- *    Cloudflare R2, and the engine's recordings have been observed in `us-east-1`. What
+ *    India" is not available: object storage is Cloudflare R2 with no India-only
+ *    jurisdiction, and the voice platform's own documentation puts the whole call on US
+ *    infrastructure. The application host is the one leg that stopped being undecided —
+ *    D-180 chose an Indian VPS — and that changes ONE line of this notice, not its
+ *    posture. What
  *    IS enforced — every model endpoint is pinned to an Indian region, and
  *    `scripts/check_model_residency.py` fails the build otherwise — is stated as exactly
  *    that and no wider.
@@ -563,11 +566,20 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "This section is written narrowly on purpose. India's law permits transfer " +
-            "outside India except to countries the Central Government notifies as " +
-            "restricted, and as at the date of this notice no such list has been " +
-            "notified. That makes the transfers below lawful; it does not make them " +
-            "something you should have to discover for yourself.",
+            "This section is written narrowly on purpose, and so is what it says about " +
+            "the law. Section 16 of the DPDP Act permits transfer outside India except " +
+            "to countries the Central Government notifies as restricted, and no such " +
+            "list has been notified — but that section does not commence until 13 May " +
+            "2027, so it is the absence of a restriction rather than a permission you " +
+            "can point at today. Until then the Information Technology Act 2000 and the " +
+            "2011 sensitive-personal-data rules govern, and they do carry a transfer " +
+            "test: comparable protection at the destination, plus either consent or " +
+            "necessity for a contract. The Data Processing Addendum sets out how we meet " +
+            "it, and the one question under those rules that nobody has answered — " +
+            "whether a call recording counts as biometric information, because the 2011 " +
+            "definition of that term includes voice patterns — is stated there rather " +
+            "than resolved by us. What follows is where the data actually goes, which is " +
+            "the part you should not have to discover for yourself.",
         },
         {
           kind: "definitions",
@@ -595,7 +607,9 @@ export const PRIVACY_POLICY: LegalDocument = {
               detail:
                 "Run on a single virtual server at {{PRIMARY_HOSTING_LOCATION}}, with " +
                 "PostgreSQL on the same host. This is the store that holds phone numbers, " +
-                "transcripts, summaries and lead records.",
+                "transcripts, summaries and lead records. The location is a decision that " +
+                "has been taken; the machine has not been provisioned, because no client " +
+                "data is in production yet.",
             },
             {
               term: "Recordings, exports and archived call documents",
@@ -679,6 +693,20 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "object storage.",
             ],
             [
+              "The raw document the voice platform returns for each call",
+              "90 days",
+              "The archived object is deleted from storage and the link to it is " +
+                "cleared. It carries the caller's number and the transcript, which is " +
+                "why it has a clock of its own rather than riding on the transcript's.",
+            ],
+            [
+              "Superseded versions of knowledge content a client uploads",
+              "365 days",
+              "Deleted. The version currently in use is never expired by this — a " +
+                "client's live answer material is theirs and stays until they change " +
+                "it — so the clock runs only on versions no screen shows.",
+            ],
+            [
               "Consent, opt-out and audit records",
               "Retained",
               "These are append-only ledgers. Nothing expires them on a timer, because " +
@@ -700,15 +728,20 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "Two stores that no retention period reaches yet",
+          title: "What an erasure does to knowledge content, and what it deliberately does not",
           text:
-            "The raw document our voice platform returns for each call is archived, and " +
-            "no retention category expires it; the only clock on it is a storage " +
-            "lifecycle rule that has not yet been applied to a live bucket. Knowledge " +
-            "content a client uploads for their agent to answer from is kept " +
-            "indefinitely, every version of it, and is not searched by an erasure " +
-            "request. Both are disclosed here rather than described as solved, and both " +
-            "are recorded as open items in our own compliance register.",
+            "This callout used to say that the two stores above reached no retention " +
+            "period at all and that an erasure never looked at knowledge content. Both " +
+            "have been built since, and a public document that is wrong about our own " +
+            "controls is a defect even when the error runs in your favour, so it is " +
+            "corrected rather than quietly dropped. What is true now: both stores are on " +
+            "the same nightly job as everything else, with the periods in the table " +
+            "above. An erasure request SEARCHES a client's knowledge content for the " +
+            "person's number and reports how many documents mention it — and does not " +
+            "edit or delete any of it. That is a deliberate limit, not a gap: the " +
+            "material is the client's own writing, and a processor silently rewriting a " +
+            "client's documents would be the larger wrong. The count is on the erasure " +
+            "certificate so the client can act on it.",
         },
         {
           kind: "para",

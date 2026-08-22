@@ -21,6 +21,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.processor_erasure import OVERDUE_AFTER_DAYS
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import enqueue, job_id_for
@@ -309,6 +310,29 @@ SELECT count(*) FROM deletion_requests
 WHERE completed_at IS NULL AND requested_at < :cutoff
 """
 
+#: The erasure obligations that are OUTSIDE this system and still unanswered (D-433).
+#:
+#: A DIFFERENT FAILURE FROM THE QUERY ABOVE, which is why it is a second count and a
+#: second alarm rather than a bigger number on the first. `_OVERDUE_ERASURES` finds an
+#: erasure that never RAN — our job was lost, and the fix is to re-queue it. This finds an
+#: erasure that ran perfectly and left a copy at a sub-processor that no API of ours can
+#: delete (`docs/evidence/subprocessor-erasure-reach.md`), where the fix is a person
+#: writing to the vendor. Re-queueing the first would do nothing for the second, and an
+#: operator who read one message for both would do the wrong thing twice.
+#:
+#: `status IN ('open','requested')` counts both, and the alarm reports them apart: `open`
+#: is OUR failure to ask, `requested` is the vendor's failure to answer, and only the
+#: first is fixable from here.
+#:
+#: It rides the SAME bounded per-tenant walk rather than adding a second full-fleet
+#: sweep — one way per problem, and the walk is already the expensive part.
+_OVERDUE_PROCESSOR_TASKS = """
+SELECT count(*) FILTER (WHERE status = 'open')      AS unasked,
+       count(*) FILTER (WHERE status = 'requested') AS unanswered
+FROM processor_erasure_tasks
+WHERE status IN ('open', 'requested') AND opened_at < :cutoff
+"""
+
 #: Every organization, and NOT `callable_tenants()`.
 #:
 #: Reusing the stall probe's tenant list was the obvious move and it is wrong twice over.
@@ -377,10 +401,19 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
     """
     del ctx
     cutoff = datetime.now(UTC) - ERASURE_OVERDUE_AFTER
+    # A LONGER clock than the one above, on purpose. `ERASURE_OVERDUE_AFTER` measures a
+    # job we run ourselves and should take seconds; this measures a vendor answering an
+    # email, and 30 days is the period the DPA clause we are seeking demands of them
+    # (`docs/evidence/subprocessor-erasure-reach.md` §6). One shared cutoff would either
+    # page on day one of a reasonable vendor turnaround or let a lost job sit for a month.
+    processor_cutoff = datetime.now(UTC) - timedelta(days=OVERDUE_AFTER_DAYS)
     total = 0
     tenants_affected = 0
     unreached = 0
     probed = 0
+    unasked = 0
+    unanswered = 0
+    processor_tenants = 0
     truncated = False
     # The wall clock, not a counter — see `ERASURE_PROBE_DEADLINE`. `monotonic` because
     # this measures an ELAPSED interval and `now()` is subject to NTP steps; a clock that
@@ -399,6 +432,14 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                     (await session.execute(text(_OVERDUE_ERASURES), {"cutoff": cutoff})).scalar()
                     or 0
                 )
+                # In the SAME session as the probe above: it is the same tenant, the
+                # same deadline budget and the same RLS scope, so a second walk would
+                # buy nothing but another 16k sessions.
+                stuck = (
+                    await session.execute(
+                        text(_OVERDUE_PROCESSOR_TASKS), {"cutoff": processor_cutoff}
+                    )
+                ).one()
         except Exception:
             log.exception("overdue_erasure_probe_failed", extra={"tenant_id": str(tenant_id)})
             unreached += 1
@@ -406,6 +447,10 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
         if overdue:
             total += overdue
             tenants_affected += 1
+        if stuck.unasked or stuck.unanswered:
+            unasked += int(stuck.unasked or 0)
+            unanswered += int(stuck.unanswered or 0)
+            processor_tenants += 1
     if total or unreached:
         alert(
             "WORKER_STALL",
@@ -421,6 +466,20 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
                     if unreached
                     else ""
                 )
+            ),
+        )
+    if unasked or unanswered:
+        alert(
+            "WORKER_STALL",
+            "processor_erasure_overdue",
+            detail=(
+                f"{unasked + unanswered} vendor-side erasure obligation(s) across "
+                f"{processor_tenants} tenant(s) have been open longer than "
+                f"{OVERDUE_AFTER_DAYS} days: {unasked} never sent to the processor, "
+                f"{unanswered} sent and unanswered. These are NOT stuck jobs and "
+                "re-queueing does nothing — the erasure ran, and a copy the vendor "
+                "publishes no API to delete is still there. "
+                "runbooks/processor-erasure.md"
             ),
         )
     if truncated:
@@ -450,6 +509,7 @@ async def report_overdue_erasures(ctx: dict[str, Any]) -> str:
 
 __all__ = [
     "ERASURE_PROBE_DEADLINE",
+    "_OVERDUE_PROCESSOR_TASKS",
     "dispatch_outbox",
     "report_overdue_erasures",
     "report_stalled_pipeline",

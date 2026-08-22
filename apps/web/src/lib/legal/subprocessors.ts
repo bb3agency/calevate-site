@@ -159,9 +159,10 @@ export const SUBPROCESSORS: LegalDocument = {
               "Runs the application, the background workers and the PostgreSQL database.",
               "Everything held in the database: phone numbers, transcripts, summaries, lead " +
                 "records, account data.",
-              "{{PRIMARY_HOSTING_LOCATION}}. The blueprint does not require India " +
-                "co-location for this tier and nothing has been provisioned, so the " +
-                "location is a decision that must be taken and stated before launch.",
+              "India — {{PRIMARY_HOSTING_LOCATION}}. The blueprint does not require " +
+                "India co-location for this tier, which runs outside the live call path; " +
+                "it was chosen anyway. Nothing has been provisioned yet, because no " +
+                "client data is in production.",
               "Core.",
             ],
             [

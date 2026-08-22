@@ -72,14 +72,16 @@ entire value of this slice is that its output can be trusted as evidence.
 **FINDING — the storage shape `latency_data` would justify** is recorded in
 `STORAGE_SHAPE_FINDING` at the bottom of this file. It is a finding, not a migration.
 
-**FINDING — engine isolation (hard rule 2).** This module reads a VENDOR payload shape,
-which in product code would belong only in `apps/api/engine/`. It lives here because the
-shape is exactly what gate 4 exists to learn: `ExecutionSnapshot` has no `latency_data`
-field and no raw-payload ref, so the payload cannot reach us through the adapter contract
-at all today. The reader below is therefore deliberately shape-TOLERANT (it walks for
-known keys and tolerates their absence) rather than a typed mapping that would encode an
-unverified claim as truth, and it is pilot-scoped: the durable home for a verified reader
-is `apps/api/engine/bolna.py`, and moving it there is part of what gate 4's result buys.
+**ENGINE ISOLATION (hard rule 2) — RESOLVED, and this paragraph used to be a finding.**
+This module walked the VENDOR payload itself, which in product code belongs only in
+`apps/api/engine/`; it was tolerated here because `ExecutionSnapshot` had no latency field
+and the payload could not reach us through the port at all. It can now:
+`apps/api/engine/bolna.py::parse_latency_data` reads it into `CallLatency`, the post-call
+pipeline stores it (`call_engine_latency`, migration `b7d3e91c4a05`), and
+`parse_latency_data` below is a thin projection of that reader onto this module's own
+vocabulary. The shape tolerance, the absent-is-absent rule and the warnings all moved with
+it; what stayed is what only a pilot needs — `call_ref`, `units_note` and the component sum
+the stopwatch comparison is made of.
 """
 
 from __future__ import annotations
@@ -88,6 +90,7 @@ import math
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Literal
 
+from apps.api.engine.bolna import parse_latency_data as parse_call_latency
 from pydantic import BaseModel, Field
 
 # --- vocabulary ---------------------------------------------------------------
@@ -298,101 +301,51 @@ class VendorCallLatency(BaseModel):
         return {t.turn: t for t in self.turns}
 
 
-def _as_float(value: Any) -> float | None:
-    """Absent, non-numeric and boolean all mean ABSENT — never 0."""
-    if value is None or isinstance(value, bool):
-        return None
-    if isinstance(value, int | float):
-        return float(value)
-    return None
-
-
-def _first_turn_value(entry: Any, keys: Sequence[str]) -> float | None:
-    """Read the first present key from a turn entry, tolerating the nested list form.
-
-    The transcriber block nests a `turn_latency` LIST per turn (one entry per
-    incremental refinement of the same utterance). The LAST sequence is the one the
-    orchestrator acted on, so that is the one taken — the earlier ones are guesses the
-    recogniser itself revised.
-    """
-    if not isinstance(entry, Mapping):
-        return None
-    for key in keys:
-        direct = _as_float(entry.get(key))
-        if direct is not None:
-            return direct
-    nested = entry.get("turn_latency")
-    if isinstance(nested, list) and nested:
-        last = nested[-1]
-        if isinstance(last, Mapping):
-            for key in keys:
-                value = _as_float(last.get(key))
-                if value is not None:
-                    return value
-    return None
-
-
-def _turn_number(entry: Any, fallback: int) -> int:
-    if isinstance(entry, Mapping):
-        raw = entry.get("turn")
-        if isinstance(raw, int) and not isinstance(raw, bool):
-            return raw
-    return fallback
-
-
 def parse_latency_data(raw: Mapping[str, Any], *, call_ref: str) -> VendorCallLatency:
     """Read timings out of `latency_data`. Text is dropped, never stored.
 
-    Shape-tolerant by design (see the engine-isolation finding in the module docstring):
-    every block is optional, an unrecognised block becomes a warning rather than an
-    exception, and a missing number stays `None`. On the day, a payload that fails to
-    parse must still leave the ten calls' stopwatch evidence intact.
+    **THE READER LIVES IN THE ADAPTER NOW, AND THIS FUNCTION IS ITS PILOT-SIDE VIEW.** This
+    module used to walk the vendor's payload itself, and the docstring at the top said why
+    that was acceptable — `ExecutionSnapshot` carried no latency field, so the payload could
+    not reach us through the port at all. That is no longer true: `apps/api/engine/bolna.py`
+    parses `latency_data` into `CallLatency` on every snapshot and the post-call pipeline
+    stores it. Two readers of one vendor shape would be the defect CLAUDE.md's "one way per
+    problem" rule names, and `tests/engine_audit_test.py` agrees in as many words — it fails
+    the build on a vendor payload key read outside `apps/api/engine/`, which is exactly what
+    the duplicate walk was.
+
+    WHAT SURVIVES HERE IS THE PILOT'S OWN VOCABULARY: `call_ref` (the gate's ledger key, not
+    a concept the product has), `units_note` (a caveat that belongs in a report, not in a
+    typed column) and `component_sum_ms` (arithmetic only the stopwatch comparison needs).
+    Those are the reasons this type still exists rather than the report reading `CallLatency`
+    directly.
+
+    Shape tolerance, absent-is-absent, last-sequence-wins and the warnings are all the
+    adapter's behaviour now, and the tests below still pin them — through this seam, which
+    is what makes the delegation safe to keep.
     """
-    warnings: list[str] = []
-    ttfa = _as_float(raw.get("time_to_first_audio"))
-    if ttfa is None and "time_to_first_audio" in raw:
-        warnings.append("time_to_first_audio present but not numeric")
-
-    region_raw = raw.get("region")
-    region = _scrub_string(region_raw) if isinstance(region_raw, str) else None
-
-    per_turn: dict[int, dict[str, float | None]] = {}
-    blocks: tuple[tuple[str, str, tuple[str, ...]], ...] = (
-        ("transcriber", "transcriber_ms", ("audio_to_text_latency",)),
-        ("llm", "llm_ttft_ms", ("time_to_first_token",)),
-        ("synthesizer", "tts_ttft_ms", ("time_to_first_token",)),
-    )
-    for block_name, field, keys in blocks:
-        block = raw.get(block_name)
-        if block is None:
-            warnings.append(f"{block_name} block absent")
-            continue
-        if not isinstance(block, Mapping):
-            warnings.append(f"{block_name} block is not an object")
-            continue
-        turns = block.get("turns")
-        if not isinstance(turns, list):
-            warnings.append(f"{block_name}.turns absent or not a list")
-            continue
-        for i, entry in enumerate(turns, start=1):
-            number = _turn_number(entry, i)
-            per_turn.setdefault(number, {})[field] = _first_turn_value(entry, keys)
-
-    parsed = [
-        VendorTurnLatency(
-            turn=number,
-            transcriber_ms=fields.get("transcriber_ms"),
-            llm_ttft_ms=fields.get("llm_ttft_ms"),
-            tts_ttft_ms=fields.get("tts_ttft_ms"),
+    parsed = parse_call_latency(raw)
+    if parsed is None:
+        # The adapter answers None for "no latency object at all". At this seam that is a
+        # payload the gate was handed and could not read, which must announce itself rather
+        # than arrive as a silent empty result.
+        return VendorCallLatency(
+            call_ref=call_ref, warnings=["latency_data absent or not an object"]
         )
-        for number, fields in sorted(per_turn.items())
-    ]
     return VendorCallLatency(
         call_ref=call_ref,
-        time_to_first_audio_ms=ttfa,
-        region=region,
-        turns=parsed,
-        warnings=warnings,
+        time_to_first_audio_ms=parsed.time_to_first_audio_ms,
+        region=parsed.region,
+        turns=[
+            VendorTurnLatency(
+                turn=turn.turn,
+                transcriber_ms=turn.stt_ms,
+                llm_ttft_ms=turn.llm_ttft_ms,
+                tts_ttft_ms=turn.tts_ttfa_ms,
+            )
+            for turn in parsed.turns
+        ],
+        warnings=list(parsed.parse_warnings),
     )
 
 
@@ -1025,24 +978,21 @@ succeeds and the agreement finding is 'agrees':
 OBSERVATIONS_ENV = "CALEVATE_PILOT_GATE4_OBSERVATIONS"
 DEFAULT_OBSERVATIONS_PATH = "docs/evidence/gate4-observations.json"
 
-#: FINDING, reported on every run of this gate: gate 4 asks for `latency_data` from Get
-#: Execution, and our adapter contract still cannot deliver it HERE. `ExecutionSnapshot`
-#: has no `latency_data` field, and the vendor's own document now reaches a worker only as
-#: `raw_document` — opaque bytes for D-126's archive, whose whole design is that nothing
-#: above the adapter reads a field out of it. Parsing one open in this harness to fish out
-#: `latency_data` would be precisely the hard-rule-2 leak the bytes exist to prevent, and
-#: `tests/engine_audit_test.py` fails the tree for it. So executing this half of the gate
-#: still requires either an adapter change (a mapped field, after the shape is verified —
-#: which is what the archive makes cheap: the document is now KEPT, so a real payload can
-#: be read off a live call instead of guessed) or the operator pasting the raw Get
-#: Execution `latency_data` into the observations file. The second is what this module
-#: does, deliberately.
+#: FINDING, reported on every run of this gate — and it is now a SMALLER finding than it
+#: was. The contract carries the measurement: `ExecutionSnapshot.latency` is a
+#: `CallLatency`, the adapter fills it on every snapshot, and the pipeline stores it, so
+#: the vendor half of this gate no longer depends on anybody pasting anything. What still
+#: has to be pasted is the payload FIXTURE — the raw `latency_data` an artefact in
+#: `docs/evidence/` is built from — because the archived vendor document reaches a worker
+#: only as `raw_document`, opaque bytes no caller above the adapter may parse
+#: (`tests/engine_audit_test.py` fails the tree for it), and this harness runs above the
+#: adapter. That is a deliberate cost: the fixture is evidence about a SHAPE, and evidence
+#: about a shape should be produced by a human reading one real payload once.
 ADAPTER_FINDING = (
-    "gate 4's latency_data capture cannot run through the VoiceEngine contract: "
-    "ExecutionSnapshot carries no latency_data, and the raw document it now carries is "
-    "opaque bytes for the archive that no caller above the adapter may parse — so the "
-    "payload is pasted into the observations file by the operator. Mapping the field is a "
-    "decision for after the shape is verified — see STORAGE_SHAPE_FINDING."
+    "the vendor half of gate 4 now runs through the VoiceEngine contract: "
+    "ExecutionSnapshot.latency carries the per-turn timings and the pipeline stores them "
+    "in call_engine_latency. What is still typed in by hand is the raw payload FIXTURE, "
+    "because the archived vendor document is opaque bytes above the adapter (hard rule 2)."
 )
 
 SMALL_N_FINDING = (
@@ -1077,11 +1027,11 @@ def load_gate4_observations(
                     "greeting_delay_ms": 1200, "greeting_method": "stopwatch_human",
                     "turns": [{"turn_index": 1, "voice_to_voice_ms": 1100,
                                "method": "stopwatch_human"}],
-                    "latency_data": { ... raw Get Execution latency_data ... }}]}
+                    "engine_latency": { ... raw Get Execution latency block ... }}]}
 
     `call_ref` is the engine execution id — never the number dialled (hard rule 6).
-    `latency_data` may carry recognised caller text; it is read for timings here and
-    never retained (`parse_latency_data`).
+    The pasted engine latency block may carry recognised caller text; it is read for
+    timings here and never retained (`parse_latency_data`).
     """
     calls = payload.get("calls")
     if not isinstance(calls, list):
@@ -1116,7 +1066,11 @@ def load_gate4_observations(
                     note=entry.get("greeting_note"),
                 )
             )
-        raw = entry.get("latency_data")
+        # `engine_latency`, OUR key for it, and the rename is hard rule 2 rather than
+        # taste: this file's schema is ours, `tests/engine_audit_test.py` fails the build
+        # on a vendor payload key read outside `apps/api/engine/`, and spelling our own
+        # observation key with the vendor's noun was the one place this module still did.
+        raw = entry.get("engine_latency")
         if isinstance(raw, Mapping):
             vendor[ref] = parse_latency_data(raw, call_ref=ref)
     return turns, greetings, vendor

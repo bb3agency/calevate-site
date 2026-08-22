@@ -6,6 +6,7 @@ circular). campaign_id stays a plain UUID until the campaigns table lands in M2.
 """
 
 from datetime import datetime
+from decimal import Decimal
 from uuid import UUID
 
 from calevate_shared.events import CallDirection, CallStatus, Speaker
@@ -16,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -331,3 +333,77 @@ class LeadEvent(PKMixin, TimestampMixin, Base):
     type: Mapped[str] = mapped_column(String, nullable=False)
     payload: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     actor: Mapped[str | None] = mapped_column(Text)
+
+
+class CallEngineLatency(PKMixin, TimestampMixin, Base):
+    """What the ENGINE says its own pipeline cost on one call, per turn.
+
+    **THIS IS NOT `calls.latency` COMING BACK** (migration `f1a7c39d5be2` dropped that
+    column, and `tests/call_latency_column_test.py` keeps it dropped). That column promised
+    `turn_p50`/`turn_p95` — VOICE-TO-VOICE numbers, the interval between the caller
+    finishing a word and the caller hearing audio. Both ends of that interval exist on the
+    PSTN leg, our stack is not in the audio path (D-25/D-33), and nothing could ever have
+    written it honestly. That is still true and this table does not change it.
+
+    What this table holds is a different and genuinely observed quantity: the engine's own
+    per-component timings, which it publishes per execution and which we used to throw
+    away. It is a SEPARATE TABLE rather than columns on `calls` for exactly that reason —
+    the name of the thing is "what the engine reported", and putting it on the call row
+    would let the next reader read it as the call's latency.
+
+    **WHY IT IS WORTH A TABLE NOW.** D-410 pinned the language model to South India while
+    the engine's orchestrator stayed US-hosted
+    (`bolna-findings/mirror/pages/concepts/security.md:29`), so every conversational turn
+    pays a US->India->US round trip inside a 350ms budget (TRD §4). Nobody has measured it;
+    `llm_ttft_ms` per turn, grouped by `region`, is the measurement. Two pilot calls — one
+    on the South India deployment, one on a US one — settle OPERATIONS §2 gate 4 by
+    arithmetic instead of by argument.
+
+    **ONE REPRESENTATION, NO AGGREGATES.** No stored p50, p95, breach count or turn count:
+    every one of them is `jsonb_array_elements(turns)` away, and a denormalized statistic
+    beside the samples it summarizes is a number that can disagree with its own evidence
+    (the argument `quality.QaReport` makes about not storing rendered Markdown beside the
+    computation). `apps/api/ops/engine_latency.py` is the one place the arithmetic lives.
+
+    **NOTHING HERE IS PERSONAL DATA and the schema is what guarantees it** (hard rule 6).
+    The vendor reports recognised caller speech beside these timings; `CallLatency` has no
+    field for text, `turns` accepts only the four numeric keys, and the CHECK constraint in
+    the migration refuses an array element that is not an object of numbers. A DPDP erasure
+    still reaches this row the ordinary way — `call_id` is `ON DELETE CASCADE`, so the row
+    cannot outlive the call it describes.
+    """
+
+    __tablename__ = "call_engine_latency"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    #: UNIQUE: one row per call. The post-call pipeline re-runs on every re-drive and the
+    #: reconciliation poller can drive it a second time, so the write is an upsert onto
+    #: this constraint — a second run must replace the measurement, never append a second
+    #: one that would double every turn in the distribution.
+    call_id: Mapped[UUID] = mapped_column(
+        ForeignKey("calls.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    #: OUR name for the adapter (`ExecutionSnapshot.engine`), never a vendor product name.
+    #: Stored because the numbers are not comparable across engines and a distribution
+    #: mixing two of them would be meaningless.
+    engine: Mapped[str] = mapped_column(String, nullable=False)
+    #: Where the engine says it ran (`in`, `us`, ...). NULL = it did not say. THE COLUMN
+    #: THE GATE GROUPS BY — with it the geography question is a `GROUP BY`, without it the
+    #: two pilot calls are two numbers nobody can attribute.
+    region: Mapped[str | None] = mapped_column(String)
+    #: End of the caller's utterance -> start of the agent's audio, as the ENGINE measures
+    #: it. NUMERIC rather than float: it is compared and aggregated, and this repo does not
+    #: keep two numeric habits.
+    time_to_first_audio_ms: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    #: `[{"turn": 1, "stt_ms": ..., "llm_ttft_ms": ..., "tts_ttfa_ms": ...}, ...]` —
+    #: `calevate_shared.engine.TurnLatency`, dumped. An empty array is legitimate and
+    #: means the engine returned a latency object with no readable turns in it;
+    #: `parse_warnings` then says why, which is a different fact from "no object at all"
+    #: (that writes no row).
+    turns: Mapped[list[dict[str, object]]] = mapped_column(JSONB, nullable=False)
+    #: What the adapter could not read, in OUR words — never a vendor message. NULL when
+    #: the payload parsed cleanly, so a warning is visible as a warning rather than as an
+    #: empty list nobody looks inside.
+    parse_warnings: Mapped[list[str] | None] = mapped_column(JSONB)

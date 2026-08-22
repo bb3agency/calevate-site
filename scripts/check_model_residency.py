@@ -1,5 +1,34 @@
-"""Guardrail: this tree cannot construct an Azure OpenAI endpoint except through the one
-builder, and the region it is pinned to has exactly one spelling in code (D-410).
+"""Guardrail: this tree cannot construct a model endpoint except through the one builder
+its DECLARED residency posture names, and the region that posture pins has exactly one
+spelling in code (D-410, made a declared choice by D-432).
+
+**WHAT D-432 CHANGED, IN ONE PARAGRAPH.** Until D-432 the India posture was not declared
+anywhere: it was IMPLIED by about thirty files agreeing with each other — a `Final` region,
+a provider `Literal`, a builder, four settings, two price tables, a console panel and two
+guards. Nothing named the decision, so nothing could check the pieces still agreed, and
+changing it was a refactor nobody would attempt. That is not a decision that has been made;
+it is one frozen by accident, with the freezing mistaken for rigour. So the posture is now a
+NAME declared once in source (`DECLARED_POSTURE_NAME` in `CONTRACT`), and `POSTURES` below —
+written HERE, never imported from there — says what each name OBLIGES the tree to look like.
+The mechanism is the COMPARISON of two independent statements, which is strictly more than
+the tree could prove before, because before there was nothing to disagree with:
+
+* **check 0** (`declaration_failures`) fails when the DECLARATION drifts from the code — the
+  one-line direction, and therefore the likely one. An unknown posture name is a hard
+  failure; so is a `DECLARED_POSTURE` record whose `region`, `llm_provider` or
+  `addresses_a_deployment` says something the declared posture's spec does not.
+* **checks 1-4** fail when the CODE drifts from the declaration. Each is now stated over the
+  declared spec rather than over Azure: under `india-azure-openai` they are
+  character-for-character D-410's checks; under a posture pinning no region they INVERT and
+  require that no shipped constant freezes one at all.
+
+**IT IS NOT A KNOB AND MUST NEVER BECOME ONE.** The declaration is a `Final` string literal
+in the portability contract. It is not a `Settings` field, not an environment variable and
+not a `platform_config` row — check 2 refuses any settings name carrying `posture`,
+`residency`, `region` or `location`, and check 0 refuses a declaration that is not a bare
+`Final` literal in `CONTRACT`. D-95 §4 is unchanged: a residency posture invertible from a
+web form at 3am is not a posture. What D-432 bought is that changing it is a small reviewed
+commit plus a decision-log entry instead of a thirty-file refactor — not that it is cheap.
 
 **THIS CHECK CHANGED JOB AT D-410 AND IS WEAKER THAN IT WAS. THAT IS RECORDED HERE RATHER
 THAN PAPERED OVER, BECAUSE A GUARD THAT QUIETLY CHECKS LESS THAN IT USED TO WHILE STILL
@@ -202,6 +231,136 @@ OPENAI_DIRECT_HOST: Final = "api.openai.com"
 #: thing standing in the way, and that the stronger branch is tested before it is needed.
 REGIONAL_HOST_ADOPTED: Final = False
 
+
+# --- 0: WHICH POSTURE IS DECLARED (D-432) -------------------------------------
+#
+# Before D-432 the India posture was not declared anywhere. It was IMPLIED by ~30 files
+# agreeing with each other, so nothing could check that they still agreed and changing it
+# was a refactor nobody would attempt — a decision frozen by accident, with the freezing
+# mistaken for rigour. The posture is now a NAME in source (`CONTRACT`'s
+# `DECLARED_POSTURE_NAME`) and the table below is what each name OBLIGES the tree to look
+# like. The two statements are independent and are COMPARED, which is what makes this
+# mechanism stronger than the hard-wiring it replaced rather than a flag the guard shrugs
+# at: checks 1-4 fail when the code drifts from the declaration, and check 0 fails when
+# the declaration drifts from the code.
+
+#: The portability contract: where the declaration lives and where the builder lives.
+#: A separate name from `BUILDER_HOME` even though they are the same path today, because
+#: they are two different obligations — a posture that moved its builder would still have
+#: to declare itself here.
+CONTRACT: Final = "packages/shared/src/calevate_shared/engine.py"
+
+#: The `Final` that NAMES the posture, and the record built from it that the RUNTIME reads.
+DECLARATION_CONSTANT: Final = "DECLARED_POSTURE_NAME"
+POSTURE_RECORD_CONSTANT: Final = "DECLARED_POSTURE"
+
+
+@dataclass(frozen=True)
+class PostureSpec:
+    """What one declared posture obliges the tree to look like.
+
+    HELD HERE AND NEVER IMPORTED FROM THE CONTRACT, for `AZURE_REGION`'s reason and more
+    sharply. The contract states which posture is in force; this table states what that
+    posture costs. If the spec were imported, editing the declaration would edit the
+    obligation in the same commit and the guard would agree with any tree it was shown —
+    the "reads a flag and shrugs" failure this mechanism exists to avoid.
+
+    ADDING A POSTURE IS DELIBERATELY NOT FREE. A name this table does not know is a hard
+    failure, so a new posture is a spec written HERE by somebody who has had to say, in
+    advance and in one place, what would PROVE the tree is really in it — plus a
+    decision-log entry. That is the reviewed change D-432 traded a thirty-file refactor
+    for; it is not a smaller version of the same freeze.
+    """
+
+    #: The declared name, carried on the record as well as being the `POSTURES` key so a
+    #: failure message can say WHICH posture refused rather than describing it.
+    name: str
+    #: The region this posture PINS, or `None` for one making no regional claim.
+    region: str | None
+    #: The single frozen constant permitted to spell it. `None` means the guard requires
+    #: that NO shipped constant spells a region at all — so a leftover `AZURE_LOCATION`
+    #: cannot sit in a tree whose declaration has moved on.
+    region_constant: str | None
+    #: Our closed vocabulary's member for this leg (`calevate_shared.engine.LlmProvider`).
+    llm_provider: str
+    #: Does the API address a DEPLOYMENT id the operator chose rather than the model's own
+    #: name? Cross-checked against the declared record because it is the field a reader
+    #: would call cosmetic, and it is what decides whether `azure_openai_deployment` and
+    #: `azure_openai_model` are two things or one (`engine.ModelBinding`).
+    addresses_a_deployment: bool
+    #: The ONE function permitted to build this posture's endpoint, and how many arguments
+    #: it may take. Zero means a fixed vendor endpoint with no caller input — and with no
+    #: caller input there is no hostile label to refuse, which is why the DNS-label refusal
+    #: is required only above arity zero.
+    builder: str
+    builder_arity: int
+    #: The one literal in the tree permitted to name this posture's host: only in
+    #: `BUILDER_HOME`, only as a `Final`, and only this exact string.
+    builder_suffix: str
+    #: The watched host this posture may name at all. Every other watched host is refused.
+    permitted_host: str
+    #: `(constant, word)` that must share a line in `OPERATIONS_DOC`, naming the human gate
+    #: that owns what this check cannot prove. `None` for a posture that delegates nothing
+    #: — itself a claim the spec has to make out loud rather than by omission.
+    delegated_gate: tuple[str, str] | None
+    #: One line printed on every run saying what a green result does and does not mean.
+    warrant: str
+
+
+#: EVERY POSTURE THIS TREE KNOWS HOW TO CHECK. Exactly one of them is declared.
+#:
+#: `openai-direct` IS HERE AND IT IS NOT AN OFFER. It is the posture D-410 DISQUALIFIED on
+#: residency (OpenAI's India residency covers storage at rest; inference runs in the US, and
+#: for a phone call the transcript IS the inference input), and it earns its row for one
+#: reason: a mechanism that can only express the posture already in force proves nothing
+#: about the posture already in force. With a second spec present,
+#: `tests/residency_posture_test.py` declares it over the REAL tree and watches this guard
+#: refuse — which turns "the guard fails when code and declaration disagree" from a design
+#: intention into an observed fact. Declaring it for real would also have to change
+#: `apps/web/src/lib/legal/dpa.ts`, which warrants the India posture to clients in an
+#: executed agreement; that is a legal act, not a config change.
+POSTURES: Final[dict[str, PostureSpec]] = {
+    "india-azure-openai": PostureSpec(
+        name="india-azure-openai",
+        region=AZURE_REGION,
+        region_constant=REGION_CONSTANT,
+        llm_provider="azure_openai",
+        addresses_a_deployment=True,
+        builder=BUILDER,
+        builder_arity=1,
+        builder_suffix=BUILDER_SUFFIX,
+        permitted_host=AZURE_HOST_SUFFIX,
+        delegated_gate=(REGION_CONSTANT, "portal"),
+        warrant=(
+            "the region is spelled once, no Settings field can carry one, no Azure "
+            "endpoint is constructible outside the one builder, and that builder has no "
+            "region input"
+        ),
+    ),
+    "openai-direct": PostureSpec(
+        name="openai-direct",
+        region=None,
+        region_constant=None,
+        llm_provider="openai",
+        addresses_a_deployment=False,
+        builder="openai_base_url",
+        builder_arity=0,
+        # An f-string, so this file does not itself spell a watched host outside
+        # `SELF_DECLARATIONS` — `_render` turns it into `https://{OPENAI_DIRECT_HOST}/v1`,
+        # which mentions no host, while the VALUE is the literal the tree would have to
+        # carry. The same trick the docstring exemption would otherwise have to grow for.
+        builder_suffix=f"https://{OPENAI_DIRECT_HOST}/v1",
+        permitted_host=OPENAI_DIRECT_HOST,
+        delegated_gate=None,
+        warrant=(
+            "NO REGIONAL CLAIM IS MADE OR CHECKABLE under this posture — inference runs "
+            "where the vendor runs it. What is still proved is one endpoint constructor, "
+            "one literal naming it, and no Settings field able to carry a region or an "
+            "endpoint"
+        ),
+    ),
+}
+
 #: Where a URL literal can ship. `scripts/` is in for `sarvam_model_identifier_test`'s
 #: reason: `scripts/pilot/` drives a real vendor account and reads like a fixture.
 SCANNED_TREES: Final[tuple[str, ...]] = ("apps", "packages", "scripts")
@@ -256,6 +415,11 @@ REGION_KNOB_FRAGMENTS: Final[tuple[str, ...]] = (
     "location",
     "residency",
     "datacenter",
+    # D-432: the DECLARED POSTURE is source, never configuration. A field called
+    # `llm_posture` would invert the residency decision from a text box, which is the one
+    # thing the declaration mechanism must never become — so the word joins the list the
+    # day the concept exists rather than the day somebody tries it.
+    "posture",
 )
 
 #: Fragment PAIRS that would make a `Settings` field a hand-typed Azure endpoint: a name
@@ -480,7 +644,7 @@ def _host_definition(template: str) -> bool:
     return template in SELF_DECLARATIONS
 
 
-def _is_builder_suffix(reference: Reference) -> bool:
+def _is_builder_suffix(reference: Reference, spec: PostureSpec) -> bool:
     """The ONE literal in the tree allowed to name an Azure host: the builder's suffix.
 
     THREE CONDITIONS, ALL OF THEM, and each one is load bearing. The right FILE, because
@@ -489,7 +653,9 @@ def _is_builder_suffix(reference: Reference) -> bool:
     wearing the exemption. And `Final`, because a rebindable module global is a knob.
     """
     return (
-        reference.path == BUILDER_HOME and reference.template == BUILDER_SUFFIX and reference.frozen
+        reference.path == BUILDER_HOME
+        and reference.template == spec.builder_suffix
+        and reference.frozen
     )
 
 
@@ -516,6 +682,171 @@ def endpoint_references(roots: Iterable[Path] | None = None) -> list[Reference]:
 def template_count(roots: Iterable[Path] | None = None) -> int:
     """How many string templates the Python half parsed — check 5's first half."""
     return sum(1 for path in _files(roots, frozenset({".py"})) for _ in _templates(path))
+
+
+def _final_string_constants(name: str, roots: Iterable[Path] | None = None) -> list[Reference]:
+    """Every `<name>: Final = "<literal>"` in the tree, carrying its value as the template.
+
+    A `Reference` rather than a bespoke tuple, because the thing being reported is exactly
+    what `Reference` already reports — a path, a line and a string — and a second shape for
+    it is a second `__str__` in the failure messages.
+    """
+    found: list[Reference] = []
+    for path in _files(roots, frozenset({".py"})):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == name
+                and node.value is not None
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+                and _is_final(node.annotation)
+            ):
+                found.append(Reference(_rel(path), node.lineno, node.value.value, frozen=True))
+    return found
+
+
+def declared_posture_name(
+    found: Iterable[Reference] | None = None,
+) -> tuple[str | None, list[str]]:
+    """WHICH posture this tree declares, plus the failures that make the answer unusable.
+
+    Read from the AST rather than imported, per this file's not-imported doctrine. The
+    declaration must be a bare `Final` string literal in `CONTRACT` and there must be
+    exactly one of it in the tree: a second one is a second answer to where this product's
+    models run, which is the defect check 1 exists for one level down.
+    """
+    references = list(_final_string_constants(DECLARATION_CONSTANT) if found is None else found)
+    if not references:
+        return None, [
+            f'no module declares `{DECLARATION_CONSTANT}: Final = "<posture>"`. Since D-432 '
+            "the residency posture is a DECLARED name in source, not something a reader "
+            "infers from thirty files agreeing with each other — without it this check does "
+            "not know which body of rules it is enforcing, and a guard that does not know "
+            "what it is checking has verified nothing."
+        ]
+    if len(references) > 1:
+        return None, [
+            f"`{DECLARATION_CONSTANT}` is declared in more than one place: "
+            f"{[str(reference) for reference in references]}. There is one posture; a "
+            "second declaration is a second answer, and nothing downstream would notice "
+            "the day they stopped agreeing."
+        ]
+    only = references[0]
+    if only.path != CONTRACT:
+        return None, [
+            f"`{DECLARATION_CONSTANT}` is declared in {only.path}, not in {CONTRACT}. The "
+            "declaration belongs in the portability contract beside the builder it governs "
+            "— that is where a reader checking residency looks, and where the runtime reads "
+            "it from."
+        ]
+    return only.template, []
+
+
+def _declared_record(source: str) -> dict[str, object] | None:
+    """The keyword arguments of `DECLARED_POSTURE: Final = ResidencyPosture(...)`.
+
+    Constants come back as their VALUES; anything else comes back as its unparsed SOURCE,
+    because "the region came from `AZURE_LOCATION`" and "the region came from a literal
+    beside it" are the same string to a value check and are not the same fact — the
+    identical argument `_render` makes for f-string holes.
+    """
+    for node in ast.walk(ast.parse(source)):
+        if (
+            not isinstance(node, ast.AnnAssign)
+            or not isinstance(node.target, ast.Name)
+            or node.target.id != POSTURE_RECORD_CONSTANT
+            or node.value is None
+        ):
+            continue
+        if not _is_final(node.annotation) or not isinstance(node.value, ast.Call):
+            return None
+        fields: dict[str, object] = {}
+        for keyword in node.value.keywords:
+            if keyword.arg is None:
+                continue
+            value = keyword.value
+            fields[keyword.arg] = (
+                value.value if isinstance(value, ast.Constant) else ast.unparse(value)
+            )
+        return fields
+    return None
+
+
+def declaration_failures(
+    name: str, record: dict[str, object] | None = None, spec: PostureSpec | None = None
+) -> list[str]:
+    """Check 0: the declared name is one this guard knows, and the RECORD built from it says
+    what that posture is supposed to say.
+
+    THIS IS THE HALF THAT FAILS WHEN THE DECLARATION DRIFTS FROM THE CODE. Checks 1-4 fail
+    when the code drifts from the declaration; this fails when somebody edits the
+    declaration to describe a tree that has not moved — the cheaper and therefore likelier
+    direction, because it is one line. `region=AZURE_LOCATION` under a posture that makes no
+    regional claim, or `llm_provider="azure_openai"` under one that does not run on Azure,
+    is a tree in two states at once and is refused here by name.
+    """
+    known = POSTURES.get(name) if spec is None else spec
+    if known is None:
+        return [
+            f"the declared residency posture {name!r} is not one this check knows (known: "
+            f"{sorted(POSTURES)}). A posture arrives as a `PostureSpec` in {SELF} saying "
+            "what would PROVE the tree is really in it, plus a decision-log entry — never "
+            "as a name the guard shrugs at. An unknown name is the one input that would let "
+            "this whole mechanism be bypassed with a single word."
+        ]
+    fields = (
+        _declared_record((REPO_ROOT / CONTRACT).read_text(encoding="utf-8"))
+        if record is None
+        else record
+    )
+    if fields is None:
+        return [
+            f"{CONTRACT} declares no `{POSTURE_RECORD_CONSTANT}: Final = ResidencyPosture("
+            "...)` this check can read. The name alone is not the posture — the record is "
+            "what the RUNTIME reads (`agents.service.in_call_llm`, `engine.bind_model`), so "
+            "a name with no record beside it is a declaration nothing obeys."
+        ]
+    expected: dict[str, object] = {
+        "name": DECLARATION_CONSTANT,
+        "llm_provider": known.llm_provider,
+        "region": known.region_constant,
+        "addresses_a_deployment": known.addresses_a_deployment,
+    }
+    failures: list[str] = []
+    for field, want in sorted(expected.items()):
+        got = fields.get(field, "<absent>")
+        if got != want:
+            failures.append(
+                f"{CONTRACT}'s `{POSTURE_RECORD_CONSTANT}` declares {field}={got!r} but "
+                f"posture {name!r} requires {want!r}. The declaration and the code are in "
+                f"two different postures at once. Fix whichever is wrong DELIBERATELY: if "
+                f"the tree really moved, the `PostureSpec` in {SELF} and a decision-log "
+                "entry move with it; if only this line moved, it is a residency change made "
+                "by accident."
+            )
+    return failures
+
+
+def declared_spec() -> PostureSpec:
+    """The spec every check below defaults to.
+
+    RAISES rather than falling back to a default posture, and the absence of a fallback is
+    the point: "which posture is this tree in" has no safe default answer, and a guard that
+    invented one would enforce a posture nobody declared. `main()` resolves the declaration
+    FIRST and returns before any check runs, so in the shipped path this cannot fire; it is
+    reachable only by calling a check directly against a tree whose declaration is broken,
+    which is what `tests/residency_posture_test.py` does to it.
+    """
+    name, failures = declared_posture_name()
+    if name is None or name not in POSTURES:
+        raise RuntimeError(
+            "the residency posture cannot be resolved, so no check below knows what it is "
+            f"enforcing: {failures or [f'unknown posture {name!r}']}"
+        )
+    return POSTURES[name]
 
 
 # --- 1: one spelling of the region --------------------------------------------
@@ -568,7 +899,9 @@ def loose_region_literals(roots: Iterable[Path] | None = None) -> list[str]:
     return failures
 
 
-def single_spelling_failures(constants: Mapping[str, str] | None = None) -> list[str]:
+def single_spelling_failures(
+    constants: Mapping[str, str] | None = None, spec: PostureSpec | None = None
+) -> list[str]:
     """Check 1, second half: outside this guard, `AZURE_LOCATION` in the portability
     contract is the ONLY frozen constant holding the region.
 
@@ -582,20 +915,38 @@ def single_spelling_failures(constants: Mapping[str, str] | None = None) -> list
     `SELF` is excluded because this file spells the region as its own canary (see
     `AZURE_REGION`), which is the not-imported doctrine and not a second decision.
     """
+    posture = declared_spec() if spec is None else spec
     found = frozen_region_constants() if constants is None else constants
     shipped = {name: home for name, home in found.items() if home != SELF}
-    if shipped == {REGION_CONSTANT: BUILDER_HOME}:
+    # THE INVERSION D-432 ADDED, and it is the half that makes the declaration mean
+    # something. Under a posture that PINS a region there must be exactly one frozen
+    # constant spelling it, in the contract. Under a posture that pins NONE there must be
+    # ZERO — a leftover `AZURE_LOCATION` in a tree whose declaration has moved on is a
+    # residency claim the product is no longer making, still sitting in the source a
+    # reader (or an auditor) would check it against.
+    if posture.region_constant is None:
+        if not shipped:
+            return []
+        return [
+            f"posture {posture.name!r} pins no region, but shipped code still "
+            f"freezes one: {sorted(shipped.items())}. A region constant under a posture "
+            "that makes no regional claim is a promise nothing keeps. Delete it, or "
+            "declare the posture that actually holds."
+        ]
+    if shipped == {posture.region_constant: BUILDER_HOME}:
         return []
     if not shipped:
         return [
-            f"no shipped module defines `{REGION_CONSTANT}: Final = {AZURE_REGION!r}`. The "
+            f"no shipped module defines `{posture.region_constant}: Final = "
+            f"{posture.region!r}`. The "
             "region is the one residency fact this tree still states; if it has moved, "
             f"point `REGION_CONSTANT`/`BUILDER_HOME` at its new home deliberately, "
             "because every other check here reads it."
         ]
     return [
         f"the region {AZURE_REGION!r} is frozen in more than one place, or somewhere other "
-        f"than `{REGION_CONSTANT}` in {BUILDER_HOME}: {sorted(shipped.items())}. D-410 "
+        f"than `{posture.region_constant}` in {BUILDER_HOME}: {sorted(shipped.items())}. "
+        "D-410 "
         "permits ONE spelling. Two constants holding the same region is two answers to "
         "where this product's models run, and — unlike under D-127 — no URL in this tree "
         "would reveal the day they stop agreeing."
@@ -633,6 +984,7 @@ def endpoint_failures(
     references: Iterable[Reference],
     frozen: Mapping[str, str] | None = None,
     allowances: Mapping[str, DatedAllowance] | None = None,
+    spec: PostureSpec | None = None,
 ) -> list[str]:
     """Check 3 over the literals the scan found, plus the two hosts that are refused outright.
 
@@ -643,6 +995,7 @@ def endpoint_failures(
     parameter the restored region check reads, and deleting it would make adopting the
     regional hostname a signature change in four places instead of one flag.
     """
+    posture = declared_spec() if spec is None else spec
     constants = frozen_region_constants() if frozen is None else frozen
     permitted = ALLOWANCES if allowances is None else allowances
     failures: list[str] = []
@@ -650,8 +1003,15 @@ def endpoint_failures(
     for reference in references:
         allowed = permitted.get(reference.path)
 
-        if OPENAI_DIRECT_HOST in reference.template and (
-            allowed is None or allowed.host != OPENAI_DIRECT_HOST
+        # The OpenAI-direct ban is POSTURE-CONDITIONAL since D-432 and nothing else about
+        # it moved. Under the declared India posture it is exactly the ban D-410 wrote.
+        # Under a posture whose permitted host IS `api.openai.com` it would be banning the
+        # endpoint the product runs on — so it stands down there and the single-literal
+        # rule below takes over, which is the same rule Azure gets, not a weaker one.
+        if (
+            posture.permitted_host != OPENAI_DIRECT_HOST
+            and OPENAI_DIRECT_HOST in reference.template
+            and (allowed is None or allowed.host != OPENAI_DIRECT_HOST)
         ):
             failures.append(
                 f"{reference} names {OPENAI_DIRECT_HOST} — OpenAI's own API, which D-410 "
@@ -686,16 +1046,32 @@ def endpoint_failures(
                     "residency change, not a config change."
                 )
 
-        if AZURE_HOST_SUFFIX not in reference.template:
+        # THE SINGLE-LITERAL RULE, now stated over the DECLARED posture's host rather
+        # than over Azure's. Two things follow, and the second is the one that makes the
+        # declaration bite: under India this is character-for-character the D-410 check,
+        # and under any other declared posture the Azure suffix stops being permitted AT
+        # ALL — including in the contract — so a tree that still builds Azure endpoints
+        # cannot quietly wear a declaration that says it does not.
+        if AZURE_HOST_SUFFIX in reference.template and posture.permitted_host != AZURE_HOST_SUFFIX:
+            failures.append(
+                f"{reference} names {AZURE_HOST_SUFFIX}, but the declared posture builds "
+                f"its endpoint with {posture.builder}() and permits only "
+                f"{posture.permitted_host}. Either the tree has not been moved to the "
+                "posture it declares, or the declaration was edited without the tree. "
+                "Both are residency changes; neither is a tidy-up."
+            )
             continue
-        if _is_builder_suffix(reference):
+        if posture.permitted_host not in reference.template:
             continue
-        if allowed is not None and allowed.host == AZURE_HOST_SUFFIX:
+        if _is_builder_suffix(reference, posture):
+            continue
+        if allowed is not None and allowed.host == posture.permitted_host:
             continue
         failures.append(
             f"{reference} builds an Azure OpenAI endpoint by hand. Exactly ONE literal in "
-            f"this tree may name {AZURE_HOST_SUFFIX} — the `Final` suffix "
-            f"{BUILDER_SUFFIX!r} in {BUILDER_HOME}, which {BUILDER}() assembles — and "
+            f"this tree may name {posture.permitted_host} — the `Final` suffix "
+            f"{posture.builder_suffix!r} in {BUILDER_HOME}, which {posture.builder}() "
+            "assembles — and "
             "every other caller goes through that function. This is not tidiness: the "
             "resource name lands at the FRONT of the authority, so a hand-written "
             f"f-string is where `https://evil.example/x{AZURE_HOST_SUFFIX}/openai/v1` "
@@ -831,7 +1207,7 @@ def _is_pattern_guarded_raise(node: ast.AST, arguments: set[str]) -> bool:
     return False
 
 
-def builder_failures(source: str | None = None) -> list[str]:
+def builder_failures(source: str | None = None, spec: PostureSpec | None = None) -> list[str]:
     """Check 4, read off `azure_openai_base_url` itself.
 
     THE CHECK THAT REPLACED "the region in the URL is Mumbai", and it answers a different
@@ -863,6 +1239,7 @@ def builder_failures(source: str | None = None) -> list[str]:
     `source` is injectable so the negative controls can hand it a builder that has grown a
     `location=` parameter, which the real file cannot be made to do without editing it.
     """
+    posture = declared_spec() if spec is None else spec
     text = (REPO_ROOT / BUILDER_HOME).read_text(encoding="utf-8") if source is None else source
     tree = ast.parse(text)
     frozen_names = {
@@ -876,14 +1253,15 @@ def builder_failures(source: str | None = None) -> list[str]:
         (
             node
             for node in ast.walk(tree)
-            if isinstance(node, ast.FunctionDef) and node.name == BUILDER
+            if isinstance(node, ast.FunctionDef) and node.name == posture.builder
         ),
         None,
     )
     if builder is None:
         return [
-            f"{BUILDER_HOME} defines no `{BUILDER}()`. It is the ONE constructor for an "
-            "Azure OpenAI endpoint and the thing check 3's single exemption is granted "
+            f"{BUILDER_HOME} defines no `{posture.builder}()`. It is the ONE constructor "
+            f"posture {posture.name!r} permits for a model endpoint, and the thing "
+            "check 3's single exemption is granted "
             "for; if it has been renamed or moved, this file has to be pointed at it "
             "deliberately, because a guard that cannot find its subject has verified "
             "nothing."
@@ -897,17 +1275,19 @@ def builder_failures(source: str | None = None) -> list[str]:
         extra.append(f"*{arguments.vararg.arg}")
     if arguments.kwarg is not None:
         extra.append(f"**{arguments.kwarg.arg}")
-    if len(positional) != 1 or extra:
+    if len(positional) != posture.builder_arity or extra:
         failures.append(
-            f"{BUILDER}() takes {positional + extra} — it must take exactly one argument, "
-            "the resource name. Every extra parameter is a way for a caller to vary the "
+            f"{posture.builder}() takes {positional + extra} — the declared posture "
+            f"permits exactly {posture.builder_arity}. Every extra parameter is a way for a "
+            "caller to vary the "
             "endpoint, and the endpoint is the only thing standing between our "
             "configuration and where a third party sends a client's caller's words."
         )
     for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs):
         if any(fragment in argument.arg.lower() for fragment in REGION_KNOB_FRAGMENTS):
             failures.append(
-                f"{BUILDER}() takes a parameter named {argument.arg!r}. The builder must "
+                f"{posture.builder}() takes a parameter named {argument.arg!r}. The builder "
+                "must "
                 "have NO region input at all — that absence is the whole of check 4, "
                 f"because `{REGION_CONSTANT}` cannot be the only spelling of the region if "
                 "a caller can pass another one. Azure's endpoint has nowhere to put a "
@@ -915,16 +1295,24 @@ def builder_failures(source: str | None = None) -> list[str]:
                 "absence."
             )
 
-    if not any(isinstance(node, ast.Raise) for node in ast.walk(builder)):
+    # THE DNS-LABEL REFUSAL IS REQUIRED ONLY WHERE THERE IS A CALLER INPUT TO REFUSE.
+    # It exists because Azure puts the caller's resource at the FRONT of the authority; a
+    # posture whose builder takes no argument has no hostile label to interpolate, and
+    # demanding a raise there would be a check with no failure mode.
+    if posture.builder_arity and not any(isinstance(node, ast.Raise) for node in ast.walk(builder)):
         failures.append(
-            f"{BUILDER}() never raises. It must REFUSE a resource that is not a single DNS "
+            f"{posture.builder}() never raises. It must REFUSE a resource that is not a "
+            "single DNS "
             "label rather than interpolate it: the resource lands at the front of the "
             f"authority, so `https://evil.example/x{AZURE_HOST_SUFFIX}/openai/v1` is a URL "
             "whose HOST is an attacker's and whose tail merely reads like ours."
         )
-    elif not any(_is_pattern_guarded_raise(node, set(positional)) for node in ast.walk(builder)):
+    elif posture.builder_arity and not any(
+        _is_pattern_guarded_raise(node, set(positional)) for node in ast.walk(builder)
+    ):
         failures.append(
-            f"{BUILDER}() raises, but not behind a pattern match on {positional}. A refusal "
+            f"{posture.builder}() raises, but not behind a pattern match on {positional}. A "
+            "refusal "
             "conditioned on emptiness or on `None` accepts `evil.example/x`, which is the "
             "only input that matters — the resource becomes the first label of the "
             "hostname, so what has to be checked is its SHAPE, against a regex, not its "
@@ -935,7 +1323,7 @@ def builder_failures(source: str | None = None) -> list[str]:
 
     returns = [node for node in ast.walk(builder) if isinstance(node, ast.Return)]
     if not returns:
-        failures.append(f"{BUILDER}() returns nothing this check can read.")
+        failures.append(f"{posture.builder}() returns nothing this check can read.")
     permitted_holes = set(positional) | frozen_names
     for statement in returns:
         value = statement.value
@@ -943,7 +1331,8 @@ def builder_failures(source: str | None = None) -> list[str]:
             continue
         if not isinstance(value, ast.JoinedStr):
             failures.append(
-                f"{BUILDER}() line {statement.lineno} returns an expression that is not a "
+                f"{posture.builder}() line {statement.lineno} returns an expression that is "
+                "not a "
                 "string template, so this check cannot tell what URL it produces. Build "
                 "the endpoint as one f-string over the argument and module `Final`s — a "
                 "constructor whose output is unreadable from the AST is a constructor "
@@ -956,7 +1345,8 @@ def builder_failures(source: str | None = None) -> list[str]:
             hole = ast.unparse(piece.value)
             if hole not in permitted_holes:
                 failures.append(
-                    f"{BUILDER}() line {statement.lineno} interpolates {hole!r} into the "
+                    f"{posture.builder}() line {statement.lineno} interpolates {hole!r} "
+                    "into the "
                     f"endpoint. Only the resource argument and module-level `Final`s may "
                     f"appear (known: {sorted(permitted_holes)}). Anything else is a value "
                     "computed at runtime, which is exactly the shape this file says under "
@@ -974,8 +1364,12 @@ MINIMUM_TEMPLATES: Final = 200
 
 
 def blindness_failures(
-    templates: int, constants: Mapping[str, str], references: Iterable[Reference]
+    templates: int,
+    constants: Mapping[str, str],
+    references: Iterable[Reference],
+    spec: PostureSpec | None = None,
 ) -> list[str]:
+    posture = declared_spec() if spec is None else spec
     failures: list[str] = []
     if templates < MINIMUM_TEMPLATES:
         failures.append(
@@ -989,9 +1383,14 @@ def blindness_failures(
             "— which is the state in which checks 1 and 3 silently accept nothing and "
             "reject everything, or the reverse. Fix `frozen_region_constants`."
         )
-    if REGION_CONSTANT not in constants:
+    # The SUBJECT canary is posture-conditional: under a posture that pins no region
+    # there is no region constant to find, and its ABSENCE is what
+    # `single_spelling_failures` requires instead. Asserting presence unconditionally
+    # would make the guard demand a residency claim the declaration does not make.
+    if posture.region_constant is not None and posture.region_constant not in constants:
         failures.append(
-            f"the scan cannot find `{REGION_CONSTANT}: Final` in shipped code. That is the "
+            f"the scan cannot find `{posture.region_constant}: Final` in shipped code. That "
+            "is the "
             "SUBJECT canary rather than the parse canary: `AZURE_REGION` above proves this "
             "file can still read a `Final`, and this proves there is still a residency "
             "decision in the tree for it to be reading."
@@ -1025,7 +1424,7 @@ DELEGATED_NOTICE: Final = (
 )
 
 
-def delegation_failures(document: str | None = None) -> list[str]:
+def delegation_failures(document: str | None = None, spec: PostureSpec | None = None) -> list[str]:
     """Check 6: the fact this guard gave up is written down somewhere a human owns it.
 
     WHY A GUARDRAIL CHECKS A DOCUMENT. Because the failure this whole rewrite is trying to
@@ -1040,13 +1439,17 @@ def delegation_failures(document: str | None = None) -> list[str]:
     every rewording of an operations document a red build, which is how a check gets
     deleted rather than corrected.
     """
+    posture = declared_spec() if spec is None else spec
+    if posture.delegated_gate is None:
+        return []
+    constant, word = posture.delegated_gate
     text = (
         (REPO_ROOT / OPERATIONS_DOC).read_text(encoding="utf-8") if document is None else document
     )
-    if any(REGION_CONSTANT in line and "portal" in line.lower() for line in text.splitlines()):
+    if any(constant in line and word in line.lower() for line in text.splitlines()):
         return []
     return [
-        f"{OPERATIONS_DOC} carries no gate naming `{REGION_CONSTANT}` and the Azure portal. "
+        f"{OPERATIONS_DOC} carries no gate naming `{constant}` and the Azure portal. "
         "That gate is where the residency fact this check CANNOT prove is confirmed by a "
         "person, so without it the tree asserts a region nobody has ever read and this "
         "script prints OK over the gap. Restore the gate (20: the resource's Location; "
@@ -1056,42 +1459,66 @@ def delegation_failures(document: str | None = None) -> list[str]:
 
 
 def main() -> int:
+    # CHECK 0 RUNS ALONE AND RETURNS FIRST, deliberately. Every check below is stated
+    # relative to the declared posture, so a tree whose declaration cannot be resolved has
+    # no rules to be judged against — and a guard that fell back to a default posture
+    # would enforce one nobody declared, which is worse than printing nothing.
+    name, resolution = declared_posture_name()
+    if name is None:
+        print("MODEL RESIDENCY: FAIL")
+        for failure in resolution:
+            print(f"  - {failure}")
+        return 1
+    declaration = declaration_failures(name)
+    if declaration:
+        print("MODEL RESIDENCY: FAIL")
+        for failure in declaration:
+            print(f"  - {failure}")
+        return 1
+    posture = POSTURES[name]
+
     references = endpoint_references()
     constants = frozen_region_constants()
     templates = template_count()
 
     failures = (
-        blindness_failures(templates, constants, references)
-        + single_spelling_failures(constants)
+        blindness_failures(templates, constants, references, posture)
+        + single_spelling_failures(constants, posture)
         + loose_region_literals()
         + console_config_failures()
-        + endpoint_failures(references, constants)
+        + endpoint_failures(references, constants, None, posture)
         + stale_allowances(references)
-        + builder_failures()
-        + delegation_failures()
+        + builder_failures(None, posture)
+        + delegation_failures(None, posture)
     )
     if failures:
         print("MODEL RESIDENCY: FAIL")
         for failure in failures:
             print(f"  - {failure}")
+        # THE EPILOGUE IS POSTURE-AWARE, and it has to be: it used to state D-410's
+        # posture as a fact, which under any other declaration would be the guard telling
+        # a reader the opposite of what it had just refused.
         print(
-            f"\nD-410: both LLM surfaces run on Azure OpenAI in `{AZURE_REGION}`. The "
-            f"region is a frozen constant (`{REGION_CONSTANT}`) rather than a setting, and "
-            f"the endpoint has exactly one constructor (`{BUILDER}()`). If a second "
-            "endpoint or a second spelling is genuinely needed for a bounded reason, it "
-            "belongs in ALLOWANCES in this script WITH the date and the work that removes "
-            "it — never as a silent skip."
+            f"\nDECLARED POSTURE {posture.name!r} ({DECLARATION_CONSTANT} in {CONTRACT}): "
+            f"{posture.warrant}. If a second endpoint or a second spelling is genuinely "
+            "needed for a bounded reason, it belongs in ALLOWANCES in this script WITH the "
+            "date and the work that removes it — never as a silent skip. If the POSTURE "
+            f"itself is meant to change, that is the `PostureSpec` in {SELF}, this "
+            "declaration, and a decision-log entry — together, in one reviewed commit."
         )
-        print(f"\n{DELEGATED_NOTICE}")
+        if posture.delegated_gate is not None:
+            print(f"\n{DELEGATED_NOTICE}")
         return 1
 
     print(
-        f"MODEL RESIDENCY: OK ({templates} string templates scanned; region spelled once, "
-        f"as `{REGION_CONSTANT}` in {BUILDER_HOME}; {len(references)} Azure/OpenAI host "
-        f"literal(s) judged and only {BUILDER}()'s own suffix permitted; the builder takes "
-        f"one validated resource label and no region; no Settings field able to carry "
-        f"either; {len(ALLOWANCES)} dated allowance(s) still current)"
+        f"MODEL RESIDENCY: OK — declared posture {name!r} ({templates} string templates "
+        f"scanned; {len(references)} Azure/OpenAI host literal(s) judged and only "
+        f"{posture.builder}()'s own suffix permitted; {len(ALLOWANCES)} dated allowance(s) "
+        "still current)"
     )
+    print(f"  what that proves under this posture: {posture.warrant}.")
+    if posture.delegated_gate is None:
+        return 0
     print(f"\n{DELEGATED_NOTICE}")
     return 0
 

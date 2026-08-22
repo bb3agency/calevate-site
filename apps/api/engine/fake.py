@@ -28,6 +28,7 @@ from calevate_shared.engine import (
     AgentSnapshot,
     CallContext,
     CallHandle,
+    CallLatency,
     CostBreakdown,
     EngineAgentRef,
     EngineCapabilities,
@@ -40,6 +41,7 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
+    TurnLatency,
     WebhookAuthMethod,
     WebhookVerdict,
     compose_engine_prompt,
@@ -125,6 +127,30 @@ SAMPLE_TURNS: tuple[tuple[Speaker, str], ...] = (
     ("agent", "Tappakunda. Ee roju evening 6 gantalaku doctor available unnaru."),
     ("caller", "Sare, appointment book cheyandi. Naa peru Ravi, number 9876543210."),
     ("agent", "Thank you Ravi garu, mee appointment 6 PM ki book chesanu."),
+)
+
+#: What this engine says its own pipeline cost, per turn. A fake vendor still has to answer
+#: the questions the real one answers, and the post-call pipeline's latency stage would
+#: otherwise be exercised only against a transport stub — the same argument `raw_document`
+#: makes below.
+#:
+#: THE NUMBERS ARE DELIBERATELY IN-BUDGET AND DELIBERATELY SPREAD. In budget
+#: (`LLM_TTFT_BUDGET_MS` is 350ms) because a fake that alarms on every offline call teaches
+#: developers to ignore the alarm; spread because a distribution over identical samples
+#: hides every statistic that reads it — break the median and nothing moves. Turn 1 is the
+#: slowest, which is what a real payload does (connection setup rides on it).
+#:
+#: `region="in"` is a CLAIM ABOUT THE FAKE, not about Bolna: this engine runs in the same
+#: process as its caller. It is populated so the grouping the gate-4 report does has two
+#: sides to group by offline.
+_SAMPLE_LATENCY: Final[CallLatency] = CallLatency(
+    region="in",
+    time_to_first_audio_ms=910.0,
+    turns=[
+        TurnLatency(turn=1, stt_ms=210.0, llm_ttft_ms=340.0, tts_ttfa_ms=280.0),
+        TurnLatency(turn=2, stt_ms=190.0, llm_ttft_ms=260.0, tts_ttfa_ms=250.0),
+        TurnLatency(turn=3, stt_ms=205.0, llm_ttft_ms=295.0, tts_ttfa_ms=265.0),
+    ],
 )
 
 # Per-minute INR from the verified rate card (TRD §10.1, D-35/D-36): all-Sarvam BYOK.
@@ -808,6 +834,7 @@ class FakeEngine:
             ],
             cost=self._cost_for(duration) if status == "completed" else None,
             engine_extracted={},
+            latency=_SAMPLE_LATENCY if status == "completed" else None,
             engine=self.name,
         )
 

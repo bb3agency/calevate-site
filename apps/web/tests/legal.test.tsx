@@ -14,7 +14,12 @@ import {
   textOf,
   type LegalDocument,
 } from "@/lib/legal";
-import { CHROME_TOKENS } from "@/lib/legal/placeholders";
+import {
+  CHROME_TOKENS,
+  assertLegalSetPublishable,
+  resolvePlaceholders,
+  unresolvedPlaceholders,
+} from "@/lib/legal/placeholders";
 
 import { expectNoA11yViolations } from "./a11y";
 
@@ -186,6 +191,67 @@ describe("the placeholders", () => {
         expect(pattern.test(prose), `/legal/${doc.slug} appears to contain ${what}`).toBe(false);
       }
     }
+  });
+
+  /*
+   * THE DEFECT THIS BLOCK EXISTS FOR, stated once so the three assertions below read as
+   * one rule: `{{PRIMARY_HOSTING_LOCATION}}` rendered as a raw token on `/legal/dpa`
+   * clause 9 and `/legal/privacy` §8 for weeks AFTER D-180 decided the answer. Nothing
+   * was broken — nothing connected a taken decision to the prose, so filling a blank
+   * meant editing every document that used it and hoping none was missed. A decided fact
+   * now carries a `value`, the renderer substitutes it, and publishing with any fact
+   * still blank throws.
+   */
+  it("substitutes a fact that has been decided, so it never renders as a blank", async () => {
+    const decided = Object.entries(PLACEHOLDERS).filter(([, entry]) => entry.value !== undefined);
+    expect(
+      decided.length,
+      "no placeholder carries a value, so the substitution path is untested",
+    ).toBeGreaterThan(0);
+
+    for (const doc of LEGAL_DOCUMENTS) {
+      const container = await renderDocument(doc.slug);
+      const marked = [...container.querySelectorAll("mark")].map((node) => node.textContent);
+      for (const [token] of decided) {
+        expect(
+          marked,
+          `/legal/${doc.slug} still shows {{${token}}} as a blank, though its value is decided`,
+        ).not.toContain(`{{${token}}}`);
+      }
+    }
+
+    // And the value actually reaches the page, rather than the token merely vanishing.
+    const hosting = PLACEHOLDERS.PRIMARY_HOSTING_LOCATION?.value ?? "";
+    expect(hosting.length, "PRIMARY_HOSTING_LOCATION carries no value").toBeGreaterThan(0);
+    const dpa = await renderDocument("dpa");
+    expect(dpa.textContent ?? "").toContain(hosting);
+    // The token stays in the SOURCE, which is what keeps the two-way audit above honest.
+    expect(textOf(legalDocument("dpa")!)).toContain("{{PRIMARY_HOSTING_LOCATION}}");
+    // An undeclared token is left standing rather than swallowed: the audit above fails
+    // on one, and quietly dropping it here would turn that failure into a hole in a page.
+    expect(resolvePlaceholders("a {{NOT_A_DECLARED_TOKEN}} b")).toBe(
+      "a {{NOT_A_DECLARED_TOKEN}} b",
+    );
+  });
+
+  it("refuses to publish the set while any fact is still blank", () => {
+    // While the banner stands, blanks are the point — they are how the founder and their
+    // advocate see what is missing — so the check must be silent here.
+    expect(() => assertLegalSetPublishable(true)).not.toThrow();
+
+    const missing = unresolvedPlaceholders();
+    expect(
+      missing.length,
+      "every fact is filled in; if that is real, delete this assertion in the same " +
+        "commit that removes PENDING_LEGAL_REVIEW",
+    ).toBeGreaterThan(0);
+    // Removing the banner is the act of publishing. Doing it with `{{GSTIN}}` still in
+    // the text puts a document's drafting state in front of a regulator, so it throws
+    // and names every outstanding fact rather than failing on the first one.
+    expect(() => assertLegalSetPublishable(false)).toThrowError(new RegExp(missing[0]!));
+    expect(() => assertLegalSetPublishable(false)).toThrowError(
+      new RegExp(missing[missing.length - 1]!),
+    );
   });
 
   it("renders a token as a visible mark rather than as bare text", async () => {
@@ -390,6 +456,66 @@ describe("what each document must contain", () => {
     // anything and should fail rather than go quiet.
     expect(rows, "the register has no vendor rows to check").toContain("Bolna");
     expect(rows, "a sub-processor table row still names Clerk").not.toContain("Clerk");
+  });
+
+  it("dates the cross-border clause and says section 16 is not yet in force", () => {
+    /*
+     * The clause used to read: "Section 16 of the DPDP Act permits transfer of personal
+     * data outside India except to a country the Central Government notifies as
+     * restricted; no such notification has been made. Rule 15 … requires us to observe
+     * any conditions the Government imposes, and we will."
+     *
+     * Every word of that is defensible and the paragraph as a whole flattered us. It
+     * omitted that sections 3–17 — section 16 among them — commence on 13 May 2027, so
+     * the permission it leans on is an absence of notification rather than a statutory
+     * authorisation; it omitted Rule 13(4), the only real localisation power in the
+     * instrument; and it omitted that the operative regime today is the IT Act 2000 and
+     * the 2011 rules, which carry a transfer test the DPDP Act does not. The omissions
+     * all ran one way, which is the shape this whole document set is written against.
+     *
+     * These are the load-bearing halves. A clause that states a permission without its
+     * commencement date is the defect coming back.
+     */
+    const dpa = textOf(bySlug("dpa"));
+    expect(dpa, "the commencement date of the section the clause relies on").toContain(
+      "13 May 2027",
+    );
+    expect(dpa, "Rule 13(4) — the localisation power the clause used to omit").toMatch(
+      /Rule 13\(4\)/,
+    );
+    expect(dpa, "the regime that is actually in force today").toMatch(
+      /Information Technology Act 2000/,
+    );
+    // Dated, because two of the three instruments change on a known date and a reader in
+    // 2027 must be able to tell when this was written.
+    expect(dpa).toMatch(/as at \d{1,2} \w+ 202\d/);
+  });
+
+  it("puts the voice-recording question to the advocate rather than answering it", () => {
+    /*
+     * The 2011 rules define biometric information to include VOICE PATTERNS, and
+     * sensitive personal data carries a transfer test ordinary personal data does not.
+     * Whether a business call recording is "biometric information" for that purpose is
+     * undecided — the definition reads as though written for authentication — and it is
+     * live until 13 May 2027, when DPDP removes the sensitive tier. It is the provision
+     * most likely to bite this product and nothing in the tree mentioned it.
+     *
+     * What is asserted is that the document ASKS rather than ANSWERS. A later edit that
+     * resolves it in our favour ("call recordings are not biometric information") is
+     * exactly the overclaim the pending-review banner exists to prevent, and it would
+     * pass a test that only checked the topic was present.
+     */
+    const dpa = textOf(bySlug("dpa"));
+    expect(dpa, "the 2011 definition that makes this a question at all").toMatch(
+      /voice patterns/i,
+    );
+    expect(dpa, "the document must say the question is undecided").toMatch(
+      /never been decided|has no settled answer/i,
+    );
+    expect(dpa, "and that it is with counsel rather than answered by us").toMatch(/advocate/i);
+    // The privacy notice must point at it too — a caller reading only that page should
+    // not have to find the DPA to learn the question exists.
+    expect(textOf(bySlug("privacy"))).toMatch(/voice patterns/i);
   });
 
   it("states a refund timeline, which an Indian payment gateway requires", () => {

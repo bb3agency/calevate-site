@@ -102,7 +102,7 @@ from apps.api.compliance.audit import verify_chain, write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
-from apps.api.core.deps import global_db
+from apps.api.core.deps import admin_db, global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.queue import enqueue
@@ -111,6 +111,12 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb.reconciliation import read_kb_drift
+from apps.api.ops.engine_latency import (
+    DEFAULT_WINDOW_DAYS,
+    MAX_WINDOW_DAYS,
+    EngineLatencyReport,
+    engine_latency_report,
+)
 from apps.api.ops.service import (
     TmRegistration,
     read_halt_state,
@@ -122,6 +128,12 @@ from apps.api.reliability.service import read_dead_letter_queue, replay_dead_let
 router = APIRouter(prefix="/v1/ops", tags=["ops"])
 
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
+# THE TENANT-DIRECTORY SESSION, and the only route in this file that needs one. Every
+# other lever here reads platform state; the latency report reads a TENANT-SCOPED table
+# across every tenant on purpose — a pilot call placed under one client and its control
+# under another must land in the same distribution. `admin_db` takes the admin principal
+# as a dependency, so the widened policy is unreachable without a verified admin token.
+AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 
 #: The ARQ function name of the recall arm of the big red switch (D-432), registered in
 #: `apps/workers/settings.FUNCTIONS` as `recall_queued_dials`.
@@ -1079,6 +1091,41 @@ async def verify_audit_chain(
         newest_checked_at=result.newest_checked_at,
         entries_under_retired_key=result.entries_under_retired_key,
     )
+
+
+@router.get(
+    "/engine-latency",
+    response_model=EngineLatencyReport,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="What the voice engine reported its own pipeline cost, by region (gate 4)",
+)
+async def read_engine_latency(
+    session: AdminSession,
+    days: int = Query(
+        DEFAULT_WINDOW_DAYS,
+        ge=1,
+        le=MAX_WINDOW_DAYS,
+        description="How many days of calls to include.",
+    ),
+    _: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> EngineLatencyReport:
+    """The LLM time-to-first-token distribution per (engine, region).
+
+    **NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and
+    demanding a confirmation to run a read teaches operators to type past confirmations.
+
+    **NO AUDIT ROW.** The payload is milliseconds, counts and a region code — nothing from
+    any call and nothing about any person — and it is a page an operator refreshes while
+    watching a pilot. An audit chain that grows a row per refresh stops being readable,
+    which is the argument `quality/routes.py` and `holds_routes.py` both make.
+
+    **WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices
+    across every tenant — specifically whether D-410's South India deployment costs the
+    caller more than a US one would (OPERATIONS §2 gate 4). A client's own screen has
+    nothing to do with it, and `flags.registry.call_timing_breakdown` is where the
+    per-client version waits with its blocker written down.
+    """
+    return await engine_latency_report(session, days=days)
 
 
 __all__ = [

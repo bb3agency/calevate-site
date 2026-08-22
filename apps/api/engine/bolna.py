@@ -72,14 +72,22 @@ file and they are not interchangeable:
   `REPORTED-DOCS` (a WebSearch summary) is retired as a class: everything it used to
   carry is now readable first-hand in the two repos above.
 
-Per-turn timings are NOT mapped here, and there is no call-latency column to map them
-into any more (migration f1a7c39d5be2 dropped it). Their docs now describe a
+Per-turn timings ARE mapped here now, and this paragraph used to say they were not. Their
 `latency_data` object on Get Execution — per-component `transcriber`/`llm`/`synthesizer`
-timings plus a first-audio number — but it is an unverified claim with no captured
-payload, it is not the voice-to-voice measurement the budget is written in, and its
-transcriber entries carry recognised TEXT (hard rules 5/6). So it stays a PILOT GATE:
-capture it at OPERATIONS §2 gate 4 beside the stopwatch that can falsify it, then decide
-what to store. Until then latency measurement is the stopwatch, not a field.
+timings, a first-audio number and a `region` code — is read by `parse_latency_data` into
+`CallLatency`, and the post-call pipeline stores it (`call_engine_latency`). Three things
+about that are worth the next reader's attention, because each was a reason not to:
+
+* It is STILL NOT the voice-to-voice measurement the budget is written in, and nothing
+  here turns it into one. Gate 4's stopwatch is the only thing that can say whether the
+  sum of three components resembles what a caller hears; `scripts/pilot/latency.py` makes
+  that comparison and reads its vendor half from this function.
+* The transcriber entries carry recognised TEXT (hard rules 5/6). The reader takes numbers
+  and a region code and nothing else — `CallLatency` has no field text could land in.
+* It stopped being an unverified claim: the page is in the mirror
+  (`bolna-findings/mirror/pages/concepts/call-latencies.md`), and D-410's South India
+  language model behind a US orchestrator made `llm.time_to_first_token` the only evidence
+  that exists for the largest unmeasured number in the product.
 
 Resilience shipped here: a request timeout and jittered backoff on 429 (SURFACES §3.3).
 The circuit breaker that section also describes is deliberately NOT built — see the
@@ -100,10 +108,12 @@ import httpx
 from calevate_shared.config import bolna_source_ips
 from calevate_shared.engine import (
     E164,
+    LLM_TTFT_BUDGET_MS,
     AgentConfig,
     AgentSnapshot,
     CallContext,
     CallHandle,
+    CallLatency,
     CostBreakdown,
     EngineAgentRef,
     EngineCapabilities,
@@ -118,6 +128,7 @@ from calevate_shared.engine import (
     NumberSpec,
     ProvisionedNumber,
     RecallOutcome,
+    TurnLatency,
     WebhookVerdict,
     compose_engine_prompt,
 )
@@ -530,6 +541,12 @@ _TERMINAL_RAW = frozenset(
 # `agent`/`bot`/`human` below are not in that emitter — they are tolerated spellings, kept
 # because tolerating one costs nothing and the hosted serializer is not this function.
 _TURN_RE = re.compile(r"^\s*(assistant|agent|user|human|bot)\s*:\s*(.*)$", re.IGNORECASE)
+
+#: What an engine region code may look like: `in`, `us`, and the longer cloud-style codes
+#: (`ap-south-1`) a vendor might switch to without telling anyone. Anchored and narrow so
+#: that a free-form string in that field is REFUSED rather than stored — the field is only
+#: ever grouped by, so anything that is not an identifier is not useful and is a liability.
+_REGION_CODE_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,15}")
 #
 # ANNOTATED WITH OUR OWN DOMAIN TYPE, NOT LEFT TO INFERENCE, and the difference is where a
 # mistake surfaces. Bare, this literal infers `dict[str, str]`, so `.get(..., "caller")`
@@ -1565,6 +1582,207 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
     return turns, lost
 
 
+# --- what the engine's own pipeline cost, per turn -------------------------------------
+#
+# `latency_data` on Get Execution. VERIFIED-VENDOR-DOCS throughout:
+# `bolna-findings/mirror/pages/concepts/call-latencies.md` — the top-level block at :22-45
+# (`time_to_first_audio`, `region`, "e.g. `in` for India, `us` for United States"), the
+# three component blocks at :57-155, and their own bottleneck thresholds at :164-200.
+#
+# THIS USED TO BE DROPPED ON THE FLOOR, and the module docstring above said why: an
+# unverified claim with no captured payload, so a pilot gate rather than a mapper. Two
+# things changed. Their page is now in the read-only mirror, so the shape is first-party
+# evidence rather than a search summary. And D-410 put the language model in South India
+# while their orchestrator stayed in the US (`mirror/pages/concepts/security.md:29`), which
+# makes `llm.time_to_first_token` the measurement of a round trip WE chose and nobody has
+# ever measured — TRD §4 budgets it at 350ms and TRD §4a records that every latency figure
+# in this repo is a target with zero measurements behind it.
+#
+# WHAT IS STILL NOT CLAIMED. These are not voice-to-voice numbers and this reader does not
+# turn them into any: gate 4's stopwatch is the only thing that can say whether their sum
+# resembles what a caller experiences, and `scripts/pilot/latency.py` is where that
+# comparison is made. Capturing them makes gate 4 runnable; it does not settle it.
+#
+# UNITS ARE ASSUMED MILLISECONDS and the assumption is not uniform across the payload.
+# Their own examples read as ms for `time_to_first_token` and `time_to_connect`, but
+# `audio_to_text_latency: 20.12` (:73) does not read as a millisecond transcription
+# latency at all. So `stt_ms` is the one leg whose unit is a live question — which is why
+# `TurnLatency.component_sum_ms` refuses a partial sum, and why the alarm below judges the
+# LLM leg alone rather than the sum.
+
+#: Free-text keys inside `latency_data`. Read for NOTHING and never carried out of this
+#: function: `transcriber.turns[].turn_latency[].text` is recognised CALLER SPEECH
+#: (`call-latencies.md:73`), and hard rules 5/6 apply wherever it lands. `CallLatency` has
+#: nowhere to put text, which is the structural half of the same guarantee — this constant
+#: is here so the next reader learns that the key exists rather than discovering it in a
+#: payload.
+_LATENCY_TEXT_KEYS: Final = frozenset({"text"})
+
+#: The vendor's OWN definition of a broken LLM leg: *"High LLM Time to First Token
+#: (>1000ms)"* (`call-latencies.md:178`). Deliberately NOT `LLM_TTFT_BUDGET_MS` (350ms,
+#: ours): 350 is the target a report measures against, and paging on it would page on the
+#: geography we already know about. This is the number at which the vendor themselves say
+#: something is wrong, i.e. the one an operator can act on.
+_LLM_TTFT_ALARM_MS: Final = 1000.0
+
+#: Below this many timed turns a call says nothing about a trend. Their own worked example
+#: has turn 1 at 1633.04ms and turn 2 at 737.80ms (`call-latencies.md:99-108`): the first
+#: turn carries connection setup, so a one-turn or two-turn call is a cold start wearing a
+#: distribution's clothes.
+_LATENCY_ALARM_MIN_TURNS: Final = 3
+
+
+def _latency_float(value: Any) -> float | None:
+    """A number, or ABSENT. Never 0 for a missing key — a zero would read as instant.
+
+    `bool` is excluded explicitly because it is an `int` in Python and `True` would become
+    1.0ms, which is both wrong and plausible-looking.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        return float(value)
+    return None
+
+
+def _latency_turn_value(entry: Any, key: str) -> float | None:
+    """One component's number for one turn, tolerating the transcriber's nested list.
+
+    The LLM and synthesizer blocks put the number directly on the turn entry. The
+    transcriber block nests a `turn_latency` LIST per turn, one entry per incremental
+    refinement of the same utterance (`call-latencies.md:87`: "The final sequence is the
+    most accurate"), so the LAST sequence is the one taken — the earlier ones are guesses
+    the recogniser itself revised.
+    """
+    if not isinstance(entry, dict):
+        return None
+    direct = _latency_float(entry.get(key))
+    if direct is not None:
+        return direct
+    nested = entry.get("turn_latency")
+    if isinstance(nested, list) and nested:
+        last = nested[-1]
+        if isinstance(last, dict):
+            return _latency_float(last.get(key))
+    return None
+
+
+def parse_latency_data(raw: Any) -> CallLatency | None:
+    """`latency_data` -> OUR `CallLatency`. Timings and a region code; never text.
+
+    `None` when the payload carried no `latency_data` object at all — which is a real
+    answer (a listing row does not carry one) and must not be confused with an object we
+    read nothing out of. The latter is a `CallLatency` whose `parse_warnings` say what.
+
+    SHAPE-TOLERANT rather than a typed mapping, and that is a decision rather than
+    laziness: every block is optional, an unrecognised block becomes a warning instead of
+    an exception, and a missing number stays `None`. A payload change must not be able to
+    fail a call's post-call pipeline — the lead is worth more than the measurement.
+    """
+    if not isinstance(raw, dict):
+        return None
+    warnings: list[str] = []
+    ttfa = _latency_float(raw.get("time_to_first_audio"))
+    if ttfa is None and "time_to_first_audio" in raw:
+        warnings.append("time_to_first_audio present but not numeric")
+
+    # A CODE, NOT A MESSAGE. Kept only when it looks like the short region identifier the
+    # vendor documents (`in`, `us`); anything longer is not a region and is refused rather
+    # than stored, because the one thing that must never happen to a free-form vendor
+    # string is that it gets stored and later rendered.
+    region_raw = raw.get("region")
+    region: str | None = None
+    if isinstance(region_raw, str):
+        candidate = region_raw.strip().lower()
+        if _REGION_CODE_RE.fullmatch(candidate):
+            region = candidate
+        elif candidate:
+            warnings.append("region present but not a region code")
+
+    per_turn: dict[int, dict[str, float | None]] = {}
+    blocks: tuple[tuple[str, str, str], ...] = (
+        ("transcriber", "stt_ms", "audio_to_text_latency"),
+        ("llm", "llm_ttft_ms", "time_to_first_token"),
+        ("synthesizer", "tts_ttfa_ms", "time_to_first_token"),
+    )
+    for block_name, field, key in blocks:
+        block = raw.get(block_name)
+        if block is None:
+            warnings.append(f"{block_name} block absent")
+            continue
+        if not isinstance(block, dict):
+            warnings.append(f"{block_name} block is not an object")
+            continue
+        entries = block.get("turns")
+        if not isinstance(entries, list):
+            warnings.append(f"{block_name}.turns absent or not a list")
+            continue
+        for position, entry in enumerate(entries, start=1):
+            number = entry.get("turn") if isinstance(entry, dict) else None
+            index = number if isinstance(number, int) and not isinstance(number, bool) else position
+            per_turn.setdefault(index, {})[field] = _latency_turn_value(entry, key)
+
+    return CallLatency(
+        region=region,
+        time_to_first_audio_ms=ttfa,
+        turns=[
+            TurnLatency(
+                turn=index,
+                stt_ms=fields.get("stt_ms"),
+                llm_ttft_ms=fields.get("llm_ttft_ms"),
+                tts_ttfa_ms=fields.get("tts_ttfa_ms"),
+            )
+            for index, fields in sorted(per_turn.items())
+        ],
+        parse_warnings=warnings,
+    )
+
+
+def _check_llm_ttft(latency: CallLatency | None, *, engine_call_id: str) -> None:
+    """Page when a whole call's language-model leg is broken — never when one turn is slow.
+
+    THE THRESHOLD IS THE VENDOR'S, NOT OURS, and the difference is what keeps this
+    actionable. Our budget is 350ms (`LLM_TTFT_BUDGET_MS`, TRD §4) and we already expect to
+    miss it: the orchestrator is US-hosted and the model is in South India, so every turn
+    pays a round trip nobody has measured yet. An alarm on 350ms would fire on that known
+    geography, on every call, forever — which is how an alarm gets muted. 1000ms is the
+    number the vendor's own bottleneck guide calls a problem (`call-latencies.md:178`), and
+    at 1000ms sustained the agent is audibly broken.
+
+    MEDIAN OVER THE CALL'S TURNS, over a minimum of three of them. The first turn carries
+    connection setup and runs long in the vendor's own example (1633.04ms, :99), so a mean
+    would let one cold start speak for a healthy call and a max would fire on every call.
+
+    The per-turn budget breaches are NOT alarmed at all — they are counted, stored, and
+    read by the report (`ops.engine_latency`). That is the split the brief asks for: a
+    number an operator reads when they go looking, and a page only when going looking is
+    too late.
+
+    Ids and numbers only (hard rule 6). The region code is the vendor's own identifier;
+    everything else here is arithmetic over milliseconds.
+    """
+    if latency is None:
+        return
+    samples = sorted(latency.llm_ttft_samples)
+    if len(samples) < _LATENCY_ALARM_MIN_TURNS:
+        return
+    middle = len(samples) // 2
+    median = samples[middle] if len(samples) % 2 else (samples[middle - 1] + samples[middle]) / 2
+    if median <= _LLM_TTFT_ALARM_MS:
+        return
+    alert(
+        "CORE_LOGIC",
+        "engine_llm_ttft_degraded",
+        detail=(
+            f"median LLM time-to-first-token {median:.0f}ms over {len(samples)} turns, "
+            f"above the {_LLM_TTFT_ALARM_MS:.0f}ms the engine's own guide calls a "
+            f"bottleneck (our budget is {LLM_TTFT_BUDGET_MS:.0f}ms). "
+            f"Engine region: {latency.region or 'unreported'}."
+        ),
+        engine_call_id=engine_call_id,
+    )
+
+
 #: The two keys that mark a leaf of the vendor's `extracted_data` tree. A category's
 #: values are RESULT OBJECTS carrying these; a flat field's value is the answer itself.
 #: Matching on the leaf rather than on nesting depth is what lets one function read both
@@ -2458,8 +2676,6 @@ class BolnaEngine:
             user_data["lead_name"] = ctx.lead_name
         if ctx.context_note:
             user_data["context_note"] = ctx.context_note
-        if ctx.prior_call_summary:
-            user_data["prior_call_summary"] = ctx.prior_call_summary
         # THE CALLER ID, AND THE FIELD'S ABSENCE IS WHAT D-420 IS (symptom 1). Their own
         # outbound guide: *"Add your purchased phone number or your own connected phone
         # number in `from_phone_number` field"*, and omitting it dials from their
@@ -2892,6 +3108,15 @@ class BolnaEngine:
         # pages once per 15 minutes with the count riding along, not once per call.
         _check_cost_plausibility(cost, duration_s, engine_call_id=call_id)
         _check_transfer_leg(payload, engine_call_id=call_id)
+        # THE ENGINE'S OWN TIMINGS, read on every snapshot path rather than only on
+        # `get_execution`: a listing row carries no `latency_data` today and `parse_latency_data`
+        # answers `None` for it, so reading here costs a dict lookup and means the day they
+        # add it to a listing we are already capturing it. The alarm rides along for the
+        # same reason `_check_cost_plausibility` does — it is a judgement about a number
+        # this function just produced, and a check somebody has to remember to call is a
+        # check that eventually is not called.
+        latency = parse_latency_data(payload.get("latency_data"))
+        _check_llm_ttft(latency, engine_call_id=call_id)
         return ExecutionSnapshot(
             engine_call_id=call_id,
             engine_agent_ref=str(agent_ref) if agent_ref else None,
@@ -2935,6 +3160,7 @@ class BolnaEngine:
             # FLATTENED, never passed through: the vendor nests by CATEGORY and
             # `engine_extracted` is a flat field->value map. See `flatten_extracted_data`.
             engine_extracted=flatten_extracted_data(payload.get("extracted_data")),
+            latency=latency,
             engine="bolna",
         )
 
@@ -3393,6 +3619,7 @@ __all__ = [
     "THROTTLE_MAX_SLEEP_S",
     "THROTTLE_STATUS",
     "BolnaEngine",
+    "parse_latency_data",
     "parse_transcript",
     "throttle_delay_s",
 ]

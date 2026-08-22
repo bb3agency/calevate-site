@@ -931,3 +931,73 @@ class AuditLogEntry(PKMixin, Base):
     prev_hash: Mapped[str | None] = mapped_column(Text)
     entry_hash: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class ProcessorErasureTask(PKMixin, Base):
+    """One vendor-side erasure obligation this system cannot discharge itself (D-433).
+
+    An erasure deletes our Postgres rows and our object-storage bytes. The voice platform
+    that carried the calls keeps its own copy of the recording and the transcript, and
+    `docs/evidence/subprocessor-erasure-reach.md` §1 enumerates every `DELETE` route that
+    platform documents: none is granular to one data principal. So the obligation is
+    discharged by a person writing to the vendor, and this row is what makes that person's
+    work visible, overdue-able and answerable.
+
+    The behaviour lives in `compliance/processor_erasure.py`; this is the shape. Two
+    columns carry the design and are worth reading before changing anything:
+
+    `subject_ref` is the certificate's own sha256(number)[:32] and never the number. It is
+    nullable ONLY for a tenant erasure, which has no single subject — the CHECK in the
+    migration enforces that pairing rather than leaving it to a writer.
+
+    `vendor_refs` holds opaque vendor identifiers ONLY — the execution and agent ids the
+    vendor itself minted, which are what a support desk needs quoted back. Two database
+    CHECKs bound it (hard rule 6): every element must be id-shaped, and no element may be
+    entirely digits. The second exists because a bare number passes the first, and it is
+    written as "entirely digits" rather than "contains a digit run" because a uuid carries
+    a 7-digit run by chance — `b7140255-af33-...` did, on the first test row.
+    """
+
+    __tablename__ = "processor_erasure_tasks"
+    __table_args__ = (
+        CheckConstraint("request_kind IN ('subject', 'tenant')", name="request_kind_is_known"),
+        CheckConstraint(
+            "processor IN ('voice_engine', 'speech', 'llm')", name="processor_is_known"
+        ),
+        CheckConstraint(
+            "status IN ('open', 'requested', 'confirmed', 'refused')", name="status_is_known"
+        ),
+        CheckConstraint(
+            "(request_kind = 'tenant') OR (subject_ref IS NOT NULL)",
+            name="a_subject_task_names_its_subject",
+        ),
+        # Declared with a predicate so autogenerate cannot diff it; the migration is the
+        # source of truth for its existence.
+        Index(
+            "ix_processor_erasure_open",
+            "tenant_id",
+            "opened_at",
+            postgresql_where=text("status IN ('open', 'requested')"),
+        ),
+        Index("uq_processor_erasure_request_processor", "request_ref", "processor", unique=True),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    request_ref: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    request_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    processor: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'open'"))
+    subject_ref: Mapped[str | None] = mapped_column(Text)
+    vendor_refs: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+    )
+    vendor_reference: Mapped[str | None] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    opened_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    requested_at: Mapped[datetime | None] = mapped_column()
+    answered_at: Mapped[datetime | None] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now(), nullable=False
+    )

@@ -228,6 +228,44 @@ KB_OUTCOME: Final = "searched_not_erased"
 # nothing" about an erasure that never searched it.
 KB_MATCH_KEY: Final = "knowledge_base_documents_matched"
 
+#: What an erasure can and cannot do at a sub-processor, as the certificate words it.
+#:
+#: `unconfirmed_pending_vendor_api` — the value the PROOF still carries on the wire — was
+#: named when nobody here had read the vendor's API reference, and it asserts something
+#: that is now known to be false: that a subject-granular deletion API might exist and we
+#: are waiting on it. `docs/evidence/subprocessor-erasure-reach.md` §1 enumerates every
+#: `DELETE` route Bolna documents across all 335 mirrored pages. There are ten. Nine
+#: delete configuration objects; the tenth, `DELETE /v2/agent/{agent_id}`, deletes an
+#: agent and — the vendor's own warning — "ALL agent data including all batches, all
+#: executions" (`bolna-findings/mirror/pages/api-reference/agent/v2/delete.md:10`).
+#:
+#: So the question is CLOSED, and it closed with two different answers depending on who is
+#: asking:
+#:
+#: * **A DPDP §12 request names one person.** No route is granular to a person. Using the
+#:   agent route would destroy every OTHER caller's records and take the client's live
+#:   receptionist off the air, so it is not an instrument this path can use. For a
+#:   per-subject erasure the vendor's copy survives and only a written request removes it.
+#: * **A tenant erasure abandons the agents anyway**, so the agent route IS the right
+#:   instrument there — see `docs/evidence/subprocessor-erasure-reach.md` §2.
+#:
+#: The wire token is deliberately NOT renamed. It is written into durable proof rows that
+#: have already been rendered into certificates someone may be holding, and hard rule 4
+#: forbids back-filling those; a second vocabulary for the same field would make two
+#: documents disagree about one erasure. What changes is the REGISTER, which is the half a
+#: data principal actually reads, and which now states the enumerated fact instead of
+#: "undocumented".
+ENGINE_OUTCOME: Final = "no_subject_granular_api"
+
+#: The speech and language processors, which the register did not name at all until D-433.
+#: Sarvam receives the call audio and the RAW transcript (the first post-call extraction
+#: reads it un-redacted); Azure OpenAI receives the caller's conversation turn by turn.
+#: Neither has an established retention period or deletion route in this tree — Sarvam's
+#: is UNKNOWN and Azure's is REPORTED — and a register that lists what an erasure could
+#: not reach while omitting two processors that hold the conversation is misleading by
+#: omission, which is the one thing this register exists to prevent.
+PROCESSOR_OUTCOME: Final = "not_reached_no_api"
+
 #: A backup taken before the erasure still holds the record until the window closes. Its
 #: own outcome word rather than `retained_as_record`: nothing is being KEPT here as a
 #: matter of policy — the record is gone from every live system, and what remains is a
@@ -298,9 +336,22 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "personal data, and deleting them would silently rewrite a closed billing period.",
     "Call rows survive with their personal fields cleared rather than being deleted, so "
     "the minutes that were billed stay countable.",
-    "Engine-side copies are reported in the certificate as "
-    "'unconfirmed_pending_vendor_api'. The voice engine's deletion API is undocumented "
-    "(pilot gate), so the certificate does not claim a deletion it cannot show.",
+    "The voice platform that carried these calls keeps its own copy of the recording "
+    "and the transcript, and this request does not reach it. That platform publishes no "
+    "way to delete one person's calls: its published interface can delete a whole agent "
+    "and everything that agent ever recorded, but nothing narrower, so deleting this "
+    "person there is not something this system can do without destroying every other "
+    "caller's records at the same time. The platform also states no retention period "
+    "for those copies. Removing them is a written request to that platform, and the "
+    "certificate reports the outcome of that request rather than assuming it: until it "
+    "is answered, the honest position is that a copy exists.",
+    "Two further processors handle what is said on a call and are not reached by this "
+    "request either: the speech service that turns the call audio into text, and the "
+    "language model that produces the agent's replies. Neither publishes a way for us "
+    "to delete a single person's data, and for one of them no retention period has been "
+    "obtained in writing at all. They are named here because a list of what an erasure "
+    "could not reach that omits a processor holding the conversation would be "
+    "misleading by omission.",
     "This request record holds the number only until the erasure runs — the queued "
     "worker has to be able to find the subject — and it is cleared in the same write "
     "that records the proof. What remains afterwards is a one-way hash "
@@ -401,19 +452,57 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         ),
     ),
     ErasureLimitation(
-        what="Copies held by the voice engine that carried these calls.",
-        keyword="engine",
-        outcome="unconfirmed",
+        what="Copies held by the voice platform that carried these calls.",
+        keyword="voice platform",
+        outcome=ENGINE_OUTCOME,
         why=(
-            "The engine is a third-party platform and its deletion API is undocumented, "
-            "so this certificate reports engine-side deletion as "
-            "'unconfirmed_pending_vendor_api' rather than claiming something it cannot "
-            "show. Before telling the data principal those copies are gone, ask whether "
-            "a written erasure commitment with the vendor is in place."
+            "The calls ran on a third-party voice platform, which keeps its own copy of "
+            "the recording and the transcript. This request does not reach that copy, "
+            "and the reason is specific rather than a shrug: that platform's published "
+            "interface has no way to delete one person's calls. It can delete an entire "
+            "agent together with every call that agent has ever taken, and nothing "
+            "narrower — so removing this one person there would mean destroying every "
+            "other caller's records and taking the service off the air. The platform "
+            "also publishes no retention period for those copies. Removing them is "
+            "therefore a written request to that platform. Do not tell the data "
+            "principal those copies are gone until that request has been answered: the "
+            "answer is recorded against this erasure and the certificate reports it."
         ),
         authority=(
-            "SECURITY-COMPLIANCE §4 — the vendor erasure commitment is an open "
-            "contractual item (pilot gate 12(f))."
+            "The enumeration is `docs/evidence/subprocessor-erasure-reach.md` §1-2, read "
+            "against the vendor's own mirrored documentation: the Executions surface is "
+            "four GETs and the Calling surface is one POST, so no route deletes an "
+            "execution, a recording or a transcript, while `DELETE /v2/agent/{agent_id}` "
+            "deletes an agent and 'ALL agent data including all batches, all "
+            "executions'. The durable fix is a contractual deletion term, which is "
+            "OPERATIONS §2 gate 12(f) and gate 36 — a signed commercial term, not "
+            "something this system can supply."
+        ),
+    ),
+    ErasureLimitation(
+        what="Copies held by the speech and language processors.",
+        keyword="processors",
+        outcome=PROCESSOR_OUTCOME,
+        why=(
+            "Two more services handle what is said on a call: the speech service that "
+            "turns the audio into text and reads the transcript back for the first "
+            "post-call extraction, and the language model that produces the agent's "
+            "replies. Both therefore hold conversation content, and this request reaches "
+            "neither. Neither publishes a way for us to delete one person's data. For "
+            "the speech service no retention period has been obtained in writing at all, "
+            "so the honest statement is that we do not know how long its copy lasts; for "
+            "the language model the copy is a short-lived abuse-monitoring record that "
+            "is best removed by never creating it, which is an approval to be applied "
+            "for rather than a deletion to be requested."
+        ),
+        authority=(
+            "DPDP §8(7) storage limitation and §12(3) erasure, read against what "
+            "`docs/evidence/subprocessor-erasure-reach.md` §3 could actually establish: "
+            "the speech vendor's retention is UNKNOWN and the model vendor's is "
+            "REPORTED, because both vendors' documentation hosts are refused by this "
+            "environment's egress proxy and neither has a signed processing term "
+            "(`docs/LEGAL-SURFACE.md` DP-11). This entry states the gap rather than "
+            "closing it; closing it is OPERATIONS §2 gate 36."
         ),
     ),
     ErasureLimitation(
@@ -819,6 +908,7 @@ __all__ = [
     "BACKUP_WINDOW_DAYS",
     "DELETION_JOB",
     "DELETION_SCOPE",
+    "ENGINE_OUTCOME",
     "ERASURE_EXCEPTIONS",
     "ERASURE_LIMITATIONS",
     "FLOOR_COUNT_KEY",
@@ -826,6 +916,7 @@ __all__ = [
     "KB_MATCH_KEY",
     "KB_OUTCOME",
     "MAX_LIST",
+    "PROCESSOR_OUTCOME",
     "RECORDING_FLOOR_DAYS",
     "STATUS_COMPLETED",
     "STATUS_PENDING",

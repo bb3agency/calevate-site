@@ -80,6 +80,7 @@ from typing import NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.engine import (
+    DECLARED_POSTURE,
     AgentConfig,
     CallContext,
     DisclosurePosture,
@@ -89,6 +90,7 @@ from calevate_shared.engine import (
     ProvisionedNumber,
     VoiceEngine,
     azure_openai_base_url,
+    bind_model,
     compose_engine_prompt,
     compose_opening_line,
 )
@@ -543,6 +545,15 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     `AZURE_LIST_PRICE_USD_PER_MTOK` prices and it never goes on the wire.
     `ModelConfig.llm_model` says the same thing at the other end of this seam.
 
+    **THE PROVIDER NAME AND THE MODEL BINDING BOTH COME FROM THE DECLARED POSTURE (D-432)**
+    rather than being spelled here. This function is still the ONE decision point for the
+    leg; what moved is that it no longer re-states WHICH posture is in force. `"azure_openai"`
+    was a third spelling of a decision that had no first — the posture is declared once, in
+    `calevate_shared.engine.DECLARED_POSTURE_NAME`, and `scripts/check_model_residency.py`
+    fails the build when the declaration and the tree disagree in either direction. A caller
+    reading `binding.addressed` gets the right string under every posture, which is what
+    stops the wire/price distinction being a convention two settings apart.
+
     Returns a dict rather than a `ModelConfig` because the caller is building one with the
     speech legs alongside, and two `ModelConfig`s merged is a second place for the LLM
     fields to be decided. `InCallLLM` rather than `dict[str, object]`, so that dict stays
@@ -554,9 +565,16 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     if credentials is None:
         return {"llm_model": configured_model}
     resource, _api_key, deployment = credentials
+    # THE TWO MODEL STRINGS, BOUND UNDER THE DECLARED POSTURE rather than picked apart
+    # here (D-432). `bind_model` is what knows that on this posture the API addresses a
+    # DEPLOYMENT and the model name is only the cost model's key; a posture that addresses
+    # the model by its own name binds both to one string and refuses a stray deployment id.
+    # Reading `.addressed` (never `.priced`) is what makes the wire/pricing distinction a
+    # property of a type instead of a comment two settings apart.
+    binding = bind_model(deployment=deployment, model=get_settings().azure_openai_model)
     return {
-        "llm_model": deployment,
-        "llm_provider": "azure_openai",
+        "llm_model": binding.addressed,
+        "llm_provider": DECLARED_POSTURE.llm_provider,
         "llm_base_url": azure_openai_base_url(resource),
     }
 
