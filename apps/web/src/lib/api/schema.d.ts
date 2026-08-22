@@ -3938,8 +3938,9 @@ export interface paths {
          *     which is the argument `quality/routes.py` and `holds_routes.py` both make.
          *
          *     **WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices
-         *     across every tenant — specifically whether D-410's South India deployment costs the
-         *     caller more than a US one would (OPERATIONS §2 gate 4). A client's own screen has
+         *     across every tenant — specifically what the model deployment's geography costs the
+         *     caller, which is what D-449 traded the India residency claim away to improve and what
+         *     nobody has yet measured (OPERATIONS §2 gate 4). A client's own screen has
          *     nothing to do with it, and `flags.registry.call_timing_breakdown` is where the
          *     per-client version waits with its blocker written down.
          */
