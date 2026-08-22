@@ -62,6 +62,60 @@ def test_a_phone_number_is_still_masked() -> None:
         assert "[phone]" in redact_text(f"caller said {number} loudly")
 
 
+def test_an_email_address_is_masked_by_value_and_not_only_by_key() -> None:
+    """The gap D-436 opened, and it was a gap in the BACKSTOP rather than in the rule.
+
+    `REDACT_KEYS` has always covered `email` and `recipient`, so an extra literally
+    called `email` was safe. What made that enough was that no response model carried an
+    address: `PendingInvitation` served a dotted local part and the console served the
+    same. D-436 returns the whole address on `PendingInviteOut` and `InvitationOut`, so a
+    handler now holds one — and `extra={"invitee": row.email}`, `{"to": ...}`,
+    `{"mailbox": ...}` all miss the key list while a phone number in the same position
+    was masked by VALUE. One identifier class had a value-level control and the other
+    did not; this is the one it did not have.
+
+    The last case is the one that decides the ORDER of the two passes: an address whose
+    local part is a digit run would otherwise be half-eaten by the phone rule and leave
+    its domain — a worse log line AND a partially disclosed address.
+    """
+    for address in (
+        "priya.sharma@sunriseclinic.example",
+        "ravi+leads@clinic.in",
+        "owner@sub.domain.co.in",
+        "9876543210@example.com",
+    ):
+        masked = redact_text(f"invitee {address} was sent a key")
+        assert address not in masked, masked
+        assert "[redacted]" in masked, masked
+        assert "invitee" in masked and "was sent a key" in masked, (
+            "the event survives; only the identifier is taken"
+        )
+    # A DOMAIN on its own is not an address and is what `auth_email` deliberately logs
+    # (`recipient_domain`) so an operator can tell a Gmail failure from an Outlook one.
+    assert redact_text("recipient sunriseclinic.example") == "recipient sunriseclinic.example"
+
+
+def test_the_two_redactors_agree_about_what_an_address_is() -> None:
+    """A SECOND copy of the pattern is forced, so this is what stops it drifting.
+
+    `core.logging` cannot import `apps.workers.redaction`: voice-runtime holds this
+    module on its 500ms ack path and names `apps.workers` on its FORBIDDEN import list
+    (`tests/voice_runtime_import_surface_test.py`). The phone rule is already duplicated
+    for exactly that reason. What is not acceptable is the two disagreeing about whether
+    a given string is an address, because then "which redactor ran" decides whether a
+    client's inbox address reached a log line.
+    """
+    from apps.workers.redaction import redact
+
+    for address in (
+        "priya.sharma@sunriseclinic.example",
+        "ravi+leads@clinic.in",
+        "owner@sub.domain.co.in",
+    ):
+        assert address not in redact_text(address), "the log scrubber kept an address"
+        assert address not in redact(address).text, "the transcript redactor kept one"
+
+
 def test_a_phone_number_next_to_a_uuid_is_still_masked() -> None:
     """The adversarial case for the fix: protecting the uuid must not create a shadow
     the number can hide in."""

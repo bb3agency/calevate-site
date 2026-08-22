@@ -500,6 +500,36 @@ card (Luhn), OTP patterns, plus LLM-assisted pass for spoken-out numbers; produc
 `text_redacted`. Default UI shows redacted; raw text requires owner/admin role and writes
 audit_log. Redaction runs BEFORE any transcript leaves our system (exports, notifications).
 
+**CONTACT IDENTIFIERS ARE NOT TRANSCRIPT TEXT, AND SINCE 22 AUG 2026 THE TWO ARE GOVERNED
+SEPARATELY.** A client sees their own customer's phone number, name and email IN FULL on
+their own screens — a calls list of dots cannot be worked, and ringing the person back is
+the entire action those screens exist to offer. This is a posture change and it is written
+here rather than left to a code comment. What it rests on, and what it does NOT touch:
+
+- **It is the client's own data, behind four controls**: a session, a role
+  (`leads:read`/`calls:read`), FORCEd RLS scoping the query to their own tenant, and — for
+  a Calevate operator inside a view-as session — a grant plus an `audit_log` row (D-22).
+  Masking a client's own captured lead from that client was never a DPDP requirement; it
+  was a screenshot-safety choice, and it cost them the use of the record.
+- **Transcript text is unmoved.** `text_redacted` is still the default in every response
+  and raw text still needs `calls:read_raw` plus an audit write. `check_redaction_exposure`
+  now enforces two field classes rather than one: `RAW_TRANSCRIPT_FIELDS` (never permitted
+  on any response) and `CONTACT_PII_FIELDS` (permitted only where the operation declares a
+  permission). The split was verified to be exactly faithful — the same 14 names, none
+  moved between classes.
+- **Hard rule 6 is unmoved, and is the half that had to be re-proved.** Unmasking a
+  RESPONSE is not unmasking a LOG. Sentry frame locals are off (`include_local_variables=
+  False` — `before_send` cannot undo them, because serialization runs first), the log
+  scrubber masks email addresses by VALUE and not merely by key, and in-call opt-out
+  evidence is redacted before it becomes a `consent_ledger` row — that table is append-only,
+  so a number written there could never be corrected.
+- **Channels without a role check keep the mask.** The hot-lead alert email goes to
+  `organizations.billing_email`, which is a billing column and not a `memberships` row: no
+  role, routinely a shared alias or an outside accountant, and mail leaves our control
+  permanently. It carries the masked number and a deep link to the authenticated screen —
+  notification-plus-link, the shape current transactional-email guidance recommends. The
+  CSV export is unchanged: full numbers, `calls:read_raw`, audit row.
+
 ## 5. Application & Infrastructure Security
 
 Identity & access

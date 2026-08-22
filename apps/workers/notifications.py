@@ -34,8 +34,10 @@ just as empty in two minutes — so that one alerts immediately instead of burni
 ladder to reach the same verdict.
 
 Hard rule 6 applies with full force: a notification is the easiest place to
-accidentally put a phone number into a log line or a third-party API. The body is
-assembled from redacted values only, and the alerts below carry ids, never addresses.
+accidentally put a phone number into a log line or a third-party API. The alerts below
+carry ids, never addresses; and the BODY keeps the caller's number masked and the call
+summary redacted even though D-436 unmasked both classes on the dashboard — `_compose`
+carries that decision and the reason it is not an inconsistency.
 """
 
 from __future__ import annotations
@@ -55,6 +57,7 @@ from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
+from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.redaction import redact
 from apps.workers.transport import get_transport
 from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
@@ -103,7 +106,7 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         row = (
             await session.execute(
                 text(
-                    "SELECT l.name, l.phone_e164, l.status, c.summary, o.billing_email "
+                    "SELECT l.name, l.phone_e164, l.status, c.summary, o.billing_email, o.slug "
                     "FROM leads l JOIN calls c ON c.id = :cid "
                     "JOIN organizations o ON o.id = l.tenant_id WHERE l.id = :lid"
                 ),
@@ -112,10 +115,13 @@ async def notify_hot_lead(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
         ).first()
         if row is None:
             return "lead_missing"
-        name, phone, status, summary, billing_email = row
+        # `slug` rides along on the SELECT that was already joining `organizations` for
+        # the address — the deep link in the body needs it and a second round trip to
+        # fetch one column would be one more thing to fail inside the 2-minute SLO.
+        name, phone, status, summary, billing_email, slug = row
 
         if billing_email:
-            body = _compose(name, phone, status, summary, triggers)
+            body = _compose(name, phone, status, summary, triggers, slug=slug, lead_id=lead_id)
             # INSIDE the transaction, DELIBERATELY, and the finding that produced the
             # `to_thread` above recommended moving it out as well. It is not moved, and
             # the reason is the atomicity the next block argues for at length: the
@@ -298,10 +304,62 @@ async def _record_attempt(
 
 
 def _compose(
-    name: str | None, phone: str, status: str, summary: str | None, triggers: list[str]
+    name: str | None,
+    phone: str,
+    status: str,
+    summary: str | None,
+    triggers: list[str],
+    *,
+    slug: str,
+    lead_id: UUID,
 ) -> str:
-    """The phone is masked even here. Staff open the lead in the CRM to see it, where
-    the access is role-checked; an email forwarded outside the business is not."""
+    """THE NUMBER STAYS MASKED HERE, AND D-436 IS THE REASON IT NEEDED RE-DECIDING.
+
+    D-436 unmasked the client's own customer contact data on every SCREEN, on the
+    argument that a client who cannot read back their customer's number cannot ring
+    them. That argument is about a surface where somebody signed in: the dashboard's
+    full number sits behind an authenticated session, a role that holds `leads:read`,
+    RLS, and — for a Calevate operator in a view-as session — a verified impersonation
+    grant and an `audit_log` row. Four controls.
+
+    THIS EMAIL HAS NONE OF THE FOUR, and the deciding fact is about our own schema
+    rather than about email in general: the recipient is `organizations.billing_email`,
+    ONE column on the org row, collected to send invoices to. It is not a `memberships`
+    row. It carries no role, so nothing about it says its reader may see leads; it is
+    routinely a shared alias (accounts@, info@) or an accountant outside the business;
+    and it is the one address on this platform that a `leads:read` check has never been
+    applied to. Putting a consumer's phone number there is a disclosure to an
+    unauthenticated party that we chose, not one the client asked for.
+
+    Current guidance says the same thing from the other direction and it is what a
+    reviewer will check this against: transactional mail is held to data minimisation —
+    send the minimum the message needs — and the recommended shape for anything more is
+    a NOTIFICATION PLUS A LINK to a place the recipient must authenticate into, rather
+    than the data itself (kiteworks.com/gdpr-compliance/email-pii, "Best practices to
+    avoid sending PII"; the same pattern the DPDP Rules' breach-notice guidance assumes
+    for a fiduciary's own contact detail). Mail also leaves our control completely: we
+    cannot revoke it, we cannot see who forwarded it, and it is retained on a server we
+    do not hold — which is exactly the set of properties the dashboard does not have.
+
+    SO THE TWO SURFACES ARE CONSISTENT IN PRINCIPLE, WHICH IS THE ONLY CONSISTENCY
+    WORTH HAVING: the number is shown wherever a role check stands behind the reader,
+    and nowhere else. What was actually broken was not the mask — it was that the mask
+    had no way out. The body said "Open the lead in your Calevate dashboard" and gave
+    no link, so honouring the alert meant finding the row by hand, which is how a
+    2-minute SLO turns into a five-minute one and how a masked number reads as an
+    obstruction rather than a control. It now carries the deep link, and the link lands
+    on the screen D-436 unmasked.
+
+    Rejected: sending the number and relying on the client's inbox security. That makes
+    the weakest link in the chain somebody else's mail provider for a benefit — a
+    tap-to-dial in a notification — that one extra tap already buys.
+
+    The summary stays redacted for a different rule entirely: it is transcript-derived
+    prose (`crm.service.redacted_summary`), hard rule 5, and D-436 does not touch it.
+    The NAME is sent whole, and deliberately: it is what makes the alert recognisable
+    at a glance, it is not a contact identifier — nobody can ring it — and an alert
+    that says only "a lead was marked hot" is one nobody opens.
+    """
     masked = redact(phone).text
     lines = [
         f"A lead was marked {status} by your AI receptionist.",
@@ -313,7 +371,11 @@ def _compose(
         lines.append(f"Triggered by: {', '.join(triggers)}")
     if summary:
         lines += ["", "Call summary:", redact(summary).text]
-    lines += ["", "Open the lead in your Calevate dashboard to call back."]
+    lines += [
+        "",
+        "Open the lead to see the full number and call back:",
+        f"{CONSOLE_BASE}/c/{slug}/leads/{lead_id}",
+    ]
     return "\n".join(lines)
 
 

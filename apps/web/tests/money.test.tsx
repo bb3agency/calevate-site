@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import AgentsPage from "@/app/c/[slug]/agents/page";
+import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import type { Agent } from "@/lib/api/agents";
 import type { Me } from "@/lib/api/client";
@@ -79,6 +79,12 @@ const AGENT: Agent = {
     "Namaste, this is an AI assistant calling on behalf of Acme Clinic. This call is being recorded.",
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
+  // D-440 widened `AgentOut`: an agent knows when it was retired (NULL until it is) and
+  // how many lines it answers in parallel, which is the one honest per-agent deployment
+  // fact the API carries. Both are REQUIRED on the wire, so a fixture without them is not
+  // an agent this server can send.
+  archived_at: null,
+  inbound_number_count: 1,
   extraction_fields: [],
 };
 
@@ -127,19 +133,30 @@ function pending(over: Partial<PendingState> = {}): PendingState {
   };
 }
 
-async function renderAgents(state: PendingState) {
-  return await renderClientPage(<AgentsPage params={Promise.resolve({ slug: "acme" })} />, {
-    "/v1/agents": [AGENT],
-    "/v1/agents/lanes": LANES,
-    [`/v1/agents/${AGENT_ID}/pending`]: state,
-  });
+/**
+ * ONE agent's screen, which is where the worst-case call cost lives.
+ *
+ * It was the ROSTER until the agents console was split (D-440): the roster now answers
+ * "which of my agents is working" from `GET /v1/agents` alone, and everything about a
+ * single agent — including its money — moved to `/c/<slug>/agents/<id>`. Same claim, same
+ * component (`agents/panels.tsx::PublishingPanel`), different route.
+ */
+async function renderAgent(state: PendingState) {
+  return await renderClientPage(
+    <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: AGENT_ID })} />,
+    {
+      [`/v1/agents/${AGENT_ID}`]: AGENT,
+      [`/v1/agents/${AGENT_ID}/pending`]: state,
+      "/v1/kb/sources": [],
+    },
+  );
 }
 
 describe("worst-case call cost", () => {
   it("renders a null cost as 'we cannot say', never as ₹0", async () => {
     // No per-minute rate on the plan means we genuinely do not know. Quoting zero is
     // not a conservative default — it is a wrong number a client can plan against.
-    const { container } = await renderAgents(pending({ worst_case_call_cost_inr: null }));
+    const { container } = await renderAgent(pending({ worst_case_call_cost_inr: null }));
 
     await screen.findByText("We cannot say yet");
     expect(container.textContent).not.toContain("₹0");
@@ -160,7 +177,7 @@ describe("worst-case call cost", () => {
     // shapes, depending on which screen you were looking at. The DIGITS are still the
     // server's: `formatINR` groups the string and never parses it, which is the half of
     // hard rule 7 this file exists to hold.
-    const { container } = await renderAgents(pending({ worst_case_call_cost_inr: "10159.00" }));
+    const { container } = await renderAgent(pending({ worst_case_call_cost_inr: "10159.00" }));
 
     await screen.findByText("₹10,159.00");
     expect(container.textContent).not.toContain("10158.99");
@@ -169,7 +186,7 @@ describe("worst-case call cost", () => {
   it("keeps a value only a Decimal can hold intact", async () => {
     // 0.1 + 0.2 territory. If anything on the path touches this with a float, the
     // string that lands on screen will not be the string the biller sent.
-    await renderAgents(pending({ worst_case_call_cost_inr: "0.30" }));
+    await renderAgent(pending({ worst_case_call_cost_inr: "0.30" }));
     await screen.findByText("₹0.30");
   });
 });

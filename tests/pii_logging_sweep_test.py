@@ -51,11 +51,22 @@ from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
 from sqlalchemy import text
 
+# SAME REASON, AND IT BIT WHILE SECTION 5 WAS BEING WRITTEN: this import pulls in
+# `apps.api.main`, whose `create_app` also runs `configure_logging`. Imported inside a
+# test it detached the capture handler mid-run and every assertion below passed against
+# an empty list — which the `logs.lines` positive control is what caught.
+from tests.api_security_test import _make_tenant
+
 # What the fixture call actually says out loud. `SAMPLE_TURNS` is read rather than
 # retyped: a fixture edited to stop saying a phone number would silently turn every
 # assertion below into a tautology.
 SPOKEN_PHONE = "9876543210"
 SPOKEN_NAME = "Ravi"
+
+#: Section 5's fixture. A DIFFERENT number from `SPOKEN_PHONE`, so a leak can be
+#: attributed to the surface it came out of rather than to the pipeline above.
+UNMASKED_PHONE = "+919812345678"
+UNMASKED_EMAIL = "priya.sharma@sunriseclinic.example"
 TRANSCRIPT_FRAGMENTS = tuple(text_ for _speaker, text_ in SAMPLE_TURNS)
 
 CLINIC_SCHEMA: list[dict[str, Any]] = [
@@ -524,3 +535,199 @@ def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
     assert len(found) == 1, f"more than one engine is built in apps/: {found}"
     (where, hides) = found[0]
     assert hides, f"{where} builds an engine without hide_parameters=True"
+
+
+# --- 5. the read surfaces D-436 unmasked --------------------------------------
+#
+# EVERYTHING ABOVE IS THE WRITE PATH. D-436 changed the READ path: `LeadOut.phone_masked`
+# became `phone_e164`, `CallSummaryOut.caller_masked` became `caller_e164`,
+# `DncEntryOut.phone_masked` became `phone_e164`, `PendingInvitation.email_masked` became
+# `email`, and `crm.attention` stopped masking the number it titles a blocked lead with.
+# That decision is about RESPONSES and hard rule 6 is untouched by it — but removing the
+# `mask_phone` call sites is exactly the change after which a full number can reach a log
+# line by accident, because the handler now holds one where it used to hold six dots.
+#
+# So the same method as every test above: run the real routes through the real ASGI app
+# with the production formatter on the ROOT logger, and read the bytes.
+
+
+def _api_client(*, raise_app_exceptions: bool = True) -> AsyncClient:
+    """The monolith over ASGI. Its own helper rather than `api_security_test._client`
+    because the crash test needs `raise_app_exceptions=False` — without it httpx re-raises
+    and the 500 the error handler composed (and logged) is never observed."""
+    from apps.api.main import app as api_app
+
+    return AsyncClient(
+        transport=ASGITransport(app=api_app, raise_app_exceptions=raise_app_exceptions),
+        base_url="http://api",
+    )
+
+
+async def _unmasked_read_fixture() -> tuple[dict[str, str], uuid.UUID, uuid.UUID, str]:
+    """One tenant whose every newly-unmasked surface has something to render.
+
+    The lead is deliberately NAMELESS: `crm.attention.blocked_leads` titles a blocked
+    lead with its captured name and falls back to the raw number, so a named lead would
+    make the attention queue's title a name and the number would never be in scope at
+    all — the assertion would hold for the wrong reason.
+    """
+    tenant_id, slug, token = await _make_tenant("owner")
+    lead_id, call_id = uuid.uuid4(), uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        agent_id = (await session.execute(text("SELECT id FROM agents LIMIT 1"))).scalar()
+        await session.execute(
+            text(
+                "INSERT INTO leads (id, tenant_id, agent_id, phone_e164, status, source, "
+                "created_at, updated_at) VALUES (:id, :tid, :aid, :p, 'new', 'inbound_call', "
+                "now(), now())"
+            ),
+            {"id": lead_id, "tid": tenant_id, "aid": agent_id, "p": UNMASKED_PHONE},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO calls (id, tenant_id, agent_id, lead_id, engine_call_id, "
+                "direction, status, from_e164, started_at, duration_s, created_at, updated_at) "
+                "VALUES (:id, :tid, :aid, :lid, :e, 'inbound', 'completed', :p, now(), 30, "
+                "now(), now())"
+            ),
+            {
+                "id": call_id,
+                "tid": tenant_id,
+                "aid": agent_id,
+                "lid": lead_id,
+                "e": f"unmasked_{call_id.hex[:12]}",
+                "p": UNMASKED_PHONE,
+            },
+        )
+        # A blocked-dial note, which is what puts the lead on the needs-attention queue.
+        await session.execute(
+            text(
+                "INSERT INTO lead_events (id, tenant_id, lead_id, type, payload, actor, "
+                "created_at, updated_at) VALUES (:id, :tid, :lid, 'note', CAST(:p AS jsonb), "
+                "'system', now(), now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "lid": lead_id,
+                "p": json.dumps({"kind": "blocked", "rule": "dnc"}),
+            },
+        )
+        await session.execute(
+            text(
+                "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
+                "created_at) VALUES (:id, :tid, :p, 'tenant', 'manual', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "p": UNMASKED_PHONE},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO invitations (id, tenant_id, email, role, token_hash, expires_at, "
+                "created_at, updated_at) VALUES (:id, :tid, :email, 'staff', :hash, "
+                "now() + interval '3 days', now(), now())"
+            ),
+            {
+                "id": uuid.uuid4(),
+                "tid": tenant_id,
+                "email": UNMASKED_EMAIL,
+                "hash": uuid.uuid4().hex * 2,
+            },
+        )
+    headers = {"Authorization": f"Bearer {token}", "X-Org-Slug": slug}
+    return headers, lead_id, call_id, slug
+
+
+async def test_reading_every_newly_unmasked_screen_logs_no_contact_identifier(
+    logs: _Capture,
+) -> None:
+    """Nine responses that now carry a full number, name or address, and one log stream.
+
+    THE POSITIVE CONTROLS ARE THE POINT, twice over. Each response is asserted to have
+    actually rendered the identifier — otherwise "the number is not in the logs" is a
+    statement about a 403 — and the log stream is asserted non-empty, because a detached
+    handler passes every absence.
+    """
+    headers, lead_id, call_id, _slug = await _unmasked_read_fixture()
+    rendered: dict[str, str] = {}
+    async with _api_client() as http:
+        for path in (
+            "/v1/calls",
+            f"/v1/calls/{call_id}",
+            "/v1/leads",
+            f"/v1/leads/{lead_id}",
+            "/v1/attention",
+            "/v1/dnc",
+            "/v1/invitations",
+        ):
+            response = await http.get(path, headers=headers)
+            assert response.status_code == 200, (path, response.text[:300])
+            rendered[path] = response.text
+        # `search` is matched against `phone_e164`, which is why it is a POST and not a
+        # query string (`crm.routes._SEARCH_MOVED_TO_POST`) — so a number in a REQUEST is
+        # covered here too, not only one in a response.
+        search = await http.post(
+            "/v1/leads/search", headers=headers, json={"search": UNMASKED_PHONE[-6:]}
+        )
+        assert search.status_code == 200, search.text[:300]
+        rendered["/v1/leads/search"] = search.text
+        # The audited bulk extract: the one route that takes the whole list out, and the
+        # one whose handler writes an `audit_log` row with a summary that goes to the log
+        # stream. `searched` must be a BOOLEAN there and never its text.
+        export = await http.post(
+            "/v1/leads/export.csv", headers=headers, json={"search": UNMASKED_PHONE[-6:]}
+        )
+        assert export.status_code == 200, export.text[:300]
+        rendered["/v1/leads/export.csv"] = export.text
+
+    # Each surface really did render what D-436 says it renders.
+    assert UNMASKED_PHONE in rendered["/v1/leads"], "the leads list is masked again"
+    assert UNMASKED_PHONE in rendered[f"/v1/calls/{call_id}"], "the call detail is masked again"
+    assert UNMASKED_PHONE in rendered["/v1/dnc"], "the suppression list is masked again"
+    assert UNMASKED_PHONE in rendered["/v1/attention"], (
+        "the blocked-lead title fell back to something other than the number, so this "
+        "test is not exercising the fallback D-436 changed"
+    )
+    assert UNMASKED_EMAIL in rendered["/v1/invitations"], "the invite list is masked again"
+    assert UNMASKED_PHONE in rendered["/v1/leads/export.csv"], "the export lost its column"
+
+    assert logs.lines, "no log output captured — the assertion below would prove nothing"
+    leaked = [
+        fragment
+        for fragment in (UNMASKED_PHONE, UNMASKED_PHONE.removeprefix("+91"), UNMASKED_EMAIL)
+        if fragment in logs.text
+    ]
+    assert not leaked, (
+        "hard rule 6: D-436 unmasked the RESPONSE, and one of these surfaces then put the "
+        f"identifier in a log line too: {leaked}\nlines:\n{logs.text[:4000]}"
+    )
+
+
+async def test_a_crash_inside_a_handler_holding_a_full_contact_list_leaks_nothing(
+    logs: _Capture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The crash path for the READ side, which is where the removed masking bites.
+
+    `LeadPage` now holds real numbers, so `raise ValueError(f"... {page!r}")` — or any
+    library that renders what it was handed — puts a whole contact list in the exception
+    message. `redact_exception` withholds the message and keeps the frames; this asserts
+    that on the shape D-436 created rather than on the pipeline's.
+    """
+    from apps.api.crm import service as crm
+
+    headers, _lead_id, _call_id, _slug = await _unmasked_read_fixture()
+    real = crm.list_leads_page
+
+    async def _boom(*args: Any, **kwargs: Any) -> Any:
+        page = await real(*args, **kwargs)
+        raise ValueError(f"serialization failed holding {page!r}")
+
+    monkeypatch.setattr(crm, "list_leads_page", _boom)
+    async with _api_client(raise_app_exceptions=False) as http:
+        response = await http.get("/v1/leads", headers=headers)
+    assert response.status_code == 500
+
+    crashed = [line for line in logs.lines if '"msg": "unhandled_exception"' in line]
+    assert crashed, "the crash must be logged at all"
+    assert "ValueError: [message withheld]" in json.loads(crashed[0])["exc"]
+    for spelling in (UNMASKED_PHONE, UNMASKED_PHONE.removeprefix("+91")):
+        assert spelling not in logs.text, f"a contact list left through a 500 as {spelling!r}"

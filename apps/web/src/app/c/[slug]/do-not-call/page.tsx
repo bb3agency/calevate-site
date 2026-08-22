@@ -51,7 +51,7 @@ import { lookup } from "@/lib/lookup";
  * 1. **Adding answers with counts, never numbers.** There is no per-number result to
  *    render, by design. The screen says so rather than leaving the client hunting for
  *    a list that will never come.
- * 2. **The list is masked, and each row says whether it may be undone.** A `global`
+ * 2. **Each row says whether it may be undone.** A `global`
  *    entry belongs to the national list; an entry that records a consumer's opt-out is
  *    permanent. Both are SHOWN — a number you cannot un-suppress is still a number you
  *    should know is suppressed — and neither gets a Remove button, because the API
@@ -83,13 +83,13 @@ import { lookup } from "@/lib/lookup";
  *   so the row count stops being the account's total at exactly that point.
  * - **Every Remove button had the same accessible name.** A screen reader on a list of
  *   forty suppressions heard "Remove, button" forty times with nothing to tell them
- *   apart; each now names the masked number it would un-suppress.
+ *   apart; each now names the number it would un-suppress.
  *
- * Hard rule 6 is the whole job here. The list is masked at the API (`mask_phone` — last
- * two digits), the check sends the raw number in a POST BODY and never in a URL, and the
- * add response carries counts only. Nothing on this screen renders a number the server
- * did not already mask, and the only place a full number exists is the input the user
- * typed it into.
+ * WHERE A NUMBER MAY GO, which D-436 changed in one direction only. The list renders
+ * numbers IN FULL — a client checking "did we suppress the person shouting at me?"
+ * cannot do it against dots. What has NOT changed is the URL rule (hard rule 6): the
+ * check sends its number in a POST BODY, never a path or a query string, so nothing
+ * here reaches browser history, an access log or the next request's referrer.
  */
 
 /** Why a number is on the list, in the client's words. The values are the API's. */
@@ -405,8 +405,7 @@ export default function DoNotCallPage() {
             <span className="text-xs text-ink-faint">
               {truncated
                 ? `Showing the ${formatCount(DNC_LIST_LIMIT)} most recently added`
-                : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}{" "}
-              · last two digits only
+                : `${formatCount(rows.length)} ${rows.length === 1 ? "entry" : "entries"}`}
             </span>
           ) : undefined
         }
@@ -506,9 +505,9 @@ function EntryRow({
       >
         {global ? <Globe2 className="h-4 w-4" /> : <PhoneOff className="h-4 w-4" />}
       </span>
-      {/* MASKED at the API — `phone_masked` is the only form of the number that exists
-          on this response, and the only one this screen may render (hard rule 6). */}
-      <span className="font-mono tabular-nums text-ink">{entry.phone_masked}</span>
+      {/* IN FULL (D-436) — a suppression list a client cannot read back is one they
+          cannot check against the caller complaining that we rang them again. */}
+      <span className="font-mono tabular-nums text-ink">{entry.phone_e164}</span>
       {global && (
         // Shown, never removable: it is not this account's entry, and hiding it would
         // leave a client wondering why a number they can't find is never dialled.
@@ -536,9 +535,9 @@ function EntryRow({
             disabled={removing}
             onClick={onRemove}
             // Named for the row: forty buttons called "Remove" are forty identical
-            // announcements to a screen reader. The masked number is what the API gave
-            // us and is safe to speak.
-            aria-label={`Remove ${entry.phone_masked} from the do-not-call list`}
+            // announcements to a screen reader, and "remove which one?" is exactly the
+            // question a mis-click answers wrongly.
+            aria-label={`Remove ${entry.phone_e164} from the do-not-call list`}
             className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 disabled:opacity-50 dark:hover:bg-white/5"
           >
             <Trash2 className="h-3.5 w-3.5" />

@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import inspect
 import logging
+import re
+from pathlib import Path
 
 import arq.worker
 import pytest
@@ -63,12 +65,41 @@ def attached() -> logging.Logger:
 # --- wiring: the templates are arq's, not ours --------------------------------
 
 
+def _installed_run_job_source() -> str:
+    """arq's OWN `Worker.run_job`, read from the installed module FILE.
+
+    NOT `inspect.getsource(arq.worker.Worker.run_job)`, and the difference is the whole
+    reason this helper exists. **Sentry's arq integration monkeypatches that attribute**
+    with its own `_sentry_run_job` wrapper, so the moment anything in the process has
+    initialised Sentry — which the full suite does and a standalone run of this file does
+    not — `getsource` hands back SENTRY's function, in which arq's log templates do not
+    appear. This test then fails claiming "arq no longer logs ..." about an arq that logs
+    it perfectly well, and it does so ONLY in the full run, which is the hardest shape of
+    failure to read.
+
+    The inverse is the danger worth naming: had the wrapper happened to contain those
+    strings, the assertion would have PASSED while inspecting the wrong function — which
+    is precisely the "backstop that has silently stopped backing anything" this file's
+    own docstring warns about, arriving by a route it did not anticipate. Reading the
+    module's file is immune to any patching of the attribute, and the file is what the
+    question is actually about: what the INSTALLED arq logs.
+    """
+    module_source = Path(inspect.getfile(arq.worker)).read_text(encoding="utf-8")
+    start = module_source.index("    async def run_job(")
+    # the next method at the same indent — `run_job`'s own body is indented deeper
+    following = re.search(r"\n    (?:async )?def ", module_source[start + 1 :])
+    end = start + 1 + following.start() if following else len(module_source)
+    body = module_source[start:end]
+    assert "self" in body, "read nothing that looks like a method body from arq.worker"
+    return body
+
+
 def test_both_templates_still_appear_in_the_installed_arq_source() -> None:
     """THE LOAD-BEARING ASSERTION. The handler recognises arq's terminal failures by their
     logging FORMAT STRING. If arq rewords either one, the handler goes quiet and every
     other test in this file still passes — a backstop that has silently stopped backing
     anything reads exactly like a healthy one."""
-    source = inspect.getsource(arq.worker.Worker.run_job)
+    source = _installed_run_job_source()
     for template in worker_settings.ARQ_TERMINAL_MESSAGES:
         assert template in source, (
             f"arq {arq.VERSION} no longer logs {template!r} in Worker.run_job — the "
@@ -81,7 +112,7 @@ def test_arq_still_ends_these_two_paths_without_running_the_job() -> None:
     """WHY the backstop exists rather than a per-job `except`. Both terminal paths return
     from `run_job` before `on_job_start` is awaited, so nothing of ours can observe them
     from inside a job."""
-    source = inspect.getsource(arq.worker.Worker.run_job)
+    source = _installed_run_job_source()
     not_found = source.index("function %r not found")
     exhausted = source.index("max retries %d exceeded")
     on_job_start = source.index("if self.on_job_start:")

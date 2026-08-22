@@ -863,13 +863,15 @@ async def _export_and_summary(
 
 @router.post(
     "/leads/export.csv",
-    # `calls:read_raw`, NOT `leads:read`. This is the one route where a client's contact
-    # list leaves us with FULL phone numbers, and the redaction guardrail exempts it on
-    # the stated grounds that it is role-gated and audited. `leads:read` is held by
+    # `calls:read_raw`, NOT `leads:read`. This is the route that takes a client's WHOLE
+    # contact list out of the building in one file, and the redaction guardrail exempts
+    # it on the stated grounds that it is role-gated and audited. `leads:read` is held by
     # `staff` — so the "role gate" was every logged-in employee, and the exemption was
     # describing a control that did not exist. `calls:read_raw` is the permission that
-    # already means "you may see the unmasked artefact, and your having seen it is
-    # recorded": owner in the client realm, superadmin in ours, never staff.
+    # already means "you may take the artefact, and your having taken it is recorded":
+    # owner in the client realm, superadmin in ours, never staff. D-436 unmasked the
+    # SCREENS; it did not move this gate, because a bulk extract is a different act from
+    # reading the row in front of you.
     #
     # **The POST shape exists for `search` and only for `search`.** That field is matched
     # against `phone_e164`, and a customer's number in a query string is written to
@@ -900,12 +902,12 @@ async def export_leads(
     `_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.
     That mirroring is a correctness requirement here rather than a nicety: the screen and
     the file must not disagree about which rows and which columns, because the file is the
-    one carrying unmasked numbers out of the building.
+    one carrying the whole contact list out of the building in a single click.
     """
     export, summary = await _export_and_summary(session, payload)
     # An export leaves our redaction behind (SEC-COMP §4 says redaction runs BEFORE any
     # transcript leaves the system — a lead export is contact data, not transcript, and
-    # is the client's own data — so it is audited rather than masked). In the handler,
+    # is the client's own data — so it is audited rather than withheld). In the handler,
     # by the guardrail's requirement — see the GET twin below.
     await write_audit(
         session,

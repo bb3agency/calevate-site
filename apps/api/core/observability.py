@@ -1411,6 +1411,36 @@ def init_observability(service: str) -> str:
                 # Never send PII, and scrub what the SDK gathers anyway.
                 send_default_pii=False,
                 max_request_body_size="never",
+                # NO FRAME LOCALS, and this is the one Sentry default that beat the
+                # scrubber. `include_local_variables` defaults to TRUE, so every captured
+                # exception shipped a snapshot of each frame's locals — and `serialize()`
+                # runs BEFORE `before_send` (sentry_sdk/client.py `_prepare_event`), so
+                # `scrub_event` meets them already flattened to `repr` strings and can
+                # only apply `redact_mapping`: key patterns plus phone-shaped digit runs.
+                # MEASURED against a real `sentry_sdk.Client` with these exact options,
+                # crashing inside a function shaped like `notifications._compose`:
+                # `phone` and `billing_email` came out `[redacted]` (the keys match), and
+                # `name` came out `'Ravi Kumar'` and `summary` came out
+                # `'Caller asked for a callback.'` — a caller's captured name and the
+                # transcript-derived call summary, verbatim, to a third-party error
+                # tracker. Neither key matches `REDACT_KEYS` and neither value is
+                # phone-shaped, which is the whole point: a local's NAME is chosen for
+                # readability, not for a denylist.
+                #
+                # Withholding rather than filtering, for the reason this module already
+                # gives twice — `logging.redact_exception` and `exception.values[].value`
+                # above: there is no way to prove an arbitrary runtime string is not one
+                # of hard rule 6's three data classes, and frame locals are runtime
+                # values BY CONSTRUCTION, so they are strictly the worse case of the one
+                # the exception message already lost. What a Sentry issue keeps is what
+                # the log traceback keeps — the type, the frames, the source line — plus
+                # our own `extra`/`logentry` (scrubbed, and where ids are deliberately
+                # put) and the `otel_trace_id` tag that joins it to the trace.
+                #
+                # `scrub_event`'s frame-vars walk STAYS as the backstop: this keyword is
+                # what stops them being collected, that walk is what catches them if a
+                # future integration or an SDK default puts them back.
+                include_local_variables=False,
                 # CAST, and the cast is the honest expression of a real difference.
                 # `sentry_sdk.init` types these as `Callable[[Event, Hint], Event | None]`
                 # where `Event` is the SDK's TypedDict. Ours are typed on plain dicts on

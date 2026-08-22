@@ -37,8 +37,11 @@ import { lookup } from "@/lib/lookup";
  *   looking for the calls that went to voicemail could not ask for them.
  *
  * WHAT IS NOT HERE, deliberately: any figure the API did not send. The summary column
- * shows `summary` as the API redacted it, the caller column shows `caller_masked`, and
- * a call with neither shows a dash rather than something invented to fill the cell.
+ * shows `summary` as the API redacted it, the caller column shows `caller_e164` in
+ * full, and a call with neither shows a dash rather than something invented to fill
+ * the cell. The number and the summary are governed differently and always were: the
+ * number is the client's own contact data (D-436), the summary is transcript-derived
+ * prose and stays redacted.
  */
 
 /**
@@ -89,7 +92,7 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          Caller numbers are masked here; open a call to see its details.
+          Open a call to see its transcript, recording and captured fields.
         </p>
         {/* The denominator, so an empty screen is legibly "nothing matched this
             filter" rather than possibly "nothing loaded". Only once the query has
@@ -164,10 +167,12 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
 
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                        {/* MASKED — the only form of a caller's number this screen is
-                            allowed to render (hard rule 6). */}
+                        {/* IN FULL. Ringing this person back is the only action this
+                            row leads to, and a number nobody can read is not one
+                            (D-436). NULL means the engine gave us no number for the
+                            leg — not that we withheld it. */}
                         <span className="truncate text-sm font-semibold tabular-nums text-ink">
-                          {call.caller_masked ?? "Unknown number"}
+                          {call.caller_e164 ?? "Unknown number"}
                         </span>
                         <StatusBadge value={call.status} kind="call" />
                         {call.outcome_tag && (

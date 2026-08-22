@@ -150,7 +150,13 @@ async def test_the_audit_is_not_something_a_new_route_can_forget() -> None:
     org = await _make_org()
     tenant_id = uuid.UUID(str(org["id"]))
 
-    surfaces = ("/v1/agents", "/v1/leads", "/v1/calls")
+    # `/v1/dnc` AND `/v1/invitations` JOINED THIS LIST WITH D-436. Before it, a view-as
+    # session saw six dots on the suppression list and `p••••@clinic.in` on the pending
+    # invites; both now render in full, which makes them the same class of read as
+    # `/v1/leads` and puts them on the list of surfaces whose audit row has to be proved
+    # rather than assumed. They are also two DIFFERENT modules again (`compliance`,
+    # `tenancy`), which is what this test is really measuring.
+    surfaces = ("/v1/agents", "/v1/leads", "/v1/calls", "/v1/dnc", "/v1/invitations")
     async with _client() as http:
         headers = await view_as_headers(http, token, str(org["slug"]))
         for path in surfaces:
@@ -160,7 +166,7 @@ async def test_the_audit_is_not_something_a_new_route_can_forget() -> None:
 
     rows = await _read_rows(tenant_id)
     assert len(rows) == len(surfaces), (
-        f"{len(surfaces)} reads across three modules produced {len(rows)} rows — "
+        f"{len(surfaces)} reads across five modules produced {len(rows)} rows — "
         "a surface reached a tenant without going through the audited path"
     )
 
@@ -388,4 +394,36 @@ async def test_the_ledger_row_names_no_screen_and_no_query_string() -> None:
     assert len(rows) == 1
     assert all("9876500001" not in str(value) for value in rows[0]), (
         "a query-string value reached the audit row"
+    )
+
+
+async def test_a_view_as_session_cannot_take_the_contact_list_in_bulk() -> None:
+    """The question D-436 forces, answered with the two controls that actually stand.
+
+    Before D-436 a support person in a view-as session saw `••••••10` on the leads
+    screen; they now see the whole contact list, and the presence row above is coalesced
+    to one per (admin, tenant) per minute — so "which rows did they read" is not
+    something the ledger answers, by design (`core/auth._record_impersonated_read`
+    argues the volume case at length, and the request log carries the route).
+
+    What keeps that acceptable is that READING A SCREEN and TAKING THE LIST are separate
+    acts with separate gates, and this pins the second one. `POST /v1/leads/export.csv`
+    requires `calls:read_raw` — a permission `operator` does not hold at all — so the
+    support role that does impersonation cannot extract in bulk under any circumstances.
+    A `superadmin` can, and that act writes its OWN `audit_log` row naming the row count
+    and the columns, on top of the presence row.
+
+    If this ever starts answering 200 for an operator, the exposure is no longer "an
+    operator read a screen we can prove they were on"; it is "an operator took a client's
+    entire customer list and the ledger says they visited".
+    """
+    _admin_id, token = await _make_admin("operator")
+    org = await _make_org()
+
+    async with _client() as http:
+        headers = await view_as_headers(http, token, str(org["slug"]))
+        refused = await http.post("/v1/leads/export.csv", headers=headers, json={})
+    assert refused.status_code == 403, (
+        "an operator in a view-as session took a bulk export of a client's contact list: "
+        f"{refused.status_code} {refused.text[:300]}"
     )

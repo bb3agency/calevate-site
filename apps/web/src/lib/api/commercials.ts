@@ -65,6 +65,14 @@ export type RecordTermsOut = Schemas["RecordTermsOut"];
 
 export type LifecycleStatus = "active" | "suspended" | "churned";
 
+/**
+ * The ADMIN realm's account lifecycle (active / suspended / churned) — not an agent's.
+ *
+ * Stayed unqualified because `apps/api/agents/routes.py` named ITS result
+ * `AgentLifecycleOut` rather than a second `LifecycleOut`. Two same-named models in one
+ * FastAPI app make openapi-typescript qualify BOTH by their Python module, which renamed
+ * this type — and broke this screen — from a change in a module it does not import.
+ */
 export type LifecycleOut = Schemas["LifecycleOut"];
 
 export function commercialTermsPath(tenantId: string): string {

@@ -61,6 +61,12 @@ const AGENT: Agent = {
   truthful_answer_rule:
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "bolna",
+  // D-440 widened `AgentOut`: an agent knows when it was retired (NULL until it is) and
+  // how many lines it answers in parallel, which is the one honest per-agent deployment
+  // fact the API carries. Both are REQUIRED on the wire, so a fixture without them is not
+  // an agent this server can send.
+  archived_at: null,
+  inbound_number_count: 1,
   extraction_fields: [],
 };
 
@@ -76,7 +82,7 @@ function lead(id: string, name: string, over: Record<string, unknown> = {}): Lea
   return {
     id,
     name,
-    phone_masked: `+9198••••${id.slice(-4).padStart(4, "0")}`,
+    phone_e164: `+91987654${id.slice(-4).padStart(4, "0")}`,
     status: "new",
     source: "inbound_call",
     data: {},
@@ -502,17 +508,17 @@ describe("inline edit says so on the row when it fails", () => {
     });
 
     fireEvent.click(
-      await screen.findByLabelText("Edit the name for the lead on +9198••••1001"),
+      await screen.findByLabelText("Edit the name for the lead on +919876541001"),
     );
-    const input = screen.getByLabelText("Name for the lead on +9198••••1001");
+    const input = screen.getByLabelText("Name for the lead on +919876541001");
 
     // Escape restores the stored value and sends nothing.
     fireEvent.change(input, { target: { value: "Nonsense" } });
     fireEvent.keyDown(input, { key: "Escape" });
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
 
-    fireEvent.click(screen.getByLabelText("Edit the name for the lead on +9198••••1001"));
-    const again = screen.getByLabelText("Name for the lead on +9198••••1001");
+    fireEvent.click(screen.getByLabelText("Edit the name for the lead on +919876541001"));
+    const again = screen.getByLabelText("Name for the lead on +919876541001");
     fireEvent.change(again, { target: { value: "Ramesh K" } });
     fireEvent.keyDown(again, { key: "Enter" });
 
@@ -527,15 +533,15 @@ describe("inline edit says so on the row when it fails", () => {
     });
 
     fireEvent.click(
-      await screen.findByLabelText("Edit the name for the lead on +9198••••1001"),
+      await screen.findByLabelText("Edit the name for the lead on +919876541001"),
     );
-    fireEvent.blur(screen.getByLabelText("Name for the lead on +9198••••1001"));
+    fireEvent.blur(screen.getByLabelText("Name for the lead on +919876541001"));
     // A cell clicked into and out of must not PATCH: the write bumps `updated_at`, which
     // is this table's sort key, so a no-op edit would re-order the client's screen.
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
 
-    fireEvent.click(screen.getByLabelText("Edit the name for the lead on +9198••••1001"));
-    const input = screen.getByLabelText("Name for the lead on +9198••••1001");
+    fireEvent.click(screen.getByLabelText("Edit the name for the lead on +919876541001"));
+    const input = screen.getByLabelText("Name for the lead on +919876541001");
     fireEvent.change(input, { target: { value: "Ramesh Gupta" } });
     fireEvent.blur(input);
     const posted = await lastCallTo(calls, "/v1/leads/lead-1001", "PATCH");

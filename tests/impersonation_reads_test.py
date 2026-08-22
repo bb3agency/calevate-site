@@ -48,8 +48,9 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/ops/dnc/global": (
         "the platform-wide suppression list — superadmin surface, and nothing a client "
         "screen depends on: a global entry already appears in the client's own "
-        "`GET /v1/dnc` (masked, `removable: false`), which is what a view-as session "
-        "sees. This is the ops view of what we refuse to dial for EVERY tenant"
+        "`GET /v1/dnc` (in full since D-436, `removable: false`), which is what a "
+        "view-as session sees. This is the ops view of what we refuse to dial for EVERY "
+        "tenant"
     ),
     "/v1/ops/config": (
         "platform configuration — superadmin surface, and the one thing a view-as "

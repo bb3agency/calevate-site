@@ -41,12 +41,37 @@ from apps.api.db.base import Base, PKMixin, TimestampMixin
 #: changes the CHECK in the same edit or it changes neither.
 AgentDirection = Literal["inbound", "outbound", "both"]
 AGENT_DIRECTIONS: tuple[AgentDirection, ...] = get_args(AgentDirection)
-AGENT_STATUSES = ("draft", "live", "paused")
+
+#: WHERE AN AGENT IS IN ITS LIFE, as a type, for the reason `AgentDirection` above is one:
+#: this vocabulary is compared against, stored, filtered on and returned to a browser, and
+#: it spent its whole life as a bare tuple of strings that nothing could check.
+#:
+#: THE FOUR WORDS, and why they are these words. `draft`/`live`/`paused` are what the
+#: column has always held and what every gate in the tree already reads —
+#: `compliance/service.check_dispatch` refuses `status <> 'live'` per contact,
+#: `campaigns/service.launch_blockers` per launch, `agents/prompts.py` branches on it to
+#: decide whether an edit needs an explicit apply. `archived` (migration e4b90d27c1f6) is
+#: the fourth, and it is the one the product was missing: a way to take an agent off the
+#: roster for good WITHOUT reaching for `deleted_at`, which means "this client's data was
+#: erased" and takes the agent's own call history off every screen with it.
+#:
+#: THE PRODUCT SAYS "ACTIVE" AND "INACTIVE" AND THIS COLUMN DOES NOT, deliberately. Those
+#: are labels on a screen — the same class of change as calling a voice agent an "agent" —
+#: and renaming the stored values would rewrite a vocabulary that ten modules and thirty
+#: test files compare against, to buy nothing a `<span>` cannot. `live` IS active and
+#: `paused` IS inactive; the mapping lives in the API description and in the UI, and the
+#: wire value stays the one the database holds so there is exactly one vocabulary.
+AgentStatus = Literal["draft", "live", "paused", "archived"]
+#: Derived from the Literal, never retyped (D-104): this tuple renders
+#: `ck_agents_status_enum`, so a fifth status changes the CHECK in the same edit or it
+#: changes neither.
+AGENT_STATUSES: tuple[AgentStatus, ...] = get_args(AgentStatus)
 
 #: Derived, never retyped (D-104). This WAS `("fake", "bolna")`, spelled here by hand, and
 #: it is the copy that had teeth: it renders `ck_agents_engine_enum`, and
-#: `admin/service.py::_default_engine` writes `get_settings().engine` into that column
-#: when a tenant is born. So on a deployment running `ENGINE=cartesia` — a value
+#: `agents/lifecycle.py::create_agent` writes `get_settings().engine` into that column
+#: on every agent, the tenant's first included. So on a deployment running
+#: `ENGINE=cartesia` — a value
 #: `config.EngineName` accepts and the whole adapter exists for — the first thing a new
 #: client does, exist, failed with an IntegrityError out of Postgres rather than with a
 #: refusal anyone authored. `tests/engine_name_drift_test.py` fails on a fourth spelling.
@@ -77,6 +102,15 @@ class Agent(PKMixin, TimestampMixin, Base):
     __table_args__ = (
         CheckConstraint(f"direction IN {AGENT_DIRECTIONS!r}", name="direction_enum"),
         CheckConstraint(f"status IN {AGENT_STATUSES!r}", name="status_enum"),
+        # `archived` and `archived_at` are two spellings of one fact (migration
+        # e4b90d27c1f6), so the constraint is an EQUIVALENCE rather than an implication:
+        # neither an archived agent with no timestamp nor a live one carrying a stale
+        # archival date is representable, and the restore path clears the column in the
+        # same statement that moves the status.
+        CheckConstraint(
+            "(status = 'archived') = (archived_at IS NOT NULL)",
+            name="ck_agents_archived_at_matches_status",
+        ),
         CheckConstraint(f"engine IN {ENGINES!r}", name="engine_enum"),
         # LEGACY, and kept deliberately: the bundled line, step 1 of a two-step
         # deprecation (hard rule 8, D-163). Still written by every writer of the four
@@ -197,6 +231,11 @@ class Agent(PKMixin, TimestampMixin, Base):
     engine: Mapped[str] = mapped_column(String, nullable=False, server_default="fake")
     engine_agent_ref: Mapped[str | None] = mapped_column(Text)
     engine_staging_ref: Mapped[str | None] = mapped_column(Text)
+    # WHEN THE CLIENT RETIRED THIS AGENT (migration e4b90d27c1f6). NOT `deleted_at`, which
+    # is the erasure column the DPDP deletion path writes: archiving keeps every row and
+    # every screen, it only takes the agent off the working roster. `updated_at` could not
+    # order the history list — a republish, a voice change or a disclosure toggle moves it.
+    archived_at: Mapped[datetime | None]
     deleted_at: Mapped[datetime | None]
 
 

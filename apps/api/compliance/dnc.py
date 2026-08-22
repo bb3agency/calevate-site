@@ -13,8 +13,10 @@ Four deliberate choices, each of which a reviewer should be able to check:
   than echoing a pasted list back, and the audit row records the same counts. A
   suppression list is the one place where "who asked us to stop calling them" is itself
   sensitive.
-- **The list is masked** with `crm.service.mask_phone` — the same last-two-digits rule
-  the leads list uses, because the DNC page is just as screenshotable.
+- **The list shows numbers in full**, like every other contact surface (D-436). It used
+  to be dotted "because the DNC page is screenshotable", which is an argument against
+  every screen in the product; what it actually cost was the ability to check that the
+  number an angry caller is quoting is the one on the list.
 - **A number that is already suppressed is not re-inserted**, including when the match
   is a GLOBAL entry. The unique constraint is `(tenant_id, phone_e164)`, so a tenant row
   shadowing a global one would not conflict — it would just be a second row saying the
@@ -66,7 +68,6 @@ from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import DNC_REMOVABLE_SOURCES
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.crm.service import mask_phone
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.ingest.service import normalize_phone
@@ -101,7 +102,7 @@ class AddResult:
 @dataclass(frozen=True, slots=True)
 class DncEntryView:
     id: UUID
-    phone_masked: str
+    phone_e164: str
     scope: str
     source: str | None
     added_at: Any
@@ -132,7 +133,24 @@ async def add_numbers(
     see global rows, so only a read tells us whether a number is already blocked. The
     insert still carries ON CONFLICT DO NOTHING — between our read and our write another
     request may have added the same number, and a concurrent add must be a no-op, not a
-    500. In that race `added` over-reports by one; the list is still correct.
+    500.
+
+    `added` IS THE STATEMENT'S ROWCOUNT, NOT THE LENGTH OF THE LIST WE MEANT TO INSERT.
+    This used to report `len(fresh)` — a count computed from a read taken before the
+    write — and the docstring accepted the over-report ("in that race `added`
+    over-reports by one; the list is still correct"). Two operators pasting the same list
+    at once therefore BOTH read "12 numbers suppressed" while one of them inserted
+    nothing, and this is a compliance screen: the number a person will quote when asked
+    what they did about a complaint. Verified on this driver, which reports an exact
+    rowcount for an executemany with `ON CONFLICT DO NOTHING` (3 fresh → 3, 3 conflicting
+    → 0, 2 conflicting + 1 fresh → 1), and `rowcount_of` floors an absent rowcount at 0
+    rather than guessing — under-reporting a suppression somebody else made is the safe
+    direction, over-claiming one nobody made is not.
+
+    `already_suppressed` is then derived from it, so the three counts still sum to what
+    was sent and the difference lands where it belongs: a number a racing request
+    suppressed a millisecond earlier IS already suppressed by the time this answer is
+    given, which is the true statement to make about it.
     """
     if source not in SOURCES:
         raise ProblemError.business_rule(
@@ -170,8 +188,9 @@ async def add_numbers(
     }
     fresh = [phone for phone in unique if phone not in existing]
 
+    added = 0
     if fresh:
-        await session.execute(
+        result = await session.execute(
             text(
                 "INSERT INTO dnc_list (id, tenant_id, phone_e164, scope, source, added_at, "
                 "created_at) VALUES (:id, :tid, :phone, 'tenant', :source, now(), now()) "
@@ -182,21 +201,29 @@ async def add_numbers(
                 for phone in fresh
             ],
         )
+        added = rowcount_of(result)
         # D-428(b): the suppression is not honoured until the dials the vendor is
         # ALREADY holding are pulled back. Same transaction as the insert above, so the
         # two share a fate. `fresh` only — a re-import of an unchanged list enqueues
         # nothing.
+        #
+        # `fresh` AND NOT the rows this statement actually inserted, deliberately: the
+        # COUNT must be exact and the RECALL must be over-inclusive. A number a racing
+        # request inserted a millisecond ago has its own recall enqueued, but that recall
+        # is idempotent (`calls.recall_requested_at` is a one-way stamp) and running it
+        # twice costs a scan, while missing one leaves a suppressed number's dial sitting
+        # in the vendor's queue. The two questions have different safe directions.
         await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=fresh)
 
     # Counts only (hard rule 6): the numbers are the whole point of the request and
     # none of them belong in a log line.
     log.info(
         "dnc_added",
-        extra={"tenant_id": str(tenant_id), "added": len(fresh), "source": source},
+        extra={"tenant_id": str(tenant_id), "added": added, "source": source},
     )
     return AddResult(
-        added=len(fresh),
-        already_suppressed=len(unique) - len(fresh),
+        added=added,
+        already_suppressed=len(unique) - added,
         malformed=malformed,
     )
 
@@ -217,7 +244,7 @@ async def list_entries(session: AsyncSession, *, limit: int = 100) -> list[DncEn
     return [
         DncEntryView(
             id=row[0],
-            phone_masked=mask_phone(row[1]) or "",
+            phone_e164=row[1],
             scope=row[2],
             source=row[3],
             added_at=row[4],
@@ -228,7 +255,11 @@ async def list_entries(session: AsyncSession, *, limit: int = 100) -> list[DncEn
 
 
 async def check_number(session: AsyncSession, *, tenant_id: UUID, raw: str) -> CheckResult:
-    """ "Is this number suppressed?" — the question the masked list cannot answer.
+    """ "Is this number suppressed?" — one number, decided, without paging the list.
+
+    The list itself has answered this since D-436 unmasked it, so this is no longer the
+    ONLY way to ask; it is still the right one, because the list is capped and a number
+    beyond the cap would read as "not suppressed" — which is the one wrong answer here.
 
     Deliberately mirrors the gate's own query (`compliance.service.check_dispatch`)
     rather than approximating it: a check that disagrees with the gate is worse than no
@@ -448,7 +479,7 @@ async def add_global_numbers(
 
 
 async def list_global_entries(session: AsyncSession, *, limit: int = 100) -> list[DncEntryView]:
-    """The platform-wide list, masked, newest first.
+    """The platform-wide list, newest first — numbers in full (D-436).
 
     A separate query from `list_entries` rather than a flag on it: that one runs on a
     tenant session and returns "this tenant's rows plus the global ones", which is the
@@ -467,7 +498,7 @@ async def list_global_entries(session: AsyncSession, *, limit: int = 100) -> lis
     return [
         DncEntryView(
             id=row[0],
-            phone_masked=mask_phone(row[1]) or "",
+            phone_e164=row[1],
             scope=row[2],
             source=row[3],
             added_at=row[4],

@@ -45,7 +45,7 @@ const STAFF: Member = { id: "0192f0aa-2222-7000-8000-000000000002", name: "Priya
 
 const INVITE: PendingInvitation = {
   id: "0192f0aa-3333-7000-8000-000000000003",
-  email_masked: "r•••@clinic.example",
+  email: "ravi@clinic.example",
   role: "staff",
   invited_at: "2026-08-01T09:00:00Z",
   expires_at: "2026-08-04T09:00:00Z",
@@ -237,10 +237,10 @@ describe("failure is never an empty state", () => {
 });
 
 describe("what the invite flow shows", () => {
-  it("confirms the send and never shows the token or an unmasked address", async () => {
+  it("confirms the send, shows the address it went to, and never shows the token", async () => {
     const created = {
       id: INVITE.id,
-      email_masked: "p••••@clinic.example",
+      email: "priya@clinic.example",
       role: "staff",
       invited_at: "2026-08-01T09:00:00Z",
       expires_at: "2026-08-04T09:00:00Z",
@@ -270,18 +270,20 @@ describe("what the invite flow shows", () => {
     // assertion used to be `toContain(created.token)` — the inversion is the fix.
     await waitFor(() => expect(container.textContent).toContain("Invitation sent to"));
     expect(container.textContent).not.toContain("tok_");
-    // The address the owner typed is echoed only in its masked form.
-    expect(container.textContent).not.toContain("priya@clinic.example");
-    expect(container.textContent).toContain("p••••@clinic.example");
+    // WAS `not.toContain("priya@clinic.example")` beside a masked-form assertion.
+    // D-436: the owner who just typed the address is the one person who has to be able
+    // to check it — a typo in an invitation is a key mailed to a stranger. The TOKEN
+    // assertion above is the one that matters here and is untouched.
+    expect(container.textContent).toContain("priya@clinic.example");
     expect(container.textContent).toContain("We cannot show or re-send the link");
   });
 
-  it("lists a pending invitation masked, with a revoke control for an owner", async () => {
+  it("lists a pending invitation with its address and a revoke control for an owner", async () => {
     const { container } = await renderTeam({ invitations: [INVITE] });
 
-    await screen.findByText(INVITE.email_masked);
+    await screen.findByText(INVITE.email);
     expect(
-      screen.getByRole("button", { name: `Revoke the invitation for ${INVITE.email_masked}` }),
+      screen.getByRole("button", { name: `Revoke the invitation for ${INVITE.email}` }),
     ).toBeTruthy();
     expect(container.textContent).toContain("1 unused link");
   });
@@ -289,7 +291,7 @@ describe("what the invite flow shows", () => {
   it("shows a staff member the pending invites with no revoke control", async () => {
     await renderTeam({ me: STAFF_ME, invitations: [INVITE] });
 
-    await screen.findByText(INVITE.email_masked);
+    await screen.findByText(INVITE.email);
     expect(screen.queryByRole("button", { name: /^Revoke / })).toBeNull();
   });
 });

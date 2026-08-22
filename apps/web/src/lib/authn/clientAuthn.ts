@@ -24,7 +24,7 @@ export const CLIENT_ACCOUNT_PATH = "/auth/account";
  *
  * Not a console URL, because there isn't one until the slug is known: `/c` is the junction
  * that reads `/v1/me` and forwards. Distinct from `CLIENT_ACCOUNT_PATH` for the reason
- * D-432 separated the admin pair — that page says "you are signed in" and offers two
+ * D-441 separated the admin pair — that page says "you are signed in" and offers two
  * sign-out buttons, so landing there after signing in is a dead end with a link on it.
  */
 export const CLIENT_CONSOLE_PATH = "/c";

@@ -220,13 +220,28 @@ Client realm (`/c/<slug>/…`)
 - **Leads** with a **list ⇄ board toggle** — the board is one column per D-21 status,
   so the "work the pipeline stage by stage" pattern is built, not pending.
 - **`/performance`** (`GET /v1/performance`) · **`/attention`** (`GET /v1/attention` — the
-  §2b "needs attention" queue, shipped) · **`/agents`** (read-only agent roster, plus the
-  §2b **unsaved-changes banner** from `GET /v1/agents/{agent_id}/pending`, the
-  **precedence rule** and lane table from `GET /v1/agents/lanes`, and the cost-runaway
-  guard read as "longest one call may run / most one call can cost" — `null`
-  `worst_case_call_cost_inr` renders as "we cannot say yet", never ₹0. Apply and Undo are
-  deliberately absent here: both are admin-realm, because the staged script is authored
-  admin-realm) ·
+  §2b "needs attention" queue, shipped) · **the AGENTS CONSOLE** — three screens, no longer
+  a read-only roster (D-440). **`/agents`** is the roster grouped by state: *working right
+  now* (`published` AND `status = live`, the server's own two-part test), *not working*,
+  and the archive, which is a SECOND request because `GET /v1/agents` deliberately excludes
+  it. Each row carries how many numbers the agent answers in parallel
+  (`inbound_number_count` — the one honest per-agent deployment fact; outbound concurrency
+  is an account-level pool and no per-agent number could be true) and its lifetime call
+  figures from `GET /v1/agents/stats`. **`/agents/new`** builds one: name, direction,
+  language and the cost-runaway cap, and nothing else — both disclosure sentences are
+  written server-side from the language templates with both toggles on, so no field on that
+  form can reach the compliance floor. **`/agents/<id>`** is the one agent: its publishing
+  state (the §2b **unsaved-changes banner** from `GET /v1/agents/{agent_id}/pending`, with
+  BOTH version pointers as labelled data), the cost-runaway guard read as "longest one call
+  may run / most one call can cost" (`null` `worst_case_call_cost_inr` renders as "we
+  cannot say yet", never ₹0), the D-163 notice switches, the capture columns, its knowledge
+  (`POST /v1/kb/sources`, filed against that agent with no picker), and switch
+  on/off/archive/restore on `org:manage`. The **precedence rule** and lane table
+  (`GET /v1/agents/lanes`) stay on the roster: they are a property of the platform, not of
+  an agent. Apply and Undo are still deliberately absent: both are admin-realm, because the
+  staged SCRIPT is authored admin-realm — as are the extraction schema and the voice
+  (D-21), which the detail screen shows as facts with who moves them rather than as
+  disabled inputs) ·
   **`/lead-sources`** (`GET /v1/lead-sources/activity`, `POST /v1/lead-sources/{id}/test` —
   the §2b webhook-activity view and its no-call "test webhook", shipped — plus the Meta
   Lead Ads setup card, `POST /v1/lead-sources/{webhook_id}/meta/setup`, which prints what
@@ -335,7 +350,8 @@ Admin realm (`/admin/…`)
   test call and regression run are pilot-gated.
 - **Pending invitations for a client** (on the wizard's invite step;
   `GET`/`DELETE /v1/admin/tenants/{tenant_id}/invitations[/{invitation_id}]`) — the live
-  keys to a client's account, addresses masked, with a cancel. It exists because minting a
+  keys to a client's account, with a cancel. The address is shown in full (D-436) — one
+  row, one rendering, in the console and the client realm alike. It exists because minting a
   second live token for one address is refused: without a way to see and cancel the first,
   an operator whose token was lost was stuck for 72 hours, and the client-realm revoke
   cannot help an account whose owner has not signed in yet.
@@ -408,7 +424,8 @@ Admin realm (`/admin/…`)
   nav entry rather than a panel on `/admin/ops`, because whoever needs it is following
   `runbooks/dnc-complaint.md` and not scrolling a screen of platform switches. Two
   asymmetries are the design: the suppression takes ONE typed word for the whole paste,
-  and the RELEASE is confirmed per row against the masked number it would un-suppress —
+  and the RELEASE is confirmed per row against the number it would un-suppress, printed
+  in full so an operator can match it against the instruction they were given (D-436) —
   lifting one re-permits dialling somebody who asked not to be dialled, for every client
   at once. `GlobalEntryOut.removable` is `is_removable()`'s answer about CLIENTS and is
   always false here, so it deliberately does NOT gate the ops control.

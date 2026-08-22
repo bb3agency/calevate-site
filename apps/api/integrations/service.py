@@ -13,10 +13,13 @@ inbound partners and therefore the one we owe ours. Signing the body alone would
 captured request be replayed forever; the timestamp gives the receiver a window to
 reject.
 
-**Payloads are redacted by the same rule as everything else.** A lead's phone number is
-PII whether it is in a log line or an HTTP body, so the envelope carries the masked form
-unless the endpoint is explicitly configured otherwise — an opt-in the client makes
-about their own data, recorded in the config row rather than assumed.
+**Payloads are redacted unless the endpoint asked otherwise, and D-436 does not change
+that.** A lead's phone number is PII whether it is in a log line or an HTTP body, so the
+envelope withholds it unless the endpoint is explicitly configured to receive it — an
+opt-in the client makes about their own data, recorded in the config row rather than
+assumed. D-436 unmasked the client's own SCREENS, where a role check stands behind the
+reader; this is a body posted to a system we do not hold, and "who may see it there" is
+a question the config row answers and nothing else can.
 
 Delivery outcomes land in `webhook_deliveries(direction='out')`, which is the forensic
 half of SEC-COMP §5 and the data the "webhook activity" screen reads.
@@ -689,7 +692,14 @@ def lead_payload(row: dict[str, Any], *, include_raw_phone: bool) -> dict[str, A
     `include_raw_phone` is a per-endpoint opt-in, not a default: hard rule 6 is about
     logs, but the same reasoning applies to anything leaving our boundary. A client who
     needs the number in their CRM says so once, in the config row, and that choice is
-    auditable. Everyone else gets the masked form the dashboard shows.
+    auditable. Everyone else gets `[redacted]`.
+
+    NOT WIDENED BY D-436, and the difference is the reader rather than the data. The
+    dashboard now shows this number in full because a session, a role and RLS stand
+    between it and anybody; a webhook body lands in a third-party system whose access
+    control is not ours to reason about, so the client says once, explicitly, that they
+    want it there. Same judgement as `workers/notifications._compose` makes about the
+    alert email.
 
     An event with no `phone` at all (every `call.*` event) comes back unchanged — a
     masking pass must not ADD a field the published payload schema never declared.

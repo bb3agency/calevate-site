@@ -499,8 +499,10 @@ async def test_the_member_list_is_this_tenants_team_and_carries_no_email() -> No
     assert [m["id"] for m in body] == [str(member)]
     assert body[0]["name"] == "Priya Nair"
     assert body[0]["role"] == "owner"
-    # `email` is in `check_redaction_exposure.RAW_PII_FIELDS`; the picker prints a name
-    # and writes an id, and needs no address to do it.
+    # NOT a masking rule and never was — `MemberOut` simply has no address on it. The
+    # picker prints a name and writes an id, and needs no address to do it, so the field
+    # is absent rather than dotted. D-436 unmasked what was masked; it did not go adding
+    # personal data to models that were doing without it.
     assert "email" not in body[0]
     assert "@" not in response.text
     assert "Somebody Else" not in response.text

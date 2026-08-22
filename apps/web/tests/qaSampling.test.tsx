@@ -59,7 +59,7 @@ const CALL = {
   agent_name: "Reception",
   direction: "inbound",
   status: "completed",
-  caller_masked: "••••••21",
+  caller_e164: "+919876500021",
   started_at: "2026-08-05T06:30:00Z",
   duration_s: 154,
   outcome_tag: "resolved",

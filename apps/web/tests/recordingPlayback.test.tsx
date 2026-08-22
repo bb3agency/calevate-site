@@ -60,7 +60,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",
-    caller_masked: "+9198765•••10",
+    caller_e164: "+919876543210",
     sentiment: "positive",
     started_at: "2026-08-16T05:30:00Z",
     duration_s: 1200,

@@ -29,6 +29,7 @@ from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
+from apps.api.crm.attention import BLOCK_REMEDIES
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     MAX_BULK_LEADS,
@@ -121,14 +122,6 @@ MAX_FACET_FIELDS = FACET_RAIL_BUDGET_MS // FACET_QUERY_COST_MS
 #: this bounds the UNDECLARED ones a client's data can also contain (a schema edited
 #: after rows were captured), which is otherwise unbounded.
 MAX_FACET_VALUES = 50
-
-
-def mask_phone(value: str | None) -> str | None:
-    """Last two digits only — enough for staff to recognise a caller they are already
-    looking at, useless to anyone who screenshots the page."""
-    if not value:
-        return None
-    return f"••••••{value[-2:]}" if len(value) > 2 else "••"
 
 
 def redacted_summary(value: str | None) -> str | None:
@@ -225,7 +218,7 @@ async def list_calls(
             agent_name=r[2],
             direction=r[3],
             status=r[4],
-            caller_masked=mask_phone(r[5] if r[3] == "inbound" else r[6]),
+            caller_e164=r[5] if r[3] == "inbound" else r[6],
             started_at=r[7],
             duration_s=r[8],
             outcome_tag=r[9],
@@ -290,7 +283,7 @@ async def get_call(session: AsyncSession, call_id: UUID, *, raw: bool = False) -
         agent_name=row[2],
         direction=row[3],
         status=row[4],
-        caller_masked=mask_phone(row[5] if row[3] == "inbound" else row[6]),
+        caller_e164=row[5] if row[3] == "inbound" else row[6],
         started_at=row[7],
         duration_s=row[8],
         outcome_tag=row[9],
@@ -823,7 +816,7 @@ async def list_leads(
 def _lead_out(r: Any) -> LeadOut:
     return LeadOut(
         id=r[0],
-        phone_masked=mask_phone(r[1]) or "",
+        phone_e164=r[1],
         name=r[2],
         status=r[3],
         source=r[4],
@@ -1511,15 +1504,16 @@ async def export_leads_csv(
     offer and the export cannot fetch would be a chooser entry that silently exports
     blanks.
 
-    The phone is exported IN FULL: this is the client's own customer data, the export
-    is role-gated and audit-logged by the route, and a CSV of masked numbers is useless
-    for the follow-up call it exists to enable. That is a different judgement from the
-    on-screen list, and it is deliberate.
+    The phone is exported IN FULL, like every other surface now renders it (D-436) —
+    but this route keeps `calls:read_raw` and its `audit_log` write regardless. A whole
+    contact list in one file is a different act from reading one row on a screen, and
+    the record of who took it is what makes it defensible.
 
     **Takes the same filters as `list_leads_page`, through the same `_lead_scope`.**
     It took `agent_id` alone, so a client who narrowed the table to `hot` and pressed
     Export downloaded every contact in the account — a difference between what the
-    screen showed and what the file held, on the one route that emits unmasked numbers.
+    screen showed and what the file held, on the one route that emits a whole contact
+    list as a FILE.
     Sharing the WHERE builder is what keeps the two in step as filters grow, and
     `assigned_to` is the first filter added since: it arrived here in the same change
     that added it to the list, rather than a release later.
@@ -1761,11 +1755,9 @@ def _project_event(
     if event_type == "note":
         if _code(payload, "kind") == "blocked":
             # The SAME copy deck the needs-attention queue renders, so a client reading
-            # "why was this not called?" in two places is told one thing. Imported here
-            # rather than at module scope because `crm.attention` imports `mask_phone`
-            # from this module — a module-level import would be a cycle.
-            from apps.api.crm.attention import BLOCK_REMEDIES
-
+            # "why was this not called?" in two places is told one thing. Imported at
+            # module scope again: this was a function-local import only because
+            # `crm.attention` imported `mask_phone` from here, and that function is gone.
             rule = _code(payload, "rule") or "unknown"
             return (
                 "Call blocked",
@@ -2357,7 +2349,6 @@ __all__ = [
     "list_calls",
     "list_leads",
     "list_leads_page",
-    "mask_phone",
     "plan_callback",
     "recording_ref_for",
     "redacted_summary",

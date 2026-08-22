@@ -6,6 +6,7 @@ import { useState, type ComponentType } from "react";
 import {
   Building2,
   ClipboardCheck,
+  Coins,
   HeartPulse,
   Hourglass,
   Lock,
@@ -123,6 +124,19 @@ const NAV: NavGroup[] = [
         icon: HeartPulse,
         permission: "org:read",
         action: "open the client health board",
+      },
+      {
+        // The money twin of the health board, and it sits beside it for that reason: one
+        // answers "which client is broken", this answers "which client is costing us
+        // money", and an operator opening the console in the morning wants both.
+        // `billing:read` is what `GET /v1/admin/spend` requires — the same permission the
+        // per-client margin card needs — so an admin role without it meets a sentence
+        // here rather than a 403 on the page.
+        href: "/admin/spend",
+        label: "Money board",
+        icon: Coins,
+        permission: "billing:read",
+        action: "open the fleet money board",
       },
       {
         href: "/admin/holds",

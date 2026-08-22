@@ -49,8 +49,11 @@ class CallSummaryOut(Strict):
     agent_name: str | None = None
     direction: Literal["inbound", "outbound"]
     status: str
-    # Masked: a call list is the most-screenshotted page in the product.
-    caller_masked: str | None = None
+    # The other party's number IN FULL — `from_e164` inbound, `to_e164` outbound. A
+    # calls list whose numbers are dots cannot be worked: the whole action available
+    # from this screen is ringing back the person who called (D-436, founder). NULL only
+    # when the engine gave us no number for the leg, never as a redaction.
+    caller_e164: str | None = None
     started_at: datetime | None = None
     duration_s: int | None = None
     outcome_tag: str | None = None
@@ -128,7 +131,11 @@ class RecordingLinkOut(Strict):
 
 class LeadOut(Strict):
     id: UUID
-    phone_masked: str
+    #: E.164, in full. This is the client's OWN captured lead — the one field that makes
+    #: the row actionable — and it is behind `leads:read` like every other field on this
+    #: model. Hard rule 6 is about LOG LINES and is unaffected: nothing here reaches a
+    #: log, a trace or an alarm payload.
+    phone_e164: str
     name: str | None = None
     status: LeadStatus
     source: str
@@ -156,8 +163,8 @@ class LeadColumnOut(Strict):
     """One selectable column of the Leads table — `crm.columns.LeadColumn` on the wire.
 
     `kind` is what lets the screen render a column without knowing its name: `fixed`
-    columns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,
-    which is hard rule 6 and not a rendering choice), `extraction` columns come out of
+    columns come off `LeadOut`'s own attributes (the `phone` column is `phone_e164`
+    there, the same full number the export writes), `extraction` columns come out of
     `LeadOut.data` under `key`.
     """
 
@@ -821,8 +828,10 @@ AttentionKind = Literal["lead_blocked", "delivery_failed", "campaign_stalled", "
 class AttentionItemOut(Strict):
     """One thing the platform refused to do quietly (crm/attention.py).
 
-    `title` and `detail` are already client-safe prose: a blocked lead is named by its
-    lead NAME, falling back to a MASKED number, never a raw one.
+    `title` and `detail` are already client-safe prose composed by us — never a vendor
+    string and never transcript text. A blocked lead is named by its captured lead NAME,
+    falling back to its number in full, because "ring this person" is the action the row
+    exists to prompt (D-436).
     """
 
     kind: AttentionKind

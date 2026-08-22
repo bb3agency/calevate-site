@@ -1884,6 +1884,25 @@ async def record_tier_correction(
     return delta
 
 
+def margin_pct(*, margin_inr: Decimal, revenue_inr: Decimal) -> Decimal | None:
+    """Margin as a percentage of revenue, or None when there is no revenue to be a
+    percentage OF.
+
+    **None rather than 0.0, because "0% margin" and "nothing billed yet" are different
+    facts and an operator acts differently on each.** That rule lived inline in
+    `margin_for_tenant` and was copied into the fleet board the day a second surface
+    needed it — two spellings of one judgement, which is the D-103 shape this module has
+    already paid for. It is a function now so both read it, and so the no-revenue arm is
+    provable without arranging a whole fleet that has billed nothing.
+
+    One decimal place, `ROUNDING` passed explicitly like every other quantize here: the
+    ambient `decimal` context is process-global and mutable by anything in the image.
+    """
+    if revenue_inr <= 0:
+        return None
+    return (margin_inr / revenue_inr * 100).quantize(Decimal("0.1"), rounding=ROUNDING)
+
+
 async def margin_for_tenant(
     session: AsyncSession, *, tenant_id: UUID, month: str | None = None
 ) -> dict[str, Any]:
@@ -1919,13 +1938,7 @@ async def margin_for_tenant(
         overage_cost_inr=usage["overage_cost_inr"],
     )
     margin = to_paise(revenue - cost_inr)
-    # Percent is reported as None rather than 0 when there is no revenue: "0% margin"
-    # and "nothing billed yet" are different facts and an operator acts differently.
-    pct = (
-        (margin / revenue * 100).quantize(Decimal("0.1"), rounding=ROUNDING)
-        if revenue > 0
-        else None
-    )
+    pct = margin_pct(margin_inr=margin, revenue_inr=revenue)
     return {
         "month": usage["month"],
         "minutes_used": usage["minutes_used"],
@@ -1962,6 +1975,7 @@ __all__ = [
     "get_balance",
     "lock_tenant_credits",
     "margin_for_tenant",
+    "margin_pct",
     "overage_rungs",
     "plan_tier_of",
     "rate_to_display",

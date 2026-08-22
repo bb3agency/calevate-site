@@ -454,6 +454,176 @@ class TestTruthfulAnswerIsNotSwitchable:
 
 
 # ============================================================================
+# the lifecycle half — which agent state may place a call (D-440)
+# ============================================================================
+
+
+class TestDialableLifecycleStates:
+    """Section 7: the dial gate is an allow-list of ONE state, and the launch gate agrees.
+
+    The mutations here are not mirrored files — this section EXECUTES the two predicates
+    rather than reading them, so the way to mutate it is to hand it a registry whose
+    predicates answer differently. That is what `registry` is injectable for, and it is
+    the same reason `stale_exemptions` takes its exemption dict.
+    """
+
+    def test_the_real_gates_admit_exactly_one_state_and_agree(self) -> None:
+        assert guard.dialable_lifecycle_states() == []
+        registry = guard.gate_registry()
+        # The vocabulary comes off the live `Literal`, so a fifth status enrolls itself
+        # here rather than being silently skipped — which is the failure `archived` would
+        # have been, had this section existed before it.
+        from apps.api.agents.models import AGENT_STATUSES
+
+        assert registry.agent_statuses == frozenset(AGENT_STATUSES)
+        assert "archived" in registry.agent_statuses
+
+    def test_catches_the_dial_gate_being_widened_to_a_second_state(self) -> None:
+        """THE SABOTAGE THIS SECTION EXISTS FOR: `status not in ("live", "archived")`.
+
+        One character's worth of diff, invisible to every AST question this file asks,
+        and it puts a retired agent back on the phone.
+        """
+        registry = guard.gate_registry()
+        widened = replace(
+            registry,
+            dial_status_refusal=lambda status: (
+                None if status in ("live", "archived") else ("agent_not_live", "not live")
+            ),
+        )
+        failures = guard.dialable_lifecycle_states(widened)
+        assert failures, "an archived agent became dialable and the guard reported OK"
+        assert any("admits 2 agent lifecycle states" in failure for failure in failures)
+
+    def test_catches_a_gate_that_admits_nothing(self) -> None:
+        """Zero is a failure too: a gate matching no state is a check watching a welded
+        door, and it reads as health on every other section here."""
+        registry = guard.gate_registry()
+        closed = replace(registry, dial_status_refusal=lambda _s: ("agent_not_live", "no"))
+        assert any(
+            "admits 0 agent lifecycle states" in failure
+            for failure in guard.dialable_lifecycle_states(closed)
+        )
+
+    def test_catches_the_two_gates_drifting_apart(self) -> None:
+        """The realistic shape of the widening: nobody edits both files at once."""
+        registry = guard.gate_registry()
+        drifted = replace(
+            registry,
+            launch_status_refusal=lambda status: None if status in ("live", "paused") else object(),
+        )
+        assert any(
+            "the campaign launch gate admits" in failure
+            for failure in guard.dialable_lifecycle_states(drifted)
+        )
+
+    def test_it_names_no_state_so_a_rename_is_not_a_failure(self) -> None:
+        """The check is about the SHAPE of the allow-list, not about the word `live`.
+
+        A repo that renamed `live` to `active` everywhere would be correct and must stay
+        green; a repo that widened either gate must not. Asserting this keeps the next
+        person from "helpfully" hardcoding the state name into the section.
+        """
+        registry = guard.gate_registry()
+        renamed = replace(
+            registry,
+            agent_statuses=frozenset({"draft", "active", "paused", "archived"}),
+            dial_status_refusal=lambda s: None if s == "active" else ("agent_not_live", "no"),
+            launch_status_refusal=lambda s: None if s == "active" else object(),
+        )
+        assert guard.dialable_lifecycle_states(renamed) == []
+
+
+class TestAgentStateWriters:
+    """Section 8: only the registered places may create an agent or move its status.
+
+    Mirrored-file mutations like the rest of the detection suite — an invented snippet
+    stops resembling the code the moment the code moves.
+    """
+
+    def test_the_real_tree_has_only_the_registered_writers(self) -> None:
+        assert guard.unregistered_agent_state_writers() == []
+        found = {where for where, _sql, _live in guard._agent_state_sites()}
+        assert found == set(guard.AGENT_STATE_WRITERS), (
+            "the registry and the tree disagree about who writes an agent's state"
+        )
+
+    def test_it_sees_both_shapes_of_writer(self) -> None:
+        """A literal `INSERT`/`UPDATE` and the built-from-arguments transition primitive.
+
+        The second is the one a SQL-text scan cannot see, and it is how three of the four
+        lifecycle movers write the column the dial gate reads.
+        """
+        found = {where for where, _sql, _live in guard._agent_state_sites()}
+        assert "apps/api/agents/lifecycle.py::create_agent" in found
+        assert "apps/api/agents/lifecycle.py::archive_agent" in found, (
+            "`transition_status(table='agents')` is invisible to this check"
+        )
+
+    def test_only_the_publish_path_may_write_the_word_live(self) -> None:
+        live = {where for where, _sql, writes_live in guard._agent_state_sites() if writes_live}
+        assert live == {"apps/api/agents/service.py::publish_agent"}
+
+    def test_catches_a_second_insert_into_agents(self, tmp_path: Path) -> None:
+        """The defect the registry exists for: a new birth path for an agent.
+
+        The floor is four columns wide and the schema only enforces that they are
+        non-blank; WHAT they say, and whether the row starts `draft`, is decided by
+        whoever wrote the INSERT.
+        """
+        root = _mirror(tmp_path, "apps/api/admin/service.py")
+        _edit(
+            root,
+            "apps/api/admin/service.py",
+            'text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid")',
+            'text("INSERT INTO agents (id, tenant_id, name) VALUES (:aid, :tid, :sid)")',
+        )
+        offenders = guard.unregistered_agent_state_writers([root])
+        assert any("_write_tenant_root" in offender for offender in offenders), offenders
+
+    def test_catches_a_second_writer_of_live(self, tmp_path: Path) -> None:
+        """D-64: `live` means the engine was read back, so one place may write it."""
+        root = _mirror(tmp_path, "apps/api/agents/publishing.py")
+        _edit(
+            root,
+            "apps/api/agents/publishing.py",
+            '"UPDATE agents SET max_call_duration_s = :cap, updated_at = now() "',
+            "\"UPDATE agents SET max_call_duration_s = :cap, status = 'live', \"",
+        )
+        offenders = guard.unregistered_agent_state_writers([root])
+        assert any("status = 'live'" in offender for offender in offenders), offenders
+
+    def test_catches_an_entry_that_names_nothing(self) -> None:
+        """An exemption for a site that does not exist is a hole waiting for the next
+        function to land on the name — `stale_exemptions`' argument, applied here."""
+        offenders = guard.unregistered_agent_state_writers(
+            writers={
+                **guard.AGENT_STATE_WRITERS,
+                "apps/api/crm/service.py::mint_agent": "a writer that does not exist at all",
+            }
+        )
+        assert any("no longer creates an agent" in offender for offender in offenders), offenders
+
+    def test_catches_a_reason_too_thin_to_review(self) -> None:
+        offenders = guard.unregistered_agent_state_writers(
+            writers={**guard.AGENT_STATE_WRITERS, "scripts/restore_drill.py::_seed": "needed"}
+        )
+        assert any("too thin to review" in offender for offender in offenders), offenders
+
+    def test_a_docstring_quoting_the_statement_is_not_a_writer(self) -> None:
+        """This file's own prose quotes the statements it hunts, and so does the guard's.
+
+        A check whose first act is to report itself is a check with an exemption list.
+        """
+        assert not guard._writes_agent_state("RETURNING status, engine_agent_ref")
+        assert not guard._writes_agent_state(
+            "UPDATE agents SET max_call_duration_s = :cap WHERE id = :aid RETURNING status"
+        )
+        assert guard._writes_agent_state("UPDATE agents SET status = :s WHERE id = :aid")
+        assert guard._writes_agent_state("INSERT INTO agents (id, tenant_id) VALUES (:a, :t)")
+
+
+# ============================================================================
 # the catalog half — a migration is a claim, this is the fact
 # ============================================================================
 

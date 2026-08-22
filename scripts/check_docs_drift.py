@@ -274,6 +274,19 @@ _INLINE = re.compile(r"`([^`\n]+)`")
 _MAKE_TARGET = re.compile(r"^([A-Za-z][\w-]*):", re.MULTILINE)
 _DECISION_ROW = re.compile(r"^\|\s*(D-\d+)", re.MULTILINE)
 _DECISION_REF = re.compile(r"\bD-\d+\b")
+#: id | title | what was decided | why. Named rather than inlined so the message
+#: below and the check itself cannot drift apart.
+_DECISION_COLUMNS = 4
+#: Rows that merge "what" and "why" into one cell. Two contiguous runs, so two waves each
+#: dropped the column rather than nine authors doing it independently. Listed rather than
+#: rewritten because splitting somebody else's narrative into two cells is editing the
+#: record, not fixing it — and listed rather than ignored because the "why" column is the
+#: one CLAUDE.md's quality bar cares about. **This set may only SHRINK**: an id here that
+#: has since grown its fourth column fails the check, which is what stops it becoming an
+#: exemption file (the `UNWIRED_BASELINE` construction, D-48).
+_MERGED_WHY_ROWS = frozenset(
+    {"D-230", "D-231", "D-232", "D-233", "D-234", "D-235", "D-260", "D-261", "D-262"}
+)
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _SNAKE_TOKEN = re.compile(r"[a-z][a-z0-9_]*$")
 # `auth` 20r/m · `admin_api` 180r/m — DEPLOYMENT §5.4's table.
@@ -667,6 +680,57 @@ def duplicate_decision_ids(ids: Iterable[str] | None = None) -> list[str]:
         "ambiguous. Renumber the later decision."
         for identifier in duplicates
     ]
+
+
+def broken_decision_rows(roadmap: Path | None = None) -> list[str]:
+    """Every row of the decision log is ONE line, so every row is a row.
+
+    A markdown table row cannot span lines: a newline inside one silently ends the
+    table, and everything after it renders as loose prose. The parser above cannot see
+    that, because it finds rows by their leading `| D-nnn` — a broken row's tail lines
+    do not start with a pipe, so they are simply invisible and the count still looks
+    right. Two shapes of break were live when this landed, and neither was visible from
+    a diff. **A blank line** — 27 of them, from D-31 onward, the first immediately after
+    D-30 — so the log rendered as a 30-row table followed by 303 lines of literal
+    `| D-nnn | ... |` text. **A newline inside a row**: D-433, whose own subject is a
+    CRLF that bash misread, was written with LITERAL newlines inside its code spans
+    while describing them, which split its row across three lines. Through all of it
+    `dangling_decisions` and `duplicate_decision_ids` stayed green, because both count
+    `| D-` line starts and there were still 333 of those.
+
+    So this checks the shape the other two assume: from the first decision row to the
+    last, every line starts a row and carries the table's four columns. Escape the
+    newline (`\\r\\n`) rather than embedding it.
+    """
+    lines = (roadmap or ROADMAP).read_text(encoding="utf-8").splitlines()
+    rows = [i for i, line in enumerate(lines) if _DECISION_ROW.match(line)]
+    if not rows:
+        return []
+    failures: list[str] = []
+    for index in range(rows[0], rows[-1] + 1):
+        line = lines[index]
+        match = _DECISION_ROW.match(line)
+        if match is None:
+            failures.append(
+                f"{_rel(roadmap or ROADMAP)}:{index + 1} sits between decision rows and is "
+                "not one — a row above it carries a literal newline, which ends the "
+                "markdown table there. Escape the newline instead of embedding it."
+            )
+            continue
+        identifier = match.group(1)
+        columns = line.count("|") - 1
+        if columns < _DECISION_COLUMNS and identifier not in _MERGED_WHY_ROWS:
+            failures.append(
+                f"{_rel(roadmap or ROADMAP)}:{index + 1} ({identifier}) has {columns} of the "
+                f"decision log's {_DECISION_COLUMNS} columns — id, title, what, why. The "
+                "fourth is where the rejected alternative goes."
+            )
+        elif columns >= _DECISION_COLUMNS and identifier in _MERGED_WHY_ROWS:
+            failures.append(
+                f"{identifier} has its fourth column now — drop it from `_MERGED_WHY_ROWS`. "
+                "That set is the debt, and it may only shrink."
+            )
+    return failures
 
 
 # --- 3. SEC-COMP §3 still names things the code has -----------------------------
@@ -1851,6 +1915,7 @@ def main() -> int:
         ("a doc names a command nothing answers to", unresolved_commands()),
         ("a decision reference resolves to nothing", dangling_decisions()),
         ("the decision log numbers a decision twice", duplicate_decision_ids()),
+        ("a decision row is not one line, so the table ends there", broken_decision_rows()),
         ("a compliance rule name the code no longer has", unknown_rule_names()),
         ("the rate-zone table and the nginx template disagree", rate_zone_drift()),
         ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),

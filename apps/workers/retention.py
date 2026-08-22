@@ -747,9 +747,22 @@ WHERE id IN (
 # surviving under a column nobody thought of: the D-126 shape, on a column added later.
 # The predicate still keys on `data` alone so the sweep's batching is unchanged and a row
 # whose data is already empty is not re-visited forever.
+#
+# `scrubbed_at` IS THE FACT THIS SWEEP CREATES, so this sweep records it (f2a6d81b39c4).
+# An emptied row is byte-identical to one where the agent ran and captured nothing, and
+# those two are opposites: the weekly knowledge digest reads this table to answer "which
+# required fields does the agent keep missing", and without the stamp a tenant whose lead
+# retention is shorter than the digest's seven-day window was told a working agent had
+# missed a field on calls where it had not. Set here rather than derived downstream
+# because every available derivation (`updated_at` moved, `errors IS NULL`,
+# `moments IS NULL`) is a heuristic, and `kb/patterns.py` refuses heuristics for exactly
+# the reason they fail here: they are wrong in both directions and their limits cannot be
+# written down. Note it rides in the SAME statement as the emptying, so there is no window
+# in which a row is scrubbed and unmarked.
 _EXTRACTION_SQL = """
 UPDATE call_extractions
-   SET data = '{}'::jsonb, moments = NULL, errors = NULL, updated_at = now()
+   SET data = '{}'::jsonb, moments = NULL, errors = NULL, scrubbed_at = now(),
+       updated_at = now()
 WHERE id IN (
   SELECT id FROM call_extractions WHERE updated_at < :cutoff AND data <> '{}'::jsonb
   ORDER BY updated_at LIMIT :batch)
@@ -1524,8 +1537,15 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             # the proof certificate would have said otherwise.
             result = await session.execute(
                 text(
+                    # `scrubbed_at` for `_EXTRACTION_SQL`'s reason and by the same
+                    # rule: whatever empties this row records that it did. The digest
+                    # already skips an erased subject's calls whole (`erased_subject_ref`,
+                    # `kb/insights.py`), so this stamp is not what protects them — it is
+                    # what keeps ONE definition of "we destroyed this extraction" instead
+                    # of one per sweep, which is how the marker stays true when the next
+                    # reader asks a question the erasure predicate does not answer.
                     "UPDATE call_extractions SET data = '{}'::jsonb, moments = NULL, "
-                    "errors = NULL, updated_at = now() "
+                    "errors = NULL, scrubbed_at = now(), updated_at = now() "
                     "WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
                 ),
                 {"ids": list(calls)},
@@ -1842,8 +1862,10 @@ async def _erase_tenant_calls(
 
         result = await session.execute(
             text(
+                # `scrubbed_at`, as in both sweeps above — one definition of "we
+                # destroyed this extraction", recorded by every path that does it.
                 "UPDATE call_extractions SET data = '{}'::jsonb, moments = NULL, "
-                "errors = NULL, updated_at = now() "
+                "errors = NULL, scrubbed_at = now(), updated_at = now() "
                 "WHERE call_id = ANY(:ids) AND data <> '{}'::jsonb"
             ),
             {"ids": call_ids},

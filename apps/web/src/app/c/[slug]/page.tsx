@@ -234,11 +234,10 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
                     )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    {/* MASKED, always. `caller_masked` is what the API sends and the
-                        only thing this screen is allowed to render (hard rule 6) —
-                        the mock printed full numbers here. */}
+                    {/* IN FULL (D-436) — the recent-calls rail is the fastest route
+                        from "somebody rang" to ringing them back. */}
                     <span className="block truncate text-[13px] font-semibold text-ink">
-                      {call.caller_masked ?? "Unknown number"}
+                      {call.caller_e164 ?? "Unknown number"}
                     </span>
                     <span className="block truncate text-[12px] text-ink-muted">
                       {call.agent_name ?? "—"} · {call.direction}

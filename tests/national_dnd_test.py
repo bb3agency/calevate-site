@@ -339,11 +339,16 @@ async def test_suppressing_the_same_number_twice_globally_leaves_one_row() -> No
     assert rows == 1, "the partial unique index is what stops a second identical row"
 
 
-async def test_the_ops_surface_is_step_up_confirmed_audited_and_echoes_no_number() -> None:
+async def test_the_ops_surface_is_step_up_confirmed_and_audited_without_naming_the_number() -> None:
     """Three properties of one request, because on this route they are one event: a
     stolen session cannot stop the whole platform dialling a number with a bare POST,
-    the response carries counts rather than the list, and the audit entry names the
-    operator without naming the number (hard rule 6)."""
+    the ADD response carries counts rather than the list, and the AUDIT entry names the
+    operator without naming the number — that last one is hard rule 6 proper (an
+    audit_log row is read by more people than the endpoint) and D-436 does not move it.
+
+    What D-436 did move is the LIST two blocks down, which now answers in full numbers:
+    an operator lifting a platform-wide suppression reads it back to whoever asked.
+    """
     token = await _admin_token()
     phone = _number()
     headers = {"Authorization": f"Bearer {token}"}
@@ -370,9 +375,13 @@ async def test_the_ops_surface_is_step_up_confirmed_audited_and_echoes_no_number
     assert phone not in created.text and phone.lstrip("+") not in created.text
 
     assert listed.status_code == 200
-    entry = next(e for e in listed.json() if e["phone_masked"] == f"••••••{phone[-2:]}")
+    # WAS matched on `"••••••" + phone[-2:]`. D-436: an operator releasing a
+    # platform-wide suppression has to read the number back to whoever asked for it,
+    # and the release confirmation asks them to match it. The ADD above still answers
+    # in counts — asserted four lines up, unchanged.
+    entry = next(e for e in listed.json() if e["phone_e164"] == phone)
     assert entry["scope"] == "global" and entry["removable"] is False
-    assert phone not in listed.text and phone.lstrip("+") not in listed.text
+    assert "•" not in listed.text, "no dots survive anywhere in the body"
 
     async with untenanted_session() as session:
         row = (

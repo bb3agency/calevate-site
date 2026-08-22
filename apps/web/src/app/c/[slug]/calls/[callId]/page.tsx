@@ -43,10 +43,11 @@ import { lookup } from "@/lib/lookup";
  *
  * What this screen must never do, in the order the damage runs:
  *
- * 1. Print a caller's number. `caller_masked` is the only form the API sends and the
- *    only form allowed in the DOM or in an `href` (hard rule 6). URLs reach browser
- *    history, referrers and access logs, so the rule is stricter for a link than for
- *    text.
+ * 1. Put a caller's number in a URL. The number itself is rendered IN FULL (D-436) —
+ *    it is the client's own contact data and this screen exists to act on it — but an
+ *    `href` is a different thing from text: URLs reach browser history, referrers and
+ *    access logs, which is hard rule 6's territory and is unchanged. Numbers go in
+ *    the DOM and in request BODIES, never in a path or a query string.
  * 2. Show raw transcript text to a session that has not earned it. `text_redacted` is
  *    the default view (hard rule 5); the unredacted one is a SEPARATE endpoint behind
  *    `calls:read_raw` that writes an `audit_log` row in the same transaction as the
@@ -165,10 +166,9 @@ export default function CallDetailPage({
 
       <Card bodyClassName="p-4 sm:p-5">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          {/* MASKED, always. The API sends no other form to this screen, and no other
-              form may reach the DOM (hard rule 6). */}
+          {/* IN FULL (D-436). Text, never an `href` — see rule 1 above. */}
           <span className="text-lg font-semibold tabular-nums text-ink">
-            {detail.caller_masked ?? "Unknown number"}
+            {detail.caller_e164 ?? "Unknown number"}
           </span>
           <StatusBadge value={detail.status} kind="call" />
           {detail.outcome_tag && (

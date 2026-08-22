@@ -389,17 +389,16 @@ async def invite_member(
 class PendingInviteOut(BaseModel):
     """One live key to a client's account, as the console may see it.
 
-    MASKED, like the client realm's own list: `email` is in
-    `scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, and an operator deciding
-    which pending invite to cancel needs to RECOGNISE it, not to read it. Same mask, same
-    function (`members.mask_email`), so the two realms cannot show a client's staff two
-    different renderings of one row.
+    The address IN FULL, like the client realm's own list — one row, one rendering, in
+    both realms (D-436). An operator cancelling a duplicate invite has to be able to say
+    which address it was for, and the console is the desk a client rings when they
+    cannot see the invite themselves.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     id: UUID
-    email_masked: str
+    email: str
     role: str
     invited_at: datetime
     expires_at: datetime
@@ -412,7 +411,7 @@ class PendingInviteOut(BaseModel):
     summary="Invitations to this account that can still be redeemed",
     description=(
         "The keys to this client's account that exist in somebody's inbox right now. "
-        "Addresses are masked. This is what makes the duplicate refusal actionable: "
+        "This is what makes the duplicate refusal actionable: "
         "minting a second live token for one address is refused, and an operator who did "
         "not issue the first one needs to be able to see and cancel it."
     ),
@@ -433,8 +432,9 @@ async def list_tenant_invitations(
     the mint and the cancel keep `admin:tenants`, because handing out or destroying a
     credential is the separate thing.
 
-    The addresses are masked, which is what makes the read safe to widen: an operator
-    recognises a row, they do not read it.
+    Widening the read to `org:read` is safe on its own terms: an impersonating support
+    session may already see every member of the account, and an outstanding invitation
+    is the same fact one step earlier.
 
     Runs in the tenant's own RLS scope, so a tenant id that names nothing can never see
     another account's invitations — but an empty list is NOT the right answer to one
@@ -454,7 +454,7 @@ async def list_tenant_invitations(
     return [
         PendingInviteOut(
             id=row.id,
-            email_masked=row.email_masked,
+            email=row.email,
             role=row.role,
             invited_at=row.invited_at,
             expires_at=row.expires_at,

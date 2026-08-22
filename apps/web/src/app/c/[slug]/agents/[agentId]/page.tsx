@@ -1,0 +1,219 @@
+"use client";
+
+import Link from "next/link";
+import { use } from "react";
+import { ArrowLeft, MessageSquareQuote, PlugZap, ToggleLeft } from "lucide-react";
+
+import { Card, ProblemNotice, Skeleton } from "@/components/ui";
+import { STATUS_COPY, humanise } from "@/lib/agentState";
+import { useAgent, type Agent } from "@/lib/api/agents";
+import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { lookup } from "@/lib/lookup";
+
+import { liveState } from "../AgentBadge";
+import { AgentIdentity } from "../AgentIdentity";
+import { AgentLifecycle } from "../AgentLifecycle";
+import {
+  ExtractionList,
+  Fact,
+  OpeningNotices,
+  PublishingPanel,
+  SectionHeading,
+  TrainingPanel,
+} from "../panels";
+
+/**
+ * ONE agent — what it does, what it says, what it captures, and what it knows.
+ *
+ * The roster answers "which of my agents is working"; this screen answers everything
+ * else, for one of them. It is where an owner comes after being told an edit was made, and
+ * where they teach the agent something new.
+ *
+ * ## Which controls exist here, and why the rest are facts instead
+ *
+ * D-21 draws the control boundary and this screen is built on it rather than around it.
+ * What a client may genuinely change, each a real write to a real client-realm endpoint:
+ *
+ * - **Whether it is working at all** (D-440) — switch on, switch off, archive, restore.
+ * - **What it is** — its name, which way its calls go, the language it speaks.
+ * - **The two opening notices** (`PATCH /v1/agents/{id}/disclosure`, `org:manage`) — D-163.
+ *   The client is the Principal Entity, so which notices their agent VOLUNTEERS is theirs.
+ * - **What the agent knows** (`POST /v1/kb/sources`, `kb:write`) — a reviewed fact, which
+ *   cannot change what the agent is instructed to do.
+ *
+ * What is NOT here is what D-21 actually reserves: the SCRIPT and the CAPTURE COLUMNS,
+ * because changing either regenerates prompt hints and needs a regression run against real
+ * calls — plus the voice, which is an ear test. Those are shown as FACTS with the reason
+ * and who moves them, never as a disabled input with no explanation: "a button that would
+ * 403 is worse than no button at all" is this repo's rule, and a control that silently
+ * vanishes leaves a client unable to act and unable to ask why.
+ *
+ * ## The one guarantee that is not a setting at all
+ *
+ * A caller who asks "am I talking to a person?" or "is this recorded?" is always answered
+ * truthfully. That is appended server-side to every prompt by `compose_engine_prompt` and
+ * re-verified against the engine on every publish and every drift sweep — no column,
+ * config row or client-authored script can withdraw it. It is stated on this screen as a
+ * fact, in the SERVER's own words (`truthful_answer_rule`), above the two switches rather
+ * than under them — see `panels.tsx::OpeningNotices` for why the order matters.
+ */
+export default function AgentDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string; agentId: string }>;
+}) {
+  const { slug, agentId } = use(params);
+  const session = useClientSession();
+  const { href } = useClientRealm();
+  const agent = useAgent(session, agentId);
+
+  return (
+    <div className="space-y-5 pb-12">
+      <Link
+        href={href(`/c/${slug}/agents`)}
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
+      >
+        <ArrowLeft aria-hidden className="h-4 w-4" />
+        All agents
+      </Link>
+
+      {agent.error && <ProblemNotice error={agent.error} onRetry={() => void agent.refetch()} />}
+
+      {agent.isLoading ? (
+        <Card bodyClassName="p-4">
+          <Skeleton rows={8} />
+        </Card>
+      ) : agent.data ? (
+        <AgentDetail agent={agent.data} slug={slug} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * The screen, given an agent that ARRIVED.
+ *
+ * Takes `Agent` rather than the query envelope: every sentence below is a claim about this
+ * client's agent, and a component that cannot see `undefined` cannot make one out of it.
+ */
+function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
+  const { href } = useClientRealm();
+  const live = liveState(agent);
+  // Read through `lookup` (src/lib/lookup.ts) rather than indexed directly. This used to
+  // say the API had narrowed `AgentOut.status` nowhere; it does now (a four-member union
+  // since D-440), and the indirection is kept for the reason it survives the narrowing:
+  // `status` arrives from the wire, so a fifth state the server adds before this table
+  // learns it must render as itself rather than crash the screen.
+  const status = lookup(STATUS_COPY, agent.status) ?? {
+    label: humanise(agent.status),
+    hint: "",
+  };
+
+  return (
+    <div className="space-y-5">
+      <Card
+        title={agent.name}
+        action={
+          <span
+            className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1 text-xs font-semibold ${live.tone}`}
+          >
+            {live.label}
+          </span>
+        }
+      >
+        <div className="space-y-6">
+          <p className="text-sm text-ink-muted">{live.detail}</p>
+
+          {/* `status` and "on the calling system" are shown SEPARATELY rather than
+              collapsed into the badge: an agent switched on but not yet built is a
+              different wait from one built but not switched on, and only we can tell them
+              apart. What it does and what it speaks are not repeated here — they are the
+              inputs of "What it is" below, where their current values are already on
+              screen, and two spellings of one fact is where the drift starts. */}
+          <dl className="grid gap-5 sm:grid-cols-2">
+            <Fact label="Status" icon={<ToggleLeft className="h-3.5 w-3.5" />} hint={status.hint}>
+              {status.label}
+            </Fact>
+            <Fact
+              label="On the calling system"
+              icon={<PlugZap className="h-3.5 w-3.5" />}
+              hint={
+                agent.published
+                  ? "Built and connected, so it can be switched on."
+                  : "Until this is done, the agent cannot ring anyone."
+              }
+            >
+              {agent.published ? "Connected" : "Not yet"}
+            </Fact>
+          </dl>
+
+          <PublishingPanel agent={agent} />
+        </div>
+      </Card>
+
+      <Card title="Switching it on and off">
+        <AgentLifecycle agent={agent} />
+      </Card>
+
+      <Card title="What it is">
+        <AgentIdentity agent={agent} />
+      </Card>
+
+      <Card title="What it says">
+        <div className="space-y-6">
+          <ScriptNote />
+          <OpeningNotices agent={agent} />
+        </div>
+      </Card>
+
+      <Card title="What it captures">
+        <ExtractionList
+          agent={agent}
+          leadsHref={
+            <Link
+              href={href(`/c/${slug}/leads`)}
+              className="font-medium underline underline-offset-2 hover:text-ink"
+            >
+              Leads
+            </Link>
+          }
+        />
+      </Card>
+
+      <TrainingPanel agent={agent} />
+    </div>
+  );
+}
+
+/**
+ * The script, as the thing it is: authored with you, applied deliberately, not shown here.
+ *
+ * There is no client-realm read of the prompt body and there deliberately is not one: a
+ * prompt carries the client's prices, staff names and call-handling rules, and the only
+ * endpoint that serves it is admin-realm (`GET /v1/admin/tenants/{t}/agents/{a}/prompt`).
+ * So this panel does not quote a script it cannot fetch and does not offer an editor that
+ * would 403 — it names what the script decides, and who moves it.
+ *
+ * The sentence about Apply is the client half of §2b's two-speed publishing: the roster's
+ * lane table states the rule for the platform, and this states it for the one thing on
+ * this screen that waits. `PublishingPanel` above is where a WAITING version actually
+ * shows, with both version pointers as data.
+ */
+function ScriptNote() {
+  return (
+    <section>
+      <SectionHeading icon={<MessageSquareQuote className="h-3.5 w-3.5" />}>
+        Its script
+      </SectionHeading>
+      <p className="mt-2 text-sm text-ink-muted">
+        The script decides what the agent says and how it handles a call — your prices, your
+        staff, what to do when someone asks for something you do not offer. It is written
+        and changed with your account manager, and a change never reaches a live call until
+        it is deliberately applied, so nothing a caller hears moves by accident.
+      </p>
+      <p className="mt-2 text-sm text-ink-muted">
+        Anything waiting to be applied is listed at the top of this page.
+      </p>
+    </section>
+  );
+}

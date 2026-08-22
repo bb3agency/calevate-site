@@ -225,9 +225,10 @@ class TestSentryHooks:
     def test_the_live_file_is_clean(self) -> None:
         assert guard.check_sentry_hooks() == []
 
-    @pytest.mark.parametrize(
-        "keyword", ["before_send", "before_breadcrumb", "send_default_pii", "max_request_body_size"]
-    )
+    # READ OFF THE REGISTRY, not retyped beside it. The list was a hand-copy of
+    # `REQUIRED_SENTRY_INIT`'s keys, so a keyword added to the guard arrived with no
+    # mutation test — which is how `include_local_variables` would have landed unproven.
+    @pytest.mark.parametrize("keyword", sorted(guard.REQUIRED_SENTRY_INIT))
     def test_removing_a_required_keyword_is_caught(self, keyword: str) -> None:
         mutated = _drop_keyword(LIVE_SOURCE, keyword)
         assert mutated != LIVE_SOURCE, f"the mutation did not apply for {keyword}"

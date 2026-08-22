@@ -57,7 +57,7 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     agent_name: "Reception",
     direction: "inbound",
     status: "completed",
-    caller_masked: "+9198765•••10",
+    caller_e164: "+919876543210",
     started_at: "2026-08-13T04:30:00Z",
     duration_s: 92,
     outcome_tag: "appointment_booked",
@@ -104,14 +104,16 @@ describe("the call detail screen", () => {
     expect(screen.getByText(/Personal details .* are hidden in this view/)).toBeTruthy();
   });
 
-  it("never puts a caller's number in the DOM or in a link", async () => {
+  it("prints the caller's number and never puts it in a link", async () => {
     const { container } = await renderClientPage(
       page,
-      routes(detail({ caller_masked: "+9198765•••10" })),
+      routes(detail({ caller_e164: "+919876543210" })),
     );
 
-    expect(await screen.findByText("+9198765•••10")).toBeTruthy();
-    expect(container.textContent).not.toContain(RAW_NUMBER);
+    // WAS `not.toContain(RAW_NUMBER)`. D-436: this is the screen a callback starts
+    // from. `RAW_NUMBER` keeps its meaning further down, where it is a number the
+    // caller SPOKE inside the transcript — that one is still gated on `calls:read_raw`.
+    expect(await screen.findByText("+919876543210")).toBeTruthy();
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toMatch(/\d{10}/);
     }

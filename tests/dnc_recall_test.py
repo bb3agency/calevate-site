@@ -23,6 +23,7 @@ them learned about a new column.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -199,6 +200,64 @@ async def test_a_dial_already_running_is_never_recorded_as_prevented(
     )
 
 
+async def test_a_worker_death_mid_loop_does_not_turn_a_clean_recall_into_a_false_alarm(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stamp has to survive the loop NOT finishing, which is the only time it matters.
+
+    THE DEFECT THIS PINS. `_stamp` used to run after the whole loop, so every stamp existed
+    only if the loop ran to completion. The per-dial `except Exception` inside it catches a
+    vendor refusal and carries on; what ends the loop early is a `BaseException` it cannot
+    catch — a redeploy or a `job_timeout` arriving as `CancelledError`, the same death
+    `campaign_dispatch` has a test for. The stamps for dials ALREADY STOPPED were then
+    lost, and this job's own docstring spells out what happens next: the retry "would
+    re-POST a stop for every dial the first already stopped, take the vendor's refusal for
+    an already-stopped execution, and report those as undetermined — turning a clean
+    recall into a compliance alarm".
+
+    So the assertion is in two acts, and the second is the one that matters: the retry must
+    be SILENT. `dnc_recall_undetermined` says the numbers it names "may have been called
+    AFTER the suppression was recorded". Firing that for dials we successfully stopped is
+    a false alarm on a DNC control, which is the alarm an operator learns to mute.
+    """
+    dials = [
+        {"engine_call_id": f"ex-{uuid.uuid4().hex[:8]}", "to": SUPPRESSED},
+        {"engine_call_id": f"ex-{uuid.uuid4().hex[:8]}", "to": SUPPRESSED},
+    ]
+    tenant_id, call_ids = await _tenant_with_dials(dials)
+
+    class _DyingEngine(_StubEngine):
+        """Stops one dial, then dies the way a redeployed worker does."""
+
+        async def end_call(self, call_id: str) -> RecallOutcome:
+            if self.stopped:
+                raise asyncio.CancelledError
+            return await super().end_call(call_id)
+
+    dying = _DyingEngine()
+    # `CancelledError` is a BaseException, so it passes straight through the loop's
+    # `except Exception` AND through the job wrapper's — which is exactly what a worker
+    # being torn down looks like, and why no retry ladder softens it.
+    with pytest.raises(asyncio.CancelledError):
+        await _run(monkeypatch, dying, phones=[SUPPRESSED], tenant_id=tenant_id)
+
+    assert len(dying.stopped) == 1
+    assert await _stamped(tenant_id, call_ids) == 1, (
+        "the dial this run really did stop was not recorded as stopped, so the retry will "
+        "stop it again and report the vendor's refusal as a suppression we cannot defend"
+    )
+
+    # THE RETRY. The vendor refuses a stop for an execution it has already stopped — the
+    # behaviour the stamp exists to route around.
+    retry = _StubEngine(refuse=set(dying.stopped))
+    result, fired = await _run(monkeypatch, retry, phones=[SUPPRESSED], tenant_id=tenant_id)
+
+    assert dying.stopped[0] not in retry.stopped, "the retry re-stopped an already-stopped dial"
+    assert "found=1" in result and "undetermined=0" in result, result
+    assert fired == [], f"a clean recall raised a compliance alarm: {fired}"
+    assert await _stamped(tenant_id, call_ids) == 2
+
+
 async def test_a_second_run_stops_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     """`recall_requested_at` is shared with the halt path, so neither redoes the other's
     work — and a re-run cannot turn a clean recall into a compliance alarm by collecting
@@ -281,10 +340,20 @@ async def test_an_empty_phone_list_enqueues_nothing() -> None:
     _TENANTS.append(tenant_id)
     async with tenant_session(tenant_id) as session:
         await api_dnc_recall.enqueue_dnc_recall(session, tenant_id=tenant_id, phones=[])
+        # SCOPED TO THIS RUN'S TENANT, like the two counts above it. It was a count of
+        # every recall row in the database, so the assertion was "nobody, anywhere, has
+        # ever enqueued one" — which is true on a freshly reset store and false the
+        # moment a sibling suite (or a parallel run) writes one. It failed at 292 rows,
+        # none of them this test's, which is the "a sibling's rows read as failures"
+        # class CLAUDE.md's ratchet section names. The tenant id is run-unique, so the
+        # scoped count is still decidable: the no-op must write nothing FOR THIS TENANT.
         rows: Any = (
             await session.execute(
-                text("SELECT count(*) FROM outbox_messages WHERE job = :job"),
-                {"job": api_dnc_recall.DNC_RECALL_JOB},
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                    "AND payload->>'tenant_id' = :tid"
+                ),
+                {"job": api_dnc_recall.DNC_RECALL_JOB, "tid": str(tenant_id)},
             )
         ).scalar_one()
         await session.rollback()

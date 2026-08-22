@@ -25,6 +25,7 @@ artifact, which is the only reason anybody looked.
 from __future__ import annotations
 
 import re
+import uuid
 
 import pytest
 from apps.workers.notifications import _compose
@@ -35,6 +36,8 @@ from apps.workers.redaction import redact
 #: spelling and not another has not masked the number, it has masked one way of writing it.
 NATIONAL = "9876543210"
 LAST_TWO = "••10"
+#: The lead the alert is about — the deep link `_compose` now ends with names it.
+LEAD_ID = uuid.UUID("019f0000-0000-7000-8000-0000000004d2")
 
 
 @pytest.mark.parametrize(
@@ -174,10 +177,15 @@ def test_the_hot_lead_email_masks_the_number_it_was_given() -> None:
         status="hot",
         summary=None,
         triggers=["asked for pricing"],
+        slug="sri-clinic",
+        lead_id=LEAD_ID,
     )
     assert NATIONAL not in body, body
     assert f"+91{NATIONAL}" not in body, body
     assert LAST_TWO in body, body
+    # The way out of the mask, and the reason the mask is affordable: one tap to the
+    # screen D-436 unmasked, where a role check stands behind the reader.
+    assert f"/c/sri-clinic/leads/{LEAD_ID}" in body, body
 
 
 def test_the_summary_in_that_email_is_redacted_too() -> None:
@@ -192,5 +200,7 @@ def test_the_summary_in_that_email_is_redacted_too() -> None:
         status="hot",
         summary=f"Caller asked us to ring {NATIONAL} instead.",
         triggers=[],
+        slug="sri-clinic",
+        lead_id=LEAD_ID,
     )
     assert NATIONAL not in body, body

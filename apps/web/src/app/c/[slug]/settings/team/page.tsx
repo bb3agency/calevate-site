@@ -327,7 +327,7 @@ export default function TeamPage() {
 function IssuedInvite({ invitation }: { invitation: CreatedInvitation }) {
   return (
     <div className="mt-4">
-      <NoticeBox tone="ok" title={`Invitation sent to ${invitation.email_masked}`}>
+      <NoticeBox tone="ok" title={`Invitation sent to ${invitation.email}`}>
         <p>
           We have emailed them a link. It works once, only from that address, and stops
           working {formatIST(invitation.expires_at)}.
@@ -449,9 +449,9 @@ function InvitationRow({
       >
         <KeyRound className="h-4 w-4" />
       </span>
-      {/* Masked at the API, and there is no unmasked form of it anywhere on this
-          screen — enough to recognise who you invited, not enough to be a contact list. */}
-      <span className="font-mono text-ink">{invitation.email_masked}</span>
+      {/* The whole address (D-436): an owner has to be able to see that the address
+          they typed is the one they meant, and to tell two invites at one domain apart. */}
+      <span className="font-mono text-ink">{invitation.email}</span>
       <span className="text-xs text-ink-muted">
         {lookup(ROLE_COPY, invitation.role)?.label ?? invitation.role}
       </span>
@@ -463,7 +463,7 @@ function InvitationRow({
           type="button"
           disabled={busy}
           onClick={onRevoke}
-          aria-label={`Revoke the invitation for ${invitation.email_masked}`}
+          aria-label={`Revoke the invitation for ${invitation.email}`}
           className={SECONDARY_BUTTON_SM}
         >
           <Trash2 className="h-3.5 w-3.5" />

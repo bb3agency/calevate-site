@@ -499,10 +499,15 @@ async def test_the_attention_queue_answers_a_declared_model_with_a_full_queue() 
     assert rejected.href == "/knowledge"
 
 
-async def test_the_attention_queue_names_a_nameless_lead_by_a_masked_number() -> None:
-    """The one field on this model that could carry PII is `title`, and for a lead with
-    no name it is built from the phone. It must be the masked form (hard rule 6) — the
-    whole reason declaring these fields matters is that the guardrail can now see them.
+async def test_the_attention_queue_names_a_nameless_lead_by_its_number() -> None:
+    """`title` is the one field on this model built from personal data, and for a lead
+    with no captured name it is built from the phone.
+
+    IT USED TO BE THE MASKED FORM and asserted as such. D-436 reversed it: this queue
+    exists to say "nobody rang this person", and a to-do whose subject cannot be dialled
+    is a to-do nobody can do. The value is still SERVER-composed prose — never a vendor
+    string, never transcript text — which is why declaring these fields matters and why
+    the guardrail can see them.
     """
     tenant_id, agent_id, headers = await _owner_tenant("mask")
     phone = await _blocked_lead(tenant_id, agent_id, rule="dnc", name=None)
@@ -511,9 +516,9 @@ async def test_the_attention_queue_names_a_nameless_lead_by_a_masked_number() ->
         response = await http.get(ATTENTION, headers=headers)
 
     assert response.status_code == 200, response.text
-    assert phone not in response.text, "a raw number must never reach this queue"
     item = AttentionOut.model_validate(response.json()).items[0]
-    assert item.title == f"••••••{phone[-2:]} was not called"
+    assert item.title == f"{phone} was not called"
+    assert "•" not in response.text, "no dots survive anywhere in the body"
 
 
 # ============================================================================

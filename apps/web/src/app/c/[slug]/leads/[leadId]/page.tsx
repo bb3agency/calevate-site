@@ -48,9 +48,11 @@ import { AssigneeSelect } from "../AssigneeSelect";
  *
  * What it must never do, in the order the damage runs:
  *
- * 1. **Print a raw number.** `phone_masked` is the only form `LeadOut` carries and the
- *    only one allowed in the DOM or in a URL (hard rule 6). The timeline carries none at
- *    all — the API projects each event into prose rather than serializing the payload.
+ * 1. **Put the number in a URL.** It is PRINTED in full (D-436) — this is the screen a
+ *    receptionist rings back from — but a path or a query string reaches browser
+ *    history, referrers and access logs, and that is hard rule 6 and unchanged. The
+ *    timeline carries no number at all: the API projects each event into prose rather
+ *    than serializing the payload.
  * 2. **Render an empty history over a failed read.** "Nothing has happened to this lead"
  *    and "we could not read what happened to this lead" send an owner in opposite
  *    directions, and only one of them is ever true. Loading is a `Skeleton`, failure is
@@ -135,8 +137,8 @@ export default function LeadDetailPage({
             <span className="text-lg font-semibold text-ink">
               {lead.data.name ?? <span className="font-normal text-ink-faint">No name</span>}
             </span>
-            {/* MASKED, always — the API sends no other form to this screen. */}
-            <span className="tabular-nums text-sm text-ink-muted">{lead.data.phone_masked}</span>
+            {/* IN FULL (D-436). Text, never an `href` — see rule 1 above. */}
+            <span className="tabular-nums text-sm text-ink-muted">{lead.data.phone_e164}</span>
             <StatusBadge value={lead.data.status} />
             {lead.data.is_repeat_caller && (
               <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand-strong">

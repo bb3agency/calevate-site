@@ -3,7 +3,7 @@
 # was missing from this list, which meant a stray file or directory named `guardrails`
 # in the repo root would make `make guardrails` print "nothing to be done" and exit 0:
 # the CI gate reporting success without running a single check.
-.PHONY: help dev up down check lint lint-check types test db-reset redis-reset seed-dev eval eval-ci \
+.PHONY: help dev dev-otp up down check lint lint-check types test db-reset redis-reset seed-dev eval eval-ci \
         qa-report qa-report-publish \
         gen-api conformance smoke guardrails web-check coverage-ratchet \
         coverage-ratchet-accept

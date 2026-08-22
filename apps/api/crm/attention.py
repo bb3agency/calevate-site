@@ -32,7 +32,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.crm.schemas import AttentionKind
-from apps.api.crm.service import mask_phone
 
 # How far back the queue looks. A blocked dial from last month is history, not a
 # to-do; leaving it in the list is how a queue becomes wallpaper nobody reads.
@@ -128,9 +127,11 @@ async def blocked_leads(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) ->
     items: list[AttentionItem] = []
     for row in rows:
         rule = str((row[2] or {}).get("rule") or "unknown")
-        # Hard rule 6 lives on this line: the captured NAME, falling back to a MASKED
-        # number. A raw `phone_e164` here would reach a screen, a screenshot and a log.
-        who = row[4] or mask_phone(row[5])
+        # The captured NAME, falling back to the number in full — this row's whole
+        # purpose is "ring this person back", and a title nobody can dial is a to-do
+        # nobody can do (D-436). `title` is rendered, never logged: `AttentionItem`
+        # goes to the response model and nowhere near `get_logger`.
+        who = row[4] or row[5]
         items.append(
             AttentionItem(
                 kind="lead_blocked",

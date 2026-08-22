@@ -229,10 +229,15 @@ def test_phone_normalization_returns_e164_or_nothing() -> None:
 
 
 async def test_the_ingested_number_never_lands_in_the_lead_data_blob() -> None:
-    """`LeadOut` masks `phone_masked` and then ships `data` verbatim. With no field
-    mapping configured — a documented, supported setup (WEBHOOKS §2.2) — the key the
-    number arrived under survived into `leads.data`, so the list endpoint handed back
-    the full number in the same response whose other field is masked.
+    """`leads.phone_e164` is the column that holds a lead's number, and it must be the
+    ONLY one. With no field mapping configured — a documented, supported setup
+    (WEBHOOKS §2.2) — the key the number arrived under survived into `leads.data`, so
+    one lead had its number in two places.
+
+    Still a defect after D-436 unmasked the column, for a different and more durable
+    reason: `data` is the tenant's declared extraction payload, a duplicate there is an
+    undeclared facet value and an unlabelled export cell, and it does not move when the
+    column beside it is corrected. One fact, one column.
     """
     tenant_id, _agent_id, webhook_id = await _tenant_with_ingest(mapping={})
     number = "9876512345"
@@ -249,8 +254,11 @@ async def test_the_ingested_number_never_lands_in_the_lead_data_blob() -> None:
         items, _total = await crm.list_leads(session)
 
     assert number not in str(stored), f"the number is still in leads.data: {stored!r}"
+    # ONCE, in `phone_e164`, and nowhere else. `data` is a free-form passthrough
+    # (`check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH`), so a copy hiding in there is
+    # a column no schema declared and no reader is keyed on.
     serialized = "".join(item.model_dump_json() for item in items)
-    assert number not in serialized, "the list response leaked the number it masks"
+    assert serialized.count(f"+91{number}") == 1, "the number appears once, in its own column"
 
 
 async def test_unmapped_keys_from_a_hostile_sender_are_dropped() -> None:

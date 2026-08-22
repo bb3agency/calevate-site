@@ -110,7 +110,7 @@ export function ClientGuestOnly({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!alreadyIn || typeof window === "undefined") return;
     // THE CONSOLE, and this is the half that would have made the sign-in redirect
-    // unreliable rather than merely wrong — the same pair D-432 found on the admin realm.
+    // unreliable rather than merely wrong — the same pair D-441 found on the admin realm.
     // `SignInForm.onSignedIn` navigates, and in the same commit the session goes non-null,
     // so this effect fires too: two `window.location` calls in one tick, later one wins.
     // While the two named different destinations, where a person landed after signing in

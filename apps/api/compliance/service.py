@@ -313,6 +313,27 @@ async def first_campaign_hold_blocker(
     return ("first_campaign_review_pending", FIRST_CAMPAIGN_REVIEW_PENDING_REASON)
 
 
+def dial_refusal_for_agent_status(status: str) -> tuple[str, str] | None:
+    """`(rule, reason)` when an agent in `status` may not dial, `None` when it may.
+
+    ONE LINE OF `check_dispatch`, LIFTED OUT SO A GUARD CAN RUN IT (D-440). It is not a
+    refactor for its own sake: the agent lifecycle grew a fourth state and this test is
+    the only thing standing between a retired agent and a phone, yet nothing in the tree
+    could ask it a question. `scripts/check_compliance_invariants.py` now exercises this
+    over the WHOLE `AGENT_STATUSES` vocabulary and fails the build if more than one state
+    is dialable, or if the launch gate and this one stop agreeing about which — so a fifth
+    status enrolls itself in the check on the day it is declared, and the widening that
+    used to be one green character (`status not in ("live", "archived")`) is red.
+
+    AN ALLOW-LIST OF EXACTLY ONE, and deny-by-default is the point: a state this function
+    has never heard of is refused, so the failure mode of a forgotten state is an agent
+    that cannot dial rather than one that can.
+    """
+    if status != "live":
+        return ("agent_not_live", "This agent is not live yet.")
+    return None
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -365,10 +386,10 @@ async def check_dispatch(
             rule="disclosure_missing",
             reason="This agent has no AI disclosure line and may not place calls.",
         )
-    if status != "live":
-        return DispatchDecision(
-            allowed=False, rule="agent_not_live", reason="This agent is not live yet."
-        )
+    refusal = dial_refusal_for_agent_status(str(status))
+    if refusal is not None:
+        rule, reason = refusal
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
     if direction == "inbound":
         return DispatchDecision(
             allowed=False,

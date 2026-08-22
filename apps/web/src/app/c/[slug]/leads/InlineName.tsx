@@ -83,7 +83,7 @@ export function InlineName({
           value={draft}
           // The API caps the column at 120 characters and 422s beyond it.
           maxLength={120}
-          aria-label={`Name for the lead on ${lead.phone_masked}`}
+          aria-label={`Name for the lead on ${lead.phone_e164}`}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}
           onKeyDown={(e) => {
@@ -127,7 +127,7 @@ export function InlineName({
             onClick={() => setEditing(true)}
             // Names the LEAD, like every other per-row control here: a screen reader
             // meeting a hundred buttons called "Edit" cannot tell which row it is on.
-            aria-label={`Edit the name for the lead on ${lead.phone_masked}`}
+            aria-label={`Edit the name for the lead on ${lead.phone_e164}`}
             title={editReason ?? "Edit this name"}
             className="text-ink-faint hover:text-ink disabled:opacity-50"
           >

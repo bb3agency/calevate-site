@@ -102,6 +102,13 @@ REQUIRED_SENTRY_INIT: dict[str, str] = {
     "max_request_body_size": (
         "the request-body capture, which must be `never` — a webhook body is a transcript"
     ),
+    "include_local_variables": (
+        "the frame-locals snapshot, which must be `False`. It is the one Sentry default "
+        "`before_send` cannot undo: `serialize()` runs BEFORE the hook, so the scrubber "
+        "meets locals already flattened to `repr` strings and can only apply key patterns "
+        "and the phone regex — a caller's captured NAME under a local called `name`, and a "
+        "call SUMMARY under one called `summary`, both survive that (measured)"
+    ),
 }
 
 #: Keywords that must NOT appear. `traces_sample_rate` turns on Sentry's own performance

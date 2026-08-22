@@ -10,9 +10,11 @@ pins the redemption path — but the four ways one can be turned into an escalat
    comes from the INVITATION, so there is no comparison left to get wrong)
 4. redeeming one after it was revoked, or twice
 
-Plus the rule that stops this surface leaking: a pending invitation is listed with a
-MASKED address, because `email` is in `check_redaction_exposure`'s `RAW_PII_FIELDS` and
-this route is neither role-gated nor audited on read (nor should it be).
+Plus what the list itself may say: a pending invitation carries the WHOLE address
+(D-436). It used to be `p••••@clinic.example`, on the argument that an owner only has to
+RECOGNISE the invite they sent — which fails the moment two colleagues at one domain are
+invited a week apart, and hid the typo an owner most needs to see. The read is `org:read`
+and it always was; only the dots went.
 
 CONCURRENCY: every test mints its own organization; nothing here reads another suite's
 rows.
@@ -98,7 +100,7 @@ async def _audit_actions(tenant_id: uuid.UUID) -> list[str]:
 # --- issuing ------------------------------------------------------------------
 
 
-async def test_an_owner_invites_a_colleague_and_the_list_never_shows_the_address() -> None:
+async def test_an_owner_invites_a_colleague_and_the_list_shows_the_address_not_the_token() -> None:
     tenant_id, slug, token = await _make_tenant("owner")
     address = f"priya-{uuid.uuid4().hex[:8]}@clinic.example"
 
@@ -120,14 +122,16 @@ async def test_an_owner_invites_a_colleague_and_the_list_never_shows_the_address
     # says only whether the mail was queued.
     assert "token" not in body, "the raw token goes to the invitee's mailbox and nowhere else"
     assert body["delivery"] == "queued"
-    assert address not in created.text, "the address is masked even in the create response"
-    assert body["email_masked"].startswith("p•") and body["email_masked"].endswith(
-        "@clinic.example"
-    )
+    # WAS `address not in created.text` + a `p•…@clinic.example` shape assertion. D-436
+    # reversed it: the owner who just typed the address is the one person who has to be
+    # able to check it. The TOKEN assertion above is the one that matters on this
+    # response and is untouched — an address is not a credential.
+    assert body["email"] == address
+    assert "•" not in created.text, "no dots survive anywhere in the create response"
 
     assert listed.status_code == 200
     assert [i["id"] for i in listed.json()] == [body["id"]]
-    assert address not in listed.text
+    assert listed.json()[0]["email"] == address
     assert "member.invited:staff" in await _audit_actions(tenant_id)
 
     # The token exists in exactly one readable place: the queued email for the INVITED

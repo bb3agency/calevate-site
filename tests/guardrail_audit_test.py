@@ -535,15 +535,44 @@ class TestRedactionExposure:
         facts = check_redaction_exposure.route_facts()
         assert check_redaction_exposure.check_allowlist(facts) == []
 
-    def test_catches_a_new_raw_field_on_an_existing_response_model(
+    def test_catches_a_new_transcript_field_on_an_existing_response_model(
         self, live_spec: dict[str, Any]
     ) -> None:
+        """Rule 1, unmoved by D-436: transcript text is banned off an allowlisted route,
+        and a role check does not buy it. `/v1/calls` is `calls:read` and that is exactly
+        the reader DATA-MODEL §2 says never sees raw transcript."""
+        spec = copy.deepcopy(live_spec)
+        spec["components"]["schemas"]["CallSummaryOut"]["properties"]["transcript_text"] = {
+            "type": "string"
+        }
+        offenders = check_redaction_exposure.check(spec)
+        assert any("CallSummaryOut" in o and "transcript_text" in o for o in offenders)
+
+    def test_a_contact_field_on_a_role_checked_response_is_permitted(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """Rule 2, and it is pinned here as deliberately as the ban it replaced.
+
+        This test asserted the OPPOSITE until D-436: `from_e164` on `CallSummaryOut` was
+        an offender, and that is what made a lead-capture product unable to yield a lead
+        — the calls list could not print the number of the person who rang. A phone
+        number on a response behind a declared permission is now the product working.
+
+        The permission is the whole condition, and it is not decoration: `core.rbac`
+        refuses to boot the app when a route declares one it does not enforce. The
+        companion is `test_catches_a_phone_added_to_the_intake_receipt`, where nobody
+        declares anything and the same field is still reported.
+        """
         spec = copy.deepcopy(live_spec)
         spec["components"]["schemas"]["CallSummaryOut"]["properties"]["from_e164"] = {
             "type": "string"
         }
         offenders = check_redaction_exposure.check(spec)
-        assert any("CallSummaryOut" in o and "from_e164" in o for o in offenders)
+        assert not any("from_e164" in o for o in offenders)
+        # And the calls list really is the role-checked route this claim rests on.
+        assert live_spec["paths"]["/v1/calls"]["get"]["x-calevate-permission"] == "calls:read", (
+            "if this route stops declaring a permission the allowance above evaporates"
+        )
 
     def test_catches_raw_text_two_levels_down(self, live_spec: dict[str, Any]) -> None:
         """Nesting was the hole: the old check only inspected models `$ref`-ed directly
@@ -578,14 +607,20 @@ class TestRedactionExposure:
         self, live_spec: dict[str, Any]
     ) -> None:
         """The reason exemptions are `Model.field` and never `Model`. `TranscriptTurnOut`
-        used to be exempt WHOLESALE for the sake of one field, so a raw phone number
-        added beside it would have shipped green."""
+        used to be exempt WHOLESALE for the sake of one field, so a second raw field
+        added beside it would have shipped green.
+
+        The mutation is `raw_text` rather than the `caller_e164` it used to be: D-436
+        made a contact field on a role-checked response legitimate, so a phone number
+        here would prove nothing about the exemption. A raw transcript column is the
+        thing this model could plausibly grow and must never ship.
+        """
         spec = copy.deepcopy(live_spec)
-        spec["components"]["schemas"]["TranscriptTurnOut"]["properties"]["caller_e164"] = {
+        spec["components"]["schemas"]["TranscriptTurnOut"]["properties"]["raw_text"] = {
             "type": "string"
         }
         offenders = check_redaction_exposure.check(spec)
-        assert any("TranscriptTurnOut" in o and "caller_e164" in o for o in offenders)
+        assert any("TranscriptTurnOut" in o and "raw_text" in o for o in offenders)
         assert not any("'text'" in o for o in offenders), "the exempt field stays exempt"
 
     def test_catches_a_new_freeform_dict_passthrough(self, live_spec: dict[str, Any]) -> None:
@@ -672,25 +707,30 @@ class TestRedactionExposure:
         assert any("SubjectExportOut" in o and "phone_e164" in o for o in offenders)
         assert any("SubjectExportLeadOut" in o and "phone_e164" in o for o in offenders)
 
-    def test_catches_a_phone_added_to_the_lead_source_dry_run(
+    def test_catches_a_raw_field_added_to_the_lead_source_dry_run(
         self, live_spec: dict[str, Any]
     ) -> None:
-        """The dry run is INSPECTED now, and this is the proof rather than the claim.
+        """The dry run is INSPECTED, and this is the proof rather than the claim.
 
         `POST /v1/lead-sources/{id}/test` answered `dict[str, Any]` while holding a
         normalized caller number in scope two lines above its `return` — so it was not a
         response this check judged safe, it was one the check could not see, exactly like
-        D-71's subject export. Adding a phone-shaped field to the step model must now be
-        reported; if this test stops failing, the route has gone back to a bare dict or
-        the model has stopped being reachable from the response.
+        D-71's subject export. If this test stops failing, the route has gone back to a
+        bare dict or the model has stopped being reachable from the response.
+
+        The mutation is `transcript_text` rather than the `phone_e164` it used to be, and
+        the swap is D-436 rather than a weakening: this route declares `leads:manage`, so
+        a contact field on it is now permitted — showing the operator the number their
+        mapping produced is the entire point of a dry run. What the route may still never
+        do is grow a transcript column, and that is what is asserted.
         """
         spec = copy.deepcopy(live_spec)
-        spec["components"]["schemas"]["LeadSourceDryRunStepOut"]["properties"]["phone_e164"] = {
-            "type": "string"
-        }
+        spec["components"]["schemas"]["LeadSourceDryRunStepOut"]["properties"][
+            "transcript_text"
+        ] = {"type": "string"}
         offenders = check_redaction_exposure.check(spec)
         assert any(
-            "/v1/lead-sources/{webhook_id}/test" in o and "phone_e164" in o for o in offenders
+            "/v1/lead-sources/{webhook_id}/test" in o and "transcript_text" in o for o in offenders
         )
 
     def test_catches_a_phone_added_to_the_intake_receipt(self, live_spec: dict[str, Any]) -> None:
@@ -704,6 +744,39 @@ class TestRedactionExposure:
         }
         offenders = check_redaction_exposure.check(spec)
         assert any("/hooks/v1/ingest/{webhook_id}" in o and "caller_e164" in o for o in offenders)
+
+    def test_the_two_field_classes_are_pinned(self) -> None:
+        """WHICH RULE governs a field name costs a diff here as well as in the script.
+
+        The registries were one set under one rule until D-436, and the split is the
+        load-bearing part: moving a name from `RAW_TRANSCRIPT_FIELDS` to
+        `CONTACT_PII_FIELDS` downgrades it from "never, without an audit row" to
+        "whenever a permission is declared", which is a policy change wearing the
+        clothes of a tidy-up. `summary` is the name to watch — it READS like contact
+        metadata and is model-written prose about a conversation.
+        """
+        assert set(check_redaction_exposure.CONTACT_PII_FIELDS) == {
+            "phone_e164",
+            "from_e164",
+            "to_e164",
+            "caller_e164",
+            "phone",
+            "phone_number",
+            "email",
+        }
+        assert set(check_redaction_exposure.RAW_TRANSCRIPT_FIELDS) == {
+            "text",
+            "raw_text",
+            "text_raw",
+            "transcript_text",
+            "summary",
+            "call_summary",
+            "recording_url",
+        }
+        assert not (
+            check_redaction_exposure.CONTACT_PII_FIELDS
+            & check_redaction_exposure.RAW_TRANSCRIPT_FIELDS
+        ), "a name in both sets would be governed by whichever branch ran first"
 
     def test_exemption_registries_are_pinned(self) -> None:
         """Every raw-PII exemption costs a diff here as well as in the script."""
@@ -940,6 +1013,84 @@ class TestOpenApiFresh:
             "type": "string"
         }
         assert check_openapi_fresh._shape(live_spec) != check_openapi_fresh._shape(changed)
+
+    # --- the SECOND half of the generated client -------------------------------------
+    #
+    # A generated client is two files and only one was guarded: `openapi.json` was compared
+    # against the live app, and `schema.d.ts` — the file the frontend actually compiles
+    # against — was compared against nothing. Tonight's frontend was `tsc`-green for hours
+    # against a contract the server had stopped serving, and two `lib/api` modules aliased
+    # schema names the generator no longer emitted. `tsc` cannot see it: a stale `.d.ts` is
+    # a perfectly consistent set of types, just not the server's.
+
+    def test_the_generated_client_is_in_step_with_the_snapshot(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        generated = check_openapi_fresh.GENERATED.read_text(encoding="utf-8")
+        assert check_openapi_fresh.generated_drift(live_spec, generated) == []
+
+    def test_catches_a_name_the_generator_never_emitted(self, live_spec: dict[str, Any]) -> None:
+        """The shipped defect's shape: the snapshot gained a schema and nobody re-ran
+        `gen:api`, so the frontend compiles against a type that no longer describes the
+        wire."""
+        generated = check_openapi_fresh.GENERATED.read_text(encoding="utf-8")
+        missing = "CallSummaryOut"
+        assert f"        {missing}:" in generated, "fixture premise: the name is emitted"
+        drift = check_openapi_fresh.generated_drift(
+            live_spec, generated.replace(f"        {missing}:", "        _RenamedAway:", 1)
+        )
+        assert any(f"+ schemas {missing} (in openapi.json" in line for line in drift), drift
+        assert any("- schemas _RenamedAway (in schema.d.ts" in line for line in drift), drift
+
+    def test_catches_an_operation_id_the_snapshot_dropped(self, live_spec: dict[str, Any]) -> None:
+        """`operations` is compared too, not just paths and schemas — a renamed handler
+        keeps its path and moves its operationId, which is the half a path diff misses."""
+        generated = check_openapi_fresh.GENERATED.read_text(encoding="utf-8")
+        shrunk = copy.deepcopy(live_spec)
+        for methods in shrunk["paths"].values():
+            for method, operation in methods.items():
+                if method in check_openapi_fresh.METHODS and isinstance(operation, dict):
+                    operation.pop("operationId", None)
+        drift = check_openapi_fresh.generated_drift(shrunk, generated)
+        assert any("- operations " in line for line in drift), drift
+
+    def test_a_parser_that_stopped_matching_is_named_as_a_parser_bug(
+        self, live_spec: dict[str, Any]
+    ) -> None:
+        """openapi-typescript's output format is the generator's to change on an upgrade,
+        and a parser that quietly stopped matching would report EVERY name as missing —
+        which reads exactly like a stale client and sends the next person to `gen:api` for
+        a bug that is in this checker. The two have completely different fixes, so the
+        checker has to tell them apart; a guardrail that cries wolf gets deleted."""
+        generated = check_openapi_fresh.GENERATED.read_text(encoding="utf-8")
+        moved = generated.replace("    schemas: {", "    schemaz: {", 1)
+        drift = check_openapi_fresh.generated_drift(live_spec, moved)
+        assert any("not a stale client" in line for line in drift), drift
+        assert not any("+ schemas " in line for line in drift), (
+            "a moved block header must not be reported name-by-name as a stale client",
+            drift[:3],
+        )
+
+    def test_the_block_reader_does_not_swallow_nested_keys(self) -> None:
+        """`_keys_at` stops at the closing brace rather than running to end-of-file — a
+        reader that did not would fold every nested property name into the block's own set
+        and then report hundreds of phantom extras."""
+        text = "\n".join(
+            [
+                "export interface paths {",
+                '    "/v1/calls": {',
+                "        get: {",
+                "            nested_should_not_count: never;",
+                "        };",
+                "    };",
+                "}",
+                "export interface operations {",
+                "    other_block: never;",
+                "}",
+            ]
+        )
+        found = check_openapi_fresh._keys_at(text, "export interface paths {", 4)
+        assert found == {"/v1/calls"}, found
 
     def test_catches_a_new_query_parameter(self, live_spec: dict[str, Any]) -> None:
         changed = copy.deepcopy(live_spec)

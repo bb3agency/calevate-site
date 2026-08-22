@@ -188,15 +188,16 @@ def lead_data(mapped: dict[str, Any], *, phone_e164: str) -> dict[str, Any]:
     """The free-form half of a lead row: everything the sender told us that is not
     already a column of its own.
 
-    The number gets its own column AND its own masking rule at every serialization
-    boundary (`LeadOut.phone_masked`). Copying it into `data` as well hands it straight
-    back out through the one field on that model that is not masked — which is exactly
-    what happened for a source with no mapping, where the payload is taken as-is and
-    the number arrives under `phone_number` rather than `phone`.
+    The number has its own COLUMN (`leads.phone_e164`), which is what every reader —
+    the list, the detail, the export, the column chooser, the dial gate — is keyed on.
+    A second copy inside `data` is a second answer to "what is this lead's number": the
+    extraction schema never declared it, so it arrives as an undeclared facet value and
+    an unlabelled export cell, and it does not move when the column beside it is
+    corrected. That is the live shape for a source with no mapping, where the payload is
+    taken as-is and the number arrives under `phone_number` rather than `phone`.
 
     So: drop the keys we consumed, and drop any other value that IS this lead's number
-    however the sender spelled it. A hostile sender does not get to smuggle it back in
-    under a second name.
+    however the sender spelled it. One column holds it, and only that column.
     """
     kept: dict[str, Any] = {}
     for key, value in mapped.items():

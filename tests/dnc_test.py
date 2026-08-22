@@ -9,6 +9,7 @@ and that the numbers themselves never come back out in a response body.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -170,6 +171,66 @@ async def test_add_counts_what_it_did_and_normalizes_the_way_the_lead_path_does(
     assert check.suppressed and check.scope == "tenant"
 
 
+async def test_two_operators_pasting_one_list_do_not_both_claim_they_suppressed_it() -> None:
+    """`added` is what the INSERT did, not what a read taken before it predicted.
+
+    THE DEFECT. `add_numbers` computed `fresh` from a SELECT, INSERTed `ON CONFLICT DO
+    NOTHING`, and then reported `added=len(fresh)` — a count from before the write. The
+    docstring accepted the over-report. But this is the compliance screen a person reads
+    back when a complaint is investigated: two people pasting the same list at once both
+    saw "N suppressed" while one of them inserted nothing, and the number they would quote
+    was invented by a read.
+
+    THE INTERLEAVING IS DETERMINISTIC AND NEEDS NO SLEEP. Both transactions are opened and
+    held at a barrier before either calls `add_numbers`, and neither COMMITS until its
+    context manager exits — so both reads necessarily see an empty list, and the loser's
+    INSERT blocks on the unique index, wakes after the winner commits, and does nothing.
+    That is the race exactly as it happens in production, driven rather than hoped for.
+
+    The assertion is the sum against the rows that actually exist, because which task wins
+    is not the property — that exactly one of them may claim the suppression is.
+    """
+    tenant_id, _agent_id, _slug, _token = await _tenant()
+    phones = [_number(), _number()]
+    barrier = asyncio.Barrier(2)
+
+    async def add() -> tuple[int, int]:
+        async with tenant_session(tenant_id) as session:
+            # Force the transaction open BEFORE the barrier, so neither task can commit
+            # ahead of the other's read.
+            await session.execute(text("SELECT 1"))
+            await barrier.wait()
+            result = await dnc.add_numbers(
+                session, tenant_id=tenant_id, raw_numbers=list(phones), source="manual"
+            )
+        return result.added, result.already_suppressed
+
+    first, second = await asyncio.gather(add(), add())
+
+    async with tenant_session(tenant_id) as session:
+        rows = int(
+            (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM dnc_list WHERE tenant_id = :tid "
+                        "AND phone_e164 = ANY(:phones)"
+                    ),
+                    {"tid": tenant_id, "phones": phones},
+                )
+            ).scalar_one()
+        )
+
+    assert rows == len(phones), "the suppression itself must land exactly once per number"
+    assert first[0] + second[0] == rows, (
+        f"two concurrent adds claimed {first[0]} + {second[0]} suppressions between them "
+        f"but {rows} row(s) exist — one of them is telling a client it did something it did not"
+    )
+    # And the loser's answer is still true and still adds up: those numbers ARE suppressed
+    # by the time it answers, it just was not the one that suppressed them.
+    for added, already in (first, second):
+        assert added + already == len(phones), (added, already)
+
+
 async def test_a_number_already_suppressed_globally_is_not_added_again() -> None:
     """The unique constraint is (tenant_id, phone_e164), so a tenant row shadowing a
     global one would NOT conflict — it would be a second row saying the same thing and
@@ -191,9 +252,18 @@ async def test_a_number_already_suppressed_globally_is_not_added_again() -> None
     assert rows == 1
 
 
-async def test_neither_the_add_response_nor_the_list_repeats_the_number() -> None:
-    """Hard rule 6 at the serialization boundary. A suppression list is a list of people
-    who asked us to stop calling — the most sensitive list an account holds."""
+async def test_the_add_answers_in_counts_and_the_list_answers_in_numbers() -> None:
+    """Two different questions on one resource, and D-436 moved only one of them.
+
+    A bulk ADD still answers `{added, already_suppressed, malformed}` and never echoes
+    the pasted list: an operator who pasted the wrong column needs a count that
+    disagrees with theirs, not their own text handed back.
+
+    The LIST used to be dotted too, on the argument that a suppression list is the most
+    sensitive list an account holds. What that cost was the ability to answer the caller
+    shouting "you rang me again" — you cannot check a number against dots. It now
+    carries the number in full, behind the `leads:read` gate it always had.
+    """
     _tenant_id, _agent_id, slug, token = await _tenant()
     phone = _number()
 
@@ -212,8 +282,13 @@ async def test_neither_the_add_response_nor_the_list_repeats_the_number() -> Non
     assert listed.status_code == 200
     entries = _own(listed.json())
     assert len(entries) == 1
-    assert phone not in listed.text and phone.lstrip("+") not in listed.text
-    assert entries[0]["phone_masked"] == f"••••••{phone[-2:]}"
+    # WAS `phone not in listed.text` + `phone_masked == "••••••" + phone[-2:]`. D-436:
+    # a suppression list a client cannot read back cannot be checked against the caller
+    # complaining that we rang them again. The ADD response above still answers in
+    # counts — echoing a pasted list back tells an operator nothing their own paste did
+    # not — and that assertion is untouched two lines up.
+    assert entries[0]["phone_e164"] == phone
+    assert "•" not in listed.text, "no dots survive anywhere in the body"
     assert entries[0]["removable"] is False, "a consumer request is not the client's to undo"
 
 

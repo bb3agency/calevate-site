@@ -63,7 +63,7 @@ export function AssigneeSelect({
       value={lead.assigned_to ?? ""}
       // Names the LEAD: a screen reader meeting a hundred selects called "owner" cannot
       // tell which row it is on — the same reasoning as `StatusSelect`.
-      aria-label={`Owner of ${lead.name ?? lead.phone_masked}`}
+      aria-label={`Owner of ${lead.name ?? lead.phone_e164}`}
       disabled={disabled}
       title={unavailableReason ?? undefined}
       onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}

@@ -712,8 +712,20 @@ class InboundRouting:
     unsupported: int
 
 
+def agent_answers_inbound(direction: AgentDirection) -> bool:
+    """Does an agent with this direction pick up an incoming call?
+
+    One place, so `publish_agent` and `agents/lifecycle.py` cannot disagree about what
+    `both` means. It is the whole content of `route_inbound_numbers`' `answers` argument
+    and it used to be computed inside that function from a `direction: str` — which forced
+    the deactivate path to pass the word "outbound" to mean "stop answering", a value that
+    is true of the release it wants and false of the agent it is releasing.
+    """
+    return direction in ("inbound", "both")
+
+
 async def route_inbound_numbers(
-    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, ref: str, direction: str
+    session: AsyncSession, engine: VoiceEngine, *, agent_id: UUID, ref: str, answers: bool
 ) -> InboundRouting:
     """Make the engine agree with `phone_numbers.agent_id` (D-420).
 
@@ -729,13 +741,16 @@ async def route_inbound_numbers(
     `engine_agent_routes` was never this wire: it maps `engine_agent_ref → (tenant, agent)`
     so an INCOMING webhook can be attributed, which is the opposite direction.
 
-    **AN `outbound` AGENT RELEASES ITS NUMBERS RATHER THAN BEING SKIPPED**, and that is the
+    **`answers=False` RELEASES THE NUMBERS RATHER THAN BEING SKIPPED**, and that is the
     half a symmetry-free implementation would have missed. `agents.direction` is editable:
     an agent that was `both` and is republished as `outbound` must STOP answering, and
     leaving the engine's binding in place would keep a receptionist live on a number whose
     owner has just switched it off in our console — the same class of lie in the opposite
     direction. This is also `unbind_inbound_number`'s production caller, which is why the
-    Protocol has both halves rather than only the one this function needed first.
+    Protocol has both halves rather than only the one this function needed first. The same
+    arm is what `agents/lifecycle.py` uses to take a deactivated or archived agent off the
+    numbers it was answering, which is why the argument is the ANSWER rather than the
+    direction it is usually derived from (`agent_answers_inbound`).
 
     **A FAILURE ALARMS AND DOES NOT FAIL THE PUBLISH**, deliberately, and it is not
     swallowing. The agent itself published and verified; the number binding is a separate
@@ -766,7 +781,6 @@ async def route_inbound_numbers(
         )
         return InboundRouting(bound=0, released=0, failed=0, unsupported=len(rows))
 
-    answers = direction in ("inbound", "both")
     bound = released = failed = 0
     for number_id, e164, series, provider, engine_number_ref in rows:
         # The DB's own CHECK constraint is what makes this cast safe: `phone_numbers.series`
@@ -862,6 +876,26 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     require_capability("agent_hosting", engine=engine)
 
     agent = await _load_agent(session, tenant_id, agent_id, for_update=True)
+    # AN ARCHIVED AGENT IS NEVER RESURRECTED BY A REPUBLISH (D-440), and the guard is here
+    # rather than only in `agents/lifecycle.py` because this function ends in
+    # `status = 'live'` and has seven callers — the lifecycle activate, the admin publish
+    # route, `apply_to_live`, `set_call_cap`, `set_disclosure_posture`, a prompt write and
+    # the experiment republish. Each of the last five guards itself with its own "is this
+    # agent live?" read, which is a rule spelled five times and therefore a rule with five
+    # chances to be forgotten by the sixth. Refusing at the one statement that writes the
+    # claim makes "an archived agent does not go live" a property of the write instead.
+    #
+    # The predicate on the UPDATE below is the RACE half of the same rule — an archive
+    # committed between this read and that write. Both are needed for the reason the
+    # soft-delete guard gives there: the lock makes the window small, the predicate makes
+    # it closed. This one exists so the common case gets a sentence a client can act on
+    # rather than a bare conflict.
+    if agent["status"] == "archived":
+        raise ProblemError.conflict(
+            "agent_archived",
+            "This agent is archived, so it cannot be published.",
+            remediation="Restore the agent first, then try again.",
+        )
     config = _to_config(tenant_id, agent)
 
     existing_ref = agent["engine_agent_ref"]
@@ -913,7 +947,13 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             # a deleted agent to `status = 'live'` AND writing it a routing row that makes
             # the vendor's next inbound webhook resolve to it. The lock above makes the
             # window small; the predicate makes it closed. Zero rows is a refusal.
-            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
+            #
+            # `status <> 'archived'` is the same guard for the same window on the state a
+            # client can reach without an erasure (D-440): archiving takes the agent off
+            # the numbers it answers, and a publish landing a moment later would put it
+            # back on them as `live`. The early refusal above words it; this closes it.
+            "updated_at = now() WHERE id = :aid AND deleted_at IS NULL "
+            "AND status <> 'archived'"
         ),
         {
             "ref": ref,
@@ -939,8 +979,11 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
             await _reclaim_orphan(engine, agent_id, ref, "agent_deleted_during_publish")
         raise ProblemError.conflict(
             "agent_deleted_during_publish",
-            "This agent was deleted while it was being published.",
-            remediation="Nothing was recorded as live. Recreate the agent if it is still needed.",
+            "This agent was deleted or archived while it was being published.",
+            remediation=(
+                "Nothing was recorded as live. Restore the agent, or recreate it if it is "
+                "still needed."
+            ),
         )
     await session.execute(
         text(
@@ -963,7 +1006,7 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
         engine,
         agent_id=agent_id,
         ref=ref,
-        direction=str(agent["direction"]),
+        answers=agent_answers_inbound(agent["direction"]),
     )
     await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
@@ -1599,23 +1642,33 @@ async def provision_number(
     # The unpublished case is a no-op rather than a refusal, and deliberately: provisioning
     # a number BEFORE the agent exists is the ordinary onboarding order (it is why
     # `agent_id` is nullable), and `publish_agent` routes every bound number when it runs.
+    #
+    # NOR IF THE AGENT IS NOT ON THE FRONTLINE (D-440). `engine_agent_ref` survives a
+    # deactivation and an archival — those keep the vendor object and only release the
+    # numbers — so "has a ref" stopped being the same question as "should answer this
+    # number" the moment an agent could be switched off. Binding here on the ref alone
+    # would let assigning a number silently put a paused or retired agent back on a
+    # client's line, which is the exact state `deactivate_agent` reaches the engine to
+    # prevent. `activate` republishes and routes every bound number, so a number attached
+    # while the agent is off starts being answered the moment it comes back.
     if agent_id is not None:
         published = (
             await session.execute(
                 text(
-                    "SELECT engine_agent_ref, direction FROM agents "
+                    "SELECT engine_agent_ref, direction, status FROM agents "
                     "WHERE id = :aid AND deleted_at IS NULL"
                 ),
                 {"aid": agent_id},
             )
         ).first()
-        if published is not None and published[0]:
+        if published is not None and published[0] and str(published[2]) == "live":
+            direction = published[1]
             await route_inbound_numbers(
                 session,
                 get_engine(),
                 agent_id=agent_id,
                 ref=str(published[0]),
-                direction=str(published[1]),
+                answers=_is_agent_direction(direction) and agent_answers_inbound(direction),
             )
     return number_id
 

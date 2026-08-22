@@ -24,7 +24,8 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
-import { useAgents, type Agent } from "@/lib/api/agents";
+import { canDialOut } from "@/lib/agentState";
+import { useAgents } from "@/lib/api/agents";
 import { type CallLeadResult } from "@/lib/api/client";
 import { useClientRealm } from "@/lib/api/session";
 import { useCallLead, useMe, useWriteAccess } from "@/lib/api/hooks";
@@ -92,10 +93,12 @@ import { SavedViewBar } from "./SavedViewBar";
  * The screen renders no `<h1>`: the shell prints the page title from the nav list
  * (layout.tsx), and a second "Leads" beside it is a visible duplicate.
  *
- * Hard rule 6 holds at the row: `phone_masked` is the only number on `LeadOut`, and the
- * only one this screen may render or put in a URL. The CSV export is the one path to
- * full numbers, it goes through the session headers, and the API audit-logs the read —
- * which is why the button says out loud what it downloads.
+ * Numbers render IN FULL (D-436): a lead nobody can ring is not a lead, and this table
+ * is where a receptionist works the queue. Two things about that are unchanged and are
+ * not rendering choices — a number never goes into a URL (search is a POST body, which
+ * is why `LeadLensIn` exists), and the CSV export stays behind `calls:read_raw` with an
+ * audit row, because taking the whole list is a different act from reading one row. The
+ * export button says out loud what it downloads.
  */
 
 /** Fixed enum (D-21): clients cannot add statuses, because analytics and the hot-lead
@@ -145,16 +148,6 @@ const INLINE_EDIT =
  * big the first is. A literal in two places is how those two numbers come to disagree.
  */
 const PAGE_SIZE = 100;
-
-/**
- * An agent that can actually place this call. Same test the Agents screen renders as
- * "Live": on the calling system AND switched on — plus able to dial at all, which an
- * inbound-only receptionist is not. Filtering here is what keeps D-21's dispatch button
- * off rows where the API would refuse it.
- */
-function canDial(agent: Agent): boolean {
-  return agent.published && agent.status === "live" && agent.direction !== "inbound";
-}
 
 /** What the header count is a count OF, with both filters that narrow it named. */
 function scopeLabel(status: string | undefined, search: string, total: number): string {
@@ -361,7 +354,12 @@ export default function LeadsPage() {
    * permission: `staff` does not hold it and an impersonating operator (D-22) is refused
    * it, so both cases render no button rather than a 403 waiting to happen.
    */
-  const dialers = agents.data?.filter(canDial);
+  /* `canDialOut`, the ONE definition (src/lib/agentState.ts). This file used to carry a
+     byte-identical `canDial` of its own, kept in step with the agents screen by hand —
+     two spellings of one rule is a defect even while both agree, and the agents console
+     made a third caller of it (the campaign picker). Filtering here is what keeps D-21's
+     dispatch button off rows where the API would refuse it. */
+  const dialers = agents.data?.filter(canDialOut);
   const selectedAgentId = agentId || dialers?.[0]?.id || "";
   const canCall = mayDispatch.allowed && selectedAgentId !== "";
 
@@ -448,11 +446,10 @@ export default function LeadsPage() {
    * ONE CELL, chosen by the server's column key.
    *
    * The switch is the price of a chooseable table and it is worth paying here rather
-   * than in a generic renderer: `phone` must be `phone_masked` and nothing else (hard
-   * rule 6), `status` and `owner` are interactive controls rather than text, and `name`
-   * is the link to the lead. A table that rendered every column as `String(value)` would
-   * be shorter and would put a full number on the screen the first time somebody added
-   * a `phone_e164` column. Anything the switch does not name is an extraction field.
+   * than in a generic renderer: `status` and `owner` are interactive controls rather
+   * than text, `name` is the link to the lead, and `phone` is plain text on purpose —
+   * a `tel:` link would put the number in an `href`, which is the one place it still
+   * must not go. Anything the switch does not name is an extraction field.
    */
   const renderCell = (column: LeadColumn, lead: Lead) => {
     switch (column.kind === "fixed" ? column.key : "") {
@@ -471,15 +468,13 @@ export default function LeadsPage() {
           />
         );
       case "phone":
-        // MASKED, always. `phone_masked` is the only number `LeadOut` carries and the
-        // only one this screen may render; full numbers exist on the audited CSV export
-        // and nowhere else.
-        return lead.phone_masked;
+        // IN FULL (D-436). Text, not a `tel:` href — see `renderCell` above.
+        return lead.phone_e164;
       case "status":
         return (
           <StatusSelect
             value={lead.status}
-            label={`Status for ${lead.name ?? lead.phone_masked}`}
+            label={`Status for ${lead.name ?? lead.phone_e164}`}
             disabled={rows.pendingFor(lead.id) || readOnly}
             onChange={(next) => rows.edit(lead.id, { status: next })}
             className={`${INLINE_EDIT} capitalize hover:border-line`}
@@ -535,14 +530,14 @@ export default function LeadsPage() {
   /** A loaded row's display name, so a failure can be named rather than only numbered. */
   const nameFor = (leadId: string) => {
     const lead = items.find((row) => row.id === leadId);
-    return lead ? (lead.name ?? lead.phone_masked) : null;
+    return lead ? (lead.name ?? lead.phone_e164) : null;
   };
 
   return (
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          Columns follow your agent&apos;s capture list. Phone numbers are masked here.
+          Columns follow your agent&apos;s capture list.
         </p>
         {/* No count until there IS one: "0 leads" while the first page loads is a
             statement about the business, and it is the wrong one. */}
@@ -897,7 +892,7 @@ export default function LeadsPage() {
                             type="checkbox"
                             // Names the LEAD: a screen reader meeting a hundred boxes
                             // called "select" cannot tell which row it is on.
-                            aria-label={`Select ${lead.name ?? lead.phone_masked}`}
+                            aria-label={`Select ${lead.name ?? lead.phone_e164}`}
                             checked={ticked.has(lead.id)}
                             onChange={() => toggleRow(lead.id)}
                           />
@@ -957,12 +952,12 @@ export default function LeadsPage() {
                       >
                         <p className="truncate text-sm font-semibold text-ink">
                           {/* The list of leads without a captured name is long; the
-                              masked phone is the next-best stable identifier. */}
+                              phone number is the next-best stable identifier. */}
                           <Link
                             href={href(`/c/${session.orgSlug}/leads/${lead.id}`)}
                             className="hover:underline"
                           >
-                            {lead.name ?? lead.phone_masked}
+                            {lead.name ?? lead.phone_e164}
                           </Link>
                         </p>
                         <p className="mt-0.5 truncate text-xs text-ink-faint">
@@ -972,7 +967,7 @@ export default function LeadsPage() {
                             select, works everywhere including on a phone. */}
                         <StatusSelect
                           value={lead.status}
-                          label={`Status for ${lead.name ?? lead.phone_masked}`}
+                          label={`Status for ${lead.name ?? lead.phone_e164}`}
                           disabled={rows.pendingFor(lead.id) || readOnly}
                           onChange={(next) => rows.edit(lead.id, { status: next })}
                           className={`mt-1.5 w-full ${INLINE_EDIT} border-line capitalize`}

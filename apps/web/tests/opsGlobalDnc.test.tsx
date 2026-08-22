@@ -26,7 +26,7 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
  *    a regulator is exactly who would act on it. §52's rule, on the payload where being
  *    wrong is a TRAI complaint rather than a wrong number on a dashboard.
  * 2. **Releasing is not one click, and the per-row discipline reaches the wire.** The
- *    typed word is collected per ROW and names the masked number, so a confirmation typed
+ *    typed word is collected per ROW and names that row's number, so a confirmation typed
  *    for one suppression cannot lift the one below it — and the header carries that row's
  *    id (`release_number_platform_wide:<entryId>`), so the API enforces the same binding
  *    the screen collects. A console that collected a word and sent no header, or sent a
@@ -37,8 +37,11 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
  * 4. **A session without `ops:manage` is refused with its reason**, before a request has
  *    failed, rather than being handed a 403 that reads like an outage.
  *
- * Hard rule 6 is a property of the payload and nothing here widens it: `phone_masked` is
- * the only form of a number on the wire, and the add response is three counts.
+ * The ADD answers in three counts and never echoes the pasted list — an operator who
+ * pasted the wrong column needs a figure that disagrees with theirs, not their own text
+ * handed back. The LIST answers in full numbers (D-436): releasing a platform-wide
+ * suppression means reading it back to the regulator or TSP who asked for it, and the
+ * per-row confirmation asks the operator to match it.
  */
 
 const SUPERADMIN: AdminMe = {
@@ -58,10 +61,13 @@ const OPERATOR: AdminMe = {
 
 const LIST_PATH = `${OPS_DNC_GLOBAL_PATH}?limit=500`;
 
+/** Typed into the Suppress box. Distinct from every number in the list fixtures. */
+const SUBMITTED_NUMBER = "9812349999";
+
 function entry(over: Partial<GlobalDncEntry> = {}): GlobalDncEntry {
   return {
     id: "0192f0aa-7777-7000-8000-000000000001",
-    phone_masked: "+9198••••3210",
+    phone_e164: "+919876543210",
     scope: "global",
     source: "regulator",
     added_at: "2026-08-12T09:00:00Z",
@@ -126,8 +132,11 @@ describe("the platform-wide do-not-call list", () => {
     renderAdminPage(<GlobalDncPage />, routes());
 
     const button = await screen.findByRole("button", { name: /Suppress/ });
+    // Deliberately NOT the number in the list fixture: since D-436 the list renders its
+    // rows in full, so an assertion using the same digits could not tell "the form was
+    // cleared and the server echoed nothing" from "the list is on screen".
     fireEvent.change(screen.getByPlaceholderText(/9876543210/), {
-      target: { value: "9876543210" },
+      target: { value: SUBMITTED_NUMBER },
     });
     fireEvent.change(screen.getByPlaceholderText(/TRAI escalation/), {
       target: { value: "registrar instruction" },
@@ -146,7 +155,7 @@ describe("the platform-wide do-not-call list", () => {
     expect((button as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("answers a completed suppression with counts and no numbers", async () => {
+  it("answers a completed suppression with counts and never echoes what was typed", async () => {
     const { container } = renderAdminPage(
       <GlobalDncPage />,
       routes({
@@ -173,9 +182,9 @@ describe("the platform-wide do-not-call list", () => {
     expect(container.textContent).toContain(
       "Totals, not which number went where",
     );
-    // The numbers typed in are gone from the form, and no number came back from the
-    // server to render: the only digits left on screen are the masked list.
-    expect(container.textContent).not.toContain("9876543210");
+    // The number typed in is gone from the form, and none came back from the server to
+    // render — `GlobalSuppressOut` is three integers.
+    expect(container.textContent).not.toContain(SUBMITTED_NUMBER);
   });
 
   it("offers Release on a row the CLIENT surface calls unremovable", async () => {
@@ -184,7 +193,7 @@ describe("the platform-wide do-not-call list", () => {
     // hangs off it, ops loses the only route by which a global suppression can be lifted.
     expect(
       await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +9198••••3210",
+        name: "Release the platform-wide suppression on +919876543210",
       }),
     ).toBeTruthy();
   });
@@ -197,13 +206,13 @@ describe("the platform-wide do-not-call list", () => {
 
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +9198••••3210",
+        name: "Release the platform-wide suppression on +919876543210",
       }),
     );
 
     // The blast radius, in the direction that matters: this re-permits calling somebody.
     expect(container.textContent).toContain(
-      "Releasing +9198••••3210 lets every client dial it again",
+      "Releasing +919876543210 lets every client dial it again",
     );
     // …and WHY it was suppressed, quoted back, so the operator lifting it knows whose
     // instruction they are overriding.
@@ -238,14 +247,14 @@ describe("the platform-wide do-not-call list", () => {
       routes({
         [LIST_PATH]: [
           entry(),
-          entry({ id: "0192f0aa-7777-7000-8000-000000000002", phone_masked: "+9198••••7788" }),
+          entry({ id: "0192f0aa-7777-7000-8000-000000000002", phone_e164: "+919812347788" }),
         ],
       }),
     );
 
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +9198••••3210",
+        name: "Release the platform-wide suppression on +919876543210",
       }),
     );
     fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm lifting/), {
@@ -256,11 +265,11 @@ describe("the platform-wide do-not-call list", () => {
     // collected per row rather than once for the list.
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Release the platform-wide suppression on +9198••••7788",
+        name: "Release the platform-wide suppression on +919812347788",
       }),
     );
     expect(
-      (screen.getByRole("button", { name: /Release \+9198••••7788/ }) as HTMLButtonElement)
+      (screen.getByRole("button", { name: /Release \+919812347788/ }) as HTMLButtonElement)
         .disabled,
     ).toBe(true);
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
@@ -377,7 +386,7 @@ describe("the platform-wide do-not-call list", () => {
     const { container } = renderAdminPage(<GlobalDncPage />, routes());
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Release the platform-wide suppression on +9198••••3210",
+        name: "Release the platform-wide suppression on +919876543210",
       }),
     );
     await expectNoA11yViolations(container, "admin/ops/dnc (release confirmation)");

@@ -141,7 +141,9 @@ class GlobalSuppressOut(Strict):
 
 class GlobalEntryOut(Strict):
     id: UUID
-    phone_masked: str
+    #: In full (D-436) — an operator auditing what we refuse to dial for anyone needs to
+    #: read the number back to the TSP that asked for it.
+    phone_e164: str
     scope: str
     source: str | None
     added_at: datetime
@@ -255,7 +257,7 @@ async def suppress_globally(
     "",
     response_model=list[GlobalEntryOut],
     openapi_extra=permission_meta("ops:manage"),
-    summary="Every platform-wide suppression, masked — what we refuse to dial for anyone",
+    summary="Every platform-wide suppression — what we refuse to dial for anyone",
 )
 async def list_global(
     session: GlobalSession,
@@ -266,7 +268,7 @@ async def list_global(
     return [
         GlobalEntryOut(
             id=entry.id,
-            phone_masked=entry.phone_masked,
+            phone_e164=entry.phone_e164,
             scope=entry.scope,
             source=entry.source,
             added_at=entry.added_at,

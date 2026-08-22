@@ -72,6 +72,12 @@ const AGENT: Agent = {
     "Whatever these settings say, the agent always answers honestly when a caller asks.",
   engine: "bolna",
   published: true,
+  // D-440 widened `AgentOut`: an agent knows when it was retired (NULL until it is) and
+  // how many lines it answers in parallel, which is the one honest per-agent deployment
+  // fact the API carries. Both are REQUIRED on the wire, so a fixture without them is not
+  // an agent this server can send.
+  archived_at: null,
+  inbound_number_count: 1,
   extraction_fields: [],
 };
 
@@ -284,6 +290,97 @@ describe("the campaign list", () => {
 
     await screen.findByRole("button", { name: CAMPAIGN.name });
     expect(container.querySelector("h1")).toBeNull();
+  });
+});
+
+describe("choosing which agent makes the calls (D-440)", () => {
+  /**
+   * The campaign form binds an agent, and two of the four agent states must be treated
+   * differently — a rule the SERVER owns and this screen only previews.
+   *
+   * `lifecycle.ASSIGNABLE_STATUSES` is every state except `archived`: a draft agent is a
+   * legitimate choice while its script is being written, and `launch_blockers` refuses
+   * the LAUNCH with `agent_not_live` until it is published. Archived is different in
+   * kind — there is no state of the world in which that campaign becomes launchable — so
+   * binding one is a dead end the client cannot diagnose.
+   */
+
+  /** The same agent, in another state. `AGENT` above is live, published and outbound. */
+  function agentIn(over: Partial<Agent>): Agent {
+    return { ...AGENT, ...over };
+  }
+
+  it("never offers an archived agent, because no campaign bound to one can ever launch", async () => {
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], {
+        "/v1/agents": [
+          agentIn({ id: "a-live", name: "Follow-ups" }),
+          agentIn({
+            id: "a-old",
+            name: "Retired dialler",
+            status: "archived",
+            archived_at: "2026-07-02T09:30:00Z",
+            published: false,
+          }),
+        ],
+      }),
+    );
+
+    await screen.findByText("New campaign");
+    const picker = container.querySelector<HTMLSelectElement>("select");
+    expect(picker, "the create form has no agent picker").not.toBeNull();
+    const options = Array.from(picker!.options).map((option) => option.textContent);
+    expect(options.join(" | ")).toContain("Follow-ups");
+    expect(options.join(" | ")).not.toContain("Retired dialler");
+  });
+
+  it("asks which agent even when there is only one, and names the one it will bind", async () => {
+    // It used to ask only when there was more than one, which silently bound `agents[0]`
+    // — a campaign whose caller nobody chose. With an agents console that can mint a
+    // second agent in a minute, "there is only one" stopped being a safe assumption the
+    // moment the form rendered.
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/agents": [agentIn({ name: "Follow-ups" })] }),
+    );
+
+    await screen.findByText("Which agent makes these calls");
+    const picker = container.querySelector<HTMLSelectElement>("select");
+    expect(Array.from(picker!.options).map((option) => option.textContent)).toEqual([
+      "Follow-ups",
+    ]);
+  });
+
+  it("marks an agent that cannot dial yet, rather than letting launch be the first news", async () => {
+    // A draft agent IS assignable and is NOT launchable. Saying so at the point of
+    // choosing turns an `agent_not_live` refusal nobody expected into a wait somebody
+    // planned for.
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], {
+        "/v1/agents": [
+          agentIn({ id: "a-draft", name: "Half built", status: "draft", published: false }),
+        ],
+      }),
+    );
+
+    await screen.findByText("Which agent makes these calls");
+    const picker = container.querySelector<HTMLSelectElement>("select");
+    expect(picker!.options[0].textContent).toContain("not able to call out yet");
+    expect(container.textContent).toContain("it will not launch until the agent is switched on");
+  });
+
+  it("offers no picker at all while the agent list is still in flight", async () => {
+    // §52 on a control: a `<select>` built from an empty list is a campaign form that
+    // looks answerable and binds nothing.
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/agents": stillLoading() }),
+    );
+
+    expect(container.textContent).toContain("New campaign");
+    expect(container.textContent).not.toContain("Which agent makes these calls");
   });
 });
 

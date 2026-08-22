@@ -229,6 +229,142 @@
         "title": "AdminMeOut",
         "type": "object"
       },
+      "AgentChargeOut": {
+        "additionalProperties": false,
+        "description": "What one agent added to this month's bill. No cost field, and there never is one.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "charged_inr": {
+            "title": "Charged Inr",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "calls",
+          "minutes",
+          "charged_inr"
+        ],
+        "title": "AgentChargeOut",
+        "type": "object"
+      },
+      "AgentCreateIn": {
+        "additionalProperties": false,
+        "description": "A new agent, in the three facts a business owner actually has at creation time.\n\nNO DISCLOSURE FIELDS, deliberately. Both sentences are generated from the language\ntemplates by `lifecycle.create_agent` and are not accepted from the caller: the create\nform is the one place a client is not yet thinking about TRAI, and a free-text field\ncalled \"AI disclosure\" on it is how an agent ends up announcing \"Hi there!\". Changing\nthe wording is a reviewed surface, not a text input on the new-agent screen.\n\nNO SCRIPT FIELD either, and that is what `draft` is for: the agent exists, the owner\nwrites and trains it, and `publish_agent` refuses to activate one with no prompt\nversion by name (`agent_has_no_script`).",
+        "properties": {
+          "direction": {
+            "default": "inbound",
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "language_primary": {
+            "default": "te-IN",
+            "enum": [
+              "te-IN",
+              "hi-IN",
+              "en-IN"
+            ],
+            "title": "Language Primary",
+            "type": "string"
+          },
+          "max_call_duration_s": {
+            "anyOf": [
+              {
+                "maximum": 3600.0,
+                "minimum": 60.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Call Duration S"
+          },
+          "name": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "AgentCreateIn",
+        "type": "object"
+      },
+      "AgentLifecycleOut": {
+        "additionalProperties": false,
+        "description": "The result of a lifecycle move, as the screen that pressed the button needs it.\n\nNAMED `AgentLifecycleOut` AND NOT `LifecycleOut`, which is what it was called for an\nhour. `admin/routes.py` already has a `LifecycleOut` (the TENANT lifecycle), and two\nmodels of the same name in one app make FastAPI qualify BOTH in the OpenAPI document \u2014\nso the admin console's generated type silently renamed itself to\n`apps__api__admin__routes__LifecycleOut` and every screen using it broke, from a change\nin a different module. The collision is invisible until the snapshot is regenerated,\nwhich is why it is recorded here rather than just fixed.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "numbers_released": {
+            "title": "Numbers Released",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "status",
+          "changed",
+          "numbers_released"
+        ],
+        "title": "AgentLifecycleOut",
+        "type": "object"
+      },
       "AgentOut": {
         "additionalProperties": false,
         "properties": {
@@ -240,7 +376,24 @@
             "title": "Ai Disclosure Line",
             "type": "string"
           },
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
           "direction": {
+            "enum": [
+              "inbound",
+              "outbound",
+              "both"
+            ],
             "title": "Direction",
             "type": "string"
           },
@@ -264,6 +417,10 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "inbound_number_count": {
+            "title": "Inbound Number Count",
+            "type": "integer"
           },
           "language_primary": {
             "title": "Language Primary",
@@ -290,6 +447,12 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -304,6 +467,7 @@
           "name",
           "direction",
           "status",
+          "archived_at",
           "language_primary",
           "disclosure_line",
           "ai_disclosure_line",
@@ -312,9 +476,195 @@
           "recording_notice_enabled",
           "opening_line",
           "engine",
-          "published"
+          "published",
+          "inbound_number_count"
         ],
         "title": "AgentOut",
+        "type": "object"
+      },
+      "AgentSpendOut": {
+        "additionalProperties": false,
+        "description": "One agent: what the client paid, what we paid, and the difference.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "charged_inr": {
+            "title": "Charged Inr",
+            "type": "string"
+          },
+          "cost_currency_assumed": {
+            "title": "Cost Currency Assumed",
+            "type": "boolean"
+          },
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "margin_inr": {
+            "title": "Margin Inr",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "calls",
+          "minutes",
+          "charged_inr",
+          "cost_inr",
+          "margin_inr",
+          "cost_currency_assumed"
+        ],
+        "title": "AgentSpendOut",
+        "type": "object"
+      },
+      "AgentStatsOut": {
+        "additionalProperties": false,
+        "description": "What one agent has actually done \u2014 the numbers a roster card shows (D-440).\n\nA SEPARATE ROUTE FROM THE ROSTER, deliberately. The roster is opened on every\nnavigation and reads a handful of small rows; this aggregates `calls`, which is the\nbiggest table a tenant owns and the one that only ever grows. Folding it into\n`AgentOut` would make the cheapest screen in the product pay for the most expensive\nquery on every render, and nothing about an agent's identity depends on it.\n\nLifetime figures, not a window. A window is a second decision (how long? whose\ntimezone?) that every caller would then have to agree with, and \"this agent has taken\n4,102 calls\" is the number a business owner asked for. `last_call_at` is what answers\n\"is this one still being used\", which is the question a window was standing in for.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "calls_connected": {
+            "title": "Calls Connected",
+            "type": "integer"
+          },
+          "calls_inbound": {
+            "title": "Calls Inbound",
+            "type": "integer"
+          },
+          "calls_outbound": {
+            "title": "Calls Outbound",
+            "type": "integer"
+          },
+          "calls_total": {
+            "title": "Calls Total",
+            "type": "integer"
+          },
+          "last_call_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call At"
+          },
+          "outcomes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Outcomes",
+            "type": "object"
+          },
+          "status": {
+            "enum": [
+              "draft",
+              "live",
+              "paused",
+              "archived"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "status",
+          "calls_total",
+          "calls_inbound",
+          "calls_outbound",
+          "calls_connected",
+          "outcomes",
+          "last_call_at"
+        ],
+        "title": "AgentStatsOut",
+        "type": "object"
+      },
+      "AgentUpdateIn": {
+        "additionalProperties": false,
+        "description": "What an owner may change about an existing agent. `null` on a field leaves it alone.\n\n`DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever\none moved, and a PATCH that could only send all three would make renaming an agent a\nread-modify-write race against a direction change.",
+        "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "inbound",
+                  "outbound",
+                  "both"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "language_primary": {
+            "anyOf": [
+              {
+                "enum": [
+                  "te-IN",
+                  "hi-IN",
+                  "en-IN"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language Primary"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "AgentUpdateIn",
         "type": "object"
       },
       "AgentVoiceOut": {
@@ -613,7 +963,7 @@
       },
       "AttentionItemOut": {
         "additionalProperties": false,
-        "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose: a blocked lead is named by its\nlead NAME, falling back to a MASKED number, never a raw one.",
+        "description": "One thing the platform refused to do quietly (crm/attention.py).\n\n`title` and `detail` are already client-safe prose composed by us \u2014 never a vendor\nstring and never transcript text. A blocked lead is named by its captured lead NAME,\nfalling back to its number in full, because \"ring this person\" is the action the row\nexists to prompt (D-436).",
         "properties": {
           "detail": {
             "title": "Detail",
@@ -890,6 +1240,79 @@
         "title": "CallCapOut",
         "type": "object"
       },
+      "CallChargeOut": {
+        "additionalProperties": false,
+        "description": "One call, and what it added to this month's bill.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "charged_inr": {
+            "title": "Charged Inr",
+            "type": "string"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "call_id",
+          "agent_id",
+          "agent_name",
+          "started_at",
+          "direction",
+          "minutes",
+          "charged_inr"
+        ],
+        "title": "CallChargeOut",
+        "type": "object"
+      },
       "CallDetailOut": {
         "additionalProperties": false,
         "properties": {
@@ -909,7 +1332,7 @@
             ],
             "title": "Agent Name"
           },
-          "caller_masked": {
+          "caller_e164": {
             "anyOf": [
               {
                 "type": "string"
@@ -918,7 +1341,7 @@
                 "type": "null"
               }
             ],
-            "title": "Caller Masked"
+            "title": "Caller E164"
           },
           "direction": {
             "enum": [
@@ -1174,6 +1597,94 @@
         "title": "CallMomentOut",
         "type": "object"
       },
+      "CallSpendOut": {
+        "additionalProperties": false,
+        "description": "One call, both directions.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "charged_inr": {
+            "title": "Charged Inr",
+            "type": "string"
+          },
+          "cost_currency_assumed": {
+            "title": "Cost Currency Assumed",
+            "type": "boolean"
+          },
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "margin_inr": {
+            "title": "Margin Inr",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "call_id",
+          "agent_id",
+          "agent_name",
+          "started_at",
+          "direction",
+          "minutes",
+          "charged_inr",
+          "cost_inr",
+          "margin_inr",
+          "cost_currency_assumed"
+        ],
+        "title": "CallSpendOut",
+        "type": "object"
+      },
       "CallSummaryOut": {
         "additionalProperties": false,
         "properties": {
@@ -1193,7 +1704,7 @@
             ],
             "title": "Agent Name"
           },
-          "caller_masked": {
+          "caller_e164": {
             "anyOf": [
               {
                 "type": "string"
@@ -1202,7 +1713,7 @@
                 "type": "null"
               }
             ],
-            "title": "Caller Masked"
+            "title": "Caller E164"
           },
           "direction": {
             "enum": [
@@ -3845,8 +4356,8 @@
             "title": "Id",
             "type": "string"
           },
-          "phone_masked": {
-            "title": "Phone Masked",
+          "phone_e164": {
+            "title": "Phone E164",
             "type": "string"
           },
           "removable": {
@@ -3871,7 +4382,7 @@
         },
         "required": [
           "id",
-          "phone_masked",
+          "phone_e164",
           "scope",
           "source",
           "added_at",
@@ -5108,6 +5619,128 @@
         "title": "FlagStateOut",
         "type": "object"
       },
+      "FleetSpendOut": {
+        "additionalProperties": false,
+        "description": "GET /v1/admin/spend \u2014 every live client's month, worst margin first.\n\nThe totals are sums of the rows, computed here rather than queried: `usage_events` is\nFORCE RLS'd and an untenanted session sees zero rows by design, so a cross-tenant\n`SUM` is unaskable in app code and reaching for the admin DB role to get one would\nbreak hard rule 1. `billing/models.PlatformAiSpend` records the same constraint and\nthe same answer one ledger over. Each client's numbers are read INSIDE that client's\nown `tenant_session`, so no query here sees two tenants at once.",
+        "properties": {
+          "clients": {
+            "title": "Clients",
+            "type": "integer"
+          },
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "margin_inr": {
+            "title": "Margin Inr",
+            "type": "string"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "revenue_inr": {
+            "title": "Revenue Inr",
+            "type": "string"
+          },
+          "tenants": {
+            "items": {
+              "$ref": "#/components/schemas/FleetTenantOut"
+            },
+            "title": "Tenants",
+            "type": "array"
+          }
+        },
+        "required": [
+          "month",
+          "clients",
+          "revenue_inr",
+          "cost_inr",
+          "margin_inr",
+          "margin_pct",
+          "tenants"
+        ],
+        "title": "FleetSpendOut",
+        "type": "object"
+      },
+      "FleetTenantOut": {
+        "additionalProperties": false,
+        "description": "One client on the fleet board.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "margin_inr": {
+            "title": "Margin Inr",
+            "type": "string"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "revenue_inr": {
+            "title": "Revenue Inr",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "tenant_id": {
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "plan_tier",
+          "minutes_used",
+          "calls",
+          "revenue_inr",
+          "cost_inr",
+          "margin_inr",
+          "margin_pct"
+        ],
+        "title": "FleetTenantOut",
+        "type": "object"
+      },
       "GlobalEntryOut": {
         "additionalProperties": false,
         "properties": {
@@ -5121,8 +5754,8 @@
             "title": "Id",
             "type": "string"
           },
-          "phone_masked": {
-            "title": "Phone Masked",
+          "phone_e164": {
+            "title": "Phone E164",
             "type": "string"
           },
           "removable": {
@@ -5147,7 +5780,7 @@
         },
         "required": [
           "id",
-          "phone_masked",
+          "phone_e164",
           "scope",
           "source",
           "added_at",
@@ -5836,8 +6469,8 @@
             "title": "Delivery",
             "type": "string"
           },
-          "email_masked": {
-            "title": "Email Masked",
+          "email": {
+            "title": "Email",
             "type": "string"
           },
           "expires_at": {
@@ -5862,7 +6495,7 @@
         },
         "required": [
           "id",
-          "email_masked",
+          "email",
           "role",
           "invited_at",
           "expires_at",
@@ -5897,10 +6530,10 @@
       },
       "InvitationOut": {
         "additionalProperties": false,
-        "description": "A pending invitation \u2014 a live key to this account sitting in an inbox.\n\n`email_masked`, never `email`: see `members.mask_email` for why the guardrail\nforbids the raw field here and what the mask keeps.",
+        "description": "A pending invitation \u2014 a live key to this account sitting in an inbox.\n\n`email` is the whole address (D-436): an owner has to be able to see that the\naddress they typed is the one they meant, and to tell two invites at one domain\napart. `org:read` gates the list; `PendingInvitation` records what the dots cost.",
         "properties": {
-          "email_masked": {
-            "title": "Email Masked",
+          "email": {
+            "title": "Email",
             "type": "string"
           },
           "expires_at": {
@@ -5925,7 +6558,7 @@
         },
         "required": [
           "id",
-          "email_masked",
+          "email",
           "role",
           "invited_at",
           "expires_at"
@@ -6904,7 +7537,7 @@
       },
       "LeadColumnOut": {
         "additionalProperties": false,
-        "description": "One selectable column of the Leads table \u2014 `crm.columns.LeadColumn` on the wire.\n\n`kind` is what lets the screen render a column without knowing its name: `fixed`\ncolumns come off `LeadOut`'s own attributes (and `phone` is `phone_masked` there,\nwhich is hard rule 6 and not a rendering choice), `extraction` columns come out of\n`LeadOut.data` under `key`.",
+        "description": "One selectable column of the Leads table \u2014 `crm.columns.LeadColumn` on the wire.\n\n`kind` is what lets the screen render a column without knowing its name: `fixed`\ncolumns come off `LeadOut`'s own attributes (the `phone` column is `phone_e164`\nthere, the same full number the export writes), `extraction` columns come out of\n`LeadOut.data` under `key`.",
         "properties": {
           "key": {
             "title": "Key",
@@ -7227,8 +7860,8 @@
             ],
             "title": "Name"
           },
-          "phone_masked": {
-            "title": "Phone Masked",
+          "phone_e164": {
+            "title": "Phone E164",
             "type": "string"
           },
           "schema_version": {
@@ -7266,7 +7899,7 @@
         },
         "required": [
           "id",
-          "phone_masked",
+          "phone_e164",
           "status",
           "source",
           "call_count",
@@ -8773,10 +9406,10 @@
       },
       "PendingInviteOut": {
         "additionalProperties": false,
-        "description": "One live key to a client's account, as the console may see it.\n\nMASKED, like the client realm's own list: `email` is in\n`scripts/check_redaction_exposure.py`'s `RAW_PII_FIELDS`, and an operator deciding\nwhich pending invite to cancel needs to RECOGNISE it, not to read it. Same mask, same\nfunction (`members.mask_email`), so the two realms cannot show a client's staff two\ndifferent renderings of one row.",
+        "description": "One live key to a client's account, as the console may see it.\n\nThe address IN FULL, like the client realm's own list \u2014 one row, one rendering, in\nboth realms (D-436). An operator cancelling a duplicate invite has to be able to say\nwhich address it was for, and the console is the desk a client rings when they\ncannot see the invite themselves.",
         "properties": {
-          "email_masked": {
-            "title": "Email Masked",
+          "email": {
+            "title": "Email",
             "type": "string"
           },
           "expires_at": {
@@ -8801,7 +9434,7 @@
         },
         "required": [
           "id",
-          "email_masked",
+          "email",
           "role",
           "invited_at",
           "expires_at"
@@ -11656,6 +12289,100 @@
         "title": "SpendCapRecomputeOut",
         "type": "object"
       },
+      "SpendOut": {
+        "additionalProperties": false,
+        "description": "GET /v1/billing/spend \u2014 this month's bill, itemised by agent and by call.",
+        "properties": {
+          "by_agent": {
+            "items": {
+              "$ref": "#/components/schemas/AgentChargeOut"
+            },
+            "title": "By Agent",
+            "type": "array"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "charge_basis": {
+            "enum": [
+              "wallet_debit",
+              "allocated"
+            ],
+            "title": "Charge Basis",
+            "type": "string"
+          },
+          "itemisation_residual_inr": {
+            "title": "Itemisation Residual Inr",
+            "type": "string"
+          },
+          "itemised_charge_inr": {
+            "title": "Itemised Charge Inr",
+            "type": "string"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "period_charge_inr": {
+            "title": "Period Charge Inr",
+            "type": "string"
+          },
+          "residual_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Residual Reason"
+          },
+          "retainer_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retainer Inr"
+          },
+          "top_calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallChargeOut"
+            },
+            "title": "Top Calls",
+            "type": "array"
+          },
+          "top_calls_truncated": {
+            "title": "Top Calls Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "month",
+          "charge_basis",
+          "calls",
+          "minutes_used",
+          "retainer_inr",
+          "period_charge_inr",
+          "itemised_charge_inr",
+          "itemisation_residual_inr",
+          "residual_reason",
+          "by_agent",
+          "top_calls",
+          "top_calls_truncated"
+        ],
+        "title": "SpendOut",
+        "type": "object"
+      },
       "StaffMember": {
         "additionalProperties": false,
         "description": "`pronunciation` is not decoration \u2014 PROMPT-GUIDE \u00a73 requires proper nouns to be\nspelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the\nfirst thing a caller notices.",
@@ -12825,6 +13552,168 @@
         "title": "TenantErasureScopeOut",
         "type": "object"
       },
+      "TenantSpendOut": {
+        "additionalProperties": false,
+        "description": "GET /v1/admin/tenants/{tenant_id}/spend \u2014 one client's month, both directions.\n\nThe four header figures are D-12's margin, in D-12's OWN definitions \u2014 the retainer\nplus `calling_revenue_inr` against the sum of `_ROW_COST_SQL`, with `margin_pct` the\none shared function `margin_for_tenant` and the fleet board both call. They are folded\nout of `period_attribution`'s single scan rather than read from a second\n`margin_for_tenant` call, and that is a partition fix rather than a shortcut: a second\ncall is a second statement at a second instant over an append-only table the meter\nwrites to all month, so on an open month the header's `cost_inr` could exceed the\n`by_unit` lines beneath it by one completing call \u2014 the parts silently not adding up,\non the page whose whole promise is that they do. Same rows, same expressions, so on a\nmonth nobody is dialling in this is `margin_for_tenant` to the paisa, which is the\nidentity `tests/spend_attribution_test.py` pins.",
+        "properties": {
+          "by_agent": {
+            "items": {
+              "$ref": "#/components/schemas/AgentSpendOut"
+            },
+            "title": "By Agent",
+            "type": "array"
+          },
+          "by_unit": {
+            "items": {
+              "$ref": "#/components/schemas/UnitSpendOut"
+            },
+            "title": "By Unit",
+            "type": "array"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "charge_basis": {
+            "enum": [
+              "wallet_debit",
+              "allocated"
+            ],
+            "title": "Charge Basis",
+            "type": "string"
+          },
+          "cost_currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Currency"
+          },
+          "cost_currency_stated": {
+            "title": "Cost Currency Stated",
+            "type": "boolean"
+          },
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "itemisation_residual_inr": {
+            "title": "Itemisation Residual Inr",
+            "type": "string"
+          },
+          "itemised_charge_inr": {
+            "title": "Itemised Charge Inr",
+            "type": "string"
+          },
+          "margin_inr": {
+            "title": "Margin Inr",
+            "type": "string"
+          },
+          "margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Margin Pct"
+          },
+          "minutes_used": {
+            "title": "Minutes Used",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "period_charge_inr": {
+            "title": "Period Charge Inr",
+            "type": "string"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "residual_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Residual Reason"
+          },
+          "retainer_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retainer Inr"
+          },
+          "revenue_inr": {
+            "title": "Revenue Inr",
+            "type": "string"
+          },
+          "top_calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallSpendOut"
+            },
+            "title": "Top Calls",
+            "type": "array"
+          },
+          "top_calls_truncated": {
+            "title": "Top Calls Truncated",
+            "type": "boolean"
+          },
+          "unattributed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnattributedSpendOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "month",
+          "plan_tier",
+          "charge_basis",
+          "calls",
+          "minutes_used",
+          "retainer_inr",
+          "revenue_inr",
+          "cost_inr",
+          "margin_inr",
+          "margin_pct",
+          "period_charge_inr",
+          "itemised_charge_inr",
+          "itemisation_residual_inr",
+          "residual_reason",
+          "cost_currency",
+          "cost_currency_stated",
+          "unattributed",
+          "by_unit",
+          "by_agent",
+          "top_calls",
+          "top_calls_truncated"
+        ],
+        "title": "TenantSpendOut",
+        "type": "object"
+      },
       "TenantSummary": {
         "additionalProperties": false,
         "properties": {
@@ -13326,6 +14215,26 @@
         "title": "TranscriptTurnOut",
         "type": "object"
       },
+      "UnattributedSpendOut": {
+        "additionalProperties": false,
+        "description": "Cost this month that belongs to no call \u2014 `number_rental` and nothing else today.",
+        "properties": {
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "string"
+          }
+        },
+        "required": [
+          "minutes",
+          "cost_inr"
+        ],
+        "title": "UnattributedSpendOut",
+        "type": "object"
+      },
       "UndoOut": {
         "additionalProperties": false,
         "properties": {
@@ -13427,6 +14336,31 @@
           "blockers"
         ],
         "title": "UnfinishedOnboardingOut",
+        "type": "object"
+      },
+      "UnitSpendOut": {
+        "additionalProperties": false,
+        "description": "What one metered unit type contributed to OUR cost.\n\n`qty` is not money and is not rounded like it \u2014 seconds, minutes and character counts\nare published as the ledger holds them.",
+        "properties": {
+          "cost_inr": {
+            "title": "Cost Inr",
+            "type": "string"
+          },
+          "qty": {
+            "title": "Qty",
+            "type": "string"
+          },
+          "unit_type": {
+            "title": "Unit Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_type",
+          "qty",
+          "cost_inr"
+        ],
+        "title": "UnitSpendOut",
         "type": "object"
       },
       "UsagePanelOut": {
@@ -14809,6 +15743,53 @@
           "admin"
         ],
         "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/spend": {
+      "get": {
+        "description": "The board that answers \"which client is costing us money\", one row per client.\n\nONE directory query, then ONE `tenant_session` per client, exactly as\n`admin/health.py::client_health` does \u2014 the directory comes from the `app.admin`\nsession (which widens `organizations` and nothing else) and every rupee is read under\nordinary RLS inside the client's own scope. Nothing here can see two tenants at once\nand no policy is widened to make it faster.\n\nNothing truncates, for the reason the health board does not: hiding the client at the\nbottom of a money board defeats the board. The walk is watched instead.",
+        "operationId": "fleet_spend_v1_admin_spend_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FleetSpendOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every live client's month \u2014 revenue, our cost, margin \u2014 worst margin first",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
       }
     },
     "/v1/admin/tenants": {
@@ -16600,7 +17581,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/invitations": {
       "get": {
-        "description": "The keys to this client's account that exist in somebody's inbox right now. Addresses are masked. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.",
+        "description": "The keys to this client's account that exist in somebody's inbox right now. This is what makes the duplicate refusal actionable: minting a second live token for one address is refused, and an operator who did not issue the first one needs to be able to see and cancel it.",
         "operationId": "list_tenant_invitations_v1_admin_tenants__tenant_id__invitations_get",
         "parameters": [
           {
@@ -17186,6 +18167,75 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/spend": {
+      "get": {
+        "description": "Admin realm only, for the reason `tenant_margin` is: `unit_cost_paid` is our\nsupplier pricing.\n\nRuns the reads inside the client's own `tenant_session` because `usage_events`,\n`calls` and `agents` are RLS'd and stay that way \u2014 `app.admin` opens the client\nDIRECTORY, never their data (migration b57e2f9c4a13). The existence check comes first\nfor the reason it does on the margin card: a mistyped id and a client with no usage\nboth aggregate to zero, and a \u20b90 page about a client that does not exist is worse\nthan a 404.\n\nONE ATTRIBUTION, and the margin is folded out of it \u2014 see `TenantSpendOut` for why a\nsecond `margin_for_tenant` read would let this page's header disagree with its own\nlines. It also removes the whole question of the two reads landing either side of a\nmonth boundary, which is what `month=period.month` used to have to defend against.",
+        "operationId": "tenant_spend_v1_admin_tenants__tenant_id__spend_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantSpendOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's month, both directions \u2014 what we paid, what we charged, margin",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/status": {
       "post": {
         "description": "Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected \u2014 the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it \u2014 `churned` is terminal. 404 means no such client.",
@@ -17347,6 +18397,7 @@
     },
     "/v1/agents": {
       "get": {
+        "description": "`status` selects one bucket: `live` (active \u2014 on the frontline), `paused` (inactive \u2014 switched off, reversible), `draft` (being written, never published) or `archived` (retired).\n\n**Omitting `status` returns everything EXCEPT archived agents.** The archive is history: it grows without limit while the working roster does not, so a default of 'everything' would let retired agents push live ones past the page bound. Ask for `status=archived` to read it.",
         "operationId": "list_agents_v1_agents_get",
         "parameters": [
           {
@@ -17359,6 +18410,28 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "draft",
+                    "live",
+                    "paused",
+                    "archived"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
             }
           }
         ],
@@ -17384,11 +18457,48 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "List Agents",
+        "summary": "This account's agents \u2014 active, inactive, draft, or the archive",
         "tags": [
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      },
+      "post": {
+        "description": "The agent is created in `draft`: it takes no calls and places none until it is activated, and it cannot be activated until it has a script.\n\nBoth opening notices \u2014 the AI disclosure and the recording notice \u2014 are written for you from the chosen language and are switched on. They cannot be supplied here: every agent on this platform has an AI disclosure on file, the voice platform is verified against it on every publish, and no field on this form can change that.",
+        "operationId": "create_agent_route_v1_agents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Create an agent (starts as a draft)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/lanes": {
@@ -17414,6 +18524,53 @@
           }
         },
         "summary": "Which agent settings apply immediately and which wait for Apply (\u00a72b)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/stats": {
+      "get": {
+        "description": "One row per agent INCLUDING the archived ones, which is the opposite default to the\nroster above and is not an inconsistency.\n\nThe roster answers \"what can I work with\", so the archive is noise. This answers \"what\nhas happened\", and an archived agent's history is the largest part of the answer \u2014 a\nclient who retired their old receptionist last week still needs the 4,000 calls it took\nto be somewhere. Nothing here is unbounded either way: it is one row per agent, and the\nagent list is what the `LIMIT` bounds.\n\nTWO QUERIES, NOT ONE, and the reason is which columns the tag counts would force into a\nGROUP BY. Counting outcomes in the first statement means naming each tag in a\n`FILTER (WHERE outcome_tag = '...')`, which retypes a vocabulary that already exists as\na `Literal` (D-104) \u2014 the second statement groups by the tag instead, so the four names\nappear nowhere in this file's SQL and a fifth outcome needs no edit here at all.\n\nLEFT JOINed from `agents`, so an agent that has never taken a call is a row of zeroes\nrather than a gap the caller has to interpret.",
+        "operationId": "agent_stats_v1_agents_stats_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentStatsOut"
+                  },
+                  "title": "Response Agent Stats V1 Agents Stats Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call counts, outcomes and last-active for each of this account's agents",
         "tags": [
           "agents"
         ],
@@ -17488,6 +18645,178 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      },
+      "patch": {
+        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\nAn archived agent is refused: restore it first.",
+        "operationId": "update_agent_route_v1_agents__agent_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentUpdateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Rename an agent, or change its calling direction or language",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/activate": {
+      "post": {
+        "description": "Publishes the agent to the voice platform and reads it back to confirm the platform is running this script, this opening line and the answer it must give when a caller asks whether they are talking to an AI. Only then is it recorded as active; a platform that did not take the change is a refusal, not a warning.\n\nRefused with `agent_has_no_script` if nothing has been written for it yet, and with `agent_archived` if it has been retired. An agent that is already active is a success that publishes nothing.",
+        "operationId": "activate_agent_route_v1_agents__agent_id__activate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Put the agent on the frontline (draft or inactive -> active)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/archive": {
+      "post": {
+        "description": "An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving an active agent also releases the numbers it was answering.",
+        "operationId": "archive_agent_route_v1_agents__agent_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Retire the agent (draft, active or inactive -> archived)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/deactivate": {
+      "post": {
+        "description": "Stops it placing calls from the next dispatch tick, and tells the voice platform to stop answering the numbers bound to it \u2014 so an inactive agent really does go quiet on both legs. Everything is kept: the script, the numbers, the call history. Activate it again to put it back.",
+        "operationId": "deactivate_agent_route_v1_agents__agent_id__deactivate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Take the agent off the frontline (active -> inactive)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/agents/{agent_id}/disclosure": {
@@ -17662,6 +18991,47 @@
           "agents"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/agents/{agent_id}/restore": {
+      "post": {
+        "description": "It comes back INACTIVE, not active. Nothing can prove the voice platform still holds a retired agent's configuration, and the only thing that establishes it is a publish \u2014 so activate it afterwards, deliberately.",
+        "operationId": "restore_agent_route_v1_agents__agent_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentLifecycleOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Bring an agent back out of the archive (archived -> inactive)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/attention": {
@@ -18730,6 +20100,65 @@
         "x-calevate-permission": "billing:read"
       }
     },
+    "/v1/billing/spend": {
+      "get": {
+        "description": "Every rupee on this account's calling charge, attributed to the agent and the call that produced it. `charge_basis` says what kind of number the per-call figure is: `wallet_debit` is the exact amount taken off a prepaid balance for that call, `allocated` is that call's share of a month priced as a whole. Requires `billing:read`, which account owners hold and staff do not. Calevate's own supplier cost never appears here.",
+        "operationId": "my_spend_v1_billing_spend_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "month",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Month"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpendOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This month's bill, itemised by agent and by call",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
     "/v1/billing/topups/capability": {
       "get": {
         "description": "A RENDERING HINT, never the check (D-75). The intent route asks the same selector and remains the authority; a stale answer here costs a refusal, never a payment.",
@@ -19576,7 +21005,7 @@
     },
     "/v1/campaigns/{campaign_id}/resume": {
       "post": {
-        "description": "Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 204. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate \u2014 the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.",
+        "description": "Resume a paused campaign. Idempotent: resuming a campaign that is already running returns 204. 409 means the campaign is in some other state and the response names it. 404 means no campaign of yours has that id. Resuming does not re-run the launch gate \u2014 the per-dial compliance check does, on every contact, which is what catches paperwork that lapsed while it was paused.\n\nOne exception: a campaign whose agent has been ARCHIVED is refused with `agent_archived`, because that is the one condition the per-dial check can never clear \u2014 it would refuse every contact for ever while the campaign said it was running. Restore the agent, or point the campaign at another one.",
         "operationId": "resume_v1_campaigns__campaign_id__resume_post",
         "parameters": [
           {
@@ -20188,7 +21617,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The suppression list, masked \u2014 this tenant's entries and the global ones",
+        "summary": "The suppression list \u2014 this tenant's entries and the global ones",
         "tags": [
           "compliance"
         ],
@@ -21620,7 +23049,7 @@
         "x-calevate-permission": "calls:read_raw"
       },
       "post": {
-        "description": "The SAME filters `GET /v1/leads` takes, with the same meanings, so \"export what I\nam looking at\" is expressible. It accepted `agent_id` alone once, so a client who\nfiltered the table to `hot` and pressed Export downloaded every contact in the account\nwith full numbers \u2014 the widest possible read of the narrowest possible request.\nWidening the filters does NOT widen the gate: this stays `calls:read_raw` and stays\naudited, and a narrower request is not a cheaper permission.\n\nThe COLUMN CHOOSER and the FACETS mean exactly what they mean on the list \u2014 see\n`_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.\nThat mirroring is a correctness requirement here rather than a nicety: the screen and\nthe file must not disagree about which rows and which columns, because the file is the\none carrying unmasked numbers out of the building.",
+        "description": "The SAME filters `GET /v1/leads` takes, with the same meanings, so \"export what I\nam looking at\" is expressible. It accepted `agent_id` alone once, so a client who\nfiltered the table to `hot` and pressed Export downloaded every contact in the account\nwith full numbers \u2014 the widest possible read of the narrowest possible request.\nWidening the filters does NOT widen the gate: this stays `calls:read_raw` and stays\naudited, and a narrower request is not a cheaper permission.\n\nThe COLUMN CHOOSER and the FACETS mean exactly what they mean on the list \u2014 see\n`_COLUMNS_Q` for why an unknown column is dropped and an unknown facet is refused.\nThat mirroring is a correctness requirement here rather than a nicety: the screen and\nthe file must not disagree about which rows and which columns, because the file is the\none carrying the whole contact list out of the building in a single click.",
         "operationId": "export_leads_v1_leads_export_csv_post",
         "requestBody": {
           "content": {
@@ -22640,7 +24069,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Every platform-wide suppression, masked \u2014 what we refuse to dial for anyone",
+        "summary": "Every platform-wide suppression \u2014 what we refuse to dial for anyone",
         "tags": [
           "ops"
         ],

@@ -3,8 +3,8 @@
 SURFACES §2 asks for a "column chooser mirrored in CSV export (choose-what-you-export,
 Outpero parity)". The word that carries the weight is *mirrored*: a chooser that changes
 the table and not the download is not a smaller feature, it is a screen and a file that
-disagree about the same request — and on THIS route the file is the one that carries
-unmasked phone numbers out of the building (`crm.routes.export_leads`).
+disagree about the same request — and this route is the one that carries a whole contact
+list out of the building in one click (`crm.routes.export_leads`, role-gated + audited).
 
 So the mirroring is structural rather than promised. There is exactly one registry of
 selectable columns, exactly one resolver (`resolve`), and both `list_leads_page` and
@@ -77,10 +77,10 @@ class LeadColumn:
 # lands in the middle of the table rather than after the timestamps. Order here IS the
 # default column order of both the screen and the file.
 #
-# `phone` is the export's unmasked number and the screen's masked one — the same column
-# rendered under two rules, which is why it is one entry and not two. Hard rule 6 lives
-# in the renderers (`LeadOut.phone_masked` on the wire, `l.phone_e164` in the audited
-# file), never in this list.
+# `phone` is ONE column rendered ONE way on both surfaces — `LeadOut.phone_e164` on the
+# wire, `l.phone_e164` in the file. It used to be the same column under two rules (full
+# in the export, dotted on the screen), which is exactly the screen/file disagreement
+# this registry exists to make impossible; D-436 removed the second rule.
 _LEADING_FIXED: tuple[LeadColumn, ...] = (
     LeadColumn("name", "Name", "fixed", "text", row_key="name"),
     LeadColumn("phone", "Phone", "fixed", "text", row_key="phone_e164"),
