@@ -30,6 +30,7 @@ from apps.api.admin import service as admin_service
 from apps.api.billing import credit_routes
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.service import record_entry
+from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
@@ -504,3 +505,59 @@ async def test_every_route_declares_a_permission() -> None:
     application = FastAPI()
     application.include_router(credit_router)
     assert_policy_registry_complete(application)
+
+
+async def test_a_topup_by_a_principal_with_no_user_records_the_payment_without_a_recorder() -> None:
+    """An admin principal carrying no `user_id` — and the audit meta omits the key.
+
+    NOT a hypothetical shape: `Principal(realm="admin", user_id=None, …)` is what the
+    platform-config and secrets paths already construct, and `record_topup` guards on
+    `if principal.user_id` precisely because it can be absent. The guard's FALSE arm had
+    never been driven, so nothing proved what happens on the other side of it — and the
+    two candidates are both bad. `str(None)` would write `"recorded_by": "None"` into an
+    APPEND-ONLY row (hard rule 4), where it cannot be corrected by an UPDATE and would
+    read to an auditor as a recorder named None; a bare `principal.user_id` would write a
+    JSON null and make "nobody recorded it" and "we did not capture who" the same value.
+
+    The right answer is the key's ABSENCE, which is what this pins. Money still moves:
+    a top-up that refused because nobody was logged in would be a worse failure than a
+    slightly thinner audit row.
+
+    FAILS IF: the guard is removed (a `recorded_by` of `"None"` appears), or the route
+    starts refusing a principal without a user.
+    """
+    tenant_id = await _tenant()
+    application = _app()
+    # The route's OWN dependency object, taken off the annotation. `requires(...)` builds a
+    # fresh callable per call, so overriding on a newly-built one keys a different object,
+    # the real guard still runs, and the test 401s while proving nothing.
+    guard = credit_routes.CreditsWrite.__metadata__[0].dependency
+    application.dependency_overrides[guard] = lambda: Principal(
+        realm="admin", user_id=None, tenant_id=None, role="operator"
+    )
+
+    async with AsyncClient(transport=ASGITransport(app=application), base_url="http://api") as http:
+        posted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            json={"amount_inr": "1200.00", "payment_ref": "UTR-NO-USER-1", "note": "bank sweep"},
+        )
+
+    assert posted.status_code == 200, posted.text
+    assert posted.json()["recorded"] is True
+
+    async with tenant_session(tenant_id) as session:
+        meta = (
+            await session.execute(
+                text(
+                    "SELECT meta FROM credit_ledger WHERE tenant_id = :t AND ref = 'UTR-NO-USER-1'"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+
+    assert meta["source"] == "admin_manual"
+    assert "recorded_by" not in meta, (
+        "an absent recorder must be an absent KEY — writing the string 'None' into an "
+        "append-only row names a recorder who does not exist and cannot be corrected"
+    )
+    assert meta["note"] == "bank sweep"

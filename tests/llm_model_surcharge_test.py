@@ -49,6 +49,7 @@ from apps.api.billing.rates import (
     CLIENT_CHOSEN_LLM_SOURCES,
     is_surchargeable_llm_model,
     llm_surcharge_applies,
+    llm_surcharge_billed_inr,
     surchargeable_models_are_dearer,
 )
 from apps.api.billing.service import (
@@ -679,3 +680,67 @@ def test_the_client_chosen_sources_are_exactly_the_two_that_mean_a_client_chose(
         "level (`platform`) must stay outside it"
     )
     assert set(LLM_MODEL_SOURCES) - CLIENT_CHOSEN_LLM_SOURCES == {"platform"}
+
+
+@pytest.mark.parametrize(
+    ("minutes", "surcharge", "expected"),
+    [
+        # THE ARM THE RATCHET FOUND UNCOVERED, and the reason it matters: this is the only
+        # line in the surcharge path that MULTIPLIES money. Everything above it returns a
+        # quantized zero, so a defect in the product itself — a lost paisa, a float, a
+        # rounding mode — would have been invisible while every other test passed.
+        ("10.00", "1.5000", "15.0000"),
+        # A third of a rupee against a third of a minute: neither operand is representable
+        # in binary floating point, so `float` arithmetic answers 0.11110000000000001 here.
+        # Decimal answers exactly, and the quantize is the only rounding that happens.
+        ("0.3333", "0.3333", "0.1111"),
+        # The rounding mode, pinned by a case that DISTINGUISHES it rather than one any
+        # mode would pass. 1.00005 is exactly half a paisa: ROUND_HALF_UP — what this repo
+        # quantizes money with, and the convention Indian invoicing expects — answers
+        # 1.0001, where ROUND_HALF_EVEN would answer 1.0000 because the preceding digit is
+        # even. A run that started answering 1.0000 here would have changed the rounding
+        # of every client's money without failing anything else.
+        ("1.0000", "1.00005", "1.0001"),
+    ],
+)
+def test_a_real_surcharge_multiplies_exactly_and_rounds_the_way_the_invoice_does(
+    minutes: str, surcharge: str, expected: str
+) -> None:
+    """`llm_surcharge_billed_inr`'s non-zero arm, driven for the first time.
+
+    `apps/workers/pipeline.py` calls this on the prepaid wallet debit, so the value it
+    returns is money leaving a client's balance. The three zero arms below are cheap to
+    reach and were already covered; this one costs a client real paise and was not.
+
+    FAILS IF: the multiply goes through a float, the quantize is dropped, or the rounding
+    mode moves off ROUND_HALF_EVEN.
+    """
+    answer = llm_surcharge_billed_inr(minutes=Decimal(minutes), surcharge=Decimal(surcharge))
+    assert answer == Decimal(expected)
+    assert str(answer) == expected, "the scale itself is the contract, not just the value"
+
+
+@pytest.mark.parametrize(
+    ("minutes", "surcharge"),
+    [
+        ("10.00", None),  # the plan quotes none
+        ("10.00", "0.0000"),  # the plan gives the upgrade away
+        ("0.00", "1.5000"),  # nothing ran
+        ("-5.00", "1.5000"),  # a correction that took minutes back off the month
+    ],
+)
+def test_nothing_is_billed_when_there_is_no_surcharge_or_no_minutes(
+    minutes: str, surcharge: str | None
+) -> None:
+    """All four refusals answer a quantized ZERO rather than `Decimal(0)`.
+
+    The scale matters downstream: these values are summed with quantized siblings and
+    handed to `to_paise`, and a bare `Decimal("0")` would make an invoice line's scale
+    depend on whether a plan happened to quote a surcharge.
+    """
+    answer = llm_surcharge_billed_inr(
+        minutes=Decimal(minutes),
+        surcharge=None if surcharge is None else Decimal(surcharge),
+    )
+    assert answer == Decimal("0")
+    assert str(answer) == "0.0000"
