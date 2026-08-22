@@ -8060,14 +8060,14 @@ export interface components {
          *     never emits.
          */
         LlmModelOptionOut: {
-            /** Inr Per Minute Five Min */
-            inr_per_minute_five_min: string;
             /** Is Available */
             is_available: boolean;
             /** Is Platform Default */
             is_platform_default: boolean;
             /** Model */
             model: string;
+            /** Platform Cost Inr Per Minute */
+            platform_cost_inr_per_minute: string;
             /** Provider */
             provider: string;
             /** Unavailable Reason */

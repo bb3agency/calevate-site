@@ -31,7 +31,7 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
  *
  * ## Why a client decides this
  *
- * Because they pay for it. Every option carries `inr_per_minute_five_min` — what a minute
+ * Because they pay for it. Every option carries `platform_cost_inr_per_minute` — what a minute
  * of a five-minute call costs on that model — and the difference between the cheapest and
  * the dearest is the difference between two phone bills. D-21 reserves what an agent SAYS
  * and what it CAPTURES because both need a regression run against real calls; a price is
@@ -163,7 +163,7 @@ function OrganizationDefault({
       detail: platformDefault
         ? `Today that is ${platformDefault.model}. If we change it, your agents follow.`
         : "Whatever model we run by default, including after we change it.",
-      rate: platformDefault?.inr_per_minute_five_min ?? null,
+      rate: platformDefault?.platform_cost_inr_per_minute ?? null,
       badge: defaults.default_llm_model === null ? "in use" : undefined,
       baseline: defaults.default_llm_model === null,
     },
@@ -173,7 +173,7 @@ function OrganizationDefault({
       detail: option.is_platform_default
         ? `${option.provider} · the model we run by default`
         : option.provider,
-      rate: option.inr_per_minute_five_min,
+      rate: option.platform_cost_inr_per_minute,
       badge: defaults.default_llm_model === option.model ? "in use" : undefined,
       baseline:
         defaults.default_llm_model !== null && defaults.effective_default === option.model,
@@ -208,7 +208,7 @@ function OrganizationDefault({
               {inForce ? (
                 <>
                   {" "}
-                  It costs {formatRupeeRate(inForce.inr_per_minute_five_min)} a minute on a
+                  It costs {formatRupeeRate(inForce.platform_cost_inr_per_minute)} a minute on a
                   five-minute call.
                 </>
               ) : (
@@ -232,7 +232,7 @@ function OrganizationDefault({
             hint="Prices are per minute, on a five-minute call."
             choices={choices}
             value={selected}
-            baselineRate={inForce?.inr_per_minute_five_min ?? null}
+            baselineRate={inForce?.platform_cost_inr_per_minute ?? null}
             disabled={!write.allowed || save.isPending}
             onChange={(next) => setPicked({ model: next })}
           />

@@ -13,7 +13,7 @@
  * D-21's boundary is about what an agent SAYS and what it CAPTURES: a script or an
  * extraction-schema change regenerates prompt hints and needs a regression run, so both
  * route through us. A model choice is not that. It is a PRICE, and the client is the one
- * paying it — `inr_per_minute_five_min` is on every option precisely so the decision can
+ * paying it — `platform_cost_inr_per_minute` is on every option precisely so the decision can
  * be made with the number in front of the person making it. That is the same argument
  * `caps.ts` makes for the spending limit and `agents.ts` makes for the two disclosure
  * switches: the money and the legal exposure are the client's, so the switch is too.
@@ -68,7 +68,7 @@ import type { components } from "./schema";
  * versions because an API build predating them reported neither; the generated shape makes
  * both REQUIRED, which is the correct claim now that every build serves them.
  *
- * `inr_per_minute_five_min` is what a minute costs on a FIVE-MINUTE call — the server
+ * `platform_cost_inr_per_minute` is what a minute costs on a FIVE-MINUTE call — the server
  * publishes one normalised figure per model rather than a raw token price, because a
  * client cannot price a token and can price a call. It is a decimal string and stays one:
  * see `lib/llmRates.ts` for why it is never parsed into a number.

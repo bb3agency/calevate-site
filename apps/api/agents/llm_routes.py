@@ -91,7 +91,7 @@ class LlmModelOptionOut(BaseModel):
     #: struck at a reference call length because the in-call language cost is NOT constant
     #: per minute — the conversation is resent on every turn, so cost grows quadratically
     #: with duration (TRD §6.1). Derived from the rate card, never a figure typed here.
-    inr_per_minute_five_min: str
+    platform_cost_inr_per_minute: str
     #: True for the model this deployment runs when nobody chooses — the row a picker
     #: marks as the default rather than inventing its own label for.
     is_platform_default: bool
@@ -164,7 +164,7 @@ async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
                 provider=option.provider,
                 # Stringified HERE, at the boundary, and nowhere earlier: the value is a
                 # `Decimal` everywhere inside the process.
-                inr_per_minute_five_min=str(option.inr_per_minute),
+                platform_cost_inr_per_minute=str(option.inr_per_minute),
                 is_platform_default=option.is_platform_default,
                 is_available=option.is_available,
                 unavailable_reason=option.unavailable_reason,

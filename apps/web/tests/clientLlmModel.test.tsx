@@ -70,7 +70,7 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
       {
         model: "gpt-4o-mini",
         provider: "Azure OpenAI",
-        inr_per_minute_five_min: "0.2400",
+        platform_cost_inr_per_minute: "0.2400",
         is_platform_default: true,
         is_available: true,
         unavailable_reason: null,
@@ -78,7 +78,7 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
       {
         model: "gpt-4.1-mini",
         provider: "Azure OpenAI",
-        inr_per_minute_five_min: "0.4830",
+        platform_cost_inr_per_minute: "0.4830",
         is_platform_default: false,
         is_available: true,
         unavailable_reason: null,
@@ -330,13 +330,13 @@ describe("the account's default model", () => {
         {
           model: "gpt-4o-mini",
           provider: "Azure OpenAI",
-          inr_per_minute_five_min: "0.2400",
+          platform_cost_inr_per_minute: "0.2400",
           is_platform_default: true,
         },
         {
           model: "gpt-4.1-mini",
           provider: "Azure OpenAI",
-          inr_per_minute_five_min: "0.4830",
+          platform_cost_inr_per_minute: "0.4830",
           is_platform_default: false,
         },
       ],

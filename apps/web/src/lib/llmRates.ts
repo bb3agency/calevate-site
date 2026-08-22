@@ -3,7 +3,7 @@
  *
  * ## Why this exists at all
  *
- * Choosing a model is a money decision: `inr_per_minute_five_min` is what a minute of a
+ * Choosing a model is a money decision: `platform_cost_inr_per_minute` is what a minute of a
  * five-minute call costs on that model, and the whole point of the picker is that a
  * client can see what swapping one for another does to their bill. A picker that shows
  * two rates and leaves the reader to subtract them in their head is the trap this module

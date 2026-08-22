@@ -16,7 +16,8 @@ import { problem, type Routes } from "./harness";
  * What these pin, worst first:
  *
  * 1. **§52 — a failed read is a REFUSAL and the controls go with it.** This write replaces
- *    whatever is on file AND moves what the client pays per minute, so acting while the
+ *    whatever is on file. It does NOT move what the client pays — their plan prices
+ *    minutes, not models — but it does move OUR cost, so acting while the
  *    current state is unreadable can undo a colleague's change and re-price an account in
  *    one request. The form is WITHHELD, not disabled and not empty.
  * 2. **Inheriting is its own state, in both directions.** `default_llm_model: null` must
@@ -86,7 +87,7 @@ function option(over: Partial<LlmModelOption> = {}): LlmModelOption {
   return {
     model: "gpt-4o-mini",
     provider: "azure-openai",
-    inr_per_minute_five_min: DEFAULT_RATE,
+    platform_cost_inr_per_minute: DEFAULT_RATE,
     is_platform_default: true,
     is_available: true,
     unavailable_reason: null,
@@ -97,7 +98,7 @@ function option(over: Partial<LlmModelOption> = {}): LlmModelOption {
 const PLATFORM = option();
 const PREMIUM = option({
   model: "gpt-4.1-mini",
-  inr_per_minute_five_min: PREMIUM_RATE,
+  platform_cost_inr_per_minute: PREMIUM_RATE,
   is_platform_default: false,
 });
 /**
@@ -109,7 +110,7 @@ const PREMIUM = option({
  */
 const UNDEPLOYED = option({
   model: "gpt-4o",
-  inr_per_minute_five_min: "1.9200",
+  platform_cost_inr_per_minute: "1.9200",
   is_platform_default: false,
   is_available: false,
   unavailable_reason: "No Azure deployment for gpt-4o on this platform yet.",
@@ -170,7 +171,7 @@ describe("the per-client language-model screen", () => {
     expect(screen.queryByRole("button", { name: /Save this model/ })).toBeNull();
     // And nothing on screen states a model, or a price, that we do not know.
     expect(container.textContent).not.toContain("In effect");
-    // No price either: the top notice explains that this control moves what a client pays,
+    // No figure either: the top notice explains that this control moves OUR cost,
     // but not one rupee figure is stated over a read that did not land.
     expect(container.textContent).not.toContain("₹");
   });
@@ -364,7 +365,7 @@ describe("the per-client language-model screen", () => {
     const silent = {
       model: full.model,
       provider: full.provider,
-      inr_per_minute_five_min: full.inr_per_minute_five_min,
+      platform_cost_inr_per_minute: full.platform_cost_inr_per_minute,
       is_platform_default: full.is_platform_default,
     };
 

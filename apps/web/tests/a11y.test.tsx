@@ -843,13 +843,13 @@ const LLM_DEFAULTS = {
     {
       model: "gpt-4o-mini",
       provider: "azure-openai",
-      inr_per_minute_five_min: "0.2400",
+      platform_cost_inr_per_minute: "0.2400",
       is_platform_default: true,
     },
     {
       model: "gpt-4.1-mini",
       provider: "azure-openai",
-      inr_per_minute_five_min: "0.4830",
+      platform_cost_inr_per_minute: "0.4830",
       is_platform_default: false,
     },
   ],
@@ -1414,13 +1414,13 @@ const CLIENT_SCREENS: Screen[] = [
           {
             model: "gpt-4o-mini",
             provider: "Azure OpenAI",
-            inr_per_minute_five_min: "0.2400",
+            platform_cost_inr_per_minute: "0.2400",
             is_platform_default: true,
           },
           {
             model: "gpt-4.1-mini",
             provider: "Azure OpenAI",
-            inr_per_minute_five_min: "0.4830",
+            platform_cost_inr_per_minute: "0.4830",
             is_platform_default: false,
           },
         ],

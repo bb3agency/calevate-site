@@ -552,8 +552,8 @@ async def test_prices_reach_the_wire_as_strings(monkeypatch: pytest.MonkeyPatch)
         )
     assert body.status_code == 200, body.text
     for row in body.json()["available"]:
-        assert isinstance(row["inr_per_minute_five_min"], str)
-        assert Decimal(row["inr_per_minute_five_min"]) == llm_cost_inr_per_minute(
+        assert isinstance(row["platform_cost_inr_per_minute"], str)
+        assert Decimal(row["platform_cost_inr_per_minute"]) == llm_cost_inr_per_minute(
             5, model=row["model"]
         )
         assert row["provider"] == "azure_openai"

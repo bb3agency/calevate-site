@@ -12,7 +12,7 @@
  *
  * ## Why the price is on the row and not in a help link
  *
- * `inr_per_minute_five_min` is what a minute of a five-minute call costs on that model. A
+ * `platform_cost_inr_per_minute` is what a minute of a five-minute call costs on that model. A
  * client changing model is changing what every call costs them, and a picker that hides
  * that is a trap: the choice looks like a quality setting and behaves like a price list.
  * So each row carries the rate as the server's own digits, plus how it compares with what

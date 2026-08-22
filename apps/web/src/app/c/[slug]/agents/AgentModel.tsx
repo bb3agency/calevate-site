@@ -154,7 +154,7 @@ function Inheritance({
         {inForce ? (
           <>
             {" "}
-            Running it costs us {formatRupeeRate(inForce.inr_per_minute_five_min)} a
+            Running it costs us {formatRupeeRate(inForce.platform_cost_inr_per_minute)} a
             minute on a five-minute call — your own rate is set by your plan and does not
             change with the model.
           </>
@@ -243,7 +243,7 @@ function ModelForm({
       value: null,
       label: "Follow my organisation",
       detail: `Today that is ${catalogue.effective_default}. If you change your organisation default, this agent follows.`,
-      rate: organizationRate?.inr_per_minute_five_min ?? null,
+      rate: organizationRate?.platform_cost_inr_per_minute ?? null,
       badge: view.chosen === null ? "in use" : undefined,
       baseline: view.chosen === null,
     },
@@ -254,7 +254,7 @@ function ModelForm({
         option.model === catalogue.effective_default
           ? `${option.provider} · your organisation default`
           : option.provider,
-      rate: option.inr_per_minute_five_min,
+      rate: option.platform_cost_inr_per_minute,
       badge: view.chosen === option.model ? "in use" : undefined,
       baseline: view.chosen !== null && view.effective === option.model,
       // SHOWN, PRICED AND NOT SELECTABLE. `PATCH /v1/agents/{id}` refuses a model this
@@ -285,7 +285,7 @@ function ModelForm({
         hint="Prices are per minute, on a five-minute call."
         choices={choices}
         value={selected}
-        baselineRate={inForceRate?.inr_per_minute_five_min ?? null}
+        baselineRate={inForceRate?.platform_cost_inr_per_minute ?? null}
         disabled={!write.allowed || save.isPending}
         onChange={(next) => setPicked({ model: next })}
       />

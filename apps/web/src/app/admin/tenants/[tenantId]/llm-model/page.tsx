@@ -54,7 +54,7 @@ import { useAdminAccess } from "@/app/admin/access";
  *
  * ## THIS IS A MONEY CONTROL, and the screen says so before it says anything else
  *
- * `inr_per_minute_five_min` is what the CLIENT pays for a minute of a five-minute call on
+ * `platform_cost_inr_per_minute` is what the CLIENT pays for a minute of a five-minute call on
  * that model. Moving a client between models therefore moves their unit economics, and an
  * operator doing it on a support call must see the two rates and the direction of the
  * change without arithmetic. So every option carries its price, and the summary above the
@@ -142,13 +142,15 @@ export default function LlmModelPage({
       <NoticeBox
         tone="warn"
         icon={<AlertTriangle className="h-5 w-5" />}
-        title="This changes what the client pays per minute"
+        title="This changes what the model costs US, not what the client is billed"
       >
         <ul className="mt-1 space-y-1 text-xs opacity-90">
           <li>
-            The price beside each model is what <span className="font-medium">this client</span>{" "}
-            pays for a minute of a five-minute call. Their invoice moves with it from the
-            change onward; nothing already billed is touched.
+            The figure beside each model is{" "}
+            <span className="font-medium">our own cost</span> to run a minute of a
+            five-minute call — not a price this client pays. Their invoice is priced per
+            MINUTE by their plan and does not move when the model does, so a dearer model
+            is margin we give up, not revenue we gain. Nothing already billed is touched.
           </li>
           <li>
             It reaches every agent on this account that has not been given a model of its
@@ -244,7 +246,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
             ) : (
               <>
                 {platform.model}
-                <PerMinute rate={platform.inr_per_minute_five_min} />
+                <PerMinute rate={platform.platform_cost_inr_per_minute} />
               </>
             )}
           </dd>
@@ -258,7 +260,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
               <>
                 {chosen}
                 {chosenOption === undefined ? null : (
-                  <PerMinute rate={chosenOption.inr_per_minute_five_min} />
+                  <PerMinute rate={chosenOption.platform_cost_inr_per_minute} />
                 )}
               </>
             )}
@@ -269,7 +271,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
           <dd className="mt-0.5 font-medium text-ink">
             {defaults.effective_default}
             {effectiveOption === undefined ? null : (
-              <PerMinute rate={effectiveOption.inr_per_minute_five_min} />
+              <PerMinute rate={effectiveOption.platform_cost_inr_per_minute} />
             )}
             <span className="ml-1 font-normal text-ink-muted">
               ({chosen === null ? "from the platform default" : "from this client's own choice"})
@@ -348,9 +350,9 @@ function ChoiceForm({
   const confirmation = adminLlmDefaultConfirmation(draft, defaults);
   const platform = platformDefaultOption(defaults.available);
   const currentRate = modelOption(defaults.available, defaults.effective_default)
-    ?.inr_per_minute_five_min;
+    ?.platform_cost_inr_per_minute;
   const projected = projectedModel(draft, defaults);
-  const projectedRate = modelOption(defaults.available, projected)?.inr_per_minute_five_min;
+  const projectedRate = modelOption(defaults.available, projected)?.platform_cost_inr_per_minute;
   const priceChange = priceChangeSentence(currentRate, projectedRate);
 
   const pick = (next: string | null) => {
@@ -365,7 +367,8 @@ function ChoiceForm({
   return (
     <Card title="Choose a model">
       <p className="-mt-2 text-sm text-ink-muted">
-        The price is what this client pays for a minute of a five-minute call. Comparisons
+        The figure is OUR cost to run a minute of a five-minute call, not a price this
+        client pays — their plan prices minutes, not models. Comparisons
         are against what they are on today.
       </p>
 
@@ -409,7 +412,7 @@ function ChoiceForm({
                 <span className="mt-0.5 block text-ink-muted">
                   {platform === undefined
                     ? "Clears this client's own choice. This build names no platform default, so nothing here can say what they would fall back to."
-                    : `Clears this client's own choice and puts them on ${platform.model} at ${formatRupeeRate(platform.inr_per_minute_five_min)}/min — and a future change to that default reaches them.`}
+                    : `Clears this client's own choice and puts them on ${platform.model} at ${formatRupeeRate(platform.platform_cost_inr_per_minute)}/min — and a future change to that default reaches them.`}
                 </span>
               </span>
             </label>
@@ -516,7 +519,7 @@ function ModelOption({
   currentRate: string | undefined;
   onPick: () => void;
 }) {
-  const change = priceChangeSentence(currentRate, option.inr_per_minute_five_min);
+  const change = priceChangeSentence(currentRate, option.platform_cost_inr_per_minute);
   const undeployed = option.is_available === false;
   const describedBy = `llm-option-${option.model}-detail`;
   return (
@@ -552,7 +555,7 @@ function ModelOption({
       <span id={describedBy}>
         <span className="font-medium text-ink">{option.model}</span>
         <span className="mt-0.5 block text-ink-muted">
-          {option.provider} · {formatRupeeRate(option.inr_per_minute_five_min)} per minute
+          {option.provider} · {formatRupeeRate(option.platform_cost_inr_per_minute)} per minute
           {option.is_platform_default ? " · what the platform runs by default" : ""}
         </span>
         {/* Only when there IS a comparison to make. `priceChangeSentence` returns null
