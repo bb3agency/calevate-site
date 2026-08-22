@@ -189,7 +189,12 @@ def test_the_published_webhook_url_is_a_route_voice_runtime_serves() -> None:
         "recording_notice_enabled": True,
         "stt_provider": "sarvam",
         "stt_model": "saaras:v2",
-        "llm_model": "sarvam-m",
+        # NULL at both model rungs — the state every agent is in until somebody chooses,
+        # and now the only state this fixture could describe: `ck_agents_llm_model_allowed`
+        # (D-454) admits NULL or an allow-listed identifier, and `sarvam-m`, which stood
+        # here, is neither.
+        "llm_model": None,
+        "organization_llm_model": None,
         "tts_provider": "sarvam",
         "tts_voice": "anushka",
         "max_call_duration_s": 600,

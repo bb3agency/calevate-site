@@ -68,6 +68,11 @@ function created(over: Partial<Agent> = {}): Agent {
     published: false,
     inbound_number_count: 0,
     extraction_fields: [],
+    // D-454: inheriting all the way up — what this fixture always meant
+    // implicitly, back when an agent had no opinion about its model.
+    llm_model: null,
+    llm_model_effective: "gpt-4o-mini",
+    llm_model_source: "platform",
     ...over,
   };
 }

@@ -28,6 +28,7 @@ import OpsPage from "@/app/admin/ops/page";
 import AdminClientsPage from "@/app/admin/page";
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import FeatureFlagsPage from "@/app/admin/tenants/[tenantId]/feature-flags/page";
+import LlmModelPage from "@/app/admin/tenants/[tenantId]/llm-model/page";
 import FirstCampaignReviewPage from "@/app/admin/tenants/[tenantId]/first-campaign-review/page";
 import TenantInvoicePage from "@/app/admin/tenants/[tenantId]/invoice/page";
 import TenantKycPage from "@/app/admin/tenants/[tenantId]/kyc/page";
@@ -58,6 +59,7 @@ import QualityPage from "@/app/c/[slug]/quality/page";
 import QaSamplingPage from "@/app/admin/qa-sampling/page";
 import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
+import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
 import UsagePage from "@/app/c/[slug]/usage/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
@@ -828,6 +830,31 @@ const FEATURE_FLAGS = {
   ],
 };
 
+/**
+ * `GET /v1/admin/organizations/{org_id}/llm-defaults`, populated so every shape on the
+ * model screen renders: a client with a default OF THEIR OWN (so the "in effect / from
+ * this client's own choice" row and the price comparisons appear), a platform default to
+ * fall back to, and a second priced option to compare it against.
+ */
+const LLM_DEFAULTS = {
+  default_llm_model: "gpt-4.1-mini",
+  effective_default: "gpt-4.1-mini",
+  available: [
+    {
+      model: "gpt-4o-mini",
+      provider: "azure-openai",
+      inr_per_minute_five_min: "0.2400",
+      is_platform_default: true,
+    },
+    {
+      model: "gpt-4.1-mini",
+      provider: "azure-openai",
+      inr_per_minute_five_min: "0.4830",
+      is_platform_default: false,
+    },
+  ],
+};
+
 /** One row of the weekly QA spot-check queue (SURFACES §1). */
 const QA_SAMPLE = {
   id: "s1",
@@ -1372,6 +1399,35 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
+    // The state with the most markup on it: an account still on the platform default, so
+    // the "in force now" box, the inherit row AND every priced option are on screen at
+    // once — including the comparison sentences, which only render beside a baseline.
+    file: "c/[slug]/settings/models/page.tsx",
+    realm: "client",
+    element: () => <ClientLlmModelPage params={slug} />,
+    routes: {
+      "/v1/me": ME,
+      "/v1/organization/llm-defaults": {
+        default_llm_model: null,
+        effective_default: "gpt-4o-mini",
+        available: [
+          {
+            model: "gpt-4o-mini",
+            provider: "Azure OpenAI",
+            inr_per_minute_five_min: "0.2400",
+            is_platform_default: true,
+          },
+          {
+            model: "gpt-4.1-mini",
+            provider: "Azure OpenAI",
+            inr_per_minute_five_min: "0.4830",
+            is_platform_default: false,
+          },
+        ],
+      },
+    },
+  },
+  {
     file: "c/[slug]/settings/team/page.tsx",
     realm: "client",
     element: () => <TeamPage />,
@@ -1752,6 +1808,19 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       ...TENANT_ROUTES,
       "/v1/admin/tenants/t1/feature-flags": FEATURE_FLAGS,
+    },
+  },
+  {
+    // A client with a default OF THEIR OWN, on purpose: it is the state that renders the
+    // "from this client's own choice" resolution, the price comparison against the
+    // platform default, and a live confirmation label. A client on the inherited default
+    // would leave all three unscanned.
+    file: "admin/tenants/[tenantId]/llm-model/page.tsx",
+    realm: "admin",
+    element: () => <LlmModelPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/organizations/t1/llm-defaults": LLM_DEFAULTS,
     },
   },
   {

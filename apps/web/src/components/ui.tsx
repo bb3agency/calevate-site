@@ -651,6 +651,25 @@ export function formatINR(value: string | null | undefined): string {
   return `${negative ? "-" : ""}₹${grouped}.${paise}`;
 }
 
+/**
+ * A per-minute RATE, at the precision the SERVER sent it — not `formatINR`.
+ *
+ * `formatINR` above keeps exactly two decimals, which is right for a total and wrong for
+ * a rate: `overage_rate_inr` is NUMERIC(12,4) and a plan may legitimately quote
+ * ₹7.1250/min, so printing ₹7.12 beside "× 20 min = ₹142.50" makes the invoice line
+ * fail the one check a client performs on it. The same is true of the per-minute price
+ * beside a model in the AI-model picker, where two rates a paisa apart are the whole
+ * decision.
+ *
+ * The digits are the server's and are never parsed (hard rule 7); this only prefixes the
+ * symbol. It lives here rather than beside either caller because it had already been
+ * written twice — `rupeeRate` on `/c/[slug]/usage` and again for the model picker — and
+ * two spellings of one rule is where the drift starts.
+ */
+export function formatRupeeRate(value: string): string {
+  return `₹${value}`;
+}
+
 /** Times are stored UTC and shown IST at the edge (CLAUDE.md conventions). */
 export function formatIST(value: string | null | undefined): string {
   if (!value) return "—";

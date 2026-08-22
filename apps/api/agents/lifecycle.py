@@ -332,17 +332,20 @@ async def update_agent(
     name: str | None = None,
     direction: AgentDirection | None = None,
     language_primary: str | None = None,
+    llm_model: str | None = None,
+    set_llm_model: bool = False,
 ) -> None:
-    """Edit the three fields that describe WHAT an agent is.
+    """Edit the fields that describe WHAT an agent is.
 
     Returns nothing: the caller re-reads the agent to answer with, and a boolean nobody
     consults is a value the next reader has to work out the meaning of.
 
-    All three ride on `AgentConfig` — name, direction and language reach the vendor's agent
-    object — so a LIVE agent is republished in the same transaction. That is the ordering
-    `set_call_cap` and `set_disclosure_posture` already use and the reason it is safe:
-    the column write happens first, the engine push second, so a vendor failure rolls the
-    row back with it and our record never claims a configuration the engine was not sent.
+    All of them ride on `AgentConfig` — name, direction, language and the chosen model
+    reach the vendor's agent object — so a LIVE agent is republished in the same
+    transaction. That is the ordering `set_call_cap` and `set_disclosure_posture` already
+    use and the reason it is safe: the column write happens first, the engine push
+    second, so a vendor failure rolls the row back with it and our record never claims a
+    configuration the engine was not sent.
 
     DIRECTION IS THE ONE THAT RINGS A PHONE. Republishing runs `route_inbound_numbers`,
     which BINDS this agent's numbers when it answers inbound and RELEASES them when it does
@@ -356,16 +359,31 @@ async def update_agent(
     `None` on a field leaves it alone, for `DisclosureIn`'s reason: a screen with three
     inputs sends whichever one moved, and a PATCH that could only send all three would make
     renaming an agent a read-modify-write race against a direction change.
+
+    ⚠ **`llm_model` BREAKS THAT RULE AND NEEDS TWO ARGUMENTS FOR IT** (D-454). Its column
+    is nullable and its NULL is a meaning — "inherit the account default" — so `None`
+    cannot also stand for "leave it alone" without making the two requests
+    indistinguishable. `set_llm_model` is what separates them, and it is a separate
+    parameter rather than a sentinel value because a sentinel would have to travel through
+    `AgentUpdateIn` and into the OpenAPI document as a type no generated client can spell.
     """
-    supplied = {
-        column: value
+    # COLUMN NAMES, not a name->value map, which is what this was: nothing has ever read
+    # the values (the log line prints `sorted(supplied)` and the emptiness check reads the
+    # keys), and holding them made "supplied" unable to express the one field whose
+    # supplied value is legitimately NULL.
+    supplied = [
+        column
         for column, value in (
             ("name", name),
             ("direction", direction),
             ("language_primary", language_primary),
         )
         if value is not None
-    }
+    ]
+    if set_llm_model:
+        # Named here rather than by the comprehension above, because "the caller asked for
+        # NULL" is a supplied field and `value is not None` cannot see it.
+        supplied.append("llm_model")
     if not supplied:
         # A body that names nothing is a client bug, and answering 200 for it would write
         # an audit row describing a decision nobody took (`DisclosureIn._at_least_one`).
@@ -373,7 +391,7 @@ async def update_agent(
             kind="validation",
             code="agent_update_empty",
             title="Nothing to change",
-            detail="Name at least one of name, direction or language_primary.",
+            detail="Name at least one of name, direction, language_primary or llm_model.",
         )
 
     # SELECT FOR UPDATE before the write, not a bare CAS, because two things have to be
@@ -408,12 +426,22 @@ async def update_agent(
             "UPDATE agents SET name = coalesce(:name, name), "
             "direction = coalesce(:direction, direction), "
             "language_primary = coalesce(:language_primary, language_primary), "
+            # NOT `coalesce`, and this is the one column where it would be wrong: a NULL
+            # here is the caller ASKING for NULL, so `coalesce(:llm_model, llm_model)`
+            # would silently turn "clear my choice" into "change nothing". The CASE reads
+            # the second parameter — the same distinction `set_llm_model` carries all the
+            # way from the request body — with both columns still named literally, which
+            # is what `scripts/check_raw_sql.py` requires of every statement here.
+            "llm_model = CASE WHEN :set_llm_model THEN CAST(:llm_model AS text) "
+            "ELSE llm_model END, "
             "updated_at = now() WHERE id = :aid AND deleted_at IS NULL"
         ),
         {
             "name": name,
             "direction": direction,
             "language_primary": language_primary,
+            "llm_model": llm_model,
+            "set_llm_model": set_llm_model,
             "aid": agent_id,
         },
     )

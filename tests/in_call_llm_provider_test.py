@@ -521,12 +521,13 @@ def test_a_deployment_with_no_azure_credential_at_all_stays_put(
 def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The half a reviewer would wave through: `agents.llm_model` holds what an operator
-    configured, and sending `sarvam-105b` to Azure is a 404 at dial time on a live phone
-    line. The endpoint and the thing it addresses are ONE decision.
-
-    And what lands in `llm_model` is the DEPLOYMENT, never `Settings.azure_openai_model` —
+    """What lands in `llm_model` is the DEPLOYMENT, never `Settings.azure_openai_model` —
     the trap Azure sets, asserted here at the source as well as on the wire.
+
+    `None` is the argument because it is the state every agent is in until somebody
+    chooses: no per-agent and no per-account model, so the leg resolves to the platform's
+    own model and therefore to `azure_openai_deployment`, which is the pairing
+    `config.py` requires to move together.
     """
     from apps.api.agents import service
     from apps.api.core.settings import get_settings
@@ -536,7 +537,7 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
         get_settings(), "azure_openai_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False
     )
 
-    leg = service.in_call_llm("sarvam-105b")
+    leg = service.in_call_llm(None)
     assert leg == {
         "llm_model": DEPLOYMENT,
         "llm_provider": "azure_openai",
@@ -546,3 +547,31 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
     # And it must be a config `ModelConfig` will actually accept — the residency
     # validator runs on exactly this dict the moment `_to_config` builds one from it.
     assert ModelConfig(**leg).llm_base_url == ENDPOINT
+
+
+def test_a_model_this_platform_has_no_deployment_for_is_refused_not_substituted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE SUBSTITUTION THAT USED TO HAPPEN HERE, now a refusal (D-454).
+
+    This test used to pass `"sarvam-105b"` and assert the deployment came back anyway —
+    the column was IGNORED on an Azure leg, which was correct while nothing could write
+    it. `agents.llm_model` and `organizations.default_llm_model` are written by real
+    endpoints now and the two allow-listed models differ 2.7x in price, so "ignore what
+    was chosen and address the default deployment" became: quote one model, run another,
+    bill for the first. There is no safe substitute, so there is none — the leg refuses,
+    names the model, and the agent does not publish.
+
+    `sarvam-105b` stands in for any identifier with no deployment behind it. The API
+    cannot store one any more (`ck_agents_llm_model_allowed`, `validate_llm_model`), which
+    is why this arm is reached by calling the decision point directly: the state it guards
+    is an operator removing a deployment under an account that already chose.
+    """
+    from apps.api.agents import service
+    from apps.api.core.errors import ProblemError
+
+    _configure(monkeypatch)
+    with pytest.raises(ProblemError) as raised:
+        service.in_call_llm("sarvam-105b")
+    assert raised.value.code == "llm_model_not_deployed"
+    assert "sarvam-105b" in raised.value.detail

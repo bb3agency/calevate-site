@@ -9,6 +9,7 @@ import {
   BellRing,
   BookOpenCheck,
   Bot,
+  BrainCircuit,
   Coins,
   Eye,
   FileCheck2,
@@ -204,6 +205,17 @@ export default function TenantDetailPage({
             icon={<Flag className="h-4 w-4" />}
           >
             Feature flags
+          </NavLink>
+          {/* Which model this client's agents think with, and what a minute of it costs
+              them. Beside Commercials rather than under Feature flags because it is a
+              PRICE as much as a setting — and its own screen for the same reason the
+              flags are: the choice needs the platform default, this client's own choice
+              and the resolved answer beside it, plus a rate against every option. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/llm-model`}
+            icon={<BrainCircuit className="h-4 w-4" />}
+          >
+            Language model
           </NavLink>
           {/* Suspend / reactivate / close. Separate from everything above because it is
               the one control here that stops a client's outbound dialling outright. */}

@@ -140,13 +140,24 @@ The full enum, verbatim, because its membership answers questions people keep re
 
 ```python
 class LLMProvider(str, Enum):
-    OPENAI = "openai";        COHERE = "cohere";        OLLAMA = "ollama"
-    DEEPINFRA = "deepinfra";  TOGETHER = "together";    FIREWORKS = "fireworks"
-    AZURE_OPENAI = "azure-openai";                      PERPLEXITY = "perplexity"
-    VLLM = "vllm";            ANYSCALE = "anyscale";    CUSTOM = "custom"
-    OLA = "ola";              GROQ = "groq";            ANTHROPIC = "anthropic"
-    DEEPSEEK = "deepseek";    OPENROUTER = "openrouter"
-    AZURE = "azure";          GOOGLE = "google"
+    OPENAI = "openai"
+    COHERE = "cohere"
+    OLLAMA = "ollama"
+    DEEPINFRA = "deepinfra"
+    TOGETHER = "together"
+    FIREWORKS = "fireworks"
+    AZURE_OPENAI = "azure-openai"
+    PERPLEXITY = "perplexity"
+    VLLM = "vllm"
+    ANYSCALE = "anyscale"
+    CUSTOM = "custom"
+    OLA = "ola"
+    GROQ = "groq"
+    ANTHROPIC = "anthropic"
+    DEEPSEEK = "deepseek"
+    OPENROUTER = "openrouter"
+    AZURE = "azure"
+    GOOGLE = "google"
 ```
 
 **Two consequences worth recording rather than re-deriving.**
@@ -335,9 +346,13 @@ swaps:
 max_tokens_key = "max_tokens"
 if model.startswith(GPT5_MODEL_PREFIX):
     max_tokens_key = "max_completion_tokens"
-    self.model_args["reasoning_effort"] = kwargs.get("reasoning_effort") or default_reasoning_effort(model)
+    self.model_args["reasoning_effort"] = kwargs.get(
+        "reasoning_effort"
+    ) or default_reasoning_effort(model)
     self.model_args["verbosity"] = kwargs.get("verbosity", None) or Verbosity.LOW.value
-self.model_args.update({max_tokens_key: self.max_tokens, "temperature": self.temperature, "model": self.model})
+self.model_args.update(
+    {max_tokens_key: self.max_tokens, "temperature": self.temperature, "model": self.model}
+)
 ```
 
 **So the brief's fear is confirmed for OpenAI/Azure and the engine already mitigates it.**
@@ -401,12 +416,15 @@ sharper, and the failure mode on a phone call is **silence, not a truncated sent
 
 ```python
 class ThinkingConfig(_common.BaseModel):
-  """The thinking features configuration."""
-  include_thoughts: Optional[bool] = ...
-  thinking_budget: Optional[int] = Field(default=None, description=
-      """Indicates the thinking budget in tokens. 0 is DISABLED. -1 is AUTOMATIC.
-         The default values and allowed ranges are model dependent.""")
-  thinking_level: Optional[ThinkingLevel] = ...
+    """The thinking features configuration."""
+
+    include_thoughts: Optional[bool] = ...
+    thinking_budget: Optional[int] = Field(
+        default=None,
+        description="""Indicates the thinking budget in tokens. 0 is DISABLED. -1 is AUTOMATIC.
+         The default values and allowed ranges are model dependent.""",
+    )
+    thinking_level: Optional[ThinkingLevel] = ...
 ```
 
 and `types.py:8438-8452`, the usage metadata, where thinking is accounted **separately**:
@@ -444,8 +462,10 @@ hears dead air.
 `bolna/llms/gemini_llm.py:85,188-209` (VERIFIED-OSS @ `0172347b601e`):
 
 ```python
-self.thinking_budget = kwargs.get("thinking_budget", 0)          # :85  — DEFAULT ZERO
+self.thinking_budget = kwargs.get("thinking_budget", 0)  # :85  — DEFAULT ZERO
 ...
+
+
 def _get_thinking_config(self) -> "types.ThinkingConfig | None":
     """Thinking knob per family: 3.x takes thinking_level, 2.5 takes thinking_budget.
     Sending either one to the other family is a 400, so an explicit budget only applies to 2.5."""
@@ -456,7 +476,9 @@ def _get_thinking_config(self) -> "types.ThinkingConfig | None":
         return types.ThinkingConfig(thinking_level=default_thinking_level(m), include_thoughts=True)
     if "2.5" in m:
         if "pro" in m:
-            return types.ThinkingConfig(thinking_budget=128, include_thoughts=True)  # "Pro cannot disable thinking; 128 is its floor."
+            return types.ThinkingConfig(
+                thinking_budget=128, include_thoughts=True
+            )  # "Pro cannot disable thinking; 128 is its floor."
         return types.ThinkingConfig(thinking_budget=0)
     return None
 ```
@@ -512,7 +534,10 @@ What the docs do **not** say, and what an in-call tool lane must know
 ```python
 class OpenAIWSConnection:
     """Persistent WebSocket connection to wss://api.openai.com/v1/responses."""
+
     WS_URL = "wss://api.openai.com/v1/responses"
+
+
 ...
 self._ws_transport = None
 if self.use_responses_api and kwargs.get("provider", "openai") != "custom" and not base_url:
@@ -768,9 +793,9 @@ DataResidency = Literal["global", "us", "eu", "ae"]
 
 _DATA_RESIDENCY_BASE_URLS: dict[DataResidency, str] = {
     "global": "https://api.openai.com/v1",
-    "us":     "https://us.api.openai.com/v1",
-    "eu":     "https://eu.api.openai.com/v1",
-    "ae":     "https://ae.api.openai.com/v1",
+    "us": "https://us.api.openai.com/v1",
+    "eu": "https://eu.api.openai.com/v1",
+    "ae": "https://ae.api.openai.com/v1",
 }
 ```
 
@@ -822,7 +847,7 @@ VERIFIED-VENDOR-DOCS, from Google's own SDK**, `googleapis/python-genai` @ `6680
 ```python
 # Validate explicitly set initializer values.
 if (project or location) and not self.vertexai:
-    raise ValueError('Gemini API does not support project/location.')
+    raise ValueError("Gemini API does not support project/location.")
 ```
 
 and `:829-837`, the branch taken when `vertexai` is false:

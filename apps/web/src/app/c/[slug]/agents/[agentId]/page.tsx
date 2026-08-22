@@ -13,6 +13,7 @@ import { lookup } from "@/lib/lookup";
 import { liveState } from "../AgentBadge";
 import { AgentIdentity } from "../AgentIdentity";
 import { AgentLifecycle } from "../AgentLifecycle";
+import { AgentModel } from "../AgentModel";
 import {
   ExtractionList,
   Fact,
@@ -38,6 +39,10 @@ import {
  * - **What it is** — its name, which way its calls go, the language it speaks.
  * - **The two opening notices** (`PATCH /v1/agents/{id}/disclosure`, `org:manage`) — D-163.
  *   The client is the Principal Entity, so which notices their agent VOLUNTEERS is theirs.
+ * - **Which AI model it thinks with** (`llm_model` on the same PATCH, `org:manage`) —
+ *   inherited from the organisation default or overridden for this one agent. It is on
+ *   this side of D-21's line because it is a PRICE: every option carries what a minute of
+ *   a five-minute call costs on it, and the client pays that.
  * - **What the agent knows** (`POST /v1/kb/sources`, `kb:write`) — a reviewed fact, which
  *   cannot change what the agent is instructed to do.
  *
@@ -158,6 +163,11 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
       <Card title="What it is">
         <AgentIdentity agent={agent} />
       </Card>
+
+      {/* Renders nothing at all on an API build that does not report a model — see
+          `AgentModel`. A card headed "The model it thinks with" containing a shrug is
+          worse than no card. */}
+      <AgentModel agent={agent} slug={slug} />
 
       <Card title="What it says">
         <div className="space-y-6">

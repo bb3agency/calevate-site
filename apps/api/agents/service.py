@@ -99,6 +99,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
+from apps.api.agents.llm_models import (
+    UNAVAILABLE_REASON,
+    ResolvedLlmModel,
+    deployment_for,
+    platform_default_model,
+    resolve_llm_model,
+)
 from apps.api.agents.models import AGENT_DIRECTIONS, CALL_CAP_DEFAULT_S, AgentDirection
 from apps.api.agents.verification import verify_publish
 from apps.api.core.alerting import alert
@@ -291,9 +298,14 @@ class AgentRow(TypedDict):
     disclosure_line: str | None
     stt_provider: str | None
     stt_model: str | None
-    #: What an OPERATOR configured. On an Azure leg it is deliberately ignored —
-    #: `in_call_llm` explains why the endpoint and the identifier cannot be split.
+    #: What was configured ON THIS AGENT, or NULL to inherit the account's default. On an
+    #: Azure leg the resolved value is deliberately ignored — `in_call_llm` explains why
+    #: the endpoint and the identifier cannot be split.
     llm_model: str | None
+    #: The ACCOUNT's default, read from `organizations` in the same statement so the
+    #: middle rung of the fallback cannot be resolved against a different transaction's
+    #: view of the row. NULL means the account never chose.
+    organization_llm_model: str | None
     tts_provider: str | None
     tts_voice: str | None
     engine: str
@@ -355,10 +367,20 @@ async def _load_agent(
                 # here, on the one path that builds an `AgentConfig`, so a publish and
                 # the drift read can never disagree about the posture.
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-                "a.recording_notice_line, a.recording_notice_enabled "
+                "a.recording_notice_line, a.recording_notice_enabled, "
+                # The ACCOUNT's model default, joined rather than fetched separately: the
+                # fallback is decided from these two columns together, and two statements
+                # would let a concurrent change to the account default land between them —
+                # a published config whose two halves came from different moments.
+                "o.default_llm_model "
                 "FROM agents a LEFT JOIN prompt_versions pv "
                 # The APPLIED pointer, not the draft one — see the module docstring.
                 "ON pv.id = COALESCE(a.live_prompt_id, a.system_prompt_id) "
+                # LEFT, not INNER, so an agent whose organization row is somehow invisible
+                # still publishes on the platform default rather than vanishing: this
+                # statement's job is to find the agent, and RLS has already decided which
+                # organization row is legible (the policy matches on `id`).
+                "LEFT JOIN organizations o ON o.id = a.tenant_id "
                 "WHERE a.id = :aid AND a.deleted_at IS NULL"
                 + (" FOR UPDATE OF a" if for_update else "")
             ),
@@ -408,6 +430,7 @@ async def _load_agent(
         "ai_disclosure_enabled": row[16],
         "recording_notice_line": row[17],
         "recording_notice_enabled": row[18],
+        "organization_llm_model": row[19],
     }
 
 
@@ -478,6 +501,36 @@ class InCallLLM(TypedDict):
     llm_base_url: NotRequired[str]
 
 
+def resolved_llm_model(agent: AgentRow) -> ResolvedLlmModel:
+    """Which model this agent runs, and which level said so (D-454).
+
+    ONE resolver for the whole product — `agents/routes.py` reports it, `llm_routes.py`
+    reports the account's half of it, and `_to_config` sends it. A second `or` chain at
+    any of those is how the screen and the phone line start disagreeing about which model
+    is running, which is the class of defect D-103/D-105 exist for.
+
+    A thin wrapper over `resolve_llm_model` on purpose: that function takes two nullable
+    strings and no row type, so it stays testable without a database, and this one is
+    where the row's column NAMES are spelled — once.
+    """
+    return resolve_llm_model(
+        agent_model=agent["llm_model"], organization_model=agent["organization_llm_model"]
+    )
+
+
+def chosen_llm_model(agent: AgentRow) -> str | None:
+    """The model somebody EXPLICITLY chose for this agent, or `None` if nobody did.
+
+    Not the same question as `resolved_llm_model`, and the difference is what `_to_config`
+    needs: the resolver always answers, because the platform rung is always there, while
+    an engine leg that has no Azure credentials needs to be able to say "no model
+    configured, use your own default". Derived FROM the resolver rather than by a second
+    `or` chain, so the two can never disagree about which level won.
+    """
+    resolved = resolved_llm_model(agent)
+    return None if resolved.source == "platform" else resolved.model
+
+
 def in_call_llm(configured_model: str | None) -> InCallLLM:
     """The LLM leg's three `ModelConfig` fields for one agent — D-410's one decision point.
 
@@ -532,12 +585,34 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     move, which is what `azure_credentials()` refuses.
 
     THE MODEL IDENTIFIER MOVES WITH THE ENDPOINT, and this is the half a reviewer would
-    wave through. `agents.llm_model` holds what an operator configured, which today is a
-    Sarvam identifier; sending `sarvam-105b` to Azure is a 404 at dial time on a live
-    phone line. So an Azure leg carries the DEPLOYMENT and the column is deliberately
-    ignored — the endpoint and the thing it addresses are ONE decision and cannot be
-    configured apart. The rejected alternative was honouring the column and letting the
-    404 teach the operator; it teaches them during a client's call.
+    wave through. An Azure leg never sends a model NAME: the wire value is a deployment id,
+    so `agents.llm_model` cannot be pasted onto it. **This paragraph used to end "and the
+    column is deliberately ignored", which was right while nothing could write the column
+    and became a money defect the moment something could** (D-454): ignoring a choice means
+    quoting the model the client picked and running the one the single deployment serves.
+    The column is not ignored and it is not pasted through either — it SELECTS, via
+    `deployment_for()`, and the paragraph below is that rule.
+
+    **THE CHOSEN MODEL PICKS THE DEPLOYMENT, WHICH IS THE WHOLE OF D-454'S WIRE HALF.**
+    `configured_model` is what somebody CHOSE for this agent — its own column, or its
+    account's default (`chosen_llm_model`) — or `None` when nobody chose, which on this
+    arm means the platform's own model. It is not decorative and it is not only a pricing
+    key: `deployment_for()` turns it into the deployment id that actually serves it, so a
+    client who selects `gpt-4.1-mini` gets an agent published against the `gpt-4.1-mini`
+    deployment. Before that, a selection could be recorded and quoted at 2.7x while every
+    call ran the default deployment — charging for something we did not deliver, with
+    nothing in a transcript or an execution payload to show it.
+
+    ⚠ **AND IT REFUSES RATHER THAN FALLING BACK when no deployment serves the chosen
+    model.** The API cannot normally produce that state (`validate_llm_model` refuses the
+    selection at the write path, from the SAME `addressable_models()` predicate), so this
+    is the arm for the one way it can still arise: an operator removing a deployment entry
+    from `Settings.azure_openai_deployments` under accounts that already chose. Falling
+    back to the default deployment there is precisely the silent wrong-model charge this
+    exists to prevent, and falling back to "no model" would put a client's agent on the
+    engine's own default. A refusal costs one publish and names what an operator must do;
+    it does not touch agents that are already live, which keep the deployment they were
+    published against.
 
     ⚠ **`llm_model` IS THE DEPLOYMENT ID HERE, NOT `Settings.azure_openai_model`**, and
     on every other OpenAI-compatible provider those would be the same string. The model
@@ -564,14 +639,51 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     credentials = azure_credentials()
     if credentials is None:
         return {"llm_model": configured_model}
-    resource, _api_key, deployment = credentials
+    # THE THIRD ELEMENT IS DELIBERATELY DROPPED. `azure_credentials()` answers "is this
+    # leg configured at all", and the deployment it returns is the PLATFORM model's —
+    # which is the right one only when nobody chose. Which deployment serves the model
+    # this agent actually runs is `deployment_for()`'s question, and it is the only
+    # function permitted to answer it. (For an agent on the platform model the two are the
+    # same string, read from the same field, so there is no second source of truth here.)
+    resource, _api_key, _platform_deployment = credentials
+    # The platform's own model is the last rung of `agent -> organization -> platform`,
+    # applied HERE because this is the arm where it means something: on the passthrough
+    # arm above there is no Azure leg for it to name. `platform_default_model()` is the
+    # same function the API's resolver uses for the same rung, so the model this publishes
+    # and the model the screen reports are one decision.
+    model = configured_model or platform_default_model()
+    deployment = deployment_for(model)
+    if deployment is None:
+        log.error(
+            "agent_llm_model_has_no_deployment",
+            # The MODEL, never a client's own values: it is a platform configuration
+            # constant and it is the whole of what an operator has to act on.
+            extra={"llm_model": model},
+        )
+        raise ProblemError(
+            kind="business_rule",
+            code="llm_model_not_deployed",
+            title="This agent's language model is not switched on for this platform",
+            detail=(
+                f"The agent is set to run {model}, and {UNAVAILABLE_REASON}. Publishing it "
+                "against a different model's deployment would run — and bill — a model "
+                "nobody chose."
+            ),
+            remediation=(
+                "Choose a model this platform runs, or ask support to switch this one on."
+            ),
+        )
     # THE TWO MODEL STRINGS, BOUND UNDER THE DECLARED POSTURE rather than picked apart
     # here (D-432). `bind_model` is what knows that on this posture the API addresses a
     # DEPLOYMENT and the model name is only the cost model's key; a posture that addresses
     # the model by its own name binds both to one string and refuses a stray deployment id.
     # Reading `.addressed` (never `.priced`) is what makes the wire/pricing distinction a
     # property of a type instead of a comment two settings apart.
-    binding = bind_model(deployment=deployment, model=get_settings().azure_openai_model)
+    #
+    # `model` rather than `Settings.azure_openai_model` on the priced half: the deployment
+    # above was chosen BECAUSE it serves this model, so the pair cannot describe two
+    # different models — which is the wrong-invoice failure this whole seam exists for.
+    binding = bind_model(deployment=deployment, model=model)
     return {
         "llm_model": binding.addressed,
         "llm_provider": DECLARED_POSTURE.llm_provider,
@@ -603,7 +715,19 @@ def _to_config(tenant_id: UUID, agent: AgentRow) -> AgentConfig:
             stt_model=agent["stt_model"],
             # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
             # and the identifier it addresses cannot be configured apart (D-410).
-            **in_call_llm(agent["llm_model"]),
+            #
+            # THE CHOSEN MODEL, WHICH IS THE AGENT'S OR THE ACCOUNT'S — never the
+            # platform rung, and that omission is the decision. On a deployment with an
+            # Azure leg this argument is ignored outright (the wire value is the
+            # deployment id), so the only leg it reaches is the one with NO Azure
+            # credentials, where `None` means "whatever the engine's own default is" —
+            # the body every agent row in this repository has always produced. Sending
+            # the platform rung there would substitute an Azure model identifier into a
+            # request aimed at a provider we have not configured, changing live agent
+            # bodies on an unanswered vendor question, which is exactly what
+            # `engine/bolna.py::_llm_routing` refuses to do. An EXPLICIT choice is
+            # different: somebody asked for it, so it goes.
+            **in_call_llm(chosen_llm_model(agent)),
             tts_provider=agent["tts_provider"],
             tts_voice=agent["tts_voice"],
         ),

@@ -427,6 +427,21 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "it is the deployment id each agent was published with, so live agents keep "
         "calling the old deployment until they are re-published",
     ),
+    # The deployments serving the models a CLIENT may select (D-454). Same answer as the
+    # field above and for the same reason — it resolves to `ModelConfig.llm_model` at
+    # publish time — with one addition an operator has to know: ADDING an entry here is
+    # what makes that model selectable at all, and it becomes selectable IMMEDIATELY
+    # (`GET /v1/organization/llm-defaults` reads it per request). REMOVING one is the
+    # dangerous direction: accounts that already chose that model keep running the
+    # deployment their agents were published against, and the screen starts reporting the
+    # choice as unavailable.
+    "azure_openai_deployments": AppliesRule(
+        NEEDS_REPUBLISH,
+        "it decides which deployment each agent is published with, so live agents keep "
+        "calling the deployment they were published against until they are re-published "
+        "— adding an entry makes a model selectable at once, removing one does not move "
+        "any agent that is already live",
+    ),
     # LIVE, and it is the ONE of the four that genuinely is: nothing sends this value to
     # anybody. It records which model the deployment was made from, `billing/` reads it
     # per usage event to price the leg, and changing it changes an invoice line within one

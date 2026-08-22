@@ -266,6 +266,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/organizations/{org_id}/llm-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which language model one client's agents run
+         * @description The language model this account's agents run when the agent itself names none.
+         *
+         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *
+         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *
+         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         */
+        get: operations["admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get"];
+        /**
+         * Set the language model one client's agents run by default
+         * @description The language model this account's agents run when the agent itself names none.
+         *
+         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *
+         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *
+         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         *
+         *     Send `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.
+         */
+        put: operations["admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/qa-samples": {
         parameters: {
             query?: never;
@@ -1387,8 +1425,10 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Rename an agent, or change its calling direction or language
+         * Rename an agent, change its calling direction or language, or pick its model
          * @description Applies immediately. A live agent is re-published to the voice platform in the same transaction — including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up — and if that push fails nothing is saved.
+         *
+         *     `llm_model` is the one field where sending `null` MEANS something: it clears this agent's own choice so it follows the account default again. Omit the field entirely to leave the current choice alone. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed`. Both name the models you can pick — read them off `GET /v1/organization/llm-defaults`, where a row with `is_available: false` is one of these refusals waiting to happen.
          *
          *     An archived agent is refused: restore it first.
          */
@@ -4150,6 +4190,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/organization/llm-defaults": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which language model this account's agents run, and what else it could run
+         * @description The language model this account's agents run when the agent itself names none.
+         *
+         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *
+         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *
+         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         */
+        get: operations["get_organization_llm_defaults_v1_organization_llm_defaults_get"];
+        /**
+         * Choose the language model this account's agents run by default
+         * @description The language model this account's agents run when the agent itself names none.
+         *
+         *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
+         *
+         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *
+         *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
+         *
+         *     Send `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` — the same rows `available` marks `is_available: false`.
+         *
+         *     Agents that have chosen a model of their own are unaffected — this sets what the others follow.
+         */
+        put: operations["set_organization_llm_default_v1_organization_llm_defaults_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/performance": {
         parameters: {
             query?: never;
@@ -4432,6 +4512,15 @@ export interface components {
             inbound_number_count: number;
             /** Language Primary */
             language_primary: string;
+            /** Llm Model */
+            llm_model: string | null;
+            /** Llm Model Effective */
+            llm_model_effective: string;
+            /**
+             * Llm Model Source
+             * @enum {string}
+             */
+            llm_model_source: "agent" | "organization" | "platform";
             /** Name */
             name: string;
             /** Opening Line */
@@ -4518,17 +4607,32 @@ export interface components {
         };
         /**
          * AgentUpdateIn
-         * @description What an owner may change about an existing agent. `null` on a field leaves it alone.
+         * @description What an owner may change about an existing agent. An OMITTED field is left alone.
          *
          *     `DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever
          *     one moved, and a PATCH that could only send all three would make renaming an agent a
          *     read-modify-write race against a direction change.
+         *
+         *     ⚠ **`llm_model` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),
+         *     because it is the only one whose column is nullable and whose NULL MEANS something:
+         *     "inherit the account's default". On every other field here `null` and "omitted" are
+         *     the same request, so the model can read them the same way; on this one they are
+         *     opposite requests — clear my choice, versus do not touch it — and a model that could
+         *     not tell them apart would leave an owner unable to go back to the account default
+         *     once they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and
+         *     is what `set_llm_model` below reads: it carries which keys the CLIENT SENT, so an
+         *     explicit `"llm_model": null` is distinguishable from a body that never mentioned it.
+         *     The rejected alternative was a sentinel default (`UNSET = object()`), which works but
+         *     puts a non-JSON-schema type in the OpenAPI document and therefore in every generated
+         *     client.
          */
         AgentUpdateIn: {
             /** Direction */
             direction?: ("inbound" | "outbound" | "both") | null;
             /** Language Primary */
             language_primary?: ("te-IN" | "hi-IN" | "en-IN") | null;
+            /** Llm Model */
+            llm_model?: string | null;
             /** Name */
             name?: string | null;
         };
@@ -7919,6 +8023,54 @@ export interface components {
              */
             tenant_id: string;
         };
+        /**
+         * LlmDefaultIn
+         * @description The account's choice, or `null` to go back to following the platform.
+         *
+         *     REQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:
+         *     the body states the whole of the resource, so `null` is unambiguously "clear it" and
+         *     there is no third "field omitted" case to interpret. `PATCH /v1/agents/{id}` has to
+         *     carry that third case because it edits four properties at once; this one carries a
+         *     single value and does not.
+         */
+        LlmDefaultIn: {
+            /** Default Llm Model */
+            default_llm_model: string | null;
+        };
+        /**
+         * LlmDefaultsOut
+         * @description What this account has chosen, what that resolves to, and what else it could pick.
+         */
+        LlmDefaultsOut: {
+            /** Available */
+            available: components["schemas"]["LlmModelOptionOut"][];
+            /** Default Llm Model */
+            default_llm_model: string | null;
+            /** Effective Default */
+            effective_default: string;
+        };
+        /**
+         * LlmModelOptionOut
+         * @description One model an account may choose, with what a minute of it costs.
+         *
+         *     Every field is required on the wire: a Pydantic default here would generate an
+         *     OPTIONAL TypeScript property and the screen would have to branch on a case the server
+         *     never emits.
+         */
+        LlmModelOptionOut: {
+            /** Inr Per Minute Five Min */
+            inr_per_minute_five_min: string;
+            /** Is Available */
+            is_available: boolean;
+            /** Is Platform Default */
+            is_platform_default: boolean;
+            /** Model */
+            model: string;
+            /** Provider */
+            provider: string;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+        };
         /** LoginIn */
         LoginIn: {
             /**
@@ -11046,6 +11198,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnfinishedOnboardingOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmDefaultsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                org_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmDefaultIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmDefaultsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -17517,6 +17735,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpendCapRecomputeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_organization_llm_defaults_v1_organization_llm_defaults_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmDefaultsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_organization_llm_default_v1_organization_llm_defaults_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmDefaultIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmDefaultsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

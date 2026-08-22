@@ -72,6 +72,10 @@ const AGENT: Agent = {
   archived_at: null,
   inbound_number_count: 1,
   extraction_fields: [],
+  // D-454: inheriting all the way up, which is what this fixture always meant.
+  llm_model: null,
+  llm_model_effective: "gpt-4o-mini",
+  llm_model_source: "platform",
 };
 
 const CAMPAIGN: CampaignSummary = {
