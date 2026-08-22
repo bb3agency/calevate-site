@@ -48,8 +48,13 @@ moving it again, to a **Hostinger India VPS**. The point of that move is the DPD
 > path; **D-410 replaced it with Azure OpenAI, whose `<resource>.openai.azure.com` names no
 > region at all.** `scripts/check_model_residency.py` now proves only that no Azure endpoint
 > is constructible outside `azure_openai_base_url()` and that the builder cannot emit a
-> non-India region — WHERE the traffic goes is asserted by configuration and **attested by
-> a human** at OPERATIONS §2 gates 20 and 20c. **(2)** "India-resident data plane" was
+> region other than the declared posture's — WHERE the traffic goes is asserted by
+> configuration and **attested by a human** at OPERATIONS §2 gates 20 and 20c.
+> **(1b) AND THE PREMISE HAS SINCE WEAKENED A THIRD TIME, WHICH IS WHY THIS BLOCK NO
+> LONGER SAYS "non-India":** D-449 moved the declared posture to `us-azure-openai` /
+> `eastus2` and **WITHDREW the client-facing India warranty rather than narrowing it**.
+> There is no Indian language endpoint left to pin, so the guard proves a posture is
+> singular and unmovable-without-a-commit, never that it is Indian. **(2)** "India-resident data plane" was
 > struck from `docs/README.md` and root `CLAUDE.md` because `docs/DEPLOYMENT.md` §0 says
 > India co-location is NOT required for the tier that holds every transcript, and no host
 > is chosen (LEGAL-SURFACE F-1). **What survives is what actually justified this

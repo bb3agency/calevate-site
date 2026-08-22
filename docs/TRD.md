@@ -283,10 +283,24 @@ Voice-to-voice target: **p50 ≤ 1.1s, p95 ≤ 1.8s** (honest target for a casca
 bloated prompt raises TTFT and hallucination together; the ~2.5k budget in
 PROMPT-GUIDE §2 stands regardless of engine); TTS TTFA ≤300ms streaming; retrieval ≤100ms (see §6).
 Techniques (required): streaming end-to-end; filler utterances fired the moment a tool
-call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; India-only
-network path. **The rule stands and the mechanism does not exist yet**: stage timings per
-call (stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_ms) are what any latency work must be argued
-from, and nothing records them today. `calls.latency` was DROPPED (migration
+call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; and the
+shortest network path the declared posture allows — ⚠ **which is NO LONGER an India-only
+one, and this line said it was until 22 Aug 2026.** D-449 moved the language leg to Azure
+OpenAI `eastus2`, beside the engine's US-hosted orchestrator
+(`bolna-findings/mirror/pages/concepts/security.md:29`, AWS us-east-1), precisely to delete
+a us-east-1 → `southindia` → us-east-1 round trip inside this 350ms TTFT budget. Speech
+stays Sarvam and Indian, so the in-call path now crosses the ocean once on the language
+leg by design instead of twice by accident — and the India residency claim was WITHDRAWN
+to buy it, not narrowed. **The rule stands and the MECHANISM now exists for three of the
+four numbers** (D-445; this paragraph said "nothing records them today" until it did):
+`stt_ms`, `llm_ttft_ms` and `tts_ttfa_ms` are captured per TURN in
+`call_engine_latency.turns`, with `time_to_first_audio_ms` and the engine's `region` code
+per call, and `GET /v1/ops/engine-latency` reports p50/p95/max/breach grouped by (engine,
+region) — which is what turns the geography question into a `GROUP BY` instead of an
+argument. What is still unrecorded is voice-to-voice `turn_ms`, which would be our own
+arithmetic over three components the engine times separately, and every one of these is
+the ENGINE measuring its own pipeline rather than an independent measurement of ours.
+`calls.latency` was DROPPED (migration
 `f1a7c39d5be2`): a column that always reads NULL is worse than none, because the next
 reader builds a dashboard on it. Every span this repo opens is on OUR side of the call —
 the post-call pipeline serving the 2-minute lead SLO — so filling it from those would have

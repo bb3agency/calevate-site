@@ -37,8 +37,12 @@ account (D-165/D-170/D-177 — Clerk is deleted).
 > you choose and call THAT id, so `AZURE_OPENAI_DEPLOYMENT` and `AZURE_OPENAI_MODEL` are
 > separate settings and the deployment id can never be derived. `AZURE_OPENAI_MODEL`
 > defaults to `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) and accepts only what
-> `AZURE_OPENAI_MODELS` allows; `gpt-4.1-mini` is the switch, and its availability in
-> Indian regions is **not confirmed** — check quota before switching (gate 20b).
+> `AZURE_OPENAI_MODELS` allows; `gpt-4.1-mini` is the switch. **Its Indian availability
+> is no longer the open question — the region moved.** D-449 put the resource in
+> `eastus2`, where Microsoft's Standard (regional) matrix carries BOTH allow-listed
+> models, so what survives of gate 20b is the QUOTA half: availability in a region and
+> quota in your subscription are different facts and only the second makes a call
+> succeed. Check quota before switching, and move `AZURE_OPENAI_DEPLOYMENT` with it.
 >
 > ⚠ **THE SWITCH IS TWO SETTINGS AND A REPUBLISH.** `AZURE_OPENAI_MODEL` is the only one of
 > the four that is `applies: live`, and only because nothing sends it anywhere — it prices

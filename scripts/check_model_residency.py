@@ -87,10 +87,12 @@ there is no code path by which model traffic is aimed somewhere else WITHOUT edi
    OpenAI host: the `Final` suffix that builder is assembled from. Every other literal
    naming one is a second way to build an endpoint, which is the shape check 4 could then
    say nothing about.
-4. **THE BUILDER CANNOT EMIT A NON-INDIA REGION.** It takes ONE argument, that argument is
-   not region-shaped, its output template interpolates only that argument and module-level
-   `Final`s, and it RAISES rather than interpolating a resource that is not a single DNS
-   label. There is no region input, so there is no non-India region to emit — and because
+4. **THE BUILDER CANNOT EMIT A REGION OTHER THAN THE DECLARED POSTURE'S.** It takes ONE
+   argument, that argument is not region-shaped, its output template interpolates only that
+   argument and module-level `Final`s, and it RAISES rather than interpolating a resource
+   that is not a single DNS label. There is no region input, so there is no OTHER region to
+   emit — the claim is about SINGULARITY, not about which country wins it, which is why
+   D-449 could move the region without touching this check at all — and because
    the resource lands at the FRONT of the authority, refusing anything but a DNS label is
    what stops `resource = "evil.example/x"` producing a URL whose host is somebody else's.
 
@@ -1599,7 +1601,7 @@ def console_config_failures(
     return failures
 
 
-# --- 4: the builder cannot emit a non-India region ----------------------------
+# --- 4: the builder cannot emit a region other than the declared one ----------
 
 
 def _is_pattern_guarded_raise(node: ast.AST, arguments: set[str]) -> bool:
@@ -1640,9 +1642,17 @@ def builder_failures(source: str | None = None, spec: PostureSpec | None = None)
     question because Azure only permits a different question. There is no region in the URL
     to judge, so what is judged is that **there is no region INPUT**: one parameter, not
     region-shaped, interpolated with nothing but module `Final`s, and refused unless it is
-    a single DNS label. A builder shaped like that has no non-India region to emit, which
+    a single DNS label. A builder shaped like that has no OTHER region to emit, which
     is a structural argument rather than an evidential one — and saying which of the two
     you have is the whole point of this file's rewrite.
+
+    THE WORDING USED TO NAME INDIA, AND THAT WAS A LATENT FALSEHOOD RATHER THAN A TYPO.
+    Check 4 never proved anything about a COUNTRY: it proves the builder admits no region
+    input, so whatever region the declared posture pins is the only one constructible.
+    D-449 moved the declared region from `southindia` to `eastus2` and this function needed
+    no edit — which is the proof the property was always singularity. The prose survived
+    the move naming a country the tree had left, so a reader checking whether the guard
+    still meant what it said would have found it asserting the opposite of the posture.
 
     THE DNS-LABEL REFUSAL IS PART OF CHECK 4 AND NOT A SEPARATE CONCERN. `VERTEX_LOCATION`
     sat at the FRONT of its host, so whatever a caller interpolated after it landed in a

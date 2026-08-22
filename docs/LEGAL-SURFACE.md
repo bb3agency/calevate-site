@@ -382,12 +382,21 @@ to any client who bought on that sentence.
    claim was *"every model endpoint is pinned to an Indian region, and the build fails
    otherwise"* — true because `asia-south1` sat in the Vertex URL and the residency guard
    `scripts/check_model_residency.py` could read it from the AST. Azure's endpoint carries
-   no region, so the provable half is now narrower: *"no model endpoint can be built in this codebase except through one
-   function that cannot emit a non-Indian region, and the build fails otherwise"* — still
-   checkable, still more than most competitors can say, and it stops short of asserting
-   where the resource physically is. **The resource's region and its deployment type are
-   attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by the build**, and any
-   public copy that implies otherwise is the misrepresentation this finding is about.
+   no region, so D-410's narrowing was *"no model endpoint can be built in this codebase
+   except through one function that cannot emit a non-Indian region, and the build fails
+   otherwise"*. ⚠ **THAT REPLACEMENT IS ITSELF WITHDRAWN AND MUST NOT BE SHIPPED**: D-449
+   moved the declared posture to Azure OpenAI **East US 2**, so there is no Indian language
+   endpoint for the sentence to point at and the India warranty is **withdrawn, not
+   narrowed a third time**. What is still both true and machine-checked is a claim about
+   SINGULARITY rather than about India: *"the language model runs on one account in one
+   declared region; no code path in this codebase can point it anywhere else without a
+   reviewed commit, and the build fails if the code and that declaration ever disagree"* —
+   still checkable (D-432/D-444/D-453), still more than most competitors can say, and it
+   asserts nothing about where the resource physically is. **The resource's region and its
+   deployment type are attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by
+   the build**, and any public copy that implies otherwise is the misrepresentation this
+   finding is about. Speech (Sarvam) and the first post-call extraction pass remain Indian
+   services and may still be described as such.
 
 **⚠ AND THE NARROWED REPLACEMENT ON THE LANDING PAGE IS NOW WRONG TOO, IN TWO WAYS. Read
 this before quoting anything above as closed.** `apps/web/src/app/page.tsx` (the residency
