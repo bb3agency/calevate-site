@@ -69,6 +69,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Final, get_args
 
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -76,6 +77,7 @@ from calevate_shared.engine import (
     SARVAM_DEFAULT_LLM,
     SARVAM_RETIRED_LLMS,
     SARVAM_TRANSLATING_STT,
+    AzureOpenAIModel,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -257,6 +259,11 @@ def test_no_shipped_module_names_a_gemini_model_at_all() -> None:
     )
 
 
+#: The lifecycle registry: a table keyed by the allow-list, not a call site. Its
+#: exemption is earned by the test below, never by this line.
+LIFECYCLE_REGISTRY: Final = "packages/shared/src/calevate_shared/model_lifecycle.py"
+
+
 def test_no_shipped_module_spells_the_azure_default_model() -> None:
     """D-105's rule, following the default rather than dying with the last one.
 
@@ -278,7 +285,7 @@ def test_no_shipped_module_spells_the_azure_default_model() -> None:
     offenders = {
         path.relative_to(REPO_ROOT).as_posix(): {AZURE_OPENAI_DEFAULT_MODEL}
         for path in _shipped_python()
-        if path.relative_to(REPO_ROOT).as_posix() != CANONICAL_HOME
+        if path.relative_to(REPO_ROOT).as_posix() not in (CANONICAL_HOME, LIFECYCLE_REGISTRY)
         and AZURE_OPENAI_DEFAULT_MODEL in _string_literals(path)
     }
     assert not offenders, (
@@ -287,6 +294,40 @@ def test_no_shipped_module_spells_the_azure_default_model() -> None:
         f"importing `calevate_shared.engine.AZURE_OPENAI_DEFAULT_MODEL`): "
         f"{ChainMapLike(offenders)}. A second spelling is a site the live `gpt-4.1-mini` "
         "switch will not reach."
+    )
+
+
+def test_the_lifecycle_registrys_exemption_is_earned_not_asserted() -> None:
+    """`model_lifecycle.py` spells every allow-listed model, and that is not the defect
+    the test above is about.
+
+    THE RULE IS ABOUT A SECOND ANSWER TO "WHICH MODEL IS RUNNING". A call site that
+    spells the default gives one, and it goes stale the moment an operator moves the live
+    switch. A table KEYED BY every member of the allow-list gives none: it says something
+    about all of them, and it stays correct under any value of the switch — which is the
+    opposite property.
+
+    So the exemption is conditioned on exactly that, rather than on the filename. If the
+    registry ever spells an identifier that is not an allow-listed model — a call site
+    smuggled into a table — it is no longer a statement about all of them and this fails.
+    THE TWO DIRECTIONS HAVE TWO OWNERS, deliberately. This test owns "every allow-listed
+    model is named", which is what makes the file a statement about all of them. The
+    other direction — "and nothing else is" — belongs to
+    `scripts/check_model_lifecycle.py`, which REFUSES (exit 2) when the table does not
+    exactly cover the allow-list. It cannot live here: any string could be a model name,
+    so a test in this file could only guess, while the guard compares the table against
+    the allow-list itself and knows. An earlier draft of this assertion tried to own both
+    and silently owned neither — it filtered the spelled names down to the allow-list
+    first, so a smuggled non-allow-listed identifier could never appear in the result.
+    """
+    spelled = _string_literals(REPO_ROOT / LIFECYCLE_REGISTRY)
+    missing = set(get_args(AzureOpenAIModel)) - spelled
+    assert not missing, (
+        f"{LIFECYCLE_REGISTRY} is exempt from the rule above only while it names EVERY "
+        f"allow-listed model, and it does not name {sorted(missing)}. A registry covering "
+        "the whole allow-list is a statement about all of them and survives the live "
+        "switch moving; one covering part of it is exactly the stale second answer the "
+        "rule above exists to forbid."
     )
 
 
