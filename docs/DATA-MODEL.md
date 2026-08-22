@@ -95,9 +95,15 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
     -- toggles say. Still written, no longer read by the publish path — step 1 of a
     -- two-step deprecation (hard rule 8); step 2 drops it (D-163).
-  status ENUM[draft,live,paused], engine ENUM[fake,bolna]  -- 'thinnest' REMOVED from the
-    -- CHECK (D-31: retired before any adapter or production row existed, so the
+  status ENUM[draft,live,paused,archived], engine ENUM[fake,bolna]  -- 'thinnest' REMOVED
+    -- from the CHECK (D-31: retired before any adapter or production row existed, so the
     -- two-step deprecation in hard rule 8 does not apply — nothing ever wrote it)
+  archived_at TIMESTAMPTZ,   -- e4b90d27c1f6. NOT a delete and not `deleted_at`: the row
+    -- stays, its calls and leads stay readable, and the agent can be restored to `paused`.
+    -- `ck_agents_archived_at_matches_status` is an EQUIVALENCE, not an implication —
+    -- `(status = 'archived') = (archived_at IS NOT NULL)` — so neither half can be set
+    -- without the other, in either direction. The transition table is
+    -- `agents.lifecycle.AGENT_TRANSITIONS`; the DB CHECK is what makes it unbypassable.
     --, engine_agent_ref TEXT,
   engine_staging_ref TEXT, deleted_at,
   -- TWO-SPEED PUBLISHING: the `live_*` columns hold what the ENGINE was last SENT, which

@@ -332,6 +332,77 @@ class TestDecisionReferences:
         assert any(repeated in f and "ambiguous" in f for f in failures), failures
 
 
+class TestDecisionTableShape:
+    """The log is a markdown table, and a markdown table row cannot span lines.
+
+    `dangling_decisions` and `duplicate_decision_ids` both count `| D-` line starts, so
+    both stay green through the break that matters: a newline inside a row ends the
+    table there and everything below renders as loose prose. Both shapes were live when
+    this landed — 27 blank lines from D-31 onward, the first of which ended the table
+    after D-30 and left 303 rows rendering as literal text, and D-433, whose subject is
+    a CRLF bash misread and which was written with literal newlines inside its own code
+    spans.
+    """
+
+    def test_the_real_log_is_one_row_per_line(self) -> None:
+        assert guard.broken_decision_rows() == []
+
+    def test_catches_a_row_split_across_lines(self, tmp_path: Path) -> None:
+        """The D-433 mutation: a literal newline inside a row."""
+        rows = guard.ROADMAP.read_text(encoding="utf-8").splitlines()
+        first = next(i for i, line in enumerate(rows) if line.startswith("| D-"))
+        rows[first] = rows[first].replace(" | ", " |\n", 1)
+        broken = tmp_path / "ROADMAP.md"
+        broken.write_text("\n".join(rows), encoding="utf-8")
+        failures = guard.broken_decision_rows(broken)
+        assert any("ends the markdown table" in f for f in failures), failures
+
+    def test_catches_a_blank_line_between_two_rows(self, tmp_path: Path) -> None:
+        """The one that orphaned 85 decisions: a blank line is invisible in a diff and
+        ends the table just as completely as a split row."""
+        rows = guard.ROADMAP.read_text(encoding="utf-8").splitlines()
+        second = [i for i, line in enumerate(rows) if line.startswith("| D-")][1]
+        rows.insert(second, "")
+        broken = tmp_path / "ROADMAP.md"
+        broken.write_text("\n".join(rows), encoding="utf-8")
+        assert guard.broken_decision_rows(broken) != []
+
+    def test_catches_a_row_that_dropped_its_why_column(self, tmp_path: Path) -> None:
+        """The fourth column is where the rejected alternative goes, which CLAUDE.md
+        rates above the code it sits over. Mutated on a row NOT in the merged-why
+        baseline, so this proves the check and not the exemption."""
+        rows = guard.ROADMAP.read_text(encoding="utf-8").splitlines()
+        target = next(
+            i
+            for i, line in enumerate(rows)
+            if line.startswith("| D-")
+            and guard._DECISION_ROW.match(line).group(1) not in guard._MERGED_WHY_ROWS
+            and line.count("|") == guard._DECISION_COLUMNS + 1
+        )
+        rows[target] = rows[target].rsplit("|", 2)[0] + "|"
+        thin = tmp_path / "ROADMAP.md"
+        thin.write_text("\n".join(rows), encoding="utf-8")
+        failures = guard.broken_decision_rows(thin)
+        assert any("id, title, what, why" in f for f in failures), failures
+
+    def test_the_merged_why_baseline_may_only_shrink(self, tmp_path: Path) -> None:
+        """An exemption that outlives its subject is how a baseline becomes an exemption
+        file (D-48). A row listed as merged that has since grown its fourth column must
+        fail until it is delisted."""
+        rows = guard.ROADMAP.read_text(encoding="utf-8").splitlines()
+        listed = next(
+            i
+            for i, line in enumerate(rows)
+            if line.startswith("| D-")
+            and guard._DECISION_ROW.match(line).group(1) in guard._MERGED_WHY_ROWS
+        )
+        rows[listed] = rows[listed] + " grew a fourth column |"
+        widened = tmp_path / "ROADMAP.md"
+        widened.write_text("\n".join(rows), encoding="utf-8")
+        failures = guard.broken_decision_rows(widened)
+        assert any("may only shrink" in f for f in failures), failures
+
+
 class TestRuleNames:
     def test_catches_a_rule_name_the_code_renamed_out_from_under_the_doc(self) -> None:
         """§3 promises "a screen, a test and this section can cite the same string". The
