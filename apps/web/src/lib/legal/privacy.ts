@@ -12,12 +12,24 @@ import type { LegalDocument } from "./types";
  *    `apps/workers/retention.py` actually enforces — NOT the numbers
  *    SECURITY-COMPLIANCE §4 quotes, which differ. Where the two disagree the notice
  *    states the enforced number and the disagreement is a finding, not a rounding.
- * 2. **The residency claim is the narrow one that is enforced.** "Everything stays in
- *    India" is not available: the application host is undecided, object storage is
- *    Cloudflare R2, and the engine's recordings have been observed in `us-east-1`. What
- *    IS enforced — every model endpoint is pinned to an Indian region, and
+ * 2. **The residency claim is the narrow one that is enforced, and as of D-449 it is no
+ *    longer an India claim at all.** "Everything stays in India" was never available:
+ *    object storage is Cloudflare R2 with no India-only jurisdiction, and the voice
+ *    platform's own documentation puts the whole call on US infrastructure. On 22 August
+ *    2026 the language model moved from Azure OpenAI in South India to Azure OpenAI in
+ *    East US 2, so the one India claim this notice still made about model inference is
+ *    WITHDRAWN rather than narrowed a fourth time. What is still enforced — every model
+ *    endpoint is pinned to the single region the source declares, and
  *    `scripts/check_model_residency.py` fails the build otherwise — is stated as exactly
- *    that and no wider.
+ *    that and no wider. ⚠ AND NO WIDER MEANS NOT "NO SETTING CAN MOVE IT", which is what
+ *    §8 said until this audit: `Settings.azure_openai_resource` is a console field, the
+ *    region is a property of the RESOURCE, and `platform_config.py` says in its own
+ *    `AppliesRule` that "a resource in the wrong region is a residency change no code
+ *    here can detect". That is exactly what OPERATIONS §2 gate 20 covers — a person
+ *    reading the Location field of the resource that field names — so the notice now
+ *    describes the setting and the person, not a guarantee neither of them gives.
+ *    Speech, the first reading of the transcript and the application
+ *    host (D-180, an Indian VPS) are the legs that remain Indian.
  * 3. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
  *    that it answers truthfully when asked is enforced server-side and cannot be
@@ -301,10 +313,13 @@ export const PRIVACY_POLICY: LegalDocument = {
                 {
                   term: "Consent and suppression records",
                   detail:
-                    "Whether recording consent was granted or declined, any opt-out you " +
-                    "gave, any messaging opt-in, and whether your number is on the " +
+                    "Any opt-out you gave, any messaging opt-in, and whether your " +
+                    "number is on the " +
                     "client's do-not-call list. These are kept on an append-only ledger " +
-                    "and are deliberately NOT erased on request — see section 12.4.",
+                    "and are deliberately NOT erased on request — see section 12.4. " +
+                    "This list used to open with whether you granted or declined " +
+                    "recording consent; nothing captures that today, and section 4.1 " +
+                    "says why.",
                 },
                 {
                   term: "Copies that leave our database",
@@ -355,11 +370,26 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "para",
               text:
-                "Calls handled by a client's agent are recorded when that client has " +
-                "recording switched on. If a caller declines recording during the call, " +
-                "recording stops, the call continues, and the refusal is written to an " +
-                "immutable consent ledger with the part of the transcript that evidences " +
-                "it.",
+                "Calls handled by a client's agent are recorded. Neither the client nor " +
+                "we can switch that off: what a client chooses is whether the agent " +
+                "ANNOUNCES the recording at the start of the call, and an agent asked " +
+                "outright whether it is being recorded always answers yes, whatever the " +
+                "announcement is set to and whatever script the client wrote.",
+            },
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "What a caller cannot do today: stop the recording during the call",
+              text:
+                "This notice used to say that a caller who declines recording has the " +
+                "recording stopped, the call continued, and the refusal written to our " +
+                "consent ledger. That is the intended behaviour and it is not built: no " +
+                "agent has a way to stop a recording mid-call, and the voice platform " +
+                "does not report a per-call recording decision to us. The claim is " +
+                "withdrawn rather than softened. What a caller can do instead is ask the " +
+                "business they were speaking to for the recording to be erased — section " +
+                "12.3 — which clears the link at once and fixes a destruction date for " +
+                "the audio, and section 12.4 says what an erasure does not reach.",
             },
             {
               kind: "para",
@@ -563,29 +593,51 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "This section is written narrowly on purpose. India's law permits transfer " +
-            "outside India except to countries the Central Government notifies as " +
-            "restricted, and as at the date of this notice no such list has been " +
-            "notified. That makes the transfers below lawful; it does not make them " +
-            "something you should have to discover for yourself.",
+            "This section is written narrowly on purpose, and so is what it says about " +
+            "the law. Section 16 of the DPDP Act permits transfer outside India except " +
+            "to countries the Central Government notifies as restricted, and no such " +
+            "list has been notified — but that section does not commence until 13 May " +
+            "2027, so it is the absence of a restriction rather than a permission you " +
+            "can point at today. Until then the Information Technology Act 2000 and the " +
+            "2011 sensitive-personal-data rules govern, and they do carry a transfer " +
+            "test: comparable protection at the destination, plus either consent or " +
+            "necessity for a contract. The Data Processing Addendum sets out how we meet " +
+            "it, and the one question under those rules that nobody has answered — " +
+            "whether a call recording counts as biometric information, because the 2011 " +
+            "definition of that term includes voice patterns — is stated there rather " +
+            "than resolved by us. What follows is where the data actually goes, which is " +
+            "the part you should not have to discover for yourself.",
         },
         {
           kind: "definitions",
           items: [
             {
-              term: "Speech and language processing is configured for India, and the code cannot change that on its own",
+              term: "Speech is processed in India; the language model is processed in the United States",
               detail:
-                "Speech recognition and voice synthesis run on an Indian provider. The " +
-                "language model on both AI legs — the model that holds the conversation " +
-                "during a call, and the dashboard assistant that works on redacted data " +
-                "— runs on Microsoft's Azure OpenAI service configured for the South " +
-                "India region. What the build enforces: there is one function in the " +
-                "whole codebase that may construct a model endpoint, it cannot produce a " +
-                "non-Indian region, the region appears exactly once and is not a setting " +
-                "anyone can edit, and the release fails if any of that stops being true. " +
+                "Speech recognition and voice synthesis run on an Indian provider, on " +
+                "both call legs, and so does the first pass that reads your transcript " +
+                "and pulls the fields out of it. The language model on both AI legs — " +
+                "the model that holds the conversation during a call, and the dashboard " +
+                "assistant that works on redacted data — runs on Microsoft's Azure " +
+                "OpenAI service configured for the East US 2 region, in the United " +
+                "States. A client can choose which of the models we run their agents " +
+                "use; all of them are served from that same account and region, so the " +
+                "choice does not move this answer. Until 22 August 2026 that service " +
+                "was configured for the South " +
+                "India region and this notice said so; the claim that the language model " +
+                "runs in India is withdrawn, not reworded. What the build enforces, " +
+                "unchanged by the move: there is one function in the whole codebase that " +
+                "may construct a model endpoint, it can produce only the single region " +
+                "the source declares, the region appears exactly once and is not a " +
+                "setting anyone can edit, and the release fails if any of that stops " +
+                "being true — so no code we ship can send the model request to a third " +
+                "country, and the region it names moves only by a reviewed code change. " +
                 "What it cannot enforce, stated plainly because the distinction is real: " +
-                "the provider's endpoint address does not name its own region, so that " +
-                "the account and its model deployment are genuinely in South India is " +
+                "the provider's endpoint address does not name its own region, and the " +
+                "region belongs to the account resource that address points at — which " +
+                "resource that is, is an operational setting of ours. So that the " +
+                "account we are configured to use, and its model deployment, are " +
+                "genuinely in East US 2 is " +
                 "confirmed by a person against the provider's console and filed as dated " +
                 "evidence, not proved by a build check. See the sub-processor page, " +
                 "section 3.2.",
@@ -595,14 +647,20 @@ export const PRIVACY_POLICY: LegalDocument = {
               detail:
                 "Run on a single virtual server at {{PRIMARY_HOSTING_LOCATION}}, with " +
                 "PostgreSQL on the same host. This is the store that holds phone numbers, " +
-                "transcripts, summaries and lead records.",
+                "transcripts, summaries and lead records. The location is a decision that " +
+                "has been taken; the machine has not been provisioned, because no client " +
+                "data is in production yet.",
             },
             {
               term: "Recordings, exports and archived call documents",
               detail:
-                "Stored in Cloudflare R2. Cloudflare selects the storage location " +
-                "automatically and does not offer an India-only jurisdiction, so this " +
-                "data may be stored outside India.",
+                "Stored in Cloudflare R2. We ask Cloudflare to place the bucket in its " +
+                "Asia-Pacific region — that is a placement preference Cloudflare " +
+                "applies where it can, not a residency commitment, and R2 does not " +
+                "offer an India-only jurisdiction. So this data is stored outside " +
+                "India, and asking for Asia-Pacific does not change that. Cloudflare " +
+                "publishes no datacentre for that region, so we do not name a country " +
+                "for it either.",
             },
             {
               term: "The voice platform",
@@ -635,8 +693,12 @@ export const PRIVACY_POLICY: LegalDocument = {
           text:
             "If any Calevate page, deck or proposal tells you that all data stays in " +
             "India, it is stating an intention rather than the enforced position, and " +
-            "this section overrides it. What is enforced today is the model-endpoint " +
-            "pinning described above.",
+            "this section overrides it. That now includes anything of ours written " +
+            "before 22 August 2026 which said the language model runs in an Indian " +
+            "region: it did, it does not any more, and the sentence is withdrawn rather " +
+            "than qualified. What is enforced today is the model-endpoint pinning " +
+            "described above — one declared region, moved only by a reviewed code " +
+            "change — and that region is in the United States.",
         },
       ],
     },
@@ -679,6 +741,20 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "object storage.",
             ],
             [
+              "The raw document the voice platform returns for each call",
+              "90 days",
+              "The archived object is deleted from storage and the link to it is " +
+                "cleared. It carries the caller's number and the transcript, which is " +
+                "why it has a clock of its own rather than riding on the transcript's.",
+            ],
+            [
+              "Superseded versions of knowledge content a client uploads",
+              "365 days",
+              "Deleted. The version currently in use is never expired by this — a " +
+                "client's live answer material is theirs and stays until they change " +
+                "it — so the clock runs only on versions no screen shows.",
+            ],
+            [
               "Consent, opt-out and audit records",
               "Retained",
               "These are append-only ledgers. Nothing expires them on a timer, because " +
@@ -700,15 +776,20 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "Two stores that no retention period reaches yet",
+          title: "What an erasure does to knowledge content, and what it deliberately does not",
           text:
-            "The raw document our voice platform returns for each call is archived, and " +
-            "no retention category expires it; the only clock on it is a storage " +
-            "lifecycle rule that has not yet been applied to a live bucket. Knowledge " +
-            "content a client uploads for their agent to answer from is kept " +
-            "indefinitely, every version of it, and is not searched by an erasure " +
-            "request. Both are disclosed here rather than described as solved, and both " +
-            "are recorded as open items in our own compliance register.",
+            "This callout used to say that the two stores above reached no retention " +
+            "period at all and that an erasure never looked at knowledge content. Both " +
+            "have been built since, and a public document that is wrong about our own " +
+            "controls is a defect even when the error runs in your favour, so it is " +
+            "corrected rather than quietly dropped. What is true now: both stores are on " +
+            "the same nightly job as everything else, with the periods in the table " +
+            "above. An erasure request SEARCHES a client's knowledge content for the " +
+            "person's number and reports how many documents mention it — and does not " +
+            "edit or delete any of it. That is a deliberate limit, not a gap: the " +
+            "material is the client's own writing, and a processor silently rewriting a " +
+            "client's documents would be the larger wrong. The count is on the erasure " +
+            "certificate so the client can act on it.",
         },
         {
           kind: "para",

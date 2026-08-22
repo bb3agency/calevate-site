@@ -34,8 +34,26 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/tenants/{tenant_id}/invoice": "an ops document about a client, not a client view",
     "/v1/admin/tenants/{tenant_id}/credits": "the credit ledger as ops reads it",
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": "prompt history, admin only",
+    "/v1/admin/organizations/{org_id}/llm-defaults": (
+        "which language model one client's agents run — admin console, and the ONE case "
+        "in this table where the client's own view of the same fact is fully reachable "
+        "through impersonation. `GET /v1/organization/llm-defaults` is `org:read`, which "
+        "D-22 admits, so a support person in a view-as session sees exactly the screen "
+        "the client is looking at. This path is the operator's door to the same resource "
+        "for an account they are NOT impersonating — named in the path, entered with an "
+        "admin token — so hiding it from impersonation costs a support person nothing "
+        "(D-454)"
+    ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
+    "/v1/ops/engine-latency": (
+        "the fleet-wide engine latency board (D-445) — superadmin surface. It aggregates "
+        "every tenant's calls to answer one question about OUR infrastructure (what the "
+        "US-hosted orchestrator costs a South-India model in time-to-first-token), so it "
+        "is not a view of any one client and there is nothing here for a support person "
+        "to be looking at ALONGSIDE a client. Impersonation shows a client's own screen; "
+        "this screen has no client-realm counterpart to show."
+    ),
     "/v1/ops/secrets": (
         "installed credentials — superadmin surface, and the one list a view-as session "
         "must never reach. It returns no plaintext at all, so hiding it from "

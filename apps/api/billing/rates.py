@@ -166,7 +166,15 @@ ROUNDING = ROUND_HALF_UP
 #
 # D-36 priced the in-call LLM leg at ₹0.00 because Sarvam 105B is free per token, and
 # TRD §10 has reasoned the whole margin from that zero since. D-400 ended the zero by
-# moving the leg to a paid account; D-410 moved it again, to Azure OpenAI in South India.
+# moving the leg to a paid account; D-410 moved it again, to Azure OpenAI (South India then,
+# `eastus2` since D-449). THE REGION MOVE DID NOT MOVE THESE NUMBERS and deliberately was
+# not made an excuse to re-derive them: they are the same GLOBAL STANDARD list prices
+# `AZURE_LIST_PRICE_USD_PER_MTOK` has always carried, and the gap between that and what we
+# actually buy — a Regional Standard deployment, reported at roughly 5-10% more — is still
+# carried as an unpaid gate rather than folded in as a multiplier. Whether Azure's regional
+# list differs between `southindia` and `eastus2` is a question the first invoice answers
+# (OPERATIONS §2); inventing a factor for it here would make every derived figure in
+# TRD §10 unfalsifiable, which is the exact failure that gate exists to avoid.
 # This block is where the replacement number comes from, in the same shape as the TTS
 # card above: one statement of the vendor's price, everything else derived, and the doc
 # that quotes it checked against it.
@@ -318,6 +326,26 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     deployed. Callers that quote a figure must say which model it is a figure FOR — TRD
     §10.1 publishes one row per model, and `scripts/check_docs_drift.py` scores each row
     against this function called with that row's own model.
+
+    ⚠ **THIS IS WHAT THE LEG COSTS *US*. IT IS NOT A CLIENT-FACING PRICE AND MUST NEVER BE
+    PUBLISHED AS ONE.** Written here rather than left to the section comment above because
+    the distinction has already been lost once in this repository, on a bigger number:
+    `charge_for_call` debited a prepaid wallet with `cost.total_inr` — the ENGINE's charge
+    to us — while the client's own screen priced the same minute at `self_serve_inr_per_min`
+    (P1.1/P1.3, argued in full at `prepaid_billed_inr`). One variable cannot answer both
+    "what did we pay" and "what does the client owe", and this function answers the first.
+
+    WHAT A CLIENT ACTUALLY PAYS FOR A MINUTE is `prepaid_billed_inr` on the prepaid motion
+    and `billing.service.priced_overage` on the managed one. **Neither takes a model, and
+    that is the whole point rather than an omission**: a client is billed for MINUTES at
+    their plan's rate, so changing which language model their agents run moves this number
+    and moves their bill by exactly zero. A screen that prints this figure beside the words
+    "what you pay" is therefore wrong twice — it states a price nobody is charged, and it
+    publishes our supplier cost and hence our margin to the client it is a margin on. The
+    honest client-facing framings are quality-and-our-cost ("the dearer model costs us 2.7x
+    as much to run") or nothing at all; `tests/llm_cost_model_test.py` pins the
+    model-independence of the billing side so this cannot be quietly reconciled the wrong
+    way round.
 
     Rounded ONCE, at the end. Quantizing per turn would round 6·N times and drift.
     """

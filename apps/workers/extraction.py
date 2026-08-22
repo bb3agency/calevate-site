@@ -7,9 +7,11 @@ the split between the selectors is the whole of D-127's G-2/G-7:
 - **`SarvamExtractor`** — Sarvam 105B, free per token and sovereign. It is what
   `get_extractor()` returns, and after D-127 it is the ONLY thing `get_extractor()` can
   return besides the offline baseline.
-- **`AzureOpenAIExtractor`** — Azure OpenAI in South India (D-127 G-1's leg, moved to
-  Azure by D-410). It serves the USER-TRIGGERED work — re-summarise, reshape, ask-about
-  — over the REDACTED copy of a call, and it is reached only through `run_assist()`.
+- **`AzureOpenAIExtractor`** — Azure OpenAI in `AZURE_LOCATION` (D-127 G-1's leg, moved
+  to Azure by D-410; the region is `eastus2` since D-449 withdrew the India residency
+  claim, and no comment here should imply otherwise). It serves the USER-TRIGGERED work
+  — re-summarise, reshape, ask-about — over the REDACTED copy of a call, and it is
+  reached only through `run_assist()`.
 - **`OfflineExtractor`** — deterministic, no network. Used when no provider key is
   configured, which makes `ENGINE=fake` + no keys a fully working local pipeline, and
   gives the regression harness a stable baseline to diff model output against.
@@ -114,8 +116,64 @@ from apps.workers.redaction import redact
 
 log = get_logger(__name__)
 
-SARVAM_CHAT_URL = "https://api.sarvam.ai/v1/chat/completions"
-EXTRACTION_TIMEOUT_S = 30.0
+#: The endpoint that receives the RAW, un-redacted transcript.
+#:
+#: `Final` FOR THE REASON `check_model_residency._is_builder_suffix` MAKES `frozen` A
+#: LOAD-BEARING CONDITION OF ITS OWN EXEMPTION: "a rebindable module global is a knob".
+#: The Azure endpoint is defended by a single builder, a single-literal rule and four AST
+#: checks; this one had none of that, and it is the leg with the WORSE blast radius —
+#: `GEMINI_EXTRACTION_DEFAULT is False` means the first post-call pass reads `turn.text`,
+#: so a re-pointed host here exfiltrates caller PII rather than redacted prose.
+#:
+#: `Final` does not stop `module.SARVAM_CHAT_URL = ...` at runtime (nothing in Python
+#: does) — it makes the rebind a mypy error in CI and a thing a reviewer sees. That is
+#: the same strength the Azure suffix has, and this constant had strictly less.
+SARVAM_CHAT_URL: Final = "https://api.sarvam.ai/v1/chat/completions"
+
+#: The per-leg provider budget for the POST-CALL pipeline, where nobody is waiting.
+#:
+#: 30s is right there: an ARQ job holds no HTTP connection and no pooled Postgres
+#: connection across the call, so the only cost of waiting is the job's own wall clock.
+#: `pipeline.py` names this number in its retry arithmetic.
+EXTRACTION_TIMEOUT_S: Final = 30.0
+
+#: The per-leg provider budget for the USER-TRIGGERED assist, where somebody is.
+#:
+#: WHY A SECOND NUMBER AT ALL. `run_assist` runs two legs IN SERIES — Azure, then the
+#: disclosed Sarvam fallback — so its worst case is TWICE the per-leg budget, plus the
+#: route's own work (idempotency claim, quota gate, transcript load, `meter_assist`,
+#: `write_audit`). At 30s a leg that is ~60s of provider wait behind `location /` on the
+#: `api.` vhost, whose `proxy_read_timeout` is 60s: the edge gives up first and the client
+#: gets a 504 INSTEAD OF THE FALLBACK'S ANSWER — the single outcome the fallback exists to
+#: prevent. It also holds one pooled Postgres connection for the whole duration, because
+#: `Depends(db)`'s transaction is open across it (see `crm/assist.py`).
+#:
+#: WHY THE FIX IS HERE AND NOT IN NGINX. Raising `proxy_read_timeout` was available and is
+#: rejected: that directive sits on `location /`, a catch-all over every API route, so
+#: buying headroom for one path lengthens how long EVERY slow upstream holds an edge
+#: connection on the box that also runs Postgres. A client-side budget costs one route.
+#:
+#: WHY PER-LEG AND NOT ONE `asyncio.timeout` AROUND BOTH. A single whole-request deadline
+#: is the tidier shape and is wrong here: firing mid-Azure it would abandon the request
+#: outright and skip the fallback, handing the user a refusal on the one path that still
+#: had a second model available. Two bounded legs are slower in the worst case and are the
+#: only arrangement under which the fallback can actually answer.
+#:
+#: THE NUMBER IS PINNED TO NGINX BY A TEST, NOT BY THIS COMMENT.
+#: `tests/assist_deadline_test.py` reads `proxy_read_timeout` out of
+#: `infra/nginx/snippets/calevate-proxy.conf` and asserts
+#: `2 * ASSIST_TIMEOUT_S + ASSIST_ROUTE_RESERVE_S < proxy` — two numbers in two languages
+#: in two files, which a comment cannot keep honest.
+ASSIST_TIMEOUT_S: Final = 15.0
+
+#: What the route spends OUTSIDE the two provider legs, reserved rather than measured.
+#:
+#: Not a timeout anybody enforces — it is the headroom the arithmetic above subtracts for
+#: the idempotency claim, the quota read, the transcript query, `meter_assist` and the
+#: audit write, all of which are local Postgres round trips. Deliberately generous: the
+#: cost of over-reserving is a slightly tighter provider budget, and the cost of
+#: under-reserving is the 504 this whole seam exists to remove.
+ASSIST_ROUTE_RESERVE_S: Final = 10.0
 
 #: Does the FIRST post-call extraction run on the ASSIST provider — Gemini when this was
 #: minted, Azure OpenAI since D-410? No, and D-127 G-7 says never.
@@ -178,12 +236,25 @@ def _first_json_object(text: str) -> dict[str, Any]:
 class SarvamExtractor:
     """D-36 default. Sarvam's chat API is OpenAI-compatible."""
 
-    def __init__(self, api_key: str, model: str = SARVAM_DEFAULT_LLM) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = SARVAM_DEFAULT_LLM,
+        *,
+        timeout_s: float = EXTRACTION_TIMEOUT_S,
+    ) -> None:
         self._api_key = api_key
         self.model_name = model
+        # INJECTED RATHER THAN READ, and defaulted to the post-call number so every
+        # existing caller keeps the behaviour it had. The user-triggered path passes
+        # `ASSIST_TIMEOUT_S` because it is one of TWO legs behind an edge deadline; the
+        # ARQ path has nobody waiting on an HTTP connection and keeps 30s. A module-level
+        # switch read here instead would make the budget depend on who happened to import
+        # first, which is the shape of bug that only shows up under load.
+        self._timeout_s = timeout_s
 
     async def run(self, spec: ExtractionSchemaSpec, transcript: str) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=EXTRACTION_TIMEOUT_S) as client:
+        async with httpx.AsyncClient(timeout=self._timeout_s) as client:
             response = await client.post(
                 SARVAM_CHAT_URL,
                 headers={"Authorization": f"Bearer {self._api_key}"},
@@ -377,7 +448,13 @@ def _azure_usage(body: dict[str, Any]) -> TokenUsage | None:
 
 
 class AzureOpenAIExtractor:
-    """Azure OpenAI, South India (D-410). The dashboard-AI leg, and only that leg.
+    """Azure OpenAI in `AZURE_LOCATION` (D-410). The dashboard-AI leg, and only that leg.
+
+    ⚠ **THIS LEG IS NO LONGER IN INDIA AND THE DISCLOSURE OBLIGATION IS UNCHANGED BY THAT.**
+    D-449 moved the resource to `eastus2`; D-127's G-1..G-7 rules still bind every request
+    below — redaction BEFORE the call, no raw PII on the wire, the fallback disclosed —
+    and they now matter more rather than less, because the redactor is the only thing
+    standing between an Indian SMB's caller data and a US processor.
 
     THE ENDPOINT IS STILL THE DECISION, AND IT NO LONGER PROVES ITSELF — read this before
     trusting the residency guard. D-127 disqualified `generativelanguage.googleapis.com`
@@ -391,7 +468,7 @@ class AzureOpenAIExtractor:
     key; `AZURE_LOCATION` is the one spelling of the region we ship, and what the guard
     still proves is that no second spelling and no second URL builder exist.
 
-    The REGIONAL hostname (`southindia.api.cognitive.microsoft.com`) would restore the
+    The REGIONAL hostname (`<region>.api.cognitive.microsoft.com`) would restore the
     AST proof and is rejected FOR NOW rather than forgotten: Azure documents the v1
     surface only on the custom-subdomain form, so shipping it would trade a
     confirmed-working endpoint for a stronger guard on an unconfirmed one.
@@ -447,6 +524,7 @@ class AzureOpenAIExtractor:
         model: str = AZURE_OPENAI_DEFAULT_MODEL,
         *,
         client: httpx.AsyncClient | None = None,
+        timeout_s: float = EXTRACTION_TIMEOUT_S,
     ) -> None:
         # Built ONCE, here, through the single builder — `azure_openai_base_url` is the
         # only thing in this repository allowed to spell an Azure endpoint, which is what
@@ -461,6 +539,11 @@ class AzureOpenAIExtractor:
         # adapter through httpx's real request plumbing (`httpx.MockTransport`) rather
         # than a hand-written stand-in that cannot get a URL wrong.
         self._client = client
+        # Applies to the client this adapter OWNS. An injected client arrives with its own
+        # timeout already configured and this does not reach in and rewrite it — same
+        # ownership rule as `aclose()` above, and a caller who hands over a client has
+        # already made the decision this argument makes.
+        self._timeout_s = timeout_s
         #: What the LAST `run()` cost, as Azure counted it — never as we counted it.
         #:
         #: MUTABLE STATE ON AN ADAPTER, deliberately, and the bound is what makes it
@@ -505,7 +588,8 @@ class AzureOpenAIExtractor:
                         "in the Azure portal, which is NOT the model name. Do not 'fix' "
                         "this by setting it to AZURE_OPENAI_MODEL, and do not point the "
                         "resource at another region: check_model_residency refuses a "
-                        "second spelling of the region and D-410 pins it to India."
+                        "second spelling of the region, and the one spelling is "
+                        "AZURE_LOCATION."
                     ),
                 },
             )
@@ -543,9 +627,7 @@ class AzureOpenAIExtractor:
         # `follow_redirects=False` is load-bearing rather than tidy: a redirect off the
         # region-pinned host is a residency question, and answering it silently by
         # following the hop is the one thing this leg must not do.
-        client = self._client or httpx.AsyncClient(
-            timeout=EXTRACTION_TIMEOUT_S, follow_redirects=False
-        )
+        client = self._client or httpx.AsyncClient(timeout=self._timeout_s, follow_redirects=False)
         try:
             response = await self._post(
                 client,
@@ -1196,7 +1278,7 @@ def azure_credentials() -> tuple[str, str, str] | None:
     return resource, api_key, deployment
 
 
-def azure_extractor() -> AzureOpenAIExtractor | None:
+def azure_extractor(*, timeout_s: float = EXTRACTION_TIMEOUT_S) -> AzureOpenAIExtractor | None:
     """A ready Azure extractor for this deployment, or None if it holds no credential.
 
     ONE constructor, so nothing outside this module has to know that "the Azure client"
@@ -1210,12 +1292,24 @@ def azure_extractor() -> AzureOpenAIExtractor | None:
     `MODEL_NOT_ALLOWED`'s absence above. `azure_openai_model` is a closed `Literal` with
     a default, so it is always set and is always one this platform ships; `gpt-4.1-mini`
     is D-410's live switch and moving it is a console edit, not a deploy.
+
+    `timeout_s` PASSES THROUGH RATHER THAN BEING DECIDED HERE, and defaults to the
+    post-call budget so `scripts/eval.py` and the pipeline are unchanged. It is a keyword
+    on the ONE constructor because the alternative — `run_assist` building the adapter
+    inline to give it a different timeout — is exactly the second assembly of the same
+    four settings this function exists to prevent.
     """
     credentials = azure_credentials()
     if credentials is None:
         return None
     resource, api_key, deployment = credentials
-    return AzureOpenAIExtractor(resource, api_key, deployment, get_settings().azure_openai_model)
+    return AzureOpenAIExtractor(
+        resource,
+        api_key,
+        deployment,
+        get_settings().azure_openai_model,
+        timeout_s=timeout_s,
+    )
 
 
 def assist_capability(
@@ -1376,7 +1470,12 @@ async def run_assist(
         # `azure_extractor()` rather than a second assembly of the same four settings: it
         # is the ONE constructor, and the branch that used to build the adapter inline
         # here was the second place that decided what "configured" means.
-        extractor = azure_extractor()
+        #
+        # `ASSIST_TIMEOUT_S`, NOT `EXTRACTION_TIMEOUT_S`: this leg is the FIRST of two
+        # that a waiting browser pays for in series, behind a 60s edge deadline. See that
+        # constant for the arithmetic and for why the bound is per-leg rather than one
+        # deadline around both.
+        extractor = azure_extractor(timeout_s=ASSIST_TIMEOUT_S)
         if extractor is not None:
             output = await extract_call(spec, redacted_transcript, extractor=extractor)
             failure = output.errors.get("_model")
@@ -1411,7 +1510,12 @@ async def run_assist(
     if not settings.sarvam_api_key:  # pragma: no cover - unreachable via the selector
         raise assist_unavailable(AssistCapability(available=False, reason=NO_CREDENTIAL_REASON))
     output = await extract_call(
-        spec, redacted_transcript, extractor=SarvamExtractor(settings.sarvam_api_key)
+        spec,
+        redacted_transcript,
+        # The SECOND leg, and the one whose answer the user actually gets when Azure was
+        # slow. Giving it the post-call 30s here is what used to push the pair past the
+        # edge deadline and replace this answer with a 504.
+        extractor=SarvamExtractor(settings.sarvam_api_key, timeout_s=ASSIST_TIMEOUT_S),
     )
     return AssistResult(output=output, capability=capability)
 

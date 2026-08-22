@@ -140,7 +140,7 @@ s.43A + SPDI Rules 2011 remain operative (§3.3). Sources §9.
 | DP-14 | Third Schedule erasure periods + 48h pre-erasure notice | Rule 8(3) | **NOT ENGAGED** | Correctly analysed already in SEC-COMP §4: they bind e-commerce/gaming/social-media fiduciaries above 2 crore / 50 lakh user thresholds. Calevate is none of those. |
 | DP-15 | Children: verifiable parental consent, no tracking/behavioural ads | §9 | **PARTIAL** | We build no profiles and run no advertising, so the prohibition half is met by construction. **Nothing detects or handles a child caller**, and it is the client's duty. Disclosed in `/legal/privacy` §11 and `/legal/acceptable-use` §3. |
 | DP-16 | Significant Data Fiduciary duties (DPO, DPIA, annual audit) | §10, Rule 12 | **NOT ENGAGED** | SDF status arises only on Government notification. None. Must be re-checked if the Government notifies a class covering voice/AI processors. Add to the OPERATIONS quarterly re-verify list. |
-| DP-17 | Cross-border transfer: permitted except to notified countries; observe conditions | §16, Rule 15 | **MET, but see F-1** | No restricted-country list notified as at Aug 2026, so the transfers are lawful. The obligation that bites today is **disclosure**, and F-1 is where we were failing it. |
+| DP-17 | Cross-border transfer: permitted except to notified countries; observe conditions | §16, Rule 15, **Rule 13(4)** | **NOT ENGAGED YET — this row said MET, and "met" was the wrong word for a section that is not in force** | §16 sits in sections 3–17 and **commences 13 May 2027**. No restricted-country list is notified, which is an ABSENCE OF NOTIFICATION and not a permission you can cite; the operative transfer test today is SPDI rule 7 (§3.3, S-5). **Rule 15** affirms permission and hooks only making data available to a foreign State or a State-controlled entity — nothing imposed on us. **Rule 13(4)** — the real localisation power over a Significant Data Fiduciary, reaching specified categories *and the traffic data pertaining to their flow* — is dormant on three unmet conditions (no SDF notification of us, no class covering voice-AI processors, no category specified) and is what DP-16's quarterly re-check actually arms. The obligation that bites today is **disclosure**, and that is F-1. Corrected in `/legal/dpa` clause 9 and `/legal/privacy` §8 on 22 Aug 2026 — both previously stated the §16 permission with no commencement date. |
 
 ### 3.2 TRAI / TCCCPR 2018 (as amended) and the Telecommunications Act 2023
 
@@ -169,6 +169,8 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | S-2 | Designate a Grievance Officer and **publish their name** and contact (Rule 5(9)); redress in one month | **PARTIAL** | Published as `{{GRIEVANCE_OFFICER_NAME}}`. **A placeholder is not a designation** — this is UNMET until a person is appointed. It is the single cheapest unmet obligation on this page. |
 | S-3 | Reasonable security practices; ISO 27001 is the safe harbour (Rule 8) | **PARTIAL** | We hold **no certification of any kind**. Rule 8 also admits a "comprehensive documented information security programme"; `docs/SECURITY-COMPLIANCE.md` §5 plus DPA Annex B is the closest thing and is not yet a formal ISMS document. |
 | S-4 | Consent before collecting sensitive personal data | **PARTIAL** | Health/financial detail volunteered on a call is SPDI. Disclosed in `/legal/privacy` §3.3 and DPA Annex A; the *consent* is the client's to obtain. |
+| S-5 | **Transfer of SPDI outside India (rule 7): comparable protection at the destination, PLUS consent or necessity for performance of a contract** | **MET on the necessity leg; UNEVIDENCED on the protection leg** | This is the transfer test that is ACTUALLY IN FORCE, and the tree cited DPDP §16 instead — a section that commences 13 May 2027 (DP-17). Necessity is straightforward: the service IS the calls, and the calls run on these suppliers. Comparable protection is a judgement per vendor against its own published terms, and **F-10 records that no sub-processor agreement has been signed**, so the leg has no evidence behind it beyond those terms. What closes it: F-10, and counsel confirming the judgement is one we may make ourselves. Stated to clients in `/legal/dpa` clause 9 since 22 Aug 2026. |
+| S-6 | **Is a call recording "biometric information"? The 2011 definition of biometrics includes VOICE PATTERNS** | **UNDECIDED, AND LIVE UNTIL 13 MAY 2027 — the single most consequential open question on this page** | If YES, every call recording is SPDI: S-4's consent duty and S-5's transfer test bind the whole product, including the voice platform's own copy of the recording in the **United States** (F-12). If NO, the position is what the published documents already describe. **No Indian court or regulator has decided it**, and the definition reads as though drafted for authentication rather than for a call recording. DPDP abolishes the sensitive tier on 13 May 2027 — i.e. the question expires exactly after the window in which client #1 goes live. **Nothing in this tree may answer it.** What we do instead is right under either answer: treat call audio as though it may be SPDI, name every place it goes, and ask counsel a yes/no — OPERATIONS §2 **gate 37** (the advocate gate). Asked of clients in `/legal/dpa` clause 9 and pointed at from `/legal/privacy` §8. |
 
 ### 3.4 Consumer Protection Act 2019 + E-Commerce Rules 2020
 
@@ -271,12 +273,25 @@ requirement for a sub-64-bit authenticator looks like when it is taken seriously
   configuration and attested by a human** in the Azure portal (OPERATIONS §2 gates 20 and
   20c), filed in `docs/evidence/`.
 
+  ⚠ **AND SINCE D-449 (22 Aug 2026) THE STATEMENT IS NOT AN INDIA STATEMENT AT ALL.** The
+  region is `eastus2`. The client-facing India warranty is WITHDRAWN across `/legal/dpa`,
+  `/legal/privacy`, `/legal/subprocessors` and the public landing page; the speech legs
+  remain Sarvam and Indian, and the caller's transcript reaches a US model on every turn as
+  it is spoken. Read everything below as a claim about a NAMED REGION and an accurate
+  sub-processor disclosure, never as localisation.
+
   Two consequences a lawyer reading this should have in front of them. **(1)** The
-  strongest residency statement this product can make about its LLM legs is now an
-  attestation, not a build artifact — so a client document must not describe it as
-  machine-enforced. **(2)** Gate 20c is not a formality: Azure's DEFAULT deployment type
-  is *Global*, which processes worldwide, and a Global deployment inside a South India
-  resource satisfies every automated check in this repository while breaching the DPA.
+  strongest residency statement this product can make about its LLM legs is an attestation
+  about a US region, not a build artifact and not an India guarantee — so a client document
+  must not describe it as machine-enforced and must not describe it as Indian. ⚠ **AND NOT
+  AS UNREACHABLE BY CONFIGURATION EITHER (F-13, 22 Aug 2026):** `azure_openai_resource` is
+  a console field, the region is a property of the resource, and this repository says so
+  twice in its own code (`config.py:425`, `platform_config.py:418`). The list of four
+  things the guard proves is a list about the SOURCE; gate 20 is the reading that covers
+  the setting. **(2)** Gate
+  20c is not a formality: Azure's DEFAULT deployment type is *Global*, which processes
+  worldwide, and a Global deployment satisfies every automated check in this repository
+  while making the region the DPA names unenforceable.
   The guard prints both caveats on every run, pass or fail, so this cannot silently drift
   back to the old claim.
 
@@ -303,10 +318,27 @@ finding was about is closed, and C-3 with it. The 17 Aug audit found the same cl
 surviving in `docs/BRD.md` and `docs/README.md`, where a salesperson would read it after
 engineering had removed it from what a customer reads; both are now corrected too.
 
-**What is NOT closed is the underlying fact**: no host is chosen, so the claim could not be
-made truthfully even if someone wanted to make it. That is the founder decision tracked as
-F-1 in the go-live list, and until it is made **nothing in this repository may assert
-residency** — the evidence below is what says why.
+**The host WAS chosen — D-180, a Hostinger VPS in India — and that does not reopen the
+claim.** This paragraph used to read "no host is chosen, so the claim could not be made
+truthfully even if someone wanted to make it", which invited the reading that choosing one
+would make it true. It would not: the host is one of at least five places tenant personal
+data lives, and the two that matter most are unmoved — R2 offers no India-only
+jurisdiction, and the voice platform runs the call itself on US infrastructure with our
+BYOK posture foreclosing its India routing (F-12, D-415). **So the ban stands: nothing in
+this repository may assert residency**, and the decision is a fact for the sub-processor
+register rather than a differentiator for a card.
+
+**22 Aug 2026 — the omission half.** Every ban above stops the page SAYING something
+false; none stopped it implying it. The card headed "The AI runs on Indian endpoints",
+inside a section headed "Your customers' data", reads to a prospect as "the call is
+handled in India". One clause was added — the models are the Indian part, the platform
+that carries the call runs it on US infrastructure today — and `publicLanding.test.tsx`
+now pins that clause the same way it pins "checked, not proved by a build". This is the
+consumer-law axis rather than the DPDP one: a residency claim on a marketing page is a
+promise to a prospect. The competitor teardown is the reason to bother getting it right
+rather than merely legal — Outpero admits offshore processing in a privacy policy nobody
+reads (`docs/evidence/outpero-teardown-aug2026.md` §9b), and a differentiator that only
+survives because the buyer did not check is not one.
 
 The finding as recorded:
 
@@ -355,12 +387,21 @@ to any client who bought on that sentence.
    claim was *"every model endpoint is pinned to an Indian region, and the build fails
    otherwise"* — true because `asia-south1` sat in the Vertex URL and the residency guard
    `scripts/check_model_residency.py` could read it from the AST. Azure's endpoint carries
-   no region, so the provable half is now narrower: *"no model endpoint can be built in this codebase except through one
-   function that cannot emit a non-Indian region, and the build fails otherwise"* — still
-   checkable, still more than most competitors can say, and it stops short of asserting
-   where the resource physically is. **The resource's region and its deployment type are
-   attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by the build**, and any
-   public copy that implies otherwise is the misrepresentation this finding is about.
+   no region, so D-410's narrowing was *"no model endpoint can be built in this codebase
+   except through one function that cannot emit a non-Indian region, and the build fails
+   otherwise"*. ⚠ **THAT REPLACEMENT IS ITSELF WITHDRAWN AND MUST NOT BE SHIPPED**: D-449
+   moved the declared posture to Azure OpenAI **East US 2**, so there is no Indian language
+   endpoint for the sentence to point at and the India warranty is **withdrawn, not
+   narrowed a third time**. What is still both true and machine-checked is a claim about
+   SINGULARITY rather than about India: *"the language model runs on one account in one
+   declared region; no code path in this codebase can point it anywhere else without a
+   reviewed commit, and the build fails if the code and that declaration ever disagree"* —
+   still checkable (D-432/D-444/D-453), still more than most competitors can say, and it
+   asserts nothing about where the resource physically is. **The resource's region and its
+   deployment type are attested by a human (OPERATIONS §2 gates 20 and 20c), not proved by
+   the build**, and any public copy that implies otherwise is the misrepresentation this
+   finding is about. Speech (Sarvam) and the first post-call extraction pass remain Indian
+   services and may still be described as such.
 
 **⚠ AND THE NARROWED REPLACEMENT ON THE LANDING PAGE IS NOW WRONG TOO, IN TWO WAYS. Read
 this before quoting anything above as closed.** `apps/web/src/app/page.tsx` (the residency
@@ -371,20 +412,24 @@ tile, ~line 546) currently reads:
 > Mumbai by a check that fails our build if a line of code ever points somewhere else.**"
 
 That sentence was written for Vertex on 17 Aug and D-410 falsified both halves of it two
-days later. **(1) The region is wrong**: `asia-south1` (Mumbai) went with Vertex; the
-deployment is Azure OpenAI in **South India**. **(2) It makes the machine-enforced claim
+days later, and D-449 has since falsified it a second time. **(1) The region is wrong,
+twice over**: `asia-south1` (Mumbai) went with Vertex; the deployment was Azure OpenAI in
+**South India** and is now **East US 2** (D-449), so the sentence is not repairable by
+swapping a city name — there is no Indian language endpoint to point at. **(2) It makes the machine-enforced claim
 this document has withdrawn**, on the marketing page — the exact surface F-1 exists about,
 where it is a CPA 2019 representation rather than an internal note. The build cannot fail
 on a region it cannot see in the endpoint. It has also lost its arithmetic: with D-410 the
 LANGUAGE leg is Microsoft's on BOTH surfaces, so "the one model endpoint that is not
 [Indian]" now carries every word the caller speaks rather than a redacted dashboard query.
 
-**What the page may truthfully say** — narrower again, and it is still worth saying:
-speech (Sarvam) and the first post-call extraction pass are Indian services; the language
-model runs on a Microsoft Azure OpenAI account **configured for South India**, no code path
-can send it anywhere else without editing one frozen constant, **and the account's region
-and deployment type are confirmed by a person against the provider's console and filed as
-evidence** — checked, not proved by a build. `apps/web/tests/publicLanding.test.tsx:87`
+**What the page may truthfully say** — narrower again, and after D-449 it may not claim
+India for the language leg at all: speech (Sarvam) and the first post-call extraction pass
+are Indian services; the language model runs on a Microsoft Azure OpenAI account
+**configured for East US 2**, no code path can send it anywhere else without editing one
+frozen constant, **and the account's region and deployment type are confirmed by a person
+against the provider's console and filed as evidence** — checked, not proved by a build.
+**Anything of the form "your callers' words stay in India" is now false and must not
+appear.** `apps/web/tests/publicLanding.test.tsx:87`
 asserts the current wording verbatim, so the test moves in the same change; that is the
 guard working, not an obstacle.
 
@@ -600,9 +645,12 @@ DP-11's downward leg. Bolna's residency and erasure commitments are unrun pilot 
 Resend, Sentry, Cloudflare or the hosting provider. *(Clerk was on this list until D-177
 and is not a sub-processor any more — one contract fewer to obtain, and the only entry on
 it that closed by deletion rather than by signature.)* **D-410 adds a sub-processor that
-holds the most sensitive input this system has: Microsoft (Azure OpenAI, South India) now
-carries BOTH LLM surfaces, so the in-call leg means raw caller speech reaches it in real
-time.** Microsoft publishes a standard DPA and the Azure OpenAI service terms carry the
+holds the most sensitive input this system has: Microsoft (Azure OpenAI — South India at
+D-410, **East US 2 since D-449**) now carries BOTH LLM surfaces, so the in-call leg means
+raw caller speech reaches it in real time, and since D-449 it does so ACROSS THE BORDER.
+That makes gate 37(a) — whether a call recording is SPDI biometric data — a question about
+the live conversation rather than only the archive, and SPDI rule 7's comparable-protection
+leg is unevidenced while zero sub-processor DPAs are signed.** Microsoft publishes a standard DPA and the Azure OpenAI service terms carry the
 data-handling commitments this depends on; neither has been executed, and until one is, the
 strongest statement available about that leg is the region it is configured for. Rule 6(f)
 requires the contract to impose equivalent safeguards, and today we would be promising a
@@ -629,9 +677,11 @@ all three of its cookies to *"Clerk, our authentication provider"*, described a
 for up to 7 days".
 
 **Closed by the parallel `apps/web` session on 20 Aug 2026, and verified by reading the
-files rather than taking the report.** `subprocessors.ts` now carries **"Microsoft — Azure
+files rather than taking the report.** `subprocessors.ts` carried, as of that date, **"Microsoft — Azure
 OpenAI"**, "India — South India, **by configuration**", with the caution that the account's
-region and its deployment type are read by a human and filed as evidence; the Vertex row is
+region and its deployment type are read by a human and filed as evidence — ⚠ **the region
+half of that entry is superseded by D-449 and now reads East US 2; the India warranty is
+withdrawn, not restated**; the Vertex row is
 gone and its history is stated in place; there is no Clerk row anywhere in
 `apps/web/src/lib/legal/`. `cookies.ts` names the two real cookies —
 `__Host-calevate_client_session` and `__Host-calevate_admin_session` — attributes them to
@@ -701,16 +751,127 @@ India"*, which was false at the orchestration layer.
 
 **What is NOT fixed and is not ours.** Whether to keep BYOK and accept US orchestration,
 or move to Bolna's own provider integrations (losing BYOK's cost control, its named-model
-transparency and the Azure South India pinning D-410 exists for) and buy the Enterprise
+transparency and the Azure region pinning D-410 exists for) and buy the Enterprise
 residency, is an engine-level decision with a commercial half — OPERATIONS §2 gates 9 and
 12. `docs/evidence/bolna-compliance-residency.md` §5 lays out the fork and what each arm
 costs. **Nothing in the client-facing copy waits on it**: the documents now describe what
 is true today.
 
-**What still survives of the residency story, stated because it is easy to lose:** the
-MODEL legs are Indian. Sarvam is sovereign by vendor and Azure OpenAI is region-pinned to
-South India, so the inference does not leave the country — the ORCHESTRATION does. §4's
-model-residency paragraph is unaffected.
+**What survived of the residency story on 20 Aug 2026, and what D-449 then withdrew:** the
+MODEL legs were Indian — Sarvam sovereign by vendor, Azure OpenAI region-pinned to South
+India — so the inference did not leave the country while the ORCHESTRATION did. **Since
+D-449 only the SPEECH legs are Indian.** The language model is `eastus2`, so the caller's
+transcript crosses the border on every turn. §4's model-residency paragraph is re-aimed,
+not deleted: the gates survive, the guarantee does not.
+
+### F-13 — The DPA warranted that no setting could move the model region. A console field decides it. **CLOSED on the copy, 22 Aug 2026. The mechanism gap is real and is owned by a gate, not by a build.**
+
+**What was wrong, and it was an express warranty rather than a marketing sentence.**
+`/legal/dpa` clause 9 said *"No setting, console control or environment variable can move
+it; only a reviewed commit can"*, with `/legal/privacy` §8 (*"no setting, console control
+or environment variable can move the model to a third country"*) and
+`/legal/subprocessors` §3.2 (*"no change to our software or our settings can move the
+language leg to a third country"*) saying it in their own words. Three surfaces, one
+claim, and this repository contradicts it in two places of its own:
+
+- `packages/shared/src/calevate_shared/config.py:425` — *"Azure hides the region inside
+  the resource rather than in the URL, which makes `azure_openai_resource` **the value
+  that decides residency in practice** … note that **no code here can check it**"*;
+- `apps/api/core/platform_config.py:418` — the field's own `AppliesRule` reason: *"a
+  resource in the wrong region is **a residency change no code here can detect**"*. It is
+  not env-only and not name-sealed as a secret, so `managed_fields()` offers it, and
+  `apps/web/src/app/admin/ops/ConfigPanel.tsx` renders it under a group literally titled
+  *Language model*. It is a text box.
+
+**Why the guard is not the answer and never was.** `scripts/check_model_residency.py`
+proves four things about the SOURCE — one spelling of `AZURE_LOCATION`, no `Settings`
+name carrying `region`/`location`/`residency`/`datacenter`/`posture`, no endpoint
+constructible outside `azure_openai_base_url()`, and a builder that cannot emit another
+region. All four remain true while an operator points the resource at
+`something-westeurope`. That is exactly the hole **OPERATIONS §2 gate 20** exists to
+cover — *"find the resource named in `azure_openai_resource`, and read its Location
+field"* — and the documents were describing the guard as if it covered the gate's half
+too.
+
+**Closed by narrowing the sentence, not by deleting it.** All three documents now warrant
+the source-code mechanism, name the resource setting as the place the region is really
+decided, and say that a person confirms it. The DPA adds the commitment that follows from
+that: moving to a resource in another region is a change of processing location notified
+under clause 5, not a settings adjustment. `tests/legal.test.tsx` bans the absolute shape
+in every document so it cannot grow back, and `residencyWarrantyMirror.test.ts`'s four
+pinned substrings all survive unchanged.
+
+**What is NOT closed, and it is not copy.** Nothing re-triggers gate 20 when
+`azure_openai_resource` changes: the attestation is a dated reading of one resource, and
+editing the field silently invalidates it. **What would close it:** the console write path
+for that one field refusing unless a fresh attestation names the new resource — the same
+shape `check_model_lifecycle.py` already uses to consume
+`docs/evidence/azure-deployment-attestation.json`. Owner: ours (guards/config lane, not
+this one). No external dependency.
+
+### F-14 — Two published documents promised a recording control the product does not have. **CLOSED on the copy, 22 Aug 2026; the mechanism is pilot gate 3.**
+
+`/legal/privacy` §4.1 told callers that *"if a caller declines recording during the call,
+recording stops, the call continues, and the refusal is written to an immutable consent
+ledger"*, and `/legal/acceptable-use` §2.6 told clients the same. Neither is built:
+`Call.consent_recording` is on `scripts/check_wiring.py`'s known-unwired list (*"the
+engine reports no per-call recording consent yet (pilot gate 3)"*), nothing writes a
+`recording`-purpose `consent_ledger` row, and `apps/voice-runtime/tool_routes.py` has
+exactly one in-call tool (opt-out) — so no agent can stop a recording mid-call.
+`docs/SECURITY-COMPLIANCE.md` §2.2 contained both halves of the contradiction three
+sentences apart (*"nothing in this codebase can [switch recording off]"* directly above
+*"Caller decline ⇒ recording off"*); it now marks the second as specification.
+
+Privacy §4.1 also implied recording was a client switch. It is not — the switch is the
+recording NOTICE (`agents.recording_notice_enabled`), and the landing page's *"Every call
+is recorded and kept"* was the accurate surface of the three, so it is unchanged. What a
+caller has instead is erasure through the client, which fixes a destruction date and
+produces a certificate, and the notice now says that.
+
+**What closes the mechanism:** pilot gate 3. Not ours — it needs the engine to report a
+per-call recording decision, or a second in-call tool once gate 8 verifies the vendor's
+custom-function behaviour.
+
+### F-15 — The model picker shows a per-minute rupee figure and calls it what the client pays. Nothing bills that leg. **The COPY is closed, 22 Aug 2026; the SCREEN is another lane's and is still wrong.**
+
+D-454 gave clients a per-tenant and per-agent model choice with a price against each
+option, and it landed after the legal sweep, so no document mentioned it. Two of the three
+consequences were cheap: the DPA's clause 2 instruction list now names the model choice,
+and clause 9 plus `/legal/subprocessors` §3.3 say that the choice moves no vendor, no
+resource and no region (every member of `AZURE_OPENAI_MODELS` is served from the same
+`azure_openai_resource`). §3.3 previously said the opposite — *"changing which model an
+agent uses is a data-residency change and not a settings tweak"* — which was true only
+while nobody outside this company could change it.
+
+**The third is a money claim and it is not consistent with the contract.**
+`inr_per_minute_five_min` is derived from `AZURE_LIST_PRICE_USD_PER_MTOK` — Calevate's own
+list-price COST of the language leg — and `apps/api/billing/rates.py` states in capitals
+that **nothing is billing the in-call leg and that this is permanent**: the leg is BYOK, so
+the engine pays nothing and reports no tokens. A client's charge is their plan's overage
+rate (`billing/service.priced_overage`) or `self_serve_inr_per_min`
+(`rates.prepaid_billed_inr`), and neither moves with the model. The screens nevertheless
+say *"what you pay now"* beside each rate
+(`apps/web/src/components/llmModelPicker.tsx`), *"It costs ₹X a minute"* (both the
+organisation screen and the per-agent one) and *"this is a
+decision about your bill as much as about your agents"*
+(`apps/web/src/app/c/[slug]/settings/models/page.tsx`,
+`apps/web/src/app/c/[slug]/agents/AgentModel.tsx`). FOLLOW-UP-9 carries the lines.
+
+`/legal/terms` §6.1 now carries the honest statement — the figure is our cost, it appears
+on no invoice line and no credit deduction, switching models changes nothing you are
+charged, and passing it through would be a change to the commercial terms. **That is the
+contract catching up with the screen; it is not a fix for the screen**, which tells an
+owner they are being charged something they are not. Owner: the agents/billing UI lane.
+
+**One adjacent correction made in the same pass, because D-454 widened it.** DPA clause 3
+said only that operator access to a client account is read-only and "cannot make
+changes" — true of the impersonation grant it describes, and read by an ordinary client
+as "Calevate staff cannot change anything on my account". The admin realm writes plenty:
+plans, credits, spend caps, agents, and now **which model a tenant's agents run**
+(`POST /v1/admin/organizations/{org_id}/llm-defaults`, `agents/llm_routes.py`). Clause 3
+now carries a fourth bullet saying so, and saying that each such change is audited —
+which it is: both doors of that route call `write_audit` with the value and whether it
+moved.
 
 ---
 
@@ -731,6 +892,17 @@ Recorded so a later edit cannot quietly reinstate them, and each is asserted by
 - No claim that the voice platform runs the call in India — it runs it in the United
   States, and the documents say so (F-12). (`does not place the voice platform in
   India, and says where it actually is`)
+- **No claim that no setting can move the model region** (F-13). The build's warranty is
+  about the SOURCE; which Azure resource the endpoint names is a console field, and the
+  region belongs to the resource. (`does not claim a setting cannot move the model
+  region`)
+- **No claim that a caller can stop a recording mid-call** (F-14), and no claim that
+  recording is a switch anyone holds. Every call an agent handles is recorded; the
+  toggles are about what is ANNOUNCED. (`claims no recording control the product does
+  not have`)
+- **No claim that choosing a model changes what a client pays** (F-15). The figure the
+  picker shows is our own cost of the language leg; the charge is the plan's rate.
+  (`does not price the model choice as a client charge`)
 
 ---
 
@@ -747,8 +919,14 @@ declared token stops being used — so this list cannot silently drift.
 `JURISDICTION_CITY` · `EFFECTIVE_DATE` · `DLT_TELEMARKETER_ID` · `PRIMARY_HOSTING_LOCATION` ·
 `REFUND_PROCESSING_DAYS` · `TERMINATION_NOTICE_DAYS` · `DATA_RETURN_WINDOW_DAYS`
 
-`{{PRIMARY_HOSTING_LOCATION}}` is not an administrative blank: filling it in **is** the F-1
-decision.
+`{{PRIMARY_HOSTING_LOCATION}}` was not an administrative blank: filling it in **was** the F-1
+decision, and D-180 took it. **It is filled as of 22 Aug 2026** — it carries a `value` in
+`placeholders.ts` and the renderer substitutes it, so it is no longer one of the eighteen blanks
+above; the entry stays because the data centre is named in the change that provisions one.
+The mechanism is the durable part: a decided fact now reaches every document from one place, and
+`assertLegalSetPublishable` refuses to render the set if `PENDING_LEGAL_REVIEW` is ever removed
+while any blank remains. Between D-180 and that change the token rendered raw on `/legal/dpa`
+clause 9 and `/legal/privacy` §8 — a decision taken and a document that never heard about it.
 
 ---
 
@@ -757,18 +935,26 @@ decision.
 - **14 November 2026** — DPDP Consent Manager provisions commence. Re-check whether any
   Calevate flow needs a registered Consent Manager. (Assessment today: no — we collect no
   consent in our own right.)
+- **13 May 2027** — **sections 3–17 of the DPDP Act commence, §16 among them.** Until that date §16
+  neither permits nor restricts a transfer: it forecloses a restriction nobody has made. Two
+  consequences fall on the same day — the SPDI transfer test (S-5) stops applying, and the
+  sensitive tier that makes S-6 a live question disappears with it.
 - **13 May 2027** — DPDP substantive obligations commence; IT Act s.43A and the SPDI Rules
   2011 fall away. Until then §3.3 is the operative regime and the privacy notice must keep
   citing it.
 - **~~16 October 2026 — the Gemini 2.5 retirement (BRD R-04)~~ REMOVED 19 Aug 2026 (D-410).**
-  Both LLM surfaces moved to Azure OpenAI South India; the model, the date-carrying constant
+  Both LLM surfaces moved to Azure OpenAI (South India then, `eastus2` since D-449); the
+  model, the date-carrying constant
   and the test that turned CI red thirty days out are all deleted, and R-04 closes. **No
   vendor-imposed model deadline is currently on this calendar** — if one is announced for
   `AZURE_OPENAI_DEFAULT_MODEL`, it comes back here and into a date-carrying constant, which
   is the mechanism that worked.
 - **Quarterly** — re-check: whether the TCCCPR Third Amendment has been notified (T-10);
-  whether a restricted-country list has been notified under DPDP §16 (DP-17); whether any SDF
-  class notification could reach us (DP-16); whether GST turnover has crossed the ₹5 crore
+  whether a restricted-country list has been notified under DPDP §16 (DP-17); **whether MeitY's
+  January 2026 consultation on pulling the cross-border provisions forward and compressing the SDF
+  deadline has been notified** (reported, moderate confidence; the advocate gate, OPERATIONS §2 gate 37); whether any SDF class
+  notification could reach us — which is what would arm **Rule 13(4)**'s localisation power over
+  specified categories and their traffic data (DP-16); whether GST turnover has crossed the ₹5 crore
   e-invoicing threshold (GST-6).
 
 ---
@@ -865,8 +1051,24 @@ now traces to one of them.
 7. **F-7 (now a review, not a question).** The backup-retention window IS disclosed on the
    certificate as of D-164. What counsel should check is the clause's wording against DPDP
    §8(7), not whether to have one.
-8. **Every citation in §9** against the gazette. Several were retrieved as secondary
-   summaries because the primary sources are unreachable from this environment.
+8. **S-6 — is a call recording biometric information?** Yes or no. The 2011 definition of
+   biometrics includes voice patterns; nobody has decided whether an ordinary business call
+   recording falls in it; and it governs until 13 May 2027, which is the whole window in which
+   this product goes live. If yes, SPDI's consent and transfer duties bind every leg including a
+   voice platform in the United States. This one is ahead of most of the list above and it is
+   OPERATIONS §2 gate 37(a). Gate 38(b) is its companion: does the phased commencement leave any
+   gap in the lawful basis for transfer before May 2027?
+9. **Every citation in §9** against the gazette. Several were retrieved as secondary
+   summaries because the primary sources are unreachable from this environment. Add the DPDP
+   Rules' notification date to that check: this document says 14 Nov 2025 and a later synthesis
+   says 13 Nov, and neither lane could reach the gazette to settle one day. **A third search on
+   22 Aug 2026 found only 13 Nov 2025** — dpdpa.com's rule-by-rule reproduction and a Wikipedia
+   article on the Rules both give that date, and both put Phase I (Rules 1, 2 and 17–21) in force
+   from it. That is now two secondary sources against one and it is still not the gazette, so the
+   published copy is unchanged and the question stays here. `/legal/privacy` §12.1 is the client-
+   facing sentence carrying 14 Nov; **it is the one to correct if counsel says 13**, and nothing
+   downstream turns on the day — the dates that matter (13 May 2027 for sections 3–17 and for the
+   SPDI repeal) are consistent across every source read.
 
 ---
 
@@ -880,5 +1082,8 @@ now traces to one of them.
 | ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
 | ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |
 | FOLLOW-UP-8 | **Bind the published sub-processor list to a constant.** One exported inventory of sub-processor identities that `apps/web/src/lib/legal/subprocessors.ts` renders and `tests/legal.test.tsx` asserts against, so a vendor added to or removed from this tree fails a test naming the legal document it did not reach. F-11's mechanism half: two vendor changes three days apart both survived in a client-facing document because nothing could see the divergence. | `apps/web/**` and `tests/legal.test.tsx` are outside this session's edit scope. **OURS, no external dependency.** |
-| FOLLOW-UP-6 | **Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate. |
+| ~~FOLLOW-UP-6~~ **DONE 22 Aug 2026** — both callouts rewritten to say what the mechanisms do, and the two retention categories added to the `/legal/privacy` §9 table with the periods `scripts/seed.py` actually installs (90 / 365). The deliberate limit that remains — an erasure SEARCHES knowledge content and reports the count but never edits a client's own writing — is now stated as a reasoned limit rather than as a gap. | ~~**Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate.~~ |
+| FOLLOW-UP-9 | **F-15's screen half: the model picker must stop calling our cost "what you pay".** `apps/web/src/components/llmModelPicker.tsx:205` labels the model in force *"what you pay now"*; `apps/web/src/app/c/[slug]/settings/models/page.tsx:69` says *"a decision about your bill as much as about your agents"* and `:210` *"It costs ₹X a minute"*; `apps/web/src/app/c/[slug]/agents/AgentModel.tsx:157` repeats the last one. (Line numbers read 22 Aug 2026, while a parallel lane was editing the same files for availability.) `billing/rates.py` is unambiguous that nothing bills the in-call leg and that the figure is our own list-price cost; a client is charged their plan's overage rate or `self_serve_inr_per_min`, neither of which moves with the model. The figure should be labelled as what it is (our cost of the language leg, published so the choice is informed) or the sentence about the client's bill removed. | The agents/billing UI is another lane's. `/legal/terms` §6.1 now states the true position, which is the contract catching up with the screen and not a fix for it. **OURS, no external dependency.** |
+| FOLLOW-UP-10 | **F-13's mechanism half: make a change to `azure_openai_resource` invalidate the region attestation.** The console write path for that one field should refuse unless `docs/evidence/azure-deployment-attestation.json` names the new resource — the shape `scripts/check_model_lifecycle.py` already uses to consume that file. Today an operator can point the language leg at a resource in another region, and every guard, gate record and client document stays green while gate 20's reading silently describes a resource we no longer use. **And `docs/ROADMAP.md:673` (D-444) still repeats the withdrawn sentence internally** — *"no setting, console control or environment variable able to move it"* — which is where the next writer would copy it back from into client copy; correcting it is one clause and belongs to whoever owns that row. | `apps/api/core/platform_config.py` and `scripts/**` are the guards/config lane's. The client-facing copy no longer over-claims (F-13), so this is the mechanism and not a live misstatement. **OURS, no external dependency.** |
+| FOLLOW-UP-11 | **Correct `apps/api/compliance/deletion.py:62`**, which quotes the withdrawn *"90-day minimum retention of call recordings on Indian infrastructure"* from `SECURITY-COMPLIANCE.md` §1. The duration is right and the location half has no citable source (§1, 22 Aug 2026). | `apps/api` is another lane's. One docstring line. |
 | ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |

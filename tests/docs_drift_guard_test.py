@@ -26,6 +26,7 @@ pinned here as tests that must report NOTHING.
 
 from __future__ import annotations
 
+import inspect
 import re
 import shutil
 from pathlib import Path
@@ -736,3 +737,75 @@ def test_the_live_readiness_set_is_not_empty() -> None:
     a bare non-local deployment is missing a great many things and must say so."""
     reported = guard._readiness_keys_when_nothing_is_set()
     assert "PLATFORM_KEK" in reported and "AUDIT_CHAIN_SECRET" in reported, sorted(reported)
+
+
+# --- the gate roster's priority column (D-451) ----------------------------------------
+#
+# Gate 38 is a HUMAN attestation with no automated half — the Sentry organisation's region
+# is fixed at organisation creation, baked into the DSN host, and invisible to every check
+# in this tree. The only mechanism holding it is its row in OPERATIONS §2, so the two
+# things that could silently delete it get a test each.
+
+
+def test_the_sentry_region_gate_is_in_the_roster() -> None:
+    """D-451's gate exists and parses.
+
+    FAILS IF: gate 38's row is deleted from `docs/OPERATIONS.md` §2, renumbered, or given a
+    priority `_GATE_ROW` does not match — after which every sentence citing "gate 38"
+    (ROADMAP D-451, and this file) is reported by section 7 as citing a gate that does not
+    exist, and the only owner of a permanent vendor decision has quietly gone.
+    """
+    assert "38" in guard.gate_roster()
+
+
+def test_a_low_priority_gate_is_on_the_roster_like_any_other() -> None:
+    """THE DEFECT THIS TEST USED TO PIN IS FIXED, AND THIS IS THE INVERTED ASSERTION.
+
+    It stood here asserting that an `L` row vanished — a live defect recorded as a test
+    rather than repaired, with a docstring telling the next reader to delete it once
+    `_GATE_ROW` was widened. That reader arrived. `_GATE_ROW` now captures the priority
+    letter instead of enumerating two of them, so a row is recognised by its SHAPE and no
+    letter can drop a gate.
+
+    Asserted against the real document rather than a fixture, because the two gates that
+    were actually missing are real ones: 14c and 20d. A fixture would have proved the
+    pattern works and left the live roster unchecked, which is the same gap in miniature.
+
+    FAILS IF: `_GATE_ROW` goes back to enumerating priority letters.
+    """
+    roster = guard.gate_roster()
+    assert {"14c", "20d"} <= roster
+
+
+def test_a_priority_letter_nobody_declared_is_reported_rather_than_skipped() -> None:
+    """The half a widened pattern cannot give you, and the reason this is not just a regex fix.
+
+    Matching `[A-Z]` stops a new letter DROPPING a gate, but it also means the roster
+    would silently absorb a letter nobody defined — `| 44 X | … |` would count as a gate
+    with a priority no triage process knows. Both floors in `blind_spots` are blind to
+    that: the count floor sees the right number and the scorecard subset check sees a
+    superset. So the vocabulary is audited separately from the shape.
+
+    FAILS IF: `unknown_gate_priorities` stops reading `_GATE_PRIORITIES`, or is dropped
+    from `blind_spots()` — the second is the one that matters, since a check nobody calls
+    is the half-wiring this repo fails builds over.
+    """
+    table = (
+        "| # | Gate | Pass criteria |\n"
+        "|---|---|---|\n"
+        "| 41 H | hard | … |\n"
+        "| 42 S | soft | … |\n"
+        "| 43 L | low  | … |\n"
+        "| 44 X | ????  | … |\n"
+    )
+    scratch = REPO_ROOT / "docs" / ".pytest-gate-priority.md"
+    try:
+        scratch.write_text(table, encoding="utf-8")
+        assert guard.gate_roster(scratch) == {"41", "42", "43", "44"}
+        problems = guard.unknown_gate_priorities(scratch)
+        assert len(problems) == 1
+        assert "gate 44" in problems[0] and "'X'" in problems[0]
+    finally:
+        scratch.unlink(missing_ok=True)
+    assert guard.unknown_gate_priorities() == []
+    assert "unknown_gate_priorities" in inspect.getsource(guard.blind_spots)

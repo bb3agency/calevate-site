@@ -398,9 +398,25 @@ The position this design takes, and its three concrete consequences:
 Everything below needs credentials, a host and network access that did not exist where this
 was written. **Do not assume any of it works.**
 
-1. **Create the R2 backup bucket — separate from the recordings bucket** — and an API token
-   scoped to it alone. Confirm which R2 account is live (`infra/README.md` §1 has the same
-   caution for the recordings bucket).
+1. **Create the R2 backup bucket — separate from the recordings bucket — with the location
+   hint `apac`** — and an API token scoped to it alone. Confirm which R2 account is live
+   (`infra/README.md` §1 has the same caution for the recordings bucket).
+
+   **The hint is one-shot and this bucket is a SEPARATE one-shot from the recordings
+   bucket** (D-450, and `infra/README.md` §5 item 2 is the full argument — read it before
+   clicking). R2 honours a location hint only at the first creation of a bucket NAME;
+   delete and recreate the same name and it silently reuses the original placement. With no
+   hint R2 places the bucket near wherever the `CreateBucket` call came from, so an
+   unhinted backup bucket puts every phone number, transcript and lead row in this product
+   — a base backup is the whole database — wherever the laptop that ran the command
+   happened to be. Both ends here are the Indian VPS: wal-g pushes from it and restores to
+   it. Getting the recordings bucket right and this one wrong is the specific mistake
+   §5 item 2 exists to prevent, because this bucket is created in a different step, on a
+   different day, by someone who has already "done the R2 bucket".
+
+   `AWS_REGION` in `walg.json.template` is **not** this. That value is the SigV4 credential
+   scope and stays `auto`; writing `apac` there buys no placement and produces a
+   `SignatureDoesNotMatch` nobody would look for.
 2. **Install wal-g on the database host.** Latest release at time of writing: **v3.0.8,
    20 Jan 2026** — note the cadence (v3.0.7 was April 2025) when planning upgrades. Use the
    PostgreSQL-flavoured release binary; `wal-g --version` must report the build for `pg`.

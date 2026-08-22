@@ -60,7 +60,18 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --all-packages
+        # `--group errors` IS REQUIRED HERE, not only in the `types` job that already has
+        # it. `tests/observability_security_test.py` imports `sentry_sdk` at module scope
+        # to pin the scrubber that keeps transcripts and caller names out of the error
+        # tracker (hard rule 6), so without the group pytest fails at COLLECTION — which
+        # the coverage ratchet then reports as REFUSED TO SCORE rather than as a missing
+        # dependency, sending the reader to look for a code defect that is not there.
+        #
+        # Skipping the module when the import fails was the other option and is worse:
+        # the one environment where that guard must run is the one gating a merge, and a
+        # PII scrubber that is silently unexercised in CI is the shape of defect this
+        # whole file exists to refuse.
+        run: uv sync --all-packages --group errors
 
       - name: Start MinIO
         # NOT a `services:` entry, and it cannot be one: MinIO needs `server /data` and
@@ -252,6 +263,12 @@ jobs:
         run: uv run python -m scripts.check_docs_drift
 
       - name: "Guardrail: the deploy workflow cannot drift from the deploy script"
+        # The ONE guardrail step that shipped without `if: ${{ !cancelled() }}`, and the
+        # miss is invisible from a green run: without it this step is SKIPPED whenever any
+        # earlier step in the job failed. It sits thirtieth in the sequence, so in practice
+        # it was the guardrail least likely to ever run — and a guardrail that only runs on
+        # an already-green build reports nothing anybody did not already know.
+        if: ${{ !cancelled() }}
         # D-290. `.github/workflows/deploy.yml` is a trigger in front of
         # `scripts/vps-deploy.sh`, and the properties this deployment rests on —
         # migrations strictly before the swap, the health-gated swap, one image per commit
@@ -260,7 +277,7 @@ jobs:
         # first time on the production host. Syntax-decidable; no daemon, no network.
         run: uv run python -m scripts.check_deploy_workflow
 
-      - name: "Guardrail: model residency (D-410 southindia only)"
+      - name: "Guardrail: model residency (D-449 eastus2 only — India claim withdrawn)"
         if: ${{ !cancelled() }}
         # The region may not be settable from the ops console — a residency posture an
         # operator can change from a web form is one a click can invert — and no Azure
@@ -268,17 +285,43 @@ jobs:
         # no database and no network. It is the one guardrail whose whole value is that
         # it blocks a merge.
         #
-        # THE STEP NAME CARRIES THE DECISION NUMBER because it is what an operator reads
-        # on a red run, and it said `D-127 asia-south1` for a while after D-410 moved the
-        # leg to Azure `southindia` — sending whoever hit it to the wrong decision row and
-        # the wrong vendor. A label is documentation with the shortest path to a human.
+        # THE STEP NAME CARRIES THE DECISION NUMBER AND THE REGION because it is what an
+        # operator reads on a red run. It has now been wrong twice in the same way: it said
+        # `D-127 asia-south1` after D-410 moved the leg to Azure `southindia`, and
+        # `D-410 southindia` after D-449 moved the region to `eastus2` — each time sending
+        # whoever hit it to the wrong decision row. A label is documentation with the
+        # shortest path to a human, and a stale one is worse than none.
+        #
+        # IT SAYS "India claim withdrawn" ON PURPOSE. D-449 is not an upgrade: this product
+        # no longer claims that a client's caller's words reach a language model inside
+        # India. Anyone reading this step to find out what residency we hold should read
+        # that in the label rather than infer it from a region code they may not recognise.
         #
         # It proves LESS than the Vertex form did and the script says so on every run:
         # `<resource>.openai.azure.com` names no region, so what is proved here is that no
         # code path can change the destination without editing one frozen constant. That
-        # the resource is in South India, and that its deployment is Regional Standard and
+        # the resource is in East US 2, and that its deployment is Regional Standard and
         # not Global, are human attestations — OPERATIONS §2 gates 20 and 20c.
         run: uv run python -m scripts.check_model_residency
+
+      - name: "Guardrail: no allow-listed model is past its retirement date (D-432)"
+        if: ${{ !cancelled() }}
+        # The step above asks WHERE the model runs; this one asks WHEN it stops
+        # answering. Until D-432 the allow-list carried no lifecycle at all: D-410
+        # deleted `GEMINI_DEFAULT_LLM_RETIRES` and read the absence of a dated constant
+        # as a benefit, but what actually left with Gemini was GEMINI'S date — a rented
+        # model on a vendor's clock arrived at Azure unchanged, and the failure it buys
+        # is a `410 Gone` on the in-call leg, mid-call, with nobody watching.
+        #
+        # Every model in `AZURE_OPENAI_MODELS` now declares a retirement date and a
+        # deployment-type constraint WITH its source and the date it was read
+        # (`calevate_shared/model_lifecycle.py`) — because these dates move: Microsoft
+        # extended `gpt-4o-mini` from 2026-10-01 to 2027-04-14 in one unannounced edit.
+        # Exit 1 = a date has passed, or nothing in the list outlives the 120-day lead.
+        # Exit 2 = REFUSED: the allow-list, the table or a filed portal attestation could
+        # not be read, and a guard that cannot see its subject must never print OK.
+        # Decidable from source; no database, no network, no credential.
+        run: uv run python -m scripts.check_model_lifecycle
 
       - name: "Guardrail: audit rows record the caller, not the proxy"
         if: ${{ !cancelled() }}

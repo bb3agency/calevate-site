@@ -14,6 +14,7 @@ or omits it — it never leaks its own shape upward.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -409,7 +410,55 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
 SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 
 
-#: THE Azure region this platform's Azure OpenAI resource lives in. South India (D-410).
+#: THE Azure region this platform's Azure OpenAI resource lives in. **East US 2 (D-449).**
+#:
+#: ⚠ **THIS LINE IS A WITHDRAWAL, NOT AN IMPROVEMENT, AND EVERY READER OF IT MUST START
+#: THERE.** It used to say `southindia`, and D-410's whole posture was that a client's
+#: caller's words reached a language model inside India. They no longer do. Nothing about
+#: the deployment type changed — it is still Regional Standard and never Global (gate 20c)
+#: — so what is left is a region pinned honestly to a place that is not India, and any
+#: document still promising Indian model residency to a client is out of date rather than
+#: merely imprecise. `apps/web/src/lib/legal/dpa.ts` and the sub-processor list are the two
+#: that say it to clients in an executed agreement; moving this constant does not move them.
+#:
+#: **GROUND 1: THE ROUND TRIP WAS ALWAYS THERE AND NOBODY HAD EVER MEASURED IT.**
+#: VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/concepts/security.md:29`: *"By
+#: default, Bolna processes calls on infrastructure in the US (AWS us-east-1)."* The engine
+#: is the thing that calls our Azure deployment, once per conversational turn, inside a
+#: 350ms TTFT budget. So `southindia` did not put the model beside the caller; it put the
+#: model on the far side of a us-east-1 → India → us-east-1 hop from the orchestrator, on
+#: the audio path, on every turn. That cost was recorded (OPERATIONS §2 gate 4, and the
+#: `engine_turn_latency` table exists to settle it) and never paid for, because the pilot
+#: that would measure it needs a vendor account.
+#:
+#: THE REJECTED ALTERNATIVE, AND IT IS THE ONE A READER WILL REACH FOR: Bolna DOES offer
+#: Indian processing (`enterprise/data-residency.md:11-12`, `enterprise/
+#: indian-server-configuration.md`). It is unavailable to this product as designed, and not
+#: on price alone. Their own requirements page is explicit that connecting your own provider
+#: keys defeats it — *"If you connect your own API keys for any provider (transcriber,
+#: synthesizer, or LLM), calls will automatically route through US servers regardless of
+#: other configuration settings"* (`indian-server-configuration.md:68`). BYOK is D-31's
+#: architecture, not a preference: it is how this platform meters, prices and isolates
+#: tenants. Indian routing would also pin telephony to Plivo and forbid our own Sarvam key.
+#: So the honest statement is that Indian in-call residency is available to a DIFFERENT
+#: product than the one this repository builds, behind an enterprise commercial term nobody
+#: has signed — an external blocker with a real timeline, in CLAUDE.md's terms, and not an
+#: engineering task being deferred.
+#:
+#: **GROUND 2: THE ONLY PERMITTED DEPLOYMENT TYPE DOES NOT SERVE THE SHIPPED DEFAULT
+#: THERE.** Microsoft's Standard (regional) availability matrix, read from the vendor's own
+#: docs repository at a named commit
+#: (`MicrosoftDocs/azure-ai-docs@19bbfea4b8 articles/foundry/openai/includes/model-matrix/
+#: standard-models.md`), lists `gpt-4o-mini` (2024-07-18) with a `-` for `southindia`
+#: (`:34`) and a `✅` for `eastus2` (`:23`). `gpt-4o-mini` in `southindia` appears only on
+#: the GLOBAL Standard matrix, and Global is the deployment type gate 20c exists to forbid
+#: because it processes worldwide. So under the old posture the mandated SKU and the
+#: shipped default had no documented intersection: the region could not serve the model.
+#: `eastus2` serves both allow-listed models on the mandated SKU (`:23`, first nine
+#: columns all `✅`), which is the second half of why this is where the resource goes.
+#: ⚠ That matrix's own `ms.date` is 08/12/2025, so it is carried as a dated vendor claim
+#: rather than as today's fact — `scripts/check_model_lifecycle.py` says so on every run,
+#: and OPERATIONS §2 gate 20b is the portal reading that settles it.
 #:
 #: WHY IT IS A `Final` HERE AND NOT A `Settings` FIELD, which is the half a reviewer would
 #: wave through. `platform_config.managed_fields()` derives the ops console's editable set
@@ -429,7 +478,8 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: the resource must be in; `Settings.azure_openai_resource` points at a resource an
 #: operator asserts is there; and a HUMAN confirms it once in the portal (OPERATIONS §2,
 #: the Azure residency gate). Nothing in this file can close the last link, and a comment
-#: claiming otherwise would be worse than the gap.
+#: claiming otherwise would be worse than the gap. D-449 changed WHICH region is asserted
+#: and nothing at all about how weak the assertion is.
 #:
 #: WHAT THE GUARD STILL PROVES, so it is clear what was kept: `AZURE_LOCATION` is the only
 #: spelling of the region in shipped code, no `Settings` field may carry a region at all,
@@ -438,14 +488,24 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: aims model traffic at a different region without editing this line.
 #:
 #: THE REJECTED ALTERNATIVE THAT WOULD RESTORE THE AST PROOF: Azure also serves a REGIONAL
-#: hostname, `southindia.api.cognitive.microsoft.com`, which the vendor documents as
+#: hostname, `<region>.api.cognitive.microsoft.com`, which the vendor documents as
 #: interchangeable with the custom subdomain — spelling that would put the region back in
 #: the URL where a static check can see it. Rejected FOR NOW on one ground: the v1 surface
 #: is documented only on the custom-subdomain form, and custom subdomains are what Entra ID
 #: requires, so shipping the regional hostname would trade a confirmed-working endpoint for
 #: a stronger guard on an unconfirmed one. Revisit if the portal gate confirms v1 answers
 #: there — the change is this constant, the builder, and nothing else.
-AZURE_LOCATION: Final = "southindia"
+#:
+#: WHY THERE IS EXACTLY ONE OF THESE, stated here because D-432 made it checkable in BOTH
+#: directions rather than one. `DECLARED_POSTURE_NAME` below declares which residency
+#: posture is in force; `scripts/check_model_residency.POSTURES` says, independently, what
+#: each posture obliges. Under the declared `us-azure-openai` that obligation is "exactly
+#: one frozen constant spells the region, it is this one, here, and its VALUE is `eastus2`".
+#: Under a posture pinning NO region the obligation INVERTS to "no shipped constant spells
+#: one at all". D-449 added the third case and it is the one that bites: this line still
+#: holding `southindia` under the US declaration is refused BY VALUE, so a posture move that
+#: edited the declaration and forgot the constant cannot reach a green build.
+AZURE_LOCATION: Final = "eastus2"
 
 #: THE MODELS this platform may configure into an Azure OpenAI leg, as a CLOSED set
 #: (D-410). Both LLM surfaces — the in-call leg and the dashboard AI — draw from it.
@@ -488,14 +548,24 @@ AZURE_OPENAI_MODELS: Final[frozenset[str]] = frozenset(get_args(AzureOpenAIModel
 
 #: What a deployment runs if nobody chooses: `gpt-4o-mini` (D-410).
 #:
-#: **4o-mini RATHER THAN 4.1-mini, AND THE ASYMMETRY IS AVAILABILITY, NOT PREFERENCE.**
-#: `gpt-4o-mini` is documented available in South India; `gpt-4.1-mini`'s availability in
-#: any Indian region is NOT confirmed, and its default quotas are Sweden Central / East US
-#: 2. So the choice is between the model the only permitted region is known to serve and a
-#: better one that may not be servable there at all — the same shape of trade D-127 had to
-#: make about Gemini, resolved the same way: ship what the region serves, and make the
-#: other a LIVE CONFIG SWITCH (`Settings.azure_openai_model`) so the operator who confirms
-#: it in the portal moves to it without a deploy and without this file changing.
+#: **4o-mini RATHER THAN 4.1-mini, AND SINCE D-449 THE GROUND IS COST, NOT AVAILABILITY.**
+#: This comment used to say that `gpt-4o-mini` was the one the permitted region served and
+#: `gpt-4.1-mini`'s Indian availability was unconfirmed. That was BACKWARDS on the vendor's
+#: own table — Microsoft's Standard (regional) matrix marks `gpt-4o-mini` `-` for
+#: `southindia` and `gpt-4.1-mini` `✅` (`standard-models.md:34` @ `19bbfea4b8`) — and the
+#: mistake is recorded here rather than quietly corrected, because it is the whole reason
+#: `model_lifecycle.py` exists: a vendor availability claim that nobody read from the vendor
+#: became a shipped default.
+#:
+#: At `eastus2` the asymmetry is gone: the same matrix marks BOTH allow-listed models `✅`
+#: on the mandated Regional Standard SKU (`:23`). So there is nothing left to choose on
+#: availability and the choice falls to price, where `AZURE_LIST_PRICE_USD_PER_MTOK` makes
+#: it one-sided — `gpt-4.1-mini` is 2.7x `gpt-4o-mini` on both input and output. Keeping
+#: 4o-mini as the default therefore costs nothing in reach and means TRD §10's per-minute
+#: figures need no repricing, which is the second reason not to move the default in the
+#: same change that moved the region: one variable at a time, on a leg nobody has metered
+#: yet. The better model stays a LIVE CONFIG SWITCH (`Settings.azure_openai_model`) for an
+#: operator who decides the quality is worth 2.7x.
 #:
 #: WHAT IT NO LONGER COSTS, and it is the plainest benefit of D-410 rather than a detail:
 #: A RETIREMENT DATE. `GEMINI_DEFAULT_LLM_RETIRES` was a live 16 Oct 2026 deadline (BRD
@@ -725,6 +795,147 @@ def _azure_resource_of(base_url: str) -> str | None:
 #: because Bolna does not care where a model runs; ours is closed because we do, and
 #: `ModelConfig`'s validator is what makes that more than a naming convention.
 LlmProvider = Literal["azure_openai"]
+
+
+# --- THE DECLARED RESIDENCY POSTURE (D-432) -----------------------------------
+
+
+@dataclass(frozen=True)
+class ResidencyPosture:
+    """WHERE this product's language-model traffic is declared to run, as one record.
+
+    WHAT THIS IS FOR, because "make residency configurable" is the opposite of it. Before
+    D-432 the India posture was not declared anywhere: it was IMPLIED by thirty-odd files
+    agreeing with each other — a `Final` region here, a provider Literal there, a builder,
+    four settings, two price tables, a console panel and two guards. Nothing named the
+    decision, so nothing could check that the pieces still agreed, and changing it was a
+    refactor nobody would attempt. A decision that expensive to revisit is not a decision
+    that has been made; it is one that has been frozen by accident, and the freezing gets
+    mistaken for rigour.
+
+    So the posture becomes a NAME in source, declared once (`DECLARED_POSTURE_NAME`), and
+    `scripts/check_model_residency.py` holds — independently, never imported from here —
+    the SPEC each name obliges the tree to satisfy. The guard then proves the tree matches
+    the declaration and FAILS BOTH WAYS: code that drifts from the declaration, and a
+    declaration edited to describe a tree that has not moved. That is strictly more than
+    the tree could prove before, because before there was nothing to disagree with.
+
+    ⚠ **IT IS SOURCE, AND IT MUST STAY SOURCE.** This is a frozen dataclass built from
+    module `Final`s. It is NOT a `Settings` field, NOT an environment variable and NOT a
+    `platform_config` row — `check_model_residency.console_config_failures` refuses any
+    settings name carrying `posture`/`residency`/`region`, and `declaration_failures`
+    refuses a declaration that is not a `Final` string literal in this module. D-95 §4's
+    doctrine is unchanged and is the whole reason the mechanism is shaped this way: a
+    residency posture invertible from a web form at 3am is not a posture. Changing it is a
+    commit, reviewed by a human, with a decision-log entry.
+
+    WHAT IT DOES NOT DO: it does not make the switch free. Switching still edits the
+    settings that carry the vendor's credentials, the price tables, the adapter's routing
+    and the console panel. What it removes is the part that had no owner — the tree
+    silently disagreeing with itself about which posture it is in, with no line to point at.
+    """
+
+    #: The declared name. The guard's `POSTURES` table is keyed on it, so a name that table
+    #: does not know is a hard failure rather than an unchecked tree.
+    name: str
+    #: Our vocabulary for the leg (`LlmProvider`), never the engine's.
+    llm_provider: LlmProvider
+    #: The region this posture PINS, or `None` for a posture that makes no regional claim.
+    #: Under a pinning posture the guard requires exactly one frozen constant spelling it;
+    #: under a non-pinning one it requires ZERO, so a leftover `AZURE_LOCATION` cannot sit
+    #: in a tree whose declaration has moved on.
+    region: str | None
+    #: Does the API address a DEPLOYMENT id the operator chose, rather than the model's own
+    #: name? See `ModelBinding` — this is the answer to "is `azure_openai_deployment`
+    #: genuinely a different thing from `azure_openai_model`".
+    addresses_a_deployment: bool
+
+
+#: THE DECLARATION. One `Final` string literal, in the portability contract, and the only
+#: place this product says where its language models run.
+#:
+#: SPELLED AS A BARE LITERAL ON PURPOSE. The guard reads it from the AST rather than by
+#: importing this module (`check_bootstrap_keys.BOOTSTRAP_KEYS`' doctrine: a guardrail that
+#: imported the value it checks would be asking the code whether it agrees with itself), so
+#: it has to be a `Constant` a parser can see — not an f-string, not a computed value, not
+#: `os.environ.get(...)` with a default that reads like one.
+DECLARED_POSTURE_NAME: Final = "us-azure-openai"
+
+#: The declared posture itself. Every runtime decision that depends on WHERE the models run
+#: reads this record rather than re-deciding: `agents.service.in_call_llm` takes the
+#: provider name from it, and `bind_model` takes the deployment-versus-model question from
+#: it.
+DECLARED_POSTURE: Final = ResidencyPosture(
+    name=DECLARED_POSTURE_NAME,
+    llm_provider="azure_openai",
+    region=AZURE_LOCATION,
+    addresses_a_deployment=True,
+)
+
+
+@dataclass(frozen=True)
+class ModelBinding:
+    """The two model strings that are ONE string everywhere except Azure.
+
+    **THE QUESTION THIS SETTLES:** is `Settings.azure_openai_deployment` genuinely distinct
+    from `Settings.azure_openai_model`, or is the distinction only an artefact of Azure?
+    **It is an artefact of Azure, and it is a real one.** On Azure you deploy a model under
+    an id you choose and the API addresses THAT id, so the addressed string cannot be
+    derived from the model name; on a provider that takes the model's own name, the two are
+    the same string and a second setting for it would be a second way to say one thing —
+    the defect class hard rule "one way per problem" exists for.
+
+    So the distinction is not hard-wired and it is not wished away: it is a PROPERTY OF THE
+    DECLARED POSTURE (`ResidencyPosture.addresses_a_deployment`), and this record makes the
+    type system carry it. Two roles, two attributes, one object:
+
+    * `addressed` — what goes on the wire (`ModelConfig.llm_model`, and what the engine
+      sends as `model`). Never priced.
+    * `priced` — which model the deployment was made from (`AZURE_LIST_PRICE_USD_PER_MTOK`'s
+      key). Never sent.
+
+    THE REJECTED ALTERNATIVE was leaving two plain `str | None` settings and a comment on
+    each. It is what the tree had, and the comments are long precisely because nothing
+    enforced them: a caller that reached for `azure_openai_model` when it meant the
+    deployment gets a 404 from a third party in the middle of a live phone call, and a
+    caller that reached the other way prices a model nobody is running. Both are `str`, so
+    neither mypy nor a reviewer's eye distinguishes them at a call site. Here they cannot
+    be confused, because the object that carries one carries the other under a different
+    name and `bind_model` is the only thing that builds it.
+    """
+
+    addressed: str
+    priced: str
+
+
+def bind_model(*, deployment: str | None, model: str) -> ModelBinding:
+    """Bind the wire identifier and the priced identifier under the DECLARED posture.
+
+    ONE function, so the deployment-versus-model rule is applied in one place and follows
+    the declaration instead of being re-decided per call site. Under a posture that
+    addresses a deployment, a deployment is REQUIRED and the two strings differ; under one
+    that does not, a deployment is a configuration error rather than an ignored value —
+    silently dropping it is how an operator ends up believing a field they filled in is
+    doing something.
+
+    Raises `ValueError` rather than returning `None`: both arms are configuration mistakes
+    a caller cannot recover from, and every caller here already refuses to publish an agent
+    whose LLM leg is half-configured (`agents.service.in_call_llm`).
+    """
+    if DECLARED_POSTURE.addresses_a_deployment:
+        if not deployment:
+            raise ValueError(
+                f"posture {DECLARED_POSTURE.name!r} addresses a deployment id, so a "
+                "deployment name is required — the model name cannot stand in for it"
+            )
+        return ModelBinding(addressed=deployment, priced=model)
+    if deployment:
+        raise ValueError(
+            f"posture {DECLARED_POSTURE.name!r} addresses the model by its own name, so a "
+            "separate deployment id has nowhere to go — remove it rather than leaving a "
+            "configured value that nothing sends"
+        )
+    return ModelBinding(addressed=model, priced=model)
 
 
 #: THE ONE SENTENCE A SCRIPT MAY NOT CONTRADICT, and the string every read-back is
@@ -1157,7 +1368,16 @@ class CallContext(BaseModel):
     lead_id: str | None = None
     lead_name: str | None = None
     context_note: str | None = None
-    prior_call_summary: str | None = None
+    # NO `prior_call_summary`. It was declared here, was read by the Bolna adapter into a
+    # `user_data` dynamic variable, and was written by NOTHING in `apps/api` — the defect
+    # class CLAUDE.md's "leave no half-wired feature" rule exists for. Deleted rather than
+    # wired, because wiring it would have been the SECOND way to do one thing: the only
+    # producer of a prior-call summary is `crm.service.plan_callback`, which already folds
+    # it into `context_note` ("What happened last time: ...") after passing it through
+    # `redacted_summary`. A second channel for transcript-derived text into the prompt is
+    # a second channel that can forget the redaction — and this one had no producer to
+    # inherit it from, so the first caller to fill it would have shipped raw summary text
+    # to the engine and out of the agent's mouth (SEC-COMP §4).
     fields: dict[str, str] = Field(default_factory=dict)
     #: THE NUMBER THIS DIAL MUST PRESENT TO THE CALLEE — the client's own DLT-registered
     #: header, resolved from the `phone_numbers` row bound to the agent (D-420).
@@ -1305,6 +1525,123 @@ class RecallOutcome(StrEnum):
     UNKNOWN = "unknown"
 
 
+#: OUR budget for the LLM leg of one conversational turn, in milliseconds (TRD §4,
+#: "LLM TTFT <= 350ms"). A TARGET, and the only number in this file that is not a
+#: measurement — it is what a measurement is judged against, and it is never copied into
+#: a result. It lives here rather than in an adapter because it is a property of the
+#: product, not of whoever is renting us the audio path this quarter.
+#:
+#: WHY IT MATTERED, AND WHY THE ANSWER MOVED. The engine's orchestrator is US-hosted
+#: (`bolna-findings/mirror/pages/concepts/security.md:29`) and D-410 pinned our Azure
+#: OpenAI deployment to South India, so every turn's LLM call was a US->India->US round
+#: trip on the caller's audio path — a cost this repository recorded and never measured.
+#: D-449 removed the round trip by moving the deployment to `eastus2` (co-located with the
+#: orchestrator's `us-east-1`), at the price of the India residency claim. The budget did
+#: NOT move with it: it is a property of the product, it is still unmeasured, and a target
+#: that relaxed itself whenever the geography got easier would measure nothing.
+LLM_TTFT_BUDGET_MS: Final[float] = 350.0
+
+
+class TurnLatency(BaseModel):
+    """What one conversational turn cost, per pipeline leg, AS THE ENGINE REPORTS IT.
+
+    **NOT voice-to-voice.** That distinction is the whole reason `calls.latency` was dropped
+    (migration `f1a7c39d5be2`, D-52): voice-to-voice is the interval between the
+    caller stopping speaking and the caller hearing audio, both ends of which exist on the
+    PSTN leg that our stack is not in. These three numbers are the engine's own view of
+    its own pipeline. They are worth having — they are the only per-turn evidence that
+    exists at all, and the LLM leg is the one WE chose the geography of — and they are
+    worth having only if nothing ever prints them under the other name.
+
+    Every field is optional and ABSENT IS ABSENT, never 0: a component the payload did not
+    carry is `None`, because a zero here would read as "instant" and would move a median.
+
+    NOTHING HERE IS TEXT (hard rule 6). The engine reports recognised caller speech beside
+    these timings; adapters read the numbers and drop the text without storing it, and this
+    model has nowhere to put it.
+    """
+
+    #: 1-based turn index within the call, as the engine numbers them.
+    turn: int
+    #: Speech-to-text: audio in -> text out for the turn's final recognition.
+    stt_ms: float | None = None
+    #: Time to FIRST token from the language model. The number this whole model exists
+    #: for — see `LLM_TTFT_BUDGET_MS`.
+    llm_ttft_ms: float | None = None
+    #: Time to first AUDIO from the synthesizer.
+    tts_ttfa_ms: float | None = None
+
+    @property
+    def component_sum_ms(self) -> float | None:
+        """STT + LLM TTFT + TTS TTFA, or NOTHING.
+
+        A partial sum is not a smaller latency, it is a different quantity wearing the same
+        name — so a turn missing any leg contributes to no comparison at all. Same rule as
+        `scripts/pilot/latency.VendorTurnLatency`, which compares this sum against a
+        stopwatch at pilot gate 4.
+        """
+        parts = (self.stt_ms, self.llm_ttft_ms, self.tts_ttfa_ms)
+        if any(part is None for part in parts):
+            return None
+        return sum(part for part in parts if part is not None)
+
+
+class CallLatency(BaseModel):
+    """Per-turn engine timings for one execution, normalized. Numbers and codes only.
+
+    **WHY THIS EXISTS NOW AND NOT BEFORE.** The adapter used to drop the engine's
+    `latency_data` on the floor, and said so in its docstring: the field was an unverified
+    claim with no captured payload. It is no longer unverified — the vendor's own page is
+    in the read-only mirror
+    (`bolna-findings/mirror/pages/concepts/call-latencies.md:22-45,99-140`) — and the
+    quantity it carries became the largest open question in the product the day D-410 put
+    the language model in South India while the orchestrator stayed in the US. D-449 then
+    resolved that question by DECIDING it rather than by measuring it — the deployment
+    moved to `eastus2`, beside the orchestrator — which makes capturing this field more
+    useful and not less: gate 4 is now the check that the decision bought what it was sold
+    on, and an unmeasured leg is exactly how a repository ends up making the same trade
+    twice.
+
+    **`region` IS THE POINT.** The engine stamps each execution with where it ran (`in`,
+    `us`, ...). Two pilot calls — one with an Indian Azure deployment, one with the shipped
+    US one — produce two TTFT distributions under this field, and the difference between
+    them is the cost of the geography, measured rather than estimated. That comparison is
+    still worth running after D-449: it is the evidence for what the withdrawal bought, and
+    without it the withdrawal rests on an argument.
+    """
+
+    #: Where the engine says this execution ran. A short vendor code (`in`, `us`), kept
+    #: verbatim because it is an identifier rather than a message: it is only ever
+    #: compared and grouped by, never rendered into a sentence.
+    region: str | None = None
+    #: End of the caller's utterance -> start of the agent's audio, as the engine measures
+    #: it. The closest thing the engine has to the caller's experience, and STILL not
+    #: voice-to-voice: it is measured inside the orchestrator, not in the caller's ear.
+    time_to_first_audio_ms: float | None = None
+    turns: list[TurnLatency] = Field(default_factory=list)
+    #: What the reader could not make sense of, in OUR words (never a vendor message).
+    #: An unparsed payload must announce itself: silently returning an empty object would
+    #: read as "the engine reported nothing", which is a different and more interesting
+    #: result.
+    parse_warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def llm_ttft_samples(self) -> list[float]:
+        """Every turn that reported an LLM TTFT, in turn order."""
+        return [t.llm_ttft_ms for t in self.turns if t.llm_ttft_ms is not None]
+
+    @property
+    def llm_ttft_over_budget(self) -> int:
+        """How many turns spent more than OUR budget in the language model.
+
+        A COUNT, not a verdict. One turn over budget on one call is not an incident and
+        must never page (the first turn of a call carries connection setup and is over
+        budget in the vendor's own worked example — `call-latencies.md:99`, 1633.04ms);
+        a fleet where this is routinely most of the turns is the geography bill coming due.
+        """
+        return sum(1 for value in self.llm_ttft_samples if value > LLM_TTFT_BUDGET_MS)
+
+
 class ExecutionSnapshot(BaseModel):
     """The authenticated fetch that is the TRUTH (D-31: webhooks are hints).
 
@@ -1344,6 +1681,12 @@ class ExecutionSnapshot(BaseModel):
     #: operator took to look.
     billable_ready_at: datetime | None = None
     engine_extracted: dict[str, Any] = Field(default_factory=dict)
+    #: What the engine's own pipeline cost, per turn. `None` means the engine reported
+    #: nothing — which is the honest answer for a LISTING row (the timings ride on the
+    #: single-execution fetch) and for an engine that publishes no timings at all.
+    #: Distinct from `CallLatency()` with no turns, which means it reported an object we
+    #: could read nothing out of; `parse_warnings` then says what.
+    latency: CallLatency | None = None
     engine: str = "fake"
     #: The vendor's OWN answer for this execution, serialized — the ONE thing in this
     #: contract that is not in our vocabulary, and the reason it is `bytes`.
@@ -1992,11 +2335,13 @@ __all__ = [
     "ListingIncompleteReason",
     "LlmCredentialPlacement",
     "LlmProvider",
+    "ModelBinding",
     "ModelConfig",
     "NumberSeries",
     "NumberSpec",
     "ProvisionedNumber",
     "RecallOutcome",
+    "ResidencyPosture",
     "SpeechControl",
     "SpeechLeg",
     "VoiceEngine",

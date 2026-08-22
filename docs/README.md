@@ -108,23 +108,27 @@ specific things, and neither has been run:
 ## One-line summary of the locked stack
 
 Bolna (engine, adapter-isolated — D-31) + **Sarvam for SPEECH** (D-36's Saaras STT ·
-Bulbul v3 TTS default, v2 as the value tier — unchanged) + **Azure OpenAI in South India
+Bulbul v3 TTS default, v2 as the value tier — unchanged) + **Azure OpenAI in East US 2
 for LANGUAGE, on BOTH LLM surfaces** — **D-410 supersedes D-400/D-404 on the in-call leg
-and D-127 on the dashboard leg; Gemini and Vertex are out of this product.** One region
-(`AZURE_LOCATION`, `southindia`), one default (`AZURE_OPENAI_DEFAULT_MODEL`,
-`gpt-4o-mini`), one allow-list (`AZURE_OPENAI_MODELS`) and one builder
+and D-127 on the dashboard leg; Gemini and Vertex are out of this product. D-449 moved the
+REGION off South India: the declared posture is `us-azure-openai`, and the client-facing
+India warranty is withdrawn, not narrowed.** One region (`AZURE_LOCATION`, `eastus2`), one
+default (`AZURE_OPENAI_DEFAULT_MODEL`, `gpt-4o-mini` — unchanged by D-449, and TRD §10 is
+unrepriced), one allow-list (`AZURE_OPENAI_MODELS`) and one builder
 (`azure_openai_base_url()`); `gpt-4.1-mini` is a live config switch rather than a second
-shipped default, because its availability in Indian regions is not confirmed. The engine
+shipped default. The engine
 authenticates with a **static API key** on the OpenAI-compatible v1 surface, so D-404's
 rotation cron, its alarm, its runbook and D-408's dead man are all deleted — they existed
 because a regional Vertex endpoint took no static key. **BRD R-04's 16 Oct 2026 Gemini
 retirement dies with this**, and no vendor deadline is currently running against the
 product. **The residency claim is narrower than it was and this line will not pretend
-otherwise**: `<resource>.openai.azure.com` names no region, so the build proves only that
-one constant spells the region and that no endpoint is constructible outside the builder —
-that the resource really is in South India, and that its deployment is Regional Standard
-rather than Azure's worldwide-by-default Global, are attested by a human (OPERATIONS §2
-gates 20 and 20c). The third surface is decided the OTHER way and permanently:
+otherwise, and since D-449 it is not an India claim at all**: `<resource>.openai.azure.com`
+names no region, so the build proves only that one constant spells the region and that no
+endpoint is constructible outside the builder — that the resource really is in East US 2,
+and that its deployment is Regional Standard rather than Azure's worldwide-by-default
+Global, are attested by a human (OPERATIONS §2 gates 20 and 20c, which survive D-449
+re-aimed rather than retiring). Speech stays Sarvam and Indian; the caller's words reach a
+US model as they are spoken. The third surface is decided the OTHER way and permanently:
 `GEMINI_EXTRACTION_DEFAULT is False`, so the
 first post-call extraction stays on Sarvam because it reads the raw transcript, and D-410
 does not move it. **D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·

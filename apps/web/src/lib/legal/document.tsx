@@ -9,6 +9,8 @@ import {
   PENDING_LEGAL_REVIEW,
   PENDING_LEGAL_REVIEW_MARKER,
   PLACEHOLDER_PATTERN,
+  assertLegalSetPublishable,
+  resolvePlaceholders,
 } from "./placeholders";
 import type { LegalBlock, LegalDocument, LegalSection } from "./types";
 
@@ -38,8 +40,19 @@ import type { LegalBlock, LegalDocument, LegalSection } from "./types";
  *   the reader this whole product is built for.
  */
 
-/** Renders `{{TOKEN}}` runs as visible marks and everything else as plain text. */
-function withPlaceholders(text: string): ReactNode[] {
+/**
+ * Renders `{{TOKEN}}` runs as visible marks and everything else as plain text.
+ *
+ * A token whose fact has been DECIDED is substituted first and never reaches the marking
+ * pass, so it renders as ordinary prose. That is the half that was missing: the hosting
+ * location was decided at D-180 and went on rendering as a raw `{{…}}` on two
+ * client-facing pages, because the only path from a decision to the prose was somebody
+ * remembering to edit each document. Substitution happens HERE rather than in the
+ * document modules so the token stays in the source, where `textOf` can still audit that
+ * every token is declared and every declaration is used.
+ */
+function withPlaceholders(source: string): ReactNode[] {
+  const text = resolvePlaceholders(source);
   const out: ReactNode[] = [];
   let cursor = 0;
   // A fresh regex per call: `PLACEHOLDER_PATTERN` is global and therefore stateful, and
@@ -282,6 +295,10 @@ export function PendingReviewBanner() {
 
 /** The full page for one document: banner, title, contents, body, cross-links. */
 export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
+  // Publishing (deleting the pending-review banner) with facts still blank would put
+  // `{{GSTIN}}` in front of a regulator. Throwing here fails the render — and therefore
+  // the build and the suite — long before a reader could see it.
+  assertLegalSetPublishable();
   const others = LEGAL_DOCUMENTS.filter((other) => other.slug !== doc.slug);
   return (
     <div className="bg-app">

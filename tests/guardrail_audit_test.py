@@ -1150,20 +1150,67 @@ class TestMakefileWiring:
         targets = {m.group(1) for m in re.finditer(r"^([a-zA-Z][\w-]*):", text, re.MULTILINE)}
         assert targets - phony == set(), "a non-phony target is a no-op waiting to happen"
 
-    def _makefile_commands(self) -> str:
-        """Only the RECIPE lines — the ones make hands to a shell.
+    def _makefile_recipes(self) -> dict[str, tuple[list[str], list[str]]]:
+        """`{target: (prerequisites, recipe lines)}` — the Makefile as make reads it.
 
-        A Makefile recipe line begins with a TAB; everything else is a target line, a
-        variable or prose. A tab followed by `#` is a comment INSIDE a recipe, which make
-        passes to the shell as a comment and which runs nothing. Both are stripped here
-        for the reason in `test_every_guardrail_script_runs_in_both_gates`.
+        A recipe line begins with a TAB; everything else is a target line, a variable or
+        prose. A tab followed by `#` is a comment INSIDE a recipe, which make passes to
+        the shell as a comment and which runs nothing. Both are dropped, for the reason
+        in `test_every_guardrail_script_runs_in_both_gates`.
+
+        KEYED BY TARGET rather than flattened, because `in the Makefile` and `in a target
+        `make check` reaches` are different questions and only the second one is a gate.
+        `restore-drill`, `pilot` and `seed-dev` all have recipes and none of them runs on
+        anybody's push.
         """
-        lines = self._makefile().splitlines()
-        return "\n".join(
-            line.lstrip("\t")
-            for line in lines
-            if line.startswith("\t") and not line.lstrip("\t").startswith("#")
-        )
+        import re
+
+        recipes: dict[str, tuple[list[str], list[str]]] = {}
+        current: str | None = None
+        for line in self._makefile().splitlines():
+            if line.startswith("\t"):
+                body = line.lstrip("\t")
+                if current is not None and not body.startswith("#"):
+                    recipes[current][1].append(body)
+                continue
+            # `:(?!=)` excludes `NAME := value`, which is an assignment and has no
+            # recipe. Anything after a `#` on a target line is make's comment, and that
+            # includes the `## help text` this file's targets carry — so the
+            # prerequisites are read from the part before it, never from the sentence
+            # describing the target.
+            match = re.match(r"^([a-zA-Z][\w-]*):(?!=)(.*)$", line)
+            if match:
+                current = match.group(1)
+                recipes.setdefault(current, ([], []))
+                recipes[current][0].extend(match.group(2).split("#")[0].split())
+            elif line.strip():
+                current = None
+        return recipes
+
+    def _commands_reachable_from(self, goal: str) -> str:
+        """Every recipe line `make <goal>` would run, prerequisites included.
+
+        Transitive, because `check` runs nothing itself: it is six prerequisites, and a
+        flat search of the file cannot tell a guard that runs on every push from one
+        parked in a target nobody invokes.
+        """
+        recipes = self._makefile_recipes()
+        seen: set[str] = set()
+        pending = [goal]
+        commands: list[str] = []
+        while pending:
+            target = pending.pop()
+            if target in seen or target not in recipes:
+                continue
+            seen.add(target)
+            prerequisites, body = recipes[target]
+            commands.extend(body)
+            pending.extend(prerequisites)
+        return "\n".join(commands)
+
+    def _makefile_commands(self) -> str:
+        """Every recipe line in the file, whatever target carries it."""
+        return "\n".join(line for _, (_, body) in self._makefile_recipes().items() for line in body)
 
     def _workflow_commands(self) -> str:
         """Every `run:` scalar in the workflow, from the parsed YAML.
@@ -1204,12 +1251,13 @@ class TestMakefileWiring:
         """
         scripts = sorted(path.stem for path in (REPO_ROOT / "scripts").glob("check_*.py"))
         assert len(scripts) >= 5, "the guardrail pack cannot have shrunk to nothing"
-        makefile = self._makefile_commands()
+        makefile = self._commands_reachable_from("check")
         workflow = self._workflow_commands()
         for script in scripts:
             assert f"scripts.{script}" in makefile, (
-                f"{script} is named in no COMMAND in the Makefile. A mention in a comment "
-                "is not a gate."
+                f"{script} runs in no target `make check` reaches. A mention in a comment "
+                "is not a gate, and neither is a recipe line parked in `restore-drill`, "
+                "`pilot` or `seed-dev` — none of those runs on anybody's push."
             )
             assert f"scripts.{script}" in workflow, (
                 f"{script} is in no CI step's `run:`. A step name that mentions it is not a "
@@ -1244,9 +1292,140 @@ class TestMakefileWiring:
         assert "P4.3" in self._makefile(), "the Makefile comment this control keys on moved"
         assert "P4.3" not in self._makefile_commands()
 
+        # And the reduction the assertion above actually runs against. `restore-drill` is
+        # a real target with a real recipe that `make check` does not reach, so it is the
+        # control for the narrowing: if `_commands_reachable_from` ever degrades into "the
+        # whole file", this line is what notices.
+        assert "scripts.restore_drill" in self._makefile_commands()
+        assert "scripts.restore_drill" not in self._commands_reachable_from("check")
+
         raw = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
         assert "Guardrail: engine isolation" in raw, "the CI step name this control keys on moved"
         assert "Guardrail: engine isolation" not in self._workflow_commands()
+
+    def _workflow_steps(self) -> list[dict[str, Any]]:
+        """Every step of every job, parsed. `_workflow_commands` above answers "what runs";
+        this answers "under what condition", which is the half a `run:` string cannot."""
+        import yaml
+
+        document = yaml.safe_load(
+            (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        )
+        return [
+            step
+            for job in document["jobs"].values()
+            for step in job.get("steps", [])
+            if isinstance(step, dict)
+        ]
+
+    def test_no_guardrail_step_is_skipped_by_an_earlier_failure(self) -> None:
+        """A CI step with no `if:` does not run once anything before it has failed.
+
+        THIS IS A REGISTRATION THAT IS NOT AN ENFORCEMENT, and it is invisible from every
+        green run — which is why it survived. The guardrail steps are a flat sequence of
+        thirty in one job, each one an independent question about the tree, so the whole
+        point of `if: ${{ !cancelled() }}` is that ONE red guard still lets the other
+        twenty-nine report. A step that omits it is skipped by the first failure above it,
+        and the later it sits the less often it runs at all: `check_deploy_workflow` was
+        thirtieth and was the one that shipped without the condition, so it could only ever
+        run on a build that was already green.
+
+        `always()` is deliberately NOT accepted in its place. It also runs after a
+        CANCELLATION — a queued job the author superseded with a new push — which spends a
+        runner on a verdict nobody is waiting for and, on a cancelled deploy-adjacent run,
+        reports a failure about a commit nobody is looking at.
+        """
+        # `python -m scripts.check_...`, not a bare `scripts.check_`: the `Tests` step
+        # names `check_coverage_ratchet` as a pytest PLUGIN (`-p`), which is the suite
+        # recording its own provenance rather than a guardrail reaching a verdict — and
+        # that step is deliberately unconditional, since a suite run after a failed
+        # migration measures nothing.
+        offenders = [
+            step.get("name")
+            for step in self._workflow_steps()
+            if (
+                "python -m scripts.check_" in str(step.get("run", ""))
+                or "lint-imports" in str(step.get("run", ""))
+            )
+            and "!cancelled()" not in str(step.get("if", ""))
+        ]
+        assert offenders == [], (
+            f"{offenders} run a guardrail without `if: ${{{{ !cancelled() }}}}`, so each is "
+            "SKIPPED whenever any earlier step in the job failed. A guard that only runs "
+            "on an already-green build is registered, not enforced."
+        )
+
+    def test_the_condition_control_can_still_see_an_unconditional_step(self) -> None:
+        """The test above is an emptiness assertion, so it passes if the step scan returns
+        nothing. The setup steps are the control: `Install dependencies` MUST stay
+        unconditional (a job whose dependencies did not install has nothing to say), so its
+        presence proves the scan reads `if:` rather than inventing one."""
+        unconditional = [step.get("name") for step in self._workflow_steps() if "if" not in step]
+        assert "Install dependencies" in unconditional
+        assert len(self._workflow_steps()) > 30
+
+    def test_every_guardrail_script_has_negative_controls(self) -> None:
+        """Every catalogue row ends "Negative controls in tests/..." and nothing checked it.
+
+        This whole file exists because a guardrail that has stopped seeing violations is
+        worse than none — and a guardrail with no test at all cannot be shown to see one.
+        The scan is for the module NAME anywhere under `tests/`, which is deliberately
+        generous: how a guard is exercised is the author's call, but a guard no test names
+        is one nobody can weaken and find out.
+        """
+        import re
+
+        blob = "\n".join(
+            path.read_text(encoding="utf-8", errors="ignore")
+            for path in sorted((REPO_ROOT / "tests").rglob("*.py"))
+        )
+        assert len(blob) > 100_000, "the tests scan is reading the wrong place"
+        untested = [
+            path.stem
+            for path in sorted((REPO_ROOT / "scripts").glob("check_*.py"))
+            if not re.search(rf"\b{re.escape(path.stem)}\b", blob)
+        ]
+        assert untested == [], (
+            f"{untested} are named by no file under tests/. Every row of the guardrail "
+            "catalogue promises negative controls; a guard with none is a green line "
+            "nobody can prove still means anything. Import it and assert on its own "
+            "functions, the way every class above this one does."
+        )
+
+    def test_the_job_that_runs_pytest_installs_what_the_tests_import(self) -> None:
+        """A CI job whose dependency install is narrower than what its tests import.
+
+        `uv sync --all-packages` does NOT install optional dependency groups, and
+        `tests/observability_security_test.py` imports `sentry_sdk` at module scope to pin
+        the scrubber that keeps transcripts and caller names out of the error tracker
+        (hard rule 6). The `types` job already passed `--group errors` for mypy's sake —
+        CLAUDE.md explains why — and the job that RUNS THE TESTS did not.
+
+        WHY IT WAS INVISIBLE HERE AND RED THERE: a development machine has the group
+        installed, so the module imports and the suite is green locally. CI installs from
+        the lockfile and hit `ModuleNotFoundError` at COLLECTION, which the coverage
+        ratchet then reported as REFUSED TO SCORE — sending the reader to hunt a code
+        defect that did not exist. An environment difference wearing a gate's error
+        message is the worst kind, because the message is about something else entirely.
+
+        The rejected fix is worth recording: skipping the module when the import fails
+        would have made CI green while leaving a PII scrubber unexercised in the one
+        environment that gates a merge. Install the dependency; never silence the guard.
+
+        FAILS IF: the pytest job's install stops requesting the group.
+        """
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        installs = [
+            line.strip()
+            for line in workflow.splitlines()
+            if "uv sync" in line and not line.lstrip().startswith("#")
+        ]
+        assert installs, "no `uv sync` line found — this scan is reading the wrong file"
+        assert all("--group errors" in line for line in installs), (
+            "a CI job installs dependencies without `--group errors`, so a test module "
+            "importing an optional dependency fails at collection there while passing on "
+            "any machine that happens to have it: " + " | ".join(installs)
+        )
 
     def test_make_check_runs_what_ci_runs(self) -> None:
         """CI is the authority; the Makefile is the local mirror. Every backend command

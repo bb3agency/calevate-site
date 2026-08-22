@@ -33,7 +33,7 @@ Raw vendor payloads are written by `archive_payload()` — once per completed ca
 post-call pipeline — and they contain phone numbers and
 transcript text. **No `retention_policies` category covers them** (the enum is
 `recording|transcript|lead|consent_log`), so this bucket rule remains their only clock and
-the number below is still a decision a human owes (§5, item 5). What changed in D-126 is the
+the number below is still a decision a human owes (§5, item 6). What changed in D-126 is the
 other half: the key was `engine-payloads/{engine}/{date}/{execution_id}.json`, naming
 neither a tenant nor a subject, so no DPDP erasure could ever enumerate one person's
 copies. It is now `engine-payloads/{tenant}/{call}/…` and
@@ -129,15 +129,77 @@ written. Do not assume any of it works.
    entirely. That line is corrected; nothing in this directory names a provider.
    Pin which store is live before applying anything. **No bucket
    name or account ID appears anywhere in this directory**; every one is a variable.
-2. **Verify the store actually supports these rules.** "S3-compatible expiration" is not
+2. **Create the bucket with an explicit LOCATION HINT of `apac`, and do it at the FIRST
+   creation of the name — there is no second chance** (D-450). R2 takes an optional
+   location hint at `CreateBucket`; with none, R2 places the bucket near wherever the
+   `CreateBucket` request came from. That is the real argument, and it is not latency: with
+   no hint, the permanent home of every Indian call recording becomes a property of which
+   laptop and which VPN exit somebody happened to be on the afternoon they clicked the
+   button. `apac` makes it a decision.
+
+   **It is one-shot with no undo.** The vendor's own documentation: *"Location Hints are
+   only honored the first time a bucket with a given name is created. If you delete and
+   recreate a bucket with the same name, the original bucket's location will be used."*
+   Deleting and recreating does NOT re-roll it — the only fix is a bucket with a DIFFERENT
+   name, which means copying every object and re-applying this directory's lifecycle policy
+   to the new one. Deciding it now costs nothing; deciding it after the first recording is
+   a migration.
+
+   Both production buckets are this decision, separately and one-shot each:
+
+   | Bucket | What it holds | Hint |
+   |---|---|---|
+   | recordings/payloads (`OBJECT_STORE_BUCKET`) | call audio, archived vendor payloads, exports, CRM delivery bodies | `apac` |
+   | wal-g backup (`infra/backup/README.md` §8 step 1) | PostgreSQL base backups and WAL segments | `apac` |
+
+   Fixing only the first leaves the database backups — which contain every phone number,
+   transcript and lead row in the product — placed by accident. Both ends of both buckets
+   are India-side: the workers writing them run on the Indian VPS (D-180), the dashboard
+   users reading recordings back through presigned URLs are in India, and wal-g pushes and
+   restores from that same host. The hint carries no price: R2's published rates have no
+   location dimension and egress is free, so this is a placement choice and not a cost one.
+   **The Azure move to `eastus2` does not touch this and must not be read as touching it**:
+   no LLM leg reads or writes object storage — `apps/api/crm/assist.py` and
+   `apps/workers/extraction.py` take the transcript from the database — so the model region
+   and the bucket region are independent choices.
+
+   Spelling, because the vendor's own page is inconsistent about it: the hint TABLE is
+   lowercase (`wnam | enam | weur | eeur | apac | oc`) and the S3-API example passes
+   `LocationConstraint: "WNAM"` in uppercase. The dashboard route ("Create bucket" →
+   **Location** → choose a region instead of leaving *None*) avoids the question, and is
+   the recommended way to do this once.
+
+   **A HINT IS PLACEMENT, NOT RESIDENCY, AND NOTHING MAY BE WRITTEN AS IF IT WERE.** The
+   hint is documented as *"a best effort and not a guarantee"*. R2's guaranteed-residency
+   feature is a different one — Jurisdictional Restrictions — and the supported
+   jurisdictions are `eu`, `fedramp` and `us`. **There is no India jurisdiction, and
+   Singapore is not India.** Do not soften anything in `apps/web/src/lib/legal/` on the
+   strength of this hint. Note also that no client-facing page may name a CITY: the vendor
+   documents `apac` as "Asia-Pacific" and never says which datacentre, so "Singapore" is an
+   inference of ours, not a vendor fact.
+
+   ⚠ **EVIDENCE CLASS — confirm this before you create the bucket, not after.**
+   `developers.cloudflare.com` is egress-blocked in the environment that wrote this, so the
+   sentences quoted above were read from the vendor's own documentation SOURCE repository,
+   which is public and reachable:
+   `https://raw.githubusercontent.com/cloudflare/cloudflare-docs/production/src/content/docs/r2/reference/data-location.mdx`
+   (fetched 22 Aug 2026; hints table at lines 60-66, the one-shot sentence at line 69, the
+   jurisdiction table at lines 142-146; sha256 of the file as fetched
+   `2efcd824885ced99e92acc11946d9a48411724cfcf07b0e3d9daae8e59e5e60c`). That is the vendor's
+   text but not the vendor's rendered page, and it is the moving `production` branch rather
+   than a pinned commit, so **open the rendered page in a browser and re-read those three
+   facts before clicking Create bucket.** If any of them has moved, this item is the thing
+   to fix, and it must be fixed while the name still does not exist.
+
+3. **Verify the store actually supports these rules.** "S3-compatible expiration" is not
    one thing. R2, DO Spaces and MinIO each implement a subset of S3's lifecycle grammar
    (tag-based filters, notably, are not portable; this policy deliberately uses prefixes
    only). Also confirm how the store treats `Filter: {"Prefix": ""}` for the abort-MPU
    rule — some implementations want the filter omitted entirely.
-3. **Run the runbook**, not the script from memory: `runbooks/object-lifecycle.md`. It
+4. **Run the runbook**, not the script from memory: `runbooks/object-lifecycle.md`. It
    starts with the SQL that produces `--max-tenant-ttl-days`, which the guards need and
    which must not be guessed.
-4. **Validate the Terraform.** `terraform init` and `terraform validate` were **never
+5. **Validate the Terraform.** `terraform init` and `terraform validate` were **never
    run** on `infra/terraform/` — `registry.terraform.io` was blocked by egress policy, so
    no provider schema was ever downloaded and **no resource attribute has been checked
    against a real provider**. `terraform fmt -check` passes and the config parses, which
@@ -147,8 +209,8 @@ written. Do not assume any of it works.
    The Cloudflare provider's native R2 lifecycle resource may be the better long-term
    home; it was not used because its schema could not be verified here, and a resource
    nobody has checked is worse than one everybody knows.
-5. **Decide the `engine-payloads/` number** (§3) and record it in the decision log.
-6. **Do not certify a deletion from an expiry date.** Expiry is asynchronous on every
+6. **Decide the `engine-payloads/` number** (§3) and record it in the decision log.
+7. **Do not certify a deletion from an expiry date.** Expiry is asynchronous on every
    S3-compatible store: the rule makes an object *eligible* for deletion after N days;
    the store removes it on its own schedule afterwards. The DPDP proof JSON must never
    claim a byte-level deletion timestamp it got from a lifecycle rule.
@@ -156,7 +218,7 @@ written. Do not assume any of it works.
 ## 6. Verifying without credentials
 
 ```
-uv run pytest tests/object_lifecycle_test.py           # 12 checks, no network, no creds
+uv run pytest tests/object_lifecycle_test.py           # 15 checks, no network, no creds
 uv run python infra/object-lifecycle/apply_lifecycle.py --max-tenant-ttl-days <N>
 terraform -chdir=infra/terraform fmt -check
 ```

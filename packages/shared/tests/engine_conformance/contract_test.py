@@ -132,7 +132,7 @@ class _DialFields(TypedDict, total=False):
     before that flag was set nothing anywhere would have caught it.
 
     Typed this way (PEP 692) the helper's contract is stated rather than implied: these
-    four are `CallContext`'s scalar prompt inputs, `total=False` because every case sets a
+    three are `CallContext`'s scalar prompt inputs, `total=False` because every case sets a
     different subset, and a typo like `lead_nmae=` is now an error at the call site instead
     of a silently-dropped kwarg that leaves the assertion passing against an empty context.
     """
@@ -140,7 +140,6 @@ class _DialFields(TypedDict, total=False):
     lead_id: str
     lead_name: str
     context_note: str
-    prior_call_summary: str
 
 
 def _dial_context(

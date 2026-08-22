@@ -59,6 +59,17 @@ export const agentKeys = {
   archived: (org: string) => ["agents-archived", org] as const,
   stats: (org: string) => ["agent-stats", org] as const,
   one: (org: string, agentId: string) => ["agent", org, agentId] as const,
+  /**
+   * EVERY agent detail row this org has cached — the PREFIX of `one`.
+   *
+   * For the invalidations that cannot name an id because the change was not about one
+   * agent: moving the organisation's default model (`lib/api/llmModels.ts`) changes
+   * `llm_model_effective` on every agent that is inheriting it, and the mutation has no
+   * list of which those are. Spelled here rather than as a bare `["agent", org]` at the
+   * call site, because a second copy of a cache key is how two of four callers end up
+   * refreshing and two do not.
+   */
+  allDetails: (org: string) => ["agent", org] as const,
 };
 
 /**

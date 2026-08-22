@@ -2,9 +2,13 @@
 
 > ⚠ **HISTORICAL. The VENDOR in this plan is superseded — D-410 (19 Aug 2026) moved both
 > LLM surfaces to Azure OpenAI South India and removed Gemini and Vertex from the product,
-> along with BRD R-04's 16 Oct 2026 retirement date.** Everything this plan says about
-> REDACTION, the G-1..G-7 rules, the residency doctrine and the hardening parts still
-> binds; read "Gemini on Vertex `asia-south1`" throughout as "Azure OpenAI `southindia`",
+> along with BRD R-04's 16 Oct 2026 retirement date; **D-449 (22 Aug 2026) then moved the
+> REGION to `eastus2` and withdrew the India warranty entirely.** Everything this plan says
+> about REDACTION and the G-1..G-7 rules still binds unchanged — they are rules about what
+> leaves this system, not about where it lands, which is why they are the part of this plan
+> D-449 does not touch. **Its RESIDENCY doctrine is historical**: read it as the reasoning
+> that produced D-127 and D-410, not as a live claim. Read "Gemini on Vertex `asia-south1`"
+> throughout as "Azure OpenAI `eastus2`",
 > and read Part 17's in-call question as answered by D-400/D-404 and then re-answered by
 > D-410. The document is kept as written for the same reason the paragraph below gives.
 

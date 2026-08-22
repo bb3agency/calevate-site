@@ -70,7 +70,7 @@ A blank measured cell means NOT MEASURED. It is never zero: a zero here becomes 
 | Platform fee (BYOK) | unpublished; target <= ~INR 1.5/min | _not measured_ | — |
 | Sarvam Saaras V3 STT | INR 0.50/min | _not measured_ | — |
 | Sarvam Bulbul V3 TTS | INR 0.90-1.40/min (beta pricing) | _not measured_ | — |
-| LLM | gpt-4o-mini INR 0.1021 (1 min) - 0.2411 (10 min); gpt-4.1-mini INR 0.2734 (1 min) - 0.6457 (10 min) on Azure OpenAI southindia (D-410, where an Azure resource, key and deployment are configured); INR 0.00 on the Sarvam 105B fallback (D-36). Which model runs is `azure_openai_model`, a live switch | _not measured_ | — |
+| LLM | gpt-4o-mini INR 0.1021 (1 min) - 0.2411 (10 min); gpt-4.1-mini INR 0.2734 (1 min) - 0.6457 (10 min) on Azure OpenAI eastus2 (D-410, where an Azure resource, key and deployment are configured); INR 0.00 on the Sarvam 105B fallback (D-36). Which model runs is `azure_openai_model`, a live switch | _not measured_ | — |
 | Telephony | INR 0.35-0.50/min | _not measured_ | — |
 | Built-in KB | INR 0 - INFERRED included in the platform fee (D-33) | _not measured_ | — |
 | All-in | target INR 3.0-3.6/min | _not measured_ | — |

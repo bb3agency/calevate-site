@@ -218,6 +218,73 @@ def test_it_refuses_when_the_host_scan_goes_blind(sandbox: Any, tmp_path: Path) 
     assert any("host-alarm scan matched NOTHING" in f for f in failures)
 
 
+def test_a_row_whose_stage_disagrees_with_the_call_fails(sandbox: Any, tmp_path: Path) -> None:
+    """The index's own first instruction is "read the stage first", and until this check
+    existed nothing compared that cell to anything. `calls_never_finished` was documented
+    `WORKER_TERMINAL` and raised `WORKER_STALL` — a row that told an operator retries were
+    exhausted about an alarm meaning work was stuck.
+    """
+    sandbox()
+    _tree(
+        tmp_path,
+        alarms=_ONE_ALARM + _METRIC,
+        index_rows="| `thing_broke` | WORKER_STALL | it broke | fix it |\n" + _HOST_ROW,
+        metrics=_METRIC_ROW,
+    )
+    failures = guard.evaluate()
+    assert any("WRONG STAGE" in f and "thing_broke" in f and "CORE_LOGIC" in f for f in failures), (
+        failures
+    )
+
+
+def test_one_code_raised_at_two_stages_fails(sandbox: Any, tmp_path: Path) -> None:
+    """A row carries ONE stage cell, so two call sites disagreeing about the stage make
+    the row false whichever value it holds. Caught here rather than picking a winner: the
+    fix is a decision (one stage, or two codes) and not something a guard may make."""
+    sandbox()
+    _tree(
+        tmp_path,
+        alarms=(
+            "from x import alert\n\n\ndef go() -> None:\n"
+            '    alert("CORE_LOGIC", "thing_broke")\n'
+            '    alert("WORKER_STALL", "thing_broke")\n' + _METRIC
+        ),
+        index_rows=_ROW + _HOST_ROW,
+        metrics=_METRIC_ROW,
+    )
+    failures = guard.evaluate()
+    assert any("TWO STAGES, ONE ROW" in f and "thing_broke" in f for f in failures), failures
+
+
+def test_a_row_with_no_readable_stage_fails(sandbox: Any, tmp_path: Path) -> None:
+    """The blank-cell case, which the comparison above cannot reach: with nothing in
+    column 2 there is nothing to disagree with, and the row would otherwise pass every
+    question this guard asks while telling an operator nothing about where to start."""
+    sandbox()
+    _tree(
+        tmp_path,
+        alarms=_ONE_ALARM + _METRIC,
+        index_rows="| `thing_broke` |  | it broke | fix it |\n" + _HOST_ROW,
+        metrics=_METRIC_ROW,
+    )
+    failures = guard.evaluate()
+    assert any("NO STAGE" in f and "thing_broke" in f for f in failures), failures
+
+
+def test_the_stage_scan_still_reads_the_real_tree(sandbox: Any, tmp_path: Path) -> None:
+    """The wiring half. Every assertion above is about a doctored tree, so a stage scan
+    that had stopped resolving anything would satisfy all three by finding nothing to
+    disagree with. This one asserts against the REAL repo that the scan still resolves a
+    stage for most codes — and names the shapes it legitimately cannot."""
+    _, stages, failures = guard.raised_codes()
+    assert failures == []
+    assert len(stages) > 50, (
+        "the stage scan resolves a stage for almost nothing — `alert(stage, code)` or "
+        "`ProblemError(failure_stage=...)` changed shape and the comparison went blind"
+    )
+    assert set(stages) <= set(guard.documented_codes())
+
+
 def test_the_exemption_reverifies_itself(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`DYNAMIC_ALERT_SITES` is the one place this guard could be lied to. An entry
     claiming a code the file no longer contains would keep an index row alive for a page

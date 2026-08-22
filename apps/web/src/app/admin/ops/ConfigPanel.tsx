@@ -175,7 +175,7 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     // credential in BOLNA's console, so an operator correcting it is working on the
     // engine's side of the seam, not ours.
     title: "Language model",
-    hint: "Which Azure OpenAI resource and deployment answer, in South India (D-410).",
+    hint: "Which Azure OpenAI resource and deployment answer, in East US 2 (D-449).",
     prefixes: ["azure_openai_"],
   },
   {

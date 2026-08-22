@@ -12,6 +12,7 @@ import {
   StatTile,
   formatCount,
   formatINR,
+  formatRupeeRate,
 } from "@/components/ui";
 import {
   MAX_TOPUP_INR,
@@ -44,8 +45,8 @@ import type { Session } from "@/lib/api/client";
  * (`billing/service.py::rate_to_display` — "a RATE is not a rupee amount and must not be
  * rounded like one"). `formatINR` keeps exactly two decimals, so putting ₹7.1250/min
  * through it would print ₹7.12 and break the only arithmetic a client ever does on an
- * invoice line: qty × unit = amount. Rates therefore render through `rupeeRate`, which
- * prefixes the ₹ and touches nothing else.
+ * invoice line: qty × unit = amount. Rates therefore render through `formatRupeeRate`
+ * (components/ui.tsx), which prefixes the ₹ and touches nothing else.
  *
  * ## What changed in the design pass, beyond colour
  *
@@ -174,8 +175,8 @@ export default function UsagePage() {
                    null when the plan quotes a single rate — which is most plans — and the
                    hint reads exactly as it always did in that case. */
                 data.overage_rate_value_inr === null
-                  ? `${rupeeRate(data.overage_rate_inr)} per extra minute`
-                  : `${rupeeRate(data.overage_rate_inr)}/min premium voice, ${rupeeRate(
+                  ? `${formatRupeeRate(data.overage_rate_inr)} per extra minute`
+                  : `${formatRupeeRate(data.overage_rate_inr)}/min premium voice, ${formatRupeeRate(
                       data.overage_rate_value_inr,
                     )}/min value voice`
               }
@@ -187,7 +188,7 @@ export default function UsagePage() {
               <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
               {data.overage_rate_value_inr === null ? (
                 <Row
-                  label={`Extra usage (${data.overage_minutes} min × ${rupeeRate(data.overage_rate_inr)})`}
+                  label={`Extra usage (${data.overage_minutes} min × ${formatRupeeRate(data.overage_rate_inr)})`}
                   value={formatINR(data.overage_cost_inr)}
                 />
               ) : (
@@ -198,11 +199,11 @@ export default function UsagePage() {
                    with the invoice is a support ticket. */
                 <>
                   <Row
-                    label={`Extra usage, premium voice (${data.overage_minutes_premium} min × ${rupeeRate(data.overage_rate_inr)})`}
+                    label={`Extra usage, premium voice (${data.overage_minutes_premium} min × ${formatRupeeRate(data.overage_rate_inr)})`}
                     value={`${data.overage_minutes_premium} min`}
                   />
                   <Row
-                    label={`Extra usage, value voice (${data.overage_minutes_value} min × ${rupeeRate(data.overage_rate_value_inr)})`}
+                    label={`Extra usage, value voice (${data.overage_minutes_value} min × ${formatRupeeRate(data.overage_rate_value_inr)})`}
                     value={`${data.overage_minutes_value} min`}
                   />
                   <Row label="Extra usage total" value={formatINR(data.overage_cost_inr)} />
@@ -262,18 +263,6 @@ export default function UsagePage() {
  */
 function hasNonZeroDigit(value: string): boolean {
   return /[1-9]/.test(value);
-}
-
-/**
- * A per-minute RATE, at the precision the server sent it.
- *
- * Not `formatINR`: that keeps exactly two decimals, and `overage_rate_inr` is
- * NUMERIC(12,4) which a plan may legitimately quote as ₹7.1250/min. Printing ₹7.12
- * beside "× 20 min = ₹142.50" makes the invoice line fail the one check a client
- * performs on it. The digits are the server's; this only prefixes the symbol.
- */
-function rupeeRate(value: string): string {
-  return `₹${value}`;
 }
 
 /**

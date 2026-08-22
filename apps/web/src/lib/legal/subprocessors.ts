@@ -36,7 +36,7 @@ export const SUBPROCESSORS: LegalDocument = {
           kind: "para",
           text:
             "A sub-processor is a company we engage to process personal data as part of " +
-            "delivering the service. Under clause 6 of the Data Processing Addendum, this " +
+            "delivering the service. Under clause 5 of the Data Processing Addendum, this " +
             "page is the authorised list, and it is the list we notify changes against.",
         },
         {
@@ -78,7 +78,8 @@ export const SUBPROCESSORS: LegalDocument = {
               detail:
                 "An alternative kept ready in case the primary choice fails. Nothing has " +
                 "been sent to it and no account exists. If one is ever adopted, that is a " +
-                "change to this page and is notified under clause 6 of the DPA.",
+                "change to this page and is notified under clause 5 of the Data " +
+                "Processing Addendum.",
             },
           ],
         },
@@ -121,19 +122,29 @@ export const SUBPROCESSORS: LegalDocument = {
               "Microsoft — Azure OpenAI",
               "Both language-model legs: the model that holds the conversation during a " +
                 "call, and the dashboard assistant a client triggers from their own " +
-                "screen.",
+                "screen. A client may choose which of the models we run their agents " +
+                "use; every one of them is served by this vendor, from the same account " +
+                "resource and region, so the choice changes which model answers and not " +
+                "who processes or where (section 3.3).",
               "On the call leg, the conversation as it happens — everything the caller " +
                 "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
                 "transcript and the client's own configuration, never raw personal data. " +
                 "The two legs see very different things and are listed separately for " +
                 "that reason.",
-              "India — South India, by configuration. Read the caution below before " +
-                "relying on this: unlike our previous provider, the endpoint does not " +
-                "name its own region, so this is a setting we make and check by hand " +
-                "rather than one a build can prove.",
+              "United States — East US 2, by configuration. This cell has moved twice " +
+                "and both steps are kept rather than overwritten: until 19 August 2026 " +
+                "the language model ran on Google Cloud's Vertex AI in the asia-south1 " +
+                "region (Mumbai, India); from 19 August 2026 on this vendor's South " +
+                "India region; and since 22 August 2026 on this vendor's East US 2 " +
+                "region, in the United States. Read the caution below before relying " +
+                "on this: the endpoint does not name its own region, so this is a " +
+                "setting we make and check by hand rather than one a build can prove.",
               "Core. Until 19 August 2026 this row named Google Cloud's Vertex AI for the " +
                 "dashboard leg only; both legs moved to Microsoft on that date, and the " +
-                "in-call leg — which hears the caller — is new to this vendor.",
+                "in-call leg — which hears the caller — is new to this vendor. On " +
+                "22 August 2026 the region moved out of India; the vendor did not " +
+                "change, and neither did the speech provider or the first reading of " +
+                "your transcript, which are Indian and stay Indian.",
             ],
             [
               "Exotel · Vobiz · Plivo",
@@ -150,8 +161,14 @@ export const SUBPROCESSORS: LegalDocument = {
               "At the edge: every HTTP request, including IP addresses. In R2: call " +
                 "recordings, exports, the archived raw call documents, the bodies delivered " +
                 "to client CRMs, and database backup segments.",
-              "Global. R2 selects a storage location automatically and offers no India-only " +
-                "jurisdiction, so this data may be stored outside India.",
+              "Global. We ask R2 to place the bucket in its Asia-Pacific region. That " +
+                "is a preference Cloudflare honours where it can and not a residency " +
+                "commitment — R2 guarantees a jurisdiction only for the European Union, " +
+                "the United States, and United States government workloads, and offers " +
+                "no India-only jurisdiction — so this data is stored outside India and " +
+                "may be stored outside Asia. We do not name a city: Cloudflare " +
+                "documents this region only as Asia-Pacific and does not publish which " +
+                "datacentre serves it.",
               "Core.",
             ],
             [
@@ -159,9 +176,10 @@ export const SUBPROCESSORS: LegalDocument = {
               "Runs the application, the background workers and the PostgreSQL database.",
               "Everything held in the database: phone numbers, transcripts, summaries, lead " +
                 "records, account data.",
-              "{{PRIMARY_HOSTING_LOCATION}}. The blueprint does not require India " +
-                "co-location for this tier and nothing has been provisioned, so the " +
-                "location is a decision that must be taken and stated before launch.",
+              "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned " +
+                "yet, because no client data is in production. The blueprint does not " +
+                "require India co-location for this tier, which runs outside the live " +
+                "call path; it was chosen anyway.",
               "Core.",
             ],
             [
@@ -284,13 +302,17 @@ export const SUBPROCESSORS: LegalDocument = {
             {
               kind: "para",
               text:
-                "What this does NOT change: the speech provider is Indian and the language " +
-                "model runs in an Indian region, so the model inference itself does not " +
-                "leave the country — but the platform that orchestrates the call, holds " +
-                "the audio in flight and stores its copy of the recording and transcript " +
-                "sits outside it. Our own copy of the recording and transcript — the " +
-                "system of record, the one the product reads and the one our retention " +
-                "periods govern — is in the storage described in the register above.",
+                "What this does NOT change: the speech provider is Indian, on both call " +
+                "legs, and so is the first pass that reads your transcript and extracts " +
+                "the fields. What it no longer sits alongside is a language model in " +
+                "India. Until 22 August 2026 this paragraph said the model inference " +
+                "itself did not leave the country; since that date the language model " +
+                "runs in the United States, so both the platform that orchestrates the " +
+                "call and the model that answers on it are outside India. Section 3.2 " +
+                "says what moved and what we still promise about it. Our own copy of the " +
+                "recording and transcript — the system of record, the one the product " +
+                "reads and the one our retention periods govern — is in the storage " +
+                "described in the register above.",
             },
             {
               kind: "para",
@@ -308,38 +330,75 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "llm-residency",
-          heading: "3.2 What we can prove about where the language model runs, and what we cannot",
+          heading: "3.2 The language model is no longer in India, and what we still promise about it",
           blocks: [
             {
-              kind: "para",
+              kind: "callout",
+              tone: "warning",
+              title: "A claim we have withdrawn, not narrowed",
               text:
-                "Until 19 August 2026 the language model ran on an endpoint whose own " +
-                "address contained the Indian region it served, so a check in our build " +
-                "could read the region out of the code and fail the release if it were " +
-                "ever anything else. Our current provider's address contains no region " +
-                "at all: the region is a property of the account resource the address " +
-                "points at, not of the address. That is a genuinely weaker guarantee and " +
-                "we would rather you read it here than infer it later.",
+                "Until 22 August 2026 this page told you that the language model ran in " +
+                "an Indian region. That is no longer true and we are not going to keep " +
+                "the sentence alive with qualifiers: on that date the model region moved " +
+                "to East US 2, in the United States, and the claim that model inference " +
+                "happens in India is withdrawn. The vendor did not change and neither " +
+                "did anything else on this page. What replaced the claim is set out " +
+                "below, and it is a promise about our code rather than about a country.",
             },
             {
               kind: "para",
               text:
-                "What the build still proves: there is exactly one place in our code that " +
-                "can construct a model endpoint, it cannot produce a non-Indian region, " +
-                "the region is written once and is not a setting anyone can edit, and no " +
+                "Until 19 August 2026 the language model ran on an endpoint whose own " +
+                "address contained the region it served, so a check in our build could " +
+                "read the region out of the code and fail the release if it were ever " +
+                "anything else. Our current provider's address contains no region at " +
+                "all: the region is a property of the account resource the address " +
+                "points at, not of the address. That is a genuinely weaker guarantee " +
+                "than the one we could make in July, and it was weaker before the region " +
+                "moved — the two changes are separate and we would rather you read both " +
+                "here than infer either later.",
+            },
+            {
+              kind: "para",
+              text:
+                "What the build still proves, and it is the same shape as before: there " +
+                "is exactly one place in our code that can construct a model endpoint, " +
+                "it can produce only the single region our source declares, that region " +
+                "is written once and is not a setting anyone can edit, and no " +
                 "configuration field is allowed to carry a region or an endpoint at all. " +
-                "So no change to our software or our settings can move the language leg " +
-                "out of India without a code change that fails the build.",
+                "So no change to our software can move the language leg to a third " +
+                "country; only a reviewed change to the declared region can, " +
+                "and the build refuses that change until every other file in the tree " +
+                "agrees with it. What moved on 22 August 2026 is which region is named, " +
+                "not whether one is.",
+            },
+            {
+              kind: "para",
+              text:
+                "One thing that sentence does not cover, and we would rather write it " +
+                "than let you assume it away. The address our code builds names an " +
+                "account resource, and which resource it names is an operational " +
+                "setting of ours, not a line of code — so an operator pointing the " +
+                "service at a resource created in another region would move the " +
+                "processing without any check above failing. Nothing else about the " +
+                "region is machine-readable either, which is why the reading below is " +
+                "done by a person against that specific resource. We treat a move like " +
+                "that as a change of processing location, notified under clause 5 of " +
+                "the Data Processing Addendum before it takes effect, and not as a " +
+                "settings change that happens to have a consequence.",
             },
             {
               kind: "callout",
               tone: "warning",
               title: "Two facts a person confirms, not the build",
               text:
-                "First, that the provider account itself was created in the South India " +
-                "region. Second, that the model deployment inside it is the regional " +
-                "kind rather than the provider's global default, which would process " +
-                "requests wherever there is capacity in the world. Both are read from " +
+                "First, that the provider account itself was created in the East US 2 " +
+                "region — the same attestation as before, aimed at the new region. " +
+                "Second, that the model deployment inside it is the regional kind rather " +
+                "than the provider's global default, which would process requests " +
+                "wherever there is capacity in the world; that one is unchanged by the " +
+                "move and still matters, because a global deployment would put your " +
+                "callers' words in a country neither of us has named. Both are read from " +
                 "the provider's console by a person, dated and filed as evidence, and " +
                 "neither can be seen from the endpoint, from the response, or from any " +
                 "check we could write. We say so because a document that called this " +
@@ -349,17 +408,43 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "byok",
-          heading: "3.3 Model credentials, and what happens if you change them",
+          heading: "3.3 You can choose the model, and what that does not change",
           blocks: [
             {
               kind: "para",
               text:
-                "The speech and language models run under credentials the platform holds, " +
-                "against endpoints the platform pins. Changing which model an agent uses " +
-                "is a data-residency change and not a settings tweak, and it is treated as " +
-                "one: no model endpoint can be built anywhere in our code except through " +
-                "the single function described above, and the build refuses a release in " +
-                "which one is.",
+                "The speech and language models run under our own accounts with each " +
+                "provider, against endpoints our code pins — the voice platform holds " +
+                "those credentials to place the calls, which is what section 3.1 says " +
+                "forecloses that platform's own India routing.",
+            },
+            {
+              kind: "para",
+              text:
+                "You can choose which of the models we run your agents use, for your " +
+                "whole account or for a single agent, and the product shows a figure " +
+                "against each one. This section used to say that changing an agent's " +
+                "model was a data-residency change rather than a settings tweak. That " +
+                "was written when nobody but us could change it, and it is no longer " +
+                "the shape of the thing: every model on the list is served by the same " +
+                "vendor, from the same account resource, in the region named in the " +
+                "register, so your choice moves which model answers and moves nothing " +
+                "about who processes your callers' data or where. The region our code " +
+                "declares is a different kind of thing: it moves only by a reviewed " +
+                "change to that code, it is never a control on a screen — ours or " +
+                "yours — and the one setting that can still reach where processing " +
+                "happens is named in section 3.2 rather than left out of this " +
+                "comparison.",
+            },
+            {
+              kind: "para",
+              text:
+                "The figure beside each model is OUR cost of running that model, at the " +
+                "provider's published price, over a minute of a five-minute call. We " +
+                "publish it so a " +
+                "choice about quality is not made blind to price; it is not a charge, " +
+                "and nothing about your bill changes when you switch models. Clause 6.1 " +
+                "of the Terms of Service is what you actually pay.",
             },
           ],
         },
@@ -375,10 +460,25 @@ export const SUBPROCESSORS: LegalDocument = {
             "We will give clients at least 30 days' notice by email before a new " +
             "sub-processor starts processing their data, or before an existing one moves " +
             "to a materially different location. A client who reasonably objects on data " +
-            "protection grounds may raise it with us under clause 6 of the Data " +
+            "protection grounds may raise it with us under clause 5 of the Data " +
             "Processing Addendum, and if we cannot find a workaround they may terminate " +
             "the affected part of the service without penalty for the remainder of the " +
             "term.",
+        },
+        {
+          kind: "para",
+          text:
+            "The move of the language model from South India to East US 2 on 22 August " +
+            "2026 is exactly the event that sentence describes: an existing " +
+            "sub-processor moving to a materially different location. It cost nothing, " +
+            "and the only reason it cost nothing is that no client account is live, so " +
+            "there was nobody owed 30 days' notice and nobody with a right to object. " +
+            "We would rather write that than let the change look free. Once the first " +
+            "client is live, the same move would have to be notified by email 30 days " +
+            "before it took effect, a client could object on data-protection grounds, " +
+            "and if we could not offer them a workaround they could terminate the " +
+            "affected part of the service without penalty — which is the cost this " +
+            "clause is for, and the reason a region is not a thing we change casually.",
         },
         {
           kind: "para",

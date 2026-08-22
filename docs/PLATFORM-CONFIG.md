@@ -56,9 +56,19 @@ then beat it if you can).
 - **Infisical** (MIT, Postgres + Redis, free ≤5 identities, self-hostable) — the closest
   call, and the one to revisit if we ever run more than one environment or more than two
   operators. Same objection: a second deployable, plus Redis and Postgres of its own.
-- **Doppler / cloud KMS SaaS** — data residency. D-36 chose an all-India model stack; a
-  US-hosted KMS holding the key that unlocks every Indian client's vendor credentials is
-  a strange place to give that up.
+- **Doppler / cloud KMS SaaS** — a second vendor holding the key that unlocks every
+  client's vendor credentials, and a second deployable's worth of failure modes with it.
+  ⚠ **THE RESIDENCY HALF OF THIS OBJECTION IS SPENT AND THE ROW SAYS SO RATHER THAN
+  KEEPING A REASON THAT EVAPORATED.** It read *"D-36 chose an all-India model stack; a
+  US-hosted KMS ... is a strange place to give that up"* — true when the language leg was
+  Indian, and false since **D-449** moved it to Azure OpenAI `eastus2` and WITHDREW the
+  India warranty. Speech is still Sarvam and still Indian, but "we keep everything in
+  India anyway" is not an argument this repository may make any more. **The rejection is
+  unchanged on the grounds above**: it is a new sub-processor on the one secret that
+  unlocks all the others, on a one-VPS estate that CLAUDE.md tells us to answer with
+  Postgres first. Recorded rather than quietly re-justified, because a decision whose
+  stated reason evaporates and keeps its conclusion is the shape that needs re-arguing
+  out loud (the same discipline D-451 applied to its own priority letter).
 
 **What we build instead:** envelope encryption inside our own Postgres, which is the
 "boring solutions: Postgres before new infra" answer and the same shape the vendors

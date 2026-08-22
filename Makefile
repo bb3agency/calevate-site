@@ -262,21 +262,41 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	uv run python -m scripts.check_config_applies
 	# The SAME doctrine as the two above, on the value whose change is a compliance event
 	# rather than an outage: the model region is a `Final` constant (`AZURE_LOCATION`,
-	# `southindia`) rather than a console field, and no Azure endpoint is constructible
-	# outside `azure_openai_base_url()` (D-410, superseding D-127's Vertex form).
+	# `eastus2` under D-449's declared posture `us-azure-openai`) rather than a console
+	# field, and no Azure endpoint is constructible outside `azure_openai_base_url()`
+	# (D-410, superseding D-127's Vertex form; D-449 moved the region).
+	#
+	# THIS COMMENT NAMED `southindia` AND "South India" UNTIL D-449 — the third time this
+	# repo has left a region code behind in a label after moving the leg, and the reason
+	# ci.yml's step NAME now carries the decision number: a stale region here sends whoever
+	# reads it to a promise this product has withdrawn. D-449 is not a narrowing. There is
+	# no India residency claim about the language leg at all.
 	#
 	# WHAT IT NO LONGER PROVES, because a green line here would otherwise be read as the
 	# old promise: Vertex put the region in the hostname AND the path, so the guard could
 	# prove from the AST where traffic went. `<resource>.openai.azure.com` names no
 	# region — it is a property of the Azure RESOURCE. This step now proves there is no
-	# CODE PATH to change the destination without editing one frozen constant; that the
-	# resource is really in South India, and that its deployment is Regional Standard
-	# rather than Global, are attested by a human at OPERATIONS §2 gates 20 and 20c. The
+	# CODE PATH to change the destination without editing one frozen constant, and that
+	# the one region spelled in the tree is the declared posture's; that the resource is
+	# really in East US 2, and that its deployment is Regional Standard rather than
+	# Global, are attested by a human at OPERATIONS §2 gates 20 and 20c. The
 	# script prints both caveats on every run, pass or fail. Needs
 	# no network and no credential; it is decidable from syntax. `extraction.py`'s AI
 	# Studio URL is a dated, self-expiring allowance IN the script, not a skip. Negative
 	# controls, including a doctored `us-central1` tree, in tests/model_residency_guard_test.py.
 	uv run python -m scripts.check_model_residency
+	# WHERE the model runs is the check above; WHEN it stops answering is this one. The
+	# allow-list carried no lifecycle at all — D-410 deleted `GEMINI_DEFAULT_LLM_RETIRES`
+	# and read the absence of a dated constant as a benefit, but Gemini's DATE left with
+	# Gemini and the class of problem (a rented model on a vendor's clock) arrived at
+	# Azure unchanged. Every model in `AZURE_OPENAI_MODELS` now declares a retirement date
+	# and a deployment-type constraint with the SOURCE and the DATE IT WAS READ
+	# (`calevate_shared/model_lifecycle.py`); this fails when one is past its date or when
+	# nothing in the list outlives the 120-day lead, warns inside it, and REFUSES (exit 2)
+	# when the allow-list, the table or a filed portal attestation cannot be read — a
+	# guard that cannot see its own subject must never print OK. Needs no network and no
+	# credential. Negative controls in tests/model_lifecycle_guard_test.py.
+	uv run python -m scripts.check_model_lifecycle
 	# `audit_log.ip` records the CALLER. Eighty handlers used to read the socket peer
 	# inline — behind nginx that is our own edge — so SEC-COMP §5's fourth field was
 	# satisfied in shape only on every audited route. Syntax-decidable; the one

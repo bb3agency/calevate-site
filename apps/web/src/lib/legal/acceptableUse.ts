@@ -30,7 +30,8 @@ export const ACCEPTABLE_USE: LegalDocument = {
           kind: "para",
           text:
             "This policy applies to everything you do with Calevate. Breaching it is a " +
-            "breach of the Terms of Service, and clause 6 sets out what we do about it.",
+            "breach of the Terms of Service, and clause 5 of this policy sets out what " +
+            "we do about it.",
         },
         {
           kind: "callout",
@@ -271,8 +272,14 @@ export const ACCEPTABLE_USE: LegalDocument = {
               text:
                 "Whether the disclosure line was actually spoken is measured against each " +
                 "call's transcript and shown on the call record, so you have evidence " +
-                "either way. If a caller declines recording, recording stops, the call " +
-                "continues, and the refusal is recorded on an immutable ledger.",
+                "either way. What you do NOT have, and this paragraph claimed until " +
+                "22 August 2026: a caller declining recording does not stop the " +
+                "recording. Nothing in the product can stop one mid-call, and the voice " +
+                "platform reports no per-call recording decision, so a decline is " +
+                "something your agent hears and you act on — not a control the platform " +
+                "operates for you. Every call an agent handles is recorded, the agent " +
+                "says so when asked, and a caller who wants the audio gone is an erasure " +
+                "request you can run from your own screen.",
             },
           ],
         },

@@ -27,6 +27,15 @@ Nothing below can be improvised, and each is somebody else's to provide:
 - [ ] `calevate.tech` in a Cloudflare account you control.
 - [ ] Cloudflare R2: a recordings bucket, **and a separate backup bucket with its own
       scoped token**. One token must not be able to do both jobs (DEPLOYMENT §7).
+      **Create each one with an explicit LOCATION HINT of `apac` — there is no second
+      chance** (D-450). R2 honours a hint only at the FIRST creation of a bucket NAME and
+      reuses the original placement if you delete and recreate it, so the only undo is a
+      bucket with a DIFFERENT name plus a copy of every object. Left unset, the permanent
+      home of every Indian call recording — and of the database backups, which hold every
+      phone number and transcript in the product — becomes a property of which VPN exit
+      you happened to be on. In the dashboard it is "Create bucket" → **Location** →
+      choose a region instead of leaving *None*. The full argument, both buckets, and why
+      a hint is placement and NOT residency: `infra/README.md` §5 item 2.
 - [ ] A **non-Cloudflare** offsite target for the nightly dump — B2, S3 or a Hetzner
       Storage Box. The edge and the WAL archive are already the same vendor; this copy is
       the one that survives a Cloudflare account event.
@@ -34,7 +43,17 @@ Nothing below can be improvised, and each is somebody else's to provide:
       `PLATFORM_KEK`, the two Postgres role passwords, `AUDIT_CHAIN_SECRET`,
       `IDEMPOTENCY_SCOPE_SECRET`, `IMPERSONATION_GRANT_SECRET`.
 - [ ] (Optional, but alerts reach nobody without it) a Resend account with a **verified
-      sender domain**, and a Sentry project DSN.
+      sender domain**, and a Sentry project DSN. **If the Sentry ORGANISATION does not
+      exist yet, choose its region deliberately rather than accepting the default**
+      (D-451, OPERATIONS §2 gate 38): Sentry runs two and only two data regions — US
+      (Iowa) and EU (Frankfurt), no India — the choice is made at organisation creation,
+      it is baked into the DSN host (`o<org>.ingest.sentry.io` vs
+      `o<org>.ingest.de.sentry.io`), and moving means a new organisation, a new DSN and
+      the loss of every issue and alert rule behind it. Nothing in this repository can
+      detect it or constrain it, so this line and that gate are the only places it is
+      owned. It decides where our STACK TRACES live, not where a transcript goes — hard
+      rule 6 keeps personal data out of Sentry at the source either way. Record the region
+      you picked in the decision log entry for D-451.
 
 Generate a 32-byte key like this — the same command for all of them:
 

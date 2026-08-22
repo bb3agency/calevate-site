@@ -126,7 +126,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import ist_month_end, parse_billing_month
-from apps.api.billing.rates import llm_inr_per_ktok
+
+# `PREPAID_TIERS` IS IMPORTED, NOT RESPELLED, and this module used to hold its own copy.
+# That constant's whole justification is written above its definition — "a fourth tier
+# added to one of them and not the others is a wallet that stops draining" — and a second
+# literal here made this module one of the ones that would not have been told: it gates
+# `extra_unavailable`'s `not_prepaid` and `purchase_ai_overage`'s refusal, i.e. WHO MAY
+# SPEND MONEY. Two spellings of one money predicate is the D-103 shape, and it agreed with
+# the original only by coincidence of nobody having edited either.
+from apps.api.billing.rates import PREPAID_TIERS, llm_inr_per_ktok
 from apps.api.billing.service import (
     _IST_MONTH,
     _IST_MONTH_WINDOW,
@@ -354,8 +362,6 @@ OVERAGE_REF_PREFIX: Final = "ai_assist"
 #: knows what produced it without joining anything.
 OVERAGE_META_KIND: Final = "ai_assist_overage"
 ASSIST_META_KIND: Final = "ai_assist"
-
-PREPAID_TIERS: Final = ("self_serve", "trial")
 
 QuotaState = Literal["within", "ceiling_reached", "exhausted", "platform_paused"]
 
@@ -1200,7 +1206,9 @@ __all__ = [
     "OVERAGE_REF_PREFIX",
     "PLATFORM_AI_BRAKE_INR",
     "PLATFORM_BRAKE_WARN_AT",
-    "PREPAID_TIERS",
+    # `PREPAID_TIERS` is deliberately NOT re-exported: it is imported here, and listing it
+    # would make this module a second import path for one predicate — which is how it came
+    # to have a second SPELLING in the first place. `billing/rates.py` is where it lives.
     "REFERENCE_ASSIST_TOKENS",
     "AiQuota",
     "AssistMetered",

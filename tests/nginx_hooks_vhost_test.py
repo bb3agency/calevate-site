@@ -204,3 +204,90 @@ def test_the_two_realms_are_not_sharing_one_server_block() -> None:
             "one TLS server block serves both browser realms again, so every location in "
             f"it applies to both hostnames: {listed}"
         )
+
+
+# --- the timeout tightening the include used to undo --------------------------
+#
+# The hooks vhost sets `proxy_connect_timeout 2s; proxy_send_timeout 15s;
+# proxy_read_timeout 15s` at SERVER scope, with a comment saying a callback waiting 60s is
+# a call already lost. Its `location /` then includes `calevate-proxy.conf`, whose last
+# three lines are 5s/60s/60s. nginx does not merge levels: a directive set at the current
+# level replaces the enclosing one entirely, and `include` is textual, so those three
+# landed at LOCATION scope and won. The latency-critical vhost ran on the browser realms'
+# numbers, and `client_max_body_size 10m` kept working — the snippet does not define it —
+# which is exactly what made it invisible.
+
+SNIPPET = (
+    Path(__file__).resolve().parents[1] / "infra" / "nginx" / "snippets" / "calevate-proxy.conf"
+)
+
+#: `proxy_read_timeout 15s;` -> ("proxy_read_timeout", "15s")
+_TIMEOUT = re.compile(r"\b(proxy_(?:connect|send|read)_timeout)\s+(\S+?)\s*;")
+
+_TIMEOUT_NAMES = ("proxy_connect_timeout", "proxy_send_timeout", "proxy_read_timeout")
+
+
+def _hooks_catch_all() -> str:
+    """The body of the hooks vhost's `location / { ... }`."""
+    block = _block_for("hooks.")
+    bodies = re.findall(r"location\s+/\s*\{([^}]*)\}", block)
+    assert len(bodies) == 1, f"expected one catch-all on the hooks vhost, found {len(bodies)}"
+    return bodies[0]
+
+
+def test_the_proxy_snippet_still_sets_timeouts_at_whatever_level_it_is_included_in() -> None:
+    """The premise the rest of this section rests on.
+
+    FAILS IF: somebody deletes the three timeout lines from `calevate-proxy.conf`. That is
+    a legitimate change — it is the other fix for this defect — but it makes the
+    restatements below load-bearing in a different way, so the pair should be re-read
+    together rather than one of them quietly becoming decoration.
+    """
+    found = dict(_TIMEOUT.findall(SNIPPET.read_text(encoding="utf-8")))
+    assert set(found) == set(_TIMEOUT_NAMES), (
+        "calevate-proxy.conf no longer sets all three proxy timeouts; the hooks vhost's "
+        f"server-scope values may now be effective on their own. Found: {sorted(found)}"
+    )
+
+
+@pytest.mark.parametrize("directive", _TIMEOUT_NAMES)
+def test_the_hooks_catch_all_restates_every_timeout_after_the_include(directive: str) -> None:
+    """The fix, stated as the property rather than as the diff.
+
+    FAILS IF: any of the three restatements is removed from `location /`, or moved ABOVE
+    the `include` line — either way the snippet's 5s/60s/60s becomes the effective value
+    on the vhost whose entire ack budget is 500ms and whose vendor never retries (D-31).
+    """
+    body = _hooks_catch_all()
+    include_at = body.find("include /etc/nginx/snippets/calevate-proxy.conf")
+    assert include_at != -1, "the hooks catch-all no longer includes the proxy snippet"
+    restated = [m for m in _TIMEOUT.finditer(body) if m.group(1) == directive]
+    assert restated, (
+        f"{directive} is not restated inside the hooks `location /`, so the value that "
+        "actually applies is the snippet's browser-realm default, not the server block's"
+    )
+    assert restated[-1].start() > include_at, (
+        f"{directive} is set BEFORE the include that overrides it — nginx takes the last "
+        "occurrence at a level, so this restatement governs nothing"
+    )
+
+
+@pytest.mark.parametrize("directive", _TIMEOUT_NAMES)
+def test_the_hooks_vhost_actually_runs_on_its_own_tighter_numbers(directive: str) -> None:
+    """Not just "a value is restated" but "the restated value is the tight one".
+
+    FAILS IF: someone reconciles the duplication by copying the snippet's 60s into the
+    location, which would make the test above pass while restoring the exact defect.
+    """
+    # The FIRST occurrence in the block, which is the server-scope one: `dict(findall(...))`
+    # would keep the LAST, i.e. the location's own value, and compare it to itself.
+    server_value = next(
+        m.group(2) for m in _TIMEOUT.finditer(_block_for("hooks.")) if m.group(1) == directive
+    )
+    location_value = [m for m in _TIMEOUT.finditer(_hooks_catch_all()) if m.group(1) == directive][
+        -1
+    ].group(2)
+    assert location_value == server_value, (
+        f"the hooks vhost declares {directive} {server_value} at server scope but runs on "
+        f"{location_value}: the two must agree, because only the location one is effective"
+    )

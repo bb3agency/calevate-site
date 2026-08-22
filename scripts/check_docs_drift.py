@@ -1629,6 +1629,13 @@ def blind_spots() -> list[str]:
             "in the authoritative roster, or `_GATE_ROW` has stopped matching the shape "
             "one row is written in, and section 7 would call every citation of it dangling"
         )
+    # The third reading, and the one the two above cannot make. Both floors compare the
+    # roster against something else — a count, and the scorecard's subset. Neither can
+    # see a row the PATTERN never matched, because a row that does not match is not a row
+    # as far as either floor is concerned: it is simply absent, and absent looks exactly
+    # like a gate that was never written. `L` proved that — two rows sat unreadable
+    # behind a count floor that had been raised specifically to catch this.
+    failures.extend(unknown_gate_priorities())
     failures.extend(capability_ambiguities())
     return failures
 
@@ -1791,7 +1798,21 @@ _SCORECARD_DOC = REPO_ROOT / "docs" / "evidence" / "bolna-pilot-scorecard.md"
 #: sentence in the tree — including one in `engine/bolna.py` — was reported as citing a
 #: gate that does not exist. A roster that loses a row is the failure mode this whole
 #: section is about, one level down.
-_GATE_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s+\*{0,2}[HS]\*{0,2}\b")
+_GATE_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s+\*{0,2}([A-Z])\*{0,2}\b")
+
+#: The priority letters OPERATIONS §2 actually uses. NOT used to decide what a row IS —
+#: `_GATE_ROW` matches any capital, so an unknown letter is CAUGHT rather than skipped —
+#: only to decide whether the roster still understands the document it is reading.
+#:
+#: THIS SET EXISTS BECAUSE WIDENING THE PATTERN ONCE WAS NOT ENOUGH. The comment above
+#: records the pattern being widened for `**H** *(was S …)*` after gate 7 vanished. The
+#: identical class then recurred with a letter instead of a marker: `L` was introduced,
+#: `[HS]` did not match it, and gates 14c and 20d dropped out of the roster silently —
+#: found by a human counting rows, which is the reading this section exists to replace.
+#: Enumerating the pattern's alternatives is how it keeps happening, so the pattern now
+#: accepts the SHAPE and this set audits the VOCABULARY; a new priority letter fails the
+#: build by name instead of shrinking the roster to something that still looks fine.
+_GATE_PRIORITIES = frozenset({"H", "S", "L"})
 #: `| 6 | **Webhook loss behaviour** … | automated | _NOT RUN_ | … |` in the scorecard.
 _SCORECARD_ROW = re.compile(r"^\|\s*(\d+[a-z]?)\s*\|(.+)$")
 #: A citation: `gate 6b`, `gate 12(f)`, `pilot gate 8a`, `gate 14`.
@@ -1803,6 +1824,28 @@ _OPEN_ASSUMPTION = re.compile(
     re.IGNORECASE,
 )
 _TERMINAL_VERDICTS = ("**PASS**", "**FAIL**")
+
+
+def unknown_gate_priorities(path: Path | None = None) -> list[str]:
+    """Gate rows whose priority letter is not one this module knows.
+
+    Separated from `gate_roster` so the roster stays a plain set and the REFUSAL is a
+    finding with a line number. A row reaching here is already IN the roster — the point
+    is not to drop it, it is to say out loud that the document grew a vocabulary this
+    file has not been taught, before somebody reads a gate count that quietly means
+    something else.
+    """
+    doc = _GATE_ROSTER_DOC if path is None else path
+    if not doc.exists():
+        return []
+    return [
+        f"{doc.name}:{lineno} gate {match.group(1)} has priority "
+        f"{match.group(2)!r}, which `_GATE_PRIORITIES` does not know "
+        f"({', '.join(sorted(_GATE_PRIORITIES))}). Teach this module the letter, or fix "
+        "the row — a priority nobody declared is a gate nobody triages."
+        for lineno, line in enumerate(doc.read_text(encoding="utf-8").splitlines(), 1)
+        if (match := _GATE_ROW.match(line)) and match.group(2) not in _GATE_PRIORITIES
+    ]
 
 
 def gate_roster(path: Path | None = None) -> set[str]:

@@ -122,12 +122,26 @@ Models (per-agent config, BYOK):
 - STT: **Sarvam Saaras V3** (22 Indian languages, streaming, code-mixed) — their docs
   supersede our original Saarika v2.5 pick [docs-verified Jul 2026]. Auto-available when
   Sarvam is the speech provider. Gate A-2: compare bundled/managed Sarvam tier.
-- LLM: **Azure OpenAI in South India — `AZURE_LOCATION` (`southindia`), default
+- LLM: **Azure OpenAI in East US 2 — `AZURE_LOCATION` (`eastus2`), default
   `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) — on BOTH LLM surfaces (D-410,
-  superseding D-400/D-404 on the in-call leg and D-127 on the dashboard leg).** One
-  region, one allow-list, one price table, one builder. `gpt-4.1-mini` is a CONFIG SWITCH
-  through `azure_openai_model`, not a second shipped default, because its availability in
-  Indian regions is not confirmed while `gpt-4o-mini`'s in South India is.
+  superseding D-400/D-404 on the in-call leg and D-127 on the dashboard leg; **the region
+  moved off `southindia` at D-449, 22 Aug 2026**).** One region, one allow-list, one price
+  table, one builder. `gpt-4.1-mini` is a CONFIG SWITCH through `azure_openai_model`, not a
+  second shipped default.
+
+  **WHY THE REGION MOVED, AND WHAT IT COST [D-449].** Two grounds. **(a)** Bolna's
+  orchestrator is US-hosted (VERIFIED-VENDOR-DOCS,
+  `bolna-findings/mirror/pages/concepts/security.md:29`, AWS us-east-1), so every
+  conversational turn was a us-east-1 → `southindia` → us-east-1 round trip inside the
+  350 ms TTFT budget of §4 — a budget with zero measurements behind it (§4a, OPERATIONS §2
+  gate 4). **(b)** Microsoft's Standard (regional) matrix does not offer `gpt-4o-mini` in
+  `southindia` at all, so the residency posture and the shipped default model were in
+  direct conflict (gate 20b). The recovered ocean hop is an ESTIMATE — this repo's own
+  figure is ~180–230 ms (`apps/api/ops/engine_latency.py`) — measured against a budget
+  nobody has measured, so the upside is unproved in both terms. **The cost is not**: the
+  client-facing India warranty is WITHDRAWN (SECURITY-COMPLIANCE §4), the caller's words
+  now leave India as they are spoken rather than only in an archived recording, and
+  nothing about vendor erasure reach improves (gate 36).
 
   ⚠ **"SWITCH" IS TWO EDITS AND A REPUBLISH, NOT ONE TOGGLE, AND GETTING THAT WRONG IS
   SILENT.** Of the four Azure settings only `azure_openai_model` is `applies: live`, and it
@@ -210,23 +224,27 @@ Models (per-agent config, BYOK):
   region is a property of the RESOURCE. The guard changes job rather than being deleted
   and still proves four things — `AZURE_LOCATION` is the only spelling of the region in
   shipped code, no `Settings` field may carry a region, no Azure endpoint is constructible
-  except through `azure_openai_base_url()`, and that builder cannot emit a non-India
-  region. The rest is **attested by a human**: that the resource is in South India
-  (OPERATIONS §2 gate 20) and that its deployment is **Regional Standard and NOT Global**
-  (gate 20c). Global is Azure's DEFAULT deployment type and processes worldwide; a Global
-  deployment inside a South India resource passes every automated check in this tree and
-  breaks the DPA. Regional costs roughly 5–10% more (published examples to +12% and +20%),
-  which is a payable cost of the posture rather than an accident. The REGIONAL hostname
-  form `southindia.api.cognitive.microsoft.com` would restore the AST proof and is
-  rejected FOR NOW because the v1 surface is documented only on the custom-subdomain form
-  — gate 20d is what reopens it. **What is NOT claimed**: which model extracts or converses
+  except through `azure_openai_base_url()`, and that builder cannot emit a region other
+  than the declared posture's. The rest is **attested by a human**: that the resource is in
+  East US 2 (OPERATIONS §2 gate 20) and that its deployment is **Regional Standard and NOT
+  Global** (gate 20c). Global is Azure's DEFAULT deployment type and processes worldwide; a
+  Global deployment passes every automated check in this tree and makes the region named in
+  the DPA unenforceable. Regional costs roughly 5–10% more (published examples to +12% and
+  +20%), which is a payable cost of the posture rather than an accident — **since D-449 that
+  premium buys an accurate sub-processor disclosure and the only enforceable property the
+  posture still has, not an India warranty**. All four gates SURVIVE the region move
+  re-aimed; none of them retires, because the posture still pins one region and is still
+  Regional Standard. The REGIONAL hostname form `eastus2.api.cognitive.microsoft.com` would
+  restore the AST proof and is rejected FOR NOW because the v1 surface is documented only on
+  the custom-subdomain form — gate 20d is what reopens it, and it matters more than it did,
+  the pinned region now being the only residency-shaped statement left. **What is NOT claimed**: which model extracts or converses
   BETTER in Telugu code-mixed function-calling is still unmeasured and still blocked on a
   Sarvam key and egress (§7's golden-transcript fixtures); D-410 is a residency, delivery
   and billing decision and does not claim a quality one. **NO VENDOR RETIREMENT DATE IS
   RUNNING AGAINST THIS PRODUCT** — BRD R-04's 16 Oct 2026 died with the Gemini model, the
   date-carrying constant and the test that turned CI red thirty days out (D-410). Sarvam's
   **rate limits (60/200/1,000 rpm by plan) are a concurrency input**, not a price input,
-  and Azure's TPM/RPM quota in `southindia` is a fourth such input — size both at pilot
+  and Azure's TPM/RPM quota in `eastus2` is a fourth such input — size both at pilot
   gates 13 and 20b. LLM id is a config string on the agent, so changing it is a config
   edit plus a regression run.
 - TTS: **Sarvam Bulbul V3** (11 Indian languages) — their docs list only V3; Bulbul v2
@@ -265,10 +283,24 @@ Voice-to-voice target: **p50 ≤ 1.1s, p95 ≤ 1.8s** (honest target for a casca
 bloated prompt raises TTFT and hallucination together; the ~2.5k budget in
 PROMPT-GUIDE §2 stands regardless of engine); TTS TTFA ≤300ms streaming; retrieval ≤100ms (see §6).
 Techniques (required): streaming end-to-end; filler utterances fired the moment a tool
-call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; India-only
-network path. **The rule stands and the mechanism does not exist yet**: stage timings per
-call (stt_ms, llm_ttft_ms, tts_ttfa_ms, turn_ms) are what any latency work must be argued
-from, and nothing records them today. `calls.latency` was DROPPED (migration
+call starts ("ఒక్క నిమిషం, చూస్తాను"); brief agent replies enforced in prompt; and the
+shortest network path the declared posture allows — ⚠ **which is NO LONGER an India-only
+one, and this line said it was until 22 Aug 2026.** D-449 moved the language leg to Azure
+OpenAI `eastus2`, beside the engine's US-hosted orchestrator
+(`bolna-findings/mirror/pages/concepts/security.md:29`, AWS us-east-1), precisely to delete
+a us-east-1 → `southindia` → us-east-1 round trip inside this 350ms TTFT budget. Speech
+stays Sarvam and Indian, so the in-call path now crosses the ocean once on the language
+leg by design instead of twice by accident — and the India residency claim was WITHDRAWN
+to buy it, not narrowed. **The rule stands and the MECHANISM now exists for three of the
+four numbers** (D-445; this paragraph said "nothing records them today" until it did):
+`stt_ms`, `llm_ttft_ms` and `tts_ttfa_ms` are captured per TURN in
+`call_engine_latency.turns`, with `time_to_first_audio_ms` and the engine's `region` code
+per call, and `GET /v1/ops/engine-latency` reports p50/p95/max/breach grouped by (engine,
+region) — which is what turns the geography question into a `GROUP BY` instead of an
+argument. What is still unrecorded is voice-to-voice `turn_ms`, which would be our own
+arithmetic over three components the engine times separately, and every one of these is
+the ENGINE measuring its own pipeline rather than an independent measurement of ours.
+`calls.latency` was DROPPED (migration
 `f1a7c39d5be2`): a column that always reads NULL is worse than none, because the next
 reader builds a dashboard on it. Every span this repo opens is on OUR side of the call —
 the post-call pipeline serving the 2-minute lead SLO — so filling it from those would have
@@ -517,10 +549,12 @@ scorecard — D-31]:
   (`enterprise/indian-server-configuration.md:65,68`). BYOK on all three legs is what this
   product IS (D-31/D-36/D-410), so buying residency today would move **zero calls**, and
   its Indian-server routing names Plivo only — the 140-series promotional half of the
-  business dials through Vobiz. What survives is narrower and is still worth having: the
-  MODEL legs stay Indian (Sarvam sovereign by vendor; Azure OpenAI pinned to South India
-  by gates 20/20b/20c), so the inference does not leave the country while the orchestration
-  does. The fork — accept US orchestration and say so in the DPA, or move to their
+  business dials through Vobiz. What survived that correction was narrower and was still worth
+  having: the MODEL legs stayed Indian (Sarvam sovereign by vendor; Azure OpenAI pinned to
+  South India by gates 20/20b/20c), so the inference did not leave the country while the
+  orchestration did. **D-449 WITHDREW THE LANGUAGE HALF OF THAT** — Azure OpenAI is
+  `eastus2`, so only the SPEECH legs remain Indian and the transcript reaches a US model on
+  every turn. The gates survive re-aimed; the claim does not. The fork — accept US orchestration and say so in the DPA, or move to their
   integrations and lose BYOK — is gates 9 and 12, laid out in
   `docs/evidence/bolna-compliance-residency.md` §5. SEC-COMP §4's cross-border row is the
   client-facing statement of the same fact.
@@ -856,7 +890,8 @@ harness's baseline stable.
 **No general-purpose model vendor is in that ladder, and `GEMINI_EXTRACTION_DEFAULT is False`
 is the greppable form of why** (D-127 G-2/G-7; the constant keeps its name because the rule
 it records is about this PASS, not about a vendor). **D-400 moved the in-call LLM leg off
-Sarvam and D-410 moved it again, to Azure OpenAI South India — neither moved THIS one**, and
+Sarvam, D-410 moved it again to Azure OpenAI, and D-449 moved the region to `eastus2` —
+NONE of the three moved THIS one**, and
 that is the distinction both decisions turn on: the in-call leg and the dashboard assist see
 the caller through the engine and through `text_redacted` respectively, and this pass is the
 only one in the system that reads `turn.text`. This selector's caller is `workers/pipeline.py`, which hands
@@ -865,7 +900,7 @@ a CRM "callback number" field needs the actual digits. Until D-127 the ladder re
 second-vendor client whenever that vendor's key was configured and a Sarvam key was not, so
 one absent environment variable sent raw caller PII to a second processor. The other vendor
 now serves only the USER-TRIGGERED work, through `workers/extraction.run_assist()`, over the
-redacted copy, on Azure OpenAI in South India — and `run_assist` re-runs `redact()` on its
+redacted copy, on Azure OpenAI in East US 2 — and `run_assist` re-runs `redact()` on its
 input and REFUSES text that still yields a match, so G-2 is structural rather than
 documentary.
 
@@ -932,7 +967,7 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
 Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.62 (Bulbul v3)
-· **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI South India — the band is the one- to
+· **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI East US 2 — the band is the one- to
 ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
 On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
 · telephony 0.40–0.90 inbound / 0.60–1.80 outbound. **Blended all-in ≈ 3.3–3.8 (launch)
@@ -948,7 +983,9 @@ is §10.1's **₹2.89–4.28**.
 
 > ⚠ **THE LLM LEG IS NOT FREE AND IS NOT A FLAT PER-MINUTE RATE (D-400, repriced by D-410).**
 > D-36 priced it at ₹0.00 because Sarvam 105B is free per token; it is now `gpt-4o-mini` on
-> a paid Azure OpenAI deployment in South India. The computation is
+> a paid Azure OpenAI deployment (South India at D-410, `eastus2` since D-449 — the
+> region moved, the price did not: list price is per token and not per region). The
+> computation is
 > `billing/rates.py::llm_cost_inr_per_minute`, which takes a DURATION, because §6.1 resends
 > the whole conversation to the model on every turn — so input tokens grow through the call
 > and total input cost is quadratic in length. **The SHAPE of the calculation is unchanged
@@ -1067,7 +1104,7 @@ universal across APIs. **Rate limits are the real constraint, not price** — 60
 200 rpm (Pro ₹10k) / 1,000 rpm (Business ₹50k).
 
 > ⚠ **Corrects D-20**, which recorded Bulbul v2 as "appears discontinued." It is live at
-> **half** the v3 rate. ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — Sarvam's LLM is genuinely free per token, which made a paid LLM leg avoidable on COST grounds; the founder took one anyway, first on Vertex and now on Azure OpenAI South India, for the reasons in D-400 and D-410. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
+> **half** the v3 rate. ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — Sarvam's LLM is genuinely free per token, which made a paid LLM leg avoidable on COST grounds; the founder took one anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
 ~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
@@ -1078,8 +1115,8 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
 | TTS — Bulbul **v2** | ₹1.50 / 1,000 chars | **₹0.54–0.81** |
-| LLM — **`gpt-4o-mini` on Azure OpenAI `southindia`** (D-410 default) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
-| LLM — `gpt-4.1-mini` on Azure OpenAI `southindia` *(the live switch, `azure_openai_model`; availability in Indian regions NOT confirmed — gate 20b)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
+| LLM — **`gpt-4o-mini` on Azure OpenAI `eastus2`** (D-410 default; region per D-449) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
+| LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
 | LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and §10.3's value rung)* | free per token | ₹0.00 |
 
 **BYOK model subtotal, by combination** (identical on every platform — not a decision
@@ -1168,7 +1205,7 @@ to reconcile — do not build on it without direct verification.)*
 | Input | Value | Confidence |
 |---|---|---|
 | STT (Sarvam) | ₹0.50/min | **verified rate** |
-| LLM (Sarvam 105B) | ₹0.00 — free per token | **verified rate** *(theirs; ours moved to a paid leg at D-400 and to Azure OpenAI South India at D-410, so this row is a statement about a COMPETITOR's inputs and not about ours)* |
+| LLM (Sarvam 105B) | ₹0.00 — free per token | **verified rate** *(theirs; ours moved to a paid leg at D-400, to Azure OpenAI at D-410 and to `eastus2` at D-449, so this row is a statement about a COMPETITOR's inputs and not about ours)* |
 | TTS by tier | Sarvam → Smallest → Cartesia | **verified from their code** |
 | Telephony (India mobile) | ₹0.35–0.50/min | estimate |
 | Orchestration | **unknown** | ⚠ **NOT ESTABLISHED — see below** |
@@ -1318,7 +1355,7 @@ alone. FX ₹88/USD throughout, matching §10's existing figures.
 
 > ⚠ **THE TOTALS AND MIDPOINTS ABOVE HOLD THE LLM LEG AT ₹0.00 ON BOTH SIDES, AND THAT IS
 > DELIBERATE RATHER THAN STALE (D-400, repriced by D-410).** The leg is no longer free —
-> `gpt-4o-mini` on Azure OpenAI South India costs ₹0.10–0.24 per minute
+> `gpt-4o-mini` on Azure OpenAI East US 2 costs ₹0.10–0.24 per minute
 > depending on call length (§10.1) — but it is BYOK on both platforms and therefore
 > identical on both, which is exactly the class of input D-32's method removes from a
 > platform comparison. Adding the same figure to each column moves both midpoints and moves

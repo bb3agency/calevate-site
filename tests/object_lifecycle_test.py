@@ -37,6 +37,7 @@ from __future__ import annotations
 import contextlib
 import importlib.util
 import json
+import re
 import socket
 import sys
 from collections.abc import Iterator
@@ -442,3 +443,85 @@ def test_minio_silently_drops_the_abort_action_when_it_is_not_alone() -> None:
             "MinIO now PRESERVES the abort action when combined with an expiration — "
             "re-measure the standalone case; the exclusion may no longer be needed"
         )
+
+
+# --- where the bucket physically IS, and the four places people will try to set it -----
+#
+# D-450 decided R2's `CreateBucket` location hint for both production buckets: `apac`. Two
+# properties of that decision have no other guard, because neither has any code to hold it:
+#
+#  * R2 honours a hint only at the FIRST creation of a bucket NAME — delete and recreate
+#    the same name and it silently reuses the original placement — so the decision has no
+#    undo short of copying every object to a differently-named bucket and re-applying the
+#    policy in this directory. Its only home is a human checklist.
+#  * `AWS_REGION`/`region` is the SigV4 credential SCOPE and has nothing to do with
+#    placement. R2 requires `auto`. Someone who reads "we want APAC" and edits one of these
+#    four sites moves no bytes and breaks every request with `SignatureDoesNotMatch` — a
+#    symptom that looks like a bad token, so the search starts in the wrong place.
+
+#: R2's documented location hints. Any of them appearing as a REGION would be the mistake.
+R2_LOCATION_HINTS = ("wnam", "enam", "weur", "eeur", "apac", "oc")
+
+#: Every place in this repository that supplies a region to an S3 client for R2.
+SIGV4_REGION_SITES = (
+    "apps/workers/storage.py",
+    "infra/object-lifecycle/apply_lifecycle.py",
+    "infra/terraform/versions.tf",
+    "infra/backup/walg.json.template",
+)
+
+
+def test_the_sigv4_region_is_auto_at_every_site_and_is_never_a_location_hint() -> None:
+    """All four region sites still say `auto`, and none has been "corrected" to a hint.
+
+    FAILS IF: someone sets `AWS_REGION=apac` (or any other hint) in the worker client, the
+    lifecycle applier, the Terraform provider or the wal-g template — the edit that reads as
+    obviously right, moves nothing, and returns `SignatureDoesNotMatch` from every call.
+    Also fails if a site stops naming a region at all, which is worse: botocore silently
+    falls back to `us-east-1` for s3, i.e. a signature scoped to a region nobody chose.
+    """
+    hint_as_region = re.compile(
+        r"""(AWS_REGION|region_name|["']?region["']?)\s*[:=]\s*["']("""
+        + "|".join(R2_LOCATION_HINTS)
+        + r""")["']""",
+        re.IGNORECASE,
+    )
+    for rel in SIGV4_REGION_SITES:
+        text = (REPO_ROOT / rel).read_text(encoding="utf-8")
+        assert '"auto"' in text, f"{rel} no longer supplies the `auto` SigV4 region scope"
+        assert not hint_as_region.search(text), (
+            f"{rel} assigns an R2 LOCATION HINT where a SigV4 credential scope belongs. "
+            "Placement is set once at CreateBucket by a human (infra/README.md §5 item 2); "
+            "this value only changes what the signature is computed over."
+        )
+
+
+def test_the_terraform_declares_no_bucket_and_therefore_cannot_place_one() -> None:
+    """The module configures a lifecycle rule on an EXISTING bucket and creates nothing.
+
+    FAILS IF: an `aws_s3_bucket` resource is added here. That is the tempting way to "own"
+    the placement in IaC, and it is wrong in the one direction that cannot be undone: the
+    AWS provider has no way to send R2's location hint, so the bucket would be created in
+    whatever place R2 picks, permanently, from a file that looks like it decided.
+    """
+    hcl = "\n".join(
+        (REPO_ROOT / "infra" / "terraform" / name).read_text(encoding="utf-8")
+        for name in ("main.tf", "variables.tf", "versions.tf")
+    )
+    assert 'resource "aws_s3_bucket"' not in hcl
+
+
+def test_both_bucket_checklists_name_the_hint_and_both_are_separate_one_shots() -> None:
+    """The recordings bucket and the wal-g backup bucket are two independent one-shot
+    decisions, and each has to say so where the human creating it will read it.
+
+    FAILS IF: either checklist loses the `apac` hint, or the backup checklist stops flagging
+    that it is a SEPARATE decision from the recordings bucket — the specific way this gets
+    half-done, because the two buckets are created in different steps on different days by
+    someone who has already "done the R2 bucket".
+    """
+    recordings = (REPO_ROOT / "infra" / "README.md").read_text(encoding="utf-8")
+    backups = (REPO_ROOT / "infra" / "backup" / "README.md").read_text(encoding="utf-8")
+    for name, text in (("infra/README.md", recordings), ("infra/backup/README.md", backups)):
+        assert "`apac`" in text, f"{name} no longer names the location hint (D-450)"
+    assert "SEPARATE one-shot" in backups

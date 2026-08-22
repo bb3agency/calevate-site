@@ -1608,6 +1608,14 @@ _VENDOR_ONLY_KEYS = frozenset(
         # ours, the spelling is theirs, and `direction` appearing outside the adapter is
         # normal while `call_type` appearing there would be a vendor shape that escaped.
         "call_type",
+        # THE PER-TURN TIMING BLOCK AND ITS TWO COMPOUND NOUNS. `latency_data`,
+        # `time_to_first_audio` and `turn_latency` are Bolna's spellings for things we now
+        # carry under our own names (`CallLatency`, `time_to_first_audio_ms`, and a plain
+        # list of `TurnLatency`), so any of the three appearing outside the adapter is a
+        # vendor shape that escaped — which is precisely what this list is for.
+        "latency_data",
+        "time_to_first_audio",
+        "turn_latency",
         "conversation_duration",
         "cost_breakdown",
         "cost_currency",
@@ -1807,7 +1815,6 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "network",
         "next",
         "platform",
-        "prior_call_summary",
         "recording_url",
         "retry-after",
         "role",
@@ -1822,10 +1829,23 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "summaries",
         "stt",
         "system_prompt",
+        # OURS ENTIRELY, and they are here because the scanner cannot tell a payload read
+        # from any other subscript: `parse_latency_data` builds an intermediate
+        # `{our_field_name: value}` dict and reads its own keys back out of it. No vendor
+        # spells any of these three — they are `TurnLatency`'s field names.
+        "llm_ttft_ms",
+        "region",
+        "stt_ms",
         "text",
         "to_e164",
         "to_number",
         "transcript",
+        "tts_ttfa_ms",
+        # A conversational TURN is our word as much as theirs — `TranscriptTurn`,
+        # `TurnLatency`, `transcript_turns`, and the whole of `parse_transcript`. Finding
+        # either spelling outside the adapter proves nothing.
+        "turn",
+        "turns",
         "transfer_warm",
         "transferred_to",
         "tts",

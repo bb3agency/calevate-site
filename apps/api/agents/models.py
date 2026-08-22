@@ -9,6 +9,7 @@ from typing import Literal, get_args
 from uuid import UUID
 
 from calevate_shared.config import SELECTABLE_ENGINES
+from calevate_shared.engine import AZURE_OPENAI_MODELS
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -112,6 +113,21 @@ class Agent(PKMixin, TimestampMixin, Base):
             name="ck_agents_archived_at_matches_status",
         ),
         CheckConstraint(f"engine IN {ENGINES!r}", name="engine_enum"),
+        # THIS AGENT'S OWN language-model choice — the top rung of
+        # `agent -> organization -> platform` (`agents/llm_models.py`, migration
+        # b7d2f10c93ae). DERIVED from `AZURE_OPENAI_MODELS`, never retyped (D-104), and
+        # sorted so the rendered SQL is byte-stable.
+        #
+        # THE COLUMN HAD A READER AND NO CONSTRAINT FOR ITS WHOLE LIFE, which is what this
+        # closes: `agents/service.py::in_call_llm` reads it, and on a leg that is not
+        # Azure it goes to the engine verbatim — so a value outside the allow-list is a
+        # 404 from a third party mid-sentence on a client's live phone call, the failure
+        # class `SARVAM_RETIRED_LLMS` already exists for. NULL is admitted explicitly: it
+        # is the "inherit the account default" sentinel.
+        CheckConstraint(
+            f"llm_model IS NULL OR llm_model IN {tuple(sorted(AZURE_OPENAI_MODELS))!r}",
+            name="llm_model_allowed",
+        ),
         # LEGACY, and kept deliberately: the bundled line, step 1 of a two-step
         # deprecation (hard rule 8, D-163). Still written by every writer of the four
         # columns below (`compliance/disclosure.bundled_disclosure_line`), so the
@@ -151,6 +167,10 @@ class Agent(PKMixin, TimestampMixin, Base):
     stt_model: Mapped[str | None] = mapped_column(Text)
     tts_provider: Mapped[str | None] = mapped_column(Text)
     tts_voice: Mapped[str | None] = mapped_column(Text)
+    # THIS AGENT'S language-model choice, or NULL to inherit
+    # `organizations.default_llm_model` and then the platform's
+    # (`agents/llm_models.resolve_llm_model`). Bounded by
+    # `ck_agents_llm_model_allowed` above.
     llm_model: Mapped[str | None] = mapped_column(Text)
     # THE SENT VOICE: what `publish_agent` last handed the engine, as opposed to
     # `tts_voice`, which is what an operator CONFIGURED (migration c8b3f14e7a29). The

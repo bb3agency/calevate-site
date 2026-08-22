@@ -339,7 +339,7 @@ requests across ALL tenants to stay under whatever the documented/measured limit
 events against (2)+(3); over-limit contacts stay queued — and that genuinely does mirror
 platform behaviour: *"Outbound calls that don't fit your concurrency limit are **queued,
 not rejected**"* (`pricing/outbound-calling-concurrency.md:41`). Also respect the secondary
-ceilings: Sarvam BYOK-tier model concurrency and the Azure TPM/RPM quota in `southindia`
+ceilings: Sarvam BYOK-tier model concurrency and the Azure TPM/RPM quota in `eastus2`
 — the dispatcher's effective pool is MIN of those with (1) (config values, reviewed when
 any vendor plan changes). **"SIP trunk channels" was the third term here and it is
 removed**: we run no trunk, and a BYOT trunk would not add an independent ceiling anyway —

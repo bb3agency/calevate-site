@@ -424,7 +424,10 @@ class Settings(BaseSettings):
     # name says region, location or residency. Azure hides the region inside the resource
     # rather than in the URL, which makes `azure_openai_resource` the value that decides
     # residency in practice — read `AZURE_LOCATION` before changing it, and note that no
-    # code here can check it.
+    # code here can check it. Since D-449 that constant reads `eastus2` and the product
+    # makes NO Indian residency claim on either LLM surface; pointing this resource at an
+    # Indian one would not restore the claim, it would just make the tree disagree with
+    # its own declared posture.
     #
     # The GOOGLE CREDENTIALS THAT WERE HERE ARE GONE, deleted rather than deprecated:
     # `gcp_project_id` and `gcp_service_account_json` existed for the Vertex AI legs and
@@ -500,13 +503,62 @@ class Settings(BaseSettings):
     azure_openai_deployment: str | None = Field(
         default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
     )
+    # THE DEPLOYMENT SERVING EVERY **OTHER** ALLOW-LISTED MODEL — the field that makes a
+    # client's model CHOICE reach the wire instead of only the invoice (D-454).
+    #
+    # **THE DEFECT IT CLOSES, because a mapping field looks like gold-plating until you
+    # see it.** `agents.llm_model` and `organizations.default_llm_model` let an account
+    # pick between `gpt-4o-mini` and `gpt-4.1-mini`, which differ 2.7x in price. On Azure
+    # the API addresses a DEPLOYMENT id, so with only the field above configured, a client
+    # who picked the dearer model would be QUOTED and metered at its rate while every call
+    # ran the cheaper deployment — charging for something we did not deliver, invisibly,
+    # because nothing in a transcript or an execution payload names the model that
+    # answered. Hard rule 7 is not only "use NUMERIC"; it is that a price describes what
+    # actually happened.
+    #
+    # **A MAP, AND THIS FIELD IS THE HALF THAT IS NOT ALREADY SPELT ABOVE.**
+    # `azure_openai_deployment` is, and stays, the deployment for `azure_openai_model` —
+    # the pair this file already says must move together, and the value pushed to the
+    # engine's own credential store (`AZURE_OPENAI_MODEL`, `engine/bolna.py`). So this
+    # field carries the OTHERS, and an entry here naming `azure_openai_model` is IGNORED
+    # rather than merged: two fields answering for one model is exactly how they come to
+    # disagree, and the one the credential store reads has to win.
+    # `apps/api/agents/llm_models.deployment_for()` is the single resolver over both, and
+    # nothing else may read either field to answer "which deployment serves this model".
+    #
+    # **A BOUNDED STRING RATHER THAN `dict[str, str]`, and the reason is a guardrail
+    # rather than taste.** `scripts/check_config_applies.py` requires every console-managed
+    # field to be BOUNDED and fails closed on a shape it cannot bound-check — an object has
+    # neither a `maxLength` nor a numeric range, so a dict field would have had to weaken
+    # that guard (or teach it a new shape) to land. A `KEY=VALUE,KEY=VALUE` string is the
+    # standard way this is carried in an environment anyway, and `pattern` makes the shape
+    # a boundary refusal at the console rather than a parse error at 3am: nothing
+    # malformed can be stored, so the parser has no failure branch to get wrong.
+    #
+    # 512 characters is far above the two entries the allow-list can produce and far below
+    # the megabyte a jsonb-replicated string could otherwise carry.
+    azure_openai_deployments: str = Field(
+        default="",
+        max_length=512,
+        # Empty, or `model=deployment` pairs joined by commas. The deployment half is the
+        # same character class and the same 64-character ceiling as the field above, so a
+        # value that is legal here is legal there — one rule about what an Azure
+        # deployment id may look like, written twice only because a regex cannot import.
+        pattern=(
+            r"^$|^[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+            r"(,[A-Za-z0-9][A-Za-z0-9._-]*=[A-Za-z0-9][A-Za-z0-9._-]{0,63})*$"
+        ),
+    )
     # WHICH MODEL THE DEPLOYMENT WAS MADE FROM — read by the cost model, never sent.
     #
     # **THIS IS THE `gpt-4.1-mini` SWITCH** and the reason it is config rather than a
-    # constant. `gpt-4o-mini` is documented available in `AZURE_LOCATION`; `gpt-4.1-mini`
-    # is not confirmed in any Indian region, so it ships as a value an operator flips once
-    # they have confirmed it in the portal and created a deployment for it — with no
-    # deploy of ours, which is what makes a portal answer a five-minute change.
+    # constant. Both allow-listed models are documented available in `AZURE_LOCATION` on
+    # the mandated Regional Standard SKU since D-449 moved it to `eastus2`, so what
+    # separates them is price — `gpt-4.1-mini` is 2.7x — and the operator who decides the
+    # quality is worth it flips this and creates a matching deployment, with no deploy of
+    # ours. (It shipped as a switch for a WEAKER reason: under `southindia` the default's
+    # own regional availability was unconfirmed and, on the vendor's matrix, absent. See
+    # `AZURE_OPENAI_DEFAULT_MODEL`.)
     #
     # `applies: live`, and the pairing is the part to get right: this and
     # `azure_openai_deployment` must move TOGETHER. Changing the model here without

@@ -50,6 +50,8 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.holds_routes import router as hold_queue_router
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.experiment_routes import router as experiment_router
+    from apps.api.agents.llm_routes import admin_router as llm_defaults_admin_router
+    from apps.api.agents.llm_routes import router as llm_defaults_router
     from apps.api.agents.prompt_routes import router as prompt_admin_router
     from apps.api.agents.publishing_routes import router as publishing_router
     from apps.api.agents.routes import router as agents_router
@@ -147,6 +149,12 @@ def _mount_routers(application: FastAPI) -> None:
     # `/v1/agents/{agent_id}` would swallow it if the parameterised router won.
     application.include_router(publishing_router)
     application.include_router(agents_router)
+    # The ACCOUNT-level model default (D-454). Its own paths (`/v1/organization/...`,
+    # `/v1/admin/organizations/...`) collide with nothing above, so mount order is not
+    # load-bearing here — unlike `voice_router`, whose literal segment lives under
+    # `/v1/agents/`.
+    application.include_router(llm_defaults_router)
+    application.include_router(llm_defaults_admin_router)
     application.include_router(campaigns_router)
     # `/v1/numbers/purchase` — its own prefix, so nothing above can swallow it. It lives
     # in the campaigns package because that module owns `phone_numbers`.

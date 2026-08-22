@@ -60,12 +60,14 @@ from apps.workers import extraction as extraction_module
 from apps.workers.extraction import (
     AZURE_PROVIDER,
     SARVAM_PROVIDER,
+    AssistCapability,
+    AssistResult,
     AzureOpenAIExtractor,
     SarvamExtractor,
 )
 from apps.workers.redaction import redact
 from calevate_shared.engine import AZURE_LIST_PRICE_USD_PER_MTOK
-from calevate_shared.extraction import ExtractionSchemaSpec
+from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.api_security_test import _make_tenant
@@ -132,13 +134,24 @@ def use_fake_azure(monkeypatch: pytest.MonkeyPatch, azure: FakeAzure) -> None:
     `run`, and a hand-written stand-in for them could not get any of them wrong — which
     is exactly what test 1 is trying to catch.
     """
-    monkeypatch.setattr(
-        extraction_module,
-        "AzureOpenAIExtractor",
-        lambda resource, api_key, deployment, model: AzureOpenAIExtractor(
-            resource, api_key, deployment, model, client=azure.client()
-        ),
-    )
+
+    # `timeout_s` is accepted and forwarded rather than dropped: `azure_extractor()` now
+    # passes it (the assist path asks for the tighter user-facing budget), and a stand-in
+    # that swallowed the keyword would make every one of these tests pass while the real
+    # constructor's signature had moved. It has no effect on the request here — the
+    # injected client owns its own timeout, which is the adapter's stated ownership rule.
+    def _stand_in(
+        resource: str,
+        api_key: str,
+        deployment: str,
+        model: str,
+        timeout_s: float = extraction_module.EXTRACTION_TIMEOUT_S,
+    ) -> AzureOpenAIExtractor:
+        return AzureOpenAIExtractor(
+            resource, api_key, deployment, model, client=azure.client(), timeout_s=timeout_s
+        )
+
+    monkeypatch.setattr(extraction_module, "AzureOpenAIExtractor", _stand_in)
 
 
 # --------------------------------------------------------------------- fixtures: a call
@@ -989,3 +1002,83 @@ async def test_a_failure_after_the_provider_was_paid_does_not_let_the_same_key_p
         f"the retry paid Microsoft a second time (status {second.status_code}): the claim "
         "did not survive the failure it exists to survive"
     )
+
+
+async def test_a_provider_this_meter_does_not_know_is_not_quietly_free(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The free branch used to be a bare `else`, which SAID "not Azure" and MEANT "Sarvam".
+
+    That fact is owned by `assist_capability`'s ladder in `apps/workers/extraction.py` and
+    was depended on here with nothing comparing the two, so the DEFAULT for an
+    unrecognised provider was "free" — on an append-only ledger, where a missing row
+    cannot be back-filled by an UPDATE. It is not a live hole today (the ladder returns
+    exactly two providers, and `SarvamExtractor` has no `last_usage` so that leg always
+    arrives unmetered), and it opens the day somebody adds a third, PAID provider in a
+    file that has no reason to look at this one.
+
+    FAILS IF: the Sarvam arm goes back to being a bare `else`, or the unknown arm stops
+    alerting. `meter_assist` is called directly because no route can produce this state —
+    which is exactly why the arm needs a test of its own.
+
+    The session is never touched: `usage is None` returns before any write, so passing
+    `None` for it both proves that and keeps this a unit test.
+    """
+    fired: list[tuple[str, str, dict[str, str]]] = []
+
+    def _capture(stage: str, code: str, *, detail: str | None = None, **ids: str) -> None:
+        fired.append((stage, code, ids))
+
+    monkeypatch.setattr(assist, "alert", _capture)
+    tenant_id = uuid.uuid4()
+    result = AssistResult(
+        output=ExtractionOutput(summary="Answered by something new."),
+        capability=AssistCapability(available=True, provider="a-third-model"),
+        usage=None,
+    )
+
+    metering = await assist.meter_assist(
+        None,  # type: ignore[arg-type]
+        tenant_id=tenant_id,
+        ref="assist-unknown-provider",
+        result=result,
+    )
+
+    assert metering.metered is False
+    assert [(stage, code) for stage, code, _ in fired] == [
+        ("CORE_LOGIC", "ai_assist_unknown_provider")
+    ]
+    assert fired[0][2]["provider"] == "a-third-model"
+    assert fired[0][2]["tenant_id"] == str(tenant_id)
+
+
+async def test_a_sarvam_fallback_is_still_the_recognised_free_case(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The other side of the new `elif`, at the same level, so the pair fails apart.
+
+    FAILS IF: the Sarvam arm is deleted or its provider constant is mistyped — either
+    would route the ordinary, correct, free fallback into the unknown-provider alert and
+    page an operator for a non-event every time Azure blinks.
+    """
+    fired: list[str] = []
+    monkeypatch.setattr(assist, "alert", lambda stage, code, **kw: fired.append(code))
+
+    result = AssistResult(
+        output=ExtractionOutput(summary="Sarvam answered."),
+        capability=AssistCapability(
+            available=True,
+            provider=SARVAM_PROVIDER,
+            fallback_reason=extraction_module.PROVIDER_UNAVAILABLE_REASON,
+        ),
+        usage=None,
+    )
+    metering = await assist.meter_assist(
+        None,  # type: ignore[arg-type]
+        tenant_id=uuid.uuid4(),
+        ref="assist-sarvam",
+        result=result,
+    )
+
+    assert metering.metered is False
+    assert fired == [], "a free, disclosed fallback is not an incident"

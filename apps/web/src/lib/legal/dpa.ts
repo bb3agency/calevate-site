@@ -10,7 +10,16 @@ import type { LegalDocument } from "./types";
  * security safeguards. Annex B is therefore not a marketing list — it is the clause that
  * makes rule 6(f) satisfiable, and every measure in it is one that exists in the code
  * today. Where a measure is aspirational it is absent, and where a limit is real it is in
- * clause 9 or clause 12.
+ * clause 9 or in a callout that names it. (This said "clause 9 or clause 12"; the
+ * Addendum has ten clauses and two annexes, so it pointed at nothing.)
+ *
+ * ## The clause numbers in the prose are CROSS-REFERENCES and were wrong
+ *
+ * Sub-processors are clause 5. Clause 9 twice, and `/legal/subprocessors` three times,
+ * cited "clause 6" — which is the data-principal help clause — for the sub-processor
+ * change notice a client's counsel would go and read. Nothing type-checks a clause
+ * number, so `tests/legal.test.tsx` now resolves every "clause N" in the set against
+ * the numbered headings of the document it points at.
  */
 export const DPA: LegalDocument = {
   slug: "dpa",
@@ -63,7 +72,8 @@ export const DPA: LegalDocument = {
             "We process your callers' personal data only on your documented instructions, " +
             "and for no other purpose. Your instructions are: these documents, the " +
             "configuration you set in the product (your agents, their prompts, your " +
-            "extraction schema, your retention periods, your integrations), and any " +
+            "extraction schema, your retention periods, your integrations, and which " +
+            "of the AI models we run your agents use), and any " +
             "further written instruction we accept.",
         },
         {
@@ -103,6 +113,14 @@ export const DPA: LegalDocument = {
               "is issued, one when data is actually read.",
             "Reading an unredacted transcript, or the exact body delivered to your own " +
               "system, is a higher permission and always writes an audit entry.",
+            "Setting your account up and administering it is a different thing from that " +
+              "access, and it does change your configuration: we build your agents with " +
+              "you, and an operator can set your plan, your limits and which of the AI " +
+              "models your agents run. That is done on your instruction or with your " +
+              "agreement, never through the support access above, and each of those " +
+              "changes writes an audit entry naming the operator, your account and what " +
+              "changed. We say it here because the sentence above, read on its own, " +
+              "would tell you our people cannot change anything on your account.",
           ],
         },
       ],
@@ -269,14 +287,18 @@ export const DPA: LegalDocument = {
         {
           kind: "callout",
           tone: "warning",
-          title: "Two stores with no retention period yet",
+          title: "The two stores that used to have no clock, and the one limit that remains",
           text:
-            "The raw document the voice platform returns for each call is archived and no " +
-            "retention category expires it; the only clock on it is a storage lifecycle " +
-            "rule that has not been applied to a live bucket. Knowledge content you upload " +
-            "is kept indefinitely, in every version. Both are reached by an end-of- " +
-            "engagement erasure to the extent stated on the certificate, and both are open " +
-            "items on our own register rather than solved problems.",
+            "This callout used to say that the archived raw call document and your " +
+            "uploaded knowledge content reached no retention period. Both are now " +
+            "categories on the same nightly job as everything else — the archived " +
+            "document for 90 days by default, superseded knowledge versions for 365 — " +
+            "and the correction is made here rather than left to run in our favour. The " +
+            "limit that remains, and it is deliberate: an erasure request SEARCHES your " +
+            "knowledge content for the subject's number and reports the count on the " +
+            "certificate, but never edits or deletes it. That material is yours, and a " +
+            "processor rewriting a controller's own documents on its own initiative " +
+            "would be the larger wrong; acting on the count is your call.",
         },
       ],
     },
@@ -287,23 +309,91 @@ export const DPA: LegalDocument = {
         {
           kind: "para",
           text:
-            "Section 16 of the DPDP Act permits transfer of personal data outside India " +
-            "except to a country the Central Government notifies as restricted; no such " +
-            "notification has been made. Rule 15 of the DPDP Rules requires us to observe " +
-            "any conditions the Government imposes, and we will.",
+            "Stated as at 22 August 2026, and dated because two of the three instruments " +
+            "below change on a known date. Section 16 of the DPDP Act permits transfer of " +
+            "personal data outside India except to a country the Central Government " +
+            "notifies as restricted, and no such notification has been made. It is a " +
+            "permission by absence rather than by grant, and it is not yet in force: the " +
+            "commencement notification brings sections 3 to 17 of the Act, which include " +
+            "section 16, into effect on 13 May 2027. So section 16 neither permits nor " +
+            "restricts these transfers today — it forecloses a restriction that has not " +
+            "been made, and we would rather write that than let a shorter sentence read " +
+            "as a statutory authorisation we do not yet have.",
+        },
+        {
+          kind: "para",
+          text:
+            "What governs today is the Information Technology Act 2000 and the 2011 " +
+            "sensitive-personal-data rules made under it, which do carry a transfer test: " +
+            "personal data may be transferred outside India only to a recipient that " +
+            "maintains the same level of protection those rules require, and only where " +
+            "the transfer is necessary for the performance of a contract or the person " +
+            "has consented to it. Every transfer described below is necessary to perform " +
+            "this contract — the service is the calls, and the calls run on these " +
+            "suppliers. Whether each recipient's protection is equivalent is a judgement " +
+            "we make on that supplier's own published terms, and clause 10 entitles you " +
+            "to see the basis of it. No sub-processor agreement has been signed yet, " +
+            "because no client data is in production; the sub-processor page says so on " +
+            "its face rather than in a footnote.",
+        },
+        {
+          kind: "para",
+          text:
+            "Two provisions of the DPDP Rules 2025 sit behind that and neither reaches us " +
+            "today. Rule 15 affirms that transfer is permitted and creates a power to " +
+            "impose conditions on making personal data available to a foreign State or an " +
+            "entity a foreign State controls; no such condition has been imposed on us, " +
+            "and we will observe any that is. Rule 13(4) is the one a localisation " +
+            "question should actually be asked about: it lets the Government require a " +
+            "Significant Data Fiduciary to keep specified categories of personal data — " +
+            "and the traffic data describing their flow — inside India. It is dormant for " +
+            "us on three counts at once: we have not been notified as a Significant Data " +
+            "Fiduciary, no class covering a voice-AI processor has been notified, and no " +
+            "category has been specified. If any of those three changes, it is a change " +
+            "to where this service can run, and clause 5 is how you will hear about it.",
+        },
+        {
+          kind: "callout",
+          tone: "warning",
+          title: "One question about call recordings that has no settled answer, and that expires in May 2027",
+          text:
+            "The 2011 rules define biometric information to include voice patterns, and " +
+            "they treat sensitive personal data more strictly than ordinary personal " +
+            "data, on transfer among other things. Whether the recording of an ordinary " +
+            "business telephone call is biometric information for that purpose has never " +
+            "been decided by an Indian court or by a regulator, and the definition reads " +
+            "as though it was written for authentication rather than for a call " +
+            "recording. We are not willing to put our own answer to an undecided question " +
+            "into a contract. So we do the thing that is right under either answer: call " +
+            "audio is treated as though it may be sensitive personal data, every place it " +
+            "goes is named on the sub-processor page, and the question is on the list for " +
+            "the advocate whose review this document is waiting on. Read it as a question " +
+            "about the LIVE call and not only about the stored file: the audio is carried " +
+            "by a platform outside India while the call is happening, and since 22 August " +
+            "2026 the transcript of it reaches a model in the United States turn by turn " +
+            "as it is spoken. If the answer is yes, the stricter transfer test applies to " +
+            "the conversation itself, which is why the question is worth more to you than " +
+            "its age suggests. It stops mattering on " +
+            "13 May 2027, when the DPDP Act replaces the sensitive-data tier with a single " +
+            "category — and it is live until then, which is why it is in the contract and " +
+            "not in a note.",
         },
         {
           kind: "para",
           text:
             "The sub-processor page states, for each vendor, where it processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech recognition and voice synthesis run on an Indian provider; " +
-            "the language model on both AI legs runs on a hyperscale provider's service " +
-            "configured for an Indian region, named on the sub-processor page, which our " +
-            "build constrains but cannot prove — see the paragraph below, which is part " +
-            "of this clause; object storage selects its location automatically and " +
-            "offers no India-only jurisdiction; the application host is at " +
-            "{{PRIMARY_HOSTING_LOCATION}}; the voice platform runs the call itself, and " +
+            "notice: speech recognition and voice synthesis run on an Indian provider, " +
+            "and so does the first pass that reads the transcript; the language model on " +
+            "both AI legs runs on a hyperscale provider's service configured for a " +
+            "United States region, named on the sub-processor page, which our build " +
+            "constrains but cannot prove — see the paragraph below, which is part of " +
+            "this clause; for object storage we ask the provider to place the bucket in " +
+            "its Asia-Pacific region, which is a placement preference and not a " +
+            "residency commitment, and that provider offers no India-only jurisdiction, " +
+            "so that data is stored outside India; the application host is at " +
+            "{{PRIMARY_HOSTING_LOCATION}}, decided but not yet provisioned, because no " +
+            "client data is in production; the voice platform runs the call itself, and " +
             "holds its own copy of the recording and transcript, outside India — its " +
             "documentation states that its services run on United States infrastructure " +
             "unless an enterprise residency option is purchased, and we have not purchased " +
@@ -311,30 +401,90 @@ export const DPA: LegalDocument = {
             "India. Sign-in is ours and runs on the application host.",
         },
         {
+          kind: "para",
+          text:
+            "You can choose which of the AI models we run your agents use — for your " +
+            "whole account, or for one agent — and the product shows you a figure " +
+            "against each. That choice is not a choice of where: every model we offer " +
+            "is served by the same provider, from the same account resource, in the " +
+            "region named above, and the warranty below is unaffected by which one you " +
+            "pick. It is also not a change to what you are charged: clause 6.1 of the " +
+            "Terms of Service says what you pay, and says what that figure beside each " +
+            "model is and is not.",
+        },
+        {
           kind: "callout",
           tone: "warning",
           title: "What we warrant about the language model, and what we do not",
           text:
+            "As at 22 August 2026 the declared region for the language model is East US " +
+            "2, in the United States. Until that date it was South India, and this " +
+            "clause said the language leg ran in India. That claim is WITHDRAWN, not " +
+            "narrowed: we are not going to keep it alive with qualifiers, and you should " +
+            "read the warranty below as a promise about our code rather than about a " +
+            "country. The change is recorded in our decision log and is the " +
+            "sub-processor location change clause 5 governs; the sub-processor page " +
+            "states what it would have cost had a client been live. " +
             "We warrant that our software cannot send a language-model request anywhere " +
-            "but an Indian region without a change to our source code that fails our own " +
-            "build: one function constructs every model endpoint, it cannot emit a " +
-            "non-Indian region, the region is written once, and no configuration setting " +
-            "may carry a region or an endpoint. We do NOT warrant this as machine-proved " +
-            "at the provider, and we will not let a shorter sentence imply that we do. " +
+            "but the single region our source code declares without a change to our " +
+            "source code that declares a different residency posture in a named " +
+            "constant — a change our build " +
+            "rejects until every other file agrees with that declaration, and which we " +
+            "record in our decision log. Under the posture we have declared: one " +
+            "function constructs every model endpoint, it can emit only the declared " +
+            "region, the region is written once, and no configuration setting may carry " +
+            "a region, an endpoint or a posture. The region our code declares is not a " +
+            "value any setting, console control or environment variable holds, and " +
+            "only a reviewed commit can change it. That is the " +
+            "same warranty about our source code as before, and what changed inside it " +
+            "is which region it names. The paragraph below is the part it does not " +
+            "reach, which this clause used to leave you to work out.",
+        },
+        {
+          kind: "para",
+          text:
+            "We do NOT " +
+            "warrant this as machine-proved at the provider, and we will not let a " +
+            "shorter sentence imply that we do. " +
             "Our provider's endpoint address contains no region — the region belongs to " +
-            "the account resource — so that the resource is in South India, and that its " +
+            "the account resource that address points at. WHICH resource we point at is " +
+            "an operational setting our own operators can change, as is which model " +
+            "deployment inside it answers, so the warranty above is a warranty about " +
+            "our source code and not the whole story: a resource created in another " +
+            "region would move the processing without any of it becoming false. That is " +
+            "why the two facts the region actually depends on are held by a person and " +
+            "not by the build — that the resource we are configured to use is in East " +
+            "US 2, and that its " +
             "model deployment is the regional kind rather than the provider's worldwide " +
-            "default, are confirmed by a named person against the provider's console, " +
+            "default. Both are confirmed by a named person against the provider's console, " +
             "dated and retained as evidence, and available to you under clause 10. " +
+            "Moving the service to a resource in another region is a change of " +
+            "processing location, notified to you under clause 5 before it takes " +
+            "effect; it is not something we treat as a settings adjustment because the " +
+            "setting is where it happens to live. " +
             "Before 19 August 2026 the language leg ran on a provider whose endpoint did " +
-            "name its region; the change of provider is what narrowed this warranty, and " +
-            "it is recorded rather than absorbed.",
+            "name its region; the change of provider is what narrowed this warranty, the " +
+            "change of region is what withdrew the India claim, and both are recorded " +
+            "rather than absorbed.",
         },
         {
           kind: "para",
           text:
             "If your own sector regulator requires data localisation beyond this, tell us " +
-            "before you sign. We will tell you honestly whether we can meet it.",
+            "before you sign. It is worth saying where such a duty comes from, because it " +
+            "is not the law described above: a bank, an NBFC or an insurer is required to " +
+            "pass localisation and audit terms down its outsourcing chain, so the duty " +
+            "reaches us through YOUR contract rather than through data-protection law, " +
+            "and it binds us whatever the DPDP position is. We will tell you honestly " +
+            "whether we can meet it — and on the evidence on the sub-processor page, a " +
+            "requirement that the call itself stay in India is one we cannot meet today, " +
+            "and since 22 August 2026 neither is a requirement that the language model " +
+            "stay in India. Speech and the first reading of the transcript remain " +
+            "Indian, and the application database is to be hosted in India on the " +
+            "decision recorded above — a host that is chosen and not yet provisioned, " +
+            "so read it as a commitment we are making rather than a machine you can " +
+            "point at. If your duty can be met by those alone, " +
+            "say so and we will put it in writing.",
         },
       ],
     },

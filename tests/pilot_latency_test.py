@@ -387,7 +387,7 @@ def test_a_full_ledger_scores_into_the_shared_vocabulary_and_never_reads_as_pass
                             {"turn_index": i + 1, "voice_to_voice_ms": v}
                             for i, v in enumerate(FAST_TEN)
                         ],
-                        "latency_data": RAW_LATENCY_DATA,
+                        "engine_latency": RAW_LATENCY_DATA,
                     }
                 ]
             }

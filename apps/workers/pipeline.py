@@ -28,6 +28,7 @@ SLO: lead visible in the client dashboard under 2 minutes after hangup — measu
 
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -40,9 +41,11 @@ from calevate_shared.engine import ExecutionSnapshot
 from calevate_shared.events import TERMINAL_STATUSES
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
+from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.billing.caps import (
     CAPS_CTE,
     announce_cap_headroom,
@@ -834,6 +837,79 @@ async def _archive_engine_document(
     return "archived" if stored is not None else "put_refused"
 
 
+async def _record_engine_latency(
+    tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot
+) -> str:
+    """Store what the engine said its own pipeline cost, per turn. Returns the outcome.
+
+    **THE ONLY MEASUREMENT THIS SYSTEM HAS.** TRD §4a records that every latency figure in
+    this repo is a target with zero measurements behind it, and D-410 made that expensive:
+    it pinned the language model to South India while the engine's orchestrator is US-hosted
+    (`bolna-findings/mirror/pages/concepts/security.md:29`), so every turn's LLM call was a
+    US->India->US round trip inside a 350ms budget. D-449 then removed that round trip
+    (`eastus2`) on an argument, paying for it with the India residency claim — still with
+    zero measurements behind it. This stage is what turns the whole question from an
+    argument into a `GROUP BY region` (OPERATIONS §2 gate 4).
+
+    **UPSERT, and the unique constraint is load-bearing.** This pipeline re-runs on every
+    re-drive and the reconciliation poller can drive it again. An INSERT would append a
+    second copy of every turn and double-weight that call in the distribution — the one
+    failure a measurement table cannot survive, because it corrupts the answer silently and
+    only in the calls that had trouble.
+
+    **NEVER RAISES.** A missing measurement is a gap in evidence; a failed pipeline is a
+    lead the client does not get. `_meter` and the extraction are what this call is for.
+
+    NOTHING PERSONAL CROSSES THIS FUNCTION (hard rule 6): `CallLatency` carries turn
+    indices, milliseconds and a region code, and there is no field on it text could be in.
+    The log line is ids and counts for the same reason.
+    """
+    latency = snapshot.latency
+    if latency is None:
+        # The engine reported no timings at all. Legitimate — a listing row carries none,
+        # and an engine may publish none — so it is an outcome on the span, not a warning.
+        return "none_reported"
+    try:
+        async with tenant_session(tenant_id) as session:
+            await session.execute(
+                text(
+                    "INSERT INTO call_engine_latency "
+                    "  (id, tenant_id, call_id, engine, region, time_to_first_audio_ms, "
+                    "   turns, parse_warnings, created_at, updated_at) "
+                    "VALUES (:id, :tid, :cid, :engine, :region, :ttfa, "
+                    "        CAST(:turns AS jsonb), CAST(:warnings AS jsonb), now(), now()) "
+                    "ON CONFLICT (call_id) DO UPDATE SET "
+                    "  region = EXCLUDED.region, "
+                    "  time_to_first_audio_ms = EXCLUDED.time_to_first_audio_ms, "
+                    "  turns = EXCLUDED.turns, "
+                    "  parse_warnings = EXCLUDED.parse_warnings, "
+                    "  updated_at = now()"
+                ),
+                {
+                    "id": uuid7(),
+                    "tid": tenant_id,
+                    "cid": call_id,
+                    "engine": snapshot.engine,
+                    "region": latency.region,
+                    "ttfa": latency.time_to_first_audio_ms,
+                    "turns": json.dumps([turn.model_dump() for turn in latency.turns]),
+                    "warnings": json.dumps(latency.parse_warnings)
+                    if latency.parse_warnings
+                    else None,
+                },
+            )
+    except SQLAlchemyError as exc:
+        # Includes the CHECK that refuses anything but numbers in `turns` — which is the
+        # one failure here worth a log line an operator can act on, because it means a
+        # writer got past the adapter with a shape the schema forbids.
+        log.warning(
+            "engine_latency_not_recorded",
+            extra={"call_id": str(call_id), "reason": type(exc).__name__},
+        )
+        return "refused"
+    return "recorded"
+
+
 async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -> str:
     started = time.perf_counter()
 
@@ -850,6 +926,14 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         set_span_attributes(
             stage,
             outcome=await _archive_engine_document(tenant_id, call_id, execution_id, snapshot),
+        )
+
+    # STEP 1c — what the engine says its own pipeline cost, per turn (gate 4). Before the
+    # transcript because it is a small write of numbers already in hand, and after the
+    # archive because the archive is what a later re-derivation would read.
+    with span("pipeline.engine_latency", call_id=str(call_id)) as stage:
+        set_span_attributes(
+            stage, outcome=await _record_engine_latency(tenant_id, call_id, snapshot)
         )
 
     # STEP 2 — transcript + redaction. `text_redacted` is the default view (hard rule 5).
@@ -1873,18 +1957,33 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     async with tenant_session(tenant_id) as session:
         await lock_call_writes(session, call_id)
         tier = await plan_tier_of(session, tenant_id)
-        voice_id = (
+        config_row = (
             await session.execute(
                 # LEFT JOIN: a call whose agent row was since removed still has to
                 # meter — and it meters as UNPROVEN, which bills at the value rate.
+                #
+                # `organizations` is joined for the SECOND rung of the model resolution
+                # (`agents/llm_models.py`), in the SAME statement rather than a second
+                # round trip: both facts describe one call at one instant, and reading
+                # them apart would let an operator's edit land between them and stamp a
+                # row whose two halves describe different configurations.
                 text(
-                    "SELECT a.tts_voice FROM calls c "
+                    "SELECT a.tts_voice, a.llm_model, o.default_llm_model FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
+                    "LEFT JOIN organizations o ON o.id = c.tenant_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
                 {"cid": call_id, "tid": tenant_id},
             )
-        ).scalar()
+        ).first()
+        # Unpacked ONCE. A call row that has gone missing between the pipeline reading it
+        # and this statement is the same "nothing configured" the LEFT JOINs already
+        # produce, so it is spelled as one absent triple rather than as a `None` guard
+        # repeated at each use — three guards is three chances for one of them to answer
+        # differently about the same row.
+        voice_id, agent_model, organization_model = (
+            config_row if config_row is not None else (None, None, None)
+        )
         # WHICH VOICE ACTUALLY RAN IS NOT SOMETHING WE MEASURE. The engine reports a
         # synthesizer leg cost and no model name (billing/rates.py explains the vendor
         # question), so this is the voice the agent was CONFIGURED with at metering
@@ -1893,6 +1992,33 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # VALUE tier: SURFACES §2b's rule is that an unproven call is never billed at
         # the premium rate.
         tts_tier, tts_tier_source = billable_tier(voice_id if isinstance(voice_id, str) else None)
+        # WHICH LANGUAGE MODEL THIS CALL RAN, recorded for exactly the reason the TTS rung
+        # beside it is (D-454). A client now CHOOSES the model their agents run, the two
+        # selectable models differ by 2.7x on both token legs, and both of the columns
+        # that answer "which one" — `agents.llm_model` and `organizations
+        # .default_llm_model` — are mutable at any moment from two screens. So the model a
+        # past call ran is UNRECOVERABLE from the live rows the day after it ran, and
+        # `usage_events` is append-only (hard rule 4): if the fact is not stamped at
+        # metering time it cannot be back-filled by an UPDATE. Without it a month in which
+        # a client switched models is one nobody can take apart afterwards, which is
+        # precisely the question an unexplained Azure invoice asks.
+        #
+        # IT IS A CONFIGURATION READ, NOT A MEASUREMENT, and `llm_model_source` is where
+        # that is said out loud — the same honesty `tts_tier_source` carries and for the
+        # same vendor reason: no execution payload names the model that served the call
+        # (`billing/rates.py`). `agent` and `organization` mean somebody chose, at that
+        # level, and the publish path pushed the matching deployment (`agents/service.py
+        # ::in_call_llm`). `platform` means NOBODY chose — which on an Azure deployment is
+        # `Settings.azure_openai_model` and on a deployment with no Azure leg is the
+        # engine's own default, because `in_call_llm` sends no model on that arm at all.
+        # Recording the resolution and its level, rather than one string pretending to be
+        # a measurement, is what keeps the row honest under both.
+        #
+        # NOT PRICED HERE, deliberately. The in-call language leg is BYOK: the engine pays
+        # nothing for it and reports nothing about it, so there is no token count to put a
+        # rupee against and `rates.py` says at length why inventing one would be worse than
+        # the gap. This is the identifier the gap will be closed WITH, not a charge.
+        llm = resolve_llm_model(agent_model=agent_model, organization_model=organization_model)
         already = (
             await session.execute(
                 text(
@@ -1938,6 +2064,9 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 "tts_tier": tts_tier,
                 "tts_tier_source": tts_tier_source,
                 "tts_voice": voice_id if isinstance(voice_id, str) else None,
+                # D-454's model choice, stamped per row for the reason argued above.
+                "llm_model": llm.model,
+                "llm_model_source": llm.source,
             }
         )
         # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every

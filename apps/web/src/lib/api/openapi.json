@@ -426,6 +426,30 @@
             "title": "Language Primary",
             "type": "string"
           },
+          "llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model"
+          },
+          "llm_model_effective": {
+            "title": "Llm Model Effective",
+            "type": "string"
+          },
+          "llm_model_source": {
+            "enum": [
+              "agent",
+              "organization",
+              "platform"
+            ],
+            "title": "Llm Model Source",
+            "type": "string"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -477,7 +501,10 @@
           "opening_line",
           "engine",
           "published",
-          "inbound_number_count"
+          "inbound_number_count",
+          "llm_model",
+          "llm_model_effective",
+          "llm_model_source"
         ],
         "title": "AgentOut",
         "type": "object"
@@ -616,7 +643,7 @@
       },
       "AgentUpdateIn": {
         "additionalProperties": false,
-        "description": "What an owner may change about an existing agent. `null` on a field leaves it alone.\n\n`DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever\none moved, and a PATCH that could only send all three would make renaming an agent a\nread-modify-write race against a direction change.",
+        "description": "What an owner may change about an existing agent. An OMITTED field is left alone.\n\n`DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever\none moved, and a PATCH that could only send all three would make renaming an agent a\nread-modify-write race against a direction change.\n\n\u26a0 **`llm_model` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),\nbecause it is the only one whose column is nullable and whose NULL MEANS something:\n\"inherit the account's default\". On every other field here `null` and \"omitted\" are\nthe same request, so the model can read them the same way; on this one they are\nopposite requests \u2014 clear my choice, versus do not touch it \u2014 and a model that could\nnot tell them apart would leave an owner unable to go back to the account default\nonce they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and\nis what `set_llm_model` below reads: it carries which keys the CLIENT SENT, so an\nexplicit `\"llm_model\": null` is distinguishable from a body that never mentioned it.\nThe rejected alternative was a sentinel default (`UNSET = object()`), which works but\nputs a non-JSON-schema type in the OpenAPI document and therefore in every generated\nclient.",
         "properties": {
           "direction": {
             "anyOf": [
@@ -649,6 +676,17 @@
               }
             ],
             "title": "Language Primary"
+          },
+          "llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model"
           },
           "name": {
             "anyOf": [
@@ -4538,6 +4576,38 @@
         "title": "EngineDriftOut",
         "type": "object"
       },
+      "EngineLatencyReport": {
+        "description": "Every group in the window, plus the target each is judged against.",
+        "properties": {
+          "complete": {
+            "default": true,
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/LatencyGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "llm_ttft_budget_ms": {
+            "default": 350.0,
+            "title": "Llm Ttft Budget Ms",
+            "type": "number"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "groups"
+        ],
+        "title": "EngineLatencyReport",
+        "type": "object"
+      },
       "EngineStateOut": {
         "additionalProperties": false,
         "description": "The RECONCILIATION read: what the engine is running RIGHT NOW versus our row.\n\nDistinct from `VerificationOut` because it is asked at a different moment and costs a\nvendor round trip. It is the only instrument that can see the two divergences that\nappear with no code of ours running: an edit made in the vendor's own dashboard, and\na publish that failed on our side after the vendor had already committed.\n\n`state` adds `not_published` (there is nothing to compare) and `not_applied` (the\nengine is running something else) to the four `VerificationOut` values. A\n`not_applied` here is a finding, not a refusal \u2014 nothing is being written.",
@@ -7321,6 +7391,100 @@
         "title": "LanesOut",
         "type": "object"
       },
+      "LatencyGroup": {
+        "description": "One (engine, region) pair's LLM time-to-first-token distribution.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "measured",
+              "insufficient_samples"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "budget_breached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Budget Breached"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "engine": {
+            "title": "Engine",
+            "type": "string"
+          },
+          "llm_ttft_max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Ttft Max Ms"
+          },
+          "llm_ttft_p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Ttft P50 Ms"
+          },
+          "llm_ttft_p95_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Ttft P95 Ms"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "turns": {
+            "title": "Turns",
+            "type": "integer"
+          },
+          "turns_over_budget": {
+            "title": "Turns Over Budget",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "engine",
+          "region",
+          "calls",
+          "turns",
+          "basis",
+          "turns_over_budget"
+        ],
+        "title": "LatencyGroup",
+        "type": "object"
+      },
       "LaunchCheckOut": {
         "additionalProperties": false,
         "properties": {
@@ -8487,6 +8651,110 @@
           "changed"
         ],
         "title": "LifecycleOut",
+        "type": "object"
+      },
+      "LlmDefaultIn": {
+        "additionalProperties": false,
+        "description": "The account's choice, or `null` to go back to following the platform.\n\nREQUIRED RATHER THAN OPTIONAL, and that is what makes this a PUT rather than a PATCH:\nthe body states the whole of the resource, so `null` is unambiguously \"clear it\" and\nthere is no third \"field omitted\" case to interpret. `PATCH /v1/agents/{id}` has to\ncarry that third case because it edits four properties at once; this one carries a\nsingle value and does not.",
+        "properties": {
+          "default_llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Llm Model"
+          }
+        },
+        "required": [
+          "default_llm_model"
+        ],
+        "title": "LlmDefaultIn",
+        "type": "object"
+      },
+      "LlmDefaultsOut": {
+        "additionalProperties": false,
+        "description": "What this account has chosen, what that resolves to, and what else it could pick.",
+        "properties": {
+          "available": {
+            "items": {
+              "$ref": "#/components/schemas/LlmModelOptionOut"
+            },
+            "title": "Available",
+            "type": "array"
+          },
+          "default_llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Llm Model"
+          },
+          "effective_default": {
+            "title": "Effective Default",
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_llm_model",
+          "effective_default",
+          "available"
+        ],
+        "title": "LlmDefaultsOut",
+        "type": "object"
+      },
+      "LlmModelOptionOut": {
+        "additionalProperties": false,
+        "description": "One model an account may choose, with what a minute of it costs.\n\nEvery field is required on the wire: a Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the server\nnever emits.",
+        "properties": {
+          "is_available": {
+            "title": "Is Available",
+            "type": "boolean"
+          },
+          "is_platform_default": {
+            "title": "Is Platform Default",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "platform_cost_inr_per_minute": {
+            "title": "Platform Cost Inr Per Minute",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "model",
+          "provider",
+          "platform_cost_inr_per_minute",
+          "is_platform_default",
+          "is_available",
+          "unavailable_reason"
+        ],
+        "title": "LlmModelOptionOut",
         "type": "object"
       },
       "LoginIn": {
@@ -15594,6 +15862,96 @@
         "x-calevate-permission": "org:read"
       }
     },
+    "/v1/admin/organizations/{org_id}/llm-defaults": {
+      "get": {
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
+        "operationId": "admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmDefaultsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which language model one client's agents run",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "put": {
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "operationId": "admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "org_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Org Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmDefaultIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmDefaultsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Set the language model one client's agents run by default",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/qa-samples": {
       "get": {
         "description": "Calls drawn for review, newest week first and in the draw's own order. Each row carries the frame it came from \u2014 the week, the number of calls in it, the number drawn \u2014 and the seed the order was computed from, so the sample can be recomputed and checked by anyone. `pending` (default) shows only calls nobody has reviewed yet. No transcript text and no phone number appear on this list.",
@@ -18647,7 +19005,7 @@
         "x-calevate-permission": "agents:read"
       },
       "patch": {
-        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\nAn archived agent is refused: restore it first.",
+        "description": "Applies immediately. A live agent is re-published to the voice platform in the same transaction \u2014 including the numbers it answers, so switching a two-way agent to outbound-only really does stop it picking up \u2014 and if that push fails nothing is saved.\n\n`llm_model` is the one field where sending `null` MEANS something: it clears this agent's own choice so it follows the account default again. Omit the field entirely to leave the current choice alone. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed`. Both name the models you can pick \u2014 read them off `GET /v1/organization/llm-defaults`, where a row with `is_available: false` is one of these refusals waiting to happen.\n\nAn archived agent is refused: restore it first.",
         "operationId": "update_agent_route_v1_agents__agent_id__patch",
         "parameters": [
           {
@@ -18689,7 +19047,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Rename an agent, or change its calling direction or language",
+        "summary": "Rename an agent, change its calling direction or language, or pick its model",
         "tags": [
           "agents"
         ],
@@ -24181,6 +24539,51 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/ops/engine-latency": {
+      "get": {
+        "description": "The LLM time-to-first-token distribution per (engine, region).\n\n**NO STEP-UP CONFIRMATION**, for this file's stated reason: it writes nothing, and\ndemanding a confirmation to run a read teaches operators to type past confirmations.\n\n**NO AUDIT ROW.** The payload is milliseconds, counts and a region code \u2014 nothing from\nany call and nothing about any person \u2014 and it is a page an operator refreshes while\nwatching a pilot. An audit chain that grows a row per refresh stops being readable,\nwhich is the argument `quality/routes.py` and `holds_routes.py` both make.\n\n**WHY IT IS ADMIN AND NOT CLIENT.** It is a question about OUR infrastructure choices\nacross every tenant \u2014 specifically what the model deployment's geography costs the\ncaller, which is what D-449 traded the India residency claim away to improve and what\nnobody has yet measured (OPERATIONS \u00a72 gate 4). A client's own screen has\nnothing to do with it, and `flags.registry.call_timing_breakdown` is where the\nper-client version waits with its blocker written down.",
+        "operationId": "read_engine_latency_v1_ops_engine_latency_get",
+        "parameters": [
+          {
+            "description": "How many days of calls to include.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "description": "How many days of calls to include.",
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngineLatencyReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "What the voice engine reported its own pipeline cost, by region (gate 4)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/outbox/replay": {
       "post": {
         "description": "Moves up to 100 of the OLDEST dead-lettered outbox messages back to `pending` with a fresh attempt budget, for every tenant at once. The next dispatch tick re-sends them: HMAC-signed webhooks to clients' own systems, Google Sheets appends, notification emails. A message can dead-letter AFTER its side effect landed, so the outcome to be sure of before sending this is a second delivery, not a flag in a row. `job` scopes the run to one kind of side effect and MUST be echoed in the confirmation header (`replay_dead_letters:<job>`); omit it to replay every job, which is `X-Confirm-Action: replay_dead_letters`. Read the depth and the per-job breakdown from `GET /v1/ops/platform` first \u2014 `outbox_dead_letters` is published so this confirmation can be an informed one.",
@@ -24665,6 +25068,72 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/organization/llm-defaults": {
+      "get": {
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
+        "operationId": "get_organization_llm_defaults_v1_organization_llm_defaults_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmDefaultsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Which language model this account's agents run, and what else it could run",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` \u2014 the same rows `available` marks `is_available: false`.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "operationId": "set_organization_llm_default_v1_organization_llm_defaults_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmDefaultIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmDefaultsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose the language model this account's agents run by default",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/performance": {

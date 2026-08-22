@@ -155,6 +155,12 @@ _SHELL_JSON = re.compile(r'"code"\s*:\s*"([a-z][a-z0-9_]+)"')
 
 #: A row of the alarm index: `| \`code\` | STAGE | meaning | what to do |`.
 _INDEX_ROW = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
+#: The same row, read for its SECOND column as well. Separate from `_INDEX_ROW` rather
+#: than replacing it, because the two questions fail differently: a row whose stage cell
+#: is malformed still declares an alarm, and swallowing it into the code scan would turn
+#: a typo in column 2 into "DOCUMENTED, NEVER RAISED" in column 1 — an error message
+#: pointing at the wrong half of the row.
+_INDEX_ROW_STAGE = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|\s*([A-Z][A-Z_]*)\s*\|", re.MULTILINE)
 #: A row of the metric index, which uses the same shape under its own heading.
 _METRIC_ROW = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
 _ALARM_HEADING = "## Alarm codes"
@@ -210,17 +216,27 @@ def _literal_code(node: ast.expr) -> str | None:
     return None
 
 
-def raised_codes() -> tuple[dict[str, set[str]], list[str]]:
-    """Every alarm code this tree can raise → the files that raise it, plus failures.
+def raised_codes() -> tuple[dict[str, set[str]], dict[str, set[str]], list[str]]:
+    """`(code -> files that raise it, code -> stages it is raised WITH, failures)`.
 
     The failure list holds unresolvable call sites: a code this scanner cannot name is a
     code the index cannot cover, and guessing would be the same as not checking.
+
+    THE SECOND DICT IS THE STAGE, and it is collected here rather than by a second walk
+    because the stage is written on the same call as the code — `alert(stage, code)` and
+    `ProblemError(code=..., failure_stage=...)` — so a separate scan would be a second
+    spelling of this one. It is a SET per code because one code may legitimately be
+    raised from two call sites; the index carries a single cell, so two stages behind one
+    code is itself a finding (the row cannot be true of both).
     """
     codes: dict[str, set[str]] = {}
+    stages: dict[str, set[str]] = {}
     failures: list[str] = []
 
-    def record(code: str, where: Path) -> None:
+    def record(code: str, where: Path, stage: str | None = None) -> None:
         codes.setdefault(code, set()).add(where.relative_to(REPO_ROOT).as_posix())
+        if stage is not None:
+            stages.setdefault(code, set()).add(stage)
 
     for path in _python_files():
         rel = path.relative_to(REPO_ROOT).as_posix()
@@ -247,11 +263,12 @@ def raised_codes() -> tuple[dict[str, set[str]], list[str]]:
             if isinstance(node.func, ast.Name) and node.func.id == "alert":
                 arg = node.args[1] if len(node.args) > 1 else None
                 code = resolve(arg)
+                stage = resolve(node.args[0]) if node.args else None
                 # A `*_code` field read off a frozen descriptor: the literal is declared
                 # where the descriptor is built, and shape (4) below collects it.
                 covered_by_meter = isinstance(arg, ast.Attribute) and arg.attr.endswith("_code")
                 if code is not None:
-                    record(code, path)
+                    record(code, path, stage)
                 elif covered_by_meter:
                     pass  # shape (4): the literal is on the meter, read below
                 elif rel in DYNAMIC_ALERT_SITES:
@@ -271,7 +288,9 @@ def raised_codes() -> tuple[dict[str, set[str]], list[str]]:
                     continue
                 code = resolve(keywords.get("code"))
                 if code is not None:
-                    record(code, path)
+                    # `install_error_handlers` relays `alert(exc.failure_stage, exc.code)`
+                    # verbatim, so the keyword IS the stage an operator will read.
+                    record(code, path, resolve(keywords.get("failure_stage")))
                 else:
                     failures.append(
                         f"{rel}:{node.lineno}: a ProblemError carries a failure_stage — "
@@ -299,22 +318,41 @@ def raised_codes() -> tuple[dict[str, set[str]], list[str]]:
             "Either the backup chain stopped raising alarms or its call shape changed "
             "and this scanner went blind — both need a person."
         )
-    return codes, failures
+    return codes, stages, failures
+
+
+def _section(text: str, heading: str) -> str:
+    """The slice under `heading`, up to the next `## ` heading, or empty if it is gone.
+
+    Its own function because three readers now want it and each applies a different
+    pattern to it; a heading that moves must blind all three at once, not one of them.
+    """
+    start = text.find(heading)
+    if start < 0:
+        return ""
+    rest = text[start + len(heading) :]
+    end = rest.find("\n## ")
+    return rest if end < 0 else rest[:end]
 
 
 def _table_rows(text: str, heading: str, pattern: re.Pattern[str]) -> set[str]:
     """The first column of every row under `heading`, up to the next `## ` heading."""
-    start = text.find(heading)
-    if start < 0:
-        return set()
-    rest = text[start + len(heading) :]
-    end = rest.find("\n## ")
-    section = rest if end < 0 else rest[:end]
-    return {match.group(1) for match in pattern.finditer(section)}
+    return {match.group(1) for match in pattern.finditer(_section(text, heading))}
 
 
 def documented_codes() -> set[str]:
     return _table_rows(INDEX.read_text(encoding="utf-8"), _ALARM_HEADING, _INDEX_ROW)
+
+
+def documented_stages() -> dict[str, str]:
+    """`{code: the stage its index row claims}`.
+
+    A row whose stage cell does not parse is simply absent here, which is deliberate: it
+    then fails as an unstaged row (see `stage_disagreements`) rather than being silently
+    compared against nothing.
+    """
+    section = _section(INDEX.read_text(encoding="utf-8"), _ALARM_HEADING)
+    return {m.group(1): m.group(2) for m in _INDEX_ROW_STAGE.finditer(section)}
 
 
 def documented_metrics() -> set[str]:
@@ -370,6 +408,54 @@ def recorded_metrics() -> tuple[set[str], list[str]]:
                             "accepted') — add a `record_*` function and call it."
                         )
     return names, failures
+
+
+def stage_disagreements(
+    raised: dict[str, set[str]] | None = None, documented: dict[str, str] | None = None
+) -> list[str]:
+    """The index's STAGE column against the stage the code actually passes.
+
+    WHY THE SECOND COLUMN EARNS A CHECK. `runbooks/alarm-index.md` opens with **"Read the
+    stage first"** and then maps each stage onto a different first move — `CORE_LOGIC` is
+    a decision inside the app, `WORKER_STALL` is the reliability path backing up,
+    `WORKER_TERMINAL` is retries exhausted. Until this existed the guard proved only that
+    a row EXISTED for every code, so a row could send an operator down the wrong branch of
+    its own instructions and every gate stayed green. `calls_never_finished` was documented
+    `WORKER_TERMINAL` and raised `WORKER_STALL` for as long as it had had a row.
+
+    WHAT IT CANNOT SEE, said rather than hidden: a stage is only comparable where it is
+    written beside the code. The host backup chain emits from shell, the ack-budget meters
+    carry a `*_code` literal with the stage on the `alert()` a file away, and
+    `DYNAMIC_ALERT_SITES` names codes rather than calls — so those rows are checked for
+    HAVING a stage and not for which one. `main()` prints how many of each, so a scan that
+    quietly stopped resolving stages shows up as the number falling.
+    """
+    raised = raised_codes()[1] if raised is None else raised
+    documented = documented_stages() if documented is None else documented
+    failures: list[str] = []
+    for code in sorted(raised):
+        stages = raised[code]
+        if len(stages) > 1:
+            failures.append(
+                f"TWO STAGES, ONE ROW: `{code}` is raised as {sorted(stages)}. The index "
+                "carries one stage cell, so no row can be true of both — either give the "
+                "two call sites one stage or give them two codes."
+            )
+            continue
+        claimed = documented.get(code)
+        if claimed is not None and claimed not in stages:
+            failures.append(
+                f"WRONG STAGE: the alarm index says `{code}` is {claimed}; the code raises "
+                f"it as {next(iter(stages))}. The index tells an operator to read the "
+                "stage first, so a wrong one sends them down the wrong branch of their "
+                "own runbook."
+            )
+    for code in sorted(set(documented_codes()) - set(documented)):
+        failures.append(
+            f"NO STAGE: the alarm index row for `{code}` has no readable stage in its "
+            "second column. Every row's first instruction is to read that cell."
+        )
+    return failures
 
 
 def dynamic_site_failures() -> list[str]:
@@ -458,7 +544,7 @@ def broken_runbook_citations() -> list[str]:
 
 def evaluate() -> list[str]:
     failures: list[str] = []
-    codes, scan_failures = raised_codes()
+    codes, stages, scan_failures = raised_codes()
     failures.extend(scan_failures)
     failures.extend(dynamic_site_failures())
 
@@ -501,6 +587,7 @@ def evaluate() -> list[str]:
     for name in sorted(metrics - documented_metric_names):
         failures.append(f"RECORDED, UNDOCUMENTED: metric `{name}` is in no index row.")
 
+    failures.extend(stage_disagreements(stages, documented_stages()))
     failures.extend(broken_runbook_citations())
     failures.extend(dangling_names({*codes, *documented, *metrics, *documented_metric_names}))
     return failures
@@ -518,9 +605,13 @@ def main() -> int:
             "no runbook."
         )
         return 1
-    codes, _ = raised_codes()
+    codes, stages, _ = raised_codes()
     metrics, _ = recorded_metrics()
-    print(f"Alarm wiring OK: {len(codes)} alarm code(s) and {len(metrics)} metric(s), documented.")
+    print(
+        f"Alarm wiring OK: {len(codes)} alarm code(s) and {len(metrics)} metric(s), "
+        f"documented; {len(stages)} of the codes carry a stage this scan can read and "
+        "every one matches its index row."
+    )
     return 0
 
 

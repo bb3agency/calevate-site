@@ -16,7 +16,10 @@ receiver) needs only a **general-purpose VPS; India co-location is NOT REQUIRED 
 sentences together, because they are not in tension and the difference matters when
 somebody quotes one of them: co-location is not a *requirement* of this stack, and the
 founder bought it anyway. What that buys is one leg of the residency question and not the
-question — R2 runs `AWS_REGION=auto`, Bolna **documents its whole platform as US-hosted by
+question — the R2 buckets are hinted `apac`, i.e. deliberately placed in Asia-Pacific and
+deliberately NOT in India, because R2 has no India jurisdiction to place them in (D-450;
+`AWS_REGION=auto` is the signature scope and never said anything about placement, which
+is what this line used to cite), Bolna **documents its whole platform as US-hosted by
 default** (*"By default, Bolna processes calls on infrastructure in the US (AWS us-east-1)"*,
 `bolna-findings/mirror/pages/concepts/security.md:29` — which is broader and better sourced
 than the recording-URL observation this line used to carry, and their India option is
@@ -73,7 +76,7 @@ nginx (host) ── admin.calevate.tech ─┐
 Docker Compose (project: calevate): api · voice-runtime · workers · redis
 Host: PostgreSQL 16 · pm2 (web) · certbot · GitHub Actions runner
            (pgvector only if the D-28 bake-off fails — it is contingency, not the plan)
-Object storage: Cloudflare R2 (recordings, raw payloads, exports)
+Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location hint `apac`
 ```
 
 - Python services (api, voice-runtime, workers) run in Compose — one image, three
@@ -812,6 +815,20 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
    that wants its own datacenter slug (a DO Spaces endpoint wants `blr1`, matching the
    host in `OBJECT_STORE_ENDPOINT`).
 
+   **`AWS_REGION` IS THE SIGNATURE SCOPE AND HAS NOTHING TO DO WITH WHERE THE BYTES SIT**
+   (D-450). R2 places a bucket permanently at its FIRST creation, from a location hint we
+   have decided is **`apac`**, and there is no undo: deleting and recreating the same
+   bucket NAME reuses the original placement, so a wrongly-placed bucket costs a full
+   object copy to a differently-named one plus a re-apply of the lifecycle policy. Nothing
+   in this repository creates a bucket, so the hint lives in a human checklist —
+   `infra/README.md` §5 item 2 for the recordings bucket, `infra/backup/README.md` §8 step
+   1 for the wal-g backup bucket, which is a **separate** one-shot decision on a separate
+   day. Setting `AWS_REGION=apac` moves nothing and breaks everything with
+   `SignatureDoesNotMatch`. And the hint is placement, not residency: R2's guaranteed
+   residency feature is Jurisdictional Restrictions, whose only values are `eu`, `fedramp`
+   and `us` — **no India** — which is why the legal pages say this data is stored outside
+   India and must go on saying so.
+
    `RESEND_API_KEY` is the third env-only key and the ONLY credential that is (see the
    email block below for why). Everything else — `BOLNA_API_KEY`, the Sarvam stack, the
    four `AZURE_OPENAI_*` values (D-410), `GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON`,
@@ -1339,7 +1356,9 @@ dashboard in which to make the first account, and that flag was deleted rather t
 deprecated: it cannot work, and a flag that cannot work is worse than one that is absent.)*
 
 **Step 9 in full — `infra/backup/README.md` §8 is the ordered checklist; the shape of it:**
-create the R2 **backup** bucket + a token scoped to it alone → install wal-g (v3.0.8,
+create the R2 **backup** bucket **with location hint `apac`** (one-shot, and a
+separate one-shot from the recordings bucket — D-450) + a token scoped to it alone →
+install wal-g (v3.0.8,
 Jan 2026) → place `/etc/wal-g/walg.json` from the template with real values from the
 secrets manager → `wal-g backup-list` (this is the first moment anyone learns whether
 wal-g and R2 actually agree — **budget for it failing**) → confirm `SHOW data_checksums`

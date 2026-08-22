@@ -148,7 +148,7 @@ def test_a_fully_configured_azure_credential_scores_as_the_model_it_names(
         monkeypatch,
         azure_openai_resource="calevate-prod",
         azure_openai_api_key="k",
-        azure_openai_deployment="calevate-4o-mini-southindia",
+        azure_openai_deployment="calevate-4o-mini-eastus2",
     )
     scorable, refused = resolve_providers([AZURE_PROVIDER])
     assert refused == []

@@ -57,6 +57,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
+from apps.api.agents.llm_models import (
+    LlmModelSource,
+    resolve_llm_model,
+    validate_llm_model,
+)
 from apps.api.agents.models import (
     CALL_CAP_MAX_S,
     CALL_CAP_MIN_S,
@@ -149,6 +154,18 @@ class AgentOut(BaseModel):
     #: bindings too — they are what activating it would start answering — and the engine
     #: is told to release them on deactivate and archive.
     inbound_number_count: int
+    #: WHAT WAS CHOSEN ON THIS AGENT, and `null` means "inherit the account's default"
+    #: rather than "no model" (D-454). It is deliberately not the same field as
+    #: `llm_model_effective` below: a screen that showed only the effective value could
+    #: not tell an owner whether clearing this input would change anything.
+    llm_model: str | None
+    #: WHAT WILL ACTUALLY RUN, after `agent -> organization -> platform`. Never null:
+    #: there is always an answer, and the field that says WHERE it came from is beside it
+    #: so the screen never has to present a platform default as the client's own choice.
+    llm_model_effective: str
+    #: Which rung supplied `llm_model_effective`. A closed vocabulary, so a generated
+    #: client can switch on it exhaustively (`agents/llm_models.LlmModelSource`).
+    llm_model_source: LlmModelSource
     extraction_fields: list[ExtractionField] = []
 
 
@@ -181,13 +198,24 @@ _AGENT_ROSTER = (
     "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
     "a.ai_disclosure_line, a.ai_disclosure_enabled, "
     "a.recording_notice_line, a.recording_notice_enabled, a.archived_at, "
-    "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id) "
+    "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id), "
+    # The two rungs of the model fallback that live in the database (D-454). Joined
+    # rather than fetched per row: `organizations` is one PK lookup and RLS makes it the
+    # caller's own row, and resolving the fallback from two statements would let an
+    # account default change land between them — a roster whose rows disagree about which
+    # model the account runs.
+    "a.llm_model, o.default_llm_model "
     "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
+    "LEFT JOIN organizations o ON o.id = a.tenant_id "
     "WHERE a.deleted_at IS NULL"
 )
 
 
 def _agent_out(r: Any) -> AgentOut:
+    # Through the ONE resolver (`agents/llm_models.py`), so the roster, the detail route
+    # and the config the engine is actually sent cannot disagree about which model an
+    # agent runs or which level chose it.
+    resolved = resolve_llm_model(agent_model=r[15], organization_model=r[16])
     return AgentOut(
         id=r[0],
         name=r[1],
@@ -204,6 +232,9 @@ def _agent_out(r: Any) -> AgentOut:
         recording_notice_enabled=bool(r[12]),
         archived_at=r[13],
         inbound_number_count=int(r[14]),
+        llm_model=r[15],
+        llm_model_effective=resolved.model,
+        llm_model_source=resolved.source,
         # Through the ONE composer, so the roster, the publish path and the engine
         # cannot disagree about what this agent opens with (D-163).
         opening_line=compose_opening_line(
@@ -472,11 +503,24 @@ class AgentCreateIn(BaseModel):
 
 
 class AgentUpdateIn(BaseModel):
-    """What an owner may change about an existing agent. `null` on a field leaves it alone.
+    """What an owner may change about an existing agent. An OMITTED field is left alone.
 
     `DisclosureIn`'s shape and for its reason: a screen with three inputs sends whichever
     one moved, and a PATCH that could only send all three would make renaming an agent a
     read-modify-write race against a direction change.
+
+    ⚠ **`llm_model` IS THE ONE FIELD WHERE `null` IS A VALUE AND NOT AN ABSENCE** (D-454),
+    because it is the only one whose column is nullable and whose NULL MEANS something:
+    "inherit the account's default". On every other field here `null` and "omitted" are
+    the same request, so the model can read them the same way; on this one they are
+    opposite requests — clear my choice, versus do not touch it — and a model that could
+    not tell them apart would leave an owner unable to go back to the account default
+    once they had chosen. `model_fields_set` is Pydantic v2's answer to exactly this and
+    is what `set_llm_model` below reads: it carries which keys the CLIENT SENT, so an
+    explicit `"llm_model": null` is distinguishable from a body that never mentioned it.
+    The rejected alternative was a sentinel default (`UNSET = object()`), which works but
+    puts a non-JSON-schema type in the OpenAPI document and therefore in every generated
+    client.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -484,6 +528,16 @@ class AgentUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     direction: AgentDirection | None = None
     language_primary: Language | None = None
+    #: `null` clears the agent's own choice and falls back to the account default. A value
+    #: outside the allow-list is refused by `validate_llm_model` with the permitted ones
+    #: named — not by a `Literal` here, which would bake today's allow-list into the wire
+    #: contract (see that function for the argument).
+    llm_model: str | None = None
+
+    @property
+    def set_llm_model(self) -> bool:
+        """Did the caller actually name `llm_model`? See the class docstring."""
+        return "llm_model" in self.model_fields_set
 
     @model_validator(mode="after")
     def _at_least_one(self) -> AgentUpdateIn:
@@ -491,8 +545,13 @@ class AgentUpdateIn(BaseModel):
             self.name = self.name.strip()
             if not self.name:
                 raise ValueError("name must not be blank")
-        if self.name is None and self.direction is None and self.language_primary is None:
-            raise ValueError("name at least one of name, direction, language_primary")
+        if (
+            self.name is None
+            and self.direction is None
+            and self.language_primary is None
+            and not self.set_llm_model
+        ):
+            raise ValueError("name at least one of name, direction, language_primary, llm_model")
         return self
 
 
@@ -585,12 +644,19 @@ async def create_agent_route(
     "/v1/agents/{agent_id}",
     response_model=AgentOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Rename an agent, or change its calling direction or language",
+    summary="Rename an agent, change its calling direction or language, or pick its model",
     description=(
         "Applies immediately. A live agent is re-published to the voice platform in the "
         "same transaction — including the numbers it answers, so switching a two-way "
         "agent to outbound-only really does stop it picking up — and if that push fails "
         "nothing is saved.\n\n"
+        "`llm_model` is the one field where sending `null` MEANS something: it clears "
+        "this agent's own choice so it follows the account default again. Omit the field "
+        "entirely to leave the current choice alone. A model this platform does not run "
+        "at all is refused with `llm_model_not_available`; one it supports but has no "
+        "deployment for is refused with `llm_model_not_deployed`. Both name the models "
+        "you can pick — read them off `GET /v1/organization/llm-defaults`, where a row "
+        "with `is_available: false` is one of these refusals waiting to happen.\n\n"
         "An archived agent is refused: restore it first."
     ),
 )
@@ -602,6 +668,10 @@ async def update_agent_route(
     principal: Principal = Depends(requires("org:manage")),
 ) -> AgentOut:
     assert principal.tenant_id is not None
+    # BEFORE the write, so an unavailable model costs a 422 and no republish. The
+    # validator is the same one the account-level routes call — one allow-list, one
+    # refusal, one wording.
+    llm_model = validate_llm_model(payload.llm_model, field="llm_model")
     await lifecycle.update_agent(
         session,
         tenant_id=principal.tenant_id,
@@ -609,6 +679,8 @@ async def update_agent_route(
         name=payload.name,
         direction=payload.direction,
         language_primary=payload.language_primary,
+        llm_model=llm_model,
+        set_llm_model=payload.set_llm_model,
     )
     await write_audit(
         session,
@@ -620,7 +692,34 @@ async def update_agent_route(
         ip=client_request_ip(request),
         # Field NAMES, never values (hard rule 6's neighbourhood): what an auditor needs
         # is which property of a live phone agent moved and when.
-        summary={"fields": sorted(payload.model_dump(exclude_none=True))},
+        #
+        # `model_fields_set` RATHER THAN `model_dump(exclude_none=True)`, which is what
+        # this line used to be: dumping and dropping the `None`s makes "the owner cleared
+        # this agent's model choice" — a change to which model answers their phone —
+        # audit as a request that changed nothing at all. What the client SENT is the
+        # fact an auditor is reconstructing.
+        #
+        # ⚠ `llm_model` IS THE ONE FIELD WHOSE VALUE GOES IN, and the exception is argued
+        # where the account-level write makes it (`llm_routes.py`): a model identifier is
+        # a platform configuration constant, not a client's business copy and not anybody's
+        # personal data, and WHICH model this agent was moved to is the entire fact an
+        # auditor reconstructing a bill or a quality complaint is after. The field name
+        # alone said that the model changed and refused to say what to. `null` is recorded
+        # as itself — "put back on the account default" is a decision somebody took — and
+        # the key is absent entirely when the caller did not name the field, which is the
+        # same tri-state `set_llm_model` carries everywhere else on this path.
+        #
+        # A JOINED STRING AND NOT A LIST, which is what this was: `write_audit` hands the
+        # summary to `redact_mapping`, and `_redact_value` collapses EVERY sequence to
+        # `"[3 items]"` — deliberately, because a list is usually a payload. So the field
+        # names this line exists to record never reached the log at all, and the entry
+        # said only that an agent had been updated. `audit_log` has no summary column, so
+        # the log line is the whole of this fact.
+        summary=(
+            {"fields": ",".join(sorted(payload.model_fields_set)), "llm_model": llm_model}
+            if payload.set_llm_model
+            else {"fields": ",".join(sorted(payload.model_fields_set))}
+        ),
     )
     return await _agent_row(session, agent_id)
 

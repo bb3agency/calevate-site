@@ -67,13 +67,16 @@ describe("the landing page's claims", () => {
    * Sentry are all elsewhere; and no deploy has ever run, so the region is undecided
    * rather than merely unwritten.
    *
-   * The narrower claim that replaced it is the one SECURITY-COMPLIANCE §4 makes in its
-   * own words — model endpoints pinned to an Indian region — and it is guarded on the
-   * backend by `scripts/check_model_residency.py`. This test is the frontend half:
-   * residency is the claim a buyer in this market asks for FIRST, which is exactly why
-   * it grows back, and a softened verb over the same implication is the same
-   * misrepresentation. Certifications are in the same list because the company holds
-   * none.
+   * The narrower claim that replaced it — model endpoints pinned to an Indian region —
+   * is GONE TOO as of D-449: on 22 August 2026 the declared model region moved to Azure
+   * OpenAI `eastus2`, so the page has no India residency claim left to make and says the
+   * language model is American in the same sentence that says the speech is Indian. What
+   * `scripts/check_model_residency.py` guards is the MECHANISM, not the country: one
+   * declared region, one endpoint builder, no setting able to carry a region. This test
+   * is the frontend half: residency is the claim a buyer in this market asks for FIRST,
+   * which is exactly why it grows back, and a softened verb over the same implication is
+   * the same misrepresentation. Certifications are in the same list because the company
+   * holds none.
    */
   it("claims no data residency, storage location or certification", () => {
     const { container } = render(<Home />);
@@ -82,9 +85,19 @@ describe("the landing page's claims", () => {
     expect(text).not.toMatch(/stored in india|hosted in india|kept in india|held in india/i);
     expect(text).not.toMatch(/data residency|data sovereignty|sovereign/i);
     expect(text).not.toMatch(/soc\s?2|iso[\s-]?27001|hipaa|pci[\s-]?dss|certified|accredited/i);
-    // The one surviving India claim is about MODEL ENDPOINTS, and it must stay attached
-    // to the thing that enforces it rather than drifting into a claim about our storage.
-    expect(text).toContain("The AI runs on Indian endpoints");
+    /*
+     * THERE IS NO SURVIVING INDIA CLAIM ABOUT THE MODEL, and the two strings below are
+     * what replaced the one there used to be (`The AI runs on Indian endpoints`).
+     *
+     * D-449 moved the declared region to `eastus2`. A page that kept the old card and
+     * softened the verb would be making a false residency claim, and a page that simply
+     * deleted the card would leave a prospect to assume the Indian speech leg covers
+     * everything — the omission shape §9b of the competitor teardown records. So the
+     * card is pinned in BOTH directions: it must still say the Indian half is Indian,
+     * and it must say in as many words that the language model is not.
+     */
+    expect(text).toContain("Speech and the first reading of your transcript are Indian");
+    expect(text).toContain("Microsoft Azure OpenAI account in the United States");
     expect(text).not.toMatch(/(recordings?|transcripts?|database|servers?)[^.]{0,40}\bin india\b/i);
 
     /*
@@ -99,7 +112,8 @@ describe("the landing page's claims", () => {
      * builder, one spelling of the region, no setting able to carry one — and where the
      * resource sits is attested by a person in the provider's console (OPERATIONS gates
      * 20 and 20c). The DPA had to drop the identical warranty; a marketing page may not
-     * keep it, and Mumbai is not even the right city for South India.
+     * keep it. Mumbai is banned outright: it was `asia-south1`, and it has been wrong
+     * for South India since D-410 and wrong for East US 2 since D-449.
      */
     // Mumbai was `asia-south1`, Google's region. Naming it at all is now a factual error
     // as well as a residency claim, which makes it the cheapest thing to ban outright.
@@ -116,6 +130,22 @@ describe("the landing page's claims", () => {
     // deleting that clause is how the over-claim comes back looking like a tidy-up.
     // `docs/LEGAL-SURFACE.md` F-1 is where the wording comes from.
     expect(text).toContain("checked, not proved by a build");
+    /*
+     * AND THE OTHER HALF OF THE PICTURE IS PINNED TOO, for the same reason.
+     *
+     * A card about the AI, sitting in a section headed "Your customers' data", reads to
+     * a prospect as "the call is handled in India" unless it says otherwise — and the
+     * platform that actually carries the call runs it on US infrastructure by default,
+     * with our
+     * BYOK posture foreclosing that vendor's India routing (D-415,
+     * `docs/evidence/bolna-compliance-residency.md` §2/§5). Every ban above stops the
+     * page SAYING something false; none of them stops it implying it by omission, which
+     * is the shape a competitor teardown found on the other side of this market
+     * (`docs/evidence/outpero-teardown-aug2026.md` §9b: they admit offshore processing
+     * in a privacy policy nobody reads). So the qualifying clause is asserted, not
+     * merely permitted.
+     */
+    expect(text).toContain("runs it on US infrastructure today");
   });
 
   /**

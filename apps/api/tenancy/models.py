@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from calevate_shared.engine import AZURE_OPENAI_MODELS
 from sqlalchemy import CheckConstraint, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
@@ -30,6 +31,18 @@ class Organization(PKMixin, TimestampMixin, Base):
         CheckConstraint("slug ~ '^[a-z0-9-]{3,40}$'", name="slug_shape"),
         CheckConstraint(f"status IN {ORG_STATUSES!r}".replace("(", "(", 1), name="status_enum"),
         CheckConstraint(f"plan_tier IN {PLAN_TIERS!r}", name="plan_tier_enum"),
+        # The account's language-model choice, admitted only from the allow-list.
+        # DERIVED from `AZURE_OPENAI_MODELS`, never retyped (D-104): the frozenset is the
+        # source, `sorted` makes the rendered SQL byte-stable across interpreter runs, and
+        # a model added to the Literal therefore changes this constraint in the same edit
+        # or it changes neither. NULL is admitted EXPLICITLY because it is the "inherit
+        # the platform's model" sentinel, not by the accident that a NULL-returning CHECK
+        # passes. Migration b7d2f10c93ae.
+        CheckConstraint(
+            "default_llm_model IS NULL OR default_llm_model IN "
+            f"{tuple(sorted(AZURE_OPENAI_MODELS))!r}",
+            name="default_llm_model_allowed",
+        ),
     )
 
     name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -50,6 +63,16 @@ class Organization(PKMixin, TimestampMixin, Base):
     # boundary by `admin.intake.IntakeFacts` (§10), envelope pinned by a CHECK.
     # Contains staff names and escalation numbers: never log it (hard rule 6).
     intake: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # WHICH LANGUAGE MODEL THIS ACCOUNT'S AGENTS RUN when the agent itself names none —
+    # the middle rung of `agent -> organization -> platform`
+    # (`agents/llm_models.resolve_llm_model`, migration b7d2f10c93ae).
+    #
+    # NULL IS THE ANSWER "INHERIT", never "no model": an account that has never chosen
+    # runs `Settings.azure_openai_model`, and clearing this column is how a client goes
+    # back to it. A `server_default` naming a model would have made every existing account
+    # claim a choice nobody made, and would then have to be kept in step with a live
+    # console switch — the D-105 defect with a clock attached.
+    default_llm_model: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     deleted_at: Mapped[datetime | None]
 

@@ -11,6 +11,7 @@ import {
   Blocks,
   Bot,
   BookOpen,
+  BrainCircuit,
   Coins,
   FileText,
   GitMerge,
@@ -107,6 +108,12 @@ function navigation(slug: string): NavGroup[] {
         // group is about the client's obligations to their CUSTOMERS, and this is a
         // setting about what we send to THEM.
         { href: `/c/${slug}/settings/alerts`, label: "Alerts", icon: BellRing },
+        // Which AI model every agent thinks with, and what each one costs a minute. It
+        // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
+        // default that happens to be about agents — the same reason the spending limit
+        // lives under Usage rather than on each campaign. One agent can still be put on
+        // its own model, and that control is on the agent.
+        { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
         { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
         { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
         // WHERE the Usage number came from, one screen over. Usage answers "how much and

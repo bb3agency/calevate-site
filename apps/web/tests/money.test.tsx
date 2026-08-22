@@ -86,6 +86,12 @@ const AGENT: Agent = {
   archived_at: null,
   inbound_number_count: 1,
   extraction_fields: [],
+  // D-454: the model this agent runs on. `null` + source "platform" is an agent
+  // inheriting all the way up, which is what every pre-D-454 fixture described
+  // implicitly by having no opinion at all.
+  llm_model: null,
+  llm_model_effective: "gpt-4o-mini",
+  llm_model_source: "platform",
 };
 
 const LANES: Lanes = {

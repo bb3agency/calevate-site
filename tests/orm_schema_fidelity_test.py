@@ -153,6 +153,16 @@ def test_every_orm_check_constraint_exists_in_the_database(url: str) -> None:
     and get switched off, which is the failure mode `check_metadata_columns` describes. What
     cannot drift harmlessly is the SET OF VALUES a constraint admits, so each model check is
     reduced to the literals it names and looked for in some constraint on the same table.
+
+    ⚠ THE LITERAL PATTERN ADMITS `.` AND `-`, AND IT DID NOT UNTIL D-454. It was
+    `[A-Za-z0-9_]+`, which matches every status and vertical word this schema had — and
+    matches NO model identifier, because every one of them carries a dot or a hyphen
+    (`gpt-4o-mini`, `gpt-4.1-mini`). A constraint whose literals it cannot read reduces to
+    an EMPTY set, and the empty set takes the `continue` below: `ck_agents_llm_model_allowed`
+    and `ck_organizations_default_llm_model_allowed` would have been skipped in silence,
+    which is this test's own failure mode rather than a gap in its subject. Widening costs
+    nothing, because the pattern is applied to the model side and the database side
+    identically — a literal it now reads on one side it also reads on the other.
     """
     engine = create_engine(url)
     try:
@@ -177,11 +187,11 @@ def test_every_orm_check_constraint_exists_in_the_database(url: str) -> None:
         for constraint in table.constraints:
             if not isinstance(constraint, CheckConstraint):
                 continue
-            literals = set(re.findall(r"'([A-Za-z0-9_]+)'", str(constraint.sqltext)))
+            literals = set(re.findall(r"'([A-Za-z0-9_.-]+)'", str(constraint.sqltext)))
             if not literals:
                 continue  # a purely numeric or column-only predicate; nothing to match on
             if not any(
-                literals <= set(re.findall(r"'([A-Za-z0-9_]+)'", definition))
+                literals <= set(re.findall(r"'([A-Za-z0-9_.-]+)'", definition))
                 for definition in live.get(table_name, [])
             ):
                 unenforced.append(f"{table_name}.{constraint.name} -> {sorted(literals)}")
