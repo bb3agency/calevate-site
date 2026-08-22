@@ -21,7 +21,14 @@ import type { LegalDocument } from "./types";
  *    WITHDRAWN rather than narrowed a fourth time. What is still enforced — every model
  *    endpoint is pinned to the single region the source declares, and
  *    `scripts/check_model_residency.py` fails the build otherwise — is stated as exactly
- *    that and no wider. Speech, the first reading of the transcript and the application
+ *    that and no wider. ⚠ AND NO WIDER MEANS NOT "NO SETTING CAN MOVE IT", which is what
+ *    §8 said until this audit: `Settings.azure_openai_resource` is a console field, the
+ *    region is a property of the RESOURCE, and `platform_config.py` says in its own
+ *    `AppliesRule` that "a resource in the wrong region is a residency change no code
+ *    here can detect". That is exactly what OPERATIONS §2 gate 20 covers — a person
+ *    reading the Location field of the resource that field names — so the notice now
+ *    describes the setting and the person, not a guarantee neither of them gives.
+ *    Speech, the first reading of the transcript and the application
  *    host (D-180, an Indian VPS) are the legs that remain Indian.
  * 3. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
@@ -306,10 +313,13 @@ export const PRIVACY_POLICY: LegalDocument = {
                 {
                   term: "Consent and suppression records",
                   detail:
-                    "Whether recording consent was granted or declined, any opt-out you " +
-                    "gave, any messaging opt-in, and whether your number is on the " +
+                    "Any opt-out you gave, any messaging opt-in, and whether your " +
+                    "number is on the " +
                     "client's do-not-call list. These are kept on an append-only ledger " +
-                    "and are deliberately NOT erased on request — see section 12.4.",
+                    "and are deliberately NOT erased on request — see section 12.4. " +
+                    "This list used to open with whether you granted or declined " +
+                    "recording consent; nothing captures that today, and section 4.1 " +
+                    "says why.",
                 },
                 {
                   term: "Copies that leave our database",
@@ -360,11 +370,26 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "para",
               text:
-                "Calls handled by a client's agent are recorded when that client has " +
-                "recording switched on. If a caller declines recording during the call, " +
-                "recording stops, the call continues, and the refusal is written to an " +
-                "immutable consent ledger with the part of the transcript that evidences " +
-                "it.",
+                "Calls handled by a client's agent are recorded. Neither the client nor " +
+                "we can switch that off: what a client chooses is whether the agent " +
+                "ANNOUNCES the recording at the start of the call, and an agent asked " +
+                "outright whether it is being recorded always answers yes, whatever the " +
+                "announcement is set to and whatever script the client wrote.",
+            },
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "What a caller cannot do today: stop the recording during the call",
+              text:
+                "This notice used to say that a caller who declines recording has the " +
+                "recording stopped, the call continued, and the refusal written to our " +
+                "consent ledger. That is the intended behaviour and it is not built: no " +
+                "agent has a way to stop a recording mid-call, and the voice platform " +
+                "does not report a per-call recording decision to us. The claim is " +
+                "withdrawn rather than softened. What a caller can do instead is ask the " +
+                "business they were speaking to for the recording to be erased — section " +
+                "12.3 — which clears the link at once and fixes a destruction date for " +
+                "the audio, and section 12.4 says what an erasure does not reach.",
             },
             {
               kind: "para",
@@ -595,18 +620,24 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "the model that holds the conversation during a call, and the dashboard " +
                 "assistant that works on redacted data — runs on Microsoft's Azure " +
                 "OpenAI service configured for the East US 2 region, in the United " +
-                "States. Until 22 August 2026 that service was configured for the South " +
+                "States. A client can choose which of the models we run their agents " +
+                "use; all of them are served from that same account and region, so the " +
+                "choice does not move this answer. Until 22 August 2026 that service " +
+                "was configured for the South " +
                 "India region and this notice said so; the claim that the language model " +
                 "runs in India is withdrawn, not reworded. What the build enforces, " +
                 "unchanged by the move: there is one function in the whole codebase that " +
                 "may construct a model endpoint, it can produce only the single region " +
                 "the source declares, the region appears exactly once and is not a " +
                 "setting anyone can edit, and the release fails if any of that stops " +
-                "being true — so no setting, console control or environment variable can " +
-                "move the model to a third country, only a reviewed code change can. " +
+                "being true — so no code we ship can send the model request to a third " +
+                "country, and the region it names moves only by a reviewed code change. " +
                 "What it cannot enforce, stated plainly because the distinction is real: " +
-                "the provider's endpoint address does not name its own region, so that " +
-                "the account and its model deployment are genuinely in East US 2 is " +
+                "the provider's endpoint address does not name its own region, and the " +
+                "region belongs to the account resource that address points at — which " +
+                "resource that is, is an operational setting of ours. So that the " +
+                "account we are configured to use, and its model deployment, are " +
+                "genuinely in East US 2 is " +
                 "confirmed by a person against the provider's console and filed as dated " +
                 "evidence, not proved by a build check. See the sub-processor page, " +
                 "section 3.2.",

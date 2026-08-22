@@ -131,6 +131,23 @@ log = get_logger(__name__)
 
 # The effective cap, as SQL. `LEAST` ignores NULL inputs, which IS the semantics we
 # want ("NULL = no constraint from this side"), so there is no CASE to get wrong.
+#
+# ⚠ **BOTH CAPS BOUND THE CLIENT'S EXPOSURE, AND NEITHER BOUNDS OURS — which now matters
+# more than it did (D-454).** `cap_spend` is rupees the CLIENT is billed and `cap_min` is
+# minutes they may use; what a minute costs US is a different number and, since clients
+# choose their own language model, it is no longer the same number for every tenant:
+# `gpt-4.1-mini` runs the in-call language leg at 2.7x `gpt-4o-mini`
+# (`billing/rates.py::llm_cost_inr_per_minute`). So a minute ceiling sized against the
+# default model admits 2.7x that much of our language spend on an account that switched,
+# with nothing here changing and nothing looking wrong.
+#
+# That is a fact for whoever SIZES a cap, not a defect in these caps: they do exactly what
+# they say. The reason it is not fixed by a cost-side ceiling is the one `rates.py` states
+# — the in-call leg is BYOK, so no token count exists to meter it against and a brake with
+# no meter is a constant pretending to be a control. What bounds it today is `cap_min`
+# times the tenant's own model rate, and `usage_events.meta.llm_model` (stamped by
+# `workers/pipeline._meter`) is what makes that product computable per tenant after the
+# fact.
 EFFECTIVE_CAP_MIN_SQL = "LEAST(hard_cap_min, client_cap_min)"
 EFFECTIVE_CAP_SPEND_SQL = "LEAST(hard_cap_spend, client_cap_spend)"
 

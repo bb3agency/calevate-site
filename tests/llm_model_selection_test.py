@@ -38,7 +38,7 @@ from types import ModuleType
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import llm_models
+from apps.api.agents import lifecycle, llm_models, prompts
 from apps.api.agents.llm_models import (
     LLM_MODEL_SOURCES,
     addressable_models,
@@ -52,12 +52,19 @@ from apps.api.agents.llm_models import (
 from apps.api.agents.llm_routes import admin_router as llm_admin_router
 from apps.api.agents.llm_routes import router as llm_router
 from apps.api.agents.routes import router as agents_router
+from apps.api.agents.service import publish_agent
 from apps.api.billing.rates import PRICED_LLM_MODELS, llm_cost_inr_per_minute
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
-from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL, AZURE_OPENAI_MODELS
+from apps.api.engine import get_engine
+from apps.api.engine.fake import FakeEngine
+from calevate_shared.engine import (
+    AZURE_OPENAI_DEFAULT_MODEL,
+    AZURE_OPENAI_MODELS,
+    AgentConfig,
+)
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -439,11 +446,37 @@ async def test_an_agent_reports_its_model_and_which_level_chose_it(
 
         # Omitting the field entirely leaves the choice alone — the other half of the
         # tri-state, and the half a `str | None` model alone could not express.
+        #
+        # ⚠ THE AGENT IS PUT BACK ON ITS OWN MODEL FIRST, and that is the whole test. This
+        # assertion used to run while the agent was already inheriting, so it read
+        # `source == "organization"` before AND after and passed identically whether the
+        # omission was honoured or silently cleared the column — a test of the tri-state
+        # that could not fail on the half it was named for.
+        rechosen = await client.patch(
+            f"/v1/agents/{agent_id}",
+            headers=headers,
+            json={"llm_model": AZURE_OPENAI_DEFAULT_MODEL},
+        )
+        assert rechosen.status_code == 200, rechosen.text
+        assert rechosen.json()["llm_model_source"] == "agent"
+
         renamed = await client.patch(
             f"/v1/agents/{agent_id}", headers=headers, json={"name": "Front desk"}
         )
         assert renamed.status_code == 200, renamed.text
-        assert renamed.json()["llm_model_source"] == "organization"
+        assert renamed.json()["name"] == "Front desk"
+        assert renamed.json()["llm_model"] == AZURE_OPENAI_DEFAULT_MODEL
+        assert renamed.json()["llm_model_source"] == "agent"
+
+        # ...and the column itself, not only the rendering of it: a `coalesce` on this
+        # column would have written NULL here and the roster would still have said
+        # "organization" for a different reason.
+        async with tenant_session(tenant_id) as check:
+            assert (
+                await check.execute(
+                    text("SELECT llm_model FROM agents WHERE id = :aid"), {"aid": agent_id}
+                )
+            ).scalar() == AZURE_OPENAI_DEFAULT_MODEL
 
     async with tenant_session(tenant_id) as session:
         stored = (
@@ -529,66 +562,354 @@ async def test_prices_reach_the_wire_as_strings(monkeypatch: pytest.MonkeyPatch)
 
 
 async def test_an_operator_can_set_it_for_any_client_and_the_change_is_audited(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     """Changing which model a client's calls run on is a configuration change with a price
-    attached, so it lands in the hash-chained ledger with the VALUE — a model identifier is
-    a platform constant, not anybody's personal data, and WHICH model was chosen is the
-    whole of what an auditor reconstructing a bill needs."""
+    attached, so it lands in the hash-chained ledger and its summary carries the VALUE — a
+    model identifier is a platform constant, not anybody's personal data, and WHICH model
+    was chosen is the whole of what an auditor reconstructing a bill needs."""
     _no_azure(monkeypatch)
     tenant_id, _agent_id, _bearer = await _tenant()
     operator = await _operator()
 
-    async with _client(_app()) as client:
-        written = await client.put(
-            f"/v1/admin/organizations/{tenant_id}/llm-defaults",
-            headers={"Authorization": f"Bearer {operator}"},
-            json={"default_llm_model": ALTERNATE_MODEL},
-        )
-        assert written.status_code == 200, written.text
-        assert written.json()["default_llm_model"] == ALTERNATE_MODEL
-
-        read_back = await client.get(
-            f"/v1/admin/organizations/{tenant_id}/llm-defaults",
-            headers={"Authorization": f"Bearer {operator}"},
-        )
-        assert read_back.status_code == 200, read_back.text
-        assert read_back.json()["effective_default"] == ALTERNATE_MODEL
-
-    async with untenanted_session() as session:
-        actions = (
-            await session.execute(
-                text(
-                    "SELECT action FROM audit_log WHERE tenant_id = :tid "
-                    "AND object_type = 'organization'"
-                ),
-                {"tid": tenant_id},
+    with caplog.at_level("INFO", logger="apps.api.compliance.audit"):
+        caplog.clear()
+        async with _client(_app()) as client:
+            written = await client.put(
+                f"/v1/admin/organizations/{tenant_id}/llm-defaults",
+                headers={"Authorization": f"Bearer {operator}"},
+                json={"default_llm_model": ALTERNATE_MODEL},
             )
-        ).scalars()
-    assert "admin.organization_llm_default_set" in set(actions)
+            assert written.status_code == 200, written.text
+            assert written.json()["default_llm_model"] == ALTERNATE_MODEL
+
+            read_back = await client.get(
+                f"/v1/admin/organizations/{tenant_id}/llm-defaults",
+                headers={"Authorization": f"Bearer {operator}"},
+            )
+            assert read_back.status_code == 200, read_back.text
+            assert read_back.json()["effective_default"] == ALTERNATE_MODEL
+
+    assert "admin.organization_llm_default_set" in await _audited_actions(tenant_id)
+    assert _summaries(caplog) == [{"default_llm_model": ALTERNATE_MODEL, "changed": True}]
 
 
 async def test_a_client_setting_their_own_default_is_audited(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     _no_azure(monkeypatch)
     tenant_id, _agent_id, bearer = await _tenant()
+    with caplog.at_level("INFO", logger="apps.api.compliance.audit"):
+        caplog.clear()
+        async with _client(_app()) as client:
+            response = await client.put(
+                "/v1/organization/llm-defaults",
+                headers={"Authorization": f"Bearer {bearer}"},
+                json={"default_llm_model": ALTERNATE_MODEL},
+            )
+    assert response.status_code == 200, response.text
+
+    assert await _audited_actions(tenant_id) >= {"organization.llm_default_set"}
+    assert _summaries(caplog) == [{"default_llm_model": ALTERNATE_MODEL, "changed": True}]
+
+
+async def _audited_actions(tenant_id: uuid.UUID) -> set[str]:
+    """Every action this account's hash-chained ledger holds."""
+    async with untenanted_session() as session:
+        return set(
+            (
+                await session.execute(
+                    text("SELECT action FROM audit_log WHERE tenant_id = :tid"),
+                    {"tid": tenant_id},
+                )
+            ).scalars()
+        )
+
+
+#: The audit summary keys these tests care about. `audit_log` has NO summary column — the
+#: row carries actor, tenant, object and ip, and `write_audit` sends the summary to the LOG
+#: stream keyed by the same entry id (`compliance/audit.py`). So "the entry records WHICH
+#: model" is a claim about a log line, and it is asserted on the log line.
+_SUMMARY_KEYS = ("default_llm_model", "changed", "fields", "llm_model")
+
+
+def _summaries(caplog: pytest.LogCaptureFixture) -> list[dict[str, object]]:
+    """The audit summaries captured, in order, with only the keys under test.
+
+    Read through the same redactor production uses (`redact_mapping` runs before the
+    record is emitted), which is the point: a summary that does not SURVIVE redaction is
+    a summary nobody can read, and asserting on the dict we passed in would not have
+    noticed. `fields` used to be a list, and `_redact_value` collapses every sequence to
+    "[3 items]".
+    """
+    return [
+        {key: getattr(record, key) for key in _SUMMARY_KEYS if hasattr(record, key)}
+        for record in caplog.records
+        if record.message == "audit"
+    ]
+
+
+async def test_the_agents_own_model_change_is_audited_with_the_model(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Four write paths move which model answers a client's phone, and all four record it.
+
+    This one recorded the field NAME and not the value, so the entry said "somebody
+    changed this agent's model" and refused to say what to — the one fact a bill dispute
+    or a quality complaint turns on. A model identifier is a platform configuration
+    constant and not anybody's personal data, which is the same argument the account-level
+    write already made for putting the value in. `null` is recorded as itself, and a PATCH
+    that never named the field carries no model key at all — the third state, in the entry
+    as well as on the wire.
+    """
+    _no_azure(monkeypatch)
+    _tenant_id, agent_id, bearer = await _tenant()
+    headers = {"Authorization": f"Bearer {bearer}"}
+
+    with caplog.at_level("INFO", logger="apps.api.compliance.audit"):
+        caplog.clear()
+        async with _client(_app()) as client:
+            for body in (
+                {"llm_model": ALTERNATE_MODEL},
+                {"llm_model": None},
+                {"name": "Front desk"},
+            ):
+                response = await client.patch(f"/v1/agents/{agent_id}", headers=headers, json=body)
+                assert response.status_code == 200, response.text
+
+    assert _summaries(caplog) == [
+        {"fields": "llm_model", "llm_model": ALTERNATE_MODEL},
+        {"fields": "llm_model", "llm_model": None},
+        {"fields": "name"},
+    ]
+
+
+async def _engine_model(engine: FakeEngine, ref: str) -> str | None:
+    """What this engine is HOLDING for that agent, on the LLM leg.
+
+    Through `get_agent`, the adapter's own read-back, rather than by reaching into its
+    dictionary: `publish_agent` verifies through the same call, so a test that read the
+    private store could pass while the read-back a publish depends on answered otherwise.
+    """
+    snapshot = await engine.get_agent(ref)
+    assert snapshot.models is not None
+    return snapshot.models.llm_model
+
+
+async def _published(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str:
+    """A genuinely LIVE agent: a script, then a real publish through the engine adapter.
+
+    Not the `UPDATE agents SET status = 'live'` shortcut other suites use, because the
+    thing under test is what the ENGINE ends up holding — an agent marked live that the
+    adapter never saw would make every assertion below vacuous.
+    """
+    async with tenant_session(tenant_id) as session:
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="Greet the caller in Telugu and take their appointment details.",
+            notes=None,
+            created_by=None,
+        )
+        return await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+
+
+async def test_moving_the_account_default_reaches_the_agents_it_moves(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE ACCOUNT DEFAULT IS ENGINE-BOUND, so writing the column is only half of it.
+
+    `_to_config` resolves this rung at PUBLISH time, so before the write re-published
+    them every live agent inheriting the account default kept calling the model it was
+    last published against — while the settings screen, the agent screen and the admin
+    console all reported the new one as in force, and the client screen said "this takes
+    effect on the next call". That is the screen and the phone line disagreeing about
+    which model is running, which is the single failure `agents/llm_models.py` exists to
+    prevent. Every other engine-bound writer in this tree (`set_call_cap`,
+    `set_disclosure_posture`, `lifecycle.update_agent`) already re-published in the same
+    transaction; this one did not.
+
+    A DRAFT AGENT IS NOT PUBLISHED BY IT, which is the other half: a query that forgot
+    `status = 'live'` would put an unfinished agent on the phone as a side effect of a
+    settings change.
+    """
+    _no_azure(monkeypatch)
+    tenant_id, agent_id, bearer = await _tenant()
+    ref = await _published(tenant_id, agent_id)
+    engine = get_engine()
+    assert isinstance(engine, FakeEngine)
+    # Nobody has chosen, so on this arm the engine is sent no model at all and runs the
+    # platform's own — `chosen_llm_model` answers None for the platform rung.
+    assert await _engine_model(engine, ref) is None
+
+    draft_id = await _second_agent(tenant_id)
     async with _client(_app()) as client:
-        response = await client.put(
+        put = await client.put(
             "/v1/organization/llm-defaults",
             headers={"Authorization": f"Bearer {bearer}"},
             json={"default_llm_model": ALTERNATE_MODEL},
         )
-    assert response.status_code == 200, response.text
+        assert put.status_code == 200, put.text
 
-    async with untenanted_session() as session:
-        actions = (
+    assert await _engine_model(engine, ref) == ALTERNATE_MODEL
+    async with tenant_session(tenant_id) as session:
+        draft = (
             await session.execute(
-                text("SELECT action FROM audit_log WHERE tenant_id = :tid"),
-                {"tid": tenant_id},
+                text("SELECT status, engine_agent_ref FROM agents WHERE id = :aid"),
+                {"aid": draft_id},
             )
-        ).scalars()
-    assert "organization.llm_default_set" in set(actions)
+        ).first()
+    assert draft is not None
+    assert (str(draft[0]), draft[1]) == ("draft", None)
+
+
+async def test_an_agent_with_its_own_model_is_left_where_it_is(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The account default moves the agents that INHERIT it and no others — the sentence
+    both screens print, checked against the config the engine is actually holding."""
+    _no_azure(monkeypatch)
+    tenant_id, agent_id, bearer = await _tenant()
+    ref = await _published(tenant_id, agent_id)
+    headers = {"Authorization": f"Bearer {bearer}"}
+
+    async with _client(_app()) as client:
+        pinned = await client.patch(
+            f"/v1/agents/{agent_id}",
+            headers=headers,
+            json={"llm_model": AZURE_OPENAI_DEFAULT_MODEL},
+        )
+        assert pinned.status_code == 200, pinned.text
+        moved = await client.put(
+            "/v1/organization/llm-defaults",
+            headers=headers,
+            json={"default_llm_model": ALTERNATE_MODEL},
+        )
+        assert moved.status_code == 200, moved.text
+
+    engine = get_engine()
+    assert isinstance(engine, FakeEngine)
+    assert await _engine_model(engine, ref) == AZURE_OPENAI_DEFAULT_MODEL
+
+
+async def test_re_sending_the_value_already_on_file_pushes_nothing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A PUT states the whole resource, so a repeat is idempotent — and a double-clicked
+    Save must not become a fleet-wide re-publish. The entry says `changed: false`, which
+    is what tells an auditor reading a run of identical entries which one moved a phone
+    line."""
+    _no_azure(monkeypatch)
+    tenant_id, agent_id, bearer = await _tenant()
+    ref = await _published(tenant_id, agent_id)
+    headers = {"Authorization": f"Bearer {bearer}"}
+    body = {"default_llm_model": ALTERNATE_MODEL}
+
+    published: list[str] = []
+    engine = get_engine()
+    assert isinstance(engine, FakeEngine)
+    original = engine.update_agent
+
+    async def counting(agent_ref: str, config: AgentConfig) -> None:
+        published.append(str(agent_ref))
+        await original(agent_ref, config)
+
+    monkeypatch.setattr(engine, "update_agent", counting)
+
+    with caplog.at_level("INFO", logger="apps.api.compliance.audit"):
+        caplog.clear()
+        async with _client(_app()) as client:
+            for _ in range(2):
+                response = await client.put(
+                    "/v1/organization/llm-defaults", headers=headers, json=body
+                )
+                assert response.status_code == 200, response.text
+
+    assert published == [ref]
+    assert _summaries(caplog) == [
+        {"default_llm_model": ALTERNATE_MODEL, "changed": True},
+        {"default_llm_model": ALTERNATE_MODEL, "changed": False},
+    ]
+    assert (await _read_org_default(tenant_id)) == ALTERNATE_MODEL
+
+
+async def _read_org_default(tenant_id: uuid.UUID) -> str | None:
+    async with tenant_session(tenant_id) as session:
+        value = (
+            await session.execute(text("SELECT default_llm_model FROM organizations"))
+        ).scalar()
+    return str(value) if value is not None else None
+
+
+async def _second_agent(tenant_id: uuid.UUID) -> uuid.UUID:
+    """A DRAFT agent beside the seeded one, so "only live agents are published" is a
+    claim with something to be false about."""
+    async with tenant_session(tenant_id) as session:
+        return await lifecycle.create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Overflow desk",
+            direction="inbound",
+            language_primary="te-IN",
+            max_call_duration_s=None,
+        )
+
+
+async def test_a_model_whose_deployment_was_removed_refuses_the_go_live_in_words(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE REFUSAL A CLIENT ACTUALLY MEETS, at the button that puts an agent on the phone.
+
+    `in_call_llm` refuses to publish a model with no deployment, and the unit test for that
+    calls the decision point directly. This is the other half: what the person pressing
+    "go live" is told. It must be a 422 problem+json naming the model and what to do — a
+    `business_rule`, not a 500 — because the state is reachable by an operator removing a
+    `model=deployment` entry under an account that had already chosen, and the client who
+    then cannot activate their agent has to be told something they can act on.
+    """
+    _azure(monkeypatch, deployments=f"{ALTERNATE_MODEL}={ALTERNATE_DEPLOYMENT}")
+    tenant_id, agent_id, bearer = await _tenant()
+    headers = {"Authorization": f"Bearer {bearer}"}
+    async with tenant_session(tenant_id) as session:
+        await prompts.write_prompt_version(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            body="Greet the caller in Telugu and take their appointment details.",
+            notes=None,
+            created_by=None,
+        )
+
+    async with _client(_app()) as client:
+        chosen = await client.put(
+            "/v1/organization/llm-defaults",
+            headers=headers,
+            json={"default_llm_model": ALTERNATE_MODEL},
+        )
+        assert chosen.status_code == 200, chosen.text
+
+        # The operator removes the deployment the account is now on.
+        _azure(monkeypatch)
+
+        refused = await client.post(f"/v1/agents/{agent_id}/activate", headers=headers)
+
+    assert refused.status_code == 422, refused.text
+    assert refused.headers["content-type"].startswith("application/problem+json")
+    body = refused.json()
+    assert body["type"].endswith("/llm_model_not_deployed")
+    assert body["kind"] == "business_rule"
+    assert ALTERNATE_MODEL in body["detail"]
+    assert body["remediation"]
+    # And nothing was half-done: the agent is still a draft, not a live agent nobody can
+    # publish.
+    async with tenant_session(tenant_id) as session:
+        status = (
+            await session.execute(
+                text("SELECT status FROM agents WHERE id = :aid"), {"aid": agent_id}
+            )
+        ).scalar()
+    assert str(status) == "draft"
 
 
 # --- 5. hard rule 1 ------------------------------------------------------------------------

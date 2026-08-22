@@ -70,6 +70,7 @@ from apps.api.billing.payments import (
     topup_receipt,
     verify_signature,
 )
+from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
@@ -115,7 +116,12 @@ MAX_TOPUP_INR = Decimal("100000.00")
 
 # Only the prepaid motion has a wallet. A managed client is invoiced against their
 # retainer (billing/service.py), so letting them top up would be charging twice.
-PREPAID_TIERS = ("self_serve", "trial")
+#
+# THE TUPLE COMES FROM `billing/rates.py`, and this line used to restate it. Its own
+# comment there says a tier added to one branch and not the others is "a wallet that stops
+# draining"; a private copy here made the TOP-UP ROUTE — the one place money enters the
+# wallet at all — invisible to that promise. Imported, so the gate on paying in and the
+# gate on drawing down cannot come to disagree about who is prepaid.
 
 
 class Strict(BaseModel):

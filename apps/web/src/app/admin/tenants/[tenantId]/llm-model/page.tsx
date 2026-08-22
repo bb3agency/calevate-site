@@ -27,6 +27,7 @@ import {
   useSetAdminLlmDefault,
 } from "@/lib/api/llmDefaults";
 import {
+  MODEL_UNAVAILABLE_FALLBACK,
   modelOption,
   platformDefaultOption,
   type LlmModelOption,
@@ -565,9 +566,12 @@ function ModelOption({
         )}
         {undeployed && (
           <span className="mt-0.5 block font-medium text-amber-700 dark:text-amber-400">
-            Cannot be selected —{" "}
-            {option.unavailable_reason ??
-              "this platform has no deployment behind it yet, so a call would run a different model."}
+            {/* One sentence for a row the platform cannot run, shared with the client
+                picker's rendering of the same fact: this was written out here and again
+                in `MODEL_UNAVAILABLE_FALLBACK`, and two spellings of one refusal is how
+                an operator and the client they are on the phone to end up reading
+                different explanations of the same greyed-out row. */}
+            Cannot be selected — {option.unavailable_reason ?? MODEL_UNAVAILABLE_FALLBACK}
           </span>
         )}
       </span>

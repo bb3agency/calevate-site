@@ -19,6 +19,7 @@ import { useWriteAccess } from "@/lib/api/hooks";
 import {
   modelOption,
   platformDefaultOption,
+  unavailableReason,
   useOrganizationLlmDefaults,
   useSetOrganizationLlmDefault,
   type OrganizationLlmDefaults,
@@ -65,8 +66,9 @@ export default function ModelsPage({ params }: { params: Promise<{ slug: string 
       <p className="text-sm text-ink-muted">
         Your agents use an AI model to understand a caller and decide what to say next. The
         model you pick here is the one they all use, unless a particular agent has been
-        given its own. Models differ in price, so this is a decision about your bill as much
-        as about your agents.
+        given its own. A dearer model costs us more to run and can answer harder questions;
+        what you are charged for a call does not change when you switch, because your plan
+        prices a minute of conversation rather than the model behind it.
       </p>
 
       {state.error != null && (
@@ -175,6 +177,11 @@ function OrganizationDefault({
       badge: defaults.default_llm_model === option.model ? "in use" : undefined,
       baseline:
         defaults.default_llm_model !== null && defaults.effective_default === option.model,
+      // SHOWN, PRICED AND NOT SELECTABLE. `PUT` refuses a model this platform has no
+      // deployment for (`llm_model_not_deployed`), so offering the row would price a
+      // choice and then answer it with a 422 — the one thing a picker built around a
+      // price must not do. `unavailableReason` is the single reading of `is_available`.
+      unavailable: unavailableReason(option),
     })),
   ];
 

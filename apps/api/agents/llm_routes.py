@@ -47,13 +47,13 @@ from apps.api.agents.llm_models import (
     resolve_llm_model,
     validate_llm_model,
 )
+from apps.api.agents.service import publish_agent
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 
 router = APIRouter(tags=["agents"])
@@ -140,8 +140,17 @@ async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
     the account the session is scoped to and a wrong id is zero rows, not a neighbour's
     row (hard rule 1). No `WHERE` on the tenant is needed or wanted — one would be a
     second, weaker expression of the isolation the policy already enforces.
+
+    `deleted_at IS NULL` IS NOT SCOPING AND IS NOT REDUNDANT WITH IT: it is the same
+    predicate `_write_default` carries, and it was missing here. Without it a closed
+    account answered 200 on the GET and 404 on the PUT of the very same resource, so an
+    operator's screen rendered a settings form for an account no write could reach.
     """
-    row = (await session.execute(text("SELECT default_llm_model FROM organizations"))).first()
+    row = (
+        await session.execute(
+            text("SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL")
+        )
+    ).first()
     if row is None:
         raise ProblemError.not_found("Organization")
     chosen: str | None = row[0]
@@ -165,28 +174,84 @@ async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
     )
 
 
-async def _write_default(session: AsyncSession, *, model: str | None) -> None:
-    """The one writer behind both realms' PUT.
+#: The account's own row, LOCKED, so the "has this actually changed?" read and the write
+#: that depends on it are one atomic step. RLS scopes it to this session's account
+#: (`organizations`' policy matches on `id`), so no `WHERE` on the tenant is wanted.
+_ORG_MODEL_FOR_UPDATE = (
+    "SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL FOR UPDATE"
+)
 
-    The caller has already validated `model` against the allow-list. This is a plain
-    UPDATE rather than a CAS: the column has one writer per account, the value does not
-    depend on what it replaces, and a lost update here means the second of two people who
-    chose in the same second wins — which is the correct outcome and the one they would
-    both expect. (Money and vendor handles get CAS; a preference does not.)
+#: The agents this account's default actually MOVES: live, known to the engine, and with
+#: no choice of their own (`resolve_llm_model`'s middle rung). An agent that named its own
+#: model is unaffected by definition, and a draft or paused one has nothing published to
+#: correct.
+#:
+#: `ORDER BY id` is not cosmetic. `publish_agent` takes `FOR UPDATE` on each row, so two
+#: transactions republishing overlapping sets in different orders would deadlock; a total
+#: order over the same key every writer uses makes that impossible.
+_INHERITING_LIVE_AGENTS = (
+    "SELECT id FROM agents WHERE deleted_at IS NULL AND status = 'live' "
+    "AND engine_agent_ref IS NOT NULL AND llm_model IS NULL ORDER BY id"
+)
 
-    Zero rows is a 404 and not a silent success: under RLS an account that is not this
-    session's is indistinguishable from one that does not exist, and answering 200 for a
-    write that changed nothing is how a console reports a setting it never stored.
+
+async def _write_default(session: AsyncSession, *, tenant_id: UUID, model: str | None) -> bool:
+    """The one writer behind both realms' PUT. Answers whether anything moved.
+
+    The caller has already validated `model` against the allow-list.
+
+    **THE ROW IS LOCKED FIRST, and that is what makes the read-then-write safe** rather
+    than a race dressed as an optimisation. Deciding "did this actually change?" requires
+    reading the current value, and a read-then-write without a lock is the shape
+    BACKEND-PATTERNS §5 exists to refuse: two operators choosing at the same moment would
+    each read the old value, each conclude they had changed it, and each republish — the
+    second overwriting the first's push with a config built from a value it never saw.
+    `FOR UPDATE` serialises them on the account row, so the loser blocks, re-reads the
+    winner's value, and either agrees (no push) or moves on from it. It is the same
+    instrument `lifecycle.update_agent` uses on `agents` and for the same reason.
+
+    **AND IT REPUBLISHES THE AGENTS THIS MOVES.** This used to write the column and stop,
+    which made it the only writer of an engine-bound configuration value in this tree that
+    did not push — `set_call_cap`, `set_disclosure_posture` and `lifecycle.update_agent`
+    all re-publish a live agent in the same transaction. The consequence was not cosmetic:
+    `_to_config` resolves the account default at PUBLISH time, so every live agent
+    inheriting it kept calling the deployment it was last published against while this
+    account's screen, the agent screen and the admin console all reported the new model as
+    the one in force — the screen and the phone line disagreeing about which model is
+    running, which is the one failure `agents/llm_models.py` exists to prevent. It also
+    made the client screen's "This takes effect on the next call" false.
+
+    Ordering is the guarantee, and it is `set_call_cap`'s: the column write happens first
+    and the engine push second, inside ONE transaction, so a vendor failure rolls the row
+    back with it and our record never claims a model the engine was not sent.
+
+    NO ROW TO LOCK IS A 404 and not a silent success: under RLS an account that is not
+    this session's is indistinguishable from one that does not exist, and answering 200
+    for a write that stored nothing is how a console reports a setting it never made. The
+    refusal moved onto the SELECT with the lock — one statement decides both whether the
+    account is reachable and what it currently holds, where a rowcount on the UPDATE could
+    only answer the first.
     """
-    result = await session.execute(
+    current = (await session.execute(text(_ORG_MODEL_FOR_UPDATE))).first()
+    if current is None:
+        raise ProblemError.not_found("Organization")
+    if current[0] == model:
+        # Re-asserting the value already on file is a success that touches nothing. A PUT
+        # states the whole resource, so a repeat is idempotent by construction — and
+        # pushing every live agent to the vendor again for a request that changed no byte
+        # would make a double-clicked Save a fleet-wide republish.
+        return False
+
+    await session.execute(
         text(
             "UPDATE organizations SET default_llm_model = CAST(:model AS text), "
             "updated_at = now() WHERE deleted_at IS NULL"
         ),
         {"model": model},
     )
-    if rowcount_of(result) == 0:
-        raise ProblemError.not_found("Organization")
+    for agent_id in (await session.execute(text(_INHERITING_LIVE_AGENTS))).scalars().all():
+        await publish_agent(session, tenant_id=tenant_id, agent_id=UUID(str(agent_id)))
+    return True
 
 
 _DESCRIPTION = (
@@ -200,6 +265,13 @@ _DESCRIPTION = (
     "\n\nA row with `is_available: false` cannot be chosen — this platform has no "
     "deployment for it, so choosing it would price one model and run another. "
     "`unavailable_reason` says what is missing."
+)
+
+_APPLIES_NOW = (
+    "\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the "
+    "voice platform in the same transaction, so the change reaches the phone line and not "
+    "only this record. If that push fails, nothing is saved. Agents that have chosen a "
+    "model of their own are untouched — this sets what the others follow."
 )
 
 
@@ -229,9 +301,8 @@ async def get_organization_llm_defaults(session: Session, _: Reader) -> LlmDefau
         f"{_DESCRIPTION}\n\nSend `null` to go back to following the platform's model. A "
         "model this platform does not run at all is refused with "
         "`llm_model_not_available`; one it supports but has no deployment for is refused "
-        "with `llm_model_not_deployed` — the same rows `available` marks "
-        "`is_available: false`.\n\nAgents that have chosen a model of their own are "
-        "unaffected — this sets what the others follow."
+        f"with `llm_model_not_deployed` — the same rows `available` marks "
+        f"`is_available: false`.{_APPLIES_NOW}"
     ),
 )
 async def set_organization_llm_default(
@@ -242,7 +313,7 @@ async def set_organization_llm_default(
 ) -> LlmDefaultsOut:
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
     model = validate_llm_model(payload.default_llm_model, field="default_llm_model")
-    await _write_default(session, model=model)
+    changed = await _write_default(session, tenant_id=principal.tenant_id, model=model)
     await write_audit(
         session,
         action="organization.llm_default_set",
@@ -257,7 +328,11 @@ async def set_organization_llm_default(
         # was selected is the entire fact an auditor reconstructing a bill or a quality
         # complaint needs. `null` is recorded as itself — "went back to the platform
         # default" is a decision somebody took.
-        summary={"default_llm_model": model},
+        #
+        # `changed` is beside it because a PUT is idempotent: re-sending the value already
+        # on file is a request somebody made and a change nobody made, and an auditor
+        # reading a run of identical entries needs to know which one moved the phone line.
+        summary={"default_llm_model": model, "changed": changed},
     )
     return await _read_defaults(session)
 
@@ -290,7 +365,7 @@ async def admin_get_llm_defaults(org_id: UUID, _: Operator) -> LlmDefaultsOut:
     description=(
         f"{_DESCRIPTION}\n\nSend `null` to put the account back on the platform's model. "
         "Recorded in the audit ledger against the client's account, because it changes "
-        "what their calls cost and how their agents answer."
+        f"what their calls cost and how their agents answer.{_APPLIES_NOW}"
     ),
 )
 async def admin_set_llm_default(
@@ -301,7 +376,7 @@ async def admin_set_llm_default(
 ) -> LlmDefaultsOut:
     model = validate_llm_model(payload.default_llm_model, field="default_llm_model")
     async with tenant_session(org_id) as scoped:
-        await _write_default(scoped, model=model)
+        changed = await _write_default(scoped, tenant_id=org_id, model=model)
         # In the SAME transaction as the write (`write_audit` appends in the caller's),
         # so "an operator changed which model this client's calls run on" cannot be
         # missing for a change that happened.
@@ -313,6 +388,6 @@ async def admin_set_llm_default(
             object_type="organization",
             object_id=str(org_id),
             ip=client_request_ip(request),
-            summary={"default_llm_model": model},
+            summary={"default_llm_model": model, "changed": changed},
         )
         return await _read_defaults(scoped)

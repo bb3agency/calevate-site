@@ -530,6 +530,196 @@ describe("what each document must contain", () => {
     expect(refunds).toContain("{{REFUND_PROCESSING_DAYS}}");
     expect(refunds).toMatch(/business days/i);
   });
+
+  /**
+   * WHAT THE BUILD PROVES ABOUT THE MODEL REGION, AND THE SENTENCE THAT OVERSTATED IT.
+   *
+   * Three documents warranted that no setting could move the language leg: the DPA
+   * ("No setting, console control or environment variable can move it"), privacy §8 and
+   * the sub-processor page's §3.2. This repository contradicts that in its own code —
+   * `config.py` calls `azure_openai_resource` "the value that decides residency in
+   * practice … no code here can check it", `platform_config.py`'s `AppliesRule` for the
+   * same field says "a resource in the wrong region is a residency change no code here
+   * can detect", and the ops console renders it as a text box under "Language model".
+   *
+   * The guard is not the missing half either: `check_model_residency.py` proves four
+   * things about the SOURCE, all of which stay true while an operator points the
+   * resource somewhere else. OPERATIONS §2 gate 20 is what covers it, by a person.
+   *
+   * So the absolute shape is banned by SHAPE, the way the India claim is: the documents
+   * may warrant what the code cannot do, and may not warrant what an operator cannot.
+   * `residencyWarrantyMirror.test.ts` pins the four substrings that survive.
+   */
+  it("does not claim a setting cannot move the model region", () => {
+    /*
+     * ASSERTED DIRECTLY, NOT THROUGH `claimsOutsideDenial`, and the reason is worth
+     * writing down because it is a trap in the helper rather than in the rule: the
+     * banned sentence CONTAINS its own negation ("**No** setting … can move it") and
+     * sits one clause after another ("**no** configuration setting may carry a
+     * region"). The helper's window would find a negation and read the claim as a
+     * denial, so routing this through it would have produced a guard that passes on the
+     * exact text it was written to forbid. The shapes below are narrow enough that no
+     * honest sentence matches one.
+     */
+    const banned = [
+      // "no setting/console control/environment variable can move it"
+      /\bno (setting|console control|environment variable)[^.]{0,80}\bcan move\b/i,
+      // "no change to our software or our settings can move …"
+      /\bno change to (our|the) (software|code) (or|and) (our|the) settings\b/i,
+      /\bsettings?\b[^.]{0,40}\bcannot move\b[^.]{0,40}\bregion\b/i,
+    ];
+    for (const doc of LEGAL_DOCUMENTS) {
+      const prose = textOf(doc);
+      for (const pattern of banned) {
+        expect(
+          prose,
+          `/legal/${doc.slug} warrants that no setting can move the model region. ` +
+            `\`azure_openai_resource\` is a console field and the region is a property ` +
+            `of the resource it names — see F-13 in docs/LEGAL-SURFACE.md.`,
+        ).not.toMatch(pattern);
+      }
+    }
+    // And the correction is PINNED, not merely un-banned: deleting the clause that says
+    // WHICH resource is a setting is how the over-claim comes back looking like a trim.
+    for (const slug of ["dpa", "privacy", "subprocessors"]) {
+      expect(textOf(bySlug(slug)), `/legal/${slug} no longer says the resource is ours to set`)
+        .toMatch(/resource[^.]{0,120}\b(operational setting|setting of ours|setting our own operators)\b/i);
+    }
+  });
+
+  /**
+   * A RECORDING CONTROL NOBODY BUILT (F-14).
+   *
+   * `/legal/privacy` §4.1 and `/legal/acceptable-use` §2.6 both said a caller who
+   * declines recording has the recording stopped and the refusal written to the consent
+   * ledger. `Call.consent_recording` is on `scripts/check_wiring.py`'s known-unwired
+   * list ("the engine reports no per-call recording consent yet (pilot gate 3)"),
+   * nothing writes a `recording`-purpose ledger row, and voice-runtime has exactly one
+   * in-call tool — opt-out. SECURITY-COMPLIANCE §2.2 says it outright: nothing in this
+   * codebase can switch recording off.
+   *
+   * Both halves are asserted, because the pair is what makes the notice honest: the
+   * promise must not come back, and the documents must keep saying that recording is not
+   * a switch anyone holds.
+   */
+  it("claims no recording control the product does not have", () => {
+    // Direct, for the reason the region ban above states at length: the sentence sat
+    // beside "declines", which the denial heuristic reads as a negation. The PRESENT
+    // tense is what is forbidden — the withdrawal narrative reports the old promise in
+    // the past ("has the recording stopped") and must stay sayable.
+    const banned = [
+      /\brecording stops\b/i,
+      /\brecording is stopped\b/i,
+      /\brecording (?:will|would) stop\b/i,
+    ];
+    for (const slug of ["privacy", "acceptable-use", "dpa", "terms"]) {
+      const prose = textOf(bySlug(slug));
+      for (const pattern of banned) {
+        expect(
+          prose,
+          `/legal/${slug} says a decline stops the recording. Nothing can stop one ` +
+            `mid-call — pilot gate 3, and F-14 in docs/LEGAL-SURFACE.md.`,
+        ).not.toMatch(pattern);
+      }
+    }
+    // What replaced it, on the notice a caller reads and the policy a client reads.
+    expect(textOf(bySlug("privacy"))).toMatch(/Calls handled by a client's agent are recorded\./);
+    expect(textOf(bySlug("privacy"))).toMatch(/does not stop the recording|cannot do today/i);
+    expect(textOf(bySlug("acceptable-use"))).toMatch(
+      /does not stop the\s+recording|Nothing in the product can stop one/i,
+    );
+  });
+
+  /**
+   * THE MODEL PICKER'S PRICE IS OUR COST, AND THE CONTRACT HAS TO SAY WHICH (F-15).
+   *
+   * D-454 shows a rupee-per-minute figure against each selectable model. It comes from
+   * `billing/rates.py`'s list-price cost model, and that module states in capitals that
+   * NOTHING bills the in-call leg and that this is permanent — the leg is BYOK, so the
+   * engine pays nothing and reports no tokens. What a client is charged is their plan's
+   * overage rate or `self_serve_inr_per_min`, neither of which moves with the model.
+   *
+   * A document that let the reader think otherwise would be the screen's error promoted
+   * into a contract, so clause 6.1 says what the figure is and this pins it.
+   */
+  it("does not price the model choice as a client charge", () => {
+    const terms = textOf(bySlug("terms"));
+    expect(terms).toMatch(/Choosing an AI model does not change what you pay/);
+    expect(terms).toMatch(/switching models\s+changes neither your monthly fee/);
+    // The DPA and the register point at that clause rather than restating the figure —
+    // two statements of what a client pays is the drift clause 6.1 exists to prevent.
+    for (const slug of ["dpa", "subprocessors"]) {
+      expect(textOf(bySlug(slug)), `/legal/${slug} does not point at the fees clause`).toMatch(
+        /clause 6\.1 of the\s+Terms of Service/i,
+      );
+    }
+  });
+
+  /**
+   * CLAUSE NUMBERS ARE CROSS-REFERENCES AND NOTHING TYPE-CHECKS ONE.
+   *
+   * Found by this audit: sub-processors are DPA clause 5, and the DPA twice plus the
+   * register three times sent a reader to "clause 6" — the data-principal help clause —
+   * for the change-notification right they were being told they had. The AUP sent a
+   * reader to "clause 6" for what happens on a breach (fees, in the Terms). The Terms'
+   * own header comment cited clause 15 for the AI disclaimer, which is clause 13.
+   *
+   * A wrong pointer in a contract is not cosmetic: it is the sentence a buyer's counsel
+   * follows, and it resolves to something that does not say what they were told. So
+   * every reference in the published set is resolved against the numbered headings of
+   * the document it names — "of the Terms of Service" reads that document, "of this
+   * policy" and a bare reference read their own.
+   */
+  it("resolves every clause reference in the published prose", () => {
+    /** "6" and "6.1" for every numbered heading, section and subsection alike. */
+    const numbersIn = (doc: LegalDocument): Set<string> => {
+      const found = new Set<string>();
+      for (const section of doc.sections) {
+        const top = /^(\d+)\./.exec(section.heading);
+        if (top) found.add(top[1] as string);
+        for (const sub of section.subsections ?? []) {
+          const nested = /^(\d+\.\d+)/.exec(sub.heading);
+          if (nested) found.add(nested[1] as string);
+        }
+      }
+      return found;
+    };
+    const byTitle = new Map(LEGAL_DOCUMENTS.map((doc) => [doc.title, doc]));
+
+    /**
+     * Which document a reference points at.
+     *
+     * The document TITLES are matched as prefixes of what follows "of the ", longest
+     * first, rather than captured by a regex group: "the Terms of Service" contains its
+     * own " of ", so any lazy group stops at "Terms" and any greedy one swallows the
+     * rest of the sentence. A prefix test against the eight real titles cannot be
+     * ambiguous, and an unrecognised name resolves to the document doing the citing —
+     * which is the reading a bare "clause 5" gets and the one that fails loudest.
+     */
+    const titlesLongestFirst = [...byTitle.keys()].sort((a, b) => b.length - a.length);
+    const referenced = (rest: string, self: LegalDocument): LegalDocument => {
+      const title = titlesLongestFirst.find((candidate) => rest.startsWith(candidate));
+      return title === undefined ? self : (byTitle.get(title) as LegalDocument);
+    };
+
+    for (const doc of LEGAL_DOCUMENTS) {
+      const prose = textOf(doc);
+      // `clause 6.1 of the Terms of Service`, `clause 5 of the Data Processing
+      // Addendum`, `clause 5 of this policy`, or a bare `clause 5`.
+      const pattern = /\bclause (\d+(?:\.\d+)?)(?:\s+of\s+(?:the|this)\s+)?/gi;
+      for (const match of prose.matchAll(pattern)) {
+        const number = match[1] as string;
+        const rest = prose.slice((match.index ?? 0) + match[0].length);
+        const target = referenced(rest, doc);
+        expect(
+          numbersIn(target),
+          `/legal/${doc.slug} cites clause ${number} of ` +
+            `${target === doc ? "itself" : target.title}, which /legal/${target.slug} ` +
+            `does not have`,
+        ).toContain(number);
+      }
+    }
+  });
 });
 
 describe("every legal screen is scanned by axe", () => {

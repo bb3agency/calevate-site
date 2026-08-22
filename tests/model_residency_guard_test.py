@@ -585,7 +585,7 @@ def test_a_region_that_is_not_the_frozen_constant_is_refused_on_the_regional_for
     assert any("`Final` constant" in offender for offender in offenders), offenders
 
 
-# --- 4: the builder cannot emit a non-India region ----------------------------
+# --- 4: the builder cannot emit a region other than the declared posture's ----
 
 
 #: A builder shaped the way `calevate_shared.engine` shapes it, for the negative controls
@@ -608,10 +608,13 @@ def test_the_reference_builder_shape_passes() -> None:
 
 
 def test_a_builder_that_grew_a_region_parameter_is_caught() -> None:
-    """THE case check 4 exists for, and the only way a non-India region could ever be
-    emitted: give the builder somewhere to put one. Azure's endpoint has nowhere to put a
-    region anyway, so such a parameter would be inert — which is worse than an error,
-    because it reads like a residency control and is not one."""
+    """THE case check 4 exists for, and the only way a region other than the declared
+    posture's could ever be emitted: give the builder somewhere to put one. Azure's
+    endpoint has nowhere to put a region anyway, so such a parameter would be inert —
+    which is worse than an error, because it reads like a residency control and is not
+    one. The default in the doctored source below is `southindia` BECAUSE it is the
+    withdrawn region: a builder that could still be steered back to the region D-449
+    left is the sharpest form of this defect, not a leftover from before the move."""
     source = BUILDER_SOURCE.replace(
         "def azure_openai_base_url(resource: str) -> str:",
         'def azure_openai_base_url(resource: str, location: str = "southindia") -> str:',

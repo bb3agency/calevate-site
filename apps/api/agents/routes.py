@@ -698,7 +698,28 @@ async def update_agent_route(
         # this agent's model choice" — a change to which model answers their phone —
         # audit as a request that changed nothing at all. What the client SENT is the
         # fact an auditor is reconstructing.
-        summary={"fields": sorted(payload.model_fields_set)},
+        #
+        # ⚠ `llm_model` IS THE ONE FIELD WHOSE VALUE GOES IN, and the exception is argued
+        # where the account-level write makes it (`llm_routes.py`): a model identifier is
+        # a platform configuration constant, not a client's business copy and not anybody's
+        # personal data, and WHICH model this agent was moved to is the entire fact an
+        # auditor reconstructing a bill or a quality complaint is after. The field name
+        # alone said that the model changed and refused to say what to. `null` is recorded
+        # as itself — "put back on the account default" is a decision somebody took — and
+        # the key is absent entirely when the caller did not name the field, which is the
+        # same tri-state `set_llm_model` carries everywhere else on this path.
+        #
+        # A JOINED STRING AND NOT A LIST, which is what this was: `write_audit` hands the
+        # summary to `redact_mapping`, and `_redact_value` collapses EVERY sequence to
+        # `"[3 items]"` — deliberately, because a list is usually a payload. So the field
+        # names this line exists to record never reached the log at all, and the entry
+        # said only that an agent had been updated. `audit_log` has no summary column, so
+        # the log line is the whole of this fact.
+        summary=(
+            {"fields": ",".join(sorted(payload.model_fields_set)), "llm_model": llm_model}
+            if payload.set_llm_model
+            else {"fields": ",".join(sorted(payload.model_fields_set))}
+        ),
     )
     return await _agent_row(session, agent_id)
 

@@ -10,7 +10,16 @@ import type { LegalDocument } from "./types";
  * security safeguards. Annex B is therefore not a marketing list — it is the clause that
  * makes rule 6(f) satisfiable, and every measure in it is one that exists in the code
  * today. Where a measure is aspirational it is absent, and where a limit is real it is in
- * clause 9 or clause 12.
+ * clause 9 or in a callout that names it. (This said "clause 9 or clause 12"; the
+ * Addendum has ten clauses and two annexes, so it pointed at nothing.)
+ *
+ * ## The clause numbers in the prose are CROSS-REFERENCES and were wrong
+ *
+ * Sub-processors are clause 5. Clause 9 twice, and `/legal/subprocessors` three times,
+ * cited "clause 6" — which is the data-principal help clause — for the sub-processor
+ * change notice a client's counsel would go and read. Nothing type-checks a clause
+ * number, so `tests/legal.test.tsx` now resolves every "clause N" in the set against
+ * the numbered headings of the document it points at.
  */
 export const DPA: LegalDocument = {
   slug: "dpa",
@@ -63,7 +72,8 @@ export const DPA: LegalDocument = {
             "We process your callers' personal data only on your documented instructions, " +
             "and for no other purpose. Your instructions are: these documents, the " +
             "configuration you set in the product (your agents, their prompts, your " +
-            "extraction schema, your retention periods, your integrations), and any " +
+            "extraction schema, your retention periods, your integrations, and which " +
+            "of the AI models we run your agents use), and any " +
             "further written instruction we accept.",
         },
         {
@@ -103,6 +113,14 @@ export const DPA: LegalDocument = {
               "is issued, one when data is actually read.",
             "Reading an unredacted transcript, or the exact body delivered to your own " +
               "system, is a higher permission and always writes an audit entry.",
+            "Setting your account up and administering it is a different thing from that " +
+              "access, and it does change your configuration: we build your agents with " +
+              "you, and an operator can set your plan, your limits and which of the AI " +
+              "models your agents run. That is done on your instruction or with your " +
+              "agreement, never through the support access above, and each of those " +
+              "changes writes an audit entry naming the operator, your account and what " +
+              "changed. We say it here because the sentence above, read on its own, " +
+              "would tell you our people cannot change anything on your account.",
           ],
         },
       ],
@@ -332,7 +350,7 @@ export const DPA: LegalDocument = {
             "us on three counts at once: we have not been notified as a Significant Data " +
             "Fiduciary, no class covering a voice-AI processor has been notified, and no " +
             "category has been specified. If any of those three changes, it is a change " +
-            "to where this service can run, and clause 6 is how you will hear about it.",
+            "to where this service can run, and clause 5 is how you will hear about it.",
         },
         {
           kind: "callout",
@@ -349,7 +367,13 @@ export const DPA: LegalDocument = {
             "into a contract. So we do the thing that is right under either answer: call " +
             "audio is treated as though it may be sensitive personal data, every place it " +
             "goes is named on the sub-processor page, and the question is on the list for " +
-            "the advocate whose review this document is waiting on. It stops mattering on " +
+            "the advocate whose review this document is waiting on. Read it as a question " +
+            "about the LIVE call and not only about the stored file: the audio is carried " +
+            "by a platform outside India while the call is happening, and since 22 August " +
+            "2026 the transcript of it reaches a model in the United States turn by turn " +
+            "as it is spoken. If the answer is yes, the stricter transfer test applies to " +
+            "the conversation itself, which is why the question is worth more to you than " +
+            "its age suggests. It stops mattering on " +
             "13 May 2027, when the DPDP Act replaces the sensitive-data tier with a single " +
             "category — and it is live until then, which is why it is in the contract and " +
             "not in a note.",
@@ -377,6 +401,18 @@ export const DPA: LegalDocument = {
             "India. Sign-in is ours and runs on the application host.",
         },
         {
+          kind: "para",
+          text:
+            "You can choose which of the AI models we run your agents use — for your " +
+            "whole account, or for one agent — and the product shows you a figure " +
+            "against each. That choice is not a choice of where: every model we offer " +
+            "is served by the same provider, from the same account resource, in the " +
+            "region named above, and the warranty below is unaffected by which one you " +
+            "pick. It is also not a change to what you are charged: clause 6.1 of the " +
+            "Terms of Service says what you pay, and says what that figure beside each " +
+            "model is and is not.",
+        },
+        {
           kind: "callout",
           tone: "warning",
           title: "What we warrant about the language model, and what we do not",
@@ -387,7 +423,7 @@ export const DPA: LegalDocument = {
             "narrowed: we are not going to keep it alive with qualifiers, and you should " +
             "read the warranty below as a promise about our code rather than about a " +
             "country. The change is recorded in our decision log and is the " +
-            "sub-processor location change clause 6 governs; the sub-processor page " +
+            "sub-processor location change clause 5 governs; the sub-processor page " +
             "states what it would have cost had a client been live. " +
             "We warrant that our software cannot send a language-model request anywhere " +
             "but the single region our source code declares without a change to our " +
@@ -397,17 +433,35 @@ export const DPA: LegalDocument = {
             "record in our decision log. Under the posture we have declared: one " +
             "function constructs every model endpoint, it can emit only the declared " +
             "region, the region is written once, and no configuration setting may carry " +
-            "a region, an endpoint or a posture. No setting, console control or " +
-            "environment variable can move it; only a reviewed commit can. That is the " +
-            "same warranty in the same shape as before, and what changed is which region " +
-            "it names. We do NOT " +
+            "a region, an endpoint or a posture. The region our code declares is not a " +
+            "value any setting, console control or environment variable holds, and " +
+            "only a reviewed commit can change it. That is the " +
+            "same warranty about our source code as before, and what changed inside it " +
+            "is which region it names. The paragraph below is the part it does not " +
+            "reach, which this clause used to leave you to work out.",
+        },
+        {
+          kind: "para",
+          text:
+            "We do NOT " +
             "warrant this as machine-proved at the provider, and we will not let a " +
             "shorter sentence imply that we do. " +
             "Our provider's endpoint address contains no region — the region belongs to " +
-            "the account resource — so that the resource is in East US 2, and that its " +
+            "the account resource that address points at. WHICH resource we point at is " +
+            "an operational setting our own operators can change, as is which model " +
+            "deployment inside it answers, so the warranty above is a warranty about " +
+            "our source code and not the whole story: a resource created in another " +
+            "region would move the processing without any of it becoming false. That is " +
+            "why the two facts the region actually depends on are held by a person and " +
+            "not by the build — that the resource we are configured to use is in East " +
+            "US 2, and that its " +
             "model deployment is the regional kind rather than the provider's worldwide " +
-            "default, are confirmed by a named person against the provider's console, " +
+            "default. Both are confirmed by a named person against the provider's console, " +
             "dated and retained as evidence, and available to you under clause 10. " +
+            "Moving the service to a resource in another region is a change of " +
+            "processing location, notified to you under clause 5 before it takes " +
+            "effect; it is not something we treat as a settings adjustment because the " +
+            "setting is where it happens to live. " +
             "Before 19 August 2026 the language leg ran on a provider whose endpoint did " +
             "name its region; the change of provider is what narrowed this warranty, the " +
             "change of region is what withdrew the India claim, and both are recorded " +
@@ -425,8 +479,11 @@ export const DPA: LegalDocument = {
             "whether we can meet it — and on the evidence on the sub-processor page, a " +
             "requirement that the call itself stay in India is one we cannot meet today, " +
             "and since 22 August 2026 neither is a requirement that the language model " +
-            "stay in India. Speech, the first reading of the transcript and the " +
-            "application database remain Indian; if your duty can be met by those alone, " +
+            "stay in India. Speech and the first reading of the transcript remain " +
+            "Indian, and the application database is to be hosted in India on the " +
+            "decision recorded above — a host that is chosen and not yet provisioned, " +
+            "so read it as a commitment we are making rather than a machine you can " +
+            "point at. If your duty can be met by those alone, " +
             "say so and we will put it in writing.",
         },
       ],

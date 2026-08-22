@@ -283,7 +283,12 @@ requirement for a sub-64-bit authenticator looks like when it is taken seriously
   Two consequences a lawyer reading this should have in front of them. **(1)** The
   strongest residency statement this product can make about its LLM legs is an attestation
   about a US region, not a build artifact and not an India guarantee — so a client document
-  must not describe it as machine-enforced and must not describe it as Indian. **(2)** Gate
+  must not describe it as machine-enforced and must not describe it as Indian. ⚠ **AND NOT
+  AS UNREACHABLE BY CONFIGURATION EITHER (F-13, 22 Aug 2026):** `azure_openai_resource` is
+  a console field, the region is a property of the resource, and this repository says so
+  twice in its own code (`config.py:425`, `platform_config.py:418`). The list of four
+  things the guard proves is a list about the SOURCE; gate 20 is the reading that covers
+  the setting. **(2)** Gate
   20c is not a formality: Azure's DEFAULT deployment type is *Global*, which processes
   worldwide, and a Global deployment satisfies every automated check in this repository
   while making the region the DPA names unenforceable.
@@ -759,6 +764,115 @@ D-449 only the SPEECH legs are Indian.** The language model is `eastus2`, so the
 transcript crosses the border on every turn. §4's model-residency paragraph is re-aimed,
 not deleted: the gates survive, the guarantee does not.
 
+### F-13 — The DPA warranted that no setting could move the model region. A console field decides it. **CLOSED on the copy, 22 Aug 2026. The mechanism gap is real and is owned by a gate, not by a build.**
+
+**What was wrong, and it was an express warranty rather than a marketing sentence.**
+`/legal/dpa` clause 9 said *"No setting, console control or environment variable can move
+it; only a reviewed commit can"*, with `/legal/privacy` §8 (*"no setting, console control
+or environment variable can move the model to a third country"*) and
+`/legal/subprocessors` §3.2 (*"no change to our software or our settings can move the
+language leg to a third country"*) saying it in their own words. Three surfaces, one
+claim, and this repository contradicts it in two places of its own:
+
+- `packages/shared/src/calevate_shared/config.py:425` — *"Azure hides the region inside
+  the resource rather than in the URL, which makes `azure_openai_resource` **the value
+  that decides residency in practice** … note that **no code here can check it**"*;
+- `apps/api/core/platform_config.py:418` — the field's own `AppliesRule` reason: *"a
+  resource in the wrong region is **a residency change no code here can detect**"*. It is
+  not env-only and not name-sealed as a secret, so `managed_fields()` offers it, and
+  `apps/web/src/app/admin/ops/ConfigPanel.tsx` renders it under a group literally titled
+  *Language model*. It is a text box.
+
+**Why the guard is not the answer and never was.** `scripts/check_model_residency.py`
+proves four things about the SOURCE — one spelling of `AZURE_LOCATION`, no `Settings`
+name carrying `region`/`location`/`residency`/`datacenter`/`posture`, no endpoint
+constructible outside `azure_openai_base_url()`, and a builder that cannot emit another
+region. All four remain true while an operator points the resource at
+`something-westeurope`. That is exactly the hole **OPERATIONS §2 gate 20** exists to
+cover — *"find the resource named in `azure_openai_resource`, and read its Location
+field"* — and the documents were describing the guard as if it covered the gate's half
+too.
+
+**Closed by narrowing the sentence, not by deleting it.** All three documents now warrant
+the source-code mechanism, name the resource setting as the place the region is really
+decided, and say that a person confirms it. The DPA adds the commitment that follows from
+that: moving to a resource in another region is a change of processing location notified
+under clause 5, not a settings adjustment. `tests/legal.test.tsx` bans the absolute shape
+in every document so it cannot grow back, and `residencyWarrantyMirror.test.ts`'s four
+pinned substrings all survive unchanged.
+
+**What is NOT closed, and it is not copy.** Nothing re-triggers gate 20 when
+`azure_openai_resource` changes: the attestation is a dated reading of one resource, and
+editing the field silently invalidates it. **What would close it:** the console write path
+for that one field refusing unless a fresh attestation names the new resource — the same
+shape `check_model_lifecycle.py` already uses to consume
+`docs/evidence/azure-deployment-attestation.json`. Owner: ours (guards/config lane, not
+this one). No external dependency.
+
+### F-14 — Two published documents promised a recording control the product does not have. **CLOSED on the copy, 22 Aug 2026; the mechanism is pilot gate 3.**
+
+`/legal/privacy` §4.1 told callers that *"if a caller declines recording during the call,
+recording stops, the call continues, and the refusal is written to an immutable consent
+ledger"*, and `/legal/acceptable-use` §2.6 told clients the same. Neither is built:
+`Call.consent_recording` is on `scripts/check_wiring.py`'s known-unwired list (*"the
+engine reports no per-call recording consent yet (pilot gate 3)"*), nothing writes a
+`recording`-purpose `consent_ledger` row, and `apps/voice-runtime/tool_routes.py` has
+exactly one in-call tool (opt-out) — so no agent can stop a recording mid-call.
+`docs/SECURITY-COMPLIANCE.md` §2.2 contained both halves of the contradiction three
+sentences apart (*"nothing in this codebase can [switch recording off]"* directly above
+*"Caller decline ⇒ recording off"*); it now marks the second as specification.
+
+Privacy §4.1 also implied recording was a client switch. It is not — the switch is the
+recording NOTICE (`agents.recording_notice_enabled`), and the landing page's *"Every call
+is recorded and kept"* was the accurate surface of the three, so it is unchanged. What a
+caller has instead is erasure through the client, which fixes a destruction date and
+produces a certificate, and the notice now says that.
+
+**What closes the mechanism:** pilot gate 3. Not ours — it needs the engine to report a
+per-call recording decision, or a second in-call tool once gate 8 verifies the vendor's
+custom-function behaviour.
+
+### F-15 — The model picker shows a per-minute rupee figure and calls it what the client pays. Nothing bills that leg. **The COPY is closed, 22 Aug 2026; the SCREEN is another lane's and is still wrong.**
+
+D-454 gave clients a per-tenant and per-agent model choice with a price against each
+option, and it landed after the legal sweep, so no document mentioned it. Two of the three
+consequences were cheap: the DPA's clause 2 instruction list now names the model choice,
+and clause 9 plus `/legal/subprocessors` §3.3 say that the choice moves no vendor, no
+resource and no region (every member of `AZURE_OPENAI_MODELS` is served from the same
+`azure_openai_resource`). §3.3 previously said the opposite — *"changing which model an
+agent uses is a data-residency change and not a settings tweak"* — which was true only
+while nobody outside this company could change it.
+
+**The third is a money claim and it is not consistent with the contract.**
+`inr_per_minute_five_min` is derived from `AZURE_LIST_PRICE_USD_PER_MTOK` — Calevate's own
+list-price COST of the language leg — and `apps/api/billing/rates.py` states in capitals
+that **nothing is billing the in-call leg and that this is permanent**: the leg is BYOK, so
+the engine pays nothing and reports no tokens. A client's charge is their plan's overage
+rate (`billing/service.priced_overage`) or `self_serve_inr_per_min`
+(`rates.prepaid_billed_inr`), and neither moves with the model. The screens nevertheless
+say *"what you pay now"* beside each rate
+(`apps/web/src/components/llmModelPicker.tsx`), *"It costs ₹X a minute"* (both the
+organisation screen and the per-agent one) and *"this is a
+decision about your bill as much as about your agents"*
+(`apps/web/src/app/c/[slug]/settings/models/page.tsx`,
+`apps/web/src/app/c/[slug]/agents/AgentModel.tsx`). FOLLOW-UP-9 carries the lines.
+
+`/legal/terms` §6.1 now carries the honest statement — the figure is our cost, it appears
+on no invoice line and no credit deduction, switching models changes nothing you are
+charged, and passing it through would be a change to the commercial terms. **That is the
+contract catching up with the screen; it is not a fix for the screen**, which tells an
+owner they are being charged something they are not. Owner: the agents/billing UI lane.
+
+**One adjacent correction made in the same pass, because D-454 widened it.** DPA clause 3
+said only that operator access to a client account is read-only and "cannot make
+changes" — true of the impersonation grant it describes, and read by an ordinary client
+as "Calevate staff cannot change anything on my account". The admin realm writes plenty:
+plans, credits, spend caps, agents, and now **which model a tenant's agents run**
+(`POST /v1/admin/organizations/{org_id}/llm-defaults`, `agents/llm_routes.py`). Clause 3
+now carries a fourth bullet saying so, and saying that each such change is audited —
+which it is: both doors of that route call `write_audit` with the value and whether it
+moved.
+
 ---
 
 ## 6. What the public documents deliberately do NOT claim
@@ -778,6 +892,17 @@ Recorded so a later edit cannot quietly reinstate them, and each is asserted by
 - No claim that the voice platform runs the call in India — it runs it in the United
   States, and the documents say so (F-12). (`does not place the voice platform in
   India, and says where it actually is`)
+- **No claim that no setting can move the model region** (F-13). The build's warranty is
+  about the SOURCE; which Azure resource the endpoint names is a console field, and the
+  region belongs to the resource. (`does not claim a setting cannot move the model
+  region`)
+- **No claim that a caller can stop a recording mid-call** (F-14), and no claim that
+  recording is a switch anyone holds. Every call an agent handles is recorded; the
+  toggles are about what is ANNOUNCED. (`claims no recording control the product does
+  not have`)
+- **No claim that choosing a model changes what a client pays** (F-15). The figure the
+  picker shows is our own cost of the language leg; the charge is the plan's rate.
+  (`does not price the model choice as a client charge`)
 
 ---
 
@@ -936,7 +1061,14 @@ now traces to one of them.
 9. **Every citation in §9** against the gazette. Several were retrieved as secondary
    summaries because the primary sources are unreachable from this environment. Add the DPDP
    Rules' notification date to that check: this document says 14 Nov 2025 and a later synthesis
-   says 13 Nov, and neither lane could reach the gazette to settle one day.
+   says 13 Nov, and neither lane could reach the gazette to settle one day. **A third search on
+   22 Aug 2026 found only 13 Nov 2025** — dpdpa.com's rule-by-rule reproduction and a Wikipedia
+   article on the Rules both give that date, and both put Phase I (Rules 1, 2 and 17–21) in force
+   from it. That is now two secondary sources against one and it is still not the gazette, so the
+   published copy is unchanged and the question stays here. `/legal/privacy` §12.1 is the client-
+   facing sentence carrying 14 Nov; **it is the one to correct if counsel says 13**, and nothing
+   downstream turns on the day — the dates that matter (13 May 2027 for sections 3–17 and for the
+   SPDI repeal) are consistent across every source read.
 
 ---
 
@@ -951,4 +1083,7 @@ now traces to one of them.
 | ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |
 | FOLLOW-UP-8 | **Bind the published sub-processor list to a constant.** One exported inventory of sub-processor identities that `apps/web/src/lib/legal/subprocessors.ts` renders and `tests/legal.test.tsx` asserts against, so a vendor added to or removed from this tree fails a test naming the legal document it did not reach. F-11's mechanism half: two vendor changes three days apart both survived in a client-facing document because nothing could see the divergence. | `apps/web/**` and `tests/legal.test.tsx` are outside this session's edit scope. **OURS, no external dependency.** |
 | ~~FOLLOW-UP-6~~ **DONE 22 Aug 2026** — both callouts rewritten to say what the mechanisms do, and the two retention categories added to the `/legal/privacy` §9 table with the periods `scripts/seed.py` actually installs (90 / 365). The deliberate limit that remains — an erasure SEARCHES knowledge content and reports the count but never edits a client's own writing — is now stated as a reasoned limit rather than as a gap. | ~~**Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate.~~ |
+| FOLLOW-UP-9 | **F-15's screen half: the model picker must stop calling our cost "what you pay".** `apps/web/src/components/llmModelPicker.tsx:205` labels the model in force *"what you pay now"*; `apps/web/src/app/c/[slug]/settings/models/page.tsx:69` says *"a decision about your bill as much as about your agents"* and `:210` *"It costs ₹X a minute"*; `apps/web/src/app/c/[slug]/agents/AgentModel.tsx:157` repeats the last one. (Line numbers read 22 Aug 2026, while a parallel lane was editing the same files for availability.) `billing/rates.py` is unambiguous that nothing bills the in-call leg and that the figure is our own list-price cost; a client is charged their plan's overage rate or `self_serve_inr_per_min`, neither of which moves with the model. The figure should be labelled as what it is (our cost of the language leg, published so the choice is informed) or the sentence about the client's bill removed. | The agents/billing UI is another lane's. `/legal/terms` §6.1 now states the true position, which is the contract catching up with the screen and not a fix for it. **OURS, no external dependency.** |
+| FOLLOW-UP-10 | **F-13's mechanism half: make a change to `azure_openai_resource` invalidate the region attestation.** The console write path for that one field should refuse unless `docs/evidence/azure-deployment-attestation.json` names the new resource — the shape `scripts/check_model_lifecycle.py` already uses to consume that file. Today an operator can point the language leg at a resource in another region, and every guard, gate record and client document stays green while gate 20's reading silently describes a resource we no longer use. **And `docs/ROADMAP.md:673` (D-444) still repeats the withdrawn sentence internally** — *"no setting, console control or environment variable able to move it"* — which is where the next writer would copy it back from into client copy; correcting it is one clause and belongs to whoever owns that row. | `apps/api/core/platform_config.py` and `scripts/**` are the guards/config lane's. The client-facing copy no longer over-claims (F-13), so this is the mechanism and not a live misstatement. **OURS, no external dependency.** |
+| FOLLOW-UP-11 | **Correct `apps/api/compliance/deletion.py:62`**, which quotes the withdrawn *"90-day minimum retention of call recordings on Indian infrastructure"* from `SECURITY-COMPLIANCE.md` §1. The duration is right and the location half has no citable source (§1, 22 Aug 2026). | `apps/api` is another lane's. One docstring line. |
 | ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |

@@ -22,6 +22,7 @@ import {
   agentLlmView,
   agentModelPatch,
   modelOption,
+  unavailableReason,
   useOrganizationLlmDefaults,
   type AgentLlmView,
   type AgentWithLlm,
@@ -153,8 +154,9 @@ function Inheritance({
         {inForce ? (
           <>
             {" "}
-            It costs {formatRupeeRate(inForce.inr_per_minute_five_min)} a minute on a
-            five-minute call.
+            Running it costs us {formatRupeeRate(inForce.inr_per_minute_five_min)} a
+            minute on a five-minute call — your own rate is set by your plan and does not
+            change with the model.
           </>
         ) : null}
       </p>
@@ -255,6 +257,11 @@ function ModelForm({
       rate: option.inr_per_minute_five_min,
       badge: view.chosen === option.model ? "in use" : undefined,
       baseline: view.chosen !== null && view.effective === option.model,
+      // SHOWN, PRICED AND NOT SELECTABLE. `PATCH /v1/agents/{id}` refuses a model this
+      // platform has no deployment for (`llm_model_not_deployed`) — the same predicate
+      // that decides whether the agent could be PUBLISHED on it — so offering the row
+      // would show a client a price and then answer their click with a 422.
+      unavailable: unavailableReason(option),
     })),
   ];
 

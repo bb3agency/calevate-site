@@ -1384,7 +1384,13 @@ def endpoint_failures(
         reported: set[str] = set()
 
         # The OpenAI-direct ban is POSTURE-CONDITIONAL since D-432 and nothing else about
-        # it moved. Under the declared India posture it is exactly the ban D-410 wrote.
+        # it moved — D-449 did not touch it. Under the declared Azure posture (whichever
+        # region it pins) it is exactly the ban D-410 wrote; this comment used to say
+        # "the declared India posture", which stopped being true when D-449 moved the
+        # declaration to `us-azure-openai` and would have had the next reader believe the
+        # ban was a consequence of the India claim that was withdrawn. It is not: the
+        # ground is that OpenAI direct offers no in-region INFERENCE anywhere, which is a
+        # different sentence from "not in India" and survives the withdrawal.
         # Under a posture whose permitted host IS `api.openai.com` it would be banning the
         # endpoint the product runs on — so it stands down there and the single-literal
         # rule below takes over, which is the same rule Azure gets, not a weaker one.
@@ -1400,7 +1406,12 @@ def endpoint_failures(
                 "rest only; inference still runs in the US, and for a phone call the "
                 "transcript IS the inference input. Azure OpenAI's v1 surface is "
                 "OpenAI-compatible, which is exactly why this is one edited base URL away "
-                f"— use {BUILDER}()."
+                # THE REMEDY IS THE DECLARED POSTURE'S BUILDER, not Azure's by name. This
+                # clause fires under every posture whose permitted host is not OpenAI's,
+                # `google-direct` included, and it used to end "use azure_openai_base_url()"
+                # unconditionally — pointing a reader at a constructor for a vendor their
+                # declaration has nothing to do with.
+                f"— use {posture.builder}()."
             )
 
         for label in _labelled_hosts(reference.template, AZURE_REGIONAL_HOST_SUFFIX):
@@ -1461,15 +1472,37 @@ def endpoint_failures(
             continue
         if allowed is not None and allowed.host == posture.permitted_host:
             continue
+        # WHY THE HOSTILE-LABEL SENTENCE IS CONDITIONAL, and why this clause names the
+        # POSTURE's host rather than Azure's. This is the GENERAL single-literal rule —
+        # it fires for whichever host the declared posture permits — but it used to be
+        # written as though that host were always Azure's: it said "builds an Azure
+        # OpenAI endpoint" and illustrated the attack with `AZURE_HOST_SUFFIX`, so under
+        # `openai-direct` or `google-direct` it would have named the wrong vendor and
+        # then shown an example URL from a vendor the tree does not use. Worse, the
+        # attack it describes only EXISTS above arity zero: the danger is a caller-
+        # supplied label interpolated at the FRONT of the authority, and a fixed vendor
+        # endpoint (`builder_arity == 0`) has no caller input to interpolate. Printing it
+        # anyway would teach the reader that this guard's explanations are boilerplate.
+        if posture.builder_arity:
+            hostile = (
+                " This is not tidiness: the caller-supplied label lands at the FRONT of "
+                "the authority, so a hand-written f-string is where "
+                f"`https://evil.example/x{posture.permitted_host}` comes from, and the "
+                "builder is the only thing that refuses it."
+            )
+        else:
+            hostile = (
+                f" {posture.builder}() takes no caller input, so there is no hostile "
+                "label to refuse here — what a second literal costs is that the endpoint "
+                "stops having one definition to read."
+            )
         failures.append(
-            f"{reference} builds an Azure OpenAI endpoint by hand. Exactly ONE literal in "
-            f"this tree may name {posture.permitted_host} — the `Final` suffix "
+            f"{reference} builds a {posture.name} model endpoint by hand. Exactly ONE "
+            f"literal in this tree may name {posture.permitted_host} — the `Final` suffix "
             f"{posture.builder_suffix!r} in {BUILDER_HOME}, which {posture.builder}() "
-            "assembles — and "
-            "every other caller goes through that function. This is not tidiness: the "
-            "resource name lands at the FRONT of the authority, so a hand-written "
-            f"f-string is where `https://evil.example/x{AZURE_HOST_SUFFIX}/openai/v1` "
-            "comes from, and the builder is the only thing that refuses it. It is also "
+            "assembles — and every other caller goes through that function."
+            + hostile
+            + " It is also "
             "what check 4 rests on — a second constructor is a constructor nothing here "
             "has read."
         )
@@ -1517,7 +1550,9 @@ def live_settings() -> tuple[dict[str, object], set[str]]:
 
 
 def console_config_failures(
-    fields: Mapping[str, object] | None = None, managed: Iterable[str] | None = None
+    fields: Mapping[str, object] | None = None,
+    managed: Iterable[str] | None = None,
+    spec: PostureSpec | None = None,
 ) -> list[str]:
     """No `Settings` field may carry a model region or a hand-typed model endpoint.
 
@@ -1540,6 +1575,7 @@ def console_config_failures(
     had just moved off, which is the field a half-finished migration actually leaves
     behind. It is deliberately NOT stated over the DECLARED posture alone for that reason.
     """
+    posture = declared_spec() if spec is None else spec
     if fields is None or managed is None:
         live_fields, live_managed = live_settings()
         fields = live_fields if fields is None else fields
@@ -1550,11 +1586,26 @@ def console_config_failures(
         lowered = name.lower()
         where = "console-editable" if name in editable else "declared"
         if any(fragment in lowered for fragment in REGION_KNOB_FRAGMENTS):
-            failures.append(
-                f"Settings.{name} is {where} and its name says it holds a model region. "
-                f"D-410 makes the region a frozen constant (`{REGION_CONSTANT}`) precisely "
+            # THE REMEDY IS THE DECLARED POSTURE'S, not always Azure's. The rule itself
+            # has never had a vendor (`REGION_KNOB_FRAGMENTS` names none), but this
+            # sentence used to send every reader to `AZURE_LOCATION` by name — so under a
+            # posture that pins no region at all (`region_constant is None`) it would
+            # have told them to move the field into a constant whose whole point is that
+            # such a posture must NOT have one, which is the opposite instruction.
+            remedy = (
+                f"the region is a frozen constant (`{posture.region_constant}`) precisely "
                 "so it cannot be changed from a web form at 3am — the same rule D-95 §4 "
                 "applies to APP_ENV. Move it to a `Final` constant in code."
+                if posture.region_constant is not None
+                else (
+                    f"posture {posture.name!r} pins NO region, so there is no constant to "
+                    "move this into — the field should not exist. A console knob naming a "
+                    "region under a posture that makes no regional claim is a promise the "
+                    "declaration does not make."
+                )
+            )
+            failures.append(
+                f"Settings.{name} is {where} and its name says it holds a model region. " + remedy
             )
             continue
         vendor = _endpoint_knob_vendor(lowered)
@@ -1721,14 +1772,28 @@ def builder_failures(source: str | None = None, spec: PostureSpec | None = None)
         )
     for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs):
         if any(fragment in argument.arg.lower() for fragment in REGION_KNOB_FRAGMENTS):
+            # WHY THE SECOND HALF IS POSTURE-CONDITIONAL. The refusal itself is universal —
+            # no posture's builder may take a region — but the REASON differs, and the
+            # message used to give only one of them: "`AZURE_LOCATION` cannot be the only
+            # spelling of the region". Under a posture that pins no region there is no such
+            # constant and nothing for the parameter to be a second spelling OF; the
+            # objection there is that the parameter asserts a regional control the
+            # declaration says does not exist.
+            why = (
+                f"because `{posture.region_constant}` cannot be the only spelling of the "
+                "region if a caller can pass another one. This vendor's endpoint has "
+                "nowhere to put a region anyway; a parameter that changed nothing would be "
+                "worse than its absence."
+                if posture.region_constant is not None
+                else (
+                    f"because posture {posture.name!r} pins NO region — a region parameter "
+                    "here would be a residency control the declaration says does not "
+                    "exist, which is worse than a wrong one because it reads as reassuring."
+                )
+            )
             failures.append(
                 f"{posture.builder}() takes a parameter named {argument.arg!r}. The builder "
-                "must "
-                "have NO region input at all — that absence is the whole of check 4, "
-                f"because `{REGION_CONSTANT}` cannot be the only spelling of the region if "
-                "a caller can pass another one. Azure's endpoint has nowhere to put a "
-                "region anyway; a parameter that changed nothing would be worse than its "
-                "absence."
+                "must have NO region input at all — that absence is the whole of check 4, " + why
             )
 
     # THE DNS-LABEL REFUSAL IS REQUIRED ONLY WHERE THERE IS A CALLER INPUT TO REFUSE.
@@ -1740,7 +1805,11 @@ def builder_failures(source: str | None = None, spec: PostureSpec | None = None)
             f"{posture.builder}() never raises. It must REFUSE a resource that is not a "
             "single DNS "
             "label rather than interpolate it: the resource lands at the front of the "
-            f"authority, so `https://evil.example/x{AZURE_HOST_SUFFIX}/openai/v1` is a URL "
+            # The example is built from the POSTURE's host. Only Azure has arity above
+            # zero today, so this reads identically — but the clause is guarded by arity
+            # rather than by vendor, so the day a second posture takes a caller argument
+            # the illustration would otherwise name the wrong vendor's domain.
+            f"authority, so `https://evil.example/x{posture.permitted_host}` is a URL "
             "whose HOST is an attacker's and whose tail merely reads like ours."
         )
     elif posture.builder_arity and not any(
@@ -1849,10 +1918,18 @@ def blindness_failures(
             "decision in the tree for it to be reading."
         )
     if not list(references):
+        # NAMED FROM THE POSTURE, not from Azure. This is the third canary — the scan
+        # found no model-host literal at all — and it fires under whichever posture is
+        # declared, so hard-coding "an Azure OpenAI host" here would have told a reader
+        # under `openai-direct` or `google-direct` to go looking for a vendor their tree
+        # does not use, while the real cause (the scan stopped reading files) went
+        # unnamed. Same defect class as the general clause in `endpoint_failures`.
         failures.append(
-            "no literal anywhere in the tree mentions an Azure OpenAI host — not even the "
-            f"builder's own `Final` suffix in {BUILDER_HOME}. Either the scan stopped "
-            "reading files, or the one constructor this check is built around has gone."
+            f"no literal anywhere in the tree mentions {posture.permitted_host}, the host "
+            f"posture {posture.name!r} permits — not even the builder's own `Final` suffix "
+            f"({posture.builder_suffix!r}) in {BUILDER_HOME}. Either the scan stopped "
+            f"reading files, or {posture.builder}(), the one constructor this check is "
+            "built around, has gone."
         )
     return failures
 

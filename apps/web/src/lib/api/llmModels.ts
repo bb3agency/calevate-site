@@ -34,22 +34,16 @@
  *   shadow). Nothing here parses one; `lib/llmRates.ts` compares and subtracts them as
  *   digits, and refuses rather than rounds.
  *
- * ## THE GENERATED TYPES DO NOT CARRY THESE FIELDS YET, AND THAT IS SAID HERE OUT LOUD
+ * ## THE WIRE TYPES ARE THE GENERATED ONES
  *
  * `lib/api/client.ts` doctrine is that wire types ALIAS `schema.d.ts` so they cannot
- * drift from the API, and every alias below would be one line if the schema had them.
- * The endpoint is being built in parallel and `pnpm gen:api` has not run against it, so
- * the three shapes are written out here, marked, and shaped so that regeneration
- * REPLACES them rather than colliding with them:
- *
- *   - `OrganizationLlmDefaults` -> `Schemas["LlmDefaultsOut"]`,
- *     `LlmModelOption` -> `Schemas["LlmModelOptionOut"]`,
- *     `SetOrganizationLlmDefaultIn` -> `Schemas["LlmDefaultIn"]`
- *     (the server's own model names, read off `apps/api/agents/llm_routes.py`, so the
- *     swap is three lines and not a rename of every caller).
- *   - `AgentLlmFields` becomes nothing at all: the three fields land on `AgentOut`, and
- *     `Agent & AgentLlmFields` is then the same type as `Agent`.
- *   - `AgentModelPatch` becomes `AgentUpdateIn`, for the same reason.
+ * drift from the API, and every type below is one. This module was written while
+ * `pnpm gen:api` had not yet run against the endpoint and carried three hand-written
+ * shapes plus an `AgentLlmFields` shim; the regeneration landed, the shapes became
+ * aliases and the shim was deleted, so nothing here describes the wire a second time.
+ * Two of the three paragraphs that used to stand here described that transitional state
+ * and outlived it, which is worse than describing nothing: a note saying "the generated
+ * types do not carry these fields yet" sends the next reader to do work already done.
  *
  * Nothing here is hand-edited into `schema.d.ts` — that file is generated and a hand
  * edit is a lie the next `gen:api` silently deletes. Nothing here ASSERTS onto a wire
@@ -190,14 +184,6 @@ export function useSetOrganizationLlmDefault(session: Session) {
 export type LlmModelSource = "agent" | "organization" | "platform";
 
 /**
- * The three fields `GET /v1/agents/{id}` gained — optional here ONLY because the
- * generated `AgentOut` has not been regenerated yet (see the module docstring).
- *
- * Optional is also the honest shape against an API build that predates the endpoint:
- * `undefined` is "this deployment does not report it", which the screen renders as
- * nothing rather than as a model name it made up.
- */
-/**
  * An agent as this feature reads one — now simply `Agent`.
  *
  * `AgentLlmFields` stood here declaring the three fields OPTIONAL, because it was written
@@ -214,14 +200,19 @@ export type LlmModelSource = "agent" | "organization" | "platform";
 export type AgentWithLlm = Agent;
 
 /**
- * What `PATCH /v1/agents/{agent_id}` accepts, plus the field the contract adds.
+ * What `PATCH /v1/agents/{agent_id}` accepts — now simply `AgentUpdateIn`.
  *
- * The intersection is what lets `useUpdateAgent` stay the ONE mutation for this endpoint.
- * A second hook issuing the same PATCH with its own invalidation set is the shape
- * `agents.ts` deleted twice (`useUpdateLeadStatus`, `useExportLeads`) — one route, two
- * ways, and the second list of cache keys is always the one that forgets a key.
+ * It was `AgentUpdateIn & { llm_model?: string | null }` while the generated type did not
+ * carry the field yet; it does (`schema.d.ts`), so the intersection re-stated a property
+ * of the wire contract beside the contract itself — the mirror this module's docstring
+ * argues against, and the one shape that keeps compiling after the server changes it.
+ * The alias survives because the name says what the patch is FOR at the call sites, and
+ * because it keeps `useUpdateAgent` the ONE mutation for this endpoint: a second hook
+ * issuing the same PATCH with its own invalidation set is the shape `agents.ts` deleted
+ * twice (`useUpdateLeadStatus`, `useExportLeads`) — one route, two ways, and the second
+ * list of cache keys is always the one that forgets a key.
  */
-export type AgentModelPatch = AgentUpdateIn & { llm_model?: string | null };
+export type AgentModelPatch = AgentUpdateIn;
 
 /**
  * The patch that sets — or clears — one agent's model.
@@ -279,16 +270,41 @@ export function agentLlmView(agent: AgentWithLlm): AgentLlmView | null {
  * catalogue names no default — a real state, in which "use the Calevate default" has no
  * stated outcome and the screen says so rather than naming a model.
  *
- * ⚠ `lib/api/llmDefaults.ts` (the ADMIN realm's half of this feature, another lane's file)
- * carries an identical `platformDefaultOption` of its own. It already imports its wire
- * types and `modelOption` from here — its docstring calls this module the shared
- * vocabulary — so that copy should import this one and be deleted. Not done here because
- * that file is the admin realm's and is being written in parallel.
+ * `lib/api/llmDefaults.ts` (the ADMIN realm's half of this feature) imports this one
+ * rather than keeping the copy it briefly had — one rule, one spelling, in the module
+ * both realms already take their wire vocabulary from. This note used to say that copy
+ * still existed and should be deleted; it was deleted in the same wave, and a comment
+ * pointing at work already done is a comment that sends the next reader to redo it.
  */
 export function platformDefaultOption(
   options: readonly LlmModelOption[],
 ): LlmModelOption | undefined {
   return options.find((option) => option.is_platform_default);
+}
+
+/**
+ * What we say when the server marks a model unavailable and sends no reason.
+ *
+ * A LAST RESORT, never the usual answer: `unavailable_reason` is populated by the route
+ * for every row it marks, so this sentence should only ever be reached by an API build
+ * that carries `is_available` and not the reason beside it. It says the same thing in the
+ * same words as the server's own text so the two cannot read as different problems.
+ */
+export const MODEL_UNAVAILABLE_FALLBACK =
+  "this platform has no deployment behind it yet, so a call would run a different model.";
+
+/**
+ * Why this option cannot be chosen, or `null` when it can — the ONE reading of
+ * `is_available` in the client realm.
+ *
+ * `=== false` and never `!option.is_available`, and the distinction is the reason this is
+ * a function rather than a ternary at three call sites: an API build predating the field
+ * reports `undefined`, which means "this deployment does not say" and must disable
+ * nothing. A truthiness test would grey out every option on such a server.
+ */
+export function unavailableReason(option: LlmModelOption): string | null {
+  if (option.is_available !== false) return null;
+  return option.unavailable_reason ?? MODEL_UNAVAILABLE_FALLBACK;
 }
 
 /**

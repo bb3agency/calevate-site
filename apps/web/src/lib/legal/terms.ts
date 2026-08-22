@@ -10,8 +10,19 @@ import type { LegalDocument } from "./types";
  * Two clauses are deliberately narrower than a template's would be, because the honest
  * version is narrower: clause 12 promises no availability target (nothing in this product
  * measures one, and the marketing page declines to state one for the same reason), and
- * clause 15 disclaims the accuracy of what a language model extracts rather than warranting
+ * clause 13 disclaims the accuracy of what a language model extracts rather than warranting
  * it. Overpromising in a contract is the one drafting error a client can actually enforce.
+ * (That second reference read "clause 15", which is General; nothing checks a clause
+ * number, so `tests/legal.test.tsx` now resolves every one in the published set.)
+ *
+ * Clause 6.1 carries one callout that is not about a fee at all: the model picker
+ * D-454 shipped prints a rupee-per-minute figure against each model, and that figure is
+ * `billing/rates.py`'s LIST-PRICE COST MODEL — the language leg is BYOK, the engine
+ * reports no tokens, and `rates.py` says in as many words that nothing is billing it.
+ * A client is charged their plan's overage rate or `self_serve_inr_per_min`
+ * (`rates.prepaid_billed_inr`), neither of which moves with the model. A control that
+ * shows a price is a control a client reads as a price, so the contract says which one
+ * it is rather than leaving the screen to imply it.
  */
 export const TERMS_OF_SERVICE: LegalDocument = {
   slug: "terms",
@@ -208,6 +219,25 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "A change to your commercial terms takes effect from the date agreed and " +
                 "does not re-price a month you have already been billed for. Your " +
                 "historical invoices are re-derivable and are not rewritten.",
+            },
+            {
+              kind: "callout",
+              tone: "note",
+              title: "Choosing an AI model does not change what you pay",
+              text:
+                "You can choose which of our AI models your agents use, and the product " +
+                "shows a rupee figure per minute against each one. That figure is OUR " +
+                "cost of running that model, at the provider's published price, over a " +
+                "minute of a five-minute " +
+                "call. It is published so that a choice about quality is not made blind " +
+                "to price — not because it is added to your bill: today it appears on " +
+                "no invoice line and on no credit deduction, and switching models " +
+                "changes neither your monthly fee, your per-minute rate, nor the rate " +
+                "your credit balance is drawn down at. Those are the figures in this " +
+                "clause and on your order form, and they are the only ones you are " +
+                "charged. If we ever pass a model's cost through to you it is a change " +
+                "to your commercial terms, agreed with you under the paragraph above, " +
+                "and not something a model list can do on its own.",
             },
           ],
         },

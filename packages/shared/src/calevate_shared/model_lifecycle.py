@@ -106,10 +106,22 @@ MANDATED_DEPLOYMENT_TYPE: Final[DeploymentType] = "standard-regional"
 #: the notice the vendor promises:
 #:
 #:   * *"Microsoft selects the official replacement approximately 90-120 days before
-#:     retirement"* (`concepts-model-retirement-schedule-content.md:20`). Before that
-#:     window there may be no replacement to move TO, so a warning earlier than 120 days
-#:     is a warning nobody can act on — and a warning nobody can act on is how a build
-#:     teaches its readers to ignore warnings.
+#:     retirement"* (`concepts-model-retirements-content.md:136`; the same window is
+#:     explained in the "Why 90-120 days?" callout at `:98` — the vendor spells both with
+#:     an EN DASH, respelled here with a hyphen because ruff's RUF003 refuses the
+#:     character in a comment). Before that window there
+#:     may be no replacement to move TO, so a warning earlier than 120 days is a warning
+#:     nobody can act on — and a warning nobody can act on is how a build teaches its
+#:     readers to ignore warnings.
+#:
+#:     ⚠ THIS CITATION WAS WRONG UNTIL IT WAS RE-READ (22 Aug 2026, A2 audit). It pointed
+#:     at `concepts-model-retirement-SCHEDULE-content.md:20`, which is the heading
+#:     `## Foundry Models sold by Azure` — a different FILE, not merely a slipped line.
+#:     The two filenames differ by one word and both are in the same directory. Worth
+#:     leaving recorded because `WARN_LEAD` is the one constant here whose value is
+#:     argued entirely from a vendor sentence: a citation that resolves to a heading is
+#:     indistinguishable, to a reader who does not open it, from one that resolves to the
+#:     claim.
 #:   * The vendor's own notice is *"at least 60 days"* for a GA model
 #:     (`concepts-model-retirements-content.md:150`), delivered by email to SUBSCRIPTION
 #:     OWNERS. That is one person's inbox, and it is not this build.

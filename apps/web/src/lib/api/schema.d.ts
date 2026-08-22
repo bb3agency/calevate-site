@@ -295,6 +295,8 @@ export interface paths {
          *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
          *
          *     Send `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.
+         *
+         *     Every LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched — this sets what the others follow.
          */
         put: operations["admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put"];
         post?: never;
@@ -4220,7 +4222,7 @@ export interface paths {
          *
          *     Send `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` — the same rows `available` marks `is_available: false`.
          *
-         *     Agents that have chosen a model of their own are unaffected — this sets what the others follow.
+         *     Every LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched — this sets what the others follow.
          */
         put: operations["set_organization_llm_default_v1_organization_llm_defaults_put"];
         post?: never;

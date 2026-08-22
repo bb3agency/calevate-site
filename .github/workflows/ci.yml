@@ -252,6 +252,12 @@ jobs:
         run: uv run python -m scripts.check_docs_drift
 
       - name: "Guardrail: the deploy workflow cannot drift from the deploy script"
+        # The ONE guardrail step that shipped without `if: ${{ !cancelled() }}`, and the
+        # miss is invisible from a green run: without it this step is SKIPPED whenever any
+        # earlier step in the job failed. It sits thirtieth in the sequence, so in practice
+        # it was the guardrail least likely to ever run — and a guardrail that only runs on
+        # an already-green build reports nothing anybody did not already know.
+        if: ${{ !cancelled() }}
         # D-290. `.github/workflows/deploy.yml` is a trigger in front of
         # `scripts/vps-deploy.sh`, and the properties this deployment rests on —
         # migrations strictly before the swap, the health-gated swap, one image per commit

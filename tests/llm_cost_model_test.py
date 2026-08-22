@@ -56,6 +56,7 @@ from apps.api.billing.rates import (
     llm_cost_inr_per_minute,
     llm_inr_per_ktok,
 )
+from apps.api.core.settings import get_settings
 from calevate_shared.engine import (
     AZURE_LIST_PRICE_USD_PER_MTOK,
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -328,3 +329,57 @@ def test_no_figure_in_the_chain_is_ever_a_float() -> None:
     values.append(LIST_PRICE_USD_INR)
     assert all(isinstance(value, Decimal) for value in values)
     assert not any(isinstance(value, float) for value in values)
+
+
+# --- our cost is not the client's price, and the two must never be reconciled ---------
+
+
+def test_no_client_billing_function_takes_a_model() -> None:
+    """**A CLIENT'S BILL DOES NOT MOVE WHEN THEY CHANGE MODEL, AND THIS IS WHERE THAT IS
+    STATED IN CODE.**
+
+    D-454 gave clients a model picker whose rows carry `llm_cost_inr_per_minute`. That
+    figure is what the language leg costs US at list price (`billing/rates.py` says so at
+    the function), and this test is the other half of the sentence: every function that
+    decides what a CLIENT owes for a minute prices MINUTES at their plan's rate, and none
+    of them can even be told which model ran.
+
+    Asserted from the SIGNATURES rather than from a worked example, for the reason the
+    rest of this file asserts signatures: the property is "the model cannot reach the
+    client's bill", and an example only shows that it did not on one input. If a `model`
+    parameter ever appears on one of these, somebody is about to charge a client
+    differently for a model choice — which is a repricing of the product, not a refactor,
+    and it needs the plan row, the invoice line and the client's consent that a signature
+    change does not come with.
+    """
+    from apps.api.billing.rates import prepaid_billed_inr
+    from apps.api.billing.service import charge_for_call, priced_overage
+
+    for function in (prepaid_billed_inr, priced_overage, charge_for_call):
+        parameters = set(inspect.signature(function).parameters)
+        assert not parameters & {"model", "llm_model", "assist_model"}, (
+            f"{function.__name__} can now see which language model ran; a client's minute "
+            "is billed at their plan's rate and must not vary with a model choice"
+        )
+
+
+def test_our_language_cost_is_nowhere_near_a_clients_per_minute_price() -> None:
+    """The two numbers are different KINDS, and a screen that prints one as the other is
+    out by more than an order of magnitude.
+
+    `self_serve_inr_per_min` is what a prepaid client is charged for a minute of calling.
+    `llm_cost_inr_per_minute` is what one of the several legs inside that minute costs us.
+    Even the DEARER model's language leg is a small fraction of the client's rate — so if
+    this assertion ever fails, either a vendor price moved by more than an order of
+    magnitude or somebody has reconciled the supplier figure with the retail one, and both
+    of those need a person rather than a passing test.
+    """
+    client_rate = get_settings().self_serve_inr_per_min
+    for model in AZURE_OPENAI_MODELS:
+        ours = llm_cost_inr_per_minute(5, model=model)
+        assert isinstance(ours, Decimal) and isinstance(client_rate, Decimal)
+        assert ours * 10 < client_rate, (
+            f"{model}: our language leg ({ours}/min) is now within an order of magnitude "
+            f"of what a client pays for a whole minute ({client_rate}/min) — these are "
+            "different numbers and neither is a substitute for the other"
+        )

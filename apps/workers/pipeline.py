@@ -45,6 +45,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
+from apps.api.agents.llm_models import resolve_llm_model
 from apps.api.billing.caps import (
     CAPS_CTE,
     announce_cap_headroom,
@@ -1956,18 +1957,33 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
     async with tenant_session(tenant_id) as session:
         await lock_call_writes(session, call_id)
         tier = await plan_tier_of(session, tenant_id)
-        voice_id = (
+        config_row = (
             await session.execute(
                 # LEFT JOIN: a call whose agent row was since removed still has to
                 # meter — and it meters as UNPROVEN, which bills at the value rate.
+                #
+                # `organizations` is joined for the SECOND rung of the model resolution
+                # (`agents/llm_models.py`), in the SAME statement rather than a second
+                # round trip: both facts describe one call at one instant, and reading
+                # them apart would let an operator's edit land between them and stamp a
+                # row whose two halves describe different configurations.
                 text(
-                    "SELECT a.tts_voice FROM calls c "
+                    "SELECT a.tts_voice, a.llm_model, o.default_llm_model FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
+                    "LEFT JOIN organizations o ON o.id = c.tenant_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
                 ),
                 {"cid": call_id, "tid": tenant_id},
             )
-        ).scalar()
+        ).first()
+        # Unpacked ONCE. A call row that has gone missing between the pipeline reading it
+        # and this statement is the same "nothing configured" the LEFT JOINs already
+        # produce, so it is spelled as one absent triple rather than as a `None` guard
+        # repeated at each use — three guards is three chances for one of them to answer
+        # differently about the same row.
+        voice_id, agent_model, organization_model = (
+            config_row if config_row is not None else (None, None, None)
+        )
         # WHICH VOICE ACTUALLY RAN IS NOT SOMETHING WE MEASURE. The engine reports a
         # synthesizer leg cost and no model name (billing/rates.py explains the vendor
         # question), so this is the voice the agent was CONFIGURED with at metering
@@ -1976,6 +1992,33 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # VALUE tier: SURFACES §2b's rule is that an unproven call is never billed at
         # the premium rate.
         tts_tier, tts_tier_source = billable_tier(voice_id if isinstance(voice_id, str) else None)
+        # WHICH LANGUAGE MODEL THIS CALL RAN, recorded for exactly the reason the TTS rung
+        # beside it is (D-454). A client now CHOOSES the model their agents run, the two
+        # selectable models differ by 2.7x on both token legs, and both of the columns
+        # that answer "which one" — `agents.llm_model` and `organizations
+        # .default_llm_model` — are mutable at any moment from two screens. So the model a
+        # past call ran is UNRECOVERABLE from the live rows the day after it ran, and
+        # `usage_events` is append-only (hard rule 4): if the fact is not stamped at
+        # metering time it cannot be back-filled by an UPDATE. Without it a month in which
+        # a client switched models is one nobody can take apart afterwards, which is
+        # precisely the question an unexplained Azure invoice asks.
+        #
+        # IT IS A CONFIGURATION READ, NOT A MEASUREMENT, and `llm_model_source` is where
+        # that is said out loud — the same honesty `tts_tier_source` carries and for the
+        # same vendor reason: no execution payload names the model that served the call
+        # (`billing/rates.py`). `agent` and `organization` mean somebody chose, at that
+        # level, and the publish path pushed the matching deployment (`agents/service.py
+        # ::in_call_llm`). `platform` means NOBODY chose — which on an Azure deployment is
+        # `Settings.azure_openai_model` and on a deployment with no Azure leg is the
+        # engine's own default, because `in_call_llm` sends no model on that arm at all.
+        # Recording the resolution and its level, rather than one string pretending to be
+        # a measurement, is what keeps the row honest under both.
+        #
+        # NOT PRICED HERE, deliberately. The in-call language leg is BYOK: the engine pays
+        # nothing for it and reports nothing about it, so there is no token count to put a
+        # rupee against and `rates.py` says at length why inventing one would be worse than
+        # the gap. This is the identifier the gap will be closed WITH, not a charge.
+        llm = resolve_llm_model(agent_model=agent_model, organization_model=organization_model)
         already = (
             await session.execute(
                 text(
@@ -2021,6 +2064,9 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 "tts_tier": tts_tier,
                 "tts_tier_source": tts_tier_source,
                 "tts_voice": voice_id if isinstance(voice_id, str) else None,
+                # D-454's model choice, stamped per row for the reason argued above.
+                "llm_model": llm.model,
+                "llm_model_source": llm.source,
             }
         )
         # `unit_cost_paid` is a PRICE PER UNIT OF `qty`, because that is what every

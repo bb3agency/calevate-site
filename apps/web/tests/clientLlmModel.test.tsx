@@ -88,6 +88,43 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
   };
 }
 
+/**
+ * The catalogue as a REAL deployment serves it: one model addressable, the other allow-
+ * listed with no Azure deployment behind it.
+ *
+ * This is not an exotic state — it is the shipped one. The API marks such a row
+ * `is_available: false` and refuses selecting it with `llm_model_not_deployed`, because
+ * the wire addresses a deployment id and a selection we accepted but could not address
+ * would quote a client one model's price for calls another model answered.
+ */
+function withAnUndeployedModel(): OrganizationLlmDefaults {
+  const base = defaults();
+  return {
+    ...base,
+    available: base.available.map((option) =>
+      option.model === "gpt-4.1-mini"
+        ? {
+            ...option,
+            is_available: false,
+            unavailable_reason:
+              "no Azure deployment is configured for this model on this platform",
+          }
+        : option,
+    ),
+  };
+}
+
+/**
+ * One picker row by the START of its accessible name.
+ *
+ * Anchored, because the label wraps the whole row: the "Use the Calevate default" row's
+ * own description says "Today that is gpt-4o-mini", so an unanchored /gpt-4o-mini/
+ * matches two radios and `getByRole` throws on the ambiguity rather than testing anything.
+ */
+function radio(name: RegExp): HTMLInputElement {
+  return screen.getByRole("radio", { name }) as HTMLInputElement;
+}
+
 const settingsPage = <ClientLlmModelPage params={Promise.resolve({ slug: "acme" })} />;
 
 function settingsRoutes(over: Record<string, unknown> = {}) {
@@ -119,8 +156,14 @@ describe("the account's default model", () => {
     expect(container.textContent).toContain("₹0.2430 more a minute");
     expect(container.textContent).not.toContain("0.24300000000000002");
     // The row in force says what it is rather than "same price", which would otherwise
-    // appear on two rows with no way to tell which is which.
-    expect(container.textContent).toContain("what you pay now");
+    // appear on two rows with no way to tell which is which. It says "running now" and
+    // NOT "what you pay now": this figure is our cost to run the model, and under BYOK
+    // nothing bills the in-call leg (`apps/api/billing/rates.py`) — a client is charged
+    // by their plan's per-minute rate, which does not move when they switch model.
+    // Telling an owner their bill changes here would be false in the one place they are
+    // most likely to believe it.
+    expect(container.textContent).toContain("the model running now");
+    expect(container.textContent).not.toContain("what you pay now");
   });
 
   it("is a skeleton while the read is in flight, and names no model", async () => {
@@ -249,6 +292,62 @@ describe("the account's default model", () => {
     // Never ₹0.00 for a model we cannot price — the same rule the worst-case call cost
     // follows on the agent screen.
     expect(container.textContent).not.toContain("₹0.0000 / min");
+  });
+
+  it("shows a model this platform cannot run, disabled, with the server's reason", async () => {
+    // THE DEFECT THIS PINS: the picker mapped every catalogue row into a selectable radio
+    // and never read `is_available`, so on the shipped deployment a client could pick
+    // `gpt-4.1-mini`, see its price beside it, and be answered with a 422. A control whose
+    // only outcome is a refusal is worse than no control, and the price makes it worse
+    // still — the screen quoted a rate for a choice the server would not take.
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({ "/v1/organization/llm-defaults": withAnUndeployedModel() }),
+    );
+
+    // The DEPLOYED row first, and awaited: the whole group is disabled until `/v1/me`
+    // lands, so asserting on the blocked row at first paint would pass on a build that
+    // disabled nothing. This is the assertion that proves the form is live.
+    await waitFor(() => expect(radio(/^gpt-4o-mini/).disabled).toBe(false));
+    expect(radio(/^gpt-4\.1-mini/).disabled).toBe(true);
+    // Shown and explained, never hidden: a missing row tells a reader nothing, and the
+    // reason is the one thing anybody can act on.
+    expect(container.textContent).toContain("no Azure deployment is configured");
+    expect(container.textContent).toContain("₹0.4830 / min");
+  });
+
+  it("never disables a row on an API build that does not report availability", async () => {
+    // `undefined` is "this deployment does not say", which must disable nothing — the
+    // same `=== false` rule the admin console follows. A truthiness test here would grey
+    // out every option on an older server.
+    // Written as plain JSON rather than annotated with today's strict type: annotating it
+    // would assert the very shape under test, and `LlmModelOptionOut` makes both fields
+    // required. This is the wire an older API serves, not a `LlmModelOption`.
+    const olderBuild = {
+      default_llm_model: null,
+      effective_default: "gpt-4o-mini",
+      available: [
+        {
+          model: "gpt-4o-mini",
+          provider: "Azure OpenAI",
+          inr_per_minute_five_min: "0.2400",
+          is_platform_default: true,
+        },
+        {
+          model: "gpt-4.1-mini",
+          provider: "Azure OpenAI",
+          inr_per_minute_five_min: "0.4830",
+          is_platform_default: false,
+        },
+      ],
+    };
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({ "/v1/organization/llm-defaults": olderBuild }),
+    );
+
+    await waitFor(() => expect(radio(/^gpt-4\.1-mini/).disabled).toBe(false));
+    expect(container.textContent).not.toContain("Cannot be chosen");
   });
 
   it("tells a staff member why they cannot change it, instead of letting them find out", async () => {
@@ -435,6 +534,23 @@ describe("where one agent's model came from", () => {
     expect(container.textContent).not.toContain("The model it thinks with");
     // And it does not fetch a catalogue it has nothing to show from.
     expect(calls.some((call) => call.path === "/v1/organization/llm-defaults")).toBe(false);
+  });
+
+  it("will not offer one agent a model this platform cannot run", async () => {
+    // The agent panel had the same gap as the settings screen and for the same reason:
+    // it mapped `available` straight into rows. `PATCH /v1/agents/{id}` refuses an
+    // undeployed model with `llm_model_not_deployed` — the same predicate that decides
+    // whether the agent could be PUBLISHED on it — so the click had one outcome.
+    const { container } = await renderClientPage(
+      agentPage,
+      agentRoutes({ "/v1/organization/llm-defaults": withAnUndeployedModel() }),
+    );
+
+    // "Follow my organisation" is untouched — it resolves to a model that IS deployed —
+    // and it is awaited first because the group is disabled until `/v1/me` lands.
+    await waitFor(() => expect(radio(/^Follow my organisation/).disabled).toBe(false));
+    expect(radio(/^gpt-4\.1-mini/).disabled).toBe(true);
+    expect(container.textContent).toContain("no Azure deployment is configured");
   });
 
   it("keeps an archived agent's model as a fact, with no control to change it", async () => {

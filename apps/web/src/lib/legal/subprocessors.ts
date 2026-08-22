@@ -36,7 +36,7 @@ export const SUBPROCESSORS: LegalDocument = {
           kind: "para",
           text:
             "A sub-processor is a company we engage to process personal data as part of " +
-            "delivering the service. Under clause 6 of the Data Processing Addendum, this " +
+            "delivering the service. Under clause 5 of the Data Processing Addendum, this " +
             "page is the authorised list, and it is the list we notify changes against.",
         },
         {
@@ -78,7 +78,8 @@ export const SUBPROCESSORS: LegalDocument = {
               detail:
                 "An alternative kept ready in case the primary choice fails. Nothing has " +
                 "been sent to it and no account exists. If one is ever adopted, that is a " +
-                "change to this page and is notified under clause 6 of the DPA.",
+                "change to this page and is notified under clause 5 of the Data " +
+                "Processing Addendum.",
             },
           ],
         },
@@ -121,7 +122,10 @@ export const SUBPROCESSORS: LegalDocument = {
               "Microsoft — Azure OpenAI",
               "Both language-model legs: the model that holds the conversation during a " +
                 "call, and the dashboard assistant a client triggers from their own " +
-                "screen.",
+                "screen. A client may choose which of the models we run their agents " +
+                "use; every one of them is served by this vendor, from the same account " +
+                "resource and region, so the choice changes which model answers and not " +
+                "who processes or where (section 3.3).",
               "On the call leg, the conversation as it happens — everything the caller " +
                 "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
                 "transcript and the client's own configuration, never raw personal data. " +
@@ -172,10 +176,10 @@ export const SUBPROCESSORS: LegalDocument = {
               "Runs the application, the background workers and the PostgreSQL database.",
               "Everything held in the database: phone numbers, transcripts, summaries, lead " +
                 "records, account data.",
-              "India — {{PRIMARY_HOSTING_LOCATION}}. The blueprint does not require " +
-                "India co-location for this tier, which runs outside the live call path; " +
-                "it was chosen anyway. Nothing has been provisioned yet, because no " +
-                "client data is in production.",
+              "{{PRIMARY_HOSTING_LOCATION}} — decided, and nothing has been provisioned " +
+                "yet, because no client data is in production. The blueprint does not " +
+                "require India co-location for this tier, which runs outside the live " +
+                "call path; it was chosen anyway.",
               "Core.",
             ],
             [
@@ -362,11 +366,26 @@ export const SUBPROCESSORS: LegalDocument = {
                 "it can produce only the single region our source declares, that region " +
                 "is written once and is not a setting anyone can edit, and no " +
                 "configuration field is allowed to carry a region or an endpoint at all. " +
-                "So no change to our software or our settings can move the language leg " +
-                "to a third country; only a reviewed change to the declared region can, " +
+                "So no change to our software can move the language leg to a third " +
+                "country; only a reviewed change to the declared region can, " +
                 "and the build refuses that change until every other file in the tree " +
                 "agrees with it. What moved on 22 August 2026 is which region is named, " +
                 "not whether one is.",
+            },
+            {
+              kind: "para",
+              text:
+                "One thing that sentence does not cover, and we would rather write it " +
+                "than let you assume it away. The address our code builds names an " +
+                "account resource, and which resource it names is an operational " +
+                "setting of ours, not a line of code — so an operator pointing the " +
+                "service at a resource created in another region would move the " +
+                "processing without any check above failing. Nothing else about the " +
+                "region is machine-readable either, which is why the reading below is " +
+                "done by a person against that specific resource. We treat a move like " +
+                "that as a change of processing location, notified under clause 5 of " +
+                "the Data Processing Addendum before it takes effect, and not as a " +
+                "settings change that happens to have a consequence.",
             },
             {
               kind: "callout",
@@ -389,17 +408,43 @@ export const SUBPROCESSORS: LegalDocument = {
         },
         {
           id: "byok",
-          heading: "3.3 Model credentials, and what happens if you change them",
+          heading: "3.3 You can choose the model, and what that does not change",
           blocks: [
             {
               kind: "para",
               text:
-                "The speech and language models run under credentials the platform holds, " +
-                "against endpoints the platform pins. Changing which model an agent uses " +
-                "is a data-residency change and not a settings tweak, and it is treated as " +
-                "one: no model endpoint can be built anywhere in our code except through " +
-                "the single function described above, and the build refuses a release in " +
-                "which one is.",
+                "The speech and language models run under our own accounts with each " +
+                "provider, against endpoints our code pins — the voice platform holds " +
+                "those credentials to place the calls, which is what section 3.1 says " +
+                "forecloses that platform's own India routing.",
+            },
+            {
+              kind: "para",
+              text:
+                "You can choose which of the models we run your agents use, for your " +
+                "whole account or for a single agent, and the product shows a figure " +
+                "against each one. This section used to say that changing an agent's " +
+                "model was a data-residency change rather than a settings tweak. That " +
+                "was written when nobody but us could change it, and it is no longer " +
+                "the shape of the thing: every model on the list is served by the same " +
+                "vendor, from the same account resource, in the region named in the " +
+                "register, so your choice moves which model answers and moves nothing " +
+                "about who processes your callers' data or where. The region our code " +
+                "declares is a different kind of thing: it moves only by a reviewed " +
+                "change to that code, it is never a control on a screen — ours or " +
+                "yours — and the one setting that can still reach where processing " +
+                "happens is named in section 3.2 rather than left out of this " +
+                "comparison.",
+            },
+            {
+              kind: "para",
+              text:
+                "The figure beside each model is OUR cost of running that model, at the " +
+                "provider's published price, over a minute of a five-minute call. We " +
+                "publish it so a " +
+                "choice about quality is not made blind to price; it is not a charge, " +
+                "and nothing about your bill changes when you switch models. Clause 6.1 " +
+                "of the Terms of Service is what you actually pay.",
             },
           ],
         },
@@ -415,7 +460,7 @@ export const SUBPROCESSORS: LegalDocument = {
             "We will give clients at least 30 days' notice by email before a new " +
             "sub-processor starts processing their data, or before an existing one moves " +
             "to a materially different location. A client who reasonably objects on data " +
-            "protection grounds may raise it with us under clause 6 of the Data " +
+            "protection grounds may raise it with us under clause 5 of the Data " +
             "Processing Addendum, and if we cannot find a workaround they may terminate " +
             "the affected part of the service without penalty for the remainder of the " +
             "term.",

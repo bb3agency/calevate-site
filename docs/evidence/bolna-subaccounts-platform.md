@@ -51,12 +51,68 @@ specification.
 > api-reference/batches/executions.md
 > ```
 >
-> They are recorded rather than repaired because two causes are mixed in and only the
-> mirror's owner can separate them: a whitespace-only diff inside a code fence is the
-> formatter and the page should be restored from the vendor, while a prose diff may be a
-> genuine re-fetch, in which case the page is right and the manifest entry is the stale
-> half. All seven are execution/listing pages — the area several lanes of this wave were
-> working in at once — which is worth knowing before assuming a single cause.
+> They were recorded rather than repaired because two causes were thought to be mixed in
+> and only the mirror's owner could separate them: a whitespace-only diff inside a code
+> fence would be the formatter and the page should be restored from the vendor, while a
+> prose diff might be a genuine re-fetch, in which case the page is right and the manifest
+> entry is the stale half. All seven are execution/listing pages — the area several lanes
+> of this wave were working in at once — which was worth knowing before assuming a single
+> cause.
+>
+> #### ✅ SETTLED 22 Aug 2026 (A2 audit): the seven are NOT formatter damage, and the
+> #### remedy above would have been harmful
+>
+> The measurement above stands — 15 pages were off their hash, and the ruff root cause and
+> its fix are real for the eight that were restored. **The remaining seven have a
+> different and entirely benign cause**, and it is settled rather than suspected:
+>
+> - `bolna-findings/` has exactly **one** commit, `5e18585` (20 Aug 2026, bb3agency),
+>   titled *"fetched bolna docs md files (redacted example Twilio SIDs)"*, and
+>   `git diff 5e18585 HEAD -- bolna-findings/` is **empty**. Nothing has edited the mirror
+>   in-tree, ever — so the formatter, which ran during this audit wave, cannot be the cause
+>   of a mismatch that has existed since the tree landed.
+> - All seven are **exactly** their manifest byte length — seven files, zero delta. A
+>   formatter does not preserve byte counts.
+> - The seven are **exactly and only** the pages containing `AC` + 32 `X`, twice each: a
+>   width-preserving redaction of a Twilio **Account** SID (`AC` + 32 hex) inside the
+>   example recording URL `…s3.us-east-1.amazonaws.com/AC…/RE…`. No other page in the
+>   mirror carries that token.
+> - **Six of the seven contain no Python code fence at all**, and ruff formats Python
+>   blocks. There was nothing in them for it to rewrite.
+>
+> **Consequence for citations: none.** The redaction substitutes within a line and adds no
+> newline, so every `page:line` citation into these seven resolves to the line it always
+> did. Re-resolved by hand this audit: `docs/evidence/bolna-response-contract.md:557` →
+> `get_execution.md:285-294` (the `to_number`/`from_number` declaration — correct) and
+> `docs/evidence/bolna-tools-integrations.md:124` → `get_agent_execution.md:270-328` (the
+> `TransferCallData` block — correct, and it spans redacted line 316 without depending on
+> it). `docs/evidence/bolna-executions-cost.md:466` already wrote `<redacted example SID>`.
+> The `us-east-1` recording-residency finding also survives intact: the region label sits
+> outside the redacted span.
+>
+> **The recorded remedy was the dangerous half.** "Restore them from the vendor" would
+> re-insert a live vendor account identifier into a tracked file — the exact thing commit
+> `5e18585` removed on purpose. And the seven can never be repaired to match the manifest,
+> because the redacted SIDs are 32 hex characters that no longer exist anywhere.
+>
+> **What was actually wrong, and is now fixed.** `tests/vendor_evidence_guard_test.py`
+> recorded the seven as `KNOWN_HASH_MISMATCHES`, a set of **paths** — which pins *that*
+> they mismatch and nothing whatever about their bytes. So the seven pages two evidence
+> documents cite by line number were the only seven in the mirror that a change could edit
+> in silence. Demonstrated before the fix: a same-length edit inside `get_execution.md`
+> left every assertion in that file green.
+>
+> That set is now `REDACTED_PAGES`, a table carrying each page's **as-fetched** hash (from
+> the manifest, duplicated deliberately so doctoring one does not doctor the other), its
+> **as-committed** hash, and its byte size — plus `REDACTION`/`REDACTION_COUNT`, so
+> un-redacting a page fails with its own message instead of reading as a generic hash
+> mismatch. Two further assertions were added: every non-redacted page must still match the
+> manifest, and `llms.txt`/`llms-full.txt` — which `scripts/fetch_bolna_docs.py` writes
+> **without** adding a manifest record at all — are pinned there because nothing else in
+> the tree hashes them. Sabotage-verified in four directions.
+>
+> The manifest itself is **not** regenerated and the mirror is **not** edited: the manifest
+> records what the vendor served, which is the one fact no later process can reconstruct.
 >
 > **No claim in this document rests on a mutated file.** Exactly one of the fifteen fell in
 > this lane, `graph-agent/event-injection.md`, and its change was whitespace only

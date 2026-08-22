@@ -36,14 +36,14 @@
  * decimal arithmetic on the digits the server sent, and a second copy of it here would be
  * the one that rounds (hard rule 7).
  *
- * ## The generated types do not carry these fields yet
+ * ## The wire types are the generated ones, and they are imported rather than restated
  *
- * `llmModels.ts` says this at length and it is true of everything below: the endpoint is
- * being built in parallel, `pnpm gen:api` has not run against it, and `schema.d.ts` is not
- * hand-edited by this lane. When the regen lands, the aliases move THERE and this file is
- * unchanged. Nothing here asserts onto a wire type (`as`), in `src/` or in `tests/`, so a
- * generated shape that differs from what was agreed fails the build rather than compiling
- * over the difference (`tests/wireFixtureGuard.test.ts`).
+ * This paragraph used to say `pnpm gen:api` had not run against the endpoint yet and that
+ * the aliases would move to `llmModels.ts` when it did. It has run, they did, and this
+ * file was already unchanged by it — which is what the arrangement was for. Nothing here
+ * asserts onto a wire type (`as`), in `src/` or in `tests/`, so a generated shape that
+ * differs from what was agreed fails the build rather than compiling over the difference
+ * (`tests/wireFixtureGuard.test.ts`).
  *
  * ## Where the route landed, against the contract this was built to
  *
@@ -58,6 +58,9 @@
  *    comment says a screen must show the row DISABLED with the reason rather than hide it.
  *    `adminLlmDefaultBlockReason` refuses it before the click for that reason: a control
  *    whose only outcome is a 422 is the failure `app/admin/access.ts` exists to remove.
+ *    The CLIENT realm reads the same field through `llmModels.unavailableReason`, which is
+ *    where the `=== false` rule (an older build reports `undefined`, and `undefined`
+ *    disables nothing) is written down once for both realms.
  */
 
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";

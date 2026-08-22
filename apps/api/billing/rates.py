@@ -327,6 +327,26 @@ def llm_cost_inr_per_minute(minutes: int, *, model: str) -> Decimal:
     §10.1 publishes one row per model, and `scripts/check_docs_drift.py` scores each row
     against this function called with that row's own model.
 
+    ⚠ **THIS IS WHAT THE LEG COSTS *US*. IT IS NOT A CLIENT-FACING PRICE AND MUST NEVER BE
+    PUBLISHED AS ONE.** Written here rather than left to the section comment above because
+    the distinction has already been lost once in this repository, on a bigger number:
+    `charge_for_call` debited a prepaid wallet with `cost.total_inr` — the ENGINE's charge
+    to us — while the client's own screen priced the same minute at `self_serve_inr_per_min`
+    (P1.1/P1.3, argued in full at `prepaid_billed_inr`). One variable cannot answer both
+    "what did we pay" and "what does the client owe", and this function answers the first.
+
+    WHAT A CLIENT ACTUALLY PAYS FOR A MINUTE is `prepaid_billed_inr` on the prepaid motion
+    and `billing.service.priced_overage` on the managed one. **Neither takes a model, and
+    that is the whole point rather than an omission**: a client is billed for MINUTES at
+    their plan's rate, so changing which language model their agents run moves this number
+    and moves their bill by exactly zero. A screen that prints this figure beside the words
+    "what you pay" is therefore wrong twice — it states a price nobody is charged, and it
+    publishes our supplier cost and hence our margin to the client it is a margin on. The
+    honest client-facing framings are quality-and-our-cost ("the dearer model costs us 2.7x
+    as much to run") or nothing at all; `tests/llm_cost_model_test.py` pins the
+    model-independence of the billing side so this cannot be quietly reconciled the wrong
+    way round.
+
     Rounded ONCE, at the end. Quantizing per turn would round 6·N times and drift.
     """
     if minutes < 1:
