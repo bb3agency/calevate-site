@@ -1392,6 +1392,41 @@ class TestMakefileWiring:
             "functions, the way every class above this one does."
         )
 
+    def test_the_job_that_runs_pytest_installs_what_the_tests_import(self) -> None:
+        """A CI job whose dependency install is narrower than what its tests import.
+
+        `uv sync --all-packages` does NOT install optional dependency groups, and
+        `tests/observability_security_test.py` imports `sentry_sdk` at module scope to pin
+        the scrubber that keeps transcripts and caller names out of the error tracker
+        (hard rule 6). The `types` job already passed `--group errors` for mypy's sake —
+        CLAUDE.md explains why — and the job that RUNS THE TESTS did not.
+
+        WHY IT WAS INVISIBLE HERE AND RED THERE: a development machine has the group
+        installed, so the module imports and the suite is green locally. CI installs from
+        the lockfile and hit `ModuleNotFoundError` at COLLECTION, which the coverage
+        ratchet then reported as REFUSED TO SCORE — sending the reader to hunt a code
+        defect that did not exist. An environment difference wearing a gate's error
+        message is the worst kind, because the message is about something else entirely.
+
+        The rejected fix is worth recording: skipping the module when the import fails
+        would have made CI green while leaving a PII scrubber unexercised in the one
+        environment that gates a merge. Install the dependency; never silence the guard.
+
+        FAILS IF: the pytest job's install stops requesting the group.
+        """
+        workflow = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+        installs = [
+            line.strip()
+            for line in workflow.splitlines()
+            if "uv sync" in line and not line.lstrip().startswith("#")
+        ]
+        assert installs, "no `uv sync` line found — this scan is reading the wrong file"
+        assert all("--group errors" in line for line in installs), (
+            "a CI job installs dependencies without `--group errors`, so a test module "
+            "importing an optional dependency fails at collection there while passing on "
+            "any machine that happens to have it: " + " | ".join(installs)
+        )
+
     def test_make_check_runs_what_ci_runs(self) -> None:
         """CI is the authority; the Makefile is the local mirror. Every backend command
         in the workflow must have a home in `make check`."""

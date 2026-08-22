@@ -60,7 +60,18 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --all-packages
+        # `--group errors` IS REQUIRED HERE, not only in the `types` job that already has
+        # it. `tests/observability_security_test.py` imports `sentry_sdk` at module scope
+        # to pin the scrubber that keeps transcripts and caller names out of the error
+        # tracker (hard rule 6), so without the group pytest fails at COLLECTION — which
+        # the coverage ratchet then reports as REFUSED TO SCORE rather than as a missing
+        # dependency, sending the reader to look for a code defect that is not there.
+        #
+        # Skipping the module when the import fails was the other option and is worse:
+        # the one environment where that guard must run is the one gating a merge, and a
+        # PII scrubber that is silently unexercised in CI is the shape of defect this
+        # whole file exists to refuse.
+        run: uv sync --all-packages --group errors
 
       - name: Start MinIO
         # NOT a `services:` entry, and it cannot be one: MinIO needs `server /data` and
