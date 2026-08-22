@@ -277,6 +277,18 @@ guardrails:  ## Executable governance (ENGINEERING-PRACTICES.md §2); grows per 
 	# Studio URL is a dated, self-expiring allowance IN the script, not a skip. Negative
 	# controls, including a doctored `us-central1` tree, in tests/model_residency_guard_test.py.
 	uv run python -m scripts.check_model_residency
+	# WHERE the model runs is the check above; WHEN it stops answering is this one. The
+	# allow-list carried no lifecycle at all — D-410 deleted `GEMINI_DEFAULT_LLM_RETIRES`
+	# and read the absence of a dated constant as a benefit, but Gemini's DATE left with
+	# Gemini and the class of problem (a rented model on a vendor's clock) arrived at
+	# Azure unchanged. Every model in `AZURE_OPENAI_MODELS` now declares a retirement date
+	# and a deployment-type constraint with the SOURCE and the DATE IT WAS READ
+	# (`calevate_shared/model_lifecycle.py`); this fails when one is past its date or when
+	# nothing in the list outlives the 120-day lead, warns inside it, and REFUSES (exit 2)
+	# when the allow-list, the table or a filed portal attestation cannot be read — a
+	# guard that cannot see its own subject must never print OK. Needs no network and no
+	# credential. Negative controls in tests/model_lifecycle_guard_test.py.
+	uv run python -m scripts.check_model_lifecycle
 	# `audit_log.ip` records the CALLER. Eighty handlers used to read the socket peer
 	# inline — behind nginx that is our own edge — so SEC-COMP §5's fourth field was
 	# satisfied in shape only on every audited route. Syntax-decidable; the one

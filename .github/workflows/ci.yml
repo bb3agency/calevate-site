@@ -280,6 +280,25 @@ jobs:
         # not Global, are human attestations — OPERATIONS §2 gates 20 and 20c.
         run: uv run python -m scripts.check_model_residency
 
+      - name: "Guardrail: no allow-listed model is past its retirement date (D-432)"
+        if: ${{ !cancelled() }}
+        # The step above asks WHERE the model runs; this one asks WHEN it stops
+        # answering. Until D-432 the allow-list carried no lifecycle at all: D-410
+        # deleted `GEMINI_DEFAULT_LLM_RETIRES` and read the absence of a dated constant
+        # as a benefit, but what actually left with Gemini was GEMINI'S date — a rented
+        # model on a vendor's clock arrived at Azure unchanged, and the failure it buys
+        # is a `410 Gone` on the in-call leg, mid-call, with nobody watching.
+        #
+        # Every model in `AZURE_OPENAI_MODELS` now declares a retirement date and a
+        # deployment-type constraint WITH its source and the date it was read
+        # (`calevate_shared/model_lifecycle.py`) — because these dates move: Microsoft
+        # extended `gpt-4o-mini` from 2026-10-01 to 2027-04-14 in one unannounced edit.
+        # Exit 1 = a date has passed, or nothing in the list outlives the 120-day lead.
+        # Exit 2 = REFUSED: the allow-list, the table or a filed portal attestation could
+        # not be read, and a guard that cannot see its subject must never print OK.
+        # Decidable from source; no database, no network, no credential.
+        run: uv run python -m scripts.check_model_lifecycle
+
       - name: "Guardrail: audit rows record the caller, not the proxy"
         if: ${{ !cancelled() }}
         # SEC-COMP §5 wants "actor, tenant, at, ip". Eighty handlers read
