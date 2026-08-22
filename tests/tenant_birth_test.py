@@ -41,6 +41,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from apps.api.admin import routes as admin_routes
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -95,11 +96,27 @@ async def _invite(token: str, tenant_id: UUID, email: str, role: str = "owner") 
 
 
 async def _set_status(token: str, tenant_id: UUID, status: str, reason: str | None = None) -> Any:
+    """Closing an account carries the step-up header; every other transition does not.
+
+    `close_account` gained a second factor in "Closing a client account needs a second
+    factor", and this helper was not updated with it — so six tests here that only ever
+    wanted to REACH the closed state were asserting against a 403 about confirmation.
+    The header is sent for the TERMINAL status alone, deliberately: sending it on every
+    transition
+    would make this helper unable to observe a step-up requirement arriving on one of
+    the others. The refusal itself keeps its own coverage in `tenant_lifecycle_test`,
+    which asserts the remediation names `close_account:{tenant_id}`.
+    """
     body: dict[str, Any] = {"status": status}
     if reason is not None:
         body["reason"] = reason
+    headers = dict(_auth(token))
+    # The route's own constant and the route's own token builder, not literals: a rename
+    # of either moves this helper with it instead of leaving a 403 nobody expects.
+    if status == admin_routes._TERMINAL_STATUS:
+        headers["X-Confirm-Action"] = admin_routes.close_account_confirmation(tenant_id)
     async with _client() as http:
-        return await http.post(STATUS.format(tenant_id=tenant_id), headers=_auth(token), json=body)
+        return await http.post(STATUS.format(tenant_id=tenant_id), headers=headers, json=body)
 
 
 async def _founder(email: str) -> str:

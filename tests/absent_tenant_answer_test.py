@@ -174,6 +174,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/invitations": None,
     "GET /v1/admin/tenants/{tenant_id}/invoice": None,
     "GET /v1/admin/tenants/{tenant_id}/margin": None,
+    "GET /v1/admin/tenants/{tenant_id}/spend": None,
     "GET /v1/admin/tenants/{tenant_id}/whatsapp-alerts": None,
     "DELETE /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}": None,
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish": None,

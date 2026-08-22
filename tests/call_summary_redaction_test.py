@@ -134,7 +134,13 @@ async def test_staff_cannot_read_transcript_content_through_the_calls_list() -> 
         )
 
     assert response.status_code == 200
-    assert CALLER_NUMBER not in response.text, (
+    # The E.164 contact field is stripped before the search, not exempted from it: since
+    # D-436 `caller_e164` carries the other party's number IN FULL and deliberately, so a
+    # whole-body substring scan now finds that rather than the leak it was written for.
+    # The invariant here was always about TRANSCRIPT CONTENT reaching a reader without
+    # `calls:read_raw`, and that is what this still asserts — `summary` and the turns.
+    # The idiom is this file's own (see the raw-export test below).
+    assert CALLER_NUMBER not in response.text.replace(f"+91{CALLER_NUMBER}", ""), (
         "a reader without calls:read_raw pulled raw transcript content out of `summary`"
     )
     assert await _audit_rows_for(call_id) == 0, "...and nothing recorded that they had"
@@ -161,7 +167,10 @@ async def test_staff_cannot_read_transcript_content_through_the_call_detail() ->
     assert response.status_code == 200
     body = response.json()
     assert body["transcript"][0]["redacted"] is True, "the transcript view was already redacted"
-    assert CALLER_NUMBER not in response.text, "...but the summary above it was not"
+    # `caller_e164` stripped for the reason given in the list test above (D-436).
+    assert CALLER_NUMBER not in response.text.replace(f"+91{CALLER_NUMBER}", ""), (
+        "...but the summary above it was not"
+    )
     assert await _audit_rows_for(call_id) == 0
 
 

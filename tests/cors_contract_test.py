@@ -81,12 +81,18 @@ def _client_ts_request_headers() -> set[str]:
     """
     source = CLIENT_TS.read_text(encoding="utf-8")
     assigned = set(re.findall(r'headers\[\s*"([A-Za-z0-9-]+)"\s*\]\s*=', source))
-    literal_block = re.search(
-        r"const headers: Record<string, string> = \{(.*?)\n  \};", source, re.S
-    )
-    assert literal_block is not None, "client.ts no longer builds a headers object literal"
-    quoted = set(re.findall(r'"([A-Za-z0-9-]+)"\s*:', literal_block.group(1)))
-    bare = set(re.findall(r"^\s*([A-Za-z][A-Za-z0-9-]*)\s*:", literal_block.group(1), re.M))
+    # THE LITERAL MAY BE EMPTY, AND REQUIRING IT WAS ASSERTING STYLE RATHER THAN
+    # BEHAVIOUR. `client.ts` now opens with `= {}` and sets every header conditionally
+    # below, because a request with no account named must send NO header rather than an
+    # empty one — so the old `\n  };` shape stopped matching while every header this
+    # scan looks for was still present and still correct. Parse the literal WHEN it has
+    # a body; its absence is not a failure. What must never pass quietly is a scan that
+    # finds nothing at all, and the `authorization` assertion below is what catches
+    # that — the parser's own anti-vacuum check, which is the half worth keeping.
+    literal_block = re.search(r"const headers: Record<string, string> = \{(.*?)\};", source, re.S)
+    inner = literal_block.group(1) if literal_block else ""
+    quoted = set(re.findall(r'"([A-Za-z0-9-]+)"\s*:', inner))
+    bare = set(re.findall(r"^\s*([A-Za-z][A-Za-z0-9-]*)\s*:", inner, re.M))
     found = {h.lower() for h in assigned | quoted | bare}
     assert "authorization" in found, "the header scan found nothing recognisable"
     return found
