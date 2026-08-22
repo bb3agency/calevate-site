@@ -227,6 +227,12 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     overage_minutes_value: "0",
     overage_rate_inr: "6.00",
     overage_rate_value_inr: "4.00",
+    // D-455: the model surcharge, unset on every plan today — so a ₹0.00 total and no
+    // models named is the shipped shape of this panel.
+    llm_surcharge_rate_inr: null,
+    llm_surcharge_minutes: "0.00",
+    llm_surcharge_inr: "0.00",
+    llm_surcharge_models: [],
     plan_tier: "growth",
     spend_used_inr: "0.30",
     ...over,

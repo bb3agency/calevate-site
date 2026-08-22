@@ -209,9 +209,37 @@ export default function UsagePage() {
                   <Row label="Extra usage total" value={formatINR(data.overage_cost_inr)} />
                 </>
               )}
+              {/* THE MODEL UPGRADE (D-455), on the screen because it is on the invoice.
+                  A client whose bill grew because they moved their agents onto a dearer
+                  AI model has to be able to see WHICH decision did it — the line names
+                  the model, exactly as `build_invoice` does, and multiplies out against
+                  the rate beside it. Absent when the plan quotes no surcharge or nothing
+                  was upgraded, which is every account today: a ₹0.00 row invites a
+                  question about nothing, and is the same rule the overage rows follow. */}
+              {hasNonZeroDigit(data.llm_surcharge_inr) && (
+                <Row
+                  label={`AI model upgrade${
+                    data.llm_surcharge_models.length > 0
+                      ? `, ${data.llm_surcharge_models.join(", ")}`
+                      : ""
+                  } (${data.llm_surcharge_minutes} min × ${formatRupeeRate(
+                    data.llm_surcharge_rate_inr ?? "0",
+                  )})`}
+                  value={formatINR(data.llm_surcharge_inr)}
+                />
+              )}
               <Row
                 label="Total so far"
-                value={formatINR(addRupees(data.monthly_fee_inr, data.overage_cost_inr))}
+                /* THE SURCHARGE IS IN THE TOTAL, and leaving it out would be the exact
+                   defect this feature exists to remove: a screen showing one number while
+                   the statement charges another. Added in whole paise like the fee and
+                   the overage — nothing here parses a rupee into a float. */
+                value={formatINR(
+                  addRupees(
+                    addRupees(data.monthly_fee_inr, data.overage_cost_inr),
+                    data.llm_surcharge_inr,
+                  ),
+                )}
                 emphasis
               />
               {data.cap_minutes !== null && (

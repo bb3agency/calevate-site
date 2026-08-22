@@ -13,10 +13,11 @@
  * D-21's boundary is about what an agent SAYS and what it CAPTURES: a script or an
  * extraction-schema change regenerates prompt hints and needs a regression run, so both
  * route through us. A model choice is not that. It is a PRICE, and the client is the one
- * paying it — `platform_cost_inr_per_minute` is on every option precisely so the decision can
- * be made with the number in front of the person making it. That is the same argument
- * `caps.ts` makes for the spending limit and `agents.ts` makes for the two disclosure
- * switches: the money and the legal exposure are the client's, so the switch is too.
+ * paying it — `client_surcharge_inr_per_minute` is on every option precisely so the
+ * decision can be made with the number in front of the person making it. That is the same
+ * argument `caps.ts` makes for the spending limit and `agents.ts` makes for the two
+ * disclosure switches: the money and the legal exposure are the client's, so the switch is
+ * too.
  *
  * ## THREE FACTS THIS MODULE KEEPS RATHER THAN RECOMPUTES
  *
@@ -68,10 +69,19 @@ import type { components } from "./schema";
  * versions because an API build predating them reported neither; the generated shape makes
  * both REQUIRED, which is the correct claim now that every build serves them.
  *
- * `platform_cost_inr_per_minute` is what a minute costs on a FIVE-MINUTE call — the server
- * publishes one normalised figure per model rather than a raw token price, because a
- * client cannot price a token and can price a call. It is a decimal string and stays one:
- * see `lib/llmRates.ts` for why it is never parsed into a number.
+ * TWO PER-MINUTE FIGURES, AND THEY ARE DIFFERENT KINDS (D-455).
+ * `client_surcharge_inr_per_minute` is what CHOOSING that model adds to this account's
+ * bill — the plan's `llm_model_surcharge`, `"0"` on the model their rate is struck at and
+ * `"0"` while the plan quotes none. `platform_cost_inr_per_minute` is what the language
+ * leg costs CALEVATE at list price, on a FIVE-MINUTE call: the server publishes one
+ * normalised figure per model rather than a raw token price, because a client cannot price
+ * a token and can price a call.
+ *
+ * **THE SECOND ONE IS FOR THE ADMIN CONSOLE ONLY.** Printing a supplier cost on a client's
+ * own screen states a number nobody is charged and publishes our margin to the account it
+ * is a margin on (`apps/api/billing/rates.py::llm_cost_inr_per_minute` makes both points).
+ * Both are decimal strings and stay strings: see `lib/llmRates.ts` for why neither is ever
+ * parsed into a number.
  *
  * `is_available` is CAN THIS PLATFORM ACTUALLY RUN IT. A model with no Azure deployment
  * behind it would be quoted at its own price and answered by a different one, so `PUT`
@@ -259,6 +269,44 @@ export function agentLlmView(agent: AgentWithLlm): AgentLlmView | null {
   const effective = agent.llm_model_effective;
   if (effective === undefined || effective === "") return null;
   return { chosen: agent.llm_model ?? null, effective, source: agent.llm_model_source };
+}
+
+/**
+ * WHAT THE MODEL IN FORCE ACTUALLY ADDS TO THIS ACCOUNT'S BILL, per minute (D-455).
+ *
+ * **NOT the catalogue row's own `client_surcharge_inr_per_minute`, and the difference is
+ * the whole rule.** That field answers "what would CHOOSING this cost me". An account
+ * that has chosen nothing is FOLLOWING the platform default, and the server never
+ * surcharges that however dear the platform default becomes
+ * (`rates.CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`) — so reading the resolved
+ * model's row on an inheriting account would quote a charge the meter will not apply, on
+ * the screen a client opened to find out what they pay.
+ *
+ * `null` when the catalogue cannot price what is in force — a model withdrawn while
+ * somebody is on it, or an API build without the field — which every caller renders as
+ * "we cannot say" rather than as free.
+ */
+export function inForceSurcharge(defaults: OrganizationLlmDefaults): string | null {
+  if (defaults.default_llm_model === null) return "0";
+  return modelOption(defaults.available, defaults.effective_default)
+    ?.client_surcharge_inr_per_minute ?? null;
+}
+
+/**
+ * The same question for ONE AGENT, whose model may come from a third level.
+ *
+ * `source` is the server's own answer to "who chose this" and it is what decides the
+ * charge: `agent` and `organization` are the client choosing, `platform` is not. Read
+ * through the wire string rather than derived from `chosen === null`, for the reason
+ * `AgentLlmView.source` exists at all — a fourth level would otherwise be silently
+ * treated as a client choice and billed as one.
+ */
+export function agentInForceSurcharge(
+  view: AgentLlmView,
+  options: readonly LlmModelOption[],
+): string | null {
+  if (view.source !== "agent" && view.source !== "organization") return "0";
+  return modelOption(options, view.effective)?.client_surcharge_inr_per_minute ?? null;
 }
 
 /**

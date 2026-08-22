@@ -71,6 +71,7 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
         model: "gpt-4o-mini",
         provider: "Azure OpenAI",
         platform_cost_inr_per_minute: "0.2400",
+        client_surcharge_inr_per_minute: "0",
         is_platform_default: true,
         is_available: true,
         unavailable_reason: null,
@@ -79,6 +80,7 @@ function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmD
         model: "gpt-4.1-mini",
         provider: "Azure OpenAI",
         platform_cost_inr_per_minute: "0.4830",
+        client_surcharge_inr_per_minute: "1.5000",
         is_platform_default: false,
         is_available: true,
         unavailable_reason: null,
@@ -140,30 +142,39 @@ describe("the account's default model", () => {
     const { container } = await renderClientPage(settingsPage, settingsRoutes());
 
     await screen.findByText(/In force now: gpt-4o-mini/);
-    // The server's own digits. ₹0.48 would be `formatINR`'s two-decimal rounding, which
-    // misquotes a rate by enough to matter over a month of calls.
-    expect(container.textContent).toContain("₹0.4830 / min");
-    expect(container.textContent).toContain("₹0.2400 / min");
-    expect(container.textContent).not.toContain("₹0.48 /");
+    // The server's own digits, at four decimal places. ₹1.50 would be `formatINR`'s
+    // two-decimal rounding, which misquotes a rate by enough to matter over a month.
+    expect(container.textContent).toContain("+₹1.5000 / min");
+    // A model that adds nothing says so in WORDS. "₹0.0000 / min" is a rupee amount of
+    // nothing on a screen answering a yes/no question.
+    expect(container.textContent).toContain("No extra charge");
+    expect(container.textContent).not.toContain("₹1.50 /");
+    // ⚠ OUR SUPPLIER COST IS NOT ON THIS SCREEN (D-455). It used to be, under the words
+    // "what a minute costs" — a figure nobody is charged, and our margin published to the
+    // account it is a margin on (`apps/api/billing/rates.py::llm_cost_inr_per_minute`
+    // states both halves). It lives on the admin console now.
+    expect(container.textContent).not.toContain("0.2400");
+    expect(container.textContent).not.toContain("0.4830");
   });
 
   it("states the difference between two models exactly", async () => {
     const { container } = await renderClientPage(settingsPage, settingsRoutes());
 
     await screen.findByText(/In force now/);
-    // 0.4830 − 0.2400, in decimal. `Number()` on both sides produces
-    // 0.24300000000000002, which is the assertion below.
-    expect(container.textContent).toContain("₹0.2430 more a minute");
+    // 1.5000 − 0, in decimal, and the difference is now a claim about the CLIENT'S BILL
+    // rather than about our supplier cost (D-455): choosing this model really does add
+    // ₹1.5000 to every minute they are charged for. `Number()` arithmetic on rates like
+    // 0.4830 − 0.2400 produces 0.24300000000000002, which is what `lib/llmRates.ts`
+    // exists to make unwriteable — asserted below on a value that would show it.
+    expect(container.textContent).toContain("₹1.5000 more a minute");
     expect(container.textContent).not.toContain("0.24300000000000002");
     // The row in force says what it is rather than "same price", which would otherwise
-    // appear on two rows with no way to tell which is which. It says "running now" and
-    // NOT "what you pay now": this figure is our cost to run the model, and under BYOK
-    // nothing bills the in-call leg (`apps/api/billing/rates.py`) — a client is charged
-    // by their plan's per-minute rate, which does not move when they switch model.
-    // Telling an owner their bill changes here would be false in the one place they are
-    // most likely to believe it.
+    // appear on two rows with no way to tell which is which.
     expect(container.textContent).toContain("the model running now");
-    expect(container.textContent).not.toContain("what you pay now");
+    // AND THE SCREEN NO LONGER PROMISES THE BILL DOES NOT MOVE. That sentence was true
+    // until `plans.llm_model_surcharge` existed and is false the moment a founder sets
+    // one, so it is gone rather than qualified.
+    expect(container.textContent).not.toContain("does not change when you switch");
   });
 
   it("is a skeleton while the read is in flight, and names no model", async () => {
@@ -313,7 +324,9 @@ describe("the account's default model", () => {
     // Shown and explained, never hidden: a missing row tells a reader nothing, and the
     // reason is the one thing anybody can act on.
     expect(container.textContent).toContain("no Azure deployment is configured");
-    expect(container.textContent).toContain("₹0.4830 / min");
+    // Priced as well as explained: the row states what it WOULD add to their bill, so a
+    // client can see whether the model they cannot have is one they would have wanted.
+    expect(container.textContent).toContain("+₹1.5000 / min");
   });
 
   it("never disables a row on an API build that does not report availability", async () => {
@@ -331,12 +344,14 @@ describe("the account's default model", () => {
           model: "gpt-4o-mini",
           provider: "Azure OpenAI",
           platform_cost_inr_per_minute: "0.2400",
+          client_surcharge_inr_per_minute: "0",
           is_platform_default: true,
         },
         {
           model: "gpt-4.1-mini",
           provider: "Azure OpenAI",
           platform_cost_inr_per_minute: "0.4830",
+          client_surcharge_inr_per_minute: "1.5000",
           is_platform_default: false,
         },
       ],
@@ -442,13 +457,19 @@ describe("where one agent's model came from", () => {
     await screen.findByText(/Using your organisation default: gpt-4o-mini/);
     expect(container.textContent).toContain("Every agent that has not been given its own");
     expect(screen.getByRole("link", { name: /Change it for every agent/ })).toBeTruthy();
-    // The price of what it is actually running on, from the same catalogue the picker
-    // uses — an override is a per-agent price and is stated as one. Awaited on the PICKER
-    // rather than asserted straight away: the catalogue is a second request, and until it
-    // lands the panel deliberately states the model with no price rather than a made-up
-    // one.
+    // WHAT IT ADDS TO THEIR BILL, from the same catalogue the picker uses — an override
+    // is a per-agent price and is stated as one. Awaited on the PICKER rather than
+    // asserted straight away: the catalogue is a second request, and until it lands the
+    // panel deliberately states the model with no figure rather than a made-up one.
+    //
+    // This agent inherits the ACCOUNT default and the account is itself following the
+    // PLATFORM default, so nothing was chosen by the client at any level and nothing is
+    // surcharged — the server's own rule (`rates.CLIENT_CHOSEN_LLM_SOURCES` excludes
+    // `platform`), rendered here rather than re-derived.
     await screen.findByRole("radio", { name: /Follow my organisation/ });
-    expect(container.textContent).toContain("₹0.2400 a minute on a five-minute call");
+    expect(container.textContent).toContain("It adds nothing to what you are charged");
+    // Never OUR cost on a client's screen (D-455).
+    expect(container.textContent).not.toContain("0.2400");
   });
 
   it("says an overridden agent has its own model, not that it is inheriting", async () => {

@@ -28,6 +28,7 @@ import {
 } from "@/lib/api/llmDefaults";
 import {
   MODEL_UNAVAILABLE_FALLBACK,
+  inForceSurcharge,
   modelOption,
   platformDefaultOption,
   type LlmModelOption,
@@ -54,11 +55,22 @@ import { useAdminAccess } from "@/app/admin/access";
  *
  * ## THIS IS A MONEY CONTROL, and the screen says so before it says anything else
  *
- * `platform_cost_inr_per_minute` is what the CLIENT pays for a minute of a five-minute call on
- * that model. Moving a client between models therefore moves their unit economics, and an
- * operator doing it on a support call must see the two rates and the direction of the
- * change without arithmetic. So every option carries its price, and the summary above the
- * button states what a minute costs afterwards and how that compares with now.
+ * **IT MOVES BOTH SIDES OF THE MARGIN, AND THE TWO FIGURES ARE DIFFERENT NUMBERS.** This
+ * screen is the ONE place both belong, because an operator changing a client's model is
+ * the person who has to see them together:
+ *
+ * - `client_surcharge_inr_per_minute` — what this CLIENT is charged extra, per minute, for
+ *   running that model. It is `plans.llm_model_surcharge` (D-455), `0` on the model their
+ *   rate is struck at, and `0` on every plan until a founder sets one.
+ * - `platform_cost_inr_per_minute` — what the language leg costs CALEVATE at list price,
+ *   per minute of a five-minute call. OURS. It never appears on a client's own screen,
+ *   because publishing a supplier cost to the account it is a margin on is a different
+ *   mistake from hiding a price (`apps/api/billing/rates.py` argues both).
+ *
+ * **THIS SCREEN USED TO STATE THE OPPOSITE, TWICE.** Its own header said the figure "is
+ * what the CLIENT pays" and its warning box said the change "costs US, not what the client
+ * is billed" — contradicting each other, and after D-455 both are false. A dearer model
+ * now moves the client's bill AND our cost, and the screen says so with both figures.
  *
  * The comparison is `lib/llmRates.ts` — digits, never `Number()` (hard rule 7). Nothing on
  * this screen multiplies, adds or rounds a rupee figure: the rates are the server's
@@ -133,24 +145,27 @@ export default function LlmModelPage({
             heading is the only name this screen has. Delete it if a title lands there. */}
         <h1 className="mt-1 text-xl font-semibold text-ink">Language model</h1>
         <p className="text-sm text-ink-muted">
-          Which model this client&apos;s voice agents think with, and what a minute of it
-          costs them. Every model here runs on the same speech stack — this changes the
-          language leg only.
+          Which model this client&apos;s voice agents think with, what it adds to their
+          bill, and what it costs us to run. Every model here runs on the same speech
+          stack — this changes the language leg only.
         </p>
       </div>
 
       <NoticeBox
         tone="warn"
         icon={<AlertTriangle className="h-5 w-5" />}
-        title="This changes what the model costs US, not what the client is billed"
+        title="This changes what this client is billed, and what it costs us"
       >
         <ul className="mt-1 space-y-1 text-xs opacity-90">
           <li>
-            The figure beside each model is{" "}
-            <span className="font-medium">our own cost</span> to run a minute of a
-            five-minute call — not a price this client pays. Their invoice is priced per
-            MINUTE by their plan and does not move when the model does, so a dearer model
-            is margin we give up, not revenue we gain. Nothing already billed is touched.
+            Each model shows{" "}
+            <span className="font-medium">what it adds to this client&apos;s bill</span>{" "}
+            per minute — their plan&apos;s model surcharge, set on Commercials — and,
+            separately, <span className="font-medium">what it costs us</span> to run.
+            &ldquo;No extra charge&rdquo; means their plan quotes no surcharge, so a dearer
+            model is margin we give up rather than revenue we gain. Nothing already billed
+            is touched: a past call is priced from what the ledger recorded, not from this
+            setting.
           </li>
           <li>
             It reaches every agent on this account that has not been given a model of its
@@ -184,7 +199,7 @@ export default function LlmModelPage({
           <p className="mt-1 text-xs opacity-90">
             We could not read what this client is on, or what the alternatives cost. A
             change replaces whatever is on file, so making one now could undo a
-            colleague&apos;s and move this client&apos;s per-minute price without anyone
+            colleague&apos;s and move this client&apos;s per-minute charge without anyone
             seeing it happen. Retry the read above; the controls come back with it.
           </p>
         </NoticeBox>
@@ -246,7 +261,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
             ) : (
               <>
                 {platform.model}
-                <PerMinute rate={platform.platform_cost_inr_per_minute} />
+                <PerMinute option={platform} />
               </>
             )}
           </dd>
@@ -259,9 +274,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
             ) : (
               <>
                 {chosen}
-                {chosenOption === undefined ? null : (
-                  <PerMinute rate={chosenOption.platform_cost_inr_per_minute} />
-                )}
+                {chosenOption === undefined ? null : <PerMinute option={chosenOption} />}
               </>
             )}
           </dd>
@@ -270,9 +283,7 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
           <dt className="text-ink-faint">In effect</dt>
           <dd className="mt-0.5 font-medium text-ink">
             {defaults.effective_default}
-            {effectiveOption === undefined ? null : (
-              <PerMinute rate={effectiveOption.platform_cost_inr_per_minute} />
-            )}
+            {effectiveOption === undefined ? null : <PerMinute option={effectiveOption} />}
             <span className="ml-1 font-normal text-ink-muted">
               ({chosen === null ? "from the platform default" : "from this client's own choice"})
             </span>
@@ -298,17 +309,36 @@ function Resolution({ defaults }: { defaults: OrganizationLlmDefaults }) {
   );
 }
 
-/** A per-minute price, at the precision the server sent it. */
-function PerMinute({ rate }: { rate: string }) {
+/**
+ * BOTH per-minute figures, at the precision the server sent them, labelled.
+ *
+ * They are different KINDS and an unlabelled pair on one line is how the two got confused
+ * in this screen's own prose. `+₹x client` is what this account is charged EXTRA for the
+ * model; `₹y ours` is what the language leg costs Calevate. A zero surcharge says so in
+ * words for the reason the client picker does — the answer to "what does this cost them"
+ * is "nothing", not a rupee amount of nothing.
+ */
+function PerMinute({ option }: { option: LlmModelOption }) {
+  const free = compareRates(option.client_surcharge_inr_per_minute, "0") === "same";
   return (
     <span className="ml-1 font-normal text-ink-muted">
-      · {formatRupeeRate(rate)}/min
+      ·{" "}
+      {free
+        ? "no extra charge"
+        : `+${formatRupeeRate(option.client_surcharge_inr_per_minute)}/min client`}{" "}
+      · {formatRupeeRate(option.platform_cost_inr_per_minute)}/min ours
     </span>
   );
 }
 
 /**
- * What this change does to the client's per-minute price, in words.
+ * What this change does to a per-minute figure, in words. Used for BOTH of them.
+ *
+ * Deliberately kind-agnostic: it takes two decimal strings and says how the second differs
+ * from the first, so the surcharge line and the cost line read identically and neither
+ * needs its own arithmetic. WHICH figure a sentence is about is the caller's label, not
+ * this function's business — the same separation `billing/service.py::overage_rungs` keeps
+ * between a rung's money and its wording.
  *
  * A DIRECTION and a difference, never a recomputed total. `compareRates` answers from the
  * digits and `rateDifference` refuses rather than rounds, so a pair this console cannot
@@ -349,11 +379,23 @@ function ChoiceForm({
   const blocked = adminLlmDefaultBlockReason(draft, typed, defaults);
   const confirmation = adminLlmDefaultConfirmation(draft, defaults);
   const platform = platformDefaultOption(defaults.available);
-  const currentRate = modelOption(defaults.available, defaults.effective_default)
+  // WHAT THIS CLIENT PAYS TODAY — through the shared rule, because an account FOLLOWING
+  // the platform default is never surcharged however dear that default is
+  // (`lib/api/llmModels.ts::inForceSurcharge`). Reading the resolved model's own row here
+  // would show an operator a charge the meter will not apply.
+  const currentSurcharge = inForceSurcharge(defaults);
+  const currentCost = modelOption(defaults.available, defaults.effective_default)
     ?.platform_cost_inr_per_minute;
   const projected = projectedModel(draft, defaults);
-  const projectedRate = modelOption(defaults.available, projected)?.platform_cost_inr_per_minute;
-  const priceChange = priceChangeSentence(currentRate, projectedRate);
+  const projectedOption = modelOption(defaults.available, projected);
+  // The PROJECTED surcharge is the outcome of the write: clearing the choice puts them
+  // back on the platform default, which carries none whatever it resolves to.
+  const projectedSurcharge =
+    draft.default_llm_model === null
+      ? "0"
+      : (projectedOption?.client_surcharge_inr_per_minute ?? undefined);
+  const surchargeChange = priceChangeSentence(currentSurcharge ?? undefined, projectedSurcharge);
+  const costChange = priceChangeSentence(currentCost, projectedOption?.platform_cost_inr_per_minute);
 
   const pick = (next: string | null) => {
     setChoice(next);
@@ -367,9 +409,9 @@ function ChoiceForm({
   return (
     <Card title="Choose a model">
       <p className="-mt-2 text-sm text-ink-muted">
-        The figure is OUR cost to run a minute of a five-minute call, not a price this
-        client pays — their plan prices minutes, not models. Comparisons
-        are against what they are on today.
+        Each row shows what the model ADDS to this client&apos;s bill per minute (their
+        plan&apos;s model surcharge) and, separately, what a minute of a five-minute call
+        costs US to run. Comparisons are against what they are on today.
       </p>
 
       <form
@@ -391,7 +433,7 @@ function ChoiceForm({
                 option={option}
                 checked={choice === option.model}
                 disabled={!write.allowed}
-                currentRate={currentRate}
+                currentSurcharge={currentSurcharge}
                 onPick={() => pick(option.model)}
               />
             ))}
@@ -412,7 +454,7 @@ function ChoiceForm({
                 <span className="mt-0.5 block text-ink-muted">
                   {platform === undefined
                     ? "Clears this client's own choice. This build names no platform default, so nothing here can say what they would fall back to."
-                    : `Clears this client's own choice and puts them on ${platform.model} at ${formatRupeeRate(platform.platform_cost_inr_per_minute)}/min — and a future change to that default reaches them.`}
+                    : `Clears this client's own choice and puts them on ${platform.model} at no extra charge to them — following the platform default is never surcharged — and a future change to that default reaches them.`}
                 </span>
               </span>
             </label>
@@ -436,10 +478,18 @@ function ChoiceForm({
                   }`}
             </li>
             <li>
-              <span className="text-ink-faint">A minute costs them</span> —{" "}
-              {projectedRate === undefined
-                ? "a price this screen cannot state; that model is not in the priced list."
-                : `${formatRupeeRate(projectedRate)}${priceChange === null ? "" : `, ${priceChange}`}.`}
+              <span className="text-ink-faint">They are charged extra</span> —{" "}
+              {projectedSurcharge === undefined
+                ? "a charge this screen cannot state; that model is not in the priced list."
+                : compareRates(projectedSurcharge, "0") === "same"
+                  ? `nothing per minute${surchargeChange === null ? "" : `, ${surchargeChange}`}.`
+                  : `${formatRupeeRate(projectedSurcharge)} per minute${surchargeChange === null ? "" : `, ${surchargeChange}`}.`}
+            </li>
+            <li>
+              <span className="text-ink-faint">It costs us</span> —{" "}
+              {projectedOption === undefined
+                ? "a cost this screen cannot state; that model is not in the priced list."
+                : `${formatRupeeRate(projectedOption.platform_cost_inr_per_minute)} per minute of a five-minute call${costChange === null ? "" : `, ${costChange}`}.`}
             </li>
             <li>
               <span className="text-ink-faint">Scope</span> — every agent on this account
@@ -510,16 +560,20 @@ function ModelOption({
   option,
   checked,
   disabled,
-  currentRate,
+  currentSurcharge,
   onPick,
 }: {
   option: LlmModelOption;
   checked: boolean;
   disabled: boolean;
-  currentRate: string | undefined;
+  /** What this client is charged extra TODAY — the row everything is compared against. */
+  currentSurcharge: string | null;
   onPick: () => void;
 }) {
-  const change = priceChangeSentence(currentRate, option.platform_cost_inr_per_minute);
+  const change = priceChangeSentence(
+    currentSurcharge ?? undefined,
+    option.client_surcharge_inr_per_minute,
+  );
   const undeployed = option.is_available === false;
   const describedBy = `llm-option-${option.model}-detail`;
   return (
@@ -555,7 +609,11 @@ function ModelOption({
       <span id={describedBy}>
         <span className="font-medium text-ink">{option.model}</span>
         <span className="mt-0.5 block text-ink-muted">
-          {option.provider} · {formatRupeeRate(option.platform_cost_inr_per_minute)} per minute
+          {option.provider} ·{" "}
+          {compareRates(option.client_surcharge_inr_per_minute, "0") === "same"
+            ? "no extra charge to them"
+            : `+${formatRupeeRate(option.client_surcharge_inr_per_minute)} per minute to them`}{" "}
+          · {formatRupeeRate(option.platform_cost_inr_per_minute)} per minute to us
           {option.is_platform_default ? " · what the platform runs by default" : ""}
         </span>
         {/* Only when there IS a comparison to make. `priceChangeSentence` returns null

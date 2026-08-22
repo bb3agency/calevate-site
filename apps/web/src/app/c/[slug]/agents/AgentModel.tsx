@@ -19,8 +19,10 @@ import { ARCHIVED_STATUS } from "@/lib/agentState";
 import { useUpdateAgent } from "@/lib/api/agents";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
+  agentInForceSurcharge,
   agentLlmView,
   agentModelPatch,
+  inForceSurcharge,
   modelOption,
   unavailableReason,
   useOrganizationLlmDefaults,
@@ -30,6 +32,7 @@ import {
   type OrganizationLlmDefaults,
 } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { compareRates } from "@/lib/llmRates";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -56,6 +59,19 @@ import { lookup } from "@/lib/lookup";
  * expensive thing to do by accident. Same catalogue, same figures, same exact-decimal
  * comparison as the settings screen — one read, one cache entry, one answer
  * (`lib/api/llmModels.ts`).
+ *
+ * **THE FIGURE IS WHAT THE CLIENT PAYS, AND THAT IS A CORRECTION (D-455).** This panel
+ * used to say "Running it costs us ₹x a minute — your own rate is set by your plan and
+ * does not change with the model", which was true and was the defect: the dearer model
+ * cost Calevate 2.7x and earned nothing. `plans.llm_model_surcharge` prices the upgrade
+ * now, so the sentence is false and the figure is `client_surcharge_inr_per_minute`. OUR
+ * cost stays on the operator's console, where publishing it is not publishing a margin to
+ * the account it is a margin on (`apps/api/billing/rates.py`).
+ *
+ * **AN AGENT FOLLOWING A LEVEL IT DID NOT CHOOSE IS NOT SURCHARGED FOR IT.** The server's
+ * rule is `llm_model_source`: `agent` and `organization` are the client choosing,
+ * `platform` is not, so an agent inheriting the platform default carries no surcharge
+ * however dear that default becomes. `agentInForceSurcharge` holds that once.
  *
  * ## What this panel does when it cannot say
  *
@@ -138,10 +154,11 @@ function Inheritance({
 }) {
   const { href } = useClientRealm();
   const copy = lookup(SOURCE_COPY, view.source);
-  // The price of the model in force. `undefined` covers both "the catalogue has not
-  // arrived" and "the catalogue does not price this model" — and the sentence below says
-  // we cannot show it rather than printing a figure for either.
-  const inForce = catalogue ? modelOption(catalogue.available, view.effective) : undefined;
+  // WHAT THE MODEL IN FORCE ADDS TO THEIR BILL. `null` covers both "the catalogue has not
+  // arrived" and "the catalogue cannot price this model", and the sentence below says
+  // nothing at all rather than printing a figure for either — a screen that guessed
+  // ₹0.00 here would be telling an owner an upgrade is free.
+  const surcharge = catalogue ? agentInForceSurcharge(view, catalogue.available) : null;
 
   return (
     <NoticeBox
@@ -151,14 +168,15 @@ function Inheritance({
     >
       <p className="mt-1">
         {copy?.body}
-        {inForce ? (
+        {surcharge === null ? null : compareRates(surcharge, "0") === "same" ? (
+          <> It adds nothing to what you are charged for a minute.</>
+        ) : (
           <>
             {" "}
-            Running it costs us {formatRupeeRate(inForce.platform_cost_inr_per_minute)} a
-            minute on a five-minute call — your own rate is set by your plan and does not
-            change with the model.
+            It adds {formatRupeeRate(surcharge)} to every minute this agent is charged for,
+            on top of your plan&apos;s own rate.
           </>
-        ) : null}
+        )}
       </p>
       {view.source === "organization" || view.source === "platform" ? (
         <p className="mt-2">
@@ -213,8 +231,11 @@ function ModelForm({
   const selected = picked ? picked.model : view.chosen;
   const changed = selected !== view.chosen;
 
-  const organizationRate = modelOption(catalogue.available, catalogue.effective_default);
-  const inForceRate = modelOption(catalogue.available, view.effective);
+  // The "follow my organisation" row's own cost: what the ACCOUNT's choice is surcharged
+  // at, which is nothing when the account is itself following the platform default.
+  const organizationSurcharge = inForceSurcharge(catalogue);
+  // Everything is compared against what this agent runs TODAY.
+  const baselineSurcharge = agentInForceSurcharge(view, catalogue.available);
 
   /**
    * A model this agent is pinned to that the catalogue no longer offers — the same real
@@ -234,7 +255,7 @@ function ModelForm({
             value: retired,
             label: retired,
             detail: "We no longer offer this model, so we cannot show what it costs.",
-            rate: null,
+            surcharge: null,
             badge: "in use",
             baseline: true,
           } satisfies ModelChoice,
@@ -243,7 +264,7 @@ function ModelForm({
       value: null,
       label: "Follow my organisation",
       detail: `Today that is ${catalogue.effective_default}. If you change your organisation default, this agent follows.`,
-      rate: organizationRate?.platform_cost_inr_per_minute ?? null,
+      surcharge: organizationSurcharge,
       badge: view.chosen === null ? "in use" : undefined,
       baseline: view.chosen === null,
     },
@@ -254,7 +275,7 @@ function ModelForm({
         option.model === catalogue.effective_default
           ? `${option.provider} · your organisation default`
           : option.provider,
-      rate: option.platform_cost_inr_per_minute,
+      surcharge: option.client_surcharge_inr_per_minute,
       badge: view.chosen === option.model ? "in use" : undefined,
       baseline: view.chosen !== null && view.effective === option.model,
       // SHOWN, PRICED AND NOT SELECTABLE. `PATCH /v1/agents/{id}` refuses a model this
@@ -282,10 +303,10 @@ function ModelForm({
       <ModelPicker
         name={`agent-llm-model-${agent.id}`}
         legend="Model for this agent"
-        hint="Prices are per minute, on a five-minute call."
+        hint="Figures are what a model adds to every minute you are charged for."
         choices={choices}
         value={selected}
-        baselineRate={inForceRate?.platform_cost_inr_per_minute ?? null}
+        baselineSurcharge={baselineSurcharge}
         disabled={!write.allowed || save.isPending}
         onChange={(next) => setPicked({ model: next })}
       />

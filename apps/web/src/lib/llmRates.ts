@@ -3,13 +3,18 @@
  *
  * ## Why this exists at all
  *
- * Choosing a model is a money decision: `platform_cost_inr_per_minute` is what a minute of a
- * five-minute call costs on that model, and the whole point of the picker is that a
- * client can see what swapping one for another does to their bill. A picker that shows
- * two rates and leaves the reader to subtract them in their head is the trap this module
+ * Choosing a model is a money decision: `client_surcharge_inr_per_minute` is what that
+ * model ADDS to the client's bill per minute (D-455), and the whole point of the picker is
+ * that a client can see what swapping one for another does to it. A picker that shows two
+ * rates and leaves the reader to subtract them in their head is the trap this module
  * closes — and the obvious way to close it, `Number(a) - Number(b)`, is the exact defect
  * hard rule 7 exists for. `Number("0.4830") - Number("0.2400")` is 0.24300000000000002,
  * which prints as a price nobody was ever charged.
+ *
+ * Kind-agnostic on purpose: the admin console compares the SUPPLIER cost with the same
+ * two functions (`platform_cost_inr_per_minute`, which never appears on a client screen).
+ * These take decimal strings and say how they differ; which figure a sentence is about is
+ * the caller's label.
  *
  * So every function here works on the DIGIT STRING the server sent. Numbers appear in
  * exactly one place — reading a run of digits as an integer count of the smallest unit

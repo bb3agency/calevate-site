@@ -178,6 +178,9 @@ function InEffect({ row }: { row: PlanRow | null }) {
     },
     { label: "Overage rate / min", value: rate(row.overage_rate_inr) },
     { label: "Value-tier rate / min", value: rate(row.overage_rate_value_inr) },
+    // D-455. Added to whichever rate above a minute landed on, for the minutes this
+    // client's OWN model choice upgraded. Unset on every plan until a founder decides it.
+    { label: "AI model surcharge / min", value: rate(row.llm_model_surcharge_inr) },
     {
       label: "Spend ceiling (ours)",
       value: money(row.hard_cap_spend_inr),
@@ -220,6 +223,7 @@ interface Draft {
   included_minutes: string;
   overage_rate_inr: string;
   overage_rate_value_inr: string;
+  llm_model_surcharge_inr: string;
   hard_cap_minutes: string;
   hard_cap_spend_inr: string;
   concurrency_ceiling: string;
@@ -234,6 +238,7 @@ function initialDraft(row: PlanRow | null): Draft {
     included_minutes: row?.included_minutes === null || row === null ? "" : String(row.included_minutes),
     overage_rate_inr: row?.overage_rate_inr ?? "",
     overage_rate_value_inr: row?.overage_rate_value_inr ?? "",
+    llm_model_surcharge_inr: row?.llm_model_surcharge_inr ?? "",
     hard_cap_minutes: row?.hard_cap_minutes === null || row === null ? "" : String(row.hard_cap_minutes),
     hard_cap_spend_inr: row?.hard_cap_spend_inr ?? "",
     concurrency_ceiling: String(row?.concurrency_ceiling ?? 10),
@@ -267,6 +272,7 @@ function toPayload(draft: Draft): CommercialTermsIn {
     included_minutes: count(draft.included_minutes),
     overage_rate_inr: text(draft.overage_rate_inr),
     overage_rate_value_inr: text(draft.overage_rate_value_inr),
+    llm_model_surcharge_inr: text(draft.llm_model_surcharge_inr),
     hard_cap_minutes: count(draft.hard_cap_minutes),
     hard_cap_spend_inr: text(draft.hard_cap_spend_inr),
     concurrency_ceiling: Number(draft.concurrency_ceiling || "10"),
@@ -389,6 +395,20 @@ function RecordForm({
               value={draft.overage_rate_value_inr}
               disabled={!write.allowed}
               onChange={(event) => set("overage_rate_value_inr", event.target.value)}
+              inputMode="decimal"
+              className={FIELD}
+            />
+          </Field>
+          <Field
+            label="AI model surcharge (₹ / minute)"
+            id="terms-llm-surcharge"
+            hint="D-455: added to the rate above for the minutes this client's own model choice upgraded. It applies only to a model THEY picked — an account following the platform default is never surcharged. Leave EMPTY unless a number has been decided; an unset surcharge means a model choice moves their bill by nothing, which is what every plan does today."
+          >
+            <input
+              id="terms-llm-surcharge"
+              value={draft.llm_model_surcharge_inr}
+              disabled={!write.allowed}
+              onChange={(event) => set("llm_model_surcharge_inr", event.target.value)}
               inputMode="decimal"
               className={FIELD}
             />

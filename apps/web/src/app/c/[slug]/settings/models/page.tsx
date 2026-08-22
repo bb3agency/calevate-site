@@ -16,7 +16,9 @@ import {
 } from "@/components/ui";
 import { ModelPicker, type ModelChoice } from "@/components/llmModelPicker";
 import { useWriteAccess } from "@/lib/api/hooks";
+import { compareRates } from "@/lib/llmRates";
 import {
+  inForceSurcharge,
   modelOption,
   platformDefaultOption,
   unavailableReason,
@@ -31,12 +33,22 @@ import { useClientRealm, useClientSession } from "@/lib/api/session";
  *
  * ## Why a client decides this
  *
- * Because they pay for it. Every option carries `platform_cost_inr_per_minute` — what a minute
- * of a five-minute call costs on that model — and the difference between the cheapest and
- * the dearest is the difference between two phone bills. D-21 reserves what an agent SAYS
- * and what it CAPTURES because both need a regression run against real calls; a price is
- * neither, and the same argument that gives a client their own spending limit
- * (`/c/[slug]/usage`) and their own disclosure switches (D-163) gives them this.
+ * Because they pay for it. Every option carries `client_surcharge_inr_per_minute` — what
+ * choosing that model ADDS to this account's bill for every minute it runs (D-455) — and
+ * the difference between the cheapest and the dearest is the difference between two phone
+ * bills. D-21 reserves what an agent SAYS and what it CAPTURES because both need a
+ * regression run against real calls; a price is neither, and the same argument that gives
+ * a client their own spending limit (`/c/[slug]/usage`) and their own disclosure switches
+ * (D-163) gives them this.
+ *
+ * **THIS SCREEN USED TO SAY THE CHOICE WAS FREE, AND UNTIL D-455 IT WAS.** The sentence
+ * was "what you are charged for a call does not change when you switch, because your plan
+ * prices a minute of conversation rather than the model behind it" — true, and the defect:
+ * `gpt-4.1-mini` costs Calevate 2.7x the default and earned nothing. `plans
+ * .llm_model_surcharge` is what a client now pays for the upgrade, so that sentence is
+ * false and is gone. The figure this screen shows is theirs; OUR cost to run the model
+ * (`platform_cost_inr_per_minute`) stays on the operator's console, because publishing a
+ * supplier cost to the account it is a margin on is a different mistake.
  *
  * ## The three things this screen must not do
  *
@@ -66,9 +78,10 @@ export default function ModelsPage({ params }: { params: Promise<{ slug: string 
       <p className="text-sm text-ink-muted">
         Your agents use an AI model to understand a caller and decide what to say next. The
         model you pick here is the one they all use, unless a particular agent has been
-        given its own. A dearer model costs us more to run and can answer harder questions;
-        what you are charged for a call does not change when you switch, because your plan
-        prices a minute of conversation rather than the model behind it.
+        given its own. A better model can answer harder questions and costs more to run, so
+        your plan may add a per-minute charge for choosing one — each option below says
+        exactly what it adds to your bill, and &ldquo;no extra charge&rdquo; means it adds
+        nothing.
       </p>
 
       {state.error != null && (
@@ -126,8 +139,11 @@ function OrganizationDefault({
   const selected = picked ? picked.model : defaults.default_llm_model;
   const changed = selected !== defaults.default_llm_model;
 
-  const inForce = modelOption(defaults.available, defaults.effective_default);
   const platformDefault = platformDefaultOption(defaults.available);
+  // WHAT THE MODEL IN FORCE ACTUALLY ADDS, which is not the same as what its catalogue
+  // row would cost to choose: an account following the platform default is never
+  // surcharged (`lib/api/llmModels.ts::inForceSurcharge` holds the rule once).
+  const inForceSurchargeInr = inForceSurcharge(defaults);
 
   /**
    * A model this account is PINNED to that the catalogue no longer offers.
@@ -152,7 +168,7 @@ function OrganizationDefault({
             value: retired,
             label: retired,
             detail: "We no longer offer this model, so we cannot show what it costs.",
-            rate: null,
+            surcharge: null,
             badge: "in use",
             baseline: true,
           } satisfies ModelChoice,
@@ -163,7 +179,13 @@ function OrganizationDefault({
       detail: platformDefault
         ? `Today that is ${platformDefault.model}. If we change it, your agents follow.`
         : "Whatever model we run by default, including after we change it.",
-      rate: platformDefault?.platform_cost_inr_per_minute ?? null,
+      // FOLLOWING THE PLATFORM DEFAULT IS NEVER SURCHARGED, whatever model it resolves
+      // to today or tomorrow: a surcharge is the price of an upgrade the client asked
+      // for, and this row is the client asking for nothing (the server's own rule —
+      // `rates.CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`). So `"0"` here rather
+      // than the resolved model's row, which would quote a charge the meter will not
+      // apply.
+      surcharge: "0",
       badge: defaults.default_llm_model === null ? "in use" : undefined,
       baseline: defaults.default_llm_model === null,
     },
@@ -173,7 +195,7 @@ function OrganizationDefault({
       detail: option.is_platform_default
         ? `${option.provider} · the model we run by default`
         : option.provider,
-      rate: option.platform_cost_inr_per_minute,
+      surcharge: option.client_surcharge_inr_per_minute,
       badge: defaults.default_llm_model === option.model ? "in use" : undefined,
       baseline:
         defaults.default_llm_model !== null && defaults.effective_default === option.model,
@@ -205,12 +227,19 @@ function OrganizationDefault({
               {defaults.default_llm_model === null
                 ? "You have not picked a model, so your agents run on the one Calevate uses by default."
                 : "You picked this model for your account."}
-              {inForce ? (
-                <>
-                  {" "}
-                  It costs {formatRupeeRate(inForce.platform_cost_inr_per_minute)} a minute on a
-                  five-minute call.
-                </>
+              {inForceSurchargeInr !== null ? (
+                // WHAT IT ADDS TO THEIR BILL, in words for the zero case, because "₹0.00
+                // a minute" is a rupee amount of nothing and "no extra charge" is the
+                // answer to the question they asked.
+                compareRates(inForceSurchargeInr, "0") === "same" ? (
+                  <> It adds nothing to what you are charged for a minute.</>
+                ) : (
+                  <>
+                    {" "}
+                    It adds {formatRupeeRate(inForceSurchargeInr)} to every minute you are
+                    charged for.
+                  </>
+                )
               ) : (
                 // The catalogue does not price what is in force — a model withdrawn from
                 // the list, or an older API. Saying so beats printing a number we do not
@@ -229,10 +258,10 @@ function OrganizationDefault({
           <ModelPicker
             name="organization-llm-default"
             legend="Model for all your agents"
-            hint="Prices are per minute, on a five-minute call."
+            hint="Figures are what a model adds to every minute you are charged for."
             choices={choices}
             value={selected}
-            baselineRate={inForce?.platform_cost_inr_per_minute ?? null}
+            baselineSurcharge={inForceSurchargeInr}
             disabled={!write.allowed || save.isPending}
             onChange={(next) => setPicked({ model: next })}
           />
@@ -267,14 +296,14 @@ function OrganizationDefault({
           </li>
           <li className="flex gap-2">
             <IndianRupee aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            {/* The five-minute qualifier is not decoration and the server states why: the
-                model is sent the whole conversation again on every turn, so cost per
-                minute RISES with call length. A bare "per minute" would be a figure that
-                is only true for one call length, unlabelled. */}
-            Prices are quoted per minute of a five-minute call. A longer call costs a
-            little more per minute — the agent re-reads the whole conversation each time it
-            answers — so every model is priced at the same call length to make them
-            comparable. What you are actually billed for the month is on your{" "}
+            {/* A SURCHARGE, not a replacement rate, and the sentence says so: your plan's
+                per-minute rate is unchanged and this is added to it. That is the whole
+                shape of `plans.llm_model_surcharge`, and a client who reads it as "the new
+                price of a minute" would expect the wrong number on their statement. */}
+            A model&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
+            minutes your agents run it — your plan&apos;s own rate does not change. It
+            appears on your invoice as its own line, naming the model. What you are
+            actually billed for the month is on your{" "}
             <Link
               href={href(`/c/${slug}/usage`)}
               className="font-medium underline underline-offset-2 hover:text-ink"

@@ -33,6 +33,7 @@ a half-applied state between them.
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
@@ -48,6 +49,8 @@ from apps.api.agents.llm_models import (
     validate_llm_model,
 )
 from apps.api.agents.service import publish_agent
+from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.service import rate_to_display
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -91,7 +94,29 @@ class LlmModelOptionOut(BaseModel):
     #: struck at a reference call length because the in-call language cost is NOT constant
     #: per minute — the conversation is resent on every turn, so cost grows quadratically
     #: with duration (TRD §6.1). Derived from the rate card, never a figure typed here.
+    #:
+    #: ⚠ **THIS IS OUR SUPPLIER COST AND IT IS NOT WHAT THE CLIENT PAYS.** The field that
+    #: answers that is `client_surcharge_inr_per_minute` below. The two are different
+    #: KINDS and differ by more than an order of magnitude (`billing/rates.py`), so a
+    #: screen that prints this one as a client price states a number nobody is charged AND
+    #: publishes our margin to the account it is a margin on. The ADMIN console shows
+    #: both, labelled; the client's own pickers show only the surcharge.
     platform_cost_inr_per_minute: str
+    #: **WHAT CHOOSING THIS MODEL ADDS TO THIS ACCOUNT'S BILL, PER MINUTE** (D-455), as a
+    #: STRING for `platform_cost_inr_per_minute`'s reason.
+    #:
+    #: `"0"` on the base-rate model always, and `"0"` on an upgraded model whenever this
+    #: account's plan quotes no surcharge — which is every plan until a founder sets one,
+    #: and is the honest client-facing answer either way: choosing it costs them nothing
+    #: extra. The NULL-is-not-zero distinction that matters on `plans.llm_model_surcharge`
+    #: deliberately does not survive to this surface: a client asks what they will be
+    #: charged, and "nothing" is the answer to that in both states.
+    #:
+    #: **IT IS THE SURCHARGE FOR CHOOSING IT EXPLICITLY.** An account that FOLLOWS the
+    #: platform default is never surcharged, however dear that default becomes
+    #: (`rates.CLIENT_CHOSEN_LLM_SOURCES`), so a screen rendering an "inherit" row quotes
+    #: `"0"` for it rather than the row of the model it happens to resolve to.
+    client_surcharge_inr_per_minute: str
     #: True for the model this deployment runs when nobody chooses — the row a picker
     #: marks as the default rather than inventing its own label for.
     is_platform_default: bool
@@ -133,6 +158,16 @@ class LlmDefaultIn(BaseModel):
     default_llm_model: str | None
 
 
+#: THIS ACCOUNT'S MODEL SURCHARGE, at the instant it is being asked about (D-455).
+#:
+#: `NOW_SQL` and not a month's pricing instant: this screen answers "what will it cost me
+#: if I choose this", which is a question about the terms in force NOW. A closed month's
+#: statement resolves its own instant (`billing/plans.py::month_pricing_instant`) and is
+#: not this reader. Through the SHARED resolver either way, so the rate a client is quoted
+#: here is the rate on the row a bill would actually pick.
+_PLAN_SURCHARGE = plan_in_effect_sql("llm_model_surcharge", at=NOW_SQL)
+
+
 async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
     """The one reader behind both realms' GET.
 
@@ -148,13 +183,21 @@ async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
     """
     row = (
         await session.execute(
-            text("SELECT default_llm_model FROM organizations WHERE deleted_at IS NULL")
+            # `id` as well as the choice, because the plan read below needs a tenant to
+            # bind and taking it from THIS row is stricter than taking it from a caller:
+            # the row RLS just returned is by definition the account being described, so
+            # the terms quoted cannot belong to a different one than the choice shown.
+            text("SELECT id, default_llm_model FROM organizations WHERE deleted_at IS NULL")
         )
     ).first()
     if row is None:
         raise ProblemError.not_found("Organization")
-    chosen: str | None = row[0]
+    chosen: str | None = row[1]
     resolved = resolve_llm_model(agent_model=None, organization_model=chosen)
+    # An account with no plan row, and one whose plan quotes no surcharge, are quoted the
+    # SAME ₹0 — both mean "choosing an upgrade adds nothing to your bill".
+    plan = (await session.execute(text(_PLAN_SURCHARGE), {"tid": row[0]})).first()
+    surcharge = Decimal(str(plan[0])) if plan is not None and plan[0] is not None else None
     return LlmDefaultsOut(
         default_llm_model=chosen,
         effective_default=resolved.model,
@@ -165,6 +208,14 @@ async def _read_defaults(session: AsyncSession) -> LlmDefaultsOut:
                 # Stringified HERE, at the boundary, and nowhere earlier: the value is a
                 # `Decimal` everywhere inside the process.
                 platform_cost_inr_per_minute=str(option.inr_per_minute),
+                # The surcharge applies to the models that ARE upgrades and to no others,
+                # and the PLAN supplies the number. Both halves come from the one place
+                # that owns each; nothing here is derived from the cost figure above.
+                client_surcharge_inr_per_minute=str(
+                    rate_to_display(surcharge)
+                    if option.is_surcharged and surcharge is not None
+                    else Decimal("0")
+                ),
                 is_platform_default=option.is_platform_default,
                 is_available=option.is_available,
                 unavailable_reason=option.unavailable_reason,
@@ -259,9 +310,15 @@ _DESCRIPTION = (
     "Resolution is three levels: the agent's own choice, then this account default, then "
     "the platform's model. `effective_default` is what an agent that has chosen nothing "
     "will run, and each agent reports its own resolved model and which level supplied it."
-    f"\n\nPrices are INR per minute of a {QUOTED_CALL_MINUTES}-minute call, as strings: "
-    "the language leg is resent the whole conversation on every turn, so its cost per "
-    "minute rises with call length and a single figure has to say which length it is for."
+    f"\n\nEach row carries TWO figures and they are different kinds. "
+    "`client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's "
+    "bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the "
+    "plan quotes none and `0` on the model this platform's rates are struck at. "
+    "`platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list "
+    f"price, per minute of a {QUOTED_CALL_MINUTES}-minute call: the language leg is "
+    "resent the whole conversation on every turn, so its cost per minute rises with call "
+    "length and a single figure has to say which length it is for. A client-facing screen "
+    "shows the surcharge; the supplier cost is an operator's figure."
     "\n\nA row with `is_available: false` cannot be chosen — this platform has no "
     "deployment for it, so choosing it would price one model and run another. "
     "`unavailable_reason` says what is missing."

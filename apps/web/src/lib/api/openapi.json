@@ -2643,6 +2643,23 @@
             ],
             "title": "Included Minutes"
           },
+          "llm_model_surcharge_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model Surcharge Inr"
+          },
           "monthly_fee_inr": {
             "anyOf": [
               {
@@ -8714,6 +8731,10 @@
         "additionalProperties": false,
         "description": "One model an account may choose, with what a minute of it costs.\n\nEvery field is required on the wire: a Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the server\nnever emits.",
         "properties": {
+          "client_surcharge_inr_per_minute": {
+            "title": "Client Surcharge Inr Per Minute",
+            "type": "string"
+          },
           "is_available": {
             "title": "Is Available",
             "type": "boolean"
@@ -8750,6 +8771,7 @@
           "model",
           "provider",
           "platform_cost_inr_per_minute",
+          "client_surcharge_inr_per_minute",
           "is_platform_default",
           "is_available",
           "unavailable_reason"
@@ -9986,6 +10008,17 @@
             ],
             "title": "Included Minutes"
           },
+          "llm_model_surcharge_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model Surcharge Inr"
+          },
           "monthly_fee_inr": {
             "anyOf": [
               {
@@ -10042,6 +10075,7 @@
           "included_minutes",
           "overage_rate_inr",
           "overage_rate_value_inr",
+          "llm_model_surcharge_inr",
           "hard_cap_minutes",
           "hard_cap_spend_inr",
           "client_cap_minutes",
@@ -14669,6 +14703,32 @@
             "title": "Included Minutes",
             "type": "integer"
           },
+          "llm_surcharge_inr": {
+            "title": "Llm Surcharge Inr",
+            "type": "string"
+          },
+          "llm_surcharge_minutes": {
+            "title": "Llm Surcharge Minutes",
+            "type": "string"
+          },
+          "llm_surcharge_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Llm Surcharge Models",
+            "type": "array"
+          },
+          "llm_surcharge_rate_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Surcharge Rate Inr"
+          },
           "minutes_left": {
             "anyOf": [
               {
@@ -14750,6 +14810,10 @@
           "overage_cost_inr",
           "overage_rate_inr",
           "overage_rate_value_inr",
+          "llm_surcharge_rate_inr",
+          "llm_surcharge_minutes",
+          "llm_surcharge_inr",
+          "llm_surcharge_models",
           "monthly_fee_inr",
           "cap_minutes",
           "minutes_left",
@@ -15864,7 +15928,7 @@
     },
     "/v1/admin/organizations/{org_id}/llm-defaults": {
       "get": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
         "operationId": "admin_get_llm_defaults_v1_admin_organizations__org_id__llm_defaults_get",
         "parameters": [
           {
@@ -15903,7 +15967,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "put": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to put the account back on the platform's model. Recorded in the audit ledger against the client's account, because it changes what their calls cost and how their agents answer.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
         "operationId": "admin_set_llm_default_v1_admin_organizations__org_id__llm_defaults_put",
         "parameters": [
           {
@@ -25072,7 +25136,7 @@
     },
     "/v1/organization/llm-defaults": {
       "get": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
         "operationId": "get_organization_llm_defaults_v1_organization_llm_defaults_get",
         "responses": {
           "200": {
@@ -25099,7 +25163,7 @@
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nPrices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` \u2014 the same rows `available` marks `is_available: false`.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
+        "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.\n\nSend `null` to go back to following the platform's model. A model this platform does not run at all is refused with `llm_model_not_available`; one it supports but has no deployment for is refused with `llm_model_not_deployed` \u2014 the same rows `available` marks `is_available: false`.\n\nEvery LIVE agent that has not chosen a model of its own is re-published to the voice platform in the same transaction, so the change reaches the phone line and not only this record. If that push fails, nothing is saved. Agents that have chosen a model of their own are untouched \u2014 this sets what the others follow.",
         "operationId": "set_organization_llm_default_v1_organization_llm_defaults_put",
         "requestBody": {
           "content": {

@@ -476,6 +476,13 @@ const USAGE = {
   overage_cost_inr: "0.00",
   overage_rate_inr: "6.5000",
   overage_rate_value_inr: null,
+  // D-455's model surcharge. Present and ZERO, which is the shipped state — every plan
+  // quotes no surcharge until a founder sets one — and NOT absent: the field is required
+  // on the wire, and a fixture missing it is a server this deployment cannot have.
+  llm_surcharge_rate_inr: null,
+  llm_surcharge_minutes: "0.00",
+  llm_surcharge_inr: "0.00",
+  llm_surcharge_models: [],
   monthly_fee_inr: "4999.00",
   cap_minutes: null,
   minutes_left: null,
@@ -844,12 +851,14 @@ const LLM_DEFAULTS = {
       model: "gpt-4o-mini",
       provider: "azure-openai",
       platform_cost_inr_per_minute: "0.2400",
+      client_surcharge_inr_per_minute: "0",
       is_platform_default: true,
     },
     {
       model: "gpt-4.1-mini",
       provider: "azure-openai",
       platform_cost_inr_per_minute: "0.4830",
+      client_surcharge_inr_per_minute: "1.5000",
       is_platform_default: false,
     },
   ],
@@ -1415,12 +1424,14 @@ const CLIENT_SCREENS: Screen[] = [
             model: "gpt-4o-mini",
             provider: "Azure OpenAI",
             platform_cost_inr_per_minute: "0.2400",
+            client_surcharge_inr_per_minute: "0",
             is_platform_default: true,
           },
           {
             model: "gpt-4.1-mini",
             provider: "Azure OpenAI",
             platform_cost_inr_per_minute: "0.4830",
+            client_surcharge_inr_per_minute: "1.5000",
             is_platform_default: false,
           },
         ],

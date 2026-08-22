@@ -279,7 +279,7 @@ export interface paths {
          *
          *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
          *
-         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
          *
          *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
          */
@@ -290,7 +290,7 @@ export interface paths {
          *
          *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
          *
-         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
          *
          *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
          *
@@ -4205,7 +4205,7 @@ export interface paths {
          *
          *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
          *
-         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
          *
          *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
          */
@@ -4216,7 +4216,7 @@ export interface paths {
          *
          *     Resolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.
          *
-         *     Prices are INR per minute of a 5-minute call, as strings: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for.
+         *     Each row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs — the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.
          *
          *     A row with `is_available: false` cannot be chosen — this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.
          *
@@ -5420,6 +5420,8 @@ export interface components {
             hard_cap_spend_inr?: number | string | null;
             /** Included Minutes */
             included_minutes?: number | null;
+            /** Llm Model Surcharge Inr */
+            llm_model_surcharge_inr?: number | string | null;
             /** Monthly Fee Inr */
             monthly_fee_inr?: number | string | null;
             /** Overage Rate Inr */
@@ -8060,6 +8062,8 @@ export interface components {
          *     never emits.
          */
         LlmModelOptionOut: {
+            /** Client Surcharge Inr Per Minute */
+            client_surcharge_inr_per_minute: string;
             /** Is Available */
             is_available: boolean;
             /** Is Platform Default */
@@ -8609,6 +8613,8 @@ export interface components {
             id: string;
             /** Included Minutes */
             included_minutes: number | null;
+            /** Llm Model Surcharge Inr */
+            llm_model_surcharge_inr: string | null;
             /** Monthly Fee Inr */
             monthly_fee_inr: string | null;
             /** Overage Rate Inr */
@@ -10543,6 +10549,14 @@ export interface components {
             credit_balance_inr: string | null;
             /** Included Minutes */
             included_minutes: number;
+            /** Llm Surcharge Inr */
+            llm_surcharge_inr: string;
+            /** Llm Surcharge Minutes */
+            llm_surcharge_minutes: string;
+            /** Llm Surcharge Models */
+            llm_surcharge_models: string[];
+            /** Llm Surcharge Rate Inr */
+            llm_surcharge_rate_inr: string | null;
             /** Minutes Left */
             minutes_left: number | null;
             /** Minutes Used */

@@ -69,10 +69,32 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     overage_minutes_value: "0.00",
     overage_rate_inr: "6.5000",
     overage_rate_value_inr: null,
+    // D-455: the model surcharge, unset on every plan today — so a ₹0.00 total and no
+    // models named is the shipped shape of this panel.
+    llm_surcharge_rate_inr: null,
+    llm_surcharge_minutes: "0.00",
+    llm_surcharge_inr: "0.00",
+    llm_surcharge_models: [],
     plan_tier: "managed",
     spend_used_inr: "15158.00",
     ...over,
   };
+}
+
+/**
+ * A month a client's own model choice made dearer (D-455).
+ *
+ * `plans.llm_model_surcharge` is unset on every plan today, so this is the state a
+ * founder's number creates rather than one the fixtures above cover — and it is the one
+ * where the panel and the invoice could disagree, which is what this exercises.
+ */
+function surchargedUsage(): UsagePanel {
+  return usage({
+    llm_surcharge_rate_inr: "1.5000",
+    llm_surcharge_minutes: "40.00",
+    llm_surcharge_inr: "60.00",
+    llm_surcharge_models: ["gpt-4.1-mini"],
+  });
 }
 
 function routes(over: Record<string, unknown> = {}) {
@@ -97,6 +119,37 @@ describe("the usage panel", () => {
     expect(container.textContent).toContain("₹15,158.00");
     // The currency is INR. The design this came from was priced in dollars.
     expect(container.textContent).not.toContain("$");
+  });
+
+  it("names the model upgrade on its own line and puts it in the total (D-455)", async () => {
+    // THE DEFECT THIS PINS. `plans.llm_model_surcharge` prices a client's own model
+    // choice, and "Total so far" used to be `plan fee + overage` — so a client who moved
+    // their agents onto the dearer model would have read a total ₹60 below the statement
+    // they were sent. A screen showing one number while the invoice charges another is
+    // exactly what this whole slice exists to remove.
+    const { container } = await renderClientPage(
+      page,
+      routes({ "/v1/usage": surchargedUsage() }),
+    );
+
+    await screen.findByText("Extra charges");
+    // The MODEL is named, because it is the decision that caused the number, and the
+    // line multiplies out: 40.00 × ₹1.5000 = ₹60.00.
+    expect(container.textContent).toContain("AI model upgrade, gpt-4.1-mini");
+    expect(container.textContent).toContain("40.00 min × ₹1.5000");
+    expect(container.textContent).toContain("₹60.00");
+    // 4999.00 + 10159.00 + 60.00, added in paise.
+    expect(container.textContent).toContain("₹15,218.00");
+  });
+
+  it("prints no upgrade line on a month nothing was surcharged", async () => {
+    // Every plan today quotes no surcharge, so this is the shipped shape: a ₹0.00 row
+    // invites a question about nothing, and the total is what it always was.
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Extra charges");
+    expect(container.textContent).not.toContain("AI model upgrade");
+    expect(container.textContent).toContain("₹15,158.00");
   });
 
   it("quotes the per-minute rate at the precision the server published it", async () => {

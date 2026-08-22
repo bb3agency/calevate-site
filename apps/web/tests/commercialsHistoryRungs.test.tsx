@@ -68,6 +68,8 @@ function twoRungPlan(over: Partial<PlanRow> = {}): PlanRow {
     included_minutes: 100,
     overage_rate_inr: "8.0000",
     overage_rate_value_inr: "5.5000",
+    // D-455: what this client pays extra, per minute, for a model THEY chose.
+    llm_model_surcharge_inr: null,
     hard_cap_minutes: null,
     hard_cap_spend_inr: null,
     client_cap_minutes: null,

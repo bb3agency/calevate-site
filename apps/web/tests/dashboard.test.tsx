@@ -79,6 +79,11 @@ const USAGE: UsagePanel = {
   overage_cost_inr: "10159.00",
   overage_rate_inr: "6.5000",
   overage_rate_value_inr: null,
+  // D-455: the model surcharge, unset on every plan today.
+  llm_surcharge_rate_inr: null,
+  llm_surcharge_minutes: "0.00",
+  llm_surcharge_inr: "0.00",
+  llm_surcharge_models: [],
   monthly_fee_inr: "4999.00",
   cap_minutes: null,
   minutes_left: null,
