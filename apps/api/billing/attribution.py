@@ -121,6 +121,7 @@ from apps.api.billing.service import (
     _SECONDS_PER_MINUTE,
     _SURCHARGED_MODEL_SQL,
     _month_bounds,
+    _surcharge_binds,
     allocate_paise,
     calling_revenue_inr,
     plan_tier_of,
@@ -429,7 +430,10 @@ async def _read_month(
     would have made it.
     """
     rows = (
-        await session.execute(text(_CALL_ROWS_SQL), {"tid": tenant_id, **_month_bounds(month)})
+        await session.execute(
+            text(_CALL_ROWS_SQL),
+            {"tid": tenant_id, **_month_bounds(month), **_surcharge_binds()},
+        )
     ).all()
 
     folded: dict[UUID | None, _Bucket] = {}

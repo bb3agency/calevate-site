@@ -54,6 +54,7 @@ from apps.api.billing.rates import (
 from apps.api.billing.service import (
     _SURCHARGED_MODEL_SQL,
     UNSURCHARGED_MODEL,
+    _surcharge_binds,
     calling_revenue_inr,
     priced_llm_surcharge,
     to_paise,
@@ -303,7 +304,10 @@ async def test_the_sql_and_the_python_bucket_a_row_identically(model: str, sourc
         answer = (
             await session.execute(
                 text(f"SELECT {_SURCHARGED_MODEL_SQL} FROM (SELECT CAST(:m AS jsonb) AS meta) r"),
-                {"m": _json(meta)},
+                # The fragment's own binds, from the one helper the production callers
+                # use. Spelling them here instead would make this twin agree with a rule
+                # nobody ships — the failure mode the test exists to refuse, one level up.
+                {"m": _json(meta), **_surcharge_binds()},
             )
         ).scalar()
     expected = (

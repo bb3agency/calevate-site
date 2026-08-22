@@ -1013,12 +1013,34 @@ _CORRECTED_TIER_SQL: Final = (
 #: `->>` yields NULL, and the row falls to `''`: the same "an unproven row is never billed
 #: the dearer thing" asymmetry `_CORRECTED_TIER_SQL`'s neighbour `billable_tier` applies to
 #: the voice rung.
+#: THE TWO VALUES ARE BOUND, NOT SPLICED, and that is not only a `check_raw_sql` rule.
+#: They are VALUES rather than identifiers, so a bind is what they wanted all along; the
+#: first spelling built them with `", ".join(...)` over `sorted(...)`, which the guard
+#: refused because it cannot follow a comprehension variable through a call — correctly,
+#: since "every character was typed in this repo" is exactly what it cannot prove there.
+#: `_NOT_AI_UNITS` below uses the same join idiom and passes only because it has no
+#: `sorted()`; matching it would have been the smaller change and the worse one, leaving a
+#: value interpolated into SQL for no reason but provability.
 _SURCHARGED_MODEL_SQL: Final = (
-    "CASE WHEN meta->>'llm_model_source' IN ("
-    + ", ".join(f"'{source}'" for source in sorted(CLIENT_CHOSEN_LLM_SOURCES))
-    + ") AND COALESCE(meta->>'llm_model', '') NOT IN ('', "
-    + f"'{BASE_RATE_LLM_MODEL}') THEN meta->>'llm_model' ELSE '' END"
+    "CASE WHEN meta->>'llm_model_source' = ANY(:llm_client_sources) "
+    "AND COALESCE(meta->>'llm_model', '') NOT IN ('', :base_rate_llm_model) "
+    "THEN meta->>'llm_model' ELSE '' END"
 )
+
+
+def _surcharge_binds() -> dict[str, object]:
+    """The two binds `_SURCHARGED_MODEL_SQL` reads, for the same reason `_month_bounds`
+    exists: a caller that names the fragment cannot then supply half of what it needs.
+
+    Sorted so the parameter is stable across processes — a frozenset's iteration order is
+    not, and an unstable bind makes two identical queries look different in a slow-query
+    log for no reason.
+    """
+    return {
+        "llm_client_sources": sorted(CLIENT_CHOSEN_LLM_SOURCES),
+        "base_rate_llm_model": BASE_RATE_LLM_MODEL,
+    }
+
 
 #: The bucket key for minutes that carry NO model surcharge. Named because three readers
 #: compare against it and an empty-string literal in a pricing branch reads like an
@@ -1089,7 +1111,7 @@ async def rung_seconds(session: AsyncSession, *, tenant_id: UUID, month: str) ->
                 f"  AND {_NOT_AI_UNITS}"
                 ") attributed GROUP BY tier, llm_model"
             ),
-            {"tid": tenant_id, **_month_bounds(month)},
+            {"tid": tenant_id, **_month_bounds(month), **_surcharge_binds()},
         )
     ).all()
 
