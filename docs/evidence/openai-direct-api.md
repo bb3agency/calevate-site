@@ -13,6 +13,22 @@
 > the egress table, the pricing reads and their evidence classes — is unchanged and was not
 > re-read.
 
+> ⚠ **RE-VERIFIED AND EXTENDED — 22 August 2026, lane P-1
+> (`docs/evidence/llm-provider-postures.md`).** §3.1's `DataResidency` finding was read
+> first-hand again at `openai/openai-python` @ `e43b422412a9` and is unchanged. **But this
+> report drew the wrong conclusion from it for the world D-449 created**: it called the
+> region in the hostname "the irony ... useless to us" because the region we wanted was
+> India. We no longer want India. `us.api.openai.com` puts the region back in the URL — the
+> exact property D-449 records Azure as having lost — so a `us`-pinned OpenAI posture is
+> **provable from the AST with no gate 20 and no gate 20c**, which makes this the strongest
+> residency posture available to the product rather than a disqualified one. P-1 §6 carries
+> that argument, the enterprise-entitlement and 10%-uplift caveats on it, and the fact that
+> `scripts/check_model_residency.py`'s `openai-direct` spec still says `region=None`. §4 is
+> **still REPORTED** — every OpenAI host remains blocked — with two additions: Modified
+> Abuse Monitoring is offered under the same name and shape as the Azure control we already
+> hold (parity, not an advantage), and **UNKNOWN-3, whether Bolna sends `store: false` on an
+> OpenAI leg, is ours to close and must be closed before any live call.**
+
 
 **Lane.** L1. Question: what would a **direct OpenAI adapter** cost us and buy us, on the
 two surfaces that would use one — the **in-call leg** (Bolna holds our key, BYOK) and the

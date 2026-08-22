@@ -8,6 +8,23 @@
 > now rests on: the 16 Oct 2026 retirement of `gemini-2.5-flash`, the successors' pricing,
 > and the Developer API's unexpressible region. Nothing below was re-read.
 
+> ⚠ **§3 IS UPGRADED AND §2 IS NARROWED — 22 August 2026, lane P-1
+> (`docs/evidence/llm-provider-postures.md`).** §3's central claim, that the Gemini
+> Developer API cannot express a region, was REPORTED here from search summaries. It is now
+> **VERIFIED-VENDOR-DOCS from Google's own SDK**: `googleapis/python-genai` @ `66807187f212`,
+> `google/genai/_api_client.py:681-682` — `raise ValueError('Gemini API does not support
+> project/location.')`. Not "no region is documented" but "asking for one is a `ValueError`
+> before a packet leaves the machine", and `bolna/llms/gemini_llm.py:48-49` (VERIFIED-OSS)
+> shows the engine's Google leg is exactly that api-key client. **§2.2's ⚠ — which paragraph
+> the human-reviewer sentence sits in — is NOT closed**; `ai.google.dev` is still
+> egress-blocked. What P-1 adds is that Google's own issue tracker carries an **unanswered**
+> question on the adjacent boundary (`google-gemini/gemini-cli#1472`: free-quota usage on a
+> billed project), and that the EEA/CH/UK carve-out extending paid terms to free tiers
+> **does not include India**. **§4.1's retirement calendar stands and P-1 makes it worse**:
+> the engine disables thinking only on `gemini-2.5-flash` — the retiring model — and sends a
+> non-zero thinking level on every `gemini-3.*` successor, where the tokens draw on
+> `max_output_tokens` and can return a candidate with no `content` field at all.
+
 
 **Lane**: L2 (research). **Read**: 22 Aug 2026. **Repo state**: read-only; this file is the
 only thing the lane wrote.
