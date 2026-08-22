@@ -10,11 +10,17 @@ mirrors this manual for other coding agents.
 
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
 voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Saaras STT ·
-Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in South
-India** — `AZURE_LOCATION` (`southindia`), default `AZURE_OPENAI_DEFAULT_MODEL`
-(`gpt-4o-mini`), with `gpt-4.1-mini` a live config switch. **D-410 supersedes D-400/D-404
-on the in-call leg and D-127 on the dashboard leg; Gemini and Vertex are OUT of this
-product.** Read the three LLM surfaces separately — two moved, one deliberately did not:
+Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in East US 2**
+— `AZURE_LOCATION` (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with
+`gpt-4.1-mini` a live config switch. **D-410 supersedes D-400/D-404 on the in-call leg and
+D-127 on the dashboard leg; Gemini and Vertex are OUT of this product. D-449 (22 Aug 2026)
+MOVED THE REGION OFF INDIA** — declared posture `us-azure-openai` — because the engine's
+orchestrator is US-hosted (`bolna-findings/mirror/pages/concepts/security.md:29`, AWS
+us-east-1), so every in-call turn was an ocean round trip inside an unmeasured 350ms TTFT
+budget, and because Microsoft's Standard (regional) matrix does not offer our default model
+in `southindia`. **The default model is UNCHANGED and TRD §10 is UNREPRICED** — that
+contradiction was `southindia`-only. **The client-facing India warranty is WITHDRAWN, not
+narrowed.** Read the three LLM surfaces separately — two moved, one deliberately did not:
 
 1. **In-call** (inside the engine, BYOK) — the engine calls our Azure deployment on
    `azure_openai_base_url(resource)`, which emits
@@ -59,20 +65,28 @@ product.** Read the three LLM surfaces separately — two moved, one deliberatel
    the RAW transcript; `GEMINI_EXTRACTION_DEFAULT is False` in `apps/workers/extraction.py`
    and D-410 does not move it.
 
-**THE RESIDENCY CLAIM IS WEAKER THAN IT WAS AND YOU MUST NOT WRITE AS IF IT IS NOT.**
-Vertex put `asia-south1` in the hostname AND the path, so the guard could prove residency
-from the AST. `<resource>.openai.azure.com` names no region: the region is a property of
-the RESOURCE. So `scripts/check_model_residency.py` proves what it still can — one
-spelling of the region (`AZURE_LOCATION`), no `Settings` field carrying a region, no Azure
-endpoint constructible outside `azure_openai_base_url()`, and a builder that cannot emit a
-non-India region — and the rest is **attested by a human in the portal**: that the resource
-is really in South India (gate 20) and that the deployment is **Regional Standard and NOT
-Global** (gate 20c). Global is Azure's DEFAULT and processes worldwide; a Global deployment
-inside a South India resource passes every check in this tree and breaks the DPA. **OpenAI
-direct is disqualified and it is the thing you will be tempted to propose**: its India
-residency covers storage at rest only, inference runs in the US, and for a phone call the
-transcript IS the inference input. D-410 records that, plus Sarvam-via-Custom-LLM, Krutrim
-and DeepSeek, each with its reason. **BRD R-04's 16 Oct 2026 retirement is GONE** —
+**THERE IS NO INDIA RESIDENCY CLAIM ABOUT THE LANGUAGE LEG ANY MORE, AND YOU MUST NOT
+WRITE AS IF THERE IS.** Vertex put `asia-south1` in the hostname AND the path, so the guard
+could prove residency from the AST. `<resource>.openai.azure.com` names no region: the
+region is a property of the RESOURCE. So `scripts/check_model_residency.py` proves what it
+still can — one spelling of the region (`AZURE_LOCATION`), no `Settings` field carrying a
+region, no Azure endpoint constructible outside `azure_openai_base_url()`, and a builder
+that cannot emit a region other than the declared posture's — and the rest is **attested by
+a human in the portal**: that the resource is really in East US 2 (gate 20) and that the
+deployment is **Regional Standard and NOT Global** (gate 20c). Gates 20/20b/20c/20d all
+SURVIVE D-449 re-aimed; none retires, because the posture still pins one region and is
+still Regional Standard. Global is Azure's DEFAULT and processes worldwide, so it does not
+downgrade the promise from India to America — it deletes the only enforceable property the
+posture has left. Speech is still Sarvam and still Indian, and the first extraction pass is
+still Sarvam; what leaves India is the transcript, on every turn, as it is spoken — which is
+why OPERATIONS §2 gate 37(a) (is a voice recording SPDI biometric data?) now governs the
+LIVE CONVERSATION and not only the archive. **OpenAI direct is still not adopted, but the
+reason everyone quotes is SPENT**: D-448 refused it because it offers no Indian INFERENCE,
+and D-449 stopped asking for Indian inference, so that ground no longer discriminates.
+Azure is retained on an enterprise DPA, modified abuse monitoring, deployment-level model
+and retirement control (`scripts/check_model_lifecycle.py` consumes it), and a migration
+cost already specified. D-410 also records Sarvam-via-Custom-LLM, Krutrim and DeepSeek,
+each with its reason. **BRD R-04's 16 Oct 2026 retirement is GONE** —
 `GEMINI_DEFAULT_LLM_RETIRES` and the test that turned CI red thirty days out are deleted,
 and no vendor deadline is currently running against this product. Our
 code = admin console, client dashboards,

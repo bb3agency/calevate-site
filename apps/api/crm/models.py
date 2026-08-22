@@ -354,10 +354,12 @@ class CallEngineLatency(PKMixin, TimestampMixin, Base):
     **WHY IT IS WORTH A TABLE NOW.** D-410 pinned the language model to South India while
     the engine's orchestrator stayed US-hosted
     (`bolna-findings/mirror/pages/concepts/security.md:29`), so every conversational turn
-    pays a US->India->US round trip inside a 350ms budget (TRD §4). Nobody has measured it;
-    `llm_ttft_ms` per turn, grouped by `region`, is the measurement. Two pilot calls — one
-    on the South India deployment, one on a US one — settle OPERATIONS §2 gate 4 by
-    arithmetic instead of by argument.
+    paid a US->India->US round trip inside a 350ms budget (TRD §4). D-449 moved the
+    deployment to `eastus2`, beside the orchestrator, on an argument rather than on a
+    measurement — and gave up the India residency claim to do it. `llm_ttft_ms` per turn,
+    grouped by `region`, is the measurement that was missing then and is still missing:
+    two pilot calls, one on each geography, settle OPERATIONS §2 gate 4 by arithmetic
+    instead of by argument. A trade made on an estimate is one that gets made twice.
 
     **ONE REPRESENTATION, NO AGGREGATES.** No stored p50, p95, breach count or turn count:
     every one of them is `jsonb_array_elements(turns)` away, and a denormalized statistic

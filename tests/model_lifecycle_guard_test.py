@@ -100,7 +100,7 @@ def test_unreadable_attestation_refuses_not_fails(tmp_path: Path) -> None:
 def test_attestation_missing_a_field_refuses(tmp_path: Path) -> None:
     path = tmp_path / ATTESTATION_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"resource_location": "southindia"}), encoding="utf-8")
+    path.write_text(json.dumps({"resource_location": "eastus2"}), encoding="utf-8")
     with pytest.raises(ValueError, match="missing required field"):
         load_attestation(tmp_path)
 
@@ -111,7 +111,7 @@ def test_attestation_with_an_invented_deployment_type_refuses(tmp_path: Path) ->
     path.write_text(
         json.dumps(
             {
-                "resource_location": "southindia",
+                "resource_location": "eastus2",
                 "deployment_model": "gpt-4o-mini",
                 "deployment_type": "Standard-ish",
                 "read_on": "2026-08-22",
@@ -166,7 +166,7 @@ def test_one_survivor_is_enough() -> None:
 
 def test_attested_global_deployment_is_a_build_failure() -> None:
     attested = guard.Attestation(
-        resource_location="southindia",
+        resource_location="eastus2",
         deployment_model="gpt-4o-mini",
         deployment_type="global-standard",
         read_on=TODAY,
@@ -194,7 +194,7 @@ def test_portal_sku_date_disagreeing_with_the_table_is_a_build_failure() -> None
     """THE PORTAL WINS. A per-SKU deprecationDate is what a call actually obeys, so a
     silent disagreement with the doc-derived date must not be averaged away."""
     attested = guard.Attestation(
-        resource_location="southindia",
+        resource_location="eastus2",
         deployment_model="gpt-4o-mini",
         deployment_type="standard-regional",
         read_on=TODAY,
@@ -231,11 +231,49 @@ def test_a_stale_reading_warns() -> None:
 
 
 def test_the_default_not_offered_on_the_mandated_type_is_named() -> None:
-    """The live finding: it must be stated on every run, not discovered by reading a
-    dataclass. If somebody flips `offered_in_region` this must go quiet, which is what
-    keeps the message tied to the fact rather than to a hardcoded sentence."""
-    notes = guard.warnings(dict(MODEL_LIFECYCLE), TODAY, None)
-    assert any("CONTRADICTS THE SHIPPED DEFAULT" in n for n in notes)
+    """THE WARNING THAT IS NOW QUIET AGAINST THE SHIPPED TABLE, kept covered by a DOCTORED
+    one (D-449).
+
+    It fired for one release and what it caught was not a doc detail: on Microsoft's own
+    Standard (regional) matrix the shipped default was not offered in `southindia`, so the
+    only permitted region and the only permitted SKU could not run the model this product
+    ships. That was resolved by moving the REGION (`eastus2`), which is why the shipped
+    table no longer trips it.
+
+    THE BRANCH STAYS AND SO DOES THIS TEST, for two reasons. It is the only thing that
+    would notice the same defect arriving from the other direction — a new allow-list
+    member, or another region move, that the mandated SKU does not serve — and that failure
+    is silent until a call 404s mid-conversation. And an uncovered branch is a coverage
+    ratchet failure, so a quiet branch with no test is a branch somebody deletes to make
+    the number go down.
+
+    It is stated against a doctored table rather than the real one BECAUSE the real one is
+    green: a test that could only pass while the tree had the defect would have to be
+    deleted the day the defect was fixed, which is how a guard loses its negative control.
+    """
+    assert not any(
+        "CONTRADICTS THE SHIPPED DEFAULT" in n
+        for n in guard.warnings(dict(MODEL_LIFECYCLE), TODAY, None)
+    ), "the shipped table trips this warning again — the region or the default has moved"
+
+    from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL
+
+    doctored = {
+        AZURE_OPENAI_DEFAULT_MODEL: _entry(
+            AZURE_OPENAI_DEFAULT_MODEL,
+            TODAY + timedelta(days=900),
+            offered_in_region=frozenset({"global-standard"}),
+        ),
+        "other-model": _entry("other-model", TODAY + timedelta(days=900)),
+    }
+    notes = guard.warnings(doctored, TODAY, None)
+    named = [n for n in notes if "CONTRADICTS THE SHIPPED DEFAULT" in n]
+    assert len(named) == 1, notes
+    assert "global-standard" in named[0] and "other-model" in named[0], named
+    # And it names the way OUT, which is the half that makes it actionable: either the
+    # default moves to a model the region serves, or the region moves — and the second is
+    # a residency decision with a decision-log entry, the way D-449 was.
+    assert "REGION moves" in named[0], named
 
 
 def test_the_shipped_table_covers_the_shipped_allow_list() -> None:

@@ -22,6 +22,18 @@ the tree could prove before, because before there was nothing to disagree with:
   character-for-character D-410's checks; under a posture pinning no region they INVERT and
   require that no shipped constant freezes one at all.
 
+**WHAT D-449 CHANGED.** The declared posture moved from `india-azure-openai`
+(`southindia`) to `us-azure-openai` (`eastus2`) — still Azure OpenAI, still Regional
+Standard rather than Global. **That is a WITHDRAWAL of the India residency claim and never
+an upgrade of anything**, and this file says so on every run (`delegated_notice`) because a
+reader who has seen the old wording will otherwise supply the old meaning. It is also the
+change that showed this mechanism could express only two shapes — "pins southindia" and
+"pins nothing" — because the region was a module constant every check compared against
+rather than a property of the declared spec. It is now the latter, and `KNOWN_REGIONS`
+carries the WITHDRAWN region alongside the declared one, so the leftover a half-finished
+posture move produces (`AZURE_LOCATION: Final = "southindia"` in a tree declaring the US
+posture) is found and named rather than passed over by a scan looking only for `eastus2`.
+
 **IT IS NOT A KNOB AND MUST NEVER BECOME ONE.** The declaration is a `Final` string literal
 in the portability contract. It is not a `Settings` field, not an environment variable and
 not a `platform_config` row — check 2 refuses any settings name carrying `posture`,
@@ -48,7 +60,7 @@ things below are what is left, and they are structural rather than evidential: t
 there is no code path by which model traffic is aimed somewhere else WITHOUT editing one
 `Final` constant, which is a different and lesser claim than "the traffic goes to Mumbai".
 
-1. **ONE SPELLING OF THE REGION.** `AZURE_LOCATION: Final = "southindia"` in the
+1. **ONE SPELLING OF THE REGION.** `AZURE_LOCATION: Final = "eastus2"` in the
    portability contract is the only place the region is written. A second `Final`, a
    default argument, a dict value — anything else spelling it is refused. Stricter than
    the Vertex version, which permitted any `Final`: with the region no longer checkable
@@ -76,13 +88,14 @@ WHAT NO VERSION OF THIS CHECK CAN PROVE, AND WHO OWNS IT INSTEAD. Two facts, bot
 properties of the Azure resource rather than of this repository, both invisible from the
 endpoint, and the second is the more dangerous:
 
-* **Is the resource in `southindia`?** OPERATIONS §2 **gate 20** — a human reads the
+* **Is the resource in the DECLARED region (`eastus2` since D-449)?** OPERATIONS §2
+  **gate 20** — a human reads the
   Location field on the resource's Overview blade, confirms it with
   `az cognitiveservices account show --query location`, and files the reading in
   `docs/evidence/` with a date and a name.
 * **Is the deployment REGIONAL Standard rather than GLOBAL?** OPERATIONS §2 **gate 20c**.
   Global is Azure's DEFAULT deployment type and processes worldwide. A Global deployment
-  inside a South India resource passes every check in this file and is a residency breach.
+  inside the declared resource passes every check in this file and breaks the DPA.
   It costs money to get right (Regional runs ~5-10% above Global list), which is precisely
   why nobody will notice having left the default.
 
@@ -91,7 +104,7 @@ written down, because the honest half of a weakened guard is the pointer to whoe
 the other half.
 
 THE REGIONAL HOSTNAME, AND WHY THIS FILE IS BUILT SO ADOPTING IT IS ONE LINE. Azure also
-serves `southindia.api.cognitive.microsoft.com`, documented as interchangeable with the
+serves `<region>.api.cognitive.microsoft.com`, documented as interchangeable with the
 custom subdomain — a hostname that CARRIES THE REGION, which would hand check 1 back its
 evidence and make this guard as strong as the Vertex one was. D-410 rejects it FOR NOW on
 one ground: the OpenAI-compatible v1 surface is documented only on the custom-subdomain
@@ -102,8 +115,8 @@ tested: flip `REGIONAL_HOST_ADOPTED`, and the same scan that today REFUSES that 
 starts requiring the label in front of it to be `AZURE_LOCATION`. Both branches are
 exercised by `tests/model_residency_guard_test.py`, so the dormant one is not a promise.
 
-WHY THERE IS NO BLACKLIST OF OTHER AZURE REGIONS (`eastus`, `swedencentral` — the two a
-reader will reach for, since they are `gpt-4.1-mini`'s default quota regions). It was the
+WHY THERE IS NO BLACKLIST OF OTHER AZURE REGIONS (`eastus`, `swedencentral`, or — since
+D-449 — `southindia` itself). It was the
 obvious replacement for the `us-central1` check and it is unreachable: a region string can
 only affect where a call lands by reaching an endpoint, no endpoint is constructible
 outside the builder (check 3), and the builder has no region input (check 4). A ban on
@@ -166,12 +179,24 @@ from typing import Final
 
 REPO_ROOT: Final = Path(__file__).resolve().parents[1]
 
-#: The ONLY region D-410 permits. Spelled HERE rather than imported, for the reason
-#: `check_bootstrap_keys.BOOTSTRAP_KEYS` gives: a guardrail that imported the value it is
-#: checking would be asking the code whether it agrees with itself. It is also this
-#: check's own blindness canary (check 5) — the provenance scan must be able to find this
-#: line, or it is not reading anything.
-AZURE_REGION: Final = "southindia"
+#: THE REGIONS THIS CHECK KNOWS HOW TO ENFORCE — one `Final` per pinning posture, spelled
+#: HERE rather than imported, for the reason `check_bootstrap_keys.BOOTSTRAP_KEYS` gives: a
+#: guardrail that imported the value it is checking would be asking the code whether it
+#: agrees with itself. They are also this check's own blindness canary (check 5) — the
+#: provenance scan must be able to find EVERY one of these lines, or it is not reading
+#: anything.
+#:
+#: **WHY THE WITHDRAWN REGION KEEPS A CONSTANT HERE (D-449).** Deleting
+#: `AZURE_REGION_INDIA` when the declaration moved to `us-azure-openai` would have been one
+#: line, and it would have blinded this check to the single most likely product of a
+#: half-finished posture move: a leftover `AZURE_LOCATION: Final = "southindia"` in a tree
+#: that now declares the US posture. A scan that looked only for the DECLARED region walks
+#: straight past that constant and reports "one spelling of the region" — true, and
+#: useless. So `frozen_region_constants()` scans `KNOWN_REGIONS`, which is every region any
+#: KNOWN posture pins, and `single_spelling_failures()` refuses a constant holding a region
+#: the declaration has moved off, by name and by value.
+AZURE_REGION_INDIA: Final = "southindia"
+AZURE_REGION_US: Final = "eastus2"
 
 #: The name and home of the ONE constant in shipped code allowed to hold that string.
 #: Both are asserted (check 1): a second constant, or the same one moved somewhere a
@@ -190,7 +215,8 @@ AZURE_HOST_SUFFIX: Final = ".openai.azure.com"
 #: literal in the whole tree permitted to name an Azure host is this string, declared as a
 #: `Final` in `BUILDER_HOME` (`_AZURE_ENDPOINT_SUFFIX`).
 #:
-#: SPELLED HERE RATHER THAN IMPORTED, like `AZURE_REGION`, and it buys something extra: the
+#: SPELLED HERE RATHER THAN IMPORTED, like the region constants, and it buys something
+#: extra: the
 #: v1 path shape is VERIFIED EVIDENCE (Microsoft Learn, 19 Aug 2026 — no `api-version`,
 #: key in `Authorization: Bearer`), not a preference. If somebody edits the path in
 #: `BUILDER_HOME`, this guard goes red and the edit has to be made deliberately in both
@@ -222,7 +248,7 @@ OPENAI_DIRECT_HOST: Final = "api.openai.com"
 #: promised. `False`: naming `AZURE_REGIONAL_HOST_SUFFIX` in shipped code is a failure,
 #: because D-410 ships the custom subdomain and a second endpoint form would be a second
 #: residency posture. `True`: it becomes the EXPECTED form and the label in front of it is
-#: checked against `AZURE_REGION` — check 1's lost evidence, back.
+#: checked against the declared posture's region — check 1's lost evidence, back.
 #:
 #: FLIPPING IT IS NOT THE WHOLE CHANGE and the comment says so rather than letting somebody
 #: find out: gate 20d has to pass first (does v1 actually answer there), then
@@ -259,7 +285,8 @@ POSTURE_RECORD_CONSTANT: Final = "DECLARED_POSTURE"
 class PostureSpec:
     """What one declared posture obliges the tree to look like.
 
-    HELD HERE AND NEVER IMPORTED FROM THE CONTRACT, for `AZURE_REGION`'s reason and more
+    HELD HERE AND NEVER IMPORTED FROM THE CONTRACT, for `AZURE_REGION_INDIA`'s reason and
+    more
     sharply. The contract states which posture is in force; this table states what that
     posture costs. If the spec were imported, editing the declaration would edit the
     obligation in the same commit and the guard would agree with any tree it was shown —
@@ -309,6 +336,16 @@ class PostureSpec:
 
 #: EVERY POSTURE THIS TREE KNOWS HOW TO CHECK. Exactly one of them is declared.
 #:
+#: `india-azure-openai` IS HERE AND IT IS NO LONGER DECLARED (D-449). It stays for the same
+#: reason `openai-direct` earns its row, and the argument is if anything sharper for a
+#: posture the product has actually left: a mechanism that can only express the posture in
+#: force proves nothing about the posture in force. With the withdrawn spec still present,
+#: `tests/residency_posture_test.py` can state the SHIPPED tree against it and watch this
+#: guard name both regions in its refusal — which is what turns "the generalization is
+#: load-bearing" from a design intention into an observed fact. Deleting the row would also
+#: delete the only way to ask "would this tree pass as an Indian one", which is the question
+#: an auditor reading a superseded DPA will arrive with.
+#:
 #: `openai-direct` IS HERE AND IT IS NOT AN OFFER. It is the posture D-410 DISQUALIFIED on
 #: residency (OpenAI's India residency covers storage at rest; inference runs in the US, and
 #: for a phone call the transcript IS the inference input), and it earns its row for one
@@ -320,9 +357,27 @@ class PostureSpec:
 #: `apps/web/src/lib/legal/dpa.ts`, which warrants the India posture to clients in an
 #: executed agreement; that is a legal act, not a config change.
 POSTURES: Final[dict[str, PostureSpec]] = {
+    "us-azure-openai": PostureSpec(
+        name="us-azure-openai",
+        region=AZURE_REGION_US,
+        region_constant=REGION_CONSTANT,
+        llm_provider="azure_openai",
+        addresses_a_deployment=True,
+        builder=BUILDER,
+        builder_arity=1,
+        builder_suffix=BUILDER_SUFFIX,
+        permitted_host=AZURE_HOST_SUFFIX,
+        delegated_gate=(REGION_CONSTANT, "portal"),
+        warrant=(
+            "the region is spelled once and it is not an Indian one, no Settings field "
+            "can carry a region, no Azure endpoint is constructible outside the one "
+            "builder, and that builder has no region input — but NOTHING HERE CLAIMS "
+            "INDIAN RESIDENCY ANY MORE, because D-449 withdrew that claim"
+        ),
+    ),
     "india-azure-openai": PostureSpec(
         name="india-azure-openai",
-        region=AZURE_REGION,
+        region=AZURE_REGION_INDIA,
         region_constant=REGION_CONSTANT,
         llm_provider="azure_openai",
         addresses_a_deployment=True,
@@ -360,6 +415,16 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         ),
     ),
 }
+
+#: EVERY region any known posture pins — DERIVED from `POSTURES`, never a second list
+#: written beside it. Two properties follow and both were bought by D-449's move. It cannot
+#: drift when a posture is added (the `AZURE_LIST_PRICE_USD_PER_MTOK` failure class: a
+#: parallel table nobody updates), and because it holds the WITHDRAWN region as well as the
+#: declared one, check 1 can see a frozen constant the declaration has moved off — the one
+#: thing a declared-region-only scan is structurally unable to notice.
+KNOWN_REGIONS: Final[frozenset[str]] = frozenset(
+    spec.region for spec in POSTURES.values() if spec.region is not None
+)
 
 #: Where a URL literal can ship. `scripts/` is in for `sarvam_model_identifier_test`'s
 #: reason: `scripts/pilot/` drives a real vendor account and reads like a fixture.
@@ -553,7 +618,7 @@ def _docstrings(tree: ast.AST) -> set[int]:
 def _is_final(annotation: ast.expr) -> bool:
     """`Final`, `typing.Final`, `Final[str]`, `typing.Final[str]` — and nothing else.
 
-    A plain `x: str = "southindia"` is NOT frozen: `Final` is what mypy strict (a CI gate
+    A plain `x: str = "eastus2"` is NOT frozen: `Final` is what mypy strict (a CI gate
     here) refuses to let anything rebind, so it is the annotation that turns a convention
     into an enforced one.
     """
@@ -615,6 +680,28 @@ WATCHED_HOSTS: Final[tuple[str, ...]] = (
 
 def _mentions_watched_host(text: str) -> bool:
     return any(host in text for host in WATCHED_HOSTS)
+
+
+#: Endpoint hosts a `Settings` DEFAULT may not carry, ON TOP OF `WATCHED_HOSTS`.
+#: Read by `console_config_failures` and by nothing else.
+#:
+#: TODAY THAT IS THE SARVAM CHAT HOST, and it is PROPHYLACTIC: no `Settings` field points
+#: at it, so this clause guards a field nobody has written yet. It is here because
+#: `managed_fields()` derives the console-editable set by SUBTRACTION — `Settings` minus
+#: bootstrap keys minus credential-shaped names — so a future `sarvam_base_url` would be
+#: editable from a web form the day it was declared, with nothing to notice. A text box
+#: that re-points THIS leg is worse than one that re-points Azure's: Sarvam runs the first
+#: post-call extraction over the RAW transcript (`GEMINI_EXTRACTION_DEFAULT is False`), so
+#: the payload is caller PII rather than redacted prose.
+#:
+#: WHY IT IS NOT IN `WATCHED_HOSTS`, which is the obvious-looking place and was the wrong
+#: suggestion. That tuple feeds `endpoint_failures`, and every failure clause there names
+#: its OWN host and its own remedy — Azure's builder, the regional form, OpenAI-direct's
+#: disqualification. A host with no clause of its own produces exactly zero findings
+#: there. What adding it WOULD do is widen `SELF_DECLARATIONS`, i.e. grow the set of
+#: strings this file exempts from its own scan, and pull the host into the docs-prose
+#: machinery — cost with no check behind it. One reader, one constant, one clause.
+SETTINGS_ENDPOINT_HOSTS: Final[tuple[str, ...]] = ("api.sarvam.ai",)
 
 
 #: The strings `SELF` is allowed to spell: the three watched hosts, plus the builder
@@ -852,9 +939,18 @@ def declared_spec() -> PostureSpec:
 # --- 1: one spelling of the region --------------------------------------------
 
 
-def frozen_region_constants(roots: Iterable[Path] | None = None) -> dict[str, str]:
-    """`NAME: Final = "southindia"` across the tree — name to the file that defines it."""
-    constants: dict[str, str] = {}
+def frozen_region_constants(roots: Iterable[Path] | None = None) -> dict[str, tuple[str, str]]:
+    """`NAME: Final = "<any region in KNOWN_REGIONS>"` — name to (file, region held).
+
+    IT SCANS FOR EVERY KNOWN REGION AND CARRIES THE ONE IT FOUND, which is D-449's whole
+    widening rather than a convenience. Until the posture moved, "the region" was one
+    string, so a name and a file said everything; a scan for the DECLARED region alone
+    would now report a leftover `AZURE_LOCATION: Final = "southindia"` as no region
+    constant at all, and every check downstream would agree the tree spells its region
+    once. Carrying the value is what lets `single_spelling_failures` say WHICH region is
+    frozen and refuse it against the one the declaration pins.
+    """
+    constants: dict[str, tuple[str, str]] = {}
     for path in _files(roots, frozenset({".py"})):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
@@ -863,19 +959,23 @@ def frozen_region_constants(roots: Iterable[Path] | None = None) -> dict[str, st
                 and isinstance(node.target, ast.Name)
                 and node.value is not None
                 and isinstance(node.value, ast.Constant)
-                and node.value.value == AZURE_REGION
+                and node.value.value in KNOWN_REGIONS
                 and _is_final(node.annotation)
             ):
-                constants[node.target.id] = _rel(path)
+                constants[node.target.id] = (_rel(path), node.value.value)
     return constants
 
 
 def loose_region_literals(roots: Iterable[Path] | None = None) -> list[str]:
-    """Check 1, first half: a bare `"southindia"` that is NOT a `Final` constant's value.
+    """Check 1, first half: a bare region literal that is NOT a `Final` constant's value.
 
     The shape this is really aimed at is not a second constant — it is
-    `def __init__(self, location: str = "southindia")`, a default argument that reads like
+    `def __init__(self, location: str = "eastus2")`, a default argument that reads like
     a pin and is one keyword away from not being one.
+
+    STATED OVER `KNOWN_REGIONS` RATHER THAN OVER THE DECLARED ONE (D-449), because the
+    loose literal a posture move leaves behind spells the region the tree just left, and a
+    scan for the region it just arrived at would never look at it.
     """
     failures: list[str] = []
     for path in _files(roots, frozenset({".py"})):
@@ -884,11 +984,11 @@ def loose_region_literals(roots: Iterable[Path] | None = None) -> list[str]:
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.Constant)
-                and node.value == AZURE_REGION
+                and node.value in KNOWN_REGIONS
                 and id(node) not in frozen
             ):
                 failures.append(
-                    f"{_rel(path)}:{node.lineno} spells {AZURE_REGION!r} somewhere other "
+                    f"{_rel(path)}:{node.lineno} spells {node.value!r} somewhere other "
                     "than a `Final` constant's value. D-410 pins the region so it cannot "
                     "be varied per call site or per caller — reference "
                     f"`calevate_shared.engine.{REGION_CONSTANT}` instead. This matters "
@@ -900,7 +1000,7 @@ def loose_region_literals(roots: Iterable[Path] | None = None) -> list[str]:
 
 
 def single_spelling_failures(
-    constants: Mapping[str, str] | None = None, spec: PostureSpec | None = None
+    constants: Mapping[str, tuple[str, str]] | None = None, spec: PostureSpec | None = None
 ) -> list[str]:
     """Check 1, second half: outside this guard, `AZURE_LOCATION` in the portability
     contract is the ONLY frozen constant holding the region.
@@ -912,12 +1012,19 @@ def single_spelling_failures(
     URLs now. A second constant is a second answer to "which region is this product in",
     with nothing downstream able to notice when the two stop agreeing.
 
-    `SELF` is excluded because this file spells the region as its own canary (see
-    `AZURE_REGION`), which is the not-imported doctrine and not a second decision.
+    IT NOW JUDGES THE VALUE AND NOT ONLY THE NAME (D-449). While there was one known
+    region, "a frozen constant named `AZURE_LOCATION`, in the contract" was the whole
+    obligation, because there was nothing else it could be holding. Once a second region is
+    knowable the name proves nothing: `AZURE_LOCATION: Final = "southindia"` under a
+    declaration that says `us-azure-openai` is exactly the tree a half-finished posture move
+    leaves, and it satisfies every name-shaped check ever written here.
+
+    `SELF` is excluded because this file spells both known regions as its own canaries (see
+    `AZURE_REGION_INDIA`), which is the not-imported doctrine and not a second decision.
     """
     posture = declared_spec() if spec is None else spec
     found = frozen_region_constants() if constants is None else constants
-    shipped = {name: home for name, home in found.items() if home != SELF}
+    shipped = {name: where for name, where in found.items() if where[0] != SELF}
     # THE INVERSION D-432 ADDED, and it is the half that makes the declaration mean
     # something. Under a posture that PINS a region there must be exactly one frozen
     # constant spelling it, in the contract. Under a posture that pins NONE there must be
@@ -933,7 +1040,7 @@ def single_spelling_failures(
             "that makes no regional claim is a promise nothing keeps. Delete it, or "
             "declare the posture that actually holds."
         ]
-    if shipped == {posture.region_constant: BUILDER_HOME}:
+    if shipped == {posture.region_constant: (BUILDER_HOME, posture.region)}:
         return []
     if not shipped:
         return [
@@ -943,10 +1050,29 @@ def single_spelling_failures(
             f"point `REGION_CONSTANT`/`BUILDER_HOME` at its new home deliberately, "
             "because every other check here reads it."
         ]
+    # THE WRONG-REGION ARM IS SEPARATE FROM THE TWO-SPELLINGS ARM ON PURPOSE (D-449). They
+    # are different defects with different fixes and, more to the point, different
+    # consequences: two constants holding the SAME region is a tidiness failure that will
+    # one day become a contradiction, while ONE constant holding a region the declaration
+    # does not pin is the contradiction already — the tree quietly running (or claiming to
+    # run) somewhere the declared posture, the DPA and the operations gates all say it does
+    # not. A message that lumped them together would name neither region, and naming both
+    # is the only way a reader can tell which half of the move was left undone.
+    misplaced = {name: where for name, where in shipped.items() if where[1] != posture.region}
+    if misplaced:
+        return [
+            f"posture {posture.name!r} pins the region {posture.region!r}, but shipped "
+            f"code freezes a different one: "
+            f"{sorted((name, held, home) for name, (home, held) in misplaced.items())}. "
+            "This is what a half-finished posture move looks like — the declaration has "
+            "moved and a constant has not, or the reverse. Whichever it is, the tree is "
+            "asserting two regions at once and only one of them can be where the "
+            "deployment is. Fix it DELIBERATELY: a region constant is not a rename."
+        ]
     return [
-        f"the region {AZURE_REGION!r} is frozen in more than one place, or somewhere other "
-        f"than `{posture.region_constant}` in {BUILDER_HOME}: {sorted(shipped.items())}. "
-        "D-410 "
+        f"the region {posture.region!r} is frozen in more than one place, or somewhere "
+        f"other than `{posture.region_constant}` in {BUILDER_HOME}: "
+        f"{sorted(shipped.items())}. D-410 "
         "permits ONE spelling. Two constants holding the same region is two answers to "
         "where this product's models run, and — unlike under D-127 — no URL in this tree "
         "would reveal the day they stop agreeing."
@@ -972,17 +1098,32 @@ def _labelled_hosts(template: str, suffix: str) -> Iterator[str]:
         index = template.find(suffix, index + 1)
 
 
-def _region_ok(token: str, frozen: Mapping[str, str]) -> bool:
-    if token == AZURE_REGION:
+def _region_ok(token: str, frozen: Mapping[str, tuple[str, str]], region: str | None) -> bool:
+    """Does this label in a REGIONAL hostname name the region the declared posture pins?
+
+    IT COMPARES THE CONSTANT'S VALUE, NOT MERELY THAT THE NAME IS FROZEN, and since D-449
+    that is a real distinction rather than pedantry: `frozen` now holds every constant
+    spelling any KNOWN region, so `{AZURE_LOCATION}` resolving to a frozen constant says
+    nothing about WHICH region it resolves to. Accepting a name because it is frozen would
+    wave through exactly the leftover-constant tree check 1 exists to refuse.
+
+    `region is None` (a posture making no regional claim) accepts nothing: there is no
+    region for a hostname to be carrying, so a regional hostname under such a posture is a
+    claim the declaration does not make.
+    """
+    if region is None:
+        return False
+    if token == region:
         return True
     if token.startswith("{") and token.endswith("}"):
-        return token[1:-1].strip() in frozen
+        held = frozen.get(token[1:-1].strip())
+        return held is not None and held[1] == region
     return False
 
 
 def endpoint_failures(
     references: Iterable[Reference],
-    frozen: Mapping[str, str] | None = None,
+    frozen: Mapping[str, tuple[str, str]] | None = None,
     allowances: Mapping[str, DatedAllowance] | None = None,
     spec: PostureSpec | None = None,
 ) -> list[str]:
@@ -1038,12 +1179,13 @@ def endpoint_failures(
                     "forms at once is two residency postures."
                 )
                 continue
-            if not _region_ok(label, constants):
+            if not _region_ok(label, constants, posture.region):
                 failures.append(
-                    f"{reference} sends model traffic to region {label!r}. D-410 permits "
-                    f"{AZURE_REGION!r} only — literally, or through a `Final` constant "
-                    f"holding it (known: {sorted(constants) or 'none'}). This is a "
-                    "residency change, not a config change."
+                    f"{reference} sends model traffic to region {label!r}. Posture "
+                    f"{posture.name!r} permits {posture.region!r} only — literally, or "
+                    f"through a `Final` constant holding THAT VALUE (known: "
+                    f"{sorted(constants) or 'none'}). This is a residency change, not a "
+                    "config change."
                 )
 
         # THE SINGLE-LITERAL RULE, now stated over the DECLARED posture's host rather
@@ -1163,8 +1305,21 @@ def console_config_failures(
                 "(`azure_openai_resource`) and let the builder assemble the rest."
             )
             continue
+        if isinstance(default, str) and any(host in default for host in SETTINGS_ENDPOINT_HOSTS):
+            # BEFORE the watched-host clause and with its own `continue`, so the two never
+            # report one field twice. See `SETTINGS_ENDPOINT_HOSTS` for why this host is
+            # deliberately absent from `WATCHED_HOSTS` and therefore from every other
+            # check in this file.
+            failures.append(
+                f"Settings.{name} defaults to a model endpoint ({default!r}) on the leg "
+                "that reads the RAW transcript. `managed_fields()` derives the "
+                "console-editable set by subtraction, so this field is a web form that "
+                "re-points caller PII at a host of the operator's choosing. Keep the "
+                "endpoint a `Final` constant in `apps/workers/extraction.py`."
+            )
+            continue
         if isinstance(default, str) and (
-            _mentions_watched_host(default) or default == AZURE_REGION
+            _mentions_watched_host(default) or default in KNOWN_REGIONS
         ):
             failures.append(
                 f"Settings.{name} defaults to a model endpoint or a region ({default!r}). "
@@ -1365,7 +1520,7 @@ MINIMUM_TEMPLATES: Final = 200
 
 def blindness_failures(
     templates: int,
-    constants: Mapping[str, str],
+    constants: Mapping[str, tuple[str, str]],
     references: Iterable[Reference],
     spec: PostureSpec | None = None,
 ) -> list[str]:
@@ -1376,12 +1531,28 @@ def blindness_failures(
             f"the AST walk found only {templates} string templates across {SCANNED_TREES} "
             "— it is blind. Fix the scan rather than lowering MINIMUM_TEMPLATES."
         )
-    if "AZURE_REGION" not in constants:
+    # THE PARSE CANARY IS NOW ONE PROBE PER KNOWN REGION (D-449), which is strictly stronger
+    # than the single `AZURE_REGION` probe it replaces AND keeps working where that one
+    # would have gone dark. This file defines a `Final` for every region in `KNOWN_REGIONS`,
+    # so every one of them must come back from the scan of `SELF`; a scan that found the
+    # declared region and missed the withdrawn one is precisely the half-blind scan that
+    # would report a leftover constant as absent. The old probe also had a failure of its
+    # own: under a posture pinning NO region it asserted a constant this file might not
+    # define, so it could only ever be right for as long as the declared posture pinned
+    # something.
+    unseen = sorted(
+        region
+        for region in KNOWN_REGIONS
+        if not any(home == SELF and held == region for home, held in constants.values())
+    )
+    if unseen:
         failures.append(
-            "the provenance scan cannot find this file's own `AZURE_REGION: Final` "
-            "definition, so it would report ANY tree as having no frozen region constant "
-            "— which is the state in which checks 1 and 3 silently accept nothing and "
-            "reject everything, or the reverse. Fix `frozen_region_constants`."
+            f"the provenance scan cannot find this file's own `Final` definition(s) for "
+            f"{unseen} — every region in KNOWN_REGIONS is spelled in {SELF} exactly so the "
+            "scan has something it must be able to see. Missing one means it would report "
+            "a tree as having no frozen constant for that region, which is the state in "
+            "which checks 1 and 3 silently accept nothing and reject everything, or the "
+            "reverse. Fix `frozen_region_constants`."
         )
     # The SUBJECT canary is posture-conditional: under a posture that pins no region
     # there is no region constant to find, and its ABSENCE is what
@@ -1391,7 +1562,8 @@ def blindness_failures(
         failures.append(
             f"the scan cannot find `{posture.region_constant}: Final` in shipped code. That "
             "is the "
-            "SUBJECT canary rather than the parse canary: `AZURE_REGION` above proves this "
+            "SUBJECT canary rather than the parse canary: the KNOWN_REGIONS probe above "
+            "proves this "
             "file can still read a `Final`, and this proves there is still a residency "
             "decision in the tree for it to be reading."
         )
@@ -1412,16 +1584,35 @@ def blindness_failures(
 #: places is one that will eventually name two different gates.
 OPERATIONS_DOC: Final = "docs/OPERATIONS.md"
 
-DELEGATED_NOTICE: Final = (
-    f"NOT PROVED HERE, AND NO VERSION OF THIS CHECK CAN PROVE IT: that the Azure resource "
-    f"named by `azure_openai_resource` is in {AZURE_REGION}, and that its deployment is "
-    f"REGIONAL Standard rather than GLOBAL. Both are properties of the RESOURCE, invisible "
-    f"in `https://<resource>{AZURE_HOST_SUFFIX}/openai/v1`; Global is Azure's DEFAULT "
-    f"deployment type and processes worldwide. A human confirms both once in the Azure "
-    f"portal — {OPERATIONS_DOC} §2 gates 20 and 20c — and files the reading in "
-    f"docs/evidence/. Under D-127 this file proved the region from the AST. It no longer "
-    f"can, and that is D-410's recorded cost rather than an oversight."
-)
+
+def delegated_notice(spec: PostureSpec) -> str:
+    """What a green run of this check does NOT cover, in the DECLARED posture's own region.
+
+    A FUNCTION SINCE D-449, and it had to become one: it names the region, and the region
+    is a property of the posture rather than of this file. As a module `Final` it read the
+    one region that was hard-wired, so under any other declaration it would have printed
+    the wrong region under a green result — a guard telling a reader the opposite of what
+    it had just verified, in the one paragraph a reader relies on for what was NOT verified.
+
+    IT SAYS THE WITHDRAWAL OUT LOUD. Anyone who has read the old text will supply the old
+    meaning — "the models run in India, a human just has to confirm it" — from memory, and
+    a notice that merely swapped one region name into the same sentence would let them.
+    D-449 did not improve residency; it gave the claim up.
+    """
+    return (
+        f"NOT PROVED HERE, AND NO VERSION OF THIS CHECK CAN PROVE IT: that the Azure "
+        f"resource named by `azure_openai_resource` is in {spec.region}, and that its "
+        f"deployment is REGIONAL Standard rather than GLOBAL. Both are properties of the "
+        f"RESOURCE, invisible in `https://<resource>{AZURE_HOST_SUFFIX}/openai/v1`; Global "
+        f"is Azure's DEFAULT deployment type and processes worldwide. A human confirms both "
+        f"once in the Azure portal — {OPERATIONS_DOC} §2 gates 20 and 20c — and files the "
+        f"reading in docs/evidence/. Under D-127 this file proved the region from the AST. "
+        f"It no longer can, and that is D-410's recorded cost rather than an oversight. "
+        f"⚠ AND UNDER D-449 THE REGION IT DELEGATES IS NO LONGER AN INDIAN ONE: the India "
+        f"residency claim was WITHDRAWN, not upgraded. Gates 20/20c now confirm a US "
+        f"resource; nothing in this tree promises a client that their callers' words stay "
+        f"in India, and any document that still does is out of date."
+    )
 
 
 def delegation_failures(document: str | None = None, spec: PostureSpec | None = None) -> list[str]:
@@ -1507,7 +1698,7 @@ def main() -> int:
             "declaration, and a decision-log entry — together, in one reviewed commit."
         )
         if posture.delegated_gate is not None:
-            print(f"\n{DELEGATED_NOTICE}")
+            print(f"\n{delegated_notice(posture)}")
         return 1
 
     print(
@@ -1519,7 +1710,7 @@ def main() -> int:
     print(f"  what that proves under this posture: {posture.warrant}.")
     if posture.delegated_gate is None:
         return 0
-    print(f"\n{DELEGATED_NOTICE}")
+    print(f"\n{delegated_notice(posture)}")
     return 0
 
 

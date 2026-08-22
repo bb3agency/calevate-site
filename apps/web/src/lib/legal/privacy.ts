@@ -12,15 +12,17 @@ import type { LegalDocument } from "./types";
  *    `apps/workers/retention.py` actually enforces — NOT the numbers
  *    SECURITY-COMPLIANCE §4 quotes, which differ. Where the two disagree the notice
  *    states the enforced number and the disagreement is a finding, not a rounding.
- * 2. **The residency claim is the narrow one that is enforced.** "Everything stays in
- *    India" is not available: object storage is Cloudflare R2 with no India-only
- *    jurisdiction, and the voice platform's own documentation puts the whole call on US
- *    infrastructure. The application host is the one leg that stopped being undecided —
- *    D-180 chose an Indian VPS — and that changes ONE line of this notice, not its
- *    posture. What
- *    IS enforced — every model endpoint is pinned to an Indian region, and
+ * 2. **The residency claim is the narrow one that is enforced, and as of D-449 it is no
+ *    longer an India claim at all.** "Everything stays in India" was never available:
+ *    object storage is Cloudflare R2 with no India-only jurisdiction, and the voice
+ *    platform's own documentation puts the whole call on US infrastructure. On 22 August
+ *    2026 the language model moved from Azure OpenAI in South India to Azure OpenAI in
+ *    East US 2, so the one India claim this notice still made about model inference is
+ *    WITHDRAWN rather than narrowed a fourth time. What is still enforced — every model
+ *    endpoint is pinned to the single region the source declares, and
  *    `scripts/check_model_residency.py` fails the build otherwise — is stated as exactly
- *    that and no wider.
+ *    that and no wider. Speech, the first reading of the transcript and the application
+ *    host (D-180, an Indian VPS) are the legs that remain Indian.
  * 3. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
  *    that it answers truthfully when asked is enforced server-side and cannot be
@@ -585,19 +587,26 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "Speech and language processing is configured for India, and the code cannot change that on its own",
+              term: "Speech is processed in India; the language model is processed in the United States",
               detail:
-                "Speech recognition and voice synthesis run on an Indian provider. The " +
-                "language model on both AI legs — the model that holds the conversation " +
-                "during a call, and the dashboard assistant that works on redacted data " +
-                "— runs on Microsoft's Azure OpenAI service configured for the South " +
-                "India region. What the build enforces: there is one function in the " +
-                "whole codebase that may construct a model endpoint, it cannot produce a " +
-                "non-Indian region, the region appears exactly once and is not a setting " +
-                "anyone can edit, and the release fails if any of that stops being true. " +
+                "Speech recognition and voice synthesis run on an Indian provider, on " +
+                "both call legs, and so does the first pass that reads your transcript " +
+                "and pulls the fields out of it. The language model on both AI legs — " +
+                "the model that holds the conversation during a call, and the dashboard " +
+                "assistant that works on redacted data — runs on Microsoft's Azure " +
+                "OpenAI service configured for the East US 2 region, in the United " +
+                "States. Until 22 August 2026 that service was configured for the South " +
+                "India region and this notice said so; the claim that the language model " +
+                "runs in India is withdrawn, not reworded. What the build enforces, " +
+                "unchanged by the move: there is one function in the whole codebase that " +
+                "may construct a model endpoint, it can produce only the single region " +
+                "the source declares, the region appears exactly once and is not a " +
+                "setting anyone can edit, and the release fails if any of that stops " +
+                "being true — so no setting, console control or environment variable can " +
+                "move the model to a third country, only a reviewed code change can. " +
                 "What it cannot enforce, stated plainly because the distinction is real: " +
                 "the provider's endpoint address does not name its own region, so that " +
-                "the account and its model deployment are genuinely in South India is " +
+                "the account and its model deployment are genuinely in East US 2 is " +
                 "confirmed by a person against the provider's console and filed as dated " +
                 "evidence, not proved by a build check. See the sub-processor page, " +
                 "section 3.2.",
@@ -614,9 +623,13 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               term: "Recordings, exports and archived call documents",
               detail:
-                "Stored in Cloudflare R2. Cloudflare selects the storage location " +
-                "automatically and does not offer an India-only jurisdiction, so this " +
-                "data may be stored outside India.",
+                "Stored in Cloudflare R2. We ask Cloudflare to place the bucket in its " +
+                "Asia-Pacific region — that is a placement preference Cloudflare " +
+                "applies where it can, not a residency commitment, and R2 does not " +
+                "offer an India-only jurisdiction. So this data is stored outside " +
+                "India, and asking for Asia-Pacific does not change that. Cloudflare " +
+                "publishes no datacentre for that region, so we do not name a country " +
+                "for it either.",
             },
             {
               term: "The voice platform",
@@ -649,8 +662,12 @@ export const PRIVACY_POLICY: LegalDocument = {
           text:
             "If any Calevate page, deck or proposal tells you that all data stays in " +
             "India, it is stating an intention rather than the enforced position, and " +
-            "this section overrides it. What is enforced today is the model-endpoint " +
-            "pinning described above.",
+            "this section overrides it. That now includes anything of ours written " +
+            "before 22 August 2026 which said the language model runs in an Indian " +
+            "region: it did, it does not any more, and the sentence is withdrawn rather " +
+            "than qualified. What is enforced today is the model-endpoint pinning " +
+            "described above — one declared region, moved only by a reviewed code " +
+            "change — and that region is in the United States.",
         },
       ],
     },

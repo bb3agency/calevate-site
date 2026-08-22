@@ -41,17 +41,26 @@ what quota, on which SKU. Azure exposes that machine-readably — the Models API
 now asks a human to read and file. `ATTESTATION_PATH` is where it lands, and
 `scripts/check_model_lifecycle.py` prefers it over everything written here.
 
-**THE ASYMMETRY D-410 ASSERTED IS REVERSED BY THESE READINGS AND THAT IS THE HEADLINE.**
-D-410 chose `gpt-4o-mini` as the default because it was *"documented available in South
-India"* while `gpt-4.1-mini`'s Indian availability was *"NOT confirmed"*. Microsoft's
-Standard (regional) availability matrix says the opposite for `southindia`:
-`gpt-4.1-mini` is listed, `gpt-4o-mini` is **not** — `gpt-4o-mini` in `southindia`
-appears only in the GLOBAL Standard matrix, and Global is the deployment type OPERATIONS
-§2 gate 20c exists to forbid, because Global processes worldwide and breaks the residency
-claim. This file does not act on that unilaterally (the regional matrix's own `ms.date`
-is a year old, and no Azure subscription exists yet to contradict it); it records it, and
-`check_model_lifecycle.py` says it out loud on every run until gate 20b files a portal
-reading either way.
+**THIS FILE'S FIRST READING REVERSED D-410's PREMISE, AND D-449 IS WHAT THAT READING
+CAUSED.** D-410 chose `gpt-4o-mini` as the default because it was *"documented available
+in South India"* while `gpt-4.1-mini`'s Indian availability was *"NOT confirmed"*.
+Microsoft's Standard (regional) availability matrix said the opposite for `southindia`:
+`gpt-4.1-mini` listed, `gpt-4o-mini` **not** — the shipped default appeared for that
+region only on the GLOBAL Standard matrix, and Global is the deployment type OPERATIONS §2
+gate 20c exists to forbid because it processes worldwide. So the only permitted region and
+the only permitted SKU had no documented way to run the shipped default at all.
+
+That contradiction is now RESOLVED, and it was resolved by moving the REGION rather than
+the model: D-449 withdrew the India residency claim and pinned `AZURE_LOCATION` to
+`eastus2`, where the same matrix marks both allow-listed models available on the mandated
+SKU (`standard-models.md:23`). Recording which of the two moved matters, because "we
+changed the default model" and "we stopped claiming Indian residency" are answers to the
+same build warning with entirely different consequences for a client's DPA.
+
+⚠ THE STALENESS CAVEAT SURVIVES THE MOVE UNCHANGED. That matrix's own `ms.date` is
+08/12/2025, so both `availability` entries below stay `verified=False` and print
+`[UNVERIFIED]` on every run. A green region is still a vendor publication about a region,
+not a statement about OUR subscription; only OPERATIONS §2 gate 20b closes it.
 """
 
 from __future__ import annotations
@@ -80,9 +89,14 @@ DEPLOYMENT_TYPES: Final[frozenset[str]] = frozenset(get_args(DeploymentType))
 #: The ONLY deployment type this product may run on, and the reason is not performance.
 #:
 #: Global Standard is Azure's DEFAULT and routes to capacity anywhere in the world; a
-#: Global deployment inside a South India resource passes every automated check in this
-#: tree — including `scripts/check_model_residency.py`, which cannot see a SKU — and
-#: breaks the DPA. OPERATIONS §2 gate 20c is the human reading that settles it.
+#: Global deployment inside the resource passes every automated check in this tree —
+#: including `scripts/check_model_residency.py`, which cannot see a SKU — and breaks the
+#: DPA. OPERATIONS §2 gate 20c is the human reading that settles it.
+#:
+#: D-449 DID NOT RELAX THIS, and the temptation to think it did is worth naming: withdrawing
+#: the India residency claim does not make "processes anywhere in the world" acceptable.
+#: What we still owe a client is a NAMED region they were told about, `eastus2`, and Global
+#: is the deployment type that silently makes that untrue.
 MANDATED_DEPLOYMENT_TYPE: Final[DeploymentType] = "standard-regional"
 
 #: How long before a retirement date the build starts warning: **120 days**.
@@ -174,10 +188,14 @@ _SCHEDULE: Final = (
     f"{_MS_DOCS_COMMIT[:10]} "
     "articles/foundry/openai/includes/concepts-model-retirement-schedule-content.md"
 )
+#: The Standard (REGIONAL) availability matrix, cited at the row for `AZURE_LOCATION`.
+#: `:23` is `eastus2` since D-449; it was `:34` (`southindia`) before. Cited by LINE
+#: because a matrix has one row per region and a citation to the page alone would let a
+#: reader check the wrong one.
 _STANDARD_MATRIX: Final = (
     "MicrosoftDocs/azure-ai-docs@"
     f"{_MS_DOCS_COMMIT[:10]} "
-    "articles/foundry/openai/includes/model-matrix/standard-models.md:34"
+    "articles/foundry/openai/includes/model-matrix/standard-models.md:23"
 )
 _READ_ON: Final = date(2026, 8, 22)
 
@@ -197,13 +215,7 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
         retires_on=date(2027, 4, 14),
         stage="Deprecated",
         replacement=None,
-        # NOT `standard-regional`, and this is the finding that reverses D-410's premise.
-        # Microsoft's Standard (regional) matrix row for `southindia` marks this model
-        # `-`; the same region's GLOBAL Standard matrix marks it available. Global is
-        # what gate 20c forbids, so on the vendor's own tables there is currently no
-        # documented way to run the SHIPPED DEFAULT in the ONLY permitted region on the
-        # ONLY permitted deployment type.
-        offered_in_region=frozenset({"global-standard"}),
+        offered_in_region=frozenset({"standard-regional", "global-standard"}),
         retirement=Evidence(
             source=f"{_SCHEDULE}:35 (page ms.date 08/19/2026)",
             read_on=_READ_ON,
@@ -224,11 +236,18 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             read_on=_READ_ON,
             verified=False,
             note=(
+                "Row `| eastus2 | ... |`, column `gpt-4o-mini, 2024-07-18`: available on "
+                "Standard (regional). This entry read `{global-standard}` until D-449, on "
+                "the same matrix's `southindia` row (:34), where this model is marked `-` "
+                "— the contradiction that put the shipped default outside the only "
+                "permitted region on the only permitted SKU. IT WAS RESOLVED BY MOVING THE "
+                "REGION, NOT THE MODEL. Global Standard (standard-global.md:23, ms.date "
+                "07/23/2026) also lists it for eastus2, so a Global deployment here would "
+                "be as easy to create by accident as it was before — gate 20c, unchanged. "
                 "The matrix is the vendor's own, but its `ms.date` is 08/12/2025 and its "
                 "content has not changed in this repository's visible history, so it is "
-                "carried UNVERIFIED as a statement about today. Global Standard's matrix "
-                "(standard-global.md:35, ms.date 07/23/2026) DOES list this model in "
-                "southindia. Settled by OPERATIONS §2 gate 20b."
+                "carried UNVERIFIED as a statement about today. Settled by OPERATIONS §2 "
+                "gate 20b."
             ),
         ),
     ),
@@ -253,9 +272,12 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
             read_on=_READ_ON,
             verified=False,
             note=(
-                "Listed for southindia on the Standard (regional) matrix — the opposite "
-                "of D-410's assumption that its Indian availability was unconfirmed. "
-                "Same staleness caveat as gpt-4o-mini's row; same gate settles it (20b)."
+                "Row `| eastus2 | ... |`, column `gpt-4.1-mini, 2025-04-14`: available on "
+                "Standard (regional). It was ALSO listed for southindia (:34) — the "
+                "opposite of D-410's assumption that its Indian availability was "
+                "unconfirmed — so this model was never the one the old region could not "
+                "serve, and D-449 does not change its reading. Same staleness caveat as "
+                "gpt-4o-mini's row; same gate settles it (20b)."
             ),
         ),
     ),

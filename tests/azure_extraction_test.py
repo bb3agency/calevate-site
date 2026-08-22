@@ -219,13 +219,24 @@ def _patch_client(monkeypatch: pytest.MonkeyPatch, azure: FakeAzure) -> None:
     `run_assist` builds its adapter through the one constructor — a test that handed an
     adapter in would not notice if it stopped doing so.
     """
-    monkeypatch.setattr(
-        extraction_module,
-        "AzureOpenAIExtractor",
-        lambda resource, api_key, deployment, model: AzureOpenAIExtractor(
-            resource, api_key, deployment, model, client=azure.client()
-        ),
-    )
+
+    # `timeout_s` is accepted and forwarded rather than swallowed: `azure_extractor()`
+    # passes it now (the assist path asks for a tighter budget than the post-call one), and
+    # a stand-in that dropped the keyword would keep these tests green while the real
+    # constructor's signature had moved out from under them. It changes no request here —
+    # the injected client owns its own timeout, per the adapter's ownership rule.
+    def _stand_in(
+        resource: str,
+        api_key: str,
+        deployment: str,
+        model: str,
+        timeout_s: float = extraction_module.EXTRACTION_TIMEOUT_S,
+    ) -> AzureOpenAIExtractor:
+        return AzureOpenAIExtractor(
+            resource, api_key, deployment, model, client=azure.client(), timeout_s=timeout_s
+        )
+
+    monkeypatch.setattr(extraction_module, "AzureOpenAIExtractor", _stand_in)
 
 
 # --- 1. the request. host, path, query, auth, body --------------------------------
@@ -481,9 +492,10 @@ def test_an_off_list_model_is_refused_where_values_enter_and_not_here() -> None:
 def test_the_configured_model_is_what_the_client_reports_and_the_default_ships(
     configured: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """`gpt-4o-mini` is the default because it is the one of the two whose South India
-    availability is documented; `gpt-4.1-mini` is the live switch, and switching it must
-    reach the client without a deploy or it is not a switch."""
+    """`gpt-4o-mini` is the default because it is the cheaper of the two — at `eastus2`
+    both are available on the mandated SKU, so D-449 left the choice to price (D-410 chose
+    it on an availability claim that was backwards). `gpt-4.1-mini` is the live switch, and
+    switching it must reach the client without a deploy or it is not a switch."""
     assert AZURE_OPENAI_DEFAULT_MODEL in AZURE_OPENAI_MODELS
 
     built = azure_extractor()

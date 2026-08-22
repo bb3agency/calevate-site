@@ -260,7 +260,7 @@ jobs:
         # first time on the production host. Syntax-decidable; no daemon, no network.
         run: uv run python -m scripts.check_deploy_workflow
 
-      - name: "Guardrail: model residency (D-410 southindia only)"
+      - name: "Guardrail: model residency (D-449 eastus2 only — India claim withdrawn)"
         if: ${{ !cancelled() }}
         # The region may not be settable from the ops console — a residency posture an
         # operator can change from a web form is one a click can invert — and no Azure
@@ -268,15 +268,22 @@ jobs:
         # no database and no network. It is the one guardrail whose whole value is that
         # it blocks a merge.
         #
-        # THE STEP NAME CARRIES THE DECISION NUMBER because it is what an operator reads
-        # on a red run, and it said `D-127 asia-south1` for a while after D-410 moved the
-        # leg to Azure `southindia` — sending whoever hit it to the wrong decision row and
-        # the wrong vendor. A label is documentation with the shortest path to a human.
+        # THE STEP NAME CARRIES THE DECISION NUMBER AND THE REGION because it is what an
+        # operator reads on a red run. It has now been wrong twice in the same way: it said
+        # `D-127 asia-south1` after D-410 moved the leg to Azure `southindia`, and
+        # `D-410 southindia` after D-449 moved the region to `eastus2` — each time sending
+        # whoever hit it to the wrong decision row. A label is documentation with the
+        # shortest path to a human, and a stale one is worse than none.
+        #
+        # IT SAYS "India claim withdrawn" ON PURPOSE. D-449 is not an upgrade: this product
+        # no longer claims that a client's caller's words reach a language model inside
+        # India. Anyone reading this step to find out what residency we hold should read
+        # that in the label rather than infer it from a region code they may not recognise.
         #
         # It proves LESS than the Vertex form did and the script says so on every run:
         # `<resource>.openai.azure.com` names no region, so what is proved here is that no
         # code path can change the destination without editing one frozen constant. That
-        # the resource is in South India, and that its deployment is Regional Standard and
+        # the resource is in East US 2, and that its deployment is Regional Standard and
         # not Global, are human attestations — OPERATIONS §2 gates 20 and 20c.
         run: uv run python -m scripts.check_model_residency
 

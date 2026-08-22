@@ -1,5 +1,14 @@
 # Evidence — a direct Gemini adapter: does the objection that removed it still hold?
 
+> ⚠ **SUPERSEDED IN PART — 22 August 2026, D-449.** This lane re-tests a removal whose
+> residency half rested on the product having an India-inference requirement. D-449 moved
+> the declared posture to `us-azure-openai` / `eastus2` and withdrew the India warranty, so
+> **the residency leg of the Gemini refusal no longer discriminates** and should not be
+> quoted as if it does. The other legs recorded here are untouched and are what the refusal
+> now rests on: the 16 Oct 2026 retirement of `gemini-2.5-flash`, the successors' pricing,
+> and the Developer API's unexpressible region. Nothing below was re-read.
+
+
 **Lane**: L2 (research). **Read**: 22 Aug 2026. **Repo state**: read-only; this file is the
 only thing the lane wrote.
 

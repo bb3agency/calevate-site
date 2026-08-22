@@ -8,10 +8,14 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
 D-31) + BYOK models. Speech is Sarvam (Saaras STT, Bulbul v3 TTS, v2 = value tier —
-D-36, unchanged). Language is **Azure OpenAI in South India** — `AZURE_LOCATION`
-(`southindia`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
+D-36, unchanged). Language is **Azure OpenAI in East US 2** — `AZURE_LOCATION`
+(`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
 a live config switch through `azure_openai_model`. **D-410 supersedes D-400/D-404 on the
-in-call leg and D-127 on the dashboard leg; Gemini and Vertex are out of this product.**
+in-call leg and D-127 on the dashboard leg; Gemini and Vertex are out of this product.
+D-449 moved the REGION off `southindia` (declared posture `us-azure-openai`): the engine's
+orchestrator is US-hosted, so every turn was an ocean round trip, and Microsoft does not
+offer our default model in South India on Regional Standard. The default model and TRD §10
+are UNCHANGED; the client-facing India warranty is WITHDRAWN.**
 Three LLM surfaces, two of which moved: **in-call** and **dashboard AI** both run on the
 same Azure resource, region and model constants, reached through the ONE builder
 `azure_openai_base_url()` (`https://{resource}.openai.azure.com/openai/v1` — the
@@ -25,11 +29,14 @@ because a regional Vertex endpoint took no static key, and it is deleted with it
 **The first post-call extraction stays on Sarvam permanently** because it reads raw
 transcript text (`GEMINI_EXTRACTION_DEFAULT is False`, and D-410 does not move it).
 ⚠ Two things a new agent must not overstate. **(a) The residency claim is weaker than it
-was**: `<resource>.openai.azure.com` names no region, so the guard proves only that one
-constant spells the region, that no `Settings` field can carry one, and that no endpoint
-is constructible outside the builder — the resource's actual region and its
-**Regional-not-Global** deployment type are attested by a human (OPERATIONS §2 gates 20
-and 20c). Global is Azure's default and processes worldwide. **(b) The credential FIELD NAMES are SETTLED and the guess we shipped was WRONG**
+was, and since D-449 it is not an India claim at all**: `<resource>.openai.azure.com` names
+no region, so the guard proves only that one constant spells the region, that no `Settings`
+field can carry one, and that no endpoint is constructible outside the builder — the
+resource's actual region and its **Regional-not-Global** deployment type are attested by a
+human (OPERATIONS §2 gates 20 and 20c, which survive D-449 re-aimed at East US 2). Global is
+Azure's default and processes worldwide, so it would delete the region claim rather than
+downgrade it. Speech remains Sarvam and Indian; the transcript reaches a US model on every
+turn. **(b) The credential FIELD NAMES are SETTLED and the guess we shipped was WRONG**
 (D-417): their Azure provider takes four flat entries — `AZURE_OPENAI_API_KEY`,
 `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`
 (`bolna-findings/mirror/pages/providers.md:40,96-102`) — so four `POST /providers` calls,

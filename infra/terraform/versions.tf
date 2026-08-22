@@ -30,6 +30,21 @@ terraform {
 provider "aws" {
   # R2/Spaces/MinIO are not AWS. Every AWS-specific preflight the provider would
   # otherwise perform has to be skipped or it will try to talk to AWS endpoints.
+  #
+  # `region = "auto"` IS THE SIGV4 CREDENTIAL SCOPE, NOT A PLACEMENT (D-450). It is the
+  # string the signature is computed over, and R2 requires exactly this one. The bucket's
+  # PHYSICAL placement is a separate thing — R2's `CreateBucket` location hint, decided as
+  # `apac` — and it is set once, by a human, at the first creation of the bucket NAME
+  # (`infra/README.md` §5 item 2). Writing "apac" on the line below buys no placement
+  # whatsoever and breaks every request with `SignatureDoesNotMatch`, which is a failure
+  # nobody debugging placement would think to look for. Leave it alone.
+  #
+  # And this module CANNOT set the hint even if you wanted it to: its only resource is
+  # `aws_s3_bucket_lifecycle_configuration` against a bucket that already exists. There is
+  # deliberately no `aws_s3_bucket` here — the AWS provider has no way to send R2's hint,
+  # so a bucket resource added to "own" the placement would create the bucket in the WRONG
+  # place, permanently, while looking like it owned the decision. The hint's only honest
+  # home is the human checklist.
   region                      = "auto"
   skip_credentials_validation = true
   skip_region_validation      = true

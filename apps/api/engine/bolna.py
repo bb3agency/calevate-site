@@ -87,7 +87,9 @@ about that are worth the next reader's attention, because each was a reason not 
 * It stopped being an unverified claim: the page is in the mirror
   (`bolna-findings/mirror/pages/concepts/call-latencies.md`), and D-410's South India
   language model behind a US orchestrator made `llm.time_to_first_token` the only evidence
-  that exists for the largest unmeasured number in the product.
+  that exists for the largest unmeasured number in the product. D-449 removed that round
+  trip (`eastus2`) without ever measuring it, which is why this reader stayed: the
+  measurement is now the evidence for what the residency withdrawal bought.
 
 Resilience shipped here: a request timeout and jittered backoff on 429 (SURFACES §3.3).
 The circuit breaker that section also describes is deliberately NOT built — see the
@@ -1594,9 +1596,11 @@ def parse_transcript(raw: str | None, call_id: str) -> tuple[list[TranscriptTurn
 # things changed. Their page is now in the read-only mirror, so the shape is first-party
 # evidence rather than a search summary. And D-410 put the language model in South India
 # while their orchestrator stayed in the US (`mirror/pages/concepts/security.md:29`), which
-# makes `llm.time_to_first_token` the measurement of a round trip WE chose and nobody has
-# ever measured — TRD §4 budgets it at 350ms and TRD §4a records that every latency figure
-# in this repo is a target with zero measurements behind it.
+# made `llm.time_to_first_token` the measurement of a round trip WE chose and nobody ever
+# took — TRD §4 budgets it at 350ms and TRD §4a records that every latency figure in this
+# repo is a target with zero measurements behind it. D-449 has since co-located the model
+# with the orchestrator (`eastus2`), so what this field now measures is whether that was
+# worth the India residency claim it cost.
 #
 # WHAT IS STILL NOT CLAIMED. These are not voice-to-voice numbers and this reader does not
 # turn them into any: gate 4's stopwatch is the only thing that can say whether their sum
@@ -1743,9 +1747,10 @@ def _check_llm_ttft(latency: CallLatency | None, *, engine_call_id: str) -> None
 
     THE THRESHOLD IS THE VENDOR'S, NOT OURS, and the difference is what keeps this
     actionable. Our budget is 350ms (`LLM_TTFT_BUDGET_MS`, TRD §4) and we already expect to
-    miss it: the orchestrator is US-hosted and the model is in South India, so every turn
-    pays a round trip nobody has measured yet. An alarm on 350ms would fire on that known
-    geography, on every call, forever — which is how an alarm gets muted. 1000ms is the
+    miss it: this is a rented audio path with a transcriber, a model and a synthesiser in
+    it, and until D-449 the model sat a US->India->US round trip away from the orchestrator
+    besides. An alarm on 350ms would fire on the known geography, on every call, forever —
+    which is how an alarm gets muted. 1000ms is the
     number the vendor's own bottleneck guide calls a problem (`call-latencies.md:178`), and
     at 1000ms sustained the agent is audibly broken.
 

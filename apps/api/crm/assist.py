@@ -42,9 +42,22 @@ this, and every hop here is `await`ed on an asyncio loop, so a slow Azure occupi
 thread. What it DOES occupy is one pooled Postgres connection for the length of the
 round trip, because `Depends(db)`'s transaction is open across it and `app.tenant_id` is
 transaction-local (`db/session.tenant_session`) so the transaction cannot be committed
-and resumed. That cost is real, is bounded by `EXTRACTION_TIMEOUT_S` (30s) and by the
-`costly` rate-limit profile — whose own comment names "an LLM call" — and is the price
-of the alternative being worse in three ways:
+and resumed.
+
+That cost is real and this paragraph USED TO STATE ITS BOUND WRONG, which is how the
+collision below survived review: it said "bounded by `EXTRACTION_TIMEOUT_S` (30s)", and
+`run_assist` runs TWO provider legs in series — Azure, then the disclosed Sarvam fallback
+— so 30s per leg was ~60s of provider wait, plus this route's own idempotency claim,
+quota gate, transcript load, metering and audit write, behind an `api.` vhost whose
+`proxy_read_timeout` is 60s. The connection was held for the longer of the two numbers
+and the client got a 504 instead of the fallback's answer.
+
+The real bound is `2 * ASSIST_TIMEOUT_S` (15s a leg), which `run_assist` passes into both
+extractors, plus `ASSIST_ROUTE_RESERVE_S` for everything in this file —
+`tests/assist_deadline_test.py` reads nginx's number out of the config and asserts the sum
+fits under it. The `costly` rate-limit profile — whose own comment names "an LLM call" —
+is the other half of the bound, and the whole thing is the price of the alternative being
+worse in three ways:
 
 - a 202-and-poll shape needs somewhere to PUT the answer, which is a new table of
   transcript-derived prose: the personal-data store the section above declines to build;
@@ -90,7 +103,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
-from apps.workers.extraction import AZURE_PROVIDER, AssistResult
+from apps.workers.extraction import AZURE_PROVIDER, SARVAM_PROVIDER, AssistResult
 
 log = get_logger(__name__)
 
@@ -286,7 +299,7 @@ async def meter_assist(
                 model=model,
                 feature=feature,
             )
-        else:
+        elif result.capability.provider == SARVAM_PROVIDER:
             # The ordinary, correct, free case. Logged so that "why did the counter not
             # move" has an answer that is not a shrug.
             log.info(
@@ -298,6 +311,42 @@ async def meter_assist(
                     "fallback_reason": result.capability.fallback_reason,
                     "feature": feature,
                 },
+            )
+        else:
+            # THE CLOSED SET IS NOW CLOSED, and this arm is why. The free branch above
+            # used to be a bare `else`: it SAID "not Azure" and MEANT "Sarvam", a fact
+            # owned by `assist_capability`'s ladder in `apps/workers/extraction.py` and
+            # depended on here with nothing comparing the two. The default for an
+            # unrecognised provider was therefore "free" — on an APPEND-ONLY ledger, where
+            # a row that should have existed cannot be back-filled by an UPDATE.
+            #
+            # NOT A LIVE MONEY HOLE TODAY, and saying so is part of the record: the ladder
+            # returns exactly two providers, `SarvamExtractor` has no `last_usage` so the
+            # Sarvam path always arrives with `usage is None` (this branch, never the
+            # metered one), D-36 prices that leg at zero, and `record_ai_assist_usage`
+            # refuses an identifier `rates.llm_inr_per_ktok` does not publish rather than
+            # defaulting to a price. It is a hole that OPENS the day a third, paid provider
+            # is added — the change that adds it touches `extraction.py` and has no reason
+            # to look at this file, which is precisely when a silent default costs money.
+            #
+            # An alert rather than a log line, and a REFUSAL was rejected: the run already
+            # happened and §4's rule is that nothing between the run and the meter may
+            # raise. So it is recorded as unmetered, loudly, with the provider named.
+            alert(
+                "CORE_LOGIC",
+                "ai_assist_unknown_provider",
+                detail=(
+                    "A dashboard assist was answered by a provider this meter does not "
+                    "know how to price, so it was recorded as free. If that provider is "
+                    "paid, this is spend invisible to the tenant's AI ceiling and to the "
+                    "platform brake. Teach crm/assist.py::meter_assist about it, or "
+                    "confirm it belongs in the free bucket."
+                ),
+                tenant_id=str(tenant_id),
+                ref=ref,
+                model=model,
+                feature=feature,
+                provider=str(result.capability.provider),
             )
         return AssistMetering(metered=False, cost_inr=Decimal("0"))
 

@@ -166,7 +166,15 @@ ROUNDING = ROUND_HALF_UP
 #
 # D-36 priced the in-call LLM leg at ₹0.00 because Sarvam 105B is free per token, and
 # TRD §10 has reasoned the whole margin from that zero since. D-400 ended the zero by
-# moving the leg to a paid account; D-410 moved it again, to Azure OpenAI in South India.
+# moving the leg to a paid account; D-410 moved it again, to Azure OpenAI (South India then,
+# `eastus2` since D-449). THE REGION MOVE DID NOT MOVE THESE NUMBERS and deliberately was
+# not made an excuse to re-derive them: they are the same GLOBAL STANDARD list prices
+# `AZURE_LIST_PRICE_USD_PER_MTOK` has always carried, and the gap between that and what we
+# actually buy — a Regional Standard deployment, reported at roughly 5-10% more — is still
+# carried as an unpaid gate rather than folded in as a multiplier. Whether Azure's regional
+# list differs between `southindia` and `eastus2` is a question the first invoice answers
+# (OPERATIONS §2); inventing a factor for it here would make every derived figure in
+# TRD §10 unfalsifiable, which is the exact failure that gate exists to avoid.
 # This block is where the replacement number comes from, in the same shape as the TTS
 # card above: one statement of the vendor's price, everything else derived, and the doc
 # that quotes it checked against it.

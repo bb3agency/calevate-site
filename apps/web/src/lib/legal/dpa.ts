@@ -359,12 +359,15 @@ export const DPA: LegalDocument = {
           text:
             "The sub-processor page states, for each vendor, where it processes. The " +
             "material facts, stated here so they are in the contract and not only in a " +
-            "notice: speech recognition and voice synthesis run on an Indian provider; " +
-            "the language model on both AI legs runs on a hyperscale provider's service " +
-            "configured for an Indian region, named on the sub-processor page, which our " +
-            "build constrains but cannot prove — see the paragraph below, which is part " +
-            "of this clause; object storage selects its location automatically and " +
-            "offers no India-only jurisdiction; the application host is at " +
+            "notice: speech recognition and voice synthesis run on an Indian provider, " +
+            "and so does the first pass that reads the transcript; the language model on " +
+            "both AI legs runs on a hyperscale provider's service configured for a " +
+            "United States region, named on the sub-processor page, which our build " +
+            "constrains but cannot prove — see the paragraph below, which is part of " +
+            "this clause; for object storage we ask the provider to place the bucket in " +
+            "its Asia-Pacific region, which is a placement preference and not a " +
+            "residency commitment, and that provider offers no India-only jurisdiction, " +
+            "so that data is stored outside India; the application host is at " +
             "{{PRIMARY_HOSTING_LOCATION}}, decided but not yet provisioned, because no " +
             "client data is in production; the voice platform runs the call itself, and " +
             "holds its own copy of the recording and transcript, outside India — its " +
@@ -378,25 +381,37 @@ export const DPA: LegalDocument = {
           tone: "warning",
           title: "What we warrant about the language model, and what we do not",
           text:
+            "As at 22 August 2026 the declared region for the language model is East US " +
+            "2, in the United States. Until that date it was South India, and this " +
+            "clause said the language leg ran in India. That claim is WITHDRAWN, not " +
+            "narrowed: we are not going to keep it alive with qualifiers, and you should " +
+            "read the warranty below as a promise about our code rather than about a " +
+            "country. The change is recorded in our decision log and is the " +
+            "sub-processor location change clause 6 governs; the sub-processor page " +
+            "states what it would have cost had a client been live. " +
             "We warrant that our software cannot send a language-model request anywhere " +
-            "but an Indian region without a change to our source code that declares a " +
-            "different residency posture in a named constant — a change our build " +
+            "but the single region our source code declares without a change to our " +
+            "source code that declares a different residency posture in a named " +
+            "constant — a change our build " +
             "rejects until every other file agrees with that declaration, and which we " +
             "record in our decision log. Under the posture we have declared: one " +
-            "function constructs every model endpoint, it cannot emit a non-Indian " +
+            "function constructs every model endpoint, it can emit only the declared " +
             "region, the region is written once, and no configuration setting may carry " +
             "a region, an endpoint or a posture. No setting, console control or " +
-            "environment variable can move it; only a reviewed commit can. We do NOT " +
+            "environment variable can move it; only a reviewed commit can. That is the " +
+            "same warranty in the same shape as before, and what changed is which region " +
+            "it names. We do NOT " +
             "warrant this as machine-proved at the provider, and we will not let a " +
             "shorter sentence imply that we do. " +
             "Our provider's endpoint address contains no region — the region belongs to " +
-            "the account resource — so that the resource is in South India, and that its " +
+            "the account resource — so that the resource is in East US 2, and that its " +
             "model deployment is the regional kind rather than the provider's worldwide " +
             "default, are confirmed by a named person against the provider's console, " +
             "dated and retained as evidence, and available to you under clause 10. " +
             "Before 19 August 2026 the language leg ran on a provider whose endpoint did " +
-            "name its region; the change of provider is what narrowed this warranty, and " +
-            "it is recorded rather than absorbed.",
+            "name its region; the change of provider is what narrowed this warranty, the " +
+            "change of region is what withdrew the India claim, and both are recorded " +
+            "rather than absorbed.",
         },
         {
           kind: "para",
@@ -408,7 +423,11 @@ export const DPA: LegalDocument = {
             "reaches us through YOUR contract rather than through data-protection law, " +
             "and it binds us whatever the DPDP position is. We will tell you honestly " +
             "whether we can meet it — and on the evidence on the sub-processor page, a " +
-            "requirement that the call itself stay in India is one we cannot meet today.",
+            "requirement that the call itself stay in India is one we cannot meet today, " +
+            "and since 22 August 2026 neither is a requirement that the language model " +
+            "stay in India. Speech, the first reading of the transcript and the " +
+            "application database remain Indian; if your duty can be met by those alone, " +
+            "say so and we will put it in writing.",
         },
       ],
     },

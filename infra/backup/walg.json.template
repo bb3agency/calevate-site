@@ -18,7 +18,7 @@
   "__endpoint_note": "R2's S3 API endpoint is https://<account-id>.r2.cloudflarestorage.com. The account id is not a secret in the cryptographic sense but it identifies our tenancy, so it is referenced rather than written.",
   "AWS_ENDPOINT": "https://<<SECRET:r2/account_id>>.r2.cloudflarestorage.com",
 
-  "__region_note": "R2 ignores the region but the AWS SDK insists on one. 'auto' is what Cloudflare documents, and is the same value infra/object-lifecycle/apply_lifecycle.py already uses — keep them the same.",
+  "__region_note": "R2 ignores the region but the AWS SDK insists on one. 'auto' is what Cloudflare documents, and is the same value infra/object-lifecycle/apply_lifecycle.py already uses — keep them the same. THIS IS THE SIGV4 CREDENTIAL SCOPE AND NOT A PLACEMENT (D-450): the backup bucket is placed by R2's CreateBucket location hint, 'apac', chosen once by a human at the first creation of the bucket NAME (infra/backup/README.md section 8 step 1). Putting 'apac' here buys no placement and makes every wal-g push fail with SignatureDoesNotMatch, which reads like a broken token rather than a wrong region.",
   "AWS_REGION": "auto",
 
   "__path_style_note": "Path-style addressing for S3-compatible endpoints (wal-g docs/STORAGES.md: AWS_S3_FORCE_PATH_STYLE 'enable path-style addressing for S3-compatible services'). R2 accepts both; path style avoids depending on bucket-name-as-subdomain behaviour we have not tested.",

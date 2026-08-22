@@ -1,5 +1,19 @@
 # OpenAI direct — the API as it actually is on 22 Aug 2026
 
+> ⚠ **SUPERSEDED IN PART — 22 August 2026, D-449. THE MEASUREMENTS AND THE WIRE FACTS BELOW
+> STAND; THE VERDICT'S GROUND DOES NOT.** This report weighs a direct OpenAI adapter against
+> "the current Azure South India deployment", and its decisive argument — that OpenAI offers
+> no Indian INFERENCE, only storage at rest — is the argument D-448 refused on. D-449 moved
+> the declared residency posture to `us-azure-openai` / `eastus2` and **withdrew the India
+> warranty entirely**, so that ground no longer discriminates between the two vendors and
+> must not be quoted as if it does. Azure is retained on grounds this document did not turn
+> on: an enterprise DPA, modified abuse monitoring, deployment-level control of which model
+> version runs and when it retires (consumed by `scripts/check_model_lifecycle.py`), and a
+> migration cost already specified. Everything else here — the `DataResidency` `Literal`,
+> the egress table, the pricing reads and their evidence classes — is unchanged and was not
+> re-read.
+
+
 **Lane.** L1. Question: what would a **direct OpenAI adapter** cost us and buy us, on the
 two surfaces that would use one — the **in-call leg** (Bolna holds our key, BYOK) and the
 **dashboard/worker leg** (we make the HTTP call ourselves, over redacted data). Today both
@@ -147,8 +161,9 @@ text is:
 ```python
 class ResponseTextDeltaEvent(BaseModel):
     """Emitted when there is an additional text delta."""
+
     content_index: int
-    delta: str            # <-- the text
+    delta: str  # <-- the text
     item_id: str
     logprobs: List[Logprob]
     output_index: int
@@ -266,9 +281,9 @@ DataResidency = Literal["global", "us", "eu", "ae"]
 
 _DATA_RESIDENCY_BASE_URLS: dict[DataResidency, str] = {
     "global": "https://api.openai.com/v1",
-    "us":     "https://us.api.openai.com/v1",
-    "eu":     "https://eu.api.openai.com/v1",
-    "ae":     "https://ae.api.openai.com/v1",
+    "us": "https://us.api.openai.com/v1",
+    "eu": "https://eu.api.openai.com/v1",
+    "ae": "https://ae.api.openai.com/v1",
 }
 ```
 
@@ -550,8 +565,8 @@ fixes"*.
 ```python
 {"Authorization": f"Bearer {api_key}"}
 {
-  "OpenAI-Organization": self.organization if self.organization is not None else Omit(),
-  "OpenAI-Project":      self.project      if self.project      is not None else Omit(),
+    "OpenAI-Organization": self.organization if self.organization is not None else Omit(),
+    "OpenAI-Project": self.project if self.project is not None else Omit(),
 }
 ```
 

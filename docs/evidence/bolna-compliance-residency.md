@@ -1,5 +1,17 @@
 # Bolna: compliance flags, data residency, and what we tell clients
 
+> ⚠ **SUPERSEDED IN PART — 22 August 2026, D-449. THE VENDOR QUOTES ARE UNTOUCHED; ONE
+> CONCLUSION IS WITHDRAWN.** §5's fork and every quotation in this document stand exactly as
+> recorded. What does NOT stand is the consolation this document reaches more than once —
+> that the MODEL legs remain Indian, so "the inference does not leave the country" while
+> only the orchestration does (see §5 and §9). D-449 moved the language model to Azure
+> OpenAI `eastus2`. **Only the SPEECH legs are Indian now**, and the caller's transcript
+> crosses the border on every turn as it is spoken. The fork itself gets sharper rather than
+> softer: buying Bolna's Enterprise India routing would put the ORCHESTRATION in India while
+> the model stayed in the US — the mirror image of the position described here, and still
+> not "the call happens in India". Nothing below was re-read or re-measured.
+
+
 **Read 20 Aug 2026 against `bolna-findings/mirror/pages/` — the vendor's own documentation,
 mirrored locally.** Every claim below quotes the page it comes from. Nothing here is
 inferred from an index description, a URL shape or a support thread; where the pages are

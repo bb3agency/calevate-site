@@ -69,23 +69,29 @@ SIP trunk (gate 13).
 ### A2. The model account — and the dated item here is GONE
 
 **~~Dated and unavoidable — the Gemini retirement~~ REMOVED 19 Aug 2026 (D-410).** Both LLM
-surfaces moved to Azure OpenAI South India. The Gemini model, `GEMINI_DEFAULT_LLM_RETIRES`,
+surfaces moved to Azure OpenAI South India, and **D-449 (22 Aug 2026) moved the region to
+`eastus2` and withdrew the India warranty**. The Gemini model, `GEMINI_DEFAULT_LLM_RETIRES`,
 the CI test that turned red on 16 Sep 2026 and gates 14/14b/14c are all deleted, and BRD
 R-04 is closed. **Nothing in this document is now running against a vendor deadline.** What
 replaces it is not dated but is not optional either — two of these three decide whether the
-residency claim in the client DPA is true, and neither is visible from the endpoint:
+region claim in the client DPA is true, and neither is visible from the endpoint. **Read
+them post-D-449**: they are re-aimed at East US 2, none of them retires, and what they now
+protect is an accurate disclosure rather than an India guarantee — the guarantee is gone.
 
 | Item | Status | Detail |
 |---|---|---|
-| Gate 20 — is the Azure resource actually in South India | **BLOCKED** on an Azure subscription | `<resource>.openai.azure.com` names no region. The guard proves only that the code cannot construct a non-India endpoint; the resource's region is read once from the portal by a human and filed in `docs/evidence/`. |
-| Gate 20c — is the deployment **Regional Standard, not Global** | **BLOCKED**, same subscription, and it is the one people get wrong | **Global is Azure's DEFAULT deployment type and processes worldwide.** A Global deployment in a South India resource passes every automated check in this repository and breaks the DPA. Regional costs roughly 5–10% more; that is the price of the posture. |
-| Gate 20b — does `gpt-4o-mini` have quota in South India on this subscription | **BLOCKED**, same subscription | Availability in a region and quota in your subscription are different facts, and only the second makes a call succeed. Also pilot gate 13's fourth concurrency leg. |
+| Gate 20 — is the Azure resource actually in East US 2 (D-449; South India until 22 Aug 2026) | **BLOCKED** on an Azure subscription | `<resource>.openai.azure.com` names no region. The guard proves only that the code cannot construct an endpoint outside the declared posture; the resource's region is read once from the portal by a human and filed in `docs/evidence/`. Since D-449 the pinned region is the ONLY residency-shaped statement left, so an unread Location field means the posture asserts nothing. |
+| Gate 20c — is the deployment **Regional Standard, not Global** | **BLOCKED**, same subscription, and it is the one people get wrong | **Global is Azure's DEFAULT deployment type and processes worldwide.** A Global deployment passes every automated check in this repository and makes the region named in the DPA unenforceable. Regional costs roughly 5–10% more; that is the price of the posture — and since D-449 the premium buys an accurate sub-processor disclosure rather than an India warranty, so "it is in the US anyway" is not a reason to accept Global, which routes anywhere in the world. |
+| Gate 20b — does `gpt-4o-mini` have quota in East US 2 on this subscription | **BLOCKED**, same subscription | Availability in a region and quota in your subscription are different facts, and only the second makes a call succeed. The AVAILABILITY half is resolved by D-449 rather than by a portal reading — Microsoft's Standard (regional) matrix carries both allow-listed models in `eastus2` and did not carry `gpt-4o-mini` in `southindia` — so what is left here is quota and retirement. Also pilot gate 13's fourth concurrency leg. |
 | Gate 16f — does Bolna's `azure-openai` provider actually run a call against OUR Azure resource | **BLOCKED** on a Bolna account — but the FIELD NAMES are no longer an assumption | **The names are published and the ones we shipped were wrong (D-417).** Four flat entries: `AZURE_OPENAI_API_KEY`, `AZURE_OPENAI_MODEL`, `AZURE_OPENAI_API_BASE`, `AZURE_OPENAI_API_VERSION`, under *"All these keys **must** be added for the respective provider"* (`bolna-findings/mirror/pages/providers.md:40,96-102`), and the store is flat `{provider_name, provider_value}` (`api-reference/providers/add.md:55-68`) — so **four** `POST /providers` calls, not one. `Settings.bolna_llm_credential_name` moved from `AZURE` (which would have 401'd on the first turn of the first call) to `AZURE_OPENAI_API_KEY`; the wire provider string moved from `azure` to `azure-openai`. Still settle with `GET /providers`, four `POST /providers`, `GET` again — a documented name and a live account's actual name are different claims — and answer the one that stayed open: whether `AZURE_OPENAI_API_VERSION` is required on the v1 surface, where `providers.md:40` and `providers/llm-model/azure-openai.md:32` contradict each other. |
 
-**Wrong answers**: a Global deployment, a resource in any other region, an OpenAI platform
-key in place of Azure (India residency there covers storage at rest only — inference runs
-in the US), and falling back to `provider: "custom"`, which is the unverified credential
-path this migration exists to leave.
+**Wrong answers**: a Global deployment, a resource in any other region (D-449 moved the
+region ONCE, in a decision row and a `Final` constant — a second region is a second
+posture), an OpenAI platform key in place of Azure — **not because of residency, which
+D-449 spent as a ground, but because Azure is what the enterprise DPA, the modified abuse
+monitoring and `check_model_lifecycle.py`'s deployment-level retirement control are
+attached to** — and falling back to `provider: "custom"`, which is the unverified
+credential path this migration exists to leave.
 
 ### A3. Compliance and commercial registrations
 
@@ -174,7 +180,7 @@ one thing it waits on.
 permits it; if it does not, that becomes an external blocker and should be recorded as one.
 
 **Step 2 — the two accounts, in this order.**
-An **Azure subscription with an Azure OpenAI resource in South India** is the cheapest
+An **Azure subscription with an Azure OpenAI resource in East US 2** (D-449) is the cheapest
 unblock in the whole document: it is one resource, one deployment and one static key, and
 it closes gates 20, 20b and 20c — the three that decide whether the residency claim in the
 client DPA is true. **It no longer starts any clock**: D-410 deleted the dated Gemini

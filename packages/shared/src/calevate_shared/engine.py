@@ -410,7 +410,55 @@ SARVAM_RETIRED_LLMS: Final = frozenset(
 SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 
 
-#: THE Azure region this platform's Azure OpenAI resource lives in. South India (D-410).
+#: THE Azure region this platform's Azure OpenAI resource lives in. **East US 2 (D-449).**
+#:
+#: ⚠ **THIS LINE IS A WITHDRAWAL, NOT AN IMPROVEMENT, AND EVERY READER OF IT MUST START
+#: THERE.** It used to say `southindia`, and D-410's whole posture was that a client's
+#: caller's words reached a language model inside India. They no longer do. Nothing about
+#: the deployment type changed — it is still Regional Standard and never Global (gate 20c)
+#: — so what is left is a region pinned honestly to a place that is not India, and any
+#: document still promising Indian model residency to a client is out of date rather than
+#: merely imprecise. `apps/web/src/lib/legal/dpa.ts` and the sub-processor list are the two
+#: that say it to clients in an executed agreement; moving this constant does not move them.
+#:
+#: **GROUND 1: THE ROUND TRIP WAS ALWAYS THERE AND NOBODY HAD EVER MEASURED IT.**
+#: VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/concepts/security.md:29`: *"By
+#: default, Bolna processes calls on infrastructure in the US (AWS us-east-1)."* The engine
+#: is the thing that calls our Azure deployment, once per conversational turn, inside a
+#: 350ms TTFT budget. So `southindia` did not put the model beside the caller; it put the
+#: model on the far side of a us-east-1 → India → us-east-1 hop from the orchestrator, on
+#: the audio path, on every turn. That cost was recorded (OPERATIONS §2 gate 4, and the
+#: `engine_turn_latency` table exists to settle it) and never paid for, because the pilot
+#: that would measure it needs a vendor account.
+#:
+#: THE REJECTED ALTERNATIVE, AND IT IS THE ONE A READER WILL REACH FOR: Bolna DOES offer
+#: Indian processing (`enterprise/data-residency.md:11-12`, `enterprise/
+#: indian-server-configuration.md`). It is unavailable to this product as designed, and not
+#: on price alone. Their own requirements page is explicit that connecting your own provider
+#: keys defeats it — *"If you connect your own API keys for any provider (transcriber,
+#: synthesizer, or LLM), calls will automatically route through US servers regardless of
+#: other configuration settings"* (`indian-server-configuration.md:68`). BYOK is D-31's
+#: architecture, not a preference: it is how this platform meters, prices and isolates
+#: tenants. Indian routing would also pin telephony to Plivo and forbid our own Sarvam key.
+#: So the honest statement is that Indian in-call residency is available to a DIFFERENT
+#: product than the one this repository builds, behind an enterprise commercial term nobody
+#: has signed — an external blocker with a real timeline, in CLAUDE.md's terms, and not an
+#: engineering task being deferred.
+#:
+#: **GROUND 2: THE ONLY PERMITTED DEPLOYMENT TYPE DOES NOT SERVE THE SHIPPED DEFAULT
+#: THERE.** Microsoft's Standard (regional) availability matrix, read from the vendor's own
+#: docs repository at a named commit
+#: (`MicrosoftDocs/azure-ai-docs@19bbfea4b8 articles/foundry/openai/includes/model-matrix/
+#: standard-models.md`), lists `gpt-4o-mini` (2024-07-18) with a `-` for `southindia`
+#: (`:34`) and a `✅` for `eastus2` (`:23`). `gpt-4o-mini` in `southindia` appears only on
+#: the GLOBAL Standard matrix, and Global is the deployment type gate 20c exists to forbid
+#: because it processes worldwide. So under the old posture the mandated SKU and the
+#: shipped default had no documented intersection: the region could not serve the model.
+#: `eastus2` serves both allow-listed models on the mandated SKU (`:23`, first nine
+#: columns all `✅`), which is the second half of why this is where the resource goes.
+#: ⚠ That matrix's own `ms.date` is 08/12/2025, so it is carried as a dated vendor claim
+#: rather than as today's fact — `scripts/check_model_lifecycle.py` says so on every run,
+#: and OPERATIONS §2 gate 20b is the portal reading that settles it.
 #:
 #: WHY IT IS A `Final` HERE AND NOT A `Settings` FIELD, which is the half a reviewer would
 #: wave through. `platform_config.managed_fields()` derives the ops console's editable set
@@ -430,7 +478,8 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: the resource must be in; `Settings.azure_openai_resource` points at a resource an
 #: operator asserts is there; and a HUMAN confirms it once in the portal (OPERATIONS §2,
 #: the Azure residency gate). Nothing in this file can close the last link, and a comment
-#: claiming otherwise would be worse than the gap.
+#: claiming otherwise would be worse than the gap. D-449 changed WHICH region is asserted
+#: and nothing at all about how weak the assertion is.
 #:
 #: WHAT THE GUARD STILL PROVES, so it is clear what was kept: `AZURE_LOCATION` is the only
 #: spelling of the region in shipped code, no `Settings` field may carry a region at all,
@@ -439,7 +488,7 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: aims model traffic at a different region without editing this line.
 #:
 #: THE REJECTED ALTERNATIVE THAT WOULD RESTORE THE AST PROOF: Azure also serves a REGIONAL
-#: hostname, `southindia.api.cognitive.microsoft.com`, which the vendor documents as
+#: hostname, `<region>.api.cognitive.microsoft.com`, which the vendor documents as
 #: interchangeable with the custom subdomain — spelling that would put the region back in
 #: the URL where a static check can see it. Rejected FOR NOW on one ground: the v1 surface
 #: is documented only on the custom-subdomain form, and custom subdomains are what Entra ID
@@ -450,12 +499,13 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: WHY THERE IS EXACTLY ONE OF THESE, stated here because D-432 made it checkable in BOTH
 #: directions rather than one. `DECLARED_POSTURE_NAME` below declares which residency
 #: posture is in force; `scripts/check_model_residency.POSTURES` says, independently, what
-#: each posture obliges. Under the declared `india-azure-openai` that obligation is "exactly
-#: one frozen constant spells the region, and it is this one, here". Under a posture pinning
-#: NO region the obligation INVERTS to "no shipped constant spells one at all" — so this
-#: line cannot survive a declaration that has moved on, which is a failure the hard-wired
-#: posture had no way to notice.
-AZURE_LOCATION: Final = "southindia"
+#: each posture obliges. Under the declared `us-azure-openai` that obligation is "exactly
+#: one frozen constant spells the region, it is this one, here, and its VALUE is `eastus2`".
+#: Under a posture pinning NO region the obligation INVERTS to "no shipped constant spells
+#: one at all". D-449 added the third case and it is the one that bites: this line still
+#: holding `southindia` under the US declaration is refused BY VALUE, so a posture move that
+#: edited the declaration and forgot the constant cannot reach a green build.
+AZURE_LOCATION: Final = "eastus2"
 
 #: THE MODELS this platform may configure into an Azure OpenAI leg, as a CLOSED set
 #: (D-410). Both LLM surfaces — the in-call leg and the dashboard AI — draw from it.
@@ -498,14 +548,24 @@ AZURE_OPENAI_MODELS: Final[frozenset[str]] = frozenset(get_args(AzureOpenAIModel
 
 #: What a deployment runs if nobody chooses: `gpt-4o-mini` (D-410).
 #:
-#: **4o-mini RATHER THAN 4.1-mini, AND THE ASYMMETRY IS AVAILABILITY, NOT PREFERENCE.**
-#: `gpt-4o-mini` is documented available in South India; `gpt-4.1-mini`'s availability in
-#: any Indian region is NOT confirmed, and its default quotas are Sweden Central / East US
-#: 2. So the choice is between the model the only permitted region is known to serve and a
-#: better one that may not be servable there at all — the same shape of trade D-127 had to
-#: make about Gemini, resolved the same way: ship what the region serves, and make the
-#: other a LIVE CONFIG SWITCH (`Settings.azure_openai_model`) so the operator who confirms
-#: it in the portal moves to it without a deploy and without this file changing.
+#: **4o-mini RATHER THAN 4.1-mini, AND SINCE D-449 THE GROUND IS COST, NOT AVAILABILITY.**
+#: This comment used to say that `gpt-4o-mini` was the one the permitted region served and
+#: `gpt-4.1-mini`'s Indian availability was unconfirmed. That was BACKWARDS on the vendor's
+#: own table — Microsoft's Standard (regional) matrix marks `gpt-4o-mini` `-` for
+#: `southindia` and `gpt-4.1-mini` `✅` (`standard-models.md:34` @ `19bbfea4b8`) — and the
+#: mistake is recorded here rather than quietly corrected, because it is the whole reason
+#: `model_lifecycle.py` exists: a vendor availability claim that nobody read from the vendor
+#: became a shipped default.
+#:
+#: At `eastus2` the asymmetry is gone: the same matrix marks BOTH allow-listed models `✅`
+#: on the mandated Regional Standard SKU (`:23`). So there is nothing left to choose on
+#: availability and the choice falls to price, where `AZURE_LIST_PRICE_USD_PER_MTOK` makes
+#: it one-sided — `gpt-4.1-mini` is 2.7x `gpt-4o-mini` on both input and output. Keeping
+#: 4o-mini as the default therefore costs nothing in reach and means TRD §10's per-minute
+#: figures need no repricing, which is the second reason not to move the default in the
+#: same change that moved the region: one variable at a time, on a leg nobody has metered
+#: yet. The better model stays a LIVE CONFIG SWITCH (`Settings.azure_openai_model`) for an
+#: operator who decides the quality is worth 2.7x.
 #:
 #: WHAT IT NO LONGER COSTS, and it is the plainest benefit of D-410 rather than a detail:
 #: A RETIREMENT DATE. `GEMINI_DEFAULT_LLM_RETIRES` was a live 16 Oct 2026 deadline (BRD
@@ -799,7 +859,7 @@ class ResidencyPosture:
 #: imported the value it checks would be asking the code whether it agrees with itself), so
 #: it has to be a `Constant` a parser can see — not an f-string, not a computed value, not
 #: `os.environ.get(...)` with a default that reads like one.
-DECLARED_POSTURE_NAME: Final = "india-azure-openai"
+DECLARED_POSTURE_NAME: Final = "us-azure-openai"
 
 #: The declared posture itself. Every runtime decision that depends on WHERE the models run
 #: reads this record rather than re-deciding: `agents.service.in_call_llm` takes the
@@ -1471,11 +1531,14 @@ class RecallOutcome(StrEnum):
 #: a result. It lives here rather than in an adapter because it is a property of the
 #: product, not of whoever is renting us the audio path this quarter.
 #:
-#: WHY IT SUDDENLY MATTERS. The engine's orchestrator is US-hosted
-#: (`bolna-findings/mirror/pages/concepts/security.md:29`) and our Azure OpenAI deployment
-#: is pinned to South India (D-410), so every turn's LLM call is a US->India->US round
-#: trip on the caller's audio path. Nobody has ever measured what that costs; this
-#: constant is the line the measurement lands on either side of.
+#: WHY IT MATTERED, AND WHY THE ANSWER MOVED. The engine's orchestrator is US-hosted
+#: (`bolna-findings/mirror/pages/concepts/security.md:29`) and D-410 pinned our Azure
+#: OpenAI deployment to South India, so every turn's LLM call was a US->India->US round
+#: trip on the caller's audio path — a cost this repository recorded and never measured.
+#: D-449 removed the round trip by moving the deployment to `eastus2` (co-located with the
+#: orchestrator's `us-east-1`), at the price of the India residency claim. The budget did
+#: NOT move with it: it is a property of the product, it is still unmeasured, and a target
+#: that relaxed itself whenever the geography got easier would measure nothing.
 LLM_TTFT_BUDGET_MS: Final[float] = 350.0
 
 
@@ -1532,14 +1595,19 @@ class CallLatency(BaseModel):
     in the read-only mirror
     (`bolna-findings/mirror/pages/concepts/call-latencies.md:22-45,99-140`) — and the
     quantity it carries became the largest open question in the product the day D-410 put
-    the language model in South India while the orchestrator stayed in the US. Capturing
-    it does not settle OPERATIONS §2 gate 4; it is what makes gate 4 settleable by running
-    two calls instead of by arguing.
+    the language model in South India while the orchestrator stayed in the US. D-449 then
+    resolved that question by DECIDING it rather than by measuring it — the deployment
+    moved to `eastus2`, beside the orchestrator — which makes capturing this field more
+    useful and not less: gate 4 is now the check that the decision bought what it was sold
+    on, and an unmeasured leg is exactly how a repository ends up making the same trade
+    twice.
 
     **`region` IS THE POINT.** The engine stamps each execution with where it ran (`in`,
-    `us`, ...). Two pilot calls — one with the South India Azure deployment, one with a US
-    one — produce two TTFT distributions under this field, and the difference between them
-    is the cost of the geography, measured rather than estimated.
+    `us`, ...). Two pilot calls — one with an Indian Azure deployment, one with the shipped
+    US one — produce two TTFT distributions under this field, and the difference between
+    them is the cost of the geography, measured rather than estimated. That comparison is
+    still worth running after D-449: it is the evidence for what the withdrawal bought, and
+    without it the withdrawal rests on an argument.
     """
 
     #: Where the engine says this execution ran. A short vendor code (`in`, `us`), kept

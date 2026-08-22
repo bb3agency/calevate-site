@@ -355,7 +355,11 @@ describe("what each document must contain", () => {
   it("does not claim data never leaves India", () => {
     // The claim the marketing page makes and the deployment blueprint does not support
     // (docs/LEGAL-SURFACE.md, finding F-1). These documents must state the narrow,
-    // enforced version — model endpoints are pinned to Indian regions — and nothing wider.
+    // enforced version — every model endpoint is pinned to the single region the source
+    // declares — and nothing wider. Since D-449 that region is `eastus2`, so the India
+    // half of the old claim is withdrawn outright rather than restated more softly; the
+    // ban below is unchanged, because a withdrawn claim is exactly what must not grow
+    // back.
     const pattern =
       /(all data stays in india|never leaves india|entirely within india|stored only in india|only in indian)/;
     for (const doc of LEGAL_DOCUMENTS) {
@@ -435,10 +439,13 @@ describe("what each document must contain", () => {
     /*
      * And the register must NAME them. `Microsoft` replaces `Clerk` rather than merely
      * dropping it: an assertion list that only ever shrinks stops being a test that the
-     * register is COMPLETE, and Microsoft is the entry D-410 created — Azure OpenAI in
-     * South India now carries BOTH language legs, so it is the sub-processor a client
-     * reading this page is most likely to be looking for and the one whose absence would
-     * be the real defect.
+     * register is COMPLETE, and Microsoft is the entry D-410 created — Azure OpenAI
+     * carries BOTH language legs, so it is the sub-processor a client reading this page
+     * is most likely to be looking for and the one whose absence would be the real
+     * defect. D-449 moved that account's REGION from South India to East US 2 and left
+     * the vendor alone, which is why this assertion is untouched by that change: the
+     * exclusion above still keeps the vendor name out of the DPA, and the DPA names the
+     * region instead.
      */
     const register = textOf(bySlug("subprocessors"));
     for (const vendor of ["Bolna", "Sarvam", "Microsoft", "Cloudflare", "Resend", "Razorpay"]) {

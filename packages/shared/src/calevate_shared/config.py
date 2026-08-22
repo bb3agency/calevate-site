@@ -424,7 +424,10 @@ class Settings(BaseSettings):
     # name says region, location or residency. Azure hides the region inside the resource
     # rather than in the URL, which makes `azure_openai_resource` the value that decides
     # residency in practice — read `AZURE_LOCATION` before changing it, and note that no
-    # code here can check it.
+    # code here can check it. Since D-449 that constant reads `eastus2` and the product
+    # makes NO Indian residency claim on either LLM surface; pointing this resource at an
+    # Indian one would not restore the claim, it would just make the tree disagree with
+    # its own declared posture.
     #
     # The GOOGLE CREDENTIALS THAT WERE HERE ARE GONE, deleted rather than deprecated:
     # `gcp_project_id` and `gcp_service_account_json` existed for the Vertex AI legs and
@@ -503,10 +506,13 @@ class Settings(BaseSettings):
     # WHICH MODEL THE DEPLOYMENT WAS MADE FROM — read by the cost model, never sent.
     #
     # **THIS IS THE `gpt-4.1-mini` SWITCH** and the reason it is config rather than a
-    # constant. `gpt-4o-mini` is documented available in `AZURE_LOCATION`; `gpt-4.1-mini`
-    # is not confirmed in any Indian region, so it ships as a value an operator flips once
-    # they have confirmed it in the portal and created a deployment for it — with no
-    # deploy of ours, which is what makes a portal answer a five-minute change.
+    # constant. Both allow-listed models are documented available in `AZURE_LOCATION` on
+    # the mandated Regional Standard SKU since D-449 moved it to `eastus2`, so what
+    # separates them is price — `gpt-4.1-mini` is 2.7x — and the operator who decides the
+    # quality is worth it flips this and creates a matching deployment, with no deploy of
+    # ours. (It shipped as a switch for a WEAKER reason: under `southindia` the default's
+    # own regional availability was unconfirmed and, on the vendor's matrix, absent. See
+    # `AZURE_OPENAI_DEFAULT_MODEL`.)
     #
     # `applies: live`, and the pairing is the part to get right: this and
     # `azure_openai_deployment` must move TOGETHER. Changing the model here without

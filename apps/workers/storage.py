@@ -160,6 +160,16 @@ def _client() -> Any:
     expression as `apply_lifecycle.py`, because two clients against one bucket disagreeing
     about the region is a `SignatureDoesNotMatch` nobody would look for here.
 
+    **AND `auto` IS THE CREDENTIAL SCOPE, NOT WHERE THE BYTES LIVE (D-450).** Nothing this
+    module does places an object anywhere. R2 fixes a bucket's physical placement once, at
+    the first `CreateBucket` for that NAME, from an optional location hint we have decided
+    is `apac`; a delete-and-recreate of the same name reuses the original placement, so the
+    decision has no undo short of copying every object to a differently-named bucket. That
+    decision is a human checklist step (`infra/README.md` §5 item 2) precisely because no
+    code path in this repository creates a bucket. The tempting edit here — "we want APAC,
+    so set the region to `apac`" — changes the string SigV4 is computed over, moves nothing,
+    and fails every request with `SignatureDoesNotMatch`.
+
     **CACHED, and that is a 500x difference on the one call site that is not threaded.**
     Constructing a session and client loads botocore's s3 service model: ~90ms, measured,
     every time. `presigned_url` is called synchronously from an API route, so that was 90ms

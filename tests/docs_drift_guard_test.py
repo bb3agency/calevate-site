@@ -736,3 +736,51 @@ def test_the_live_readiness_set_is_not_empty() -> None:
     a bare non-local deployment is missing a great many things and must say so."""
     reported = guard._readiness_keys_when_nothing_is_set()
     assert "PLATFORM_KEK" in reported and "AUDIT_CHAIN_SECRET" in reported, sorted(reported)
+
+
+# --- the gate roster's priority column (D-451) ----------------------------------------
+#
+# Gate 38 is a HUMAN attestation with no automated half — the Sentry organisation's region
+# is fixed at organisation creation, baked into the DSN host, and invisible to every check
+# in this tree. The only mechanism holding it is its row in OPERATIONS §2, so the two
+# things that could silently delete it get a test each.
+
+
+def test_the_sentry_region_gate_is_in_the_roster() -> None:
+    """D-451's gate exists and parses.
+
+    FAILS IF: gate 38's row is deleted from `docs/OPERATIONS.md` §2, renumbered, or given a
+    priority `_GATE_ROW` does not match — after which every sentence citing "gate 38"
+    (ROADMAP D-451, and this file) is reported by section 7 as citing a gate that does not
+    exist, and the only owner of a permanent vendor decision has quietly gone.
+    """
+    assert "38" in guard.gate_roster()
+
+
+def test_a_gate_priority_outside_hard_or_soft_vanishes_from_the_roster() -> None:
+    """WHY D-451'S GATE MUST BE `H` OR `S` AND NEVER `L`, proved rather than asserted.
+
+    `_GATE_ROW` matches `[HS]` only, so an `L` row parses to nothing and the gate ceases to
+    exist as far as the drift checker is concerned — silently, with the row still visible to
+    a human reading the table. That is a live latent defect, not a hypothetical: OPERATIONS
+    §2 already carries two `L` rows (14c and 20d) which are absent from `gate_roster()` for
+    exactly this reason.
+
+    FAILS IF: someone widens `_GATE_ROW`'s priority class to include `L` (which would be a
+    fine fix, and this test is then the thing that tells them to delete it and the warning
+    in D-451 with it), or narrows it further.
+    """
+    table = (
+        "| # | Gate | Pass criteria |\n"
+        "|---|---|---|\n"
+        "| 41 H | hard | … |\n"
+        "| 42 S | soft | … |\n"
+        "| 43 L | low  | … |\n"
+    )
+    doc = REPO_ROOT / "docs" / "OPERATIONS.md"
+    scratch = doc.parent.parent / ".pytest-gate-priority.md"
+    try:
+        scratch.write_text(table, encoding="utf-8")
+        assert guard.gate_roster(scratch) == {"41", "42"}
+    finally:
+        scratch.unlink(missing_ok=True)

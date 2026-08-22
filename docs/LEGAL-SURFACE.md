@@ -273,12 +273,20 @@ requirement for a sub-64-bit authenticator looks like when it is taken seriously
   configuration and attested by a human** in the Azure portal (OPERATIONS §2 gates 20 and
   20c), filed in `docs/evidence/`.
 
+  ⚠ **AND SINCE D-449 (22 Aug 2026) THE STATEMENT IS NOT AN INDIA STATEMENT AT ALL.** The
+  region is `eastus2`. The client-facing India warranty is WITHDRAWN across `/legal/dpa`,
+  `/legal/privacy`, `/legal/subprocessors` and the public landing page; the speech legs
+  remain Sarvam and Indian, and the caller's transcript reaches a US model on every turn as
+  it is spoken. Read everything below as a claim about a NAMED REGION and an accurate
+  sub-processor disclosure, never as localisation.
+
   Two consequences a lawyer reading this should have in front of them. **(1)** The
-  strongest residency statement this product can make about its LLM legs is now an
-  attestation, not a build artifact — so a client document must not describe it as
-  machine-enforced. **(2)** Gate 20c is not a formality: Azure's DEFAULT deployment type
-  is *Global*, which processes worldwide, and a Global deployment inside a South India
-  resource satisfies every automated check in this repository while breaching the DPA.
+  strongest residency statement this product can make about its LLM legs is an attestation
+  about a US region, not a build artifact and not an India guarantee — so a client document
+  must not describe it as machine-enforced and must not describe it as Indian. **(2)** Gate
+  20c is not a formality: Azure's DEFAULT deployment type is *Global*, which processes
+  worldwide, and a Global deployment satisfies every automated check in this repository
+  while making the region the DPA names unenforceable.
   The guard prints both caveats on every run, pass or fail, so this cannot silently drift
   back to the old claim.
 
@@ -390,20 +398,24 @@ tile, ~line 546) currently reads:
 > Mumbai by a check that fails our build if a line of code ever points somewhere else.**"
 
 That sentence was written for Vertex on 17 Aug and D-410 falsified both halves of it two
-days later. **(1) The region is wrong**: `asia-south1` (Mumbai) went with Vertex; the
-deployment is Azure OpenAI in **South India**. **(2) It makes the machine-enforced claim
+days later, and D-449 has since falsified it a second time. **(1) The region is wrong,
+twice over**: `asia-south1` (Mumbai) went with Vertex; the deployment was Azure OpenAI in
+**South India** and is now **East US 2** (D-449), so the sentence is not repairable by
+swapping a city name — there is no Indian language endpoint to point at. **(2) It makes the machine-enforced claim
 this document has withdrawn**, on the marketing page — the exact surface F-1 exists about,
 where it is a CPA 2019 representation rather than an internal note. The build cannot fail
 on a region it cannot see in the endpoint. It has also lost its arithmetic: with D-410 the
 LANGUAGE leg is Microsoft's on BOTH surfaces, so "the one model endpoint that is not
 [Indian]" now carries every word the caller speaks rather than a redacted dashboard query.
 
-**What the page may truthfully say** — narrower again, and it is still worth saying:
-speech (Sarvam) and the first post-call extraction pass are Indian services; the language
-model runs on a Microsoft Azure OpenAI account **configured for South India**, no code path
-can send it anywhere else without editing one frozen constant, **and the account's region
-and deployment type are confirmed by a person against the provider's console and filed as
-evidence** — checked, not proved by a build. `apps/web/tests/publicLanding.test.tsx:87`
+**What the page may truthfully say** — narrower again, and after D-449 it may not claim
+India for the language leg at all: speech (Sarvam) and the first post-call extraction pass
+are Indian services; the language model runs on a Microsoft Azure OpenAI account
+**configured for East US 2**, no code path can send it anywhere else without editing one
+frozen constant, **and the account's region and deployment type are confirmed by a person
+against the provider's console and filed as evidence** — checked, not proved by a build.
+**Anything of the form "your callers' words stay in India" is now false and must not
+appear.** `apps/web/tests/publicLanding.test.tsx:87`
 asserts the current wording verbatim, so the test moves in the same change; that is the
 guard working, not an obstacle.
 
@@ -619,9 +631,12 @@ DP-11's downward leg. Bolna's residency and erasure commitments are unrun pilot 
 Resend, Sentry, Cloudflare or the hosting provider. *(Clerk was on this list until D-177
 and is not a sub-processor any more — one contract fewer to obtain, and the only entry on
 it that closed by deletion rather than by signature.)* **D-410 adds a sub-processor that
-holds the most sensitive input this system has: Microsoft (Azure OpenAI, South India) now
-carries BOTH LLM surfaces, so the in-call leg means raw caller speech reaches it in real
-time.** Microsoft publishes a standard DPA and the Azure OpenAI service terms carry the
+holds the most sensitive input this system has: Microsoft (Azure OpenAI — South India at
+D-410, **East US 2 since D-449**) now carries BOTH LLM surfaces, so the in-call leg means
+raw caller speech reaches it in real time, and since D-449 it does so ACROSS THE BORDER.
+That makes gate 37(a) — whether a call recording is SPDI biometric data — a question about
+the live conversation rather than only the archive, and SPDI rule 7's comparable-protection
+leg is unevidenced while zero sub-processor DPAs are signed.** Microsoft publishes a standard DPA and the Azure OpenAI service terms carry the
 data-handling commitments this depends on; neither has been executed, and until one is, the
 strongest statement available about that leg is the region it is configured for. Rule 6(f)
 requires the contract to impose equivalent safeguards, and today we would be promising a
@@ -648,9 +663,11 @@ all three of its cookies to *"Clerk, our authentication provider"*, described a
 for up to 7 days".
 
 **Closed by the parallel `apps/web` session on 20 Aug 2026, and verified by reading the
-files rather than taking the report.** `subprocessors.ts` now carries **"Microsoft — Azure
+files rather than taking the report.** `subprocessors.ts` carried, as of that date, **"Microsoft — Azure
 OpenAI"**, "India — South India, **by configuration**", with the caution that the account's
-region and its deployment type are read by a human and filed as evidence; the Vertex row is
+region and its deployment type are read by a human and filed as evidence — ⚠ **the region
+half of that entry is superseded by D-449 and now reads East US 2; the India warranty is
+withdrawn, not restated**; the Vertex row is
 gone and its history is stated in place; there is no Clerk row anywhere in
 `apps/web/src/lib/legal/`. `cookies.ts` names the two real cookies —
 `__Host-calevate_client_session` and `__Host-calevate_admin_session` — attributes them to
@@ -720,16 +737,18 @@ India"*, which was false at the orchestration layer.
 
 **What is NOT fixed and is not ours.** Whether to keep BYOK and accept US orchestration,
 or move to Bolna's own provider integrations (losing BYOK's cost control, its named-model
-transparency and the Azure South India pinning D-410 exists for) and buy the Enterprise
+transparency and the Azure region pinning D-410 exists for) and buy the Enterprise
 residency, is an engine-level decision with a commercial half — OPERATIONS §2 gates 9 and
 12. `docs/evidence/bolna-compliance-residency.md` §5 lays out the fork and what each arm
 costs. **Nothing in the client-facing copy waits on it**: the documents now describe what
 is true today.
 
-**What still survives of the residency story, stated because it is easy to lose:** the
-MODEL legs are Indian. Sarvam is sovereign by vendor and Azure OpenAI is region-pinned to
-South India, so the inference does not leave the country — the ORCHESTRATION does. §4's
-model-residency paragraph is unaffected.
+**What survived of the residency story on 20 Aug 2026, and what D-449 then withdrew:** the
+MODEL legs were Indian — Sarvam sovereign by vendor, Azure OpenAI region-pinned to South
+India — so the inference did not leave the country while the ORCHESTRATION did. **Since
+D-449 only the SPEECH legs are Indian.** The language model is `eastus2`, so the caller's
+transcript crosses the border on every turn. §4's model-residency paragraph is re-aimed,
+not deleted: the gates survive, the guarantee does not.
 
 ---
 
@@ -790,7 +809,8 @@ clause 9 and `/legal/privacy` §8 — a decision taken and a document that never
   2011 fall away. Until then §3.3 is the operative regime and the privacy notice must keep
   citing it.
 - **~~16 October 2026 — the Gemini 2.5 retirement (BRD R-04)~~ REMOVED 19 Aug 2026 (D-410).**
-  Both LLM surfaces moved to Azure OpenAI South India; the model, the date-carrying constant
+  Both LLM surfaces moved to Azure OpenAI (South India then, `eastus2` since D-449); the
+  model, the date-carrying constant
   and the test that turned CI red thirty days out are all deleted, and R-04 closes. **No
   vendor-imposed model deadline is currently on this calendar** — if one is announced for
   `AZURE_OPENAI_DEFAULT_MODEL`, it comes back here and into a date-carrying constant, which

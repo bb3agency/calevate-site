@@ -130,7 +130,8 @@ three fields needed to dedupe). `webhook_routes.py` verifies → dedupes (Redis 
   makes BRD R-04's 16 Oct 2026 retirement live for this leg (`GEMINI_DEFAULT_LLM_RETIRES`,
   OPERATIONS §2 gate 14b). `GEMINI_EXTRACTION_DEFAULT is False`, and
   ~~`GEMINI_MODEL_CONFIRMED_IN_REGION is False`~~ (that constant, and this whole leg, were
-  deleted by D-410 — both LLM surfaces moved to Azure OpenAI South India) — a 404 on the
+  deleted by D-410 — both LLM surfaces moved to Azure OpenAI South India, and D-449 moved
+  the region to `eastus2`) — a 404 on the
   first real call was the answer
   to the one vendor fact nobody here could read, and the client logs it as
   `vertex_model_not_served_in_region` rather than as `HTTPStatusError` (D-142).

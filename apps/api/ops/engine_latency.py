@@ -2,15 +2,21 @@
 
     GET /v1/ops/engine-latency
 
-**THE QUESTION THIS ANSWERS.** D-410 pinned the language model to an Azure deployment in
-South India. The engine's orchestrator is US-hosted
-(`bolna-findings/mirror/pages/concepts/security.md:29`). So every conversational turn's LLM
-call is a US->India->US round trip on the caller's audio path, inside a 350ms TTFT budget
-(TRD §4) — and TRD §4a records that every latency figure in this repo is a TARGET with zero
-measurements behind it. A us-east↔Mumbai round trip is conventionally quoted at 180-230ms,
-which would be most of that budget spent on geography before the model thinks. That figure
-is an estimate off the internet, and this module exists so nobody has to keep quoting it:
-place two pilot calls, one on each deployment, and read the two rows.
+**THE QUESTION THIS ANSWERS, AND WHY IT SURVIVED THE ANSWER.** D-410 pinned the language
+model to an Azure deployment in South India while the engine's orchestrator is US-hosted
+(`bolna-findings/mirror/pages/concepts/security.md:29`), which made every conversational
+turn's LLM call a US->India->US round trip on the caller's audio path, inside a 350ms TTFT
+budget (TRD §4). A us-east↔Mumbai round trip is conventionally quoted at 180-230ms — most
+of that budget spent on geography before the model thinks — but that is an estimate off the
+internet, and TRD §4a records that every latency figure in this repo is a TARGET with zero
+measurements behind it.
+
+**D-449 REMOVED THE ROUND TRIP BY DECIDING, NOT BY MEASURING**, moving the deployment to
+`eastus2` beside the orchestrator and withdrawing the India residency claim to do it. That
+makes this endpoint MORE useful rather than redundant: it is the only thing that can say
+what the withdrawal actually bought, and a trade justified by an internet estimate is one
+this repository can be talked into making twice. Place two pilot calls, one on each
+deployment, and read the two rows.
 
 **GROUPING BY `region` IS THE WHOLE DESIGN.** The engine stamps each execution with where
 it ran (`in`, `us` — `mirror/pages/concepts/call-latencies.md:38`). Grouped by that code,

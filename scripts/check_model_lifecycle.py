@@ -31,9 +31,18 @@ the build over an undeployed deployment would be inventing a fact to make a gate
 which is the D-31/D-32 error class pointing the other way. So availability WARNS, loudly,
 by name, on every run, and OPERATIONS §2 gate 20b is what closes it.
 
-**THE WARNINGS ARE NOT COSMETIC — one of them contradicts a shipped default.** Microsoft's
-Standard (regional) availability matrix does not list `gpt-4o-mini` in `southindia`; it
-lists `gpt-4.1-mini`. D-410 believed the reverse. See `model_lifecycle.py`'s docstring.
+**THE WARNING THAT CONTRADICTED THE SHIPPED DEFAULT IS NOW QUIET, AND ITS BRANCH STAYS.**
+It fired for one release: Microsoft's Standard (regional) matrix did not list
+`gpt-4o-mini` in `southindia`, so the shipped default could not be run in the only
+permitted region on the only permitted SKU. D-449 resolved it by moving the REGION to
+`eastus2`, which serves both allow-listed models there. A warning nobody is currently
+seeing is exactly the kind of code a tidy-up deletes, so: it is the only thing in this
+tree that would notice the same defect arriving from the other direction — a model added
+to `AzureOpenAIModel`, or a region moved again, that the mandated SKU does not serve —
+and the failure it catches is silent until a call gets a 404 mid-conversation.
+`tests/model_lifecycle_guard_test.py` keeps it covered with a doctored table rather than
+with the shipped one, which is also what stops the coverage ratchet counting it as an
+uncovered branch.
 
 Run: `uv run python -m scripts.check_model_lifecycle`   (also in `make guardrails`)
 """
@@ -217,14 +226,23 @@ def warnings(
             "and the Models API returns a per-SKU deprecationDate that settles the dates "
             "at the same time."
         )
+        # QUIET AGAINST THE SHIPPED TABLE SINCE D-449 AND DELIBERATELY KEPT — see this
+        # module's docstring. It fired once, and what it caught was not a doc detail: the
+        # region and the SKU this product had committed to could not, on the vendor's own
+        # tables, run the model it shipped. The two ways it fires again are a new
+        # allow-list member the mandated SKU does not serve in our region, and a region
+        # that moves again; both are silent until a call 404s.
         if default is not None and not default.offered_on_mandated_type:
             notes.append(
                 f"AND THE VENDOR'S OWN MATRIX CONTRADICTS THE SHIPPED DEFAULT: "
                 f"{AZURE_OPENAI_DEFAULT_MODEL} is not listed for {AZURE_LOCATION} on "
                 f"{MANDATED_DEPLOYMENT_TYPE} (only {sorted(default.offered_in_region)}), "
-                f"while {offered or 'nothing else in the allow-list'} is. D-410 asserted "
-                "the reverse. If the portal agrees with the matrix, the answer to 'what "
-                f"would we run' is {offered[0] if offered else 'NOTHING WE HAVE ALLOW-LISTED'}."
+                f"while {offered or 'nothing else in the allow-list'} is. Either the "
+                "default moves to a model this region serves on the mandated SKU, or the "
+                "REGION moves — which is a residency decision and a decision-log entry, "
+                "the way D-449 was. If the portal agrees with the matrix, the answer to "
+                f"'what would we run' is "
+                f"{offered[0] if offered else 'NOTHING WE HAVE ALLOW-LISTED'}."
             )
     return notes
 

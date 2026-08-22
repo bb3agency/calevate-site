@@ -221,6 +221,13 @@ server {
     # Do not let a slow upstream turn into a queue of held connections on the box that
     # also has to ack in 500ms. The app abandons at its own 2s durable deadline and
     # answers 503; these bounds are the layer above that, not a replacement for it.
+    #
+    # ⚠ THESE THREE GOVERN NOTHING TODAY and are kept only so a future `location` added
+    # to this vhost WITHOUT the proxy snippet inherits the tight numbers rather than
+    # nginx's 60s defaults. Every location that includes `calevate-proxy.conf` overrides
+    # them at location scope — see the restatement inside `location /` below, which is
+    # what the webhook path actually runs on. Editing the values here alone changes
+    # nothing; change both or neither.
     proxy_connect_timeout 2s;
     proxy_send_timeout    15s;
     proxy_read_timeout    15s;
@@ -255,6 +262,31 @@ server {
         limit_req zone=webhooks burst=200 nodelay;
         proxy_pass http://calevate_hooks;
         include /etc/nginx/snippets/calevate-proxy.conf;
+
+        # RESTATED AFTER THE INCLUDE, AND THE ORDER IS THE WHOLE FIX.
+        #
+        # nginx inherits a directive from an enclosing level ONLY when the current level
+        # sets NONE of that directive — it is not a merge, it is a replacement at the
+        # first level that mentions the name. `include` is textual, so the snippet's
+        # closing `proxy_connect_timeout 5s; proxy_send_timeout 60s; proxy_read_timeout
+        # 60s` land at LOCATION scope, and location beats server. The server-scope trio
+        # above therefore governed nothing that goes through this block, which is every
+        # webhook: the latency-critical vhost was silently running the browser realms'
+        # 5s/60s/60s.
+        #
+        # It was invisible because the OTHER server-scope directive on this vhost works
+        # exactly as it reads: `client_max_body_size 10m` survives only because the
+        # snippet happens not to define it. One inherited, one overridden, no error
+        # either way — nginx does not warn about a shadowed directive.
+        #
+        # The rejected fix was deleting the three lines from the snippet and giving every
+        # location its own: that is four blocks each restating a browser-realm default,
+        # and the first one somebody forgets gets nginx's global 60s. Keeping the snippet
+        # as the default and re-stating the tightening HERE, immediately after the include
+        # that would otherwise undo it, keeps the exception next to the rule.
+        proxy_connect_timeout 2s;
+        proxy_send_timeout    15s;
+        proxy_read_timeout    15s;
 
         # `auth_request` buffers the request body, which breaks large POSTs
         # (DEPLOYMENT §10). There is no auth_request here, and streaming the body to the

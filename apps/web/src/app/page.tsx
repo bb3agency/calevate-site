@@ -62,14 +62,18 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *   The hosting region has since been decided (D-180, an Indian VPS) and is STILL not a
  *   claim this page makes: one Indian leg out of five does not make the data plane
  *   India-resident, and the founder's decision is a fact for the sub-processor register,
- *   not a differentiator for a card. What survives is the one narrow claim about MODEL
- *   ENDPOINTS, and D-410 made even that one weaker: `scripts/check_model_residency.py`
- *   proves that our code has a single endpoint builder which cannot emit a non-India
- *   region and that no setting can carry one, but an Azure OpenAI hostname names no
+ *   not a differentiator for a card. What survived was one narrow claim about MODEL
+ *   ENDPOINTS, and D-449 has now WITHDRAWN even that: on 22 August 2026 the declared
+ *   model region moved from Azure OpenAI in South India to Azure OpenAI in East US 2, so
+ *   there is no India claim left to make about model inference and the card says the
+ *   model is American in the same sentence that says the speech is Indian. What
+ *   `scripts/check_model_residency.py` still proves is unchanged in shape and weaker
+ *   than it once was (D-410): a single endpoint builder that can emit only the declared
+ *   region and no setting able to carry one — but an Azure OpenAI hostname names no
  *   region, so where the resource actually SITS is attested by a person in the console
  *   (OPERATIONS gates 20 and 20c) and not by the build. The section below says exactly
  *   that and no more. A softer verb over the wider implication ("your data lives in
- *   India"), or a firmer one over this narrow claim ("a check guarantees it"), are the
+ *   India"), or a firmer one over the narrow claim ("a check guarantees it"), are the
  *   same misrepresentation, so `publicLanding.test.tsx` bans both shapes rather than
  *   trusting the next writer to remember why. Certifications (SOC 2, ISO 27001, HIPAA)
  *   are likewise absent because the company holds none.
@@ -576,11 +580,11 @@ export default function Home() {
                      * region is a property of that resource — so the same guard now proves
                      * something strictly weaker: one spelling of the region, no
                      * `Settings` field able to carry one, no endpoint constructible
-                     * outside `azure_openai_base_url()`, and a builder that cannot emit
-                     * a non-India region. That the resource IS in South India, and that
-                     * its deployment is Regional rather than Azure's worldwide-by-default
-                     * Global kind, are attested by a person in the provider's console
-                     * (OPERATIONS §2 gates 20 and 20c).
+                     * outside `azure_openai_base_url()`, and a builder that can emit
+                     * only the declared region. That the resource IS in that region, and
+                     * that its deployment is Regional rather than Azure's
+                     * worldwide-by-default Global kind, are attested by a person in the
+                     * provider's console (OPERATIONS §2 gates 20 and 20c).
                      *
                      * So this says what the build does — nothing in our code or our
                      * settings can move it — and says the region itself is checked by
@@ -603,6 +607,20 @@ export default function Home() {
                      * India-only jurisdiction for R2; neither is claimed here, because a
                      * card is the wrong place to qualify one.
                      *
+                     * AND THEN WITHDRAWN, 22 Aug 2026 (D-449). The declared posture moved
+                     * to `us-azure-openai` and the region to East US 2 — same vendor,
+                     * still Regional and not Global, and the speech legs and the first
+                     * post-call extraction are untouched and still Sarvam. So there is
+                     * no India claim left to narrow: a fourth narrowing would be the
+                     * dishonest move here, because "runs on Indian endpoints" cannot be
+                     * qualified into "runs in the United States". The card names the
+                     * American half in the same breath as the Indian half. What did NOT
+                     * change is the mechanism — one declared region, one builder, no
+                     * setting able to carry a region, and a build that refuses the
+                     * declaration until the tree agrees — so the promise keeps its shape
+                     * and changes only which region it names. `residencyWarrantyMirror`
+                     * pins that mechanism on the DPA side.
+                     *
                      * AND DO NOT SPELL THE AZURE HOSTNAME IN THIS COMMENT. `check_model_
                      * residency` has no AST for TypeScript, so it line-scans, and a `//`
                      * comment naming the watched host is indistinguishable from an
@@ -612,17 +630,21 @@ export default function Home() {
                      * Describing it ("Azure's host carries the resource name") says the
                      * same thing to a reader and nothing to the scanner.
                      */
-                    term: "The AI runs on Indian endpoints",
+                    term: "Which part runs where, including the part that is not Indian",
                     detail:
                       "Speech and the first reading of your transcript are Indian " +
-                      "services. The language model runs on a Microsoft Azure OpenAI " +
-                      "account configured for South India: no part of our code can " +
-                      "send it anywhere else without editing one frozen constant, and " +
-                      "the account's own region is checked by a person against " +
-                      "Microsoft's console and filed — checked, not proved by a build. " +
-                      "The models are the Indian part; the platform that carries the " +
-                      "call runs it on US infrastructure today, and the sub-processor " +
-                      "page says which does what before you sign.",
+                      "services, on every call. The language model is not: it runs on a " +
+                      "Microsoft Azure OpenAI account in the United States, in the East " +
+                      "US 2 region. Until 22 August 2026 that account was in South " +
+                      "India and this card said so, and we would rather withdraw the " +
+                      "sentence than soften it. What our code still does is pin the " +
+                      "model to that one region — no part of our code can send it " +
+                      "anywhere else without editing one frozen constant — and the " +
+                      "account's own region is confirmed by a person against " +
+                      "Microsoft's console and filed: checked, not proved by a build. " +
+                      "The platform that carries the call runs it on US infrastructure " +
+                      "today, and the sub-processor page says which part is where " +
+                      "before you sign.",
                   },
                   {
                     term: "One business cannot see another",

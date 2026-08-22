@@ -843,10 +843,12 @@ async def _record_engine_latency(
 
     **THE ONLY MEASUREMENT THIS SYSTEM HAS.** TRD §4a records that every latency figure in
     this repo is a target with zero measurements behind it, and D-410 made that expensive:
-    the language model is pinned to South India while the engine's orchestrator is
-    US-hosted (`bolna-findings/mirror/pages/concepts/security.md:29`), so every turn's LLM
-    call is a US->India->US round trip inside a 350ms budget. This stage is what turns that
-    from an argument into a `GROUP BY region` (OPERATIONS §2 gate 4).
+    it pinned the language model to South India while the engine's orchestrator is US-hosted
+    (`bolna-findings/mirror/pages/concepts/security.md:29`), so every turn's LLM call was a
+    US->India->US round trip inside a 350ms budget. D-449 then removed that round trip
+    (`eastus2`) on an argument, paying for it with the India residency claim — still with
+    zero measurements behind it. This stage is what turns the whole question from an
+    argument into a `GROUP BY region` (OPERATIONS §2 gate 4).
 
     **UPSERT, and the unique constraint is load-bearing.** This pipeline re-runs on every
     re-drive and the reconciliation poller can drive it again. An INSERT would append a

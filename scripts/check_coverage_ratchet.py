@@ -280,7 +280,7 @@ import time
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import Any, Final, cast
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BASELINE = REPO_ROOT / "tests" / "fixtures" / "coverage_baseline.json"
@@ -1001,9 +1001,19 @@ def _money_files() -> dict[str, str]:
             if "Numeric(" not in source:
                 continue
             names = _numeric_column_names(source)
-            if names and all(name.endswith(_NON_MONEY_NUMERIC_SUFFIXES) for name in names if name):
-                if all(name for name in names):
-                    continue
+            # ONE CONDITION, AND THE ORDER OF ITS CLAUSES IS THE FAIL-SAFE. A file is
+            # exempt only when it HAS numeric columns, every one of them was
+            # attributable to a name, and every one of those names carries a
+            # recognised non-money suffix. The middle clause is what makes an
+            # unparseable column count as money rather than as "no evidence against":
+            # dropping it would exempt a file whose only numeric column the regex could
+            # not read, which is the direction hard rule 7 cannot afford to be wrong in.
+            if (
+                names
+                and all(name for name in names)
+                and all(name.endswith(_NON_MONEY_NUMERIC_SUFFIXES) for name in names)
+            ):
+                continue
             found[_rel(path)] = "declares NUMERIC money columns (hard rule 7)"
     return found
 

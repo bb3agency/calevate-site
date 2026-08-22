@@ -17,9 +17,21 @@ green build. So:
   is the cheap direction — one line — and it is the one a flag-reading guard would wave
   through. Here it fails four ways at once, against the REAL repository.
 
-**AND THE POSTURE IN FORCE IS UNCHANGED.** `test_india_is_still_the_posture_in_force` is the
-standing assertion: D-432 built the mechanism and did not throw the switch. Nothing below
-declares a different posture anywhere but in a fixture argument.
+**AND THE POSTURE IN FORCE IS `us-azure-openai` (D-449).** D-432 built the mechanism; D-449
+threw the switch, moving the declaration to `eastus2` and WITHDRAWING the India residency
+claim rather than upgrading anything. `test_the_us_posture_is_the_one_in_force` is the
+standing assertion that replaced the India tripwire, and it is deliberately stronger than
+the one it replaces: it pins the declared name AND the region AND requires that the
+withdrawn posture is still KNOWN to the guard while not being the declared one. Nothing
+below declares a different posture anywhere but in a fixture argument.
+
+**AND ONE TEST PROVES THE GENERALIZATION IS LOAD-BEARING.**
+`test_the_guard_tells_two_pinned_regions_apart_on_the_real_tree` states the SHIPPED tree
+against both pinning specs, undoctored: it passes as `us-azure-openai` and is refused as
+`india-azure-openai`, with both regions named in the refusal. Before D-449 the guard
+compared everything against one module constant, so it could express "pins southindia" and
+"pins nothing" and had no way to check a posture pinning some OTHER region — which is
+precisely the check a posture move needs.
 """
 
 from __future__ import annotations
@@ -32,24 +44,86 @@ from scripts import check_model_residency as guard
 #: The disqualified posture, used ONLY as a fixture. Reaching for it here is what makes the
 #: guard's refusal of the real tree observable; `POSTURES` says at length why it has a row.
 FOREIGN = guard.POSTURES["openai-direct"]
+#: The WITHDRAWN posture (D-449). Same fixture role as `FOREIGN` and a second job the
+#: non-pinning spec cannot do: it pins a region, and a DIFFERENT one, which is the only way
+#: to state that this guard tells two pinned regions apart rather than merely telling a pin
+#: from an absence.
 INDIA = guard.POSTURES["india-azure-openai"]
+US = guard.POSTURES["us-azure-openai"]
 
 
 # --- the standing assertion ---------------------------------------------------
 
 
-def test_india_is_still_the_posture_in_force() -> None:
-    """D-432 is the mechanism, not the switch. If this ever fails, someone changed where
-    this product's language models run — which is a DPA change (`apps/web/src/lib/legal/
-    dpa.ts` warrants the India posture to clients in an executed agreement), not a code
-    change, and it must never happen as a side effect of touching this file."""
+def test_the_us_posture_is_the_one_in_force() -> None:
+    """THE TRIPWIRE, RE-AIMED BY D-449 RATHER THAN DELETED.
+
+    It used to assert `india-azure-openai`, and its whole job was that the posture could
+    not move as a side effect of somebody touching this file. D-449 moved it deliberately —
+    a decision-log entry, a client-facing warranty withdrawal, and the documents that state
+    it — so the tripwire is re-aimed at the new declaration and is STRICTER than before: it
+    pins the name, the region VALUE and the provider, and it additionally requires that the
+    withdrawn posture is still a posture this guard KNOWS while not being the one declared.
+
+    Both halves matter. If the name check alone survived, a tree could declare
+    `us-azure-openai` while `AZURE_LOCATION` still held `southindia` and this test would
+    pass. If the withdrawn spec were dropped from `POSTURES`, nothing could state the
+    shipped tree against it and the refusal below would become unobservable.
+
+    If this fails, somebody changed where this product's language models run. That is a
+    DPA change (`apps/web/src/lib/legal/dpa.ts` states the posture to clients in an
+    executed agreement), not a code change.
+    """
     name, failures = guard.declared_posture_name()
     assert failures == []
-    assert name == "india-azure-openai"
+    assert name == "us-azure-openai"
     assert guard.declaration_failures(name) == []
     assert DECLARED_POSTURE.name == name
-    assert DECLARED_POSTURE.region == "southindia"
+    assert DECLARED_POSTURE.region == "eastus2"
     assert DECLARED_POSTURE.llm_provider == "azure_openai"
+
+    assert "india-azure-openai" in guard.POSTURES, (
+        "the WITHDRAWN posture must stay checkable: a mechanism that can only express the "
+        "posture in force proves nothing about the posture in force, and dropping this row "
+        "deletes the only way to ask whether the tree would still pass as an Indian one"
+    )
+    assert INDIA.region == "southindia" and INDIA.name != name
+
+
+def test_the_guard_tells_two_pinned_regions_apart_on_the_real_tree() -> None:
+    """THE PROOF THAT D-449's GENERALIZATION IS LOAD-BEARING RATHER THAN DECORATIVE.
+
+    Nothing here is doctored: this is the repository exactly as it ships, stated against
+    two specs that differ ONLY in the region they pin. Before D-449 this test could not have
+    been written — `frozen_region_constants` matched one module constant, so the guard could
+    express "pins southindia" and "pins nothing" and had no third shape at all. A posture
+    move under that design left `AZURE_LOCATION` unchecked by VALUE, which is exactly the
+    half a hurried move forgets.
+
+    THE FAILURE MUST NAME BOTH REGIONS, and that is asserted rather than assumed: a message
+    saying only that something is wrong sends the reader to the declaration, which is the
+    half that is usually right. Naming the pinned region and the frozen one says which of
+    the two moved.
+    """
+    constants = guard.frozen_region_constants()
+
+    assert guard.single_spelling_failures(constants, US) == []
+
+    refused = guard.single_spelling_failures(constants, INDIA)
+    assert len(refused) == 1, refused
+    assert INDIA.region in refused[0] and US.region in refused[0], refused
+    assert guard.REGION_CONSTANT in refused[0], refused
+
+    # THE CANARY, so the two results above cannot both be produced by a scan that has
+    # silently stopped seeing anything. A `frozen_region_constants` returning `{}` would
+    # make the US call pass for the wrong reason (nothing found is nothing wrong) — it
+    # would not, because the empty case is its own message, but proving the subject exists
+    # is cheaper than reasoning about which branch an empty scan lands in.
+    assert (
+        guard.blindness_failures(guard.template_count(), constants, guard.endpoint_references(), US)
+        == []
+    )
+    assert constants[guard.REGION_CONSTANT] == (guard.BUILDER_HOME, US.region)
 
 
 def test_the_declaration_is_source_and_nothing_else() -> None:
@@ -82,7 +156,7 @@ def test_declaring_a_posture_the_tree_is_not_in_is_caught_against_the_real_tree(
     Nothing here is doctored: the repository is exactly as it ships, and only the posture
     handed to the checks changes. Every one of the four fails, and each names a different
     thing that would have to be true before this tree could honestly claim to be running
-    anywhere but Azure in India.
+    anywhere but on our own Azure resource.
     """
     references = guard.endpoint_references()
     constants = guard.frozen_region_constants()
@@ -130,15 +204,15 @@ def test_a_record_that_contradicts_its_own_declared_name_is_caught() -> None:
         "region": "AZURE_LOCATION",
         "addresses_a_deployment": True,
     }
-    assert guard.declaration_failures("india-azure-openai", coherent) == []
+    assert guard.declaration_failures("us-azure-openai", coherent) == []
 
     for field, wrong in (
         ("region", None),
         ("llm_provider", "openai"),
         ("addresses_a_deployment", False),
-        ("name", '"india-azure-openai"'),
+        ("name", '"us-azure-openai"'),
     ):
-        failures = guard.declaration_failures("india-azure-openai", {**coherent, field: wrong})
+        failures = guard.declaration_failures("us-azure-openai", {**coherent, field: wrong})
         assert len(failures) == 1 and f"declares {field}=" in failures[0], (field, failures)
 
 
@@ -146,8 +220,8 @@ def test_a_second_or_misplaced_declaration_is_caught() -> None:
     """One posture, one declaration. A second is a second answer to where this product's
     models run, and — like a second region constant — nothing downstream would notice the
     day they stopped agreeing."""
-    one = guard.Reference(guard.CONTRACT, 1, "india-azure-openai", frozen=True)
-    assert guard.declared_posture_name([one]) == ("india-azure-openai", [])
+    one = guard.Reference(guard.CONTRACT, 1, "us-azure-openai", frozen=True)
+    assert guard.declared_posture_name([one]) == ("us-azure-openai", [])
 
     elsewhere = guard.Reference("apps/api/core/config.py", 9, "openai-direct", frozen=True)
     name, failures = guard.declared_posture_name([elsewhere])
@@ -194,11 +268,11 @@ def test_a_tree_that_moved_off_azure_while_still_declaring_india_is_caught() -> 
         .read_text(encoding="utf-8")
         .replace("def azure_openai_base_url(", "def openai_base_url(")
     )
-    failures = guard.builder_failures(renamed, INDIA)
+    failures = guard.builder_failures(renamed, US)
     assert len(failures) == 1 and "defines no `azure_openai_base_url()`" in failures[0]
 
     record = guard.declaration_failures(
-        "india-azure-openai",
+        "us-azure-openai",
         {
             "name": guard.DECLARATION_CONSTANT,
             "llm_provider": "openai",
@@ -210,17 +284,19 @@ def test_a_tree_that_moved_off_azure_while_still_declaring_india_is_caught() -> 
 
 
 def test_the_delegated_human_gate_is_posture_conditional_and_stands_down_loudly() -> None:
-    """The gates a human owns (OPERATIONS §2 20/20c) exist because the India posture makes a
-    claim this check cannot prove. A posture that makes NO regional claim delegates nothing,
+    """The gates a human owns (OPERATIONS §2 20/20c) exist because a REGION-PINNING posture
+    makes a claim this check cannot prove — which is as true of `us-azure-openai` as it was
+    of the India posture it replaced: D-449 changed which region a human confirms, not
+    whether one has to. A posture that makes NO regional claim delegates nothing,
     so requiring the gate there would demand a human confirm a fact nobody is asserting.
 
     That stand-down is a `delegated_gate=None` in the spec — a claim written out loud — and
     not an absence somebody has to notice.
     """
-    assert INDIA.delegated_gate == ("AZURE_LOCATION", "portal")
+    assert US.delegated_gate == ("AZURE_LOCATION", "portal")
     assert FOREIGN.delegated_gate is None
-    assert guard.delegation_failures(None, INDIA) == []
-    assert guard.delegation_failures("no gate here", INDIA) != []
+    assert guard.delegation_failures(None, US) == []
+    assert guard.delegation_failures("no gate here", US) != []
     assert guard.delegation_failures("no gate here", FOREIGN) == []
     assert "NO REGIONAL CLAIM" in FOREIGN.warrant, (
         "a posture that proves less must SAY it proves less on every green run — a green "

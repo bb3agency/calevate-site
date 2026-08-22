@@ -1,7 +1,9 @@
 """The in-call LLM leg can name where it runs, and it cannot name anywhere but our resource.
 
 D-400 moved the canonical in-call LLM off Sarvam 105B (free per token, sovereign by
-vendor) onto a PAID account; D-410 re-aimed that account at Azure OpenAI in South India.
+vendor) onto a PAID account; D-410 re-aimed that account at Azure OpenAI, and D-449 moved
+the region out of India to `eastus2` (withdrawing the residency claim rather than
+improving it).
 Either way it is a residency change wearing a pricing decision: D-36's guarantee was an
 argument about a VENDOR, and the replacement — D-127's, extended to the in-call leg — is
 an argument about an ENDPOINT. An endpoint is a string, and this file is one of the two
@@ -101,11 +103,14 @@ def test_the_endpoint_names_no_region_and_that_is_recorded_rather_than_hidden() 
     quietly stopped looking would leave a reader believing the old proof still holds. So
     the absence is asserted: if a future endpoint shape ever DOES carry the region, this
     fails, and the person who made that possible is exactly the person who should hear
-    about it (the regional hostname `southindia.api.cognitive.microsoft.com` is the
+    about it (the regional hostname `<region>.api.cognitive.microsoft.com` is the
     rejected-for-now alternative that would do it — see `AZURE_LOCATION`).
     """
     assert AZURE_LOCATION not in ENDPOINT
-    assert AZURE_LOCATION == "southindia", "one spelling of the region, and it is India"
+    assert AZURE_LOCATION == "eastus2", (
+        "one spelling of the region, and since D-449 it is NOT an Indian one — the India "
+        "residency claim was withdrawn, not narrowed"
+    )
 
 
 @pytest.mark.parametrize(
