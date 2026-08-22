@@ -114,6 +114,23 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "DELETE /v1/ops/config/{key}": BoundedByConstruction(
         by="the ONE field reset, and its `options` list from the same registry."
     ),
+    # The model picker (D-454). `available` is one row per member of
+    # `calevate_shared.engine.AZURE_OPENAI_MODELS` — a closed `Literal`, so its length is
+    # decided by a decision-log entry and never by anybody's row count. All four verbs
+    # answer with the same `LlmDefaultsOut`, which is why the write paths are declared too:
+    # each returns the freshly-read state rather than an acknowledgement.
+    "GET /v1/organization/llm-defaults": BoundedByConstruction(
+        by="`available` is one row per model in `AZURE_OPENAI_MODELS`, a closed Literal."
+    ),
+    "PUT /v1/organization/llm-defaults": BoundedByConstruction(
+        by="the same `available`, read back after the write — same closed Literal."
+    ),
+    "GET /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
+        by="the admin view of the same `available` — one row per `AZURE_OPENAI_MODELS` member."
+    ),
+    "PUT /v1/admin/organizations/{org_id}/llm-defaults": BoundedByConstruction(
+        by="the same `available`, read back after the write — same closed Literal."
+    ),
     "GET /v1/ops/secrets": BoundedByConstruction(
         by="the vendor-credential registry in `ops/secrets.py` — one row per known key."
     ),

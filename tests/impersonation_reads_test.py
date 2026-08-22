@@ -34,6 +34,16 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     "/v1/admin/tenants/{tenant_id}/invoice": "an ops document about a client, not a client view",
     "/v1/admin/tenants/{tenant_id}/credits": "the credit ledger as ops reads it",
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": "prompt history, admin only",
+    "/v1/admin/organizations/{org_id}/llm-defaults": (
+        "which language model one client's agents run — admin console, and the ONE case "
+        "in this table where the client's own view of the same fact is fully reachable "
+        "through impersonation. `GET /v1/organization/llm-defaults` is `org:read`, which "
+        "D-22 admits, so a support person in a view-as session sees exactly the screen "
+        "the client is looking at. This path is the operator's door to the same resource "
+        "for an account they are NOT impersonating — named in the path, entered with an "
+        "admin token — so hiding it from impersonation costs a support person nothing "
+        "(D-454)"
+    ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
     "/v1/ops/engine-latency": (
