@@ -414,11 +414,14 @@ class PostureSpec:
 #: `Settings`-endpoint check knew only Azure's name (so `openai_base_url` sailed through
 #: under EVERY posture, including the declared one), and the watched-host set was a
 #: hand-written tuple (so this posture's own host would have been invisible to check 3 and
-#: its `permitted_host` inert). ⚠ TWO FACTS THIS ROW DOES NOT STATE, because they are not
-#: this file's to guess (D-417): the engine-side wire value for the provider, and the name
-#: of the credential entry it is stored under. Both are vendor facts, both are established
-#: by reading the vendor's documentation, and a `PostureSpec` is not where a guessed one
-#: would be noticed.
+#: its `permitted_host` inert). ⚠ TWO FACTS THIS ROW DOES NOT CARRY, and they are no longer
+#: unknown — they are simply not this file's to hold. The engine-side wire value for the
+#: provider and the name of the credential entry it is stored under are both settled, to
+#: the vendor's own enum and OpenAPI rather than to a dashboard label
+#: (`docs/evidence/llm-provider-postures.md` §1 and §2). They stay out because a
+#: `PostureSpec` states what the TREE must look like; an adapter that read a wire value
+#: from this table would be reading it from the file least likely to be checked against the
+#: vendor, which is the D-417 failure wearing a different hat.
 POSTURES: Final[dict[str, PostureSpec]] = {
     "us-azure-openai": PostureSpec(
         name="us-azure-openai",
@@ -508,8 +511,14 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         # `azure_openai` today, so this name — like `openai-direct`'s — is a member the
         # tree would have to GROW before the posture could be declared, which is part of
         # what makes declaring one a reviewed commit rather than an edited word. The
-        # engine-side value is a separate, unverified fact and is deliberately not here:
-        # D-417 is the row about guessing a wire string from a human-readable label.
+        # engine-side value is a SEPARATE fact that happens to be the same string, and the
+        # coincidence is why it is worth saying: it is `"google"`, VERIFIED to the vendor's
+        # own enum rather than to a dashboard label
+        # (`docs/evidence/llm-provider-postures.md:134`, and the credential entry is a
+        # single `GOOGLE` at `:225`). It is still not carried here — a `PostureSpec` says
+        # what the TREE must look like, and an adapter reading a wire value out of this
+        # table would be reading it from the file least likely to be checked against the
+        # vendor. D-417 is the row about what guessing one costs.
         llm_provider="google",
         # BOTH WORDS, because the vendor and the product are named differently by
         # different people and a `Settings` field gets whichever the author had in mind.
@@ -530,6 +539,19 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         # An f-string for `openai-direct`'s reason: `_render` turns it into
         # `https://{GEMINI_DIRECT_HOST}{GEMINI_DIRECT_PATH}`, which names no host, while
         # the VALUE is the literal the tree would have to carry.
+        #
+        # ⚠ MARKED ASSUMPTION — WHICH OF TWO SURFACES, NOT WHICH HOST. The host is settled
+        # and it is the only part any check here reads. The PATH is not: this is the
+        # OpenAI-COMPATIBLE base (`/v1beta/openai`, VERIFIED-VENDOR-DOCS via Microsoft's
+        # `azure-docs`, `docs/evidence/gemini-direct-api.md:270-273`), chosen because every
+        # leg in this product speaks the OpenAI wire format. Google's own client instead
+        # sets `base_url = "https://generativelanguage.googleapis.com/"` with
+        # `api_version = "v1beta"` and speaks the NATIVE protocol
+        # (`docs/evidence/llm-provider-postures.md:829-837`) — and that is the client the
+        # engine's Google leg actually is. So whichever surface a declaration adopts, this
+        # string is set DELIBERATELY in the same commit: the guard goes red the moment the
+        # builder's own `Final` disagrees with it, which is the friction `BUILDER_SUFFIX`
+        # was written to create rather than a gap in it.
         builder_suffix=f"https://{GEMINI_DIRECT_HOST}{GEMINI_DIRECT_PATH}",
         permitted_host=GEMINI_DIRECT_HOST,
         # NOTHING IS DELEGATED, AND THAT IS A CLAIM RATHER THAN AN OMISSION. A delegated
