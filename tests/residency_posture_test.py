@@ -32,6 +32,17 @@ against both pinning specs, undoctored: it passes as `us-azure-openai` and is re
 compared everything against one module constant, so it could express "pins southindia" and
 "pins nothing" and had no way to check a posture pinning some OTHER region — which is
 precisely the check a posture move needs.
+
+**AND THE CONTROL IS NOW STATED OVER THE TABLE RATHER THAN OVER ONE FIXTURE POSTURE.**
+`test_every_posture_in_the_table_is_stated_against_the_real_tree` requires that exactly one
+row passes the shipped tree and that every other row is refused by something. It exists
+because the row-at-a-time habit is how a table acquires a spec nobody has ever watched
+refuse anything, and a spec like that may not describe a posture this guard can check at
+all. `google-direct` is the third vendor and the reason it matters: a table that could
+express only "Azure or not Azure" made every check LOOK vendor-independent, and stating a
+third vendor is what showed two of them were not — the `Settings`-endpoint check knew only
+Azure's name, and the watched-host set was hand-written beside the table instead of derived
+from it.
 """
 
 from __future__ import annotations
@@ -50,6 +61,9 @@ FOREIGN = guard.POSTURES["openai-direct"]
 #: from an absence.
 INDIA = guard.POSTURES["india-azure-openai"]
 US = guard.POSTURES["us-azure-openai"]
+#: The THIRD vendor, and the row that made the table's vendor-independence observable.
+#: Same fixture role again: never declared here, only stated over the real tree.
+GOOGLE = guard.POSTURES["google-direct"]
 
 
 # --- the standing assertion ---------------------------------------------------
@@ -175,6 +189,89 @@ def test_declaring_a_posture_the_tree_is_not_in_is_caught_against_the_real_tree(
     assert len(record) == 3, record
     for field in ("addresses_a_deployment", "llm_provider", "region"):
         assert any(f"declares {field}=" in failure for failure in record), (field, record)
+
+
+def test_every_posture_in_the_table_is_stated_against_the_real_tree() -> None:
+    """THE NEGATIVE CONTROL, WIDENED FROM ONE FIXTURE POSTURE TO THE WHOLE TABLE.
+
+    The two tests above state the shipped tree against `openai-direct` and against
+    `india-azure-openai` and watch it be refused. Both were written one posture at a time,
+    which is how a table ends up with a row nothing has ever been stated against — and a
+    spec nobody has watched refuse anything is a spec that could be describing a posture
+    this guard has no way to check. `google-direct` arrived to make the vendor-independence
+    of checks 2 and 3 observable, so the control is now stated over `POSTURES` itself:
+    exactly one posture passes the real tree, and every other one is refused by something.
+
+    WHY "REFUSED BY SOMETHING" AND NOT A FIXED COUNT PER POSTURE. The postures fail
+    DIFFERENTLY and that is correct: `india-azure-openai` differs from the declaration only
+    in the region, so check 1 alone catches it; `openai-direct` and `google-direct` differ
+    in the region, the provider, the deployment question, the builder and the host, so four
+    checks catch them. A test demanding the same count from each would be asserting that
+    the postures are the same posture. The per-posture detail is pinned in the two tests
+    around this one, and in the Google case below.
+
+    FAILS IF: a `PostureSpec` is added that the shipped tree would ALSO satisfy — which is
+    the one thing a second declarable posture must never be, because two postures the same
+    tree passes are not two postures.
+    """
+    references = guard.endpoint_references()
+    constants = guard.frozen_region_constants()
+    declared, resolution = guard.declared_posture_name()
+    assert resolution == [] and declared is not None
+
+    for name, spec in sorted(guard.POSTURES.items()):
+        refusals = (
+            guard.single_spelling_failures(constants, spec)
+            + guard.endpoint_failures(references, constants, {}, spec)
+            + guard.builder_failures(None, spec)
+            + guard.declaration_failures(name)
+        )
+        if name == declared:
+            assert refusals == [], (name, refusals)
+        else:
+            assert refusals, (
+                f"posture {name!r} is a row nothing can distinguish from the declared one "
+                "over the real tree — either it is not a different posture, or this guard "
+                "cannot tell that it is"
+            )
+
+
+def test_declaring_google_direct_over_the_real_tree_is_refused_by_every_check() -> None:
+    """The third vendor, stated over the shipped tree exactly as `openai-direct` is.
+
+    It earns its own test rather than only a row in the loop above because the two things
+    it was added to prove are both invisible from a count. Check 3 refuses the Azure
+    literal by naming Gemini's host as the one this declaration permits — which is only
+    possible because `permitted_host` is read from the spec and the watched-host set is
+    derived from the table. And check 4 refuses because the builder this posture names does
+    not exist, which is what a declaration arriving ahead of its code looks like.
+
+    FAILS IF: `google-direct` is deleted, or its `permitted_host` / `builder` stop being
+    read from the spec.
+    """
+    references = guard.endpoint_references()
+    constants = guard.frozen_region_constants()
+
+    region = guard.single_spelling_failures(constants, GOOGLE)
+    assert len(region) == 1 and "pins no region" in region[0], region
+
+    endpoints = guard.endpoint_failures(references, constants, {}, GOOGLE)
+    assert endpoints and all(guard.AZURE_HOST_SUFFIX in failure for failure in endpoints)
+    assert all(GOOGLE.permitted_host in failure for failure in endpoints), endpoints
+
+    builder = guard.builder_failures(None, GOOGLE)
+    assert len(builder) == 1 and "gemini_base_url" in builder[0], builder
+
+    record = guard.declaration_failures("google-direct")
+    assert len(record) == 3, record
+    for field in ("addresses_a_deployment", "llm_provider", "region"):
+        assert any(f"declares {field}=" in failure for failure in record), (field, record)
+
+    # The posture makes NO regional claim, so it delegates nothing — and says so out loud
+    # rather than by omission, per `test_the_delegated_human_gate_...` below.
+    assert GOOGLE.delegated_gate is None
+    assert guard.delegation_failures("no gate here", GOOGLE) == []
+    assert "NO REGIONAL CLAIM" in GOOGLE.warrant
 
 
 def test_a_posture_name_the_guard_does_not_know_is_a_hard_failure() -> None:

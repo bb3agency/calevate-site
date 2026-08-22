@@ -27,7 +27,13 @@ The four properties the guard still proves, each with its own negative control:
 2. NO `Settings` FIELD CAN CARRY A REGION — the failure that never appears in a URL
    literal, because the value arrives from a database row. Plus its D-410 sibling: a
    field that would be a hand-typed ENDPOINT, which is a second constructor made of a
-   text box.
+   text box. **The endpoint half is checked for every vendor `POSTURES` knows and not
+   only the declared one**, and the two tests that pin it exist because it was not: the
+   vendor was a hard-coded Azure tuple, so `openai_base_url` and `gemini_api_base` passed
+   under the declared posture as well as under any other. That is the "an endpoint" term
+   of the client DPA's warranty (`apps/web/src/lib/legal/dpa.ts`) going unenforced for
+   two vendors out of three while the run printed OK — the exact defect class this file's
+   header is about.
 3. NO ENDPOINT OUTSIDE THE ONE BUILDER — a hand-written f-string, the builder's own suffix
    spelled in the wrong file, an unfrozen copy of it in the right one, `api.openai.com`
    (disqualified on residency, and one edited base URL away because Azure's v1 surface is
@@ -42,7 +48,8 @@ ast_proof` runs the guard with `REGIONAL_HOST_ADOPTED` flipped, which is what ma
 
 Plus the anti-rubber-stamp cases: prose naming a watched host must NOT fail (this is an
 AST walk, not a grep), the Sheets/OAuth hosts must not be judged at all, and the guard's
-own file is judged like any other except for four exact declaration strings.
+own file is judged like any other except for the exact declaration strings
+`SELF_DECLARATIONS` derives from the posture table.
 """
 
 from __future__ import annotations
@@ -201,13 +208,13 @@ def test_a_settings_field_named_for_a_region_is_caught() -> None:
 
 
 def test_a_settings_field_that_would_be_a_second_endpoint_constructor_is_caught() -> None:
-    """D-410's sibling of the region knob, and the reason `ENDPOINT_KNOB_FRAGMENTS` is a
-    PAIR rather than the word "url".
+    """D-410's sibling of the region knob, and the reason the check is a PAIR rather than
+    the word "url".
 
-    Check 3 says the Azure endpoint has exactly one constructor. A console field called
+    Check 3 says the model endpoint has exactly one constructor. A console field called
     `azure_openai_base_url` would be a second one made of a text box — and unlike the
     region, it would not even need a code change to point the leg somewhere else. The
-    fragments are paired with the vendor's name because plenty of settings are
+    endpoint words are paired with a vendor token because plenty of settings are
     legitimately URLs, and a check that banned the word would be routed around by
     renaming rather than obeyed.
     """
@@ -215,7 +222,15 @@ def test_a_settings_field_that_would_be_a_second_endpoint_constructor_is_caught(
         fields={"azure_openai_base_url": None}, managed=["azure_openai_base_url"]
     )
     assert len(offenders) == 1, offenders
-    assert "second one" in offenders[0] and "azure_openai_resource" in offenders[0]
+    assert "second one" in offenders[0] and "model ENDPOINT" in offenders[0]
+    assert f"{guard.BUILDER}()" in offenders[0], (
+        "the refusal must name the constructor the field would be duplicating, or the "
+        "reader has to go and find which of four builders this vendor uses"
+    )
+    assert "'azure'" in offenders[0], (
+        "`azure_openai_base_url` carries two vendor tokens and the LEFTMOST is the vendor "
+        "— attributing it to OpenAI would point the reader at the wrong builder"
+    )
 
     # …and the four settings the leg genuinely needs are NOT caught, which is what stops
     # this check being deleted the first time somebody configures Azure properly.
@@ -228,6 +243,76 @@ def test_a_settings_field_that_would_be_a_second_endpoint_constructor_is_caught(
                 "azure_openai_model": "gpt-4o-mini",
             },
             managed=["azure_openai_resource", "azure_openai_deployment", "azure_openai_model"],
+        )
+        == []
+    )
+
+
+def test_the_endpoint_knob_check_covers_every_vendor_the_posture_table_knows() -> None:
+    """THE HOLE THIS TEST WAS WRITTEN FOR, and it was live under the DECLARED posture — not
+    only under a hypothetical future one.
+
+    The vendor half of this check used to be a hard-coded tuple of Azure token pairs
+    (`("azure", "url")` and two siblings), so `Settings.openai_base_url` and
+    `Settings.gemini_api_base` passed. `apps/web/src/lib/legal/dpa.ts` warrants to clients
+    that "no configuration setting may carry a region, an endpoint or a posture", and this
+    function is the enforcement behind the middle term — so the warranty was being enforced
+    for one vendor out of the three the table can express, with a green run either way.
+
+    IT IS STATED OVER `POSTURES` AND NOT OVER A LIST OF NAMES, which is what makes it hold
+    for the NEXT vendor as well: every token every spec declares must be refused beside an
+    endpoint word. A posture added with no `vendor_tokens`, or a check re-narrowed to the
+    declared posture's, fails here rather than in an audit.
+
+    FAILS IF: `KNOWN_VENDOR_TOKENS` stops being the union over `POSTURES` (e.g. it is
+    re-narrowed to `declared_spec().vendor_tokens`), or the vendor half is hard-coded back
+    to Azure's name, or a spec is added without saying what its vendor is called.
+    """
+    assert len(guard.KNOWN_VENDOR_TOKENS) >= 3, guard.KNOWN_VENDOR_TOKENS
+    for spec in guard.POSTURES.values():
+        assert spec.vendor_tokens, f"posture {spec.name!r} does not say what its vendor is called"
+        for token in spec.vendor_tokens:
+            assert token in guard.KNOWN_VENDOR_TOKENS, (token, spec.name)
+            for suffix in guard.ENDPOINT_KNOB_WORDS:
+                field = f"{token}_api_{suffix}"
+                offenders = guard.console_config_failures(fields={field: None}, managed=[field])
+                assert len(offenders) == 1, (field, offenders)
+                assert f"{token!r}" in offenders[0] and f"{suffix!r}" in offenders[0], offenders
+
+
+def test_the_endpoint_knob_check_catches_the_vendors_own_name_for_the_field() -> None:
+    """`api_base` carries no `url`, no `endpoint` and no `host`, and it is the LIKELIEST
+    spelling of the field this check exists to refuse.
+
+    It is the vendor's own name for the value: `AZURE_OPENAI_API_BASE` is one of the four
+    flat credential entries the engine stores (D-417), and OpenAI's SDK reads
+    `OPENAI_API_BASE`. So the field somebody actually declares after copying a vendor's
+    setup page is exactly the one the three original fragments waved through.
+
+    FAILS IF: `base` is dropped from `ENDPOINT_KNOB_WORDS`.
+    """
+    assert "base" in guard.ENDPOINT_KNOB_WORDS
+    for field in ("azure_openai_api_base", "openai_api_base", "gemini_api_base"):
+        offenders = guard.console_config_failures(fields={field: None}, managed=[field])
+        assert len(offenders) == 1, (field, offenders)
+        assert "'base'" in offenders[0], offenders
+
+    # And the boundary: a URL word with NO vendor beside it stays legitimate. Banning the
+    # word alone is the check people route around by renaming, and this repository has
+    # four live fields that would fail it.
+    assert (
+        guard.console_config_failures(
+            fields={
+                "webhook_base_url": None,
+                "database_url": None,
+                "object_store_endpoint": None,
+                "smtp_host": None,
+                # A vendor token with no endpoint word is configuration, not a knob: this
+                # is the AI Studio key that no surface in the product opens.
+                "gemini_api_key": None,
+                "google_sheets_provider": None,
+            },
+            managed=[],
         )
         == []
     )
@@ -335,6 +420,74 @@ def test_openai_direct_is_refused_on_residency(tmp_path: Path) -> None:
     assert len(offenders) == 1, offenders
     assert "storage at rest only" in offenders[0], offenders
     assert "inference input" in offenders[0], offenders
+
+
+def test_every_posture_host_the_table_knows_is_both_watched_and_judged(tmp_path: Path) -> None:
+    """The scan has to SEE a host before any clause can refuse it, and the two halves used
+    to be maintained apart.
+
+    `WATCHED_HOSTS` was a hand-written tuple beside a table of postures, so a posture could
+    be added with a `permitted_host` no scan ever looked for: `endpoint_references()` would
+    yield nothing, `endpoint_failures()` would say nothing, and check 3 would be unenforced
+    under the one posture it existed for while the run printed OK. It is derived now, and
+    `test_the_raw_transcript_host_is_deliberately_not_a_watched_host` states the other half
+    of the rule — a watched host with no clause behind it is cost with no check — so this
+    asserts BOTH: seen, and refused.
+
+    FAILS IF: `WATCHED_HOSTS` goes back to a literal tuple and a posture's host drops out
+    of it, or the wrong-vendor clause in `endpoint_failures` is re-narrowed to
+    `AZURE_HOST_SUFFIX` (which is what it said before a third vendor got a row, and which
+    accepted a hand-written Gemini endpoint while refusing a hand-written OpenAI one).
+    """
+    declared = guard.declared_spec()
+    for spec in guard.POSTURES.values():
+        # A host written `.suffix` needs a label in front of it to be a hostname; one
+        # written whole is already one. Both shapes appear in the table.
+        host = (
+            f"calevate{spec.permitted_host}"
+            if spec.permitted_host[0] == "."
+            else (spec.permitted_host)
+        )
+        assert spec.permitted_host in guard.WATCHED_HOSTS, spec.name
+        assert guard._mentions_watched_host(f"https://{host}/v1"), spec.name
+
+        root = _tree(tmp_path, f'URL = "https://{host}/v1"\n')
+        offenders = _failures(root)
+        assert len(offenders) == 1, (spec.name, offenders)
+        if spec.permitted_host == declared.permitted_host:
+            assert "by hand" in offenders[0], offenders
+        else:
+            assert spec.permitted_host in offenders[0], offenders
+
+
+def test_a_gemini_endpoint_is_refused_under_the_declared_posture(tmp_path: Path) -> None:
+    """The vendor that had no clause at all, named on its own because it is the case the
+    generalization was written for.
+
+    Before `endpoint_failures` was stated over `KNOWN_POSTURE_HOSTS`, this literal matched
+    nothing: not the OpenAI ban (different host), not the Azure clause (different host),
+    and `posture.permitted_host not in template` sent it to `continue`. So the guard
+    refused a hand-written OpenAI URL and accepted a hand-written Google one, in a tree
+    whose decision log refuses both (D-448).
+
+    FAILS IF: `GEMINI_DIRECT_HOST` leaves `POSTURES` (and therefore `KNOWN_POSTURE_HOSTS`),
+    or the clause goes back to naming one vendor's suffix.
+    """
+    root = _tree(tmp_path, f'URL = "https://{guard.GEMINI_DIRECT_HOST}/v1beta/openai"\n')
+    offenders = _failures(root)
+    assert len(offenders) == 1, offenders
+    assert guard.GEMINI_DIRECT_HOST in offenders[0], offenders
+    assert "not the DECLARED posture's" in offenders[0], offenders
+    assert guard.BUILDER in offenders[0], (
+        "the refusal must name the constructor the declared posture DOES use, or it says "
+        "only that something is wrong"
+    )
+
+    # The Sheets hosts are the boundary and they are NOT judged: `.googleapis.com` is a
+    # domain shared by a model API and by the tenant's own CRM destination, so the watched
+    # string is a full hostname. A suffix match here would fire on every export.
+    sheets = _tree(tmp_path, 'URL = "https://sheets.googleapis.com/v4/spreadsheets"\n')
+    assert _failures(sheets) == []
 
 
 def test_the_regional_hostname_is_refused_while_it_is_rejected_for_now(tmp_path: Path) -> None:
@@ -844,11 +997,18 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
     EXPLANATIONS AS THE OFFENCE, which is exactly the failure mode the exemption exists to
     prevent, and this is the evidence.
 
-    THREE FILES MAKE THE ARGUMENT, and it is worth knowing which:
+    FOUR FILES MAKE THE ARGUMENT, and it is worth knowing which:
 
       extraction.py             why the region is invisible in the Azure hostname
       calevate_shared/engine.py the builder's own docstring, on the v1 surface it emits
-      check_model_residency.py  this guard's explanation of all three watched hosts
+      engine/bolna.py           why `provider: "google"` is REFUSED rather than missing
+      check_model_residency.py  this guard's explanation of every watched host
+
+    `bolna.py` JOINED THE LIST WHEN GEMINI'S HOST BECAME A WATCHED ONE, and that is the
+    exemption doing its job rather than drifting: the docstring at `_llm_routing` names
+    `generativelanguage.googleapis.com` in order to say the branch that would reach it is
+    refused, which is exactly the "a correction has to be EXPLAINED somewhere" case. A
+    source-text scan would report the explanation as the offence.
 
     If this list ever reaches a size where updating it feels like paperwork, model
     endpoints have spread through the tree and THAT is the finding.
@@ -863,6 +1023,7 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
 
     offenders = {failure.split(":", 1)[0] for failure in failures}
     assert offenders == {
+        "apps/api/engine/bolna.py",
         "apps/workers/extraction.py",
         guard.BUILDER_HOME,
         guard.SELF,
@@ -878,7 +1039,7 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
 def test_the_guard_judges_its_own_file_apart_from_the_declarations(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The single-file hole, narrowed from a whole file to four exact strings.
+    """The single-file hole, narrowed from a whole file to a handful of exact strings.
 
     The guard has to name the hosts to watch them and the suffix to permit it, so SOMETHING
     here must be exempt. It is `_host_definition`: a template that IS one of those strings

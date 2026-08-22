@@ -66,12 +66,22 @@ there is no code path by which model traffic is aimed somewhere else WITHOUT edi
    the Vertex version, which permitted any `Final`: with the region no longer checkable
    against a URL, "there is one of it" is doing more of the work and has to hold harder.
 2. **NO `Settings` FIELD CAN CARRY A REGION**, by NAME or by default VALUE, and none can
-   carry a hand-typed Azure endpoint either. `platform_config.managed_fields()` derives
+   carry a hand-typed model endpoint for ANY vendor this file knows a posture for either.
+   `platform_config.managed_fields()` derives
    the ops console's editable set from `Settings.model_fields` minus the bootstrap keys
    minus credential-shaped names, so a field called `azure_location` would be editable
    from a web form the day it was declared, and a residency posture invertible by a click
    at 3am is not a posture. This property is UNCHANGED from D-127 and is the one part of
-   the old guard that lost nothing in the migration.
+   the old guard that lost nothing in the migration — **except for one thing, which is
+   named here rather than left as a diff**: the ENDPOINT half of it carried a hard-coded
+   tuple of Azure token pairs, so `openai_base_url` or `gemini_api_base` passed under
+   every posture including the declared one, and this file printed OK while enforcing the
+   client DPA's "no configuration setting may carry … an endpoint" for one vendor out of
+   three. The vendor half now comes from `POSTURES` (`KNOWN_VENDOR_TOKENS`) and the union
+   is deliberate: the field a half-finished posture move leaves behind names the vendor
+   the tree has just LEFT, so a check stated over the declared vendor alone is blind to
+   precisely the case it exists for. Same argument `frozen_region_constants()` makes for
+   scanning every posture's region rather than only the declared one.
 3. **NO AZURE ENDPOINT IS CONSTRUCTIBLE EXCEPT THROUGH `azure_openai_base_url()`.**
    Exactly ONE string literal in `apps/`, `packages/` and `scripts/` may contain an Azure
    OpenAI host: the `Final` suffix that builder is assembled from. Every other literal
@@ -127,8 +137,8 @@ MECHANISM: the Python half reads the **AST**, not the source text, and reconstru
 f-strings into templates (`f"https://{X}{SUFFIX}"` becomes `https://{X}{SUFFIX}` with each
 hole carrying the interpolated expression's source). Two reasons, both learned here. First,
 `sarvam_model_identifier_test`'s: a correction has to be EXPLAINED somewhere, and a regex
-over source flags the paragraph explaining it — this very docstring names all three watched
-hosts. Second, provenance: "the region came from `AZURE_LOCATION`" and "the region came
+over source flags the paragraph explaining it — this very docstring names every watched
+host. Second, provenance: "the region came from `AZURE_LOCATION`" and "the region came
 from `self._loc`" are the same string to a grep and are not the same fact.
 
 A CONSEQUENCE WORTH STATING RATHER THAN DISCOVERING: `"https://{r}.openai.azure.com/…"
@@ -164,6 +174,11 @@ NOT IN SCOPE: `oauth2.googleapis.com`, `sheets.googleapis.com` and
 tenant's OWN destination, chosen by them, disclosed in their DPA, and carry no model
 inference. This check is about where a MODEL runs. (Google left the model legs entirely at
 D-410; it remains a sub-processor for Sheets alone, SECURITY-COMPLIANCE §4.)
+IN SCOPE, AND THE LINE BETWEEN THEM IS A FULL HOSTNAME RATHER THAN A DOMAIN:
+`generativelanguage.googleapis.com` is the Gemini Developer API, it is a MODEL host, and
+`google-direct` is a posture in the table below — so it is watched exactly like
+`api.openai.com` is. Matching `.googleapis.com` instead would have swept every CRM export
+into a residency check, which is the false positive that gets a guard switched off.
 
 Run: `uv run python -m scripts.check_model_residency`   (also in `make guardrails`)
 """
@@ -243,6 +258,26 @@ AZURE_REGIONAL_HOST_SUFFIX: Final = ".api.cognitive.microsoft.com"
 #: the shipped posture and a disqualified one.
 OPENAI_DIRECT_HOST: Final = "api.openai.com"
 
+#: Google's Gemini DEVELOPER API — the AI Studio surface, not Vertex. Named here for
+#: OPENAI_DIRECT_HOST's exact reason: it is the third vendor a `PostureSpec` can express,
+#: so the scan has to be able to SEE it before the spec below means anything.
+#:
+#: VERIFIED-VENDOR-DOCS via `docs/evidence/gemini-direct-api.md:270-273` (Microsoft's
+#: `azure-docs` repository on github.com, read 22 Aug 2026 — every Google documentation
+#: host is egress-blocked here, so the vendor's own page was NOT read). Base URL
+#: `https://generativelanguage.googleapis.com/v1beta/openai`, `POST /chat/completions`,
+#: a STATIC key in `Authorization: Bearer`.
+#:
+#: IT IS THE FULL HOST AND NOT `.googleapis.com`, deliberately. `sheets.googleapis.com`
+#: and `oauth2.googleapis.com` are the tenant's OWN destination on the Sheets leg and
+#: carry no inference (see "NOT IN SCOPE" above); a suffix match would drag every CRM
+#: export into a check about where a MODEL runs, which is how a guard gets turned off.
+GEMINI_DIRECT_HOST: Final = "generativelanguage.googleapis.com"
+
+#: The rest of that endpoint, kept beside the host for `BUILDER_SUFFIX`'s reason: the path
+#: shape is evidence, and an edit to it should be deliberate rather than incidental.
+GEMINI_DIRECT_PATH: Final = "/v1beta/openai"
+
 #: WOULD THE REGIONAL HOSTNAME RESTORE THE AST PROOF? Yes — and this flag is the whole
 #: cost of adopting it, which is why the machinery below is written now rather than
 #: promised. `False`: naming `AZURE_REGIONAL_HOST_SUFFIX` in shipped code is a failure,
@@ -310,6 +345,19 @@ class PostureSpec:
     region_constant: str | None
     #: Our closed vocabulary's member for this leg (`calevate_shared.engine.LlmProvider`).
     llm_provider: str
+    #: The word(s) a `Settings` field name would carry if it named THIS posture's vendor.
+    #: Read by `console_config_failures` through `KNOWN_VENDOR_TOKENS`, which is the union
+    #: over every posture — never over the declared one alone.
+    #:
+    #: STATED HERE RATHER THAN DERIVED FROM `llm_provider` OR `permitted_host`, and both
+    #: rejections are worth keeping. Splitting `llm_provider` ("google") would miss
+    #: `gemini_base_url`, because a vendor's PRODUCT name and its provider slug are
+    #: routinely different words and a field is named after whichever one the engineer had
+    #: in mind. Splitting `permitted_host` would yield "api", "com" and "googleapis" —
+    #: tokens so broad that `sarvam_api_url` would be refused, which is the false positive
+    #: that gets a name check deleted rather than obeyed. So the spec's author states the
+    #: vendor's words, in the same place they state everything else this posture costs.
+    vendor_tokens: tuple[str, ...]
     #: Does the API address a DEPLOYMENT id the operator chose rather than the model's own
     #: name? Cross-checked against the declared record because it is the field a reader
     #: would call cosmetic, and it is what decides whether `azure_openai_deployment` and
@@ -354,14 +402,30 @@ class PostureSpec:
 #: `tests/residency_posture_test.py` declares it over the REAL tree and watches this guard
 #: refuse — which turns "the guard fails when code and declaration disagree" from a design
 #: intention into an observed fact. Declaring it for real would also have to change
-#: `apps/web/src/lib/legal/dpa.ts`, which warrants the India posture to clients in an
+#: `apps/web/src/lib/legal/dpa.ts`, which warrants the declared posture to clients in an
 #: executed agreement; that is a legal act, not a config change.
+#:
+#: `google-direct` IS HERE AND IT IS NOT AN OFFER EITHER. It is the second posture D-448
+#: refused, and it is a row rather than a paragraph because a table that could express two
+#: vendors was a table whose vendor-independence nobody could observe: every check stated
+#: over "Azure or not Azure" reads as general and is not, and the only way to tell the
+#: difference is to state a THIRD vendor and watch what breaks. Two things break, both
+#: fixed in the same change that added this row and neither of them decorative — the
+#: `Settings`-endpoint check knew only Azure's name (so `openai_base_url` sailed through
+#: under EVERY posture, including the declared one), and the watched-host set was a
+#: hand-written tuple (so this posture's own host would have been invisible to check 3 and
+#: its `permitted_host` inert). ⚠ TWO FACTS THIS ROW DOES NOT STATE, because they are not
+#: this file's to guess (D-417): the engine-side wire value for the provider, and the name
+#: of the credential entry it is stored under. Both are vendor facts, both are established
+#: by reading the vendor's documentation, and a `PostureSpec` is not where a guessed one
+#: would be noticed.
 POSTURES: Final[dict[str, PostureSpec]] = {
     "us-azure-openai": PostureSpec(
         name="us-azure-openai",
         region=AZURE_REGION_US,
         region_constant=REGION_CONSTANT,
         llm_provider="azure_openai",
+        vendor_tokens=("azure",),
         addresses_a_deployment=True,
         builder=BUILDER,
         builder_arity=1,
@@ -380,6 +444,7 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         region=AZURE_REGION_INDIA,
         region_constant=REGION_CONSTANT,
         llm_provider="azure_openai",
+        vendor_tokens=("azure",),
         addresses_a_deployment=True,
         builder=BUILDER,
         builder_arity=1,
@@ -397,6 +462,7 @@ POSTURES: Final[dict[str, PostureSpec]] = {
         region=None,
         region_constant=None,
         llm_provider="openai",
+        vendor_tokens=("openai",),
         addresses_a_deployment=False,
         builder="openai_base_url",
         builder_arity=0,
@@ -414,6 +480,78 @@ POSTURES: Final[dict[str, PostureSpec]] = {
             "endpoint"
         ),
     ),
+    "google-direct": PostureSpec(
+        # ⚠ CHECKABLE, AND REFUSED ON MERIT — the two are different claims and this table
+        # only makes the first. A spec here means the guard could hold the tree to this
+        # posture, exactly as `openai-direct`'s row does; it has never meant the posture is
+        # on offer. `docs/evidence/llm-provider-postures.md` refuses this one, and NOT on
+        # residency (D-449 spent that argument and it is not recycled here): Gemini's
+        # thinking tokens draw on the SAME `max_output_tokens` budget as the reply and can
+        # return a candidate carrying no `content` field at all. On a phone call that is
+        # SILENCE, not a clipped sentence — a failure mode with no analogue on the other
+        # two providers, mitigated by the engine only on `gemini-2.5-flash`, which retires
+        # 16 Oct, while every `gemini-3.*` successor takes a non-zero thinking level with
+        # no way to zero it. The row stays because a mechanism that can only express the
+        # postures we like proves nothing about the posture in force.
+        name="google-direct",
+        # NO REGION, AND THE DISTINCTION FROM `openai-direct` IS WORTH THE SENTENCE.
+        # OpenAI HAS regions and none of them is India (D-448: `DataResidency` is a closed
+        # `Literal` of four). Google's Developer API has none AT ALL — the region is not
+        # unset, it is UNEXPRESSIBLE: no region in the host, none in the path, no field in
+        # which to ask for one, and Google's own docs say to use Vertex if residency
+        # matters (`docs/evidence/gemini-direct-api.md:55-68`). Both spell `region=None`
+        # here because this table records what the tree must LOOK like, and the two arrive
+        # at the same obligation — zero frozen region constants — by different routes.
+        region=None,
+        region_constant=None,
+        # OUR vocabulary's member, not the engine's wire value. `LlmProvider` is closed to
+        # `azure_openai` today, so this name — like `openai-direct`'s — is a member the
+        # tree would have to GROW before the posture could be declared, which is part of
+        # what makes declaring one a reviewed commit rather than an edited word. The
+        # engine-side value is a separate, unverified fact and is deliberately not here:
+        # D-417 is the row about guessing a wire string from a human-readable label.
+        llm_provider="google",
+        # BOTH WORDS, because the vendor and the product are named differently by
+        # different people and a `Settings` field gets whichever the author had in mind.
+        # `Settings.gemini_api_key` already exists in this tree (the AI Studio key no
+        # surface opens), which is the evidence that "gemini" is the word people reach for
+        # here — and a token list that had only "google" would let `gemini_base_url`
+        # through, which is the whole defect this field exists to close.
+        vendor_tokens=("google", "gemini"),
+        # The Developer API addresses the model by its own published name
+        # (`gemini-2.5-flash`); there is no operator-chosen deployment id to indirect
+        # through, which is Azure's peculiarity and not a general one.
+        addresses_a_deployment=False,
+        builder="gemini_base_url",
+        # A fixed vendor endpoint with no caller input, like `openai-direct` — so there is
+        # no hostile label to interpolate at the front of the authority and the DNS-label
+        # refusal check 4 requires above arity zero does not apply.
+        builder_arity=0,
+        # An f-string for `openai-direct`'s reason: `_render` turns it into
+        # `https://{GEMINI_DIRECT_HOST}{GEMINI_DIRECT_PATH}`, which names no host, while
+        # the VALUE is the literal the tree would have to carry.
+        builder_suffix=f"https://{GEMINI_DIRECT_HOST}{GEMINI_DIRECT_PATH}",
+        permitted_host=GEMINI_DIRECT_HOST,
+        # NOTHING IS DELEGATED, AND THAT IS A CLAIM RATHER THAN AN OMISSION. A delegated
+        # gate names the human who confirms a fact this check cannot prove; under a
+        # posture where the region is unexpressible there is no such fact, and sending a
+        # person to a console to confirm a region that does not exist would be worse than
+        # sending them nowhere. ⚠ WHAT WOULD STILL NEED A GATE ON THE DAY THIS POSTURE IS
+        # DECLARED is COMMERCIAL rather than residency-shaped and is NOT invented here:
+        # Google's free tier states it uses submitted prompts and responses to improve its
+        # products with human reviewers able to read them, and only the PAID tier does not
+        # (D-448) — so "is this key a paid key" is an OPERATIONS §2 gate somebody has to
+        # write, in a file this lane does not own, together with the decision-log entry
+        # that declares the posture.
+        delegated_gate=None,
+        warrant=(
+            "NO REGIONAL CLAIM IS MADE OR CHECKABLE under this posture, and unlike every "
+            "other row here the vendor could not make one if it wanted to — the Developer "
+            "API has no region in its host, none in its path and no field in which to ask "
+            "for one. What is still proved is one endpoint constructor, one literal "
+            "naming it, and no Settings field able to carry a region or an endpoint"
+        ),
+    ),
 }
 
 #: EVERY region any known posture pins — DERIVED from `POSTURES`, never a second list
@@ -424,6 +562,31 @@ POSTURES: Final[dict[str, PostureSpec]] = {
 #: thing a declared-region-only scan is structurally unable to notice.
 KNOWN_REGIONS: Final[frozenset[str]] = frozenset(
     spec.region for spec in POSTURES.values() if spec.region is not None
+)
+
+#: EVERY model host any known posture may name — DERIVED from `POSTURES`, for exactly the
+#: reasons `KNOWN_REGIONS` is. It feeds `WATCHED_HOSTS` (what the scan can SEE) and
+#: `endpoint_failures` (what it refuses), so a posture added to the table above cannot land
+#: with a `permitted_host` no scan looks for and no clause judges — which is the shape a
+#: spec that was decorative rather than enforced would have, and it would have printed OK.
+KNOWN_POSTURE_HOSTS: Final[frozenset[str]] = frozenset(
+    spec.permitted_host for spec in POSTURES.values()
+)
+
+#: EVERY vendor word any known posture answers to — DERIVED from `POSTURES`, never a second
+#: list beside it. Read by `console_config_failures` and by nothing else.
+#:
+#: **WHY THE UNION AND NOT THE DECLARED POSTURE'S OWN TOKENS**, which is the whole of what
+#: this constant buys and is the argument `frozen_region_constants()` already makes one
+#: level down. The artefact a half-finished posture move leaves behind is a `Settings`
+#: field for the vendor the tree has just LEFT — `azure_openai_base_url` surviving a move
+#: to OpenAI direct, `openai_base_url` surviving a move back — so a check that knew only
+#: the declared vendor would be blind to precisely the case it most needs to catch, while
+#: still printing OK. The union also makes the check bite BEFORE any second posture is
+#: declared: under today's Azure declaration an `openai_base_url` field is refused, which
+#: is correct, because there is no leg in this product for it to configure.
+KNOWN_VENDOR_TOKENS: Final[frozenset[str]] = frozenset(
+    token for spec in POSTURES.values() for token in spec.vendor_tokens
 )
 
 #: Where a URL literal can ship. `scripts/` is in for `sarvam_model_identifier_test`'s
@@ -473,8 +636,15 @@ SELF: Final = "scripts/check_model_residency.py"
 #: field had any business naming the model vendor at all. Azure's endpoint is built from
 #: four legitimate `azure_openai_*` settings — a resource, a key, a deployment id and a
 #: model — so a fragment banning the vendor's name would ban the configuration the leg
-#: cannot run without. `ENDPOINT_KNOB_FRAGMENTS` below is what took over the part of that
-#: job which still makes sense.
+#: cannot run without. `ENDPOINT_KNOB_WORDS` below, paired with `KNOWN_VENDOR_TOKENS`, is
+#: what took over the part of that job which still makes sense: the vendor's name is fine
+#: on a field holding a resource or a key, and refused on one holding a URL.
+#:
+#: THIS TUPLE NEEDS NO POSTURE AND THAT IS WHY IT IS THE MODEL THE ENDPOINT HALF WAS
+#: REBUILT AGAINST. "region", "location", "residency", "datacenter" and "posture" mean the
+#: same thing whoever is serving the model, so this check has never had a vendor to fall
+#: behind. The endpoint half had Azure's name hard-coded in it and did fall behind, which
+#: is the asymmetry `KNOWN_VENDOR_TOKENS` closes.
 REGION_KNOB_FRAGMENTS: Final[tuple[str, ...]] = (
     "region",
     "location",
@@ -487,19 +657,49 @@ REGION_KNOB_FRAGMENTS: Final[tuple[str, ...]] = (
     "posture",
 )
 
-#: Fragment PAIRS that would make a `Settings` field a hand-typed Azure endpoint: a name
-#: carrying the vendor AND a URL word. Check 3 says the endpoint has exactly one
-#: constructor; a console field called `azure_openai_base_url` would be a second one, made
-#: of a text box.
+#: The ENDPOINT half of the same rule, and the half `REGION_KNOB_FRAGMENTS` above was
+#: already principled about while this one was not. A `Settings` field whose name pairs a
+#: vendor word (`KNOWN_VENDOR_TOKENS`, derived from `POSTURES`) with one of these is a
+#: model endpoint in a text box. Check 3 says the endpoint has exactly one constructor; a
+#: console field called `azure_openai_base_url` would be a second one, made of a web form.
 #:
-#: A PAIR RATHER THAN "url", because plenty of settings are legitimately URLs (webhooks,
-#: the engine's own base) and banning the word would be a check people route around by
-#: renaming. The vendor's name beside it is what makes the intent unambiguous.
-ENDPOINT_KNOB_FRAGMENTS: Final[tuple[tuple[str, str], ...]] = (
-    ("azure", "url"),
-    ("azure", "endpoint"),
-    ("azure", "host"),
-)
+#: **THIS TUPLE USED TO CARRY THE VENDOR TOO — `("azure", "url")` and two siblings — AND
+#: THAT WAS A HOLE RATHER THAN A SIMPLIFICATION.** It meant `openai_base_url` and
+#: `gemini_api_base` were accepted under every posture including the declared one, so the
+#: DPA's warranty that "no configuration setting may carry … an endpoint"
+#: (`apps/web/src/lib/legal/dpa.ts`) had a vendor-shaped gap in its enforcement that no
+#: run of this guard would ever mention. The vendor half now comes from the posture table,
+#: where a vendor is a thing somebody had to declare; this tuple keeps only the part that
+#: is genuinely vendor-independent — the words that mean "a URL".
+#:
+#: STILL A PAIR AND NEVER THE WORDS ALONE, because plenty of settings are legitimately
+#: URLs (`webhook_base_url`, `database_url`, `object_store_endpoint`) and banning the word
+#: would be a check people route around by renaming. The vendor's name beside it is what
+#: makes the intent unambiguous.
+#:
+#: `base` IS IN THE LIST AND IS NOT PADDING. `AZURE_OPENAI_API_BASE` is the vendor's OWN
+#: name for this value — it is one of the four flat credential entries the engine stores
+#: (D-417) — so `azure_openai_api_base` is the single likeliest spelling of the field this
+#: check exists to refuse, and it carries no `url`, `endpoint` or `host` at all. The three
+#: fragments this file shipped with would have waved it through.
+ENDPOINT_KNOB_WORDS: Final[tuple[str, ...]] = ("url", "endpoint", "host", "base")
+
+
+def _endpoint_knob_vendor(lowered: str) -> str | None:
+    """Which vendor a `Settings` field name carries, LEFTMOST match first.
+
+    A field is named `<vendor>_<product>_<thing>`, so the leftmost token is the vendor and
+    `azure_openai_base_url` is Azure's rather than OpenAI's — which matters only for which
+    builder the failure message points at, but a message that named the wrong constructor
+    would send the reader to the wrong file. Longest wins on a tie so a vendor whose token
+    is a prefix of another's cannot shadow it.
+    """
+    hits = [
+        (lowered.find(token), -len(token), token)
+        for token in KNOWN_VENDOR_TOKENS
+        if token in lowered
+    ]
+    return min(hits)[2] if hits else None
 
 
 @dataclass(frozen=True)
@@ -670,12 +870,20 @@ def _templates(path: Path) -> Iterator[tuple[str, int, bool]]:
             yield node.value, node.lineno, id(node) in frozen
 
 
-#: The hosts a literal has to mention before this check has an opinion about it.
-WATCHED_HOSTS: Final[tuple[str, ...]] = (
-    AZURE_HOST_SUFFIX,
-    AZURE_REGIONAL_HOST_SUFFIX,
-    OPENAI_DIRECT_HOST,
-)
+#: The hosts a literal has to mention before this check has an opinion about it: EVERY
+#: known posture's own host, plus the one form that belongs to no posture.
+#:
+#: DERIVED RATHER THAN LISTED (and it was listed, which is how it fell a vendor behind the
+#: table above). A hand-written tuple beside `POSTURES` is the `KNOWN_REGIONS` failure
+#: class in a second place: a posture added to the table with a host missing from here has
+#: a `permitted_host` no scan ever looks for, so `endpoint_failures` sees no reference,
+#: says nothing, and the posture's own single-constructor rule is unenforced under the one
+#: posture it exists for. `AZURE_REGIONAL_HOST_SUFFIX` is appended because it is not any
+#: posture's permitted host — it is the rejected-FOR-NOW form of one, and its clause in
+#: `endpoint_failures` is what gives it a reason to be watched at all (see
+#: `test_the_raw_transcript_host_is_deliberately_not_a_watched_host` for the rule this
+#: obeys: a host with no clause behind it is cost with no check).
+WATCHED_HOSTS: Final[tuple[str, ...]] = (*sorted(KNOWN_POSTURE_HOSTS), AZURE_REGIONAL_HOST_SUFFIX)
 
 
 def _mentions_watched_host(text: str) -> bool:
@@ -704,9 +912,10 @@ def _mentions_watched_host(text: str) -> bool:
 SETTINGS_ENDPOINT_HOSTS: Final[tuple[str, ...]] = ("api.sarvam.ai",)
 
 
-#: The strings `SELF` is allowed to spell: the three watched hosts, plus the builder
-#: suffix it grants the tree's one exemption FOR. Nothing is a URL and nothing carries a
-#: scheme — see `_host_definition`.
+#: The strings `SELF` is allowed to spell: every watched host, plus the builder suffix it
+#: grants the tree's one exemption FOR. Nothing is a URL and nothing carries a scheme —
+#: see `_host_definition`. Derived, so a watched host this file could not declare would be
+#: this file failing its own check rather than a silent hole.
 SELF_DECLARATIONS: Final[tuple[str, ...]] = (*WATCHED_HOSTS, BUILDER_SUFFIX)
 
 
@@ -718,10 +927,12 @@ def _host_definition(template: str) -> bool:
     the string it permits in `BUILDER_HOME`; judging either would report the watch as the
     violation.
 
-    THE EXEMPTION IS FOUR EXACT STRINGS, NOT A FILE. Not one of them has a scheme or a
-    host label in front of it, so none of them is an endpoint — a URL written anywhere in
-    this file is judged like any other file's, which matters because a guardrail is edited
-    by whoever is relaxing the guardrail.
+    THE EXEMPTION IS A HANDFUL OF EXACT STRINGS, NOT A FILE — one per watched host plus
+    the builder suffix, and `SELF_DECLARATIONS` derives them so the count follows the
+    posture table rather than a comment. Not one of them has a scheme or a host label in
+    front of it, so none of them is an endpoint — a URL written anywhere in this file is
+    judged like any other file's, which matters because a guardrail is edited by whoever
+    is relaxing the guardrail.
 
     Applied ONLY inside `SELF` (see that constant). Tree-wide it would be a real hole —
     `HOST = ".openai.azure.com"` followed by `f"https://x{HOST}/…"` is precisely the
@@ -1143,6 +1354,10 @@ def endpoint_failures(
 
     for reference in references:
         allowed = permitted.get(reference.path)
+        #: Hosts already reported for THIS literal, so the general clause below cannot
+        #: repeat a refusal one of the specific clauses has already made with its own
+        #: reason. Same discipline as `console_config_failures`' `continue`s.
+        reported: set[str] = set()
 
         # The OpenAI-direct ban is POSTURE-CONDITIONAL since D-432 and nothing else about
         # it moved. Under the declared India posture it is exactly the ban D-410 wrote.
@@ -1154,6 +1369,7 @@ def endpoint_failures(
             and OPENAI_DIRECT_HOST in reference.template
             and (allowed is None or allowed.host != OPENAI_DIRECT_HOST)
         ):
+            reported.add(OPENAI_DIRECT_HOST)
             failures.append(
                 f"{reference} names {OPENAI_DIRECT_HOST} — OpenAI's own API, which D-410 "
                 "DISQUALIFIES on residency. Their India data residency covers storage at "
@@ -1188,16 +1404,28 @@ def endpoint_failures(
                     "config change."
                 )
 
-        # THE SINGLE-LITERAL RULE, now stated over the DECLARED posture's host rather
-        # than over Azure's. Two things follow, and the second is the one that makes the
-        # declaration bite: under India this is character-for-character the D-410 check,
-        # and under any other declared posture the Azure suffix stops being permitted AT
-        # ALL — including in the contract — so a tree that still builds Azure endpoints
-        # cannot quietly wear a declaration that says it does not.
-        if AZURE_HOST_SUFFIX in reference.template and posture.permitted_host != AZURE_HOST_SUFFIX:
+        # THE WRONG-VENDOR RULE, stated over EVERY known posture's host rather than over
+        # Azure's. It used to name `AZURE_HOST_SUFFIX` and nothing else, which was right
+        # while Azure was the only host any posture could permit and became a hole the
+        # moment a third vendor got a row: a Gemini endpoint literal under the declared
+        # Azure posture matched no clause at all and fell through to the `continue` below,
+        # so this guard refused a hand-written OpenAI URL and accepted a hand-written
+        # Google one. Two things follow from stating it over `KNOWN_POSTURE_HOSTS`, and
+        # the second is what makes the declaration bite: any vendor the table knows is
+        # refused unless the declaration names it, and under any posture but Azure's the
+        # Azure suffix stops being permitted AT ALL — including in the contract — so a
+        # tree that still builds Azure endpoints cannot quietly wear a declaration saying
+        # it does not.
+        foreign = sorted(
+            host
+            for host in KNOWN_POSTURE_HOSTS - reported - {posture.permitted_host}
+            if host in reference.template and (allowed is None or allowed.host != host)
+        )
+        if foreign:
             failures.append(
-                f"{reference} names {AZURE_HOST_SUFFIX}, but the declared posture builds "
-                f"its endpoint with {posture.builder}() and permits only "
+                f"{reference} names {', '.join(foreign)} — a model host this guard knows "
+                f"as some posture's, and not the DECLARED posture's. {posture.name!r} "
+                f"builds its endpoint with {posture.builder}() and permits only "
                 f"{posture.permitted_host}. Either the tree has not been moved to the "
                 "posture it declares, or the declaration was edited without the tree. "
                 "Both are residency changes; neither is a tidy-up."
@@ -1267,7 +1495,7 @@ def live_settings() -> tuple[dict[str, object], set[str]]:
 def console_config_failures(
     fields: Mapping[str, object] | None = None, managed: Iterable[str] | None = None
 ) -> list[str]:
-    """No `Settings` field may carry a model region or a hand-typed Azure endpoint.
+    """No `Settings` field may carry a model region or a hand-typed model endpoint.
 
     Asserted against the WHOLE `Settings` model and not only against `managed_fields()`,
     because the console's editable set is DERIVED (`Settings.model_fields` minus the
@@ -1278,6 +1506,15 @@ def console_config_failures(
     rest of this file. It never depended on the region appearing in a URL; it depends on
     the region having nowhere console-editable to live, which is as true of Azure as it
     was of Vertex.
+
+    **IT IS ALSO THE CLAUSE THE CLIENT DPA POINTS AT.** `apps/web/src/lib/legal/dpa.ts`
+    warrants that "no configuration setting may carry a region, an endpoint or a posture";
+    the region and posture halves have always been vendor-neutral (`REGION_KNOB_FRAGMENTS`
+    names no vendor), and the endpoint half was Azure-only until it was stated over
+    `KNOWN_VENDOR_TOKENS`. That asymmetry meant the warranty's middle term stopped being
+    enforced for any vendor the tree had not yet moved to — and, worse, for the vendor it
+    had just moved off, which is the field a half-finished migration actually leaves
+    behind. It is deliberately NOT stated over the DECLARED posture alone for that reason.
     """
     if fields is None or managed is None:
         live_fields, live_managed = live_settings()
@@ -1296,13 +1533,25 @@ def console_config_failures(
                 "applies to APP_ENV. Move it to a `Final` constant in code."
             )
             continue
-        if any(vendor in lowered and word in lowered for vendor, word in ENDPOINT_KNOB_FRAGMENTS):
+        vendor = _endpoint_knob_vendor(lowered)
+        word = next((fragment for fragment in ENDPOINT_KNOB_WORDS if fragment in lowered), None)
+        if vendor is not None and word is not None:
+            builders = sorted(
+                {spec.builder for spec in POSTURES.values() if vendor in spec.vendor_tokens}
+            )
             failures.append(
-                f"Settings.{name} is {where} and its name says it holds an Azure OpenAI "
-                f"endpoint. There is exactly one constructor for that URL, {BUILDER}(), "
-                "and a console text box beside it is a second one — check 3 in this file "
-                f"exists to make sure there is only ever the one. Store the RESOURCE "
-                "(`azure_openai_resource`) and let the builder assemble the rest."
+                f"Settings.{name} is {where} and its name pairs the model vendor "
+                f"{vendor!r} with the endpoint word {word!r} — it holds a model ENDPOINT, "
+                f"in a text box. That vendor's endpoint has exactly one constructor in "
+                f"this tree ({', '.join(f'{one}()' for one in builders)}), and a console "
+                "field beside it is a second one — check 3 exists to make sure there is "
+                "only ever the one. Store the vendor's ACCOUNT-shaped inputs (a resource "
+                "id, a key, a deployment name) and let the builder assemble the URL. "
+                "THE VENDOR DOES NOT HAVE TO BE THE DECLARED ONE and this is checked "
+                f"against every posture's ({sorted(KNOWN_VENDOR_TOKENS)}): the field a "
+                "half-finished posture move leaves behind names the vendor the tree just "
+                "LEFT, so a check that knew only the declared vendor would be blind to "
+                "exactly the case it exists for."
             )
             continue
         if isinstance(default, str) and any(host in default for host in SETTINGS_ENDPOINT_HOSTS):
@@ -1703,7 +1952,7 @@ def main() -> int:
 
     print(
         f"MODEL RESIDENCY: OK — declared posture {name!r} ({templates} string templates "
-        f"scanned; {len(references)} Azure/OpenAI host literal(s) judged and only "
+        f"scanned; {len(references)} model host literal(s) judged and only "
         f"{posture.builder}()'s own suffix permitted; {len(ALLOWANCES)} dated allowance(s) "
         "still current)"
     )
