@@ -1761,6 +1761,27 @@ async def usage_summary(
         "monthly_fee_inr": (
             to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
         ),
+        # THE TOTAL, so no screen has to add rupees in a browser. `month_charges_inr` is
+        # the same expression `margin_for_tenant` books as revenue, quantized to paise here
+        # because that is what a rupee amount means to the client reading it.
+        #
+        # It is deliberately NOT `spend_used_inr`, and confusing the two is the reason this
+        # comment is long. `spend_used_inr` is what has been METERED — the live counter on
+        # an open month, the ledger on a closed one — so on an open month it lags the
+        # retainer entirely and answers "what have my calls drawn down". This answers "what
+        # will this month cost me", retainer included, from the same three published
+        # components a client can add up by hand.
+        "month_charges_inr": to_paise(
+            month_charges_inr(
+                monthly_fee_inr=(
+                    to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
+                ),
+                plan_tier=tier,
+                minutes=minutes,
+                overage_cost_inr=overage_cost,
+                llm_surcharge_inr=surcharge.total_inr,
+            )
+        ),
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
         "minutes_left": minutes_left,
         "capped": capped,
@@ -1780,6 +1801,52 @@ async def usage_summary(
             )
         ),
     }
+
+
+def month_charges_inr(
+    *,
+    monthly_fee_inr: Decimal | None,
+    plan_tier: str | None,
+    minutes: Decimal,
+    overage_cost_inr: Decimal,
+    llm_surcharge_inr: Decimal,
+) -> Decimal:
+    """EVERYTHING THIS BILLING PERIOD HAS COST THE CLIENT — the retainer plus the calling.
+
+    **THE ADDITION HAS TO HAPPEN SOMEWHERE, AND THE BROWSER IS THE ONE PLACE IT MUST NOT.**
+    `UsagePanelOut` published three charge components and no total, so both client screens
+    that show "this month so far" had to add rupees in JavaScript. `apps/web/src/lib/money
+    .ts` did it correctly — whole paise, never `Number()` on a rupee string — and said in
+    its own docstring that a field on the endpoint was the better shape and that it could
+    not add one. This is that field's arithmetic. A total computed in the browser is a
+    second implementation of a bill, in a language with one numeric type, on the screen a
+    client checks against their own books.
+
+    **IT IS THE SAME EXPRESSION `margin_for_tenant` CALLS REVENUE, AND THAT IS THE POINT
+    RATHER THAN A COINCIDENCE.** What the client owes us and what we book as revenue for
+    the period are the same number seen from two sides; they were computed by two
+    expressions in two modules, which is how they come to disagree. There is now one, and
+    both surfaces read it.
+
+    **RETURNS UNQUANTIZED `Decimal`, and the two callers quantize differently ON PURPOSE.**
+    `usage_summary` publishes `to_paise(...)` because a rupee amount on a screen means two
+    decimals; `margin_for_tenant` keeps the raw value because it subtracts a cost from it
+    first and `margin_pct` divides by it — rounding before either would round twice.
+    Returning a pre-quantized figure here is the defect `calling_revenue_inr` documents at
+    length one function down, on the same path.
+
+    `monthly_fee_inr` is `None` — not zero — while a client is mid-onboarding with no plan
+    row, which is a real state; it contributes nothing and the total is then the calling
+    alone. A prepaid tenant has no retainer either, and its calling half is priced at the
+    list price rather than out of an allowance: `calling_revenue_inr` already holds that
+    branch and is not re-decided here.
+    """
+    return (monthly_fee_inr or Decimal("0")) + calling_revenue_inr(
+        plan_tier=plan_tier,
+        minutes=minutes,
+        overage_cost_inr=overage_cost_inr,
+        llm_surcharge_inr=llm_surcharge_inr,
+    )
 
 
 def calling_revenue_inr(
@@ -2214,14 +2281,19 @@ async def margin_for_tenant(
     # stays here because a prepaid tenant has none; the CALLING half is the part that
     # differs, and it has one home now.
     tier = await plan_tier_of(session, tenant_id)
-    revenue = (usage["monthly_fee_inr"] or Decimal("0")) + calling_revenue_inr(
+    # THROUGH `month_charges_inr`, which is also what the client's own panel publishes as
+    # `month_charges_inr`. Revenue and "what the client owes" are the same number seen from
+    # two sides, and they used to be two expressions in two modules. The model surcharge is
+    # REVENUE and belongs on this side of the margin — it is also the only revenue here that
+    # moves with our own cost, since a client on the dearer model raises `cost_inr` through
+    # an Azure invoice we cannot see per tenant, so it is what keeps the two moving together
+    # at all (D-455). Left UNQUANTIZED: the subtraction and `margin_pct`'s division both
+    # happen before anything is rounded.
+    revenue = month_charges_inr(
+        monthly_fee_inr=usage["monthly_fee_inr"],
         plan_tier=tier,
         minutes=usage["minutes_used"],
         overage_cost_inr=usage["overage_cost_inr"],
-        # The model surcharge is REVENUE and belongs on this side of the margin. It is
-        # also the only revenue on this panel that moves with our own cost: a client on
-        # the dearer model raises `cost_inr` through the Azure invoice we cannot see per
-        # tenant, so the surcharge is what keeps the two moving together at all (D-455).
         llm_surcharge_inr=usage["llm_surcharge_inr"],
     )
     margin = to_paise(revenue - cost_inr)
@@ -2268,6 +2340,7 @@ __all__ = [
     "lock_tenant_credits",
     "margin_for_tenant",
     "margin_pct",
+    "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
     "priced_llm_surcharge",

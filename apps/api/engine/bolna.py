@@ -2279,7 +2279,7 @@ class BolnaEngine:
                                     # on the money path" — true under D-36 and false the moment
                                     # the leg moved to a paid provider, where output tokens are
                                     # the expensive ones: 4x input on `gpt-4o-mini` and on
-                                    # `gpt-4.1-mini` alike (`AZURE_LIST_PRICE_USD_PER_MTOK`),
+                                    # `gpt-4.1-mini` alike (`LLM_MODELS[model].price`),
                                     # against 8.3x on the Vertex leg this replaced. **The number
                                     # does not move**, and that is the point
                                     # worth recording: a cap is a safety valve against a runaway

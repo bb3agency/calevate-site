@@ -22,6 +22,7 @@ direction, and `tests/authn_rls_test.py` pins it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -33,6 +34,7 @@ from apps.api.authn.models import AUTHN_REALMS
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.db.result import rowcount_of
 
 log = get_logger(__name__)
 
@@ -156,4 +158,65 @@ async def authenticate_subject(
     return True
 
 
-__all__ = ["authenticate_subject", "set_password"]
+async def subjects_with_password(
+    session: AsyncSession, *, realm: str, subject_ids: Sequence[UUID]
+) -> frozenset[UUID]:
+    """Which of these subjects have a first-party password. Ids in, ids out.
+
+    THE SET-SHAPED SIBLING OF `service.has_password`, and it exists rather than a loop over
+    it because the operator directory asks the question about every row it renders — one
+    query per operator is the N+1 that turns a five-row console screen into five
+    transactions, each opening its own `credential_session`.
+
+    NOTHING BUT IDS CROSSES THIS BOUNDARY. The caller learns whether a password exists and
+    never touches the hash, which is what lets `admin/operator_routes.py` render an
+    "invitation outstanding" badge without the console module reaching into the credential
+    store at all.
+
+    An empty `subject_ids` short-circuits: `IN ()` is not valid SQL, and a round trip that
+    can only answer "none" is a round trip worth not taking.
+    """
+    _refuse_unknown_realm(realm)
+    if not subject_ids:
+        return frozenset()
+    rows = (
+        await session.execute(
+            text(
+                "SELECT subject_id FROM auth_credentials "
+                "WHERE realm = :realm AND subject_id = ANY(:ids)"
+            ),
+            {"realm": realm, "ids": list(subject_ids)},
+        )
+    ).all()
+    return frozenset(UUID(str(row[0])) for row in rows)
+
+
+async def delete_password(session: AsyncSession, *, realm: str, subject_id: UUID) -> bool:
+    """Destroy one subject's password. Returns whether there was one.
+
+    THE COUNTERPART TO `set_password`, and the only caller is a REVOCATION
+    (`operators.revoke_operator`). It is deliberately not exposed as "disable an account":
+    an account with no password is an account that has not finished being created, which
+    is a different state entirely — what ends an operator account is `deactivated_at`, and
+    this runs beside it so that no authentication material outlives the account it
+    belonged to. Calling it alone would leave somebody who can complete a fresh setup link
+    and sign straight back in.
+
+    THE CALLER MUST ALSO REVOKE THE SUBJECT'S SESSIONS, in the same transaction — the same
+    contract `set_password` states, for the same reason: a live session does not consult
+    the password store.
+    """
+    _refuse_unknown_realm(realm)
+    result = await session.execute(
+        text("DELETE FROM auth_credentials WHERE realm = :realm AND subject_id = :sub"),
+        {"realm": realm, "sub": subject_id},
+    )
+    removed = rowcount_of(result) > 0
+    log.warning(
+        "auth_password_deleted",
+        extra={"realm": realm, "subject_id": str(subject_id), "had_password": removed},
+    )
+    return removed
+
+
+__all__ = ["authenticate_subject", "delete_password", "set_password", "subjects_with_password"]

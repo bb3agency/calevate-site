@@ -917,6 +917,18 @@ class UsagePanelOut(Strict):
     llm_surcharge_models: list[str]
     # None until the client has a plan row with a fee (mid-onboarding is a real state).
     monthly_fee_inr: str | None
+    # WHAT THIS MONTH COSTS IN TOTAL — the retainer plus the calling, summed by the SERVER.
+    #
+    # The three components above are published so a client can check the arithmetic; this
+    # is published so no screen has to do it. Adding rupees in a browser means `Number()`
+    # on an exact decimal string, or a hand-written paise routine per screen — and this
+    # panel feeds two of them (the usage page and the dashboard's money tile), which is
+    # where one month grows two answers. `billing.service.month_charges_inr` is the single
+    # expression, and the admin margin panel books the same value as revenue.
+    #
+    # NOT the same field as `spend_used_inr`, which is what has been METERED so far and on
+    # an open month carries no retainer at all.
+    month_charges_inr: str
     cap_minutes: int | None
     minutes_left: int | None
     capped: bool

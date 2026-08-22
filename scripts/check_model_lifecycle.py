@@ -57,6 +57,9 @@ from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_OPENAI_MODELS,
+    LLM_MODEL_NAMES,
+    LLM_MODELS,
+    SELECTABLE_LLM_MODELS,
 )
 from calevate_shared.model_lifecycle import (
     ATTESTATION_PATH,
@@ -82,33 +85,49 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STALE_AFTER_DAYS = 730
 
 
-def refusals(models: frozenset[str], table: dict[str, ModelLifecycle]) -> list[str]:
-    """Reasons this check cannot MEASURE — each one exits 2, never 1 and never 0."""
+def refusals(
+    models: frozenset[str],
+    table: dict[str, ModelLifecycle],
+    selectable: frozenset[str] | None = None,
+    catalogue: dict[str, object] | None = None,
+) -> list[str]:
+    """Reasons this check cannot MEASURE — each one exits 2, never 1 and never 0.
+
+    `models` IS THE WHOLE CATALOGUE, NOT THE SELECTABLE SET, and the widening is the point.
+    A model nobody may choose today is one an operator may make choosable tomorrow, and a
+    withdrawn model is exactly the kind that sits undated for a year. So every identifier in
+    `LLM_MODEL_NAMES` must be dated-or-explicitly-unread here, and `selectable` is used only
+    for the one rule that genuinely depends on it: an UNREAD retirement date may not sit
+    under a model somebody can run.
+    """
     problems: list[str] = []
+    choosable = SELECTABLE_LLM_MODELS if selectable is None else selectable
     if not models:
         problems.append(
-            "AZURE_OPENAI_MODELS is empty. There is no allow-list to score, and an empty "
-            "allow-list is not a product with no risk — it is a check with no subject."
+            "LLM_MODEL_NAMES is empty. There is no catalogue to score, and an empty "
+            "catalogue is not a product with no risk — it is a check with no subject."
         )
     if not table:
         problems.append(
             "MODEL_LIFECYCLE is empty. Every model this deployment may run would be "
             "undated, which is the exact state this guard was written to end."
         )
-    undated = sorted(models - table.keys())
-    if undated:
+    missing = sorted(models - table.keys())
+    if missing:
         problems.append(
-            f"{undated} are selectable (AzureOpenAIModel) but have no MODEL_LIFECYCLE "
+            f"{missing} are in the catalogue (LLM_MODEL_NAMES) but have no MODEL_LIFECYCLE "
             "entry. A model can be shipped without a date only by adding one here — "
-            "including 'unknown', spelled as a real entry with an unverified Evidence."
+            "including an UNREAD one, spelled as a real entry with `retires_on=None` and an "
+            "Evidence naming the page nobody could open."
         )
     orphans = sorted(table.keys() - models)
     if orphans:
         problems.append(
-            f"{orphans} have MODEL_LIFECYCLE entries but are not in AZURE_OPENAI_MODELS. "
-            "Either the allow-list lost a model and the entry should go with it, or the "
+            f"{orphans} have MODEL_LIFECYCLE entries but are not in LLM_MODEL_NAMES. "
+            "Either the catalogue lost a model and the entry should go with it, or the "
             "entry is a typo protecting nothing."
         )
+    known = LLM_MODELS if catalogue is None else catalogue
     for name, entry in sorted(table.items()):
         if entry.model != name:
             problems.append(f"MODEL_LIFECYCLE[{name!r}].model is {entry.model!r}.")
@@ -123,32 +142,90 @@ def refusals(models: frozenset[str], table: dict[str, ModelLifecycle]) -> list[s
                     f"{name}: {label} evidence claims to have been read on "
                     f"{evidence.read_on.isoformat()}, which is in the future."
                 )
+        # THE UNDATED-AND-SELECTABLE ARM IS THE WHOLE REASON `retires_on` MAY BE `None` AT
+        # ALL. An unread date is an honest reading; an unread date under a model an operator
+        # can flip a live switch onto is the state this guard exists to end, restated with a
+        # `None` instead of a missing row. It refuses rather than warns because the answer is
+        # not "act sooner", it is "you cannot measure this and you are running it anyway".
+        if entry.retires_on is None and name in choosable:
+            problems.append(
+                f"{name} is selectable but MODEL_LIFECYCLE has read no retirement date for "
+                f"it ({entry.retirement.source}). Either the date gets read and filed, or "
+                "the model comes off the selectable set in LLM_MODELS with a "
+                "withdrawn_reason. An undated selectable model is a 410 Gone nobody has a "
+                "clock for."
+            )
+        # THE LEG HAS TO AGREE WITH THE CATALOGUE. Two registries name the provider — this
+        # one and `LLM_MODELS` — and they are written by hand in different files on purpose
+        # (a registry that took the leg from the thing it is checking would be asking the
+        # code whether it agrees with itself). Disagreement means one of them is describing
+        # a model that does not exist, and every per-leg reading below would be aimed wrong.
+        spec = known.get(name)
+        catalogued = getattr(spec, "provider", None)
+        if spec is not None and catalogued != entry.provider:
+            problems.append(
+                f"{name}: MODEL_LIFECYCLE says it runs on {entry.provider!r} and LLM_MODELS "
+                f"says {catalogued!r}. Which leg a model is on decides its endpoint, its "
+                "credential entry and which human gate is owed — two answers is none."
+            )
+        # DEPLOYMENT TYPES ARE AN AZURE FACT. On a leg with no deployments there is no SKU
+        # for a model to be offered on, so a non-empty reading here is a fact nobody could
+        # have read — and it would make the availability warning below fire about a matrix
+        # that does not exist for this vendor.
+        if not entry.deployment_types_apply and entry.offered_in_region:
+            problems.append(
+                f"{name} runs on the {entry.provider!r} leg, which has no deployment types "
+                f"at all, but its entry lists {sorted(entry.offered_in_region)}. Regional "
+                "availability matrices and SKUs are Azure's; on this leg the only "
+                "availability question is whether the engine accepts the identifier."
+            )
     return problems
 
 
 def failures(
-    table: dict[str, ModelLifecycle], today: date, attested: Attestation | None
+    table: dict[str, ModelLifecycle],
+    today: date,
+    attested: Attestation | None,
+    selectable: frozenset[str] | None = None,
 ) -> list[str]:
-    """Reasons the answer is BAD. Exit 1."""
+    """Reasons the answer is BAD. Exit 1.
+
+    **STATED OVER THE SELECTABLE SET, AND THAT SPLIT IS THE ONE THING THIS FUNCTION LEARNED
+    WHEN THE CATALOGUE OPENED.** A retired model an operator can flip a live switch onto is
+    a 410 Gone on the next call and must turn the build red. A retired model nobody may
+    choose is a dated record of WHY it was withdrawn — `gemini-2.5-flash` is in this table
+    precisely because Google turns it off on 16 Oct 2026 — and failing the build on the day
+    its own refusal comes true would be a countdown to a day nobody can act on, which is the
+    thing D-410 deleted and the thing that teaches readers to ignore a red build. It warns
+    instead, by name, forever.
+    """
     problems: list[str] = []
-    retired = sorted(name for name, e in table.items() if e.days_left(today) <= 0)
+    choosable = SELECTABLE_LLM_MODELS if selectable is None else selectable
+    scored = {name: e for name, e in table.items() if name in choosable}
+    retired = sorted(
+        name for name, e in scored.items() if (left := e.days_left(today)) is not None and left <= 0
+    )
     for name in retired:
         entry = table[name]
+        assert entry.retires_on is not None  # `retired` selected on a non-None days_left
         replacement = entry.replacement or "none published"
         problems.append(
             f"{name} retired on {entry.retires_on.isoformat()} "
-            f"({-entry.days_left(today)} days ago) and is still selectable via "
-            f"Settings.azure_openai_model. Vendor replacement: {replacement}. "
-            f"Source: {entry.retirement.source}. An operator flipping the switch to it "
-            "buys a 410 Gone on the next call."
+            f"({(today - entry.retires_on).days} days ago) and is still SELECTABLE. Vendor "
+            f"replacement: {replacement}. Source: {entry.retirement.source}. An operator or "
+            "a client flipping the picker to it buys a 410 Gone on the next call."
         )
-    survivors = {name: e for name, e in table.items() if e.days_left(today) > WARN_LEAD.days}
-    if table and not survivors:
+    survivors = {
+        name
+        for name, e in scored.items()
+        if (left := e.days_left(today)) is not None and left > WARN_LEAD.days
+    }
+    if scored and not survivors:
         problems.append(
-            "NO REPLACEMENT IS CONFIGURED: every model in AZURE_OPENAI_MODELS is retired "
-            f"or retires within {WARN_LEAD.days} days. The allow-list must gain a model "
-            "that outlives the lead time — and adding one is not a one-line diff, see "
-            "AzureOpenAIModel's comment for the three things it costs."
+            "NO REPLACEMENT IS CONFIGURED: every SELECTABLE model is retired, retires "
+            f"within {WARN_LEAD.days} days, or has no date anybody has read. The catalogue "
+            "must offer a model that outlives the lead time — and adding one is not a "
+            "one-line diff, see LLM_MODELS for what an entry costs."
         )
     if attested is not None:
         if attested.resource_location.replace(" ", "").lower() != AZURE_LOCATION:
@@ -165,22 +242,32 @@ def failures(
                 "processing in the resource's region. Global routes worldwide and is "
                 "indistinguishable from the endpoint (gate 20c)."
             )
-        if attested.deployment_model not in table:
+        if attested.deployment_model not in AZURE_OPENAI_MODELS:
             problems.append(
                 f"{ATTESTATION_PATH} records a deployment of "
-                f"{attested.deployment_model!r}, which is not in AZURE_OPENAI_MODELS. "
-                "The thing that is deployed and the things this repository can price and "
-                "date must be the same set."
+                f"{attested.deployment_model!r}, which is not in AZURE_OPENAI_MODELS "
+                f"({sorted(AZURE_OPENAI_MODELS)}). An Azure attestation describes an Azure "
+                "deployment: a model from another leg has no deployment to attest, and the "
+                "thing that is deployed must be something this repository can price and "
+                "date. This is stated over the AZURE set rather than the whole catalogue "
+                "for exactly that reason — the catalogue now spans three legs and only one "
+                "of them has deployments at all."
             )
         elif (
             attested.deprecation_date is not None
             and attested.deprecation_date != table[attested.deployment_model].retires_on
         ):
+            # `table[...]` cannot KeyError here: the arm above already refused a
+            # deployment_model outside AZURE_OPENAI_MODELS, and `refusals()` refuses a table
+            # that does not cover the catalogue. The filed date is interpolated rather than
+            # `.isoformat()`d because it may legitimately be None on another leg, and a
+            # conditional expression for a case this branch cannot reach would be an
+            # unreachable arm the ratchet counts and a reader cannot evaluate.
             problems.append(
                 f"{ATTESTATION_PATH} read a per-SKU deprecationDate of "
                 f"{attested.deprecation_date.isoformat()} for "
                 f"{attested.deployment_model}, but MODEL_LIFECYCLE says "
-                f"{table[attested.deployment_model].retires_on.isoformat()}. THE PORTAL "
+                f"{table[attested.deployment_model].retires_on}. THE PORTAL "
                 "WINS — update the entry and its read_on. The subscription's own SKU "
                 "date is the one a call actually obeys."
             )
@@ -188,17 +275,46 @@ def failures(
 
 
 def warnings(
-    table: dict[str, ModelLifecycle], today: date, attested: Attestation | None
+    table: dict[str, ModelLifecycle],
+    today: date,
+    attested: Attestation | None,
+    selectable: frozenset[str] | None = None,
 ) -> list[str]:
     """Things a human must act on that this repository cannot settle by itself."""
     notes: list[str] = []
+    choosable = SELECTABLE_LLM_MODELS if selectable is None else selectable
     for name, entry in sorted(table.items()):
+        offered = "SELECTABLE" if name in choosable else "withdrawn"
         left = entry.days_left(today)
-        if 0 < left <= WARN_LEAD.days:
+        if left is None:
+            # THE UNREAD-DATE WARNING, WHICH IS THE PER-LEG DIFFERENCE MADE VISIBLE ON EVERY
+            # RUN. It is not a defect in this file: it is the reading. Azure publishes a
+            # dated schedule and this table consumes it; OpenAI publishes deprecations on a
+            # page every egress path here refuses. Printing that once a run is what stops
+            # "no date" being mistaken for "no clock".
             notes.append(
-                f"{name} retires in {left} days ({entry.retires_on.isoformat()}); vendor "
-                f"replacement: {entry.replacement or 'none published yet'}. Migration is "
-                "a new Azure deployment plus gates 20b/20c, not a code change."
+                f"{name} ({entry.provider}, {offered}): NO RETIREMENT DATE HAS BEEN READ. "
+                f"{entry.retirement.source}. This leg publishes no schedule this repository "
+                "can reach, so the model cannot be made selectable until a human on an "
+                "unblocked network reads one — see LLM_MODELS for the other half of the "
+                "same block."
+            )
+        elif left <= 0 and name not in choosable:
+            # RETIRED AND WITHDRAWN: a warning rather than a failure, and the entry STAYS.
+            # It is the dated record of why the model is not on offer, and deleting it the
+            # day it expires would delete the evidence for the refusal.
+            notes.append(
+                f"{name} ({entry.provider}) retired {-left} days ago "
+                f"({entry.retires_on.isoformat() if entry.retires_on else '?'}) and is "
+                "withdrawn, so this is a note and not a build failure. The entry stays: it "
+                "is the dated record of why it is not on offer."
+            )
+        elif 0 < left <= WARN_LEAD.days:
+            notes.append(
+                f"{name} ({entry.provider}, {offered}) retires in {left} days "
+                f"({entry.retires_on.isoformat() if entry.retires_on else '?'}); vendor "
+                f"replacement: {entry.replacement or 'none published yet'}. On the Azure leg "
+                "migration is a new deployment plus gates 20b/20c, not a code change."
             )
         age = (today - entry.retirement.read_on).days
         if age > STALE_AFTER_DAYS:
@@ -211,13 +327,21 @@ def warnings(
         if not entry.retirement.verified:
             notes.append(f"{name}: retirement date is [UNVERIFIED] — {entry.retirement.note}")
         if not entry.availability.verified:
+            where = AZURE_LOCATION if entry.deployment_types_apply else "engine-side"
             notes.append(
-                f"{name}: {AZURE_LOCATION} availability is [UNVERIFIED] — {entry.availability.note}"
+                f"{name}: {where} availability is [UNVERIFIED] — {entry.availability.note}"
             )
     if attested is None:
         default = table.get(AZURE_OPENAI_DEFAULT_MODEL)
+        # STATED OVER THE AZURE LEG ALONE. "What could we deploy instead" is a question about
+        # deployments, and only one leg has any — a Gemini identifier in this list would be
+        # an answer nobody could act on to a question about an Azure SKU.
         offered = sorted(
-            n for n, e in table.items() if e.offered_on_mandated_type and e.days_left(today) > 0
+            n
+            for n, e in table.items()
+            if e.deployment_types_apply
+            and e.offered_on_mandated_type
+            and (e.days_left(today) or 0) > 0
         )
         notes.append(
             f"NOBODY HAS FILED {ATTESTATION_PATH} — so which models this subscription can "
@@ -251,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     root = Path(argv[0]) if argv else REPO_ROOT
     today = date.today()
     table = MODEL_LIFECYCLE
-    refused = refusals(AZURE_OPENAI_MODELS, table)
+    refused = refusals(LLM_MODEL_NAMES, table)
     attested: Attestation | None = None
     if not refused:
         try:
@@ -275,10 +399,26 @@ def main(argv: list[str] | None = None) -> int:
         for problem in bad:
             print(f"  - {problem}")
         return 1
-    soonest = min(table.values(), key=lambda e: e.retires_on)
+    # THE HEADLINE IS THE SOONEST **SELECTABLE** RETIREMENT, and the distinction is the same
+    # one `failures` makes: a withdrawn model's date is a record, not a deadline, and putting
+    # a 55-day Gemini countdown in the green line would report an emergency about a model no
+    # client can reach. Undated entries are excluded because they have nothing to be soonest.
+    dated = [
+        entry
+        for name, entry in table.items()
+        if entry.retires_on is not None and name in SELECTABLE_LLM_MODELS
+    ]
+    soonest = min(dated, key=lambda e: e.retires_on or date.max) if dated else None
+    headline = (
+        f"soonest selectable {soonest.model} retires "
+        f"{soonest.retires_on.isoformat() if soonest.retires_on else '?'}, "
+        f"{soonest.days_left(today)} days"
+        if soonest is not None
+        else "NO selectable model carries a date"
+    )
     print(
-        f"MODEL LIFECYCLE: OK ({len(table)} model(s) dated; soonest {soonest.model} "
-        f"retires {soonest.retires_on.isoformat()}, {soonest.days_left(today)} days; "
+        f"MODEL LIFECYCLE: OK ({len(table)} model(s) across "
+        f"{len({e.provider for e in table.values()})} leg(s); {headline}; "
         f"warn lead {WARN_LEAD.days}d; {len(notes)} warning(s))"
     )
     return 0

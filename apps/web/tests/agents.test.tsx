@@ -287,6 +287,75 @@ describe("the archive is a second request, and a failed one is not an empty one"
   });
 });
 
+/**
+ * WHICH AGENTS ARE OFF THE ACCOUNT DEFAULT — the roster's own model question (D-454/455).
+ *
+ * `/c/<slug>/settings/models` tells an owner in as many words that "one agent can be put
+ * on a different model from the rest", and the roster is where they would look for which.
+ * It is a MONEY question, not a curiosity: a per-agent override is charged at the plan's
+ * `llm_model_surcharge` for every minute that agent runs (D-455), so the busiest agent on
+ * the dearest model is the combination nobody sets on purpose and nobody could find.
+ *
+ * The badge is read off `llm_model_source`, never off `llm_model !== null`. The two agree
+ * today; the day the server adds a fourth level the derived version starts badging agents
+ * as having their OWN model when they do not, on the one screen an owner scans for exactly
+ * that — and it would be silent about it.
+ */
+describe("the roster says which agents carry their own AI model", () => {
+  it("names the model on an agent that overrides, and on no other row", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [
+          agent({
+            id: "a-own",
+            name: "Front desk",
+            llm_model: "gpt-4.1-mini",
+            llm_model_effective: "gpt-4.1-mini",
+            llm_model_source: "agent",
+          }),
+          agent({ id: "a-inherits", name: "Weekend line" }),
+        ],
+      }),
+    );
+
+    await screen.findByText("Front desk");
+    const live = section("Working right now");
+    const own = within(live).getByText("Front desk").closest("li") as HTMLElement;
+    const inherits = within(live).getByText("Weekend line").closest("li") as HTMLElement;
+
+    expect(own.textContent).toContain("Its own AI model: gpt-4.1-mini");
+    // The default is NOT printed on every row: a column of identical identifiers hides the
+    // one row that differs, which is the opposite of what a roster scan is for.
+    expect(inherits.textContent).not.toContain("gpt-4o-mini");
+    expect(inherits.textContent).not.toContain("Its own AI model");
+  });
+
+  it("says nothing about an agent following its organisation's choice", async () => {
+    // `organization` is the client having chosen — for ALL their agents. It is the
+    // settings screen's fact, not this row's: badging it here would mark every agent on
+    // the account and say nothing about any of them.
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [
+          agent({
+            id: "a-org",
+            name: "Front desk",
+            llm_model: null,
+            llm_model_effective: "gpt-4.1-mini",
+            llm_model_source: "organization",
+          }),
+        ],
+      }),
+    );
+
+    await screen.findByText("Front desk");
+    const row = within(section("Working right now")).getByText("Front desk").closest("li");
+    expect(row!.textContent).not.toContain("Its own AI model");
+  });
+});
+
 describe("the activity figures come from the server or are absent", () => {
   it("prints the call count and when the agent was last used", async () => {
     await renderClientPage(

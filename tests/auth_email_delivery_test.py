@@ -202,6 +202,43 @@ async def test_the_invitation_link_names_the_page_the_web_app_serves() -> None:
     )
 
 
+async def test_the_operator_setup_link_names_the_page_the_bootstrap_script_prints() -> None:
+    """The same guard for the OTHER single-use link, and it has two writers.
+
+    `scripts/bootstrap_admin` composes the deploy-time link itself and PRINTS it, while
+    `authn/operators.create_operator` mails one through this template for every operator
+    added from the console afterwards. Two composers, one page, one single-use token — so
+    a drift between them is not a broken link, it is a burned token: the person clicks,
+    the page 404s, and the token is either spent or expires before anybody works out why.
+
+    Compared against the script's OWN constants rather than a literal, for the reason the
+    invitation guard above gives.
+    """
+    from scripts.bootstrap_admin import ADMIN_CONSOLE_BASE, _link
+
+    body = auth_email._body("admin_bootstrap", "admin", "tok_admin")
+    assert _link("tok_admin") in body, (
+        "the operator setup email and scripts/bootstrap_admin disagree about the page "
+        f"that redeems the token ({ADMIN_CONSOLE_BASE})"
+    )
+    assert auth_email._SUBJECTS["admin_bootstrap"], "the kind has no subject line"
+
+
+async def test_every_kind_the_api_can_enqueue_has_a_subject_and_a_body() -> None:
+    """A kind with no `_SUBJECTS` entry is a `ValueError` on the FIRST attempt — the
+    payload the job treats as our bug and refuses to retry. That is the right refusal and
+    the wrong place to discover a new kind, because the discovery happens in a worker, on
+    somebody's password reset, after the request that enqueued it returned 200.
+
+    The list is the API's, read off the call sites rather than restated: `_enqueue_auth_email`
+    is private and its four public callers each name one kind.
+    """
+    for kind in ("password_reset", "invite_password", "admin_bootstrap"):
+        assert kind in auth_email._SUBJECTS, kind
+        body = auth_email._body(kind, "admin" if kind == "admin_bootstrap" else "client", "tok")
+        assert "tok" in body and body.strip()
+
+
 # --- the dev sink actually delivers (D-409) -------------------------------------------
 #
 # Admin sign-in is password + an emailed six-digit code (D-170). The code is stored only

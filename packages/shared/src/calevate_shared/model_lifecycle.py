@@ -1,5 +1,14 @@
 """WHEN EACH MODEL THIS PRODUCT MAY RUN STOPS ANSWERING, and on which deployment type.
 
+**IT COVERS EVERY DECLARED LEG, AND THE LEGS DO NOT ANSWER THE SAME.** Azure publishes a
+dated retirement schedule per model version and per SKU, in a git repository this
+environment can read at a named commit — that is one of the four grounds D-449 retains it
+on, and it is what the whole mechanism below was built around. Google publishes a date this
+environment can only reach through search summaries. OpenAI publishes deprecations on a page
+every egress path here refuses, so its two models carry `retires_on=None`: an UNREAD date,
+recorded as one, never a guess dressed as a fact. Reading the three side by side in one
+table is the point — the difference between the legs IS the finding.
+
 **WHY THIS FILE EXISTS AT ALL.** `AzureOpenAIModel` (`engine.py`) is a closed allow-list
 that carried NO lifecycle information: a reader could see which models are selectable and
 what they cost, and nothing about when a vendor turns one off. D-410 deleted
@@ -70,6 +79,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Final, Literal, get_args
+
+from calevate_shared.engine import Evidence, LlmProvider
 
 #: Azure's deployment types, in the vocabulary this repository uses for them.
 #:
@@ -143,52 +154,77 @@ WARN_LEAD: Final = timedelta(days=120)
 ATTESTATION_PATH: Final = Path("docs/evidence/azure-deployment-attestation.json")
 
 
-@dataclass(frozen=True, slots=True)
-class Evidence:
-    """Where a fact came from and when — carried per FACT, not per file.
-
-    `verified` is about the CLASS of the source, not about confidence: True means the
-    vendor's own publication was read (here: their docs repository at a named commit),
-    False means anything else — a search summary, a tracker, an inference. A False entry
-    is printed as `[UNVERIFIED]` on every run of the check rather than quietly averaged
-    in with the rest, because D-31/D-32 exist because an unlabelled second-hand claim
-    became a silent premise.
-    """
-
-    source: str
-    read_on: date
-    verified: bool
-    note: str = ""
+#: `Evidence` NOW LIVES IN THE PORTABILITY CONTRACT (`calevate_shared.engine`) and is
+#: imported rather than redefined. It was born here, and it moved for one reason: a MODEL'S
+#: PRICE needs the same record, the price lives in the contract because hard rule 7 turns it
+#: into money, and a contract that imported this module to get the record would have made
+#: this module unable to name a `LlmProvider` — which it now must. One record, one home, one
+#: direction of dependency.
 
 
 @dataclass(frozen=True, slots=True)
 class ModelLifecycle:
-    """One allow-listed model's dated vendor facts.
+    """One catalogue model's dated vendor facts.
 
     `offered_in_region` is the set of deployment types the vendor's availability matrix
     lists this model under in `AZURE_LOCATION` — NOT a claim about our subscription,
     which only the portal or the Models API can answer (gate 20b). An empty set means
     "the vendor's matrix does not list it in this region at all", which is a real reading
     and not a missing one; `availability` carries how that reading was obtained.
+
+    **IT IS PER-LEG NOW, AND TWO FIELDS CHANGED MEANING RATHER THAN GAINING ONE.** Deployment
+    types and regional availability matrices are AZURE facts: no other leg has a deployment,
+    a SKU or a per-region matrix, so `offered_in_region` is required to be EMPTY on any other
+    provider and `provider` is what says which reading applies. An empty set therefore means
+    two different things on two different legs, which is exactly why the leg has to be on the
+    record rather than inferred from the identifier.
     """
 
     model: str
+    #: Which leg runs it — the same answer `calevate_shared.engine.LLM_MODELS` gives, held
+    #: here as well because `check_model_lifecycle` compares the two and a registry that took
+    #: the provider from the thing it is checking would be asking the code whether it agrees
+    #: with itself.
+    provider: LlmProvider
     version: str
-    retires_on: date
-    #: The vendor's own word: GA · Legacy · Deprecated · Retired.
+    #: When the vendor turns it off — or `None` when NOBODY HERE HAS READ A DATE.
+    #:
+    #: **`None` IS A READING, NOT A BLANK, AND IT IS THE DIFFERENCE BETWEEN THE LEGS.**
+    #: Microsoft publishes a dated retirement schedule per model version and per SKU, which
+    #: is one of the four grounds D-449 retains Azure on and which this whole file exists to
+    #: consume. OpenAI publishes deprecations on a page this environment cannot open
+    #: (`platform.openai.com` → egress-blocked, measured 22 Aug 2026), so the honest state on
+    #: that leg is UNREAD rather than "none exists" — and inventing a far-off date to satisfy
+    #: a `date` annotation would be exactly the D-31/D-32 error class, a guess wearing the
+    #: shape of a fact. An undated model may not be selectable
+    #: (`check_model_lifecycle.refusals`), so the gap cannot reach a call; it warns on every
+    #: run naming the URL that closes it.
+    retires_on: date | None
+    #: The vendor's own word: GA · Legacy · Deprecated · Retired · or "unread".
     stage: str
-    #: What the vendor names as the migration target, or None when the column is `—`.
+    #: What the vendor names as the migration target, or None when there is none published.
     replacement: str | None
     offered_in_region: frozenset[DeploymentType]
     retirement: Evidence
     availability: Evidence
 
     @property
+    def deployment_types_apply(self) -> bool:
+        """Does this leg have deployment types at all? Azure alone."""
+        return self.provider == "azure_openai"
+
+    @property
     def offered_on_mandated_type(self) -> bool:
         return MANDATED_DEPLOYMENT_TYPE in self.offered_in_region
 
-    def days_left(self, today: date) -> int:
-        return (self.retires_on - today).days
+    def days_left(self, today: date) -> int | None:
+        """Days until the vendor turns it off, or `None` when no date has been read.
+
+        `None` RATHER THAN A SENTINEL INT, because every caller has to branch anyway and a
+        large positive number would read as "safe for years" in exactly the reports this
+        module exists to make honest.
+        """
+        return None if self.retires_on is None else (self.retires_on - today).days
 
 
 _MS_DOCS_COMMIT: Final = "19bbfea4b8cdc87e92f542b9d7c47f3a4c7f6b10"
@@ -211,18 +247,30 @@ _STANDARD_MATRIX: Final = (
 )
 _READ_ON: Final = date(2026, 8, 22)
 
-#: THE ALLOW-LIST'S LIFECYCLE, keyed by the same identifiers as `AZURE_OPENAI_MODELS`.
+#: THE CATALOGUE'S LIFECYCLE, keyed by the same identifiers as `LLM_MODEL_NAMES` — every
+#: model on every declared leg, selectable or not.
 #:
-#: KEYED BY MODEL AND NOT BY THE `Literal`, for `AZURE_LIST_PRICE_USD_PER_MTOK`'s reason:
-#: a model identifier read back off a historical `usage_events` row is not a member of
-#: today's allow-list and never will be again, and asking "when did that retire" about a
-#: leg that already ran is a legitimate question. What that costs is a check the type
-#: cannot make — a model added to `AzureOpenAIModel` without an entry here — and
-#: `scripts/check_model_lifecycle.py` REFUSES rather than passes when the two disagree,
-#: in either direction.
+#: KEYED BY MODEL AND NOT BY THE `Literal`s, for `LLM_MODELS`' reason: a model identifier
+#: read back off a historical `usage_events` row is not a member of today's allow-list and
+#: never will be again, and asking "when did that retire" about a leg that already ran is a
+#: legitimate question. What that costs is a check the type cannot make — a model added to
+#: one of the three `Literal`s without an entry here — and `scripts/check_model_lifecycle.py`
+#: REFUSES rather than passes when the two disagree, in either direction.
+#:
+#: **IT COVERS THE MODELS NOBODY MAY SELECT, AND THAT IS THE POINT RATHER THAN AN
+#: OVERSIGHT.** Four of the six entries are `selectable=False` in `LLM_MODELS`: the two
+#: Gemini models on merit, the two OpenAI models on a price nobody here has read. A dated
+#: entry for a model nobody can choose is what turns a refusal into a CHECKED fact — the
+#: Gemini retirement is 55 days out as this is written, and the day it passes this file is
+#: what says so, in a run, rather than a paragraph somebody has to remember to re-read.
+#: `check_model_lifecycle` FAILS on a retired SELECTABLE model and WARNS on a retired
+#: withdrawn one, which is the only split that keeps both halves honest: a countdown to a
+#: day nobody can act on is what D-410 deleted, and a countdown nobody is running is what
+#: put a dead model in two call sites before that.
 MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
     "gpt-4o-mini": ModelLifecycle(
         model="gpt-4o-mini",
+        provider="azure_openai",
         version="2024-07-18",
         retires_on=date(2027, 4, 14),
         stage="Deprecated",
@@ -265,6 +313,7 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
     ),
     "gpt-4.1-mini": ModelLifecycle(
         model="gpt-4.1-mini",
+        provider="azure_openai",
         version="2025-04-14",
         retires_on=date(2027, 4, 14),
         stage="Legacy",
@@ -290,6 +339,160 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
                 "unconfirmed — so this model was never the one the old region could not "
                 "serve, and D-449 does not change its reading. Same staleness caveat as "
                 "gpt-4o-mini's row; same gate settles it (20b)."
+            ),
+        ),
+    ),
+    # --- THE OPENAI-DIRECT LEG: UNDATED, AND THE ABSENCE IS THE FINDING ---------------
+    #
+    # Both entries carry `retires_on=None`. That is not a gap somebody forgot to fill: it is
+    # the concrete form of one of D-449's four grounds for keeping Azure. Microsoft publishes
+    # a dated retirement schedule per model version and per SKU, in a git repository this
+    # environment can read at a named commit; OpenAI publishes deprecations on a page every
+    # egress path here refuses. So on this leg the honest answer to "when does it stop
+    # answering" is nobody here knows, and `check_model_lifecycle` says so on every run
+    # rather than letting a green line imply otherwise.
+    "gpt-5.4-mini": ModelLifecycle(
+        model="gpt-5.4-mini",
+        provider="openai",
+        version="unread",
+        retires_on=None,
+        stage="unread",
+        replacement=None,
+        # EMPTY BECAUSE THE CONCEPT DOES NOT EXIST HERE, not because the matrix omits it.
+        # There are no deployments on this leg, so there is no SKU for a model to be offered
+        # on and no per-region matrix to read — see `ModelLifecycle.deployment_types_apply`.
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source="platform.openai.com/docs/deprecations (NOT READ — egress-blocked)",
+            read_on=_READ_ON,
+            verified=False,
+            note=(
+                "openai.com, platform.openai.com and help.openai.com are all refused by "
+                "this environment's egress proxy (measured 22 Aug 2026, "
+                "docs/evidence/llm-provider-postures.md §0.2), so no OpenAI retirement page "
+                "was read at its own URL. No date is invented here. Closed by a human on an "
+                "unblocked network; until then this model cannot be selectable."
+            ),
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/llm-model/openai.md:38-51",
+            read_on=_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS, hash-checked mirror: the engine's own supported-model "
+                "table lists it and marks it 'Recommended: fastest TTFT, lowest cost' (:46). "
+                "⚠ That recommendation has no measured number behind it — the vendor's own "
+                "latency page (concepts/latency.md:64-69) measures no GPT-5 model at all and "
+                "ties gpt-4.1-mini with gemini-2.5-flash at ~150ms. AVAILABILITY here means "
+                "the engine will accept the identifier, which is the only availability "
+                "question a leg with no regions and no deployments has."
+            ),
+        ),
+    ),
+    "gpt-5.6-luna": ModelLifecycle(
+        model="gpt-5.6-luna",
+        provider="openai",
+        version="unread",
+        retires_on=None,
+        stage="unread",
+        replacement=None,
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source="platform.openai.com/docs/deprecations (NOT READ — egress-blocked)",
+            read_on=_READ_ON,
+            verified=False,
+            note="Same blocked host as gpt-5.4-mini; no date is invented here either.",
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/llm-model/openai.md:38-51",
+            read_on=_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS: listed on the engine's OpenAI page and ABSENT from "
+                "its Azure page (azure-openai.md:38-47). That asymmetry is the vendor's own "
+                "'Azure has a short lag' (:90) as a concrete difference rather than a "
+                "slogan, and it is the reason a second leg buys reach and not only a second "
+                "bill. VERIFIED-OSS, bolna/constants.py:329 @ 0172347b601e: its "
+                "reasoning-effort map includes `none`, so the reasoning budget can be zeroed."
+            ),
+        ),
+    ),
+    # --- THE GOOGLE LEG: DATED, 55 DAYS OUT, AND SELECTABLE BY NOBODY -----------------
+    #
+    # These two are the reason `check_model_lifecycle` had to learn the difference between a
+    # retired SELECTABLE model (a build failure — an operator can flip a switch onto it) and
+    # a retired withdrawn one (a warning — the entry is the dated record of WHY it is
+    # withdrawn, and deleting it on the day it expires would delete the evidence). D-410
+    # removed the last dated constant from this repository and recorded that as a benefit;
+    # these rows put a date back, on models nobody may run, which is the only shape that
+    # benefit survives in.
+    "gemini-2.5-flash": ModelLifecycle(
+        model="gemini-2.5-flash",
+        provider="google",
+        version="2.5",
+        retires_on=date(2026, 10, 16),
+        stage="Deprecated",
+        replacement="gemini-3.6-flash",
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source="docs/evidence/gemini-direct-api.md §4.1",
+            read_on=_READ_ON,
+            verified=False,
+            note=(
+                "REPORTED: every ai.google.dev host is egress-blocked here, so this is search "
+                "summaries of Google's release notes rather than the vendor's page. ⚠ GOOGLE'S "
+                "OWN PAGES DISAGREE BY FOUR DAYS — 16 Oct in release notes, 20 Oct on the "
+                "lifecycle page — and the EARLIER date is carried, because a retirement guard "
+                "that rounds toward the vendor's slower page is a guard that warns after the "
+                "outage. The named replacement, gemini-3.6-flash, is global-only with no data "
+                "residency and takes a non-zero thinking level with no way to reach zero, "
+                "which is why this is a dead end rather than a migration."
+            ),
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/llm-model/gemini.md:34-43",
+            read_on=_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS: the engine lists it and marks it 'Recommended — "
+                "proven, stable, fast'. The engine will accept the identifier; what it will "
+                "not do is let us set a thinking budget, which is the trap recorded at "
+                "calevate_shared.engine.THINKING_TOKENS_SHARE_THE_REPLY_BUDGET."
+            ),
+        ),
+    ),
+    "gemini-2.5-flash-lite": ModelLifecycle(
+        model="gemini-2.5-flash-lite",
+        provider="google",
+        version="2.5",
+        retires_on=date(2026, 10, 16),
+        stage="Deprecated",
+        replacement="gemini-3.1-flash-lite",
+        offered_in_region=frozenset(),
+        retirement=Evidence(
+            source="docs/evidence/gemini-direct-api.md §4.1",
+            read_on=_READ_ON,
+            verified=False,
+            note=(
+                "REPORTED, and WEAKER THAN ITS SIBLING'S BY ONE STEP WORTH NAMING: the source "
+                "dates 'gemini-2.5-pro and gemini-2.5-flash' explicitly and treats -flash-lite "
+                "as part of the same retiring family ('gemini-2.5-flash/-lite ... retires in "
+                "~8 weeks') without naming it in the sentence carrying the date. So this row's "
+                "date is an INFERENCE from the family, not a reading of this identifier, and "
+                "it is recorded as one. It fails in the safe direction — an early warning on a "
+                "model nobody may select — and the same human opening "
+                "ai.google.dev/gemini-api/docs/pricing settles it."
+            ),
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/llm-model/gemini.md:34-43",
+            read_on=_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS: listed by the engine, and named beside gpt-4.1-mini as "
+                "a low-TTFT choice on the engine's own latency page (concepts/latency.md:127) "
+                "— which is the strongest thing anybody can say for this leg and is still not "
+                "enough to outweigh a retirement 55 days out."
             ),
         ),
     ),
@@ -352,6 +555,10 @@ def load_attestation(root: Path) -> Attestation | None:
     )
 
 
+# `Evidence` IS DELIBERATELY ABSENT FROM `__all__` even though this module names it in every
+# entry below: it is `calevate_shared.engine`'s record now, and re-exporting it here would
+# give one type two import paths — the drift this repository calls a defect even when both
+# work. Importers take it from the contract.
 __all__ = [
     "ATTESTATION_PATH",
     "DEPLOYMENT_TYPES",
@@ -360,7 +567,6 @@ __all__ = [
     "WARN_LEAD",
     "Attestation",
     "DeploymentType",
-    "Evidence",
     "ModelLifecycle",
     "load_attestation",
 ]

@@ -266,6 +266,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/operators": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every live operator account and its tier
+         * @description The operator allowlist: who may sign in to the admin console, which tier they are in, and whether they have finished setting a password. Revoked accounts are not listed — their rows survive only as the record of what they decided, and 'who was removed and when' is a question for the audit log.
+         */
+        get: operations["read_operators_v1_admin_operators_get"];
+        put?: never;
+        /**
+         * Add an operator account and mail its setup link (step-up confirmed, audited)
+         * @description Creates the account and mails a single-use link the person uses to set their own password; no password is chosen, generated or returned here. Requires `X-Confirm-Action: add_operator:<role>`. The address must not already belong to a live operator account.
+         */
+        post: operations["add_operator_v1_admin_operators_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/operators/{operator_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Promote or demote an operator (step-up confirmed, audited)
+         * @description Moves one account between the two tiers and ends its live sessions. Requires `X-Confirm-Action: set_operator_role:<operator_id>`. An operator may not change their own role — every change to the allowlist names two people. A request that sets the role it already has is a no-op: no ledger row, no sign-out.
+         */
+        patch: operations["change_operator_role_v1_admin_operators__operator_id__patch"];
+        trace?: never;
+    };
+    "/v1/admin/operators/{operator_id}/revocation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End an operator's access (step-up confirmed, audited)
+         * @description Deactivates the account and destroys its password, its live sessions and any outstanding setup link. The row itself is kept: eight tables record which operator approved a campaign or installed a credential, and an erased decider turns those into anonymous decisions. Requires `X-Confirm-Action: revoke_operator:<operator_id>`. An operator may not revoke their own account.
+         */
+        post: operations["revoke_operator_route_v1_admin_operators__operator_id__revocation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/operators/{operator_id}/setup-link": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-send an operator's setup link (step-up confirmed, audited)
+         * @description Mails a fresh single-use link to an account that has not set a password yet, and invalidates the previous one. Refused for an account that is already activated — this is not a password reset, and cannot be used as one: somebody who has forgotten their password uses the sign-in page, which mails the link to them. Requires `X-Confirm-Action: reissue_operator_setup_link:<operator_id>`.
+         */
+        post: operations["resend_operator_setup_link_v1_admin_operators__operator_id__setup_link_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/organizations/{org_id}/llm-defaults": {
         parameters: {
             query?: never;
@@ -8385,6 +8469,77 @@ export interface components {
              */
             series: "140" | "160" | "standard";
         };
+        /** OperatorCreateIn */
+        OperatorCreateIn: {
+            /**
+             * Email
+             * Format: email
+             */
+            email: string;
+            /** Name */
+            name?: string | null;
+            /** Reason */
+            reason: string;
+            /**
+             * Role
+             * @default operator
+             * @enum {string}
+             */
+            role: "superadmin" | "operator";
+        };
+        /**
+         * OperatorOut
+         * @description One operator account. No credential, no token, no setup link — see below.
+         */
+        OperatorOut: {
+            /** Activated */
+            activated: boolean;
+            /** Created At */
+            created_at: string;
+            /** Email */
+            email: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string | null;
+            /** Role */
+            role: string;
+        };
+        /**
+         * OperatorReasonIn
+         * @description The stated reason every mutation here carries.
+         *
+         *     A NAMED, PUBLIC model rather than a private base, because two routes take it as their
+         *     whole body — a leading underscore would put `_Reasoned` in the OpenAPI schema and in
+         *     the generated TypeScript client.
+         *
+         *     REQUIRED WITH CONTENT, and the bounds are copied from `ConfigSetIn` rather than
+         *     re-argued: whoever reads this ledger row later has to be able to decide whether the
+         *     decision still holds, and "" tells them nothing. One base class so four routes cannot
+         *     disagree about what a reason is.
+         */
+        OperatorReasonIn: {
+            /** Reason */
+            reason: string;
+        };
+        /** OperatorRoleIn */
+        OperatorRoleIn: {
+            /** Reason */
+            reason: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "superadmin" | "operator";
+        };
+        /** OperatorsOut */
+        OperatorsOut: {
+            /** Operators */
+            operators: components["schemas"]["OperatorOut"][];
+        };
         /** OrganizationOut */
         OrganizationOut: {
             /**
@@ -10563,6 +10718,8 @@ export interface components {
             minutes_used: string;
             /** Month */
             month: string;
+            /** Month Charges Inr */
+            month_charges_inr: string;
             /** Monthly Fee Inr */
             monthly_fee_inr: string | null;
             /** Overage Cost Inr */
@@ -11214,6 +11371,184 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UnfinishedOnboardingOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_operators_v1_admin_operators_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_operator_v1_admin_operators_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorCreateIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    change_operator_role_v1_admin_operators__operator_id__patch: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                /** @description The operator account's `admin_users.id`. */
+                operator_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorRoleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    revoke_operator_route_v1_admin_operators__operator_id__revocation_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                /** @description The operator account's `admin_users.id`. */
+                operator_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorReasonIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    resend_operator_setup_link_v1_admin_operators__operator_id__setup_link_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                /** @description The operator account's `admin_users.id`. */
+                operator_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OperatorReasonIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OperatorOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

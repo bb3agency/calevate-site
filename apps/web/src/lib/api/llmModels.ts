@@ -272,6 +272,37 @@ export function agentLlmView(agent: AgentWithLlm): AgentLlmView | null {
 }
 
 /**
+ * THE MODEL THIS AGENT WAS GIVEN OF ITS OWN, or `null` when it follows a level above it.
+ *
+ * The roster's question, which is not the detail panel's. `/c/[slug]/agents/[agentId]`
+ * asks "what does this one run and where did that come from" and renders all three
+ * answers; a LIST asks the narrower question an owner scans for — which of my agents has
+ * been taken off the account default — because that is the one they set months ago, pay a
+ * surcharge for on every minute it runs (`plans.llm_model_surcharge`, D-455), and cannot
+ * otherwise find without opening every agent in turn. The settings screen tells them the
+ * override exists; until this, nothing told them where.
+ *
+ * **`source`, never `chosen !== null`.** The two agree today and the wire string is the
+ * server's own answer — a fourth level (a campaign choice, a per-lane override) would make
+ * the derived version badge an agent as having its OWN model when it does not, on the
+ * screen an owner uses to find exactly that. Same rule, same reason, as `AgentLlmView
+ * .source` and `agentInForceSurcharge`.
+ *
+ * `effective` rather than `chosen` because it is what the agent RUNS, and under `source
+ * === "agent"` they are the same string — so the roster cannot print an override the
+ * engine is not addressing.
+ *
+ * `null` on an API build that reports no model at all (`agentLlmView`'s own `null`), which
+ * the roster renders as nothing rather than as "follows the account default": that is a
+ * claim, and a build with no field is not evidence for it.
+ */
+export function agentOwnModel(agent: AgentWithLlm): string | null {
+  const view = agentLlmView(agent);
+  if (view === null || view.source !== "agent") return null;
+  return view.effective;
+}
+
+/**
  * WHAT THE MODEL IN FORCE ACTUALLY ADDS TO THIS ACCOUNT'S BILL, per minute (D-455).
  *
  * **NOT the catalogue row's own `client_surcharge_inr_per_minute`, and the difference is

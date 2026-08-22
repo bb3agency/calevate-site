@@ -82,7 +82,11 @@ from decimal import ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Final, Literal
 
-from calevate_shared.engine import AZURE_LIST_PRICE_USD_PER_MTOK, AZURE_OPENAI_DEFAULT_MODEL
+from calevate_shared.engine import (
+    AZURE_OPENAI_DEFAULT_MODEL,
+    LLM_MODELS,
+    SELECTABLE_LLM_MODELS,
+)
 
 from apps.api.agents.voices import VoiceTier, get_voice
 from apps.api.billing.models import MONEY
@@ -169,7 +173,7 @@ ROUNDING = ROUND_HALF_UP
 # moving the leg to a paid account; D-410 moved it again, to Azure OpenAI (South India then,
 # `eastus2` since D-449). THE REGION MOVE DID NOT MOVE THESE NUMBERS and deliberately was
 # not made an excuse to re-derive them: they are the same GLOBAL STANDARD list prices
-# `AZURE_LIST_PRICE_USD_PER_MTOK` has always carried, and the gap between that and what we
+# `LLM_MODELS[model].price` has always carried, and the gap between that and what we
 # actually buy — a Regional Standard deployment, reported at roughly 5-10% more — is still
 # carried as an unpaid gate rather than folded in as a multiplier. Whether Azure's regional
 # list differs between `southindia` and `eastus2` is a question the first invoice answers
@@ -197,7 +201,7 @@ ROUNDING = ROUND_HALF_UP
 # which is exactly the blindness `ENGINE_REPORTS_TTS_MODEL` documents one section up,
 # arriving on a second leg. The truth will be the AZURE invoice, per subscription and not
 # per tenant, and it will read HIGHER than these numbers by the regional-deployment
-# premium that `AZURE_LIST_PRICE_USD_PER_MTOK` deliberately does not fold in. So these
+# premium that `LLM_MODELS[model].price` deliberately does not fold in. So these
 # constants price the DECISION (TRD §10's unit economics, the margin a founder is
 # choosing) and deliberately do not pretend to meter a call. The DASHBOARD leg is
 # different and is metered for real — `billing/ai_quota.py` prices it from this table.
@@ -216,7 +220,7 @@ LIST_PRICE_USD_INR: Final = Decimal("95.66")
 
 #: Every model this deployment may run, priced in rupees per THOUSAND tokens, derived
 #: from the one place the vendor's own dollar figure is written down
-#: (`AZURE_LIST_PRICE_USD_PER_MTOK`) and the one exchange rate above.
+#: (`LLM_MODELS[model].price`) and the one exchange rate above.
 #:
 #: KEYED BY MODEL, and PRIVATE. The public way in is `llm_inr_per_ktok(model)`, which
 #: refuses an unpriced identifier with a message naming the ones it knows. A bare mapping
@@ -235,10 +239,25 @@ _LLM_INR_PER_KTOK: Final[Mapping[str, Mapping[str, Decimal]]] = MappingProxyType
                 leg: (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(
                     MONEY_Q, rounding=ROUNDING
                 )
-                for leg, usd in legs.items()
+                for leg, usd in (
+                    ("in", LLM_MODELS[model].price.input_usd_per_mtok),
+                    ("out", LLM_MODELS[model].price.output_usd_per_mtok),
+                )
             }
         )
-        for model, legs in AZURE_LIST_PRICE_USD_PER_MTOK.items()
+        # SELECTABLE, not every model the catalogue knows, and the distinction is a money
+        # rule rather than a filter. D-456 admitted OpenAI and Google models whose list
+        # prices are REPORTED and not verified — both vendors' pricing pages are
+        # egress-blocked from this environment — and `LlmModelSpec` refuses to be
+        # `selectable` on an unverified price for exactly that reason. Deriving the rate
+        # card from the catalogue instead would put a number nobody read from the vendor
+        # one step away from `unit_cost_paid`, which is hard rule 7's whole subject.
+        #
+        # It also keeps `PRICED_LLM_MODELS == AZURE_OPENAI_MODELS` true today, so every
+        # assertion written against that identity still holds; the day a price is verified
+        # and a model becomes selectable, the rate card grows with it and nothing here
+        # changes.
+        for model in SELECTABLE_LLM_MODELS
     }
 )
 

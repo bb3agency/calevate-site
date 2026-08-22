@@ -50,12 +50,19 @@ replacing them: a countdown to a day that has not been announced is a red build 
 a reason. If Microsoft dates `gpt-4o-mini`, the mechanism comes back with the date, in this
 file, and the decision-log entry says which announcement it came from.
 
-WHAT DID NOT GO. `GEMINI_RETIRED_LLMS` grew rather than shrank — with no shipped Gemini
-identifier left, the set is now the WHOLE family and every name in it is one a module could
-only be spelling by mistake. The scan below is therefore a tripwire with no subject in the
-tree, which is exactly the state it should be in: it is what stops a Gemini identifier
-coming BACK by copy-paste from a doc, a search result or an old branch, on a leg whose
-symptom is a 404 at the point furthest from anyone watching.
+WHAT DID NOT GO, AND WHAT HAS SINCE BEEN GIVEN BACK. `GEMINI_RETIRED_LLMS` grew rather than
+shrank at D-410 — with no shipped Gemini identifier left, the set became the WHOLE family
+and every name in it was one a module could only be spelling by mistake.
+
+⚠ **IT HAS NOW SHRUNK BY EXACTLY TWO, AND THAT IS A HOLE RE-OPENED ON PURPOSE.** The
+provider choice put `gemini-2.5-flash` and `gemini-2.5-flash-lite` back in the tree as
+catalogue entries — priced, dated, and `selectable=False` with the reason recorded — so a
+set that both banned them and shipped them would be incoherent, which is the identical
+argument that kept `gemini-2.5-flash` out of the set under D-127. The two names came OUT of
+the ban and `test_the_gemini_ban_is_re_opened_by_exactly_the_two_adopted_names` is what
+keeps that bounded. What replaces the ban for those two is NARROWER and stated below: the
+only files that may spell them are the two registries, and
+`test_no_shipped_module_names_an_adopted_google_model` is the scan that says so.
 
 AND THE D-105 DISCIPLINE FOLLOWED THE DEFAULT RATHER THAN DYING WITH IT.
 `test_no_shipped_module_spells_the_gemini_default` existed because a shipped model
@@ -69,15 +76,16 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Final, get_args
+from typing import Final
 
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     GEMINI_RETIRED_LLMS,
+    GOOGLE_DIRECT_MODELS,
+    LLM_MODEL_NAMES,
     SARVAM_DEFAULT_LLM,
     SARVAM_RETIRED_LLMS,
     SARVAM_TRANSLATING_STT,
-    AzureOpenAIModel,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -231,14 +239,18 @@ def test_no_shipped_module_names_a_gemini_model_at_all() -> None:
 
     D-410 took Gemini out of the product entirely, which CLOSED the one hole this set
     carried: `gemini-2.5-flash` used to be excluded because banning the name we shipped
-    would have been incoherent. Nothing ships it now, so every name in the family is a name
-    a module could only be spelling by mistake — most of them dated or dead at the vendor,
-    one of them merely abandoned by us, and the failure is the same either way.
+    would have been incoherent.
+
+    ⚠ **THAT HOLE IS OPEN AGAIN AND THE SET IS THE FAMILY MINUS `GOOGLE_DIRECT_MODELS`.**
+    The two adopted identifiers are catalogue entries now, so the same incoherence argument
+    applies to them and they are out of this ban. Everything else in the family stays — most
+    of it dated or dead at the vendor — and the failure is the same either way: a 404 from a
+    third party at the moment furthest from anyone watching.
 
     A TRIPWIRE WITH NO SUBJECT IN THE TREE, which is the state it should be in. What it
     catches is a Gemini identifier coming BACK — from a search result, an old branch, a doc
-    written before 19 Aug 2026 — onto a leg where the answer is a 404 from a third party at
-    the moment furthest from anyone watching.
+    written before 19 Aug 2026 — onto a leg where nothing here can price it, date it or say
+    which of the three legs it belongs to.
     """
     offenders: dict[str, set[str]] = {}
     for path in _shipped_python():
@@ -250,12 +262,12 @@ def test_no_shipped_module_names_a_gemini_model_at_all() -> None:
             offenders[relative] = retired
 
     assert not offenders, (
-        "these modules name a Gemini model identifier, and D-410 removed Gemini from this "
-        f"product on both LLM surfaces: {ChainMapLike(offenders)}. The in-call leg and the "
-        "dashboard AI are Azure OpenAI (`AZURE_OPENAI_DEFAULT_MODEL`); the first post-call "
-        "extraction pass reads the RAW transcript and stays on Sarvam permanently "
-        "(`SARVAM_DEFAULT_LLM`, `GEMINI_EXTRACTION_DEFAULT is False`). There is no third "
-        "leg for a Google model to be on."
+        "these modules name a Gemini model identifier this product has no entry for: "
+        f"{ChainMapLike(offenders)}. The catalogue is `LLM_MODEL_NAMES` and it carries two "
+        "Google identifiers, both withdrawn; every other name in the family is priced by "
+        "nothing, dated by nothing and assigned to no leg. The first post-call extraction "
+        "pass reads the RAW transcript and stays on Sarvam permanently "
+        "(`SARVAM_DEFAULT_LLM`, `GEMINI_EXTRACTION_DEFAULT is False`)."
     )
 
 
@@ -297,6 +309,73 @@ def test_no_shipped_module_spells_the_azure_default_model() -> None:
     )
 
 
+def test_no_shipped_module_names_an_adopted_google_model() -> None:
+    """What replaces the ban for the two identifiers that came OUT of it.
+
+    `GEMINI_RETIRED_LLMS` cannot carry `gemini-2.5-flash` and `gemini-2.5-flash-lite` any
+    more — they are catalogue entries, and a set that both banned them and shipped them
+    would be the incoherence D-127 avoided by leaving a hole. So the rule they get instead
+    is narrower and stated over the two files that legitimately hold every model identifier:
+    the contract, which declares the `Literal` and prices it, and the lifecycle registry,
+    which dates it.
+
+    WHY THAT IS ENOUGH RATHER THAN A CONSOLATION. What the ban prevented was an identifier
+    reaching a vendor from a call site nobody re-reads. Nothing in this product can reach a
+    vendor with a model it did not resolve through `SELECTABLE_LLM_MODELS`, and both of
+    these are `selectable=False` with a `withdrawn_reason` — so a call site that spelled one
+    would be refused before the wire, by the picker, by the two column CHECK constraints and
+    by the publish path. What this scan still adds is the thing those cannot: it catches the
+    name arriving from a doc or an old branch and being written down as though it were a
+    choice, on a leg whose only safe model retires in eight weeks.
+
+    FAILS IF: a worker, an adapter or a pilot script spells one of these — including in an
+    f-string default or a fixture that ships.
+    """
+    allowed = {CANONICAL_HOME, LIFECYCLE_REGISTRY}
+    offenders: dict[str, set[str]] = {}
+    for path in _shipped_python():
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        if relative in allowed:
+            continue
+        named = _string_literals(path) & GOOGLE_DIRECT_MODELS
+        if named:
+            offenders[relative] = named
+
+    assert not offenders, (
+        "these modules spell a Google model identifier: "
+        f"{ChainMapLike(offenders)}. Both are in the catalogue and both are "
+        "`selectable=False` — Google retires them on 16 Oct 2026 and the engine's thinking "
+        "budget can be zeroed on no successor — so a call site naming one is either dead "
+        "configuration or a choice nobody made. The only files that may spell them are "
+        f"{sorted(allowed)}."
+    )
+
+
+def test_the_gemini_ban_is_re_opened_by_exactly_the_two_adopted_names() -> None:
+    """The bound on the hole, so it cannot widen by an edit to one set.
+
+    `GEMINI_RETIRED_LLMS` is the family MINUS the adopted identifiers, and that subtraction
+    is the only reason any Gemini name is allowed in this tree. Stated as an equality in
+    both directions: nothing adopted may still be banned (incoherent), and nothing banned
+    may quietly become adopted without appearing in the catalogue — which is where the
+    price, the date and the `withdrawn_reason` live.
+
+    FAILS IF: a third Gemini identifier leaves the ban without gaining a catalogue entry, or
+    an adopted one is put back into the ban while it is still in `LLM_MODEL_NAMES`.
+    """
+    assert GOOGLE_DIRECT_MODELS
+    assert not (GEMINI_RETIRED_LLMS & GOOGLE_DIRECT_MODELS), (
+        "a model this product carries in its catalogue is also on the ban list — the two "
+        "statements cannot both be acted on, and the ban is the one that would be believed"
+    )
+    assert GOOGLE_DIRECT_MODELS <= LLM_MODEL_NAMES
+    assert not (GEMINI_RETIRED_LLMS & LLM_MODEL_NAMES), (
+        "a banned identifier is in the catalogue: every name in LLM_MODEL_NAMES is one the "
+        "product can price, date and assign to a leg, and a banned one is by definition none "
+        "of those"
+    )
+
+
 def test_the_lifecycle_registrys_exemption_is_earned_not_asserted() -> None:
     """`model_lifecycle.py` spells every allow-listed model, and that is not the defect
     the test above is about.
@@ -321,13 +400,16 @@ def test_the_lifecycle_registrys_exemption_is_earned_not_asserted() -> None:
     first, so a smuggled non-allow-listed identifier could never appear in the result.
     """
     spelled = _string_literals(REPO_ROOT / LIFECYCLE_REGISTRY)
-    missing = set(get_args(AzureOpenAIModel)) - spelled
+    missing = LLM_MODEL_NAMES - spelled
     assert not missing, (
-        f"{LIFECYCLE_REGISTRY} is exempt from the rule above only while it names EVERY "
-        f"allow-listed model, and it does not name {sorted(missing)}. A registry covering "
-        "the whole allow-list is a statement about all of them and survives the live "
-        "switch moving; one covering part of it is exactly the stale second answer the "
-        "rule above exists to forbid."
+        f"{LIFECYCLE_REGISTRY} is exempt from the rules above only while it names EVERY "
+        f"model in the catalogue, and it does not name {sorted(missing)}. A registry "
+        "covering the whole catalogue is a statement about all of them and survives the "
+        "live switch moving; one covering part of it is exactly the stale second answer "
+        "those rules exist to forbid. IT IS STATED OVER `LLM_MODEL_NAMES` AND NOT OVER THE "
+        "AZURE LITERAL since the catalogue gained three legs — the exemption now covers two "
+        "Google identifiers this file otherwise bans everywhere, so the earning has to be "
+        "over the whole set or it is an exemption for the half nobody checked."
     )
 
 

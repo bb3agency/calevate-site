@@ -22,13 +22,16 @@
  * (`Number.isSafeInteger`), which is what makes "we cannot compare these" a state this
  * module can return instead of a wrong figure it can invent.
  *
- * ## Why not `usage/page.tsx::addRupees`
+ * ## Why this is the last money arithmetic in the browser
  *
- * That helper converts to whole PAISE, which is right for the totals it adds and wrong
- * here by exactly the same argument `formatRupeeRate` makes against `formatINR`: a rate
- * is NUMERIC(12,4)-shaped, and truncating ₹0.2425 to ₹0.24 loses the digits two adjacent
- * models actually differ by. This works at whatever scale the two values arrive with, so
- * the answer carries the server's own precision and no more.
+ * There was a second: a paise-based `addRupees` that summed the usage panel's three
+ * charge components into a "Total so far". It is gone — `UsagePanelOut.month_charges_inr`
+ * is now the server's own total — and this module is deliberately NOT the place that work
+ * would return to. Whole paise is right for a TOTAL and wrong here by exactly the argument
+ * `formatRupeeRate` makes against `formatINR`: a rate is NUMERIC(12,4)-shaped, and
+ * truncating ₹0.2425 to ₹0.24 loses the digits two adjacent models actually differ by.
+ * What survives in the browser is COMPARING two rates the server sent, at whatever scale
+ * they arrived with — never adding money, and never pricing anything.
  *
  * ## What is deliberately NOT here
  *

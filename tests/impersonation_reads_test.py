@@ -44,6 +44,13 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "admin token — so hiding it from impersonation costs a support person nothing "
         "(D-454)"
     ),
+    "/v1/admin/operators": (
+        "the operator allowlist — who may use the console at all. `admin:operators` is "
+        "superadmin-only and is in MUTATING_PERMISSIONS, so a view-as session cannot "
+        "reach it; that is correct rather than a cost, because this list has no "
+        "client-realm counterpart at all. A support person inside a client's account is "
+        "looking at that client's screens, and none of them names a Calevate operator."
+    ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
     "/v1/ops/engine-latency": (

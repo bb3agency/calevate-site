@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
@@ -507,7 +507,219 @@ SARVAM_TRANSLATING_STT: Final = frozenset({"saaras:v2.5"})
 #: edited the declaration and forgot the constant cannot reach a green build.
 AZURE_LOCATION: Final = "eastus2"
 
-#: THE MODELS this platform may configure into an Azure OpenAI leg, as a CLOSED set
+#: OPENAI DIRECT's DATA-RESIDENCY REGION, and the one place this product spells it.
+#:
+#: **THIS IS THE ONE REGION IN THIS FILE A BUILD CAN PROVE, AND IT IS WHY THE LEG EXISTS.**
+#: `AZURE_LOCATION` above is an ASSERTION checked by a human in a portal, because
+#: `<resource>.openai.azure.com` names no region. OpenAI's regional endpoints put the region
+#: back where a static check can read it: VERIFIED-VENDOR-DOCS, `openai/openai-python` @
+#: `e43b422412a9`, `src/openai/_data_residency.py` (header: *"File generated from our
+#: OpenAPI spec"*), which is a closed `Literal["global", "us", "eu", "ae"]` mapped to
+#: `https://api.openai.com/v1`, `https://us.api.openai.com/v1`, `https://eu…`, `https://ae…`.
+#: So `openai_base_url()` below interpolates THIS constant into the authority, and
+#: `scripts/check_model_residency.py` check 4 reads the label back off the builder's own
+#: return template — no gate 20, no gate 20c, no standing human attestation for this leg.
+#:
+#: `us` RATHER THAN `global`, and the difference is the whole point: `global` is the vendor
+#: routing wherever it likes, which is not a residency claim at all. `eu`/`ae` exist and are
+#: not chosen — the same source says a non-US region additionally requires approval for
+#: abuse-monitoring controls and a Modified Retention amendment, which is a commercial term
+#: nobody has signed.
+#:
+#: ⚠ THE URL IS OURS TO PROVE; THE ENTITLEMENT IS NOT. Regional endpoints answer only for a
+#: project approved for advanced data controls (REPORTED —
+#: `docs/evidence/llm-provider-postures.md` §6.2, every OpenAI host is egress-blocked here).
+#: That failure is LOUD: an unapproved project gets an error from the regional host rather
+#: than a silent fall back to `global`, which is why this leg carries no `delegated_gate`
+#: while the Azure leg carries two. A silent downgrade would have needed one.
+#:
+#: ⚠ AND THE VALUE IS TWO CHARACTERS, WHICH IS A REAL COST WORTH NAMING RATHER THAN
+#: DISCOVERING. `check_model_residency.loose_region_literals` refuses a bare `"us"` anywhere
+#: in `apps/`, `packages/` or `scripts/` that is not a `Final`'s value, exactly as it
+#: refuses a bare `"eastus2"`. There are zero such literals today (measured), and a future
+#: one — a locale, a country column, a dict key — will turn the build red with a message
+#: naming this constant. That is the correct trade: the alternative is a region this leg
+#: pins that no check can see, which is the property the leg was adopted FOR.
+OPENAI_DATA_RESIDENCY: Final = "us"
+
+#: WHOSE MODEL RUNS, in OUR vocabulary — never the engine's (hard rule 2).
+#:
+#: THREE MEMBERS SINCE THE LEG SET OPENED (D-449 spent the argument that kept it at one).
+#: `azure_openai` is D-410's leg: an OpenAI model served by Azure OpenAI through the v1
+#: surface at `azure_openai_base_url()`, on a resource in `AZURE_LOCATION`. `openai` is
+#: OpenAI's own API at `openai_base_url()`, pinned to `OPENAI_DATA_RESIDENCY`. `google` is
+#: the Gemini Developer API, which takes NO base URL from us at all — see
+#: `GOOGLE_DIRECT_LEG` for why that is a stronger obligation rather than a missing one.
+#:
+#: OURS STAYS A SEPARATE VOCABULARY FROM THE ENGINE'S, and the coincidence that two of the
+#: three spellings nearly match is exactly why it is worth saying. The engine's wire values
+#: are `"azure-openai"`, `"openai"` and `"google"` — VERIFIED twice each, to the vendor's own
+#: `LLMProvider` enum AND to a copy-pasteable body in their docs
+#: (`docs/evidence/llm-provider-postures.md` §1) — and mapping ours onto theirs is
+#: `apps/api/engine/bolna.py::_llm_routing`'s job. D-417 is the row about what happens when a
+#: wire value is read off a human-readable label instead: the shipped string was `"azure"`
+#: and would have reached a different client class.
+#:
+#: CLOSED WHERE THE ENGINE'S IS OPEN, deliberately, and now for a second reason. Bolna's
+#: `provider` field carries no `enum` in their own OpenAPI (`create.md:795-798`), so a wrong
+#: provider string is SCHEMA-VALID and fails somewhere later — never at agent creation. A
+#: closed `Literal` here is the only thing that turns that into a type error.
+LlmProvider = Literal["azure_openai", "openai", "google"]
+
+
+@dataclass(frozen=True, slots=True)
+class Evidence:
+    """Where a fact came from and when — carried per FACT, not per file.
+
+    `verified` is about the CLASS of the source, not about confidence: True means the
+    vendor's own publication was read (their docs repository at a named commit, their own
+    generated type stub, or the hash-pinned mirror at `bolna-findings/`), False means
+    anything else — a search summary, a tracker, an inference. A False entry is printed as
+    `[UNVERIFIED]` on every run of the checks that consume it rather than quietly averaged
+    in with the rest, because D-31/D-32 exist because an unlabelled second-hand claim became
+    a silent premise.
+
+    IT LIVES IN THE PORTABILITY CONTRACT rather than in `model_lifecycle.py`, which is where
+    it was born and where it is still mostly used. Two facts now need it — when a model
+    retires, and what a model COSTS — and the second one is in this file because hard rule 7
+    turns it into money. A record that had to be imported from the dated registry into the
+    contract would have made the contract depend on the registry, which is the direction that
+    forbids the registry from ever naming a `LlmProvider`. So it moved down, once.
+    """
+
+    source: str
+    read_on: date
+    verified: bool
+    note: str = ""
+
+
+#: The traps this repository knows about, as a closed set — a free-form string here would
+#: let a typo become a trap nothing matches.
+LlmModelTrapName = Literal[
+    "temperature-must-be-one",
+    "max-tokens-becomes-max-completion-tokens",
+    "thinking-tokens-share-the-reply-budget",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class LlmModelTrap:
+    """One way a model breaks a request that is correct for every other model.
+
+    WHY A RECORD AND NOT A DOCSTRING PARAGRAPH. Every one of these is a 400 or a silence on
+    a live phone call, discovered at PUBLISH time or later, and every one of them is a
+    property of a MODEL rather than of a provider or of our code — so it has to travel with
+    the model identifier into whatever surface offers it. A picker that offers a model
+    without its traps is a picker that hands an operator a 400 they cannot read.
+
+    NAMED WITH A CLOSED `Literal` so a caller can branch on one; carrying its own `Evidence`
+    so the next reader inherits the citation rather than the conclusion. Shared instances,
+    one per trap, because two models hitting the same trap is one fact.
+    """
+
+    name: LlmModelTrapName
+    what_breaks: str
+    evidence: Evidence
+
+
+_BOLNA_MIRROR: Final = "bolna-findings/mirror/pages"
+_TRAP_READ_ON: Final = date(2026, 8, 22)
+
+#: GPT-5-SERIES MODELS ACCEPT EXACTLY ONE TEMPERATURE, AND WE SEND `0.1`.
+#:
+#: `apps/api/engine/bolna.py::_agent_body` sends `temperature: 0.1` on every publish, and the
+#: engine's schema documents the refusal verbatim: *"GPT-5-series models require exactly `1`
+#: — any other value is rejected with `400 For GPT-5 models, temperature must be 1`"*. It is
+#: latent today only because no shipped identifier starts with `gpt-5`; the moment one is
+#: SELECTABLE, every publish of an agent on it 400s.
+TEMPERATURE_MUST_BE_ONE: Final = LlmModelTrap(
+    name="temperature-must-be-one",
+    what_breaks=(
+        "the engine sends temperature 0.1 on every publish and this model rejects anything "
+        "but 1 — the agent is refused at create time, not at call time"
+    ),
+    evidence=Evidence(
+        source=(
+            f"{_BOLNA_MIRROR}/api-reference/agent/v2/create.md:826-835, restated at "
+            f"{_BOLNA_MIRROR}/providers/llm-model/openai.md:29 and .../azure-openai.md:29"
+        ),
+        read_on=_TRAP_READ_ON,
+        verified=True,
+        note=(
+            "VERIFIED-VENDOR-DOCS, hash-checked mirror. Corroborated VERIFIED-OSS at "
+            "bolna/llms/openai_llm.py:171 @ 0172347b601e, which puts temperature into "
+            "model_args unconditionally whatever the model."
+        ),
+    ),
+)
+
+#: ON A GPT-5 MODEL THE TOKEN CAP CHANGES ITS NAME AND ITS MEANING.
+#:
+#: `max_tokens` is sent as `max_completion_tokens`, and reasoning tokens are drawn from the
+#: SAME budget. The engine defaults `reasoning_effort` to the lowest the model accepts, which
+#: is `none` for the voice-class models — so the reply is TRUNCATED rather than absent, which
+#: is the whole difference between this trap and the Gemini one below.
+MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS: Final = LlmModelTrap(
+    name="max-tokens-becomes-max-completion-tokens",
+    what_breaks=(
+        "reasoning tokens are drawn from the same cap as the reply, so a budget sized for a "
+        "spoken turn truncates the turn instead"
+    ),
+    evidence=Evidence(
+        source=f"{_BOLNA_MIRROR}/api-reference/agent/v2/create.md:817-825",
+        read_on=_TRAP_READ_ON,
+        verified=True,
+        note=(
+            "VERIFIED-VENDOR-DOCS. The key name literally swaps in the engine's own source "
+            "(bolna/llms/openai_llm.py:165-171 @ 0172347b601e), which also sets "
+            "reasoning_effort from MODEL_REASONING_EFFORT_MAP; the voice-class models list "
+            "`none`, so at the default there is no reasoning to eat the budget."
+        ),
+    ),
+)
+
+#: THE GEMINI TRAP, AND ON A PHONE CALL IT IS SILENCE RATHER THAN A CLIPPED SENTENCE.
+#:
+#: Thinking tokens are accounted separately by Google and draw on `max_output_tokens`. When
+#: they consume all of it the API returns `candidates` with **no `content` field at all** —
+#: a caller hears dead air, not half a sentence. Two further facts make it ours rather than
+#: the vendor's: there is NO `thinking_budget` field anywhere in the engine's documented
+#: `llm_config` schema, so we can neither raise it nor lower it; and the thinking tokens are
+#: BILLED to us as output tokens, so a Gemini leg's `output_tokens` is not the spoken reply's
+#: length.
+#:
+#: ⚠ THE MITIGATION AND THE RETIREMENT ARE THE SAME MODEL, which is why this trap is
+#: recorded against the two models it is currently MITIGATED on. The engine sends
+#: `ThinkingConfig(thinking_budget=0)` for `gemini-2.5-flash` and `-flash-lite` — a value in
+#: somebody else's repository at a pinned commit, not a term of any contract — and sends a
+#: non-zero `thinking_level` with `include_thoughts=True` on every `gemini-3.*` successor,
+#: where there is no zero. Google retires the 2.5 family on 16 Oct 2026.
+THINKING_TOKENS_SHARE_THE_REPLY_BUDGET: Final = LlmModelTrap(
+    name="thinking-tokens-share-the-reply-budget",
+    what_breaks=(
+        "thinking tokens draw on max_output_tokens and can consume all of it, returning a "
+        "candidate with no content field — on a live call that is silence, and the budget "
+        "is not a field the engine's documented API lets us set"
+    ),
+    evidence=Evidence(
+        source=(
+            "googleapis/python-genai@66807187f212 google/genai/types.py:5692-5707,8438-8452; "
+            "bolna/llms/gemini_llm.py:85,188-213 @ 0172347b601e"
+        ),
+        read_on=_TRAP_READ_ON,
+        verified=True,
+        note=(
+            "Mechanism VERIFIED-VENDOR-DOCS from Google's own generated types; the engine's "
+            "handling VERIFIED-OSS. The empty-response BEHAVIOUR itself is a third-party "
+            "reproduction (valentinfrlch/ha-llmvision#609, langchain-ai/langchain-google"
+            "#1020), so the consequence is REPORTED even though the mechanism is not. "
+            "docs/evidence/llm-provider-postures.md §3.4."
+        ),
+    ),
+)
+
+
+#: THE MODELS this platform may configure into an **Azure OpenAI** leg, as a CLOSED set
 #: (D-410). Both LLM surfaces — the in-call leg and the dashboard AI — draw from it.
 #:
 #: A `Literal` WITH `get_args` BESIDE IT, not a bare frozenset, for `EngineName` /
@@ -515,36 +727,84 @@ AZURE_LOCATION: Final = "eastus2"
 #: is annotated with, so pydantic refuses an unknown identifier at the CONFIG boundary and
 #: mypy checks every comparison against it — while the frozenset below is the same set as a
 #: VALUE, derived rather than retyped, for callers that need membership rather than an
-#: annotation. A free-form string would let a typo become a model identifier that 404s from
-#: a third party in the middle of a live phone call, which is the failure class
-#: `SARVAM_RETIRED_LLMS` above already exists for.
-#: ⚠ **BOTH MEMBERS ARE CONFIRMED SELECTABLE ON THE ENGINE, AND ADDING A THIRD IS NOT A
-#: ONE-LINE CHANGE.** VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers/
-#: llm-model/azure-openai.md:44-47`: their Azure "Supported models" table lists `gpt-4.1`,
-#: `gpt-4.1-mini`, `gpt-4o` AND `gpt-4o-mini`, each as *"Previous gen; still available /
-#: Stable if already deployed"*. So the fear that our two identifiers were absent from a
-#: fixed allow-list — and that every publish would be rejected at create time — is
-#: ANSWERED NO. The same page settles the mechanism too (`:69`, `:97-98`): the field is a
-#: DEPLOYMENT name chosen freely, which is what this module has argued all along.
+#: annotation.
 #:
-#: **WHAT A NEW MEMBER COSTS, listed here because two of the three are invisible from
-#: this line.** `AZURE_LIST_PRICE_USD_PER_MTOK` must gain the same key or metering
-#: `KeyError`s on the first call after the switch. And on a **GPT-5-class** model there
-#: are two more, both of which fail at PUBLISH rather than in review:
+#: **IT KEEPS ITS AZURE-ONLY NAME ON PURPOSE, NOW THAT THERE ARE THREE LEGS.** It annotates
+#: `Settings.azure_openai_model`, which means *the model the Azure deployment was made
+#: from* — the thing `AZURE_OPENAI_DEPLOYMENT` was created against and the thing the cost
+#: model prices. A Google identifier in that setting would be meaningless, not merely
+#: misplaced, so widening this Literal to the whole catalogue would delete the one type that
+#: says so. `LLM_MODEL_NAMES` below is the catalogue-wide set.
+#: ⚠ **BOTH MEMBERS ARE CONFIRMED SELECTABLE ON THE ENGINE.** VERIFIED-VENDOR-DOCS,
+#: `bolna-findings/mirror/pages/providers/llm-model/azure-openai.md:44-47`: their Azure
+#: "Supported models" table lists `gpt-4.1`, `gpt-4.1-mini`, `gpt-4o` AND `gpt-4o-mini`, each
+#: as *"Previous gen; still available / Stable if already deployed"*. The same page settles
+#: the mechanism too (`:69`, `:97-98`): the field is a DEPLOYMENT name chosen freely.
 #:
-#:   1. `apps/api/engine/bolna.py::_agent_body` sends `temperature: 0.1`, and their
-#:      GPT-5 models accept ONLY `1` — *"Any other value is rejected with `400 For GPT-5
-#:      models, temperature must be 1`"* (`azure-openai.md:29`). Every publish would 400.
-#:   2. Bolna infers GPT-5 handling and the default `reasoning_effort` by resolving the
-#:      DEPLOYMENT NAME back to a model (`azure-openai.md:69`), so a deployment not named
-#:      after its model gets GPT-4-era defaults on a GPT-5 model with no error at all.
-#:      `Settings.azure_openai_deployment` carries that half.
-#:
-#: None of this is a reason not to move — it is the checklist that makes moving safe.
+#: **WHAT A NEW MEMBER COSTS.** An `LlmModelSpec` in `LLM_MODELS` (or nothing prices it), a
+#: `MODEL_LIFECYCLE` entry (or `check_model_lifecycle` refuses to score), and a deployment
+#: on the Azure resource plus `Settings.azure_openai_deployments` (or nothing can address
+#: it). On a **GPT-5-class** model add both traps above and one more that only Azure can
+#: produce: the engine resolves GPT-5 handling by mapping the DEPLOYMENT NAME back to a
+#: model (`azure-openai.md:69`), so a deployment not named after its model silently gets
+#: GPT-4-era defaults.
 AzureOpenAIModel = Literal["gpt-4o-mini", "gpt-4.1-mini"]
 
-#: The same set as a value — `get_args` on the Literal, never a second tuple beside it.
+#: THE MODELS this platform may configure into an **OpenAI direct** leg.
+#:
+#: **NEITHER IDENTIFIER OVERLAPS `AzureOpenAIModel`, AND THAT IS AN INVARIANT RATHER THAN A
+#: COINCIDENCE.** `gpt-4o-mini` is a real model on OpenAI direct at the same list price, and
+#: it is deliberately NOT offered here: `LLM_MODELS` is keyed by the bare identifier because
+#: that is all a historical `usage_events` row carries (D-455 stamps `meta.llm_model`), so
+#: one identifier must resolve to one provider, one price and one endpoint forever. Offering
+#: the same string on two legs would make the ledger unable to say which leg a minute ran on.
+#: `tests/residency_posture_test.py` fails if the three Literals ever intersect.
+#:
+#: WHY THESE TWO. `gpt-5.4-mini` is the engine's own voice recommendation on both provider
+#: pages (`openai.md:46`) and the OpenAPI's default `model` (`create.md:803-806`).
+#: `gpt-5.6-luna` is newer, roughly a quarter of its input price, accepts `reasoning_effort:
+#: none` (`bolna/constants.py:329`, VERIFIED-OSS) and is ABSENT from the Azure model page —
+#: it is the concrete form of the vendor's own *"Azure has a short lag"* (`:90`), and the
+#: reason a second leg buys reach rather than only a second bill.
+#: ⚠ BOTH ARE GPT-5-CLASS, so both carry `TEMPERATURE_MUST_BE_ONE` and
+#: `MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS`, and neither is selectable while its price is
+#: REPORTED. See `LLM_MODELS`.
+OpenAIDirectModel = Literal["gpt-5.4-mini", "gpt-5.6-luna"]
+
+#: THE MODELS this platform may configure into a **Google (Gemini) direct** leg — PRESENT,
+#: PRICED, DATED AND OFFERED TO NOBODY.
+#:
+#: **THEY ARE HERE SO THE REFUSAL IS A CHECKED FACT INSTEAD OF A MEMORY.** A leg with no
+#: models is inert — `check_model_residency` fails a leg no model names, precisely so the
+#: permitted set cannot rot into a wish list — and a refusal written only in prose is one
+#: the next reader re-derives from a pricing page. Both carry `selectable=False` and a
+#: `withdrawn_reason` that states the ground, and `SELECTABLE_LLM_MODELS` excludes them, so
+#: no picker, no column CHECK and no publish path can reach one.
+#:
+#: THE GROUND IS NOT RESIDENCY. D-449 spent that argument and it is not recycled: it is
+#: `THINKING_TOKENS_SHARE_THE_REPLY_BUDGET` plus a calendar. The engine zeroes the thinking
+#: budget on exactly these two models and on nothing else; Google retires exactly these two
+#: on 16 Oct 2026; every `gemini-3.*` successor takes a non-zero thinking level with no way
+#: to reach zero. The mitigation and the retirement are the same model, which is what makes
+#: this a dead end rather than a migration.
+GoogleDirectModel = Literal["gemini-2.5-flash", "gemini-2.5-flash-lite"]
+
+#: The three Literals as one set of VALUES — derived with `get_args`, never a fourth list
+#: typed beside them. This is what "is this string a model this repository knows" means.
+LLM_MODEL_NAMES: Final[frozenset[str]] = frozenset(
+    (
+        *get_args(AzureOpenAIModel),
+        *get_args(OpenAIDirectModel),
+        *get_args(GoogleDirectModel),
+    )
+)
+
+#: Per-leg sets, same derivation. `AZURE_OPENAI_MODELS` keeps its name and its meaning: the
+#: models an Azure deployment may be made from, which is what `Settings.azure_openai_model`,
+#: the two column CHECK constraints and the client picker are all stated over.
 AZURE_OPENAI_MODELS: Final[frozenset[str]] = frozenset(get_args(AzureOpenAIModel))
+OPENAI_DIRECT_MODELS: Final[frozenset[str]] = frozenset(get_args(OpenAIDirectModel))
+GOOGLE_DIRECT_MODELS: Final[frozenset[str]] = frozenset(get_args(GoogleDirectModel))
 
 #: What a deployment runs if nobody chooses: `gpt-4o-mini` (D-410).
 #:
@@ -559,117 +819,306 @@ AZURE_OPENAI_MODELS: Final[frozenset[str]] = frozenset(get_args(AzureOpenAIModel
 #:
 #: At `eastus2` the asymmetry is gone: the same matrix marks BOTH allow-listed models `✅`
 #: on the mandated Regional Standard SKU (`:23`). So there is nothing left to choose on
-#: availability and the choice falls to price, where `AZURE_LIST_PRICE_USD_PER_MTOK` makes
-#: it one-sided — `gpt-4.1-mini` is 2.7x `gpt-4o-mini` on both input and output. Keeping
-#: 4o-mini as the default therefore costs nothing in reach and means TRD §10's per-minute
-#: figures need no repricing, which is the second reason not to move the default in the
-#: same change that moved the region: one variable at a time, on a leg nobody has metered
-#: yet. The better model stays a LIVE CONFIG SWITCH (`Settings.azure_openai_model`) for an
-#: operator who decides the quality is worth 2.7x.
-#:
-#: WHAT IT NO LONGER COSTS, and it is the plainest benefit of D-410 rather than a detail:
-#: A RETIREMENT DATE. `GEMINI_DEFAULT_LLM_RETIRES` was a live 16 Oct 2026 deadline (BRD
-#: R-04) that this repository had to turn its own build red ahead of, because the only
-#: model the only permitted region served was one the vendor had already dated. Gemini 2.5's
-#: date died with Gemini; there is deliberately no dated constant here replacing it, and
-#: that is a real reduction in what somebody has to remember rather than an omission.
+#: availability and the choice falls to price, where `LLM_MODELS` makes it one-sided —
+#: `gpt-4.1-mini` is 2.67x `gpt-4o-mini` on both input and output. Keeping 4o-mini as the
+#: default therefore costs nothing in reach and means TRD §10's per-minute figures need no
+#: repricing. The better model stays a LIVE CONFIG SWITCH (`Settings.azure_openai_model`)
+#: for an operator who decides the quality is worth 2.67x — and, since D-454, a per-tenant
+#: and per-agent choice a client can make for themselves.
 AZURE_OPENAI_DEFAULT_MODEL: Final = "gpt-4o-mini"
+
+
+@dataclass(frozen=True, slots=True)
+class LlmPrice:
+    """One model's published list price, in **USD per MILLION tokens**, with its evidence.
+
+    WHY USD IN A TREE WHOSE MONEY IS RUPEES (hard rule 7). Two readers need this number at
+    different exchange rates: `billing/ai_quota.py` prices the dashboard assist and
+    `billing/rates.py` prices the in-call LLM leg. It once shipped as INR literals with the
+    fx already folded in, which is right while there is one reader and is the D-103/D-105
+    defect the moment there are two — the vendor publishes dollars, `usd_inr_rate` is a live
+    console value, and a constant that has already multiplied them cannot be re-derived when
+    either moves. So the VENDOR'S fact lives here in the vendor's unit, beside the identifier
+    it is a price OF, and every rupee conversion happens at a named rate in `billing/`.
+
+    **`evidence.verified is False` MAKES THE MODEL UNSELECTABLE, AND THAT IS ENFORCED BY
+    `LlmModelSpec` RATHER THAN REMEMBERED.** A price is the one vendor claim that reaches
+    `unit_cost_paid`, and hard rule 7 does not have a REPORTED tier. Every OpenAI and Google
+    figure in this file is a search summary of a page this environment's egress proxy
+    refuses; the two Azure figures are D-410's own verified reading. So the two legs whose
+    prices nobody here has read cannot be billed for, and the fix is a human opening two URLs
+    rather than a judgement call at a call site.
+    """
+
+    input_usd_per_mtok: Decimal
+    output_usd_per_mtok: Decimal
+    evidence: Evidence
+
+
+@dataclass(frozen=True, slots=True)
+class LlmModelSpec:
+    """Everything this repository knows about ONE model identifier.
+
+    ONE RECORD RATHER THAN FIVE PARALLEL TABLES, which is what this replaced. The price used
+    to be `AZURE_LIST_PRICE_USD_PER_MTOK`, the allow-list a `Literal`, the retirement a
+    second registry, and the traps a paragraph in three docstrings — so adding a model meant
+    finding four places, and the one everybody found was the `Literal`. A model is now one
+    entry, and the guards refuse the tree when any of the derived sets disagree.
+
+    `selectable` IS THE ONE FLAG A PICKER READS, and every reason to withhold a model
+    collapses into it: a vendor retirement with no successor, a request-field trap we cannot
+    mitigate, or a price nobody here has read. `withdrawn_reason` is REQUIRED whenever it is
+    False, because "not offered" with no sentence beside it is a decision the next reader
+    re-litigates from scratch — and forbidden when it is True, so a stale reason cannot sit
+    under a model that is on offer.
+    """
+
+    model: str
+    provider: LlmProvider
+    price: LlmPrice
+    #: Request-field behaviours that break this model where they break no other. Empty is a
+    #: real reading and means "none known", not "none looked for" — the two legs whose
+    #: models carry traps carry them from the engine's own schema and source.
+    traps: tuple[LlmModelTrap, ...]
+    #: May a client, an operator or a publish path choose this model?
+    selectable: bool
+    #: Why not — REQUIRED when `selectable` is False, refused when it is True.
+    withdrawn_reason: str | None
+
+    def __post_init__(self) -> None:
+        if self.selectable and self.withdrawn_reason is not None:
+            raise ValueError(
+                f"{self.model!r} is selectable and also carries a withdrawn_reason. One of "
+                "the two is stale, and a reason under an offered model is the one that "
+                "reads as reassuring while being wrong."
+            )
+        if not self.selectable and not self.withdrawn_reason:
+            raise ValueError(
+                f"{self.model!r} is not selectable and gives no reason. A model withheld "
+                "without a sentence is a decision the next reader re-litigates from a "
+                "pricing page."
+            )
+        if self.selectable and not self.price.evidence.verified:
+            raise ValueError(
+                f"{self.model!r} is selectable on a price nobody here has read "
+                f"({self.price.evidence.source}). A REPORTED figure reaching unit_cost_paid "
+                "is hard rule 7 broken by a search summary — withdraw the model until a "
+                "human opens the vendor's pricing page, or record the reading."
+            )
+
+
+_AZURE_PRICE_EVIDENCE: Final = Evidence(
+    source="D-410 decision record, Azure OpenAI Global Standard list prices",
+    read_on=date(2026, 8, 19),
+    verified=True,
+    note=(
+        "This environment's egress proxy refuses Microsoft's pricing pages, so these are "
+        "the decision's own verified reading rather than a page fetched here. ⚠ WE DO NOT "
+        "BUY GLOBAL STANDARD: a REGIONAL Standard deployment is what pins inference to "
+        "AZURE_LOCATION and is reported to cost 5-10% more, with published examples as high "
+        "as +12% and +20%. That premium is deliberately NOT folded in — a factor nobody has "
+        "seen on an invoice would make every derived figure unfalsifiable in the expensive "
+        "direction. Settled by the first Azure invoice (OPERATIONS §2)."
+    ),
+)
+
+_OPENAI_PRICE_EVIDENCE: Final = Evidence(
+    source="docs/evidence/llm-provider-postures.md §7.2 (search summaries of third-party trackers)",
+    read_on=_TRAP_READ_ON,
+    verified=False,
+    note=(
+        "REPORTED, and it is the weakest evidence class in that file. Every OpenAI-owned "
+        "host this container tried is egress-blocked (measured 22 Aug 2026), so no OpenAI "
+        "price was read at its own URL. Closed by a human opening "
+        "openai.com/api/pricing/ — until then these models are not selectable and no figure "
+        "here can reach unit_cost_paid."
+    ),
+)
+
+_GOOGLE_PRICE_EVIDENCE: Final = Evidence(
+    source="docs/evidence/llm-provider-postures.md §7.2 and gemini-direct-api.md §4",
+    read_on=_TRAP_READ_ON,
+    verified=False,
+    note=(
+        "REPORTED. Every ai.google.dev host is egress-blocked here, and the two files "
+        "disagree in one place: -flash-lite is $0.10/$0.40 in the newer lane and 'not "
+        "confirmed this session' in the older one. Closed by a human opening "
+        "ai.google.dev/gemini-api/docs/pricing. These models are withheld on merit anyway "
+        "(see GoogleDirectModel), so the unread price is not what is standing in the way."
+    ),
+)
+
+
+#: THE CATALOGUE. Every model identifier this repository knows, with its leg, its price, its
+#: traps and whether anybody may choose it.
+#:
+#: **KEYED BY `str`, NOT BY THE `Literal`s, AND THAT IS LOAD-BEARING.** A model identifier
+#: read back off a historical `usage_events` row is not a member of today's allow-list and
+#: never will be again, and "what did that minute cost" is a question a re-rendered invoice
+#: has to answer years later. So the key type admits a string the Literals no longer carry.
+#: What it costs is a check the type cannot make — a model in a `Literal` with no entry here
+#: — and `check_model_lifecycle` REFUSES to score rather than passing when the two disagree,
+#: in either direction.
+#:
+#: **THE THREE LEGS ARE NOT THREE POSTURES.** Which leg a model runs on is a property of the
+#: MODEL, resolved here once; which endpoint that leg builds, which region it can prove and
+#: which human gate owes the rest is a property of `DECLARED_LEGS` below. Keeping them apart
+#: is what lets a client choose a model without touching residency (D-454's whole argument),
+#: and what stops a per-tenant row reaching a base URL.
+LLM_MODELS: Final[dict[str, LlmModelSpec]] = {
+    "gpt-4o-mini": LlmModelSpec(
+        model="gpt-4o-mini",
+        provider="azure_openai",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.15"),
+            output_usd_per_mtok=Decimal("0.60"),
+            evidence=_AZURE_PRICE_EVIDENCE,
+        ),
+        traps=(),
+        selectable=True,
+        withdrawn_reason=None,
+    ),
+    "gpt-4.1-mini": LlmModelSpec(
+        model="gpt-4.1-mini",
+        provider="azure_openai",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.40"),
+            output_usd_per_mtok=Decimal("1.60"),
+            evidence=_AZURE_PRICE_EVIDENCE,
+        ),
+        traps=(),
+        selectable=True,
+        withdrawn_reason=None,
+    ),
+    "gpt-5.4-mini": LlmModelSpec(
+        model="gpt-5.4-mini",
+        provider="openai",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.75"),
+            output_usd_per_mtok=Decimal("4.50"),
+            evidence=_OPENAI_PRICE_EVIDENCE,
+        ),
+        traps=(TEMPERATURE_MUST_BE_ONE, MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS),
+        selectable=False,
+        withdrawn_reason=(
+            "its price is REPORTED, not read: every OpenAI pricing host is egress-blocked "
+            "here, so billing a client for it would put a search summary in unit_cost_paid "
+            "(hard rule 7). It is also 5x the shipped default on input and 7.5x on output "
+            "on that same unread figure, and the engine's own latency page measures no "
+            "GPT-5 model at all — so the vendor's 'fastest TTFT' recommendation has no "
+            "number behind it. A human opening openai.com/api/pricing/ closes the first "
+            "half; the pilot closes the second."
+        ),
+    ),
+    "gpt-5.6-luna": LlmModelSpec(
+        model="gpt-5.6-luna",
+        provider="openai",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.20"),
+            output_usd_per_mtok=Decimal("1.20"),
+            evidence=_OPENAI_PRICE_EVIDENCE,
+        ),
+        traps=(TEMPERATURE_MUST_BE_ONE, MAX_TOKENS_BECOMES_MAX_COMPLETION_TOKENS),
+        selectable=False,
+        withdrawn_reason=(
+            "same unread price as gpt-5.4-mini, and this is the row nobody has costed: "
+            "roughly a quarter of that model's input price and it accepts reasoning_effort "
+            "'none'. It is the strongest candidate on this leg and the one most worth "
+            "opening the pricing page for."
+        ),
+    ),
+    "gemini-2.5-flash": LlmModelSpec(
+        model="gemini-2.5-flash",
+        provider="google",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.30"),
+            output_usd_per_mtok=Decimal("2.50"),
+            evidence=_GOOGLE_PRICE_EVIDENCE,
+        ),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
+        selectable=False,
+        withdrawn_reason=(
+            "Google retires it on 16 Oct 2026 and it is the ONLY Gemini model the engine "
+            "zeroes the thinking budget on — every gemini-3.* successor takes a non-zero "
+            "thinking level with no way to reach zero, and thinking tokens that consume the "
+            "reply budget return a candidate with no content field, which on a phone call "
+            "is silence. The mitigation and the retirement are the same model, so this is a "
+            "dead end rather than a migration. NOT a residency refusal: D-449 spent that "
+            "argument and it is not recycled."
+        ),
+    ),
+    "gemini-2.5-flash-lite": LlmModelSpec(
+        model="gemini-2.5-flash-lite",
+        provider="google",
+        price=LlmPrice(
+            input_usd_per_mtok=Decimal("0.10"),
+            output_usd_per_mtok=Decimal("0.40"),
+            evidence=_GOOGLE_PRICE_EVIDENCE,
+        ),
+        traps=(THINKING_TOKENS_SHARE_THE_REPLY_BUDGET,),
+        selectable=False,
+        withdrawn_reason=(
+            "the cheapest per-token figure anywhere in this catalogue, on the same retiring "
+            "family and behind the same thinking-token failure as gemini-2.5-flash. A "
+            "cheaper rate on a model that emits reasoning tokens you cannot disable — and "
+            "that bills them as output — is not a cheaper leg."
+        ),
+    ),
+}
+
+#: WHAT ANYBODY MAY ACTUALLY CHOOSE. Derived, so a model withdrawn in `LLM_MODELS` cannot
+#: stay on a picker because a second list forgot it — which is the `AZURE_OPENAI_MODELS`
+#: failure class one level up.
+#:
+#: TODAY THIS EQUALS `AZURE_OPENAI_MODELS`, and the equality is a fact about the evidence
+#: rather than about the design: four of the six models are withheld, two on merit and two
+#: on an unread price. `tests/residency_posture_test.py` states it so the day it stops being
+#: true is a diff somebody read.
+SELECTABLE_LLM_MODELS: Final[frozenset[str]] = frozenset(
+    name for name, spec in LLM_MODELS.items() if spec.selectable
+)
 
 #: Gemini identifiers no shipped module may name. `tests/sarvam_model_identifier_test.py`
 #: scans for them for the reason it scans for the Sarvam ones.
 #:
-#: **THE SET IS NOW THE WHOLE FAMILY, AND D-410 IS WHY THE HOLE CLOSED.** It used to carry
-#: one deliberate omission: `gemini-2.5-flash` was `GEMINI_DEFAULT_LLM`, so a set that both
-#: banned it and shipped it would have been incoherent, and a separate test guarded stray
-#: literals of the shipped name instead. D-410 moved both LLM surfaces to Azure OpenAI, so
-#: there is no shipped Gemini identifier left and nothing for the hole to protect — every
-#: name in the family is now a name a module could only be spelling by mistake.
+#: ⚠ **THE HOLE THIS SET ONCE CLOSED IS RE-OPENED, DELIBERATELY, AND BY EXACTLY TWO NAMES.**
+#: Under D-127 the set carried one omission because `gemini-2.5-flash` was the shipped
+#: dashboard model and a set that both banned it and shipped it would have been incoherent.
+#: D-410 removed Gemini from the product and the set became the whole family. It is now the
+#: whole family MINUS `GOOGLE_DIRECT_MODELS`, because those two identifiers are back in the
+#: tree — priced, dated, and offered to nobody. The hole is smaller than D-127's (nothing
+#: SHIPS them; they are catalogue entries with `selectable=False`) and it is real: a
+#: copy-pasted `gemini-2.5-flash` in a worker would now pass this scan.
 #:
-#: TWO DIFFERENT FACTS LAND IN ONE SET and it is worth knowing which is which while
-#: reading it: most of these were dated or dead at the VENDOR (16 Oct 2026 for the 2.5
-#: class), while `gemini-2.5-flash` is here because THIS PRODUCT stopped sending it. The
-#: ban is the same ban either way, because the failure is: a 400 or a 404 from a third
-#: party at the moment furthest from anyone watching.
-#:
-#: NOT `GEMINI_EXTRACTION_DEFAULT`'s leg, which never was Gemini and does not move: the
-#: first post-call extraction reads the RAW transcript and stays on Sarvam permanently
-#: (`apps/workers/extraction.py`). Nothing here changes for it.
+#: WHAT COVERS THE RE-OPENED HALF, since the scan no longer can. `SELECTABLE_LLM_MODELS` is
+#: what every picker, column CHECK and publish path is stated over, so an identifier that
+#: reached a call site would still be refused before it reached a vendor — by
+#: `validate_llm_model`, by the two CHECK constraints and by `in_call_llm`. The scan was
+#: never the only defence; it is the one that catches a name arriving from a doc rather than
+#: from a decision, and for these two names that job now belongs to the `withdrawn_reason`
+#: a reader meets in `LLM_MODELS`.
 GEMINI_RETIRED_LLMS: Final = frozenset(
     {
         "gemini-1.5-flash",
         "gemini-1.5-pro",
         "gemini-2.0-flash",
         "gemini-2.0-flash-lite",
-        "gemini-2.5-flash",
-        "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
     }
 )
 
 
-#: THE PUBLISHED LIST PRICE of every model in `AZURE_OPENAI_MODELS`, in **USD per MILLION
-#: tokens** — input and output — and the ONE place this repository states it (D-410).
-#:
-#: WHY IT IS HERE AND IN USD, when every rupee figure in this codebase is INR (hard rule
-#: 7). Two readers need this number and they need it at different exchange rates:
-#: `billing/ai_quota.py` prices the dashboard assist and `billing/rates.py` prices the
-#: in-call LLM leg. It once shipped as INR literals with the fx already folded in, which is
-#: right while there is one reader and is the D-103 / D-105 defect the moment there are
-#: two: the vendor publishes dollars, `usd_inr_rate` is a live console value, and a
-#: constant that has already multiplied them cannot be re-derived when either moves. So the
-#: VENDOR'S fact lives here in the vendor's unit, beside the identifiers it is a price OF,
-#: and every rupee conversion happens at a named rate in `billing/`, which is where hard
-#: rule 7 says money arithmetic belongs.
-#:
-#: KEYED BY MODEL, where `GEMINI_LIST_PRICE_USD_PER_MTOK` was a bare `{"in", "out"}` pair.
-#: That is not symmetry for its own sake: `azure_openai_model` is a LIVE console switch and
-#: `gpt-4.1-mini` costs 2.7x the default on BOTH legs, so a single pair would be a cost
-#: model that silently describes the wrong model within one poll interval of an operator
-#: flipping it — the D-105 defect with a clock attached.
-#:
-#: WHERE THE SAVING LANDS, because it is not evenly spread: the outgoing `gemini-2.5-flash`
-#: was $0.30 in / $2.50 out, so the default here is HALF the input price and under a
-#: quarter of the output price. Voice is input-dominated (TRD §6.1 resends the whole
-#: conversation each turn, which is what makes in-call cost quadratic in call length), so
-#: the input leg is the one that moves the margin.
-#:
-#: THE KEYS ARE `AZURE_OPENAI_MODELS` AND MUST STAY THAT WAY. Typed `dict[str, ...]`
-#: rather than keyed on the Literal so a caller holding a model identifier read back off a
-#: historical `usage_events` row can still look it up — the price of a leg that already ran
-#: is not a member of today's allow-list and never will be again. What that costs is a
-#: check the type cannot make: adding a model to `AzureOpenAIModel` without adding its
-#: price here is a `KeyError` at metering time, on the first call after an operator flips
-#: the switch. The two move together, and a test in `billing/` is what says so.
-#:
-#: ⚠ **A LIST PRICE IS A VENDOR CLAIM.** Standing: GLOBAL STANDARD list prices, verified
-#: 19 Aug 2026 for D-410. This environment's egress proxy refuses Microsoft's pricing pages,
-#: so the numbers are the decision's own verified record rather than a page fetched here.
-#:
-#: ⚠ **WE DO NOT BUY GLOBAL STANDARD, AND THE DIFFERENCE IS THE PRICE OF RESIDENCY.**
-#: Global is Azure's DEFAULT deployment type and processes worldwide; a REGIONAL Standard
-#: deployment is what pins inference to `AZURE_LOCATION`, and it is reported to cost
-#: roughly 5-10% more, with published examples as high as +12% and +20%. That premium is
-#: deliberately NOT folded into these numbers: a factor nobody has yet seen on an invoice
-#: would make every derived figure unfalsifiable in the expensive direction, which is the
-#: same reason the Vertex regional surcharge was carried as a gate rather than a multiplier.
-#: It is settled by the first Azure invoice (OPERATIONS §2).
-AZURE_LIST_PRICE_USD_PER_MTOK: Final[dict[str, dict[str, Decimal]]] = {
-    "gpt-4o-mini": {"in": Decimal("0.15"), "out": Decimal("0.60")},
-    "gpt-4.1-mini": {"in": Decimal("0.40"), "out": Decimal("1.60")},
-}
-
-
 #: WHAT MAY STAND WHERE `<resource>` DOES in an Azure OpenAI hostname: ONE DNS LABEL.
 #:
 #: A PATTERN RATHER THAN AN f-STRING'S GOOD FAITH, and this is the one place in this module
-#: where interpolation is a security question and not a style one. `VERTEX_LOCATION` sat at
-#: the FRONT of its host, so whatever was interpolated after it landed in a PATH and the
-#: host stayed Google's whatever the caller passed. Azure's custom subdomain puts the
-#: caller's value at the very front of the authority: `f"https://{resource}.openai.azure
-#: .com/…"` with `resource = "evil.example/x"` is a URL whose HOST is `evil.example` and
-#: whose tail merely reads like Azure. That value is handed to a third party as the place
-#: to send a client's caller's words, so it is validated — here, once, and read by both the
-#: builder and `ModelConfig`'s validator so the two cannot disagree about what is legal.
+#: where interpolation is a security question and not a style one. Azure's custom subdomain
+#: puts the caller's value at the very front of the authority: `f"https://{resource}.openai
+#: .azure.com/…"` with `resource = "evil.example/x"` is a URL whose HOST is `evil.example`
+#: and whose tail merely reads like Azure. That value is handed to a third party as the
+#: place to send a client's caller's words, so it is validated — here, once, and read by
+#: both the builder and `ModelConfig`'s validator so the two cannot disagree about what is
+#: legal. It is also why the Azure leg is the only one whose builder takes an argument at
+#: all: the other two build a fixed vendor endpoint and have no hostile label to refuse.
 #:
 #: 2-64 characters, letters, digits and interior hyphens: it becomes a DNS label, and the
 #: bound is derived from the hostname it has to be legal in rather than read out of Azure's
@@ -680,11 +1129,7 @@ AZURE_LIST_PRICE_USD_PER_MTOK: Final[dict[str, dict[str, Decimal]]] = {
 #:
 #: PUBLIC AS A PATTERN STRING, COMPILED PRIVATELY. `Settings.azure_openai_resource`
 #: carries the same constraint so an operator learns at the moment they type it, and a
-#: pydantic `Field(pattern=…)` wants the source rather than a compiled object — so the
-#: string is the shared thing and the `re.Pattern` is this module's own. Two spellings of
-#: this rule is the one outcome that would matter: the config boundary and the endpoint
-#: builder disagreeing about what is legal is how the value that passed the console fails
-#: at publish time.
+#: pydantic `Field(pattern=…)` wants the source rather than a compiled object.
 AZURE_RESOURCE_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}[A-Za-z0-9]$"
 
 _AZURE_RESOURCE_RE: Final = re.compile(AZURE_RESOURCE_PATTERN)
@@ -693,6 +1138,17 @@ _AZURE_RESOURCE_RE: Final = re.compile(AZURE_RESOURCE_PATTERN)
 #: writes it and `_azure_resource_of` reads it back off — because a second spelling of
 #: `/openai/v1` is a validator that accepts an endpoint no builder here emits.
 _AZURE_ENDPOINT_SUFFIX: Final = ".openai.azure.com/openai/v1"
+
+#: The same thing for the OpenAI-direct leg: everything after the residency label.
+#:
+#: IT CARRIES THE LEADING DOT ON PURPOSE. `openai_base_url()` assembles
+#: `https://` + `OPENAI_DATA_RESIDENCY` + this, so the dot belongs to the JOIN rather than
+#: to either half — and a suffix that started at `api` would let a builder emit
+#: `https://usapi.openai.com/v1`, which is somebody else's domain. `check_model_residency`
+#: check 4 reads the label immediately before `api.openai.com` out of this builder's return
+#: template and requires it to be a `Final` holding `OPENAI_DATA_RESIDENCY`'s value; the dot
+#: is what makes that label a label.
+_OPENAI_ENDPOINT_SUFFIX: Final = ".api.openai.com/v1"
 
 
 def azure_openai_base_url(resource: str) -> str:
@@ -715,23 +1171,21 @@ def azure_openai_base_url(resource: str) -> str:
     built it would be an adapter deciding where our models run.
 
     ⚠ **THE REGION IS NOT IN THIS URL** and no amount of reading it will find one. See
-    `AZURE_LOCATION` for what that costs, what still holds, and the human gate that closes
-    the gap. This is also why the function takes no location argument: there is nowhere to
-    put one, and a parameter that changed nothing would be worse than its absence.
+    `AZURE_LOCATION` for what that costs, what still holds, and the human gates that own the
+    gap — and see `openai_base_url()` for the leg where the same sentence is not true.
 
     ⚠ **WHAT THE ENGINE SENDS AS `model` IS THE DEPLOYMENT ID, NOT THE MODEL NAME.** On
     Azure a model is deployed under a name of the operator's choosing and the API addresses
     THAT (`Settings.azure_openai_deployment`); `Settings.azure_openai_model` records which
     model the deployment was made from, which is what the cost model needs and what the API
     never sees. Conflating the two is the mistake this endpoint shape invites, because on
-    every other OpenAI-compatible provider the two strings are the same string.
+    every other OpenAI-compatible provider the two strings are the same string — including
+    on the two legs beside this one, which is why `PostureLeg.addresses_a_deployment` is a
+    property of the LEG rather than a hard-wired fact about this product.
 
     RAISES on a resource that is not one DNS label, rather than interpolating it. A builder
     that quietly emitted `https://evil.example/x.openai.azure.com/openai/v1` would be
     handing a third party an attacker's host wearing our suffix — see `_AZURE_RESOURCE_RE`.
-    Callers normally pass `Settings.azure_openai_resource`, which carries the same pattern,
-    so in a configured deployment this cannot fire; it is here because a public builder in
-    a shared contract has no way to know its caller did that.
 
     EVIDENCE STANDING for the path shape: verified 19 Aug 2026 for D-410 against Microsoft
     Learn (`foundry/openai/api-version-lifecycle`,
@@ -747,6 +1201,42 @@ def azure_openai_base_url(resource: str) -> str:
             "and interior hyphens and nothing else"
         )
     return f"https://{resource}{_AZURE_ENDPOINT_SUFFIX}"
+
+
+def openai_base_url() -> str:
+    """OpenAI direct's **regional** base URL — THE only way to build one, and the one
+    endpoint in this tree whose region a build can prove.
+
+    NO ARGUMENT, AND THAT IS THE DESIGN RATHER THAN AN OMISSION. There is exactly one
+    OpenAI-direct endpoint this product may address, it is fixed by
+    `OPENAI_DATA_RESIDENCY`, and a parameter would be a caller's opportunity to vary the one
+    thing the leg was adopted for. `azure_openai_base_url` takes a resource because Azure's
+    endpoint IS per-resource; this one is not, so it takes nothing and there is no hostile
+    label to refuse.
+
+    ⚠ **THE GLOBAL ENDPOINT IS NOT THE SAME PRODUCT.** `https://api.openai.com/v1` is the
+    vendor's `global` residency, i.e. inference wherever they have capacity — no regional
+    claim at all. This builder can never emit it, because the residency constant is
+    interpolated at the front of the authority and `check_model_residency` reads that label
+    back off this function's own return template. That is the property `<resource>.openai
+    .azure.com` cannot have (`AZURE_LOCATION`), and it is why this leg needs no portal
+    attestation, no gate 20 and no gate 20c.
+
+    ⚠ **WHAT IT COSTS, because it is invisible from the docs.** On a `provider: "openai"`
+    leg with NO `base_url`, the engine opens a persistent WebSocket to a hardcoded
+    `api.openai.com` for Responses-API models; sending any `base_url` silently disables that
+    and falls back to HTTP (`bolna/llms/openai_llm.py:39,206-210` @ `0172347b601e`,
+    VERIFIED-OSS). Pinning the region therefore costs the persistent-connection latency win.
+    That is a real trade and it is made deliberately: an unmeasured connection-setup saving
+    does not outweigh the only residency property this tree can prove from its own AST.
+
+    EVIDENCE STANDING: VERIFIED-VENDOR-DOCS, `openai/openai-python` @ `e43b422412a9`,
+    `src/openai/_data_residency.py`, generated from their OpenAPI spec — the machine-readable
+    value rather than a rendered label, which is the distinction D-417 was written about. The
+    ENTITLEMENT behind it (a project approved for advanced data controls) is REPORTED and is
+    not this function's to prove; an unapproved project fails loud at the host.
+    """
+    return f"https://{OPENAI_DATA_RESIDENCY}{_OPENAI_ENDPOINT_SUFFIX}"
 
 
 def _azure_resource_of(base_url: str) -> str | None:
@@ -766,38 +1256,189 @@ def _azure_resource_of(base_url: str) -> str | None:
     return resource if _AZURE_RESOURCE_RE.fullmatch(resource) else None
 
 
-#: WHERE an LLM leg runs, in OUR vocabulary — never the engine's (hard rule 2).
-#:
-#: `"azure_openai"` is D-410's leg: an OpenAI model served by Azure OpenAI, reached through
-#: the v1 surface at `azure_openai_base_url()`, on a resource in `AZURE_LOCATION`.
-#:
-#: IT REPLACED `"vertex_openai"` OUTRIGHT rather than joining it, and the rejected
-#: alternative is worth the line: keeping both would have made the residency posture a
-#: CHOICE, and a posture with two answers is two postures. D-410 moved both LLM surfaces at
-#: once for exactly that reason.
-#:
-#: WHAT THE VOCABULARY BUYS HERE, now that the engine has a first-class name for this
-#: provider. Bolna documents Azure OpenAI as a provider in its own right, with a wire
-#: spelling (`azure-openai`) and a four-key credential-store entry, so
-#: `apps/api/engine/bolna.py::_llm_routing` maps this member onto a provider the platform
-#: advertises — not onto the `custom` route, whose credential path their own docs still do
-#: not describe (the whole documented custom-LLM flow is a URL and a name, with no field
-#: for a key), which is what put the Vertex leg in doubt. Ours stays a separate name from
-#: theirs because the mapping is the adapter's job and because "azure-openai" is a
-#: vendor's word for a cloud product, not ours for a leg.
-#:
-#: ONE MEMBER, AND THAT IS THE HONEST COUNT rather than a stub. `None` — "whatever the
-#: engine's own default is" — remains what an agent resolves to on a deployment that has
-#: not been given an Azure resource, and it is what the fake engine and the conformance
-#: suite exercise. A second member arrives with a decision-log entry.
-#:
-#: CLOSED WHERE THE ENGINE'S IS OPEN, deliberately. Bolna's `provider` is an open string
-#: because Bolna does not care where a model runs; ours is closed because we do, and
-#: `ModelConfig`'s validator is what makes that more than a naming convention.
-LlmProvider = Literal["azure_openai"]
+# --- THE DECLARED RESIDENCY POSTURE AND ITS LEGS (D-432, opened to a set of legs) ---
 
 
-# --- THE DECLARED RESIDENCY POSTURE (D-432) -----------------------------------
+@dataclass(frozen=True)
+class PostureLeg:
+    """ONE way this product's language traffic may leave the building, as one record.
+
+    **WHY THE POSTURE STOPPED BEING ONE VENDOR.** D-432 made the residency posture a
+    DECLARED name and D-449 moved it; both were written while exactly one leg existed, so
+    "the posture's provider", "the posture's region" and "the posture's builder" could each
+    be one value on the posture itself. A client choosing their own provider (D-454's
+    argument, one level up from choosing a model) makes every one of those a per-LEG fact.
+    A posture is now a NAME plus a closed, ordered SET of these.
+
+    **IT DID NOT BECOME A KNOB.** The set is a module `Final` in this file, the name is a
+    bare `Final` string literal, and `scripts/check_model_residency.py` holds — independently,
+    never imported from here — the spec each name obliges the tree to satisfy, leg by leg.
+    Adding a leg is a reviewed commit with a decision-log entry, exactly as adding a posture
+    was: `check_model_residency` fails a declared leg the spec does not know, AND fails a
+    leg the spec knows that the tree does not use (see `DECLARED_LEGS`).
+
+    **EVERY FIELD IS AN OBLIGATION SOMEBODY HAS TO MEET, not a description.** `region` is
+    checked against exactly one frozen constant; `permitted_host` is the only model host any
+    literal on this leg may name; `builder` is the only function that may produce its
+    endpoint and `builder_arity` is how much a caller may vary it; `delegated_gate` names the
+    human who owns what no static check can prove, and `None` there is a CLAIM that nothing
+    is owed rather than an omission.
+    """
+
+    #: Our vocabulary's member for this leg, never the engine's wire value.
+    provider: LlmProvider
+    #: The region this leg PINS, or `None` for a leg that makes no regional claim. Two of
+    #: the three pin one and they pin it in different WAYS — see `region_in_host`.
+    region: str | None
+    #: The name of the single frozen constant permitted to spell that region. `None` when
+    #: the leg pins none, and the guard then requires that no constant spells one for it.
+    #: The NAME rather than the value because the guard reads the declaration from the AST:
+    #: `region=AZURE_LOCATION` arrives as the source text, and comparing it to this string
+    #: is what proves the leg's region came from the constant and not from a literal beside
+    #: it.
+    region_constant: str | None
+    #: Is that region IN the endpoint's authority, where a static check can read it? This is
+    #: the single most consequential field in the record and the reason the OpenAI leg is
+    #: worth having at all: `True` means a build can prove the region and no human gate is
+    #: owed; `False` means the region is a property of an account somebody has to read in a
+    #: console (`AZURE_LOCATION`, gates 20/20c).
+    region_in_host: bool
+    #: Does this leg's API address a DEPLOYMENT id the operator chose rather than the model's
+    #: own published name? True on Azure and nowhere else — see `ModelBinding`.
+    addresses_a_deployment: bool
+    #: The ONE function permitted to build this leg's endpoint, by name, and how many
+    #: arguments it may take. `None`/`None` for a leg that takes no base URL from us AT ALL,
+    #: which is a stronger obligation than one builder — see `GOOGLE_DIRECT_LEG`.
+    builder: str | None
+    builder_arity: int | None
+    #: The one literal in this file permitted to name this leg's host. `None` alongside a
+    #: `None` builder: with no endpoint to assemble there is no suffix to assemble it from,
+    #: and the guard then permits ZERO literals naming `permitted_host` anywhere.
+    builder_suffix: str | None
+    #: The model host this leg may name at all. Every other watched host is refused on it.
+    permitted_host: str
+    #: `(constant, word)` that must share a line in `docs/OPERATIONS.md`, naming the human
+    #: gate that owns what no check here can prove. `None` is a claim, not an omission.
+    delegated_gate: tuple[str, str] | None
+
+
+#: THE INCUMBENT LEG (D-410, region moved by D-449). Azure OpenAI's v1 surface on our own
+#: resource, with a static key in `Authorization: Bearer`.
+#:
+#: IT IS THE ONLY LEG THAT OWES A HUMAN ANYTHING, and that is the honest reading of its two
+#: gates rather than a knock on it. `<resource>.openai.azure.com` names no region, so gate 20
+#: (is the resource in East US 2) and gate 20c (is the deployment REGIONAL Standard rather
+#: than Global) are what stand between this record and a client's DPA. Global is Azure's
+#: DEFAULT deployment type and processes worldwide; it passes every automated check in this
+#: tree.
+#:
+#: WHAT IT BUYS IN RETURN, and D-449 retains it on exactly this: an enterprise DPA, modified
+#: abuse monitoring, and deployment-level control of which model version runs and when it
+#: retires — which `scripts/check_model_lifecycle.py` consumes as a build gate and which
+#: NEITHER other leg offers. `MODEL_LIFECYCLE`'s `retires_on is None` on the OpenAI models is
+#: that difference, written down.
+AZURE_OPENAI_LEG: Final = PostureLeg(
+    provider="azure_openai",
+    region=AZURE_LOCATION,
+    region_constant="AZURE_LOCATION",
+    region_in_host=False,
+    addresses_a_deployment=True,
+    builder="azure_openai_base_url",
+    builder_arity=1,
+    builder_suffix=_AZURE_ENDPOINT_SUFFIX,
+    permitted_host=".openai.azure.com",
+    delegated_gate=("AZURE_LOCATION", "portal"),
+)
+
+#: THE LEG WHOSE REGION A BUILD CAN PROVE. OpenAI's own API on the `us` residency endpoint.
+#:
+#: **NO GATE 20 AND NO GATE 20c, AND THAT IS THE PRIZE.** `us.api.openai.com` carries the
+#: region in the hostname (VERIFIED-VENDOR-DOCS, `openai/openai-python@e43b422412a9`,
+#: `src/openai/_data_residency.py`), so `check_model_residency` check 4 reads it off
+#: `openai_base_url()`'s own return template and there is nothing left for a person to
+#: attest. That is the property D-449 records Azure as having lost, and getting it back on
+#: one leg is one of the two things this whole change buys.
+#:
+#: IT ALSO DELETES A MARKED ASSUMPTION RATHER THAN ANSWERING ONE: `AZURE_OPENAI_API_VERSION`
+#: — where two of the vendor's own pages disagree and OPERATIONS §2 gate 16f delegates the
+#: value to a human — has no analogue here, because the credential store takes ONE entry for
+#: this provider (`OPENAI`) and no api-version at all.
+#:
+#: ⚠ NOTHING ON IT IS SELECTABLE TODAY, and the reason is a price nobody here has read
+#: rather than anything about the leg. See `LLM_MODELS`.
+OPENAI_DIRECT_LEG: Final = PostureLeg(
+    provider="openai",
+    region=OPENAI_DATA_RESIDENCY,
+    region_constant="OPENAI_DATA_RESIDENCY",
+    region_in_host=True,
+    addresses_a_deployment=False,
+    builder="openai_base_url",
+    builder_arity=0,
+    builder_suffix=_OPENAI_ENDPOINT_SUFFIX,
+    permitted_host="api.openai.com",
+    # NOTHING IS DELEGATED, AND IT IS A CLAIM. The one fact a check here cannot see is the
+    # project entitlement behind the regional host — and that fails LOUD at the vendor
+    # rather than silently falling back to `global`, so sending a person to a console to
+    # confirm it would be asking them to re-observe an error the first call would raise.
+    delegated_gate=None,
+)
+
+#: THE LEG WITH NO BUILDER. Google's Gemini Developer API, which takes no base URL from us.
+#:
+#: **`builder=None` IS A STRONGER OBLIGATION THAN A BUILDER, NOT A WEAKER ONE.** Every other
+#: leg's rule is "exactly one literal in this tree may name your host". This leg's rule is
+#: **ZERO** — `check_model_residency` refuses `generativelanguage.googleapis.com` anywhere,
+#: including in this file, because the engine's Google provider constructs its client from a
+#: single API key and never reads a base URL of ours (`bolna/llms/gemini_llm.py:48-49` @
+#: `0172347b601e`, VERIFIED-OSS; the credential is one entry named `GOOGLE`,
+#: `providers.md:105-109`).
+#:
+#: AND IT RETIRES A MARKED ASSUMPTION THIS TREE HAS BEEN CARRYING. The previous
+#: `google-direct` spec had to name a PATH — `/v1beta/openai`, the OpenAI-compatible surface
+#: — while the engine's own client speaks the NATIVE protocol at `…/` with `api_version =
+#: "v1beta"`, and nobody could say which one a declaration would adopt. With no builder there
+#: is no path to be wrong about: the question stops existing rather than being deferred.
+#:
+#: `region=None` IS UNLIKE `openai-direct`'s OLD `None`, AND THE DIFFERENCE IS WORTH THE
+#: SENTENCE. OpenAI HAS regions and we pin one. Google's Developer API has none AT ALL — the
+#: region is not unset, it is UNEXPRESSIBLE: `googleapis/python-genai@66807187f212`,
+#: `google/genai/_api_client.py:681-682` raises `ValueError("Gemini API does not support
+#: project/location.")` before a packet leaves the machine.
+GOOGLE_DIRECT_LEG: Final = PostureLeg(
+    provider="google",
+    region=None,
+    region_constant=None,
+    region_in_host=False,
+    addresses_a_deployment=False,
+    builder=None,
+    builder_arity=None,
+    builder_suffix=None,
+    permitted_host="generativelanguage.googleapis.com",
+    # NOTHING IS DELEGATED because there is no regional claim to confirm; sending a person to
+    # a console to attest a region that cannot be requested would be worse than sending them
+    # nowhere. ⚠ WHAT WOULD NEED A GATE IF ANY MODEL ON THIS LEG WERE EVER MADE SELECTABLE is
+    # COMMERCIAL rather than residency-shaped and is deliberately NOT invented here: Google's
+    # free tier states it uses submitted prompts and responses to improve its products with
+    # human reviewers able to read them, and only the PAID tier does not — and the engine's
+    # credential store takes one key with no project, no billing account and no tier field,
+    # so "is this a paid key" is invisible on the wire and unreadable back from any API.
+    delegated_gate=None,
+)
+
+#: THE CLOSED, ORDERED SET OF LEGS THE DECLARED POSTURE CONTAINS.
+#:
+#: **ORDERED, AND THE ORDER IS THE INCUMBENT FIRST.** Nothing dispatches on position; the
+#: order is what a reader meets and what the guard's failure messages preserve, so the leg
+#: this product actually runs on is the one named first in every one of them.
+#:
+#: **A LEG IN HERE THAT NOTHING USES IS A BUILD FAILURE**, which is the second thing this
+#: change buys and has no analogue in the mechanism it replaces. `check_model_residency`
+#: check 7 fails a declared leg that no model in `LLM_MODELS` names, and a declared leg whose
+#: `builder` nothing in the tree ever calls. Without it the permitted set rots into a wish
+#: list: a spec nobody exercises reads exactly like a spec that is enforced, and every check
+#: stated over it prints OK on an empty set — which is the same defect D-453 found when a
+#: posture's `permitted_host` was absent from a hand-written watched-host tuple.
+DECLARED_LEGS: Final = (AZURE_OPENAI_LEG, OPENAI_DIRECT_LEG, GOOGLE_DIRECT_LEG)
 
 
 @dataclass(frozen=True)
@@ -813,42 +1454,51 @@ class ResidencyPosture:
     that has been made; it is one that has been frozen by accident, and the freezing gets
     mistaken for rigour.
 
-    So the posture becomes a NAME in source, declared once (`DECLARED_POSTURE_NAME`), and
-    `scripts/check_model_residency.py` holds — independently, never imported from here —
-    the SPEC each name obliges the tree to satisfy. The guard then proves the tree matches
-    the declaration and FAILS BOTH WAYS: code that drifts from the declaration, and a
-    declaration edited to describe a tree that has not moved. That is strictly more than
-    the tree could prove before, because before there was nothing to disagree with.
+    So the posture is a NAME in source (`DECLARED_POSTURE_NAME`), and
+    `scripts/check_model_residency.py` holds — independently, never imported from here — the
+    SPEC each name obliges the tree to satisfy. The guard proves the tree matches the
+    declaration and FAILS BOTH WAYS: code that drifts from the declaration, and a declaration
+    edited to describe a tree that has not moved.
 
-    ⚠ **IT IS SOURCE, AND IT MUST STAY SOURCE.** This is a frozen dataclass built from
-    module `Final`s. It is NOT a `Settings` field, NOT an environment variable and NOT a
+    **WHAT CHANGED WHEN THE LEG SET OPENED.** This record used to carry `llm_provider`,
+    `region` and `addresses_a_deployment` directly, because there was one leg and those were
+    its properties. They are now properties of each `PostureLeg`, and this record carries the
+    NAME and the SET. Nothing was made softer: the guard checks every one of those fields on
+    every leg, and additionally checks that the set of legs is the set it expects, in order.
+
+    ⚠ **IT IS SOURCE, AND IT MUST STAY SOURCE.** This is a frozen dataclass built from module
+    `Final`s. It is NOT a `Settings` field, NOT an environment variable and NOT a
     `platform_config` row — `check_model_residency.console_config_failures` refuses any
-    settings name carrying `posture`/`residency`/`region`, and `declaration_failures`
-    refuses a declaration that is not a `Final` string literal in this module. D-95 §4's
-    doctrine is unchanged and is the whole reason the mechanism is shaped this way: a
-    residency posture invertible from a web form at 3am is not a posture. Changing it is a
-    commit, reviewed by a human, with a decision-log entry.
-
-    WHAT IT DOES NOT DO: it does not make the switch free. Switching still edits the
-    settings that carry the vendor's credentials, the price tables, the adapter's routing
-    and the console panel. What it removes is the part that had no owner — the tree
-    silently disagreeing with itself about which posture it is in, with no line to point at.
+    settings name carrying `posture`/`residency`/`region`, and `declaration_failures` refuses
+    a declaration that is not a `Final` string literal in this module. D-95 §4's doctrine is
+    unchanged: a residency posture invertible from a web form at 3am is not a posture.
     """
 
     #: The declared name. The guard's `POSTURES` table is keyed on it, so a name that table
     #: does not know is a hard failure rather than an unchecked tree.
     name: str
-    #: Our vocabulary for the leg (`LlmProvider`), never the engine's.
-    llm_provider: LlmProvider
-    #: The region this posture PINS, or `None` for a posture that makes no regional claim.
-    #: Under a pinning posture the guard requires exactly one frozen constant spelling it;
-    #: under a non-pinning one it requires ZERO, so a leftover `AZURE_LOCATION` cannot sit
-    #: in a tree whose declaration has moved on.
-    region: str | None
-    #: Does the API address a DEPLOYMENT id the operator chose, rather than the model's own
-    #: name? See `ModelBinding` — this is the answer to "is `azure_openai_deployment`
-    #: genuinely a different thing from `azure_openai_model`".
-    addresses_a_deployment: bool
+    #: The legs, closed and ordered. See `DECLARED_LEGS`.
+    legs: tuple[PostureLeg, ...]
+
+    def leg(self, provider: LlmProvider) -> PostureLeg:
+        """The declared leg for `provider`, or a `ValueError` naming what is declared.
+
+        A METHOD RATHER THAN A DICT COMPREHENSION AT EACH CALLER, for
+        `EngineCapabilities.speech_control`'s reason: the lookup is spelled in the publish
+        path, in the adapter, in the model binder and in two guards' fixtures, and a fifth
+        caller that reached for `legs[0]` would be correct today and wrong the day the order
+        changes.
+        """
+        for leg in self.legs:
+            if leg.provider == provider:
+                return leg
+        raise ValueError(
+            f"posture {self.name!r} declares no {provider!r} leg (declared: "
+            f"{[one.provider for one in self.legs]}). A provider the posture does not "
+            "contain has no endpoint, no credential and no residency story — adding one is "
+            "a PostureLeg here, a PostureSpec in scripts/check_model_residency.py and a "
+            "decision-log entry, together."
+        )
 
 
 #: THE DECLARATION. One `Final` string literal, in the portability contract, and the only
@@ -859,18 +1509,22 @@ class ResidencyPosture:
 #: imported the value it checks would be asking the code whether it agrees with itself), so
 #: it has to be a `Constant` a parser can see — not an f-string, not a computed value, not
 #: `os.environ.get(...)` with a default that reads like one.
-DECLARED_POSTURE_NAME: Final = "us-azure-openai"
+#:
+#: **THE NAME LOST ITS REGION WORD, AND THAT IS THE HONEST MOVE RATHER THAN A TIDY-UP.** It
+#: was `india-azure-openai`, then `us-azure-openai` (D-449). Both halves of that shape are
+#: now false: the posture is not one vendor, and it cannot promise ONE region, because the
+#: Google leg's vendor raises `ValueError` when a region is requested at all. A posture
+#: called `us-…` would be this product making, in the one line where it declares residency,
+#: a claim one of its own declared legs cannot keep — which is the class of over-claim
+#: D-449 withdrew a whole client warranty over. The region survives where it can be kept: on
+#: each leg, checked, with `region_in_host` saying which of the two kinds of proof it has.
+DECLARED_POSTURE_NAME: Final = "multi-provider-byok"
 
 #: The declared posture itself. Every runtime decision that depends on WHERE the models run
-#: reads this record rather than re-deciding: `agents.service.in_call_llm` takes the
-#: provider name from it, and `bind_model` takes the deployment-versus-model question from
-#: it.
-DECLARED_POSTURE: Final = ResidencyPosture(
-    name=DECLARED_POSTURE_NAME,
-    llm_provider="azure_openai",
-    region=AZURE_LOCATION,
-    addresses_a_deployment=True,
-)
+#: reads this record rather than re-deciding: `agents.service.in_call_llm` takes the leg from
+#: it, and `bind_model` takes the deployment-versus-model question from the leg the model's
+#: own provider names.
+DECLARED_POSTURE: Final = ResidencyPosture(name=DECLARED_POSTURE_NAME, legs=DECLARED_LEGS)
 
 
 @dataclass(frozen=True)
@@ -886,54 +1540,76 @@ class ModelBinding:
     the defect class hard rule "one way per problem" exists for.
 
     So the distinction is not hard-wired and it is not wished away: it is a PROPERTY OF THE
-    DECLARED POSTURE (`ResidencyPosture.addresses_a_deployment`), and this record makes the
-    type system carry it. Two roles, two attributes, one object:
+    LEG (`PostureLeg.addresses_a_deployment`), and this record makes the type system carry
+    it. It stopped being hypothetical the moment a second leg was declared — the OpenAI and
+    Google legs address the model by its own published name, so both arms of `bind_model`
+    are now reachable from shipped configuration rather than only from a test fixture.
 
     * `addressed` — what goes on the wire (`ModelConfig.llm_model`, and what the engine
       sends as `model`). Never priced.
-    * `priced` — which model the deployment was made from (`AZURE_LIST_PRICE_USD_PER_MTOK`'s
-      key). Never sent.
-
-    THE REJECTED ALTERNATIVE was leaving two plain `str | None` settings and a comment on
-    each. It is what the tree had, and the comments are long precisely because nothing
-    enforced them: a caller that reached for `azure_openai_model` when it meant the
-    deployment gets a 404 from a third party in the middle of a live phone call, and a
-    caller that reached the other way prices a model nobody is running. Both are `str`, so
-    neither mypy nor a reviewer's eye distinguishes them at a call site. Here they cannot
-    be confused, because the object that carries one carries the other under a different
-    name and `bind_model` is the only thing that builds it.
+    * `priced` — which model the deployment was made from (`LLM_MODELS`' key). Never sent.
     """
 
     addressed: str
     priced: str
 
 
+def leg_for_model(model: str) -> PostureLeg:
+    """The declared leg that runs `model`.
+
+    ONE RESOLUTION, DERIVED FROM THE CATALOGUE. "Which leg is this model on" used to be a
+    question with no answer because there was one leg; it is now the question that decides
+    the endpoint, the credential entry, whether a deployment id is required and which human
+    gate is owed. Reading it from `LLM_MODELS[model].provider` means the answer moves with
+    the catalogue entry rather than with whichever caller asked.
+
+    RAISES on an identifier the catalogue does not know, rather than guessing the incumbent
+    leg. A model nobody priced, dated or assigned a provider has no business on a wire, and
+    defaulting it to Azure is how a Gemini identifier would end up in an Azure deployment
+    field as a 404 mid-call.
+    """
+    spec = LLM_MODELS.get(model)
+    if spec is None:
+        raise ValueError(
+            f"{model!r} is not a model this repository knows (known: "
+            f"{sorted(LLM_MODEL_NAMES)}). Every identifier that reaches a vendor has an "
+            "LlmModelSpec carrying its leg, its price and its traps — a string with none of "
+            "those is unpriced spend on an endpoint nobody chose."
+        )
+    return DECLARED_POSTURE.leg(spec.provider)
+
+
 def bind_model(*, deployment: str | None, model: str) -> ModelBinding:
-    """Bind the wire identifier and the priced identifier under the DECLARED posture.
+    """Bind the wire identifier and the priced identifier on `model`'s own declared leg.
 
-    ONE function, so the deployment-versus-model rule is applied in one place and follows
-    the declaration instead of being re-decided per call site. Under a posture that
-    addresses a deployment, a deployment is REQUIRED and the two strings differ; under one
-    that does not, a deployment is a configuration error rather than an ignored value —
-    silently dropping it is how an operator ends up believing a field they filled in is
-    doing something.
+    ONE function, so the deployment-versus-model rule is applied in one place and follows the
+    declaration instead of being re-decided per call site. On a leg that addresses a
+    deployment, a deployment is REQUIRED and the two strings differ; on one that does not, a
+    deployment is a configuration error rather than an ignored value — silently dropping it
+    is how an operator ends up believing a field they filled in is doing something.
 
-    Raises `ValueError` rather than returning `None`: both arms are configuration mistakes
-    a caller cannot recover from, and every caller here already refuses to publish an agent
+    THE LEG COMES FROM THE MODEL, not from an argument, and that is what stops the two
+    getting out of step: a caller holding a Gemini identifier and an Azure deployment id
+    cannot express the pair at all, because the identifier itself names the leg that has no
+    deployments.
+
+    Raises `ValueError` rather than returning `None`: every arm is a configuration mistake a
+    caller cannot recover from, and every caller here already refuses to publish an agent
     whose LLM leg is half-configured (`agents.service.in_call_llm`).
     """
-    if DECLARED_POSTURE.addresses_a_deployment:
+    leg = leg_for_model(model)
+    if leg.addresses_a_deployment:
         if not deployment:
             raise ValueError(
-                f"posture {DECLARED_POSTURE.name!r} addresses a deployment id, so a "
-                "deployment name is required — the model name cannot stand in for it"
+                f"the {leg.provider!r} leg addresses a deployment id, so a deployment name "
+                f"is required for {model!r} — the model name cannot stand in for it"
             )
         return ModelBinding(addressed=deployment, priced=model)
     if deployment:
         raise ValueError(
-            f"posture {DECLARED_POSTURE.name!r} addresses the model by its own name, so a "
-            "separate deployment id has nowhere to go — remove it rather than leaving a "
-            "configured value that nothing sends"
+            f"the {leg.provider!r} leg addresses the model by its own name, so a separate "
+            f"deployment id has nowhere to go for {model!r} — remove it rather than leaving "
+            "a configured value that nothing sends"
         )
     return ModelBinding(addressed=model, priced=model)
 
@@ -1045,16 +1721,17 @@ class ModelConfig(BaseModel):
     #: every config in this repository meant before D-400 and is still what the fake
     #: engine and the conformance suite exercise.
     llm_provider: LlmProvider | None = None
-    #: The OpenAI-compatible endpoint for an `azure_openai` leg — always the output of
-    #: `azure_openai_base_url()`, never typed by hand and never a tenant's to choose.
+    #: The OpenAI-compatible endpoint for whichever leg `llm_provider` names — always the
+    #: output of that leg's own builder, never typed by hand and never a tenant's to choose.
+    #: `None` on the `google` leg, which takes no base URL from us at all.
     llm_base_url: str | None = None
     tts_provider: str | None = None
     tts_voice: str | None = None
 
     @model_validator(mode="after")
     def _llm_endpoint_is_coherent(self) -> ModelConfig:
-        """An `azure_openai` leg has an endpoint our own builder could have emitted, and
-        nothing else has one at all.
+        """The endpoint is one THIS leg's own builder could have emitted, and a leg with no
+        builder carries none at all.
 
         WHY A VALIDATOR AND NOT A REVIEW. `scripts/check_model_residency.py` proves things
         about the model URLs *written in this tree*; it says so itself under "what this
@@ -1064,34 +1741,61 @@ class ModelConfig(BaseModel):
         literal and this covers the value, and between them there is no path by which an
         engine is handed a hand-typed model endpoint.
 
-        WHAT IT CAN PROVE, AND WHAT IT CANNOT — the gap is D-410's recorded weakening
-        rather than an oversight, and this is one of the two places a reader will look for
-        it. It CAN prove the endpoint is the v1 surface on ONE Azure OpenAI resource and
-        that the resource is a single DNS label, so the host is Azure's rather than a
-        look-alike whose tail merely reads like it (`_AZURE_RESOURCE_RE` has the attack).
-        It CANNOT prove the resource is in `AZURE_LOCATION`: the hostname names no region,
-        the region is a property of the resource, and only a human in the portal can
-        confirm it. `VERTEX_LOCATION` appeared twice in a Vertex URL and this validator
-        checked both halves; there is no equivalent here and pretending otherwise would be
-        worse than the gap.
+        **IT IS STATED PER LEG NOW, AND THAT IS WHERE THE ASYMMETRY BECOMES VISIBLE.** On
+        `azure_openai` it can prove the endpoint is the v1 surface on ONE Azure resource and
+        that the resource is a single DNS label — but NOT that the resource is in
+        `AZURE_LOCATION`, because the hostname names no region and only a human in the portal
+        can confirm it (gates 20/20c). On `openai` it can prove the WHOLE claim: the region
+        is the first label of the authority, so an endpoint that is not
+        `openai_base_url()`'s output is not in `OPENAI_DATA_RESIDENCY`, and there is nothing
+        left for a person to attest. On `google` there is no endpoint to judge, so what is
+        enforced is its ABSENCE — a base URL on that leg addresses nothing, because the
+        engine's Google provider builds its own client from an API key and never reads one.
 
         REFUSING A BASE URL WITHOUT A PROVIDER is the half worth stating: it is the shape a
         future caller reaches for when it wants "just point the LLM somewhere", and it
         would route to the engine's default client against our endpoint — a mismatch that
         fails as a confusing 4xx from a vendor rather than as a sentence about what is
         wrong.
+
+        THE COMPARISON IS AGAINST THE BUILDER'S OWN OUTPUT rather than against a second regex
+        of the endpoint's shape, for `_azure_resource_of`'s reason one level up: the only
+        honest answer to "could our builder have produced this" is to ask the builder. Azure
+        keeps its inverse because its endpoint is per-RESOURCE and there is nothing to
+        compare against without knowing which resource was meant.
         """
-        if self.llm_provider == "azure_openai":
-            if not self.llm_base_url:
-                raise ValueError("llm_provider 'azure_openai' requires llm_base_url")
+        if self.llm_provider is None:
+            if self.llm_base_url:
+                raise ValueError(
+                    "llm_base_url is only meaningful with an llm_provider — with none, the "
+                    "engine uses its own default client and our endpoint addresses nothing"
+                )
+            return self
+        leg = DECLARED_POSTURE.leg(self.llm_provider)
+        if leg.builder is None:
+            if self.llm_base_url:
+                raise ValueError(
+                    f"the {leg.provider!r} leg takes no base URL: the engine builds its own "
+                    "client from a single API key and never reads one, so a configured "
+                    "endpoint here is a value nothing sends"
+                )
+            return self
+        if not self.llm_base_url:
+            raise ValueError(f"llm_provider {leg.provider!r} requires llm_base_url")
+        if leg.provider == "azure_openai":
             if _azure_resource_of(self.llm_base_url) is None:
                 raise ValueError(
                     "llm_base_url must be an Azure OpenAI v1 endpoint from "
                     f"azure_openai_base_url() — https://<resource>{_AZURE_ENDPOINT_SUFFIX} "
                     f"on a resource in {AZURE_LOCATION} (D-410)"
                 )
-        elif self.llm_base_url:
-            raise ValueError("llm_base_url is only meaningful with llm_provider 'azure_openai'")
+        elif self.llm_base_url != openai_base_url():
+            raise ValueError(
+                f"llm_base_url must be {openai_base_url()!r} — the output of "
+                f"{leg.builder}(), which pins the {leg.region!r} data-residency region in "
+                "the hostname. OpenAI's global endpoint is a different product and makes no "
+                "regional claim at all"
+            )
         return self
 
 
@@ -2329,16 +3033,22 @@ __all__ = [
     "EngineCapabilities",
     "EngineCapabilityName",
     "EngineKBRef",
+    "Evidence",
     "ExecutionListing",
     "ExecutionSnapshot",
     "KBSourceRef",
     "ListingIncompleteReason",
     "LlmCredentialPlacement",
+    "LlmModelSpec",
+    "LlmModelTrap",
+    "LlmModelTrapName",
+    "LlmPrice",
     "LlmProvider",
     "ModelBinding",
     "ModelConfig",
     "NumberSeries",
     "NumberSpec",
+    "PostureLeg",
     "ProvisionedNumber",
     "RecallOutcome",
     "ResidencyPosture",

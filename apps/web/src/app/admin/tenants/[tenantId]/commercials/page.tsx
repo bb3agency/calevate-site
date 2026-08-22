@@ -542,6 +542,16 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
               */}
               <th className="py-1 pr-3 font-medium">Premium / min</th>
               <th className="py-1 pr-3 font-medium">Value / min</th>
+              {/*
+                THE MODEL SURCHARGE IS PART OF THE PRICE, SO IT IS PART OF THE RECORD
+                (D-455). It was on the form and on "in effect" and missing here, which is
+                the same defect the comment above describes one column to the left: this
+                table is the effective-dated history an invoice is re-derived from, so a
+                surcharge that was ₹1.50 in July and ₹2.00 in August was invisible on the
+                one screen that exists to show a rate CHANGING. A client querying an "AI
+                model upgrade" line on an old statement is answered from this row.
+              */}
+              <th className="py-1 pr-3 font-medium">Model surcharge / min</th>
               <th className="py-1 pr-3 font-medium">Recorded</th>
             </tr>
           </thead>
@@ -565,6 +575,10 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
                 </td>
                 <td className="py-1.5 pr-3">{rate(row.overage_rate_inr) ?? "—"}</td>
                 <td className="py-1.5 pr-3">{rate(row.overage_rate_value_inr) ?? "—"}</td>
+                {/* `—` for NULL, exactly as the two rungs beside it: a plan quoting no
+                    surcharge charged nothing extra for a model choice, and "₹0.0000" would
+                    read as a decided price of zero rather than as a term never agreed. */}
+                <td className="py-1.5 pr-3">{rate(row.llm_model_surcharge_inr) ?? "—"}</td>
                 <td className="py-1.5 pr-3">{formatIST(row.created_at)}</td>
               </tr>
             ))}

@@ -57,6 +57,7 @@ from apps.api.billing.service import (
     UNSURCHARGED_MODEL,
     _surcharge_binds,
     calling_revenue_inr,
+    month_charges_inr,
     priced_llm_surcharge,
     to_paise,
     usage_summary,
@@ -713,7 +714,7 @@ def test_a_real_surcharge_multiplies_exactly_and_rounds_the_way_the_invoice_does
     reach and were already covered; this one costs a client real paise and was not.
 
     FAILS IF: the multiply goes through a float, the quantize is dropped, or the rounding
-    mode moves off ROUND_HALF_EVEN.
+    mode moves off ROUND_HALF_UP.
     """
     answer = llm_surcharge_billed_inr(minutes=Decimal(minutes), surcharge=Decimal(surcharge))
     assert answer == Decimal(expected)
@@ -744,3 +745,86 @@ def test_nothing_is_billed_when_there_is_no_surcharge_or_no_minutes(
     )
     assert answer == Decimal("0")
     assert str(answer) == "0.0000"
+
+
+@pytest.mark.parametrize(
+    ("fee", "overage", "surcharge", "expected"),
+    [
+        # The shipped shape: a managed plan, no surcharge quoted anywhere yet.
+        ("4999.00", "10159.00", "0.0000", "15158.0000"),
+        # The case D-455 exists for, and the one a browser sum got wrong for a while: an
+        # account INSIDE its allowance whose own model choice still costs it money. The
+        # total is neither zero nor the retainer.
+        ("4999.00", "0.00", "180.7500", "5179.7500"),
+        # Mid-onboarding: no plan row, so no retainer. None is not zero and must not be
+        # read as one — the total is then the calling alone.
+        (None, "0.00", "60.0000", "60.0000"),
+    ],
+)
+def test_the_month_total_is_the_three_published_components_and_nothing_else(
+    fee: str | None, overage: str, surcharge: str, expected: str
+) -> None:
+    """`month_charges_inr` on the managed motion, where `calling_revenue_inr` passes the
+    overage straight through.
+
+    WHY THIS TEST IS HERE AND NOT ONLY IN A SCREEN TEST. Until this function existed the
+    addition happened in the BROWSER, over the three fields the panel publishes — and a
+    total computed in a language with one numeric type is a second implementation of a
+    bill. The arithmetic now has one home and this is what pins it: the three components a
+    client can read off their own panel must add to the figure printed beside them, exactly,
+    with no fourth term and nothing dropped.
+
+    FAILS IF: a component stops being included (the retainer and the surcharge have each
+    been omitted from a "spend this month" figure in this repo's history), a `None` fee is
+    read as anything but nothing, or the sum starts rounding before its caller asks it to.
+    """
+    answer = month_charges_inr(
+        monthly_fee_inr=None if fee is None else Decimal(fee),
+        plan_tier="managed",
+        minutes=Decimal("120.50"),
+        overage_cost_inr=Decimal(overage),
+        llm_surcharge_inr=Decimal(surcharge),
+    )
+    assert answer == Decimal(expected)
+
+
+def test_the_client_total_and_the_admin_revenue_are_the_same_expression() -> None:
+    """What a client owes and what we book are one number seen from two sides.
+
+    They were two expressions in two modules — `usage_summary` published components and no
+    total while `margin_for_tenant` summed its own revenue — which is precisely how a
+    panel and a margin report come to disagree about a month. `margin_for_tenant` now
+    calls this function, and this asserts the identity directly so that stays true if
+    somebody re-inlines it.
+    """
+    fee, overage, surcharge = Decimal("4999.00"), Decimal("10159.00"), Decimal("60.0000")
+    assert month_charges_inr(
+        monthly_fee_inr=fee,
+        plan_tier="managed",
+        minutes=Decimal("120.50"),
+        overage_cost_inr=overage,
+        llm_surcharge_inr=surcharge,
+    ) == fee + calling_revenue_inr(
+        plan_tier="managed",
+        minutes=Decimal("120.50"),
+        overage_cost_inr=overage,
+        llm_surcharge_inr=surcharge,
+    )
+
+
+def test_the_total_is_unquantized_so_its_two_callers_can_round_once_each() -> None:
+    """The panel quantizes to paise; the margin panel subtracts a cost first and divides.
+
+    A pre-rounded return would round twice on the margin path and could move a paisa —
+    the same argument `calling_revenue_inr` makes one function down about
+    `prepaid_billed_inr`. Driven with a fee carrying a sub-paise fraction, which is
+    ordinary rather than exotic: `MONEY_Q` is four decimals.
+    """
+    answer = month_charges_inr(
+        monthly_fee_inr=Decimal("0.0001"),
+        plan_tier="managed",
+        minutes=Decimal("1.00"),
+        overage_cost_inr=Decimal("0.0002"),
+        llm_surcharge_inr=Decimal("0.0000"),
+    )
+    assert answer == Decimal("0.0003"), "the fraction survives the addition"

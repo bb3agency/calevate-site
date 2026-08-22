@@ -14,7 +14,9 @@ WHAT IT IS FOR
 `b7d2f10c93ae` (D-454) made the in-call language model a CLIENT's choice, resolved
 `agents.llm_model` -> `organizations.default_llm_model` -> the platform's own. The two
 allow-listed models are not close on cost: `gpt-4.1-mini` is 2.7x `gpt-4o-mini` on both
-token legs (`calevate_shared.engine.AZURE_LIST_PRICE_USD_PER_MTOK`). Billing could not
+token legs (`calevate_shared.engine.AZURE_LIST_PRICE_USD_PER_MTOK`, which D-456 later
+replaced with `LLM_MODELS[model].price` — named as it stood when this landed, because a
+migration is applied history and not a live reference). Billing could not
 express that at all — `plans` has no model column, and both client-price functions
 (`rates.prepaid_billed_inr`, `service.priced_overage`) price MINUTES at the plan's rate
 and take no model. So a client could move their whole account onto the dearer model and

@@ -363,9 +363,52 @@ describe("the refusal vocabulary is pinned to the API that raises it", () => {
     [AUTHN_CODES.rateLimited, join("apps", "api", "core", "middleware.py")],
   ];
 
+  /**
+   * Codes raised INSIDE `apps/api/authn/` that are not refusals of an authentication
+   * SURFACE — so they belong to `ProblemNotice`, not to `SIGN_IN_COPY`.
+   *
+   * The premise this guard was written on was that `apps/api/authn/*.py` and
+   * `/v1/auth/**` are the same set of refusals. `authn/operators.py` is the first module
+   * to break it, and its own docstring argues why it must: every act on the operator
+   * allowlist is a CREDENTIAL act — creating an account mints a setup token, revoking one
+   * destroys the password and every live session — and `credential_session()` is opened
+   * by this package and no other. So the transaction lives in `authn/` while its HTTP
+   * surface is `/v1/admin/operators`, exactly as `tenancy/routes.invite_member` calls
+   * `authn.service.enqueue_invitation_email`.
+   *
+   * WHY THESE MUST NOT GET A `SIGN_IN_COPY` SENTENCE, which is the whole reason this list
+   * exists rather than two lines of copy. The sign-in surfaces override the server's prose
+   * for ONE reason, argued at the top of `problems.ts`: `service.sign_in` equalises the
+   * answer for an unknown address, a wrong password and a deactivated account, and a
+   * screen that printed `detail` would be one server change away from leaking the
+   * distinction back. That argument has no analogue on a superadmin-only console screen
+   * whose problem body is written to be read — `detail` names the act and `remediation`
+   * says who to ask. A fixed local sentence there would be strictly worse copy, and a
+   * `SIGN_IN_COPY` entry for a code no sign-in surface can meet is dead copy that reads
+   * as coverage.
+   *
+   * Each entry is asserted against the module that raises it, like `RAISED_ELSEWHERE`, so
+   * an exemption cannot quietly cover a real sign-in code that moved.
+   */
+  const NOT_A_SIGN_IN_REFUSAL: ReadonlyArray<readonly [code: string, module: string]> = [
+    // `operators.py::_refuse_self` — 403 on `PATCH /v1/admin/operators/{id}` and
+    // `POST .../revocation` when a superadmin aims either at their own account. It is the
+    // refusal that holds the "there is always a live super admin" invariant up, and
+    // `app/admin/operators/page.tsx` previews it before the click.
+    ["operator_self_administration", "operators.py"],
+  ];
+
   it("every code the API raises has a browser spelling", () => {
     const browser = new Set<string>(Object.values(AUTHN_CODES));
-    const missing = [...serverCodes()].filter((c) => !browser.has(c)).sort();
+    const exempt = new Map(NOT_A_SIGN_IN_REFUSAL);
+    for (const [code, module] of NOT_A_SIGN_IN_REFUSAL) {
+      const body = readFileSync(join(AUTHN_API, module), "utf8");
+      expect(
+        body,
+        `${code} is exempted as ${module}'s, and ${module} does not raise it`,
+      ).toContain(`code="${code}"`);
+    }
+    const missing = [...serverCodes()].filter((c) => !browser.has(c) && !exempt.has(c)).sort();
     expect(
       missing,
       `these codes are raised by apps/api/authn/ and unknown to src/lib/authn/problems.ts:\n` +

@@ -35,7 +35,12 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const CAPS: Caps = {
@@ -63,6 +68,7 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     minutes_used: "12.00",
     credit_balance_inr: "1200.00",
     monthly_fee_inr: "0.00",
+    month_charges_inr: "0.00",
     overage_cost_inr: "0.00",
     overage_minutes: "0.00",
     overage_minutes_premium: "0.00",
@@ -89,7 +95,10 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/me": ME,
     "/v1/usage": usage(),
     "/v1/billing/caps": CAPS,
-    [CAPABILITY]: { online_payments_available: true, provider_orders_available: true },
+    [CAPABILITY]: {
+      online_payments_available: true,
+      provider_orders_available: true,
+    },
     ...over,
   };
 }
@@ -104,7 +113,10 @@ describe("the top-up panel", () => {
     await renderClientPage(
       page,
       routes({
-        [CAPABILITY]: { online_payments_available: false, provider_orders_available: false },
+        [CAPABILITY]: {
+          online_payments_available: false,
+          provider_orders_available: false,
+        },
       }),
     );
 
@@ -112,7 +124,10 @@ describe("the top-up panel", () => {
     // until the capability lands, so asserting after the card would judge the loading
     // state and pass or fail on timing.
     await screen.findByText(/transfer the amount to us by bank/);
-    expect(screen.queryByLabelText("Add credit"), "no form when it cannot work").toBeNull();
+    expect(
+      screen.queryByLabelText("Add credit"),
+      "no form when it cannot work",
+    ).toBeNull();
     expect(screen.queryByText("Get payment details")).toBeNull();
     // Not an error either: this deployment is configured, not broken.
     expect(screen.queryByRole("alert")).toBeNull();
@@ -124,12 +139,20 @@ describe("the top-up panel", () => {
     const { container } = await renderClientPage(
       page,
       routes({
-        [CAPABILITY]: { online_payments_available: false, provider_orders_available: false },
+        [CAPABILITY]: {
+          online_payments_available: false,
+          provider_orders_available: false,
+        },
       }),
     );
 
     await screen.findByText(/transfer the amount to us by bank/);
-    const leaks = ["no_webhook_secret", "no_publishable_key", "no_payment_provider", "razorpay"];
+    const leaks = [
+      "no_webhook_secret",
+      "no_publishable_key",
+      "no_payment_provider",
+      "razorpay",
+    ];
     for (const leak of leaks) {
       expect(container.textContent?.toLowerCase()).not.toContain(leak);
     }
@@ -146,7 +169,9 @@ describe("the top-up panel", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(screen.queryByLabelText("Add credit")).toBeNull();
-    expect(container.textContent).not.toContain("transfer the amount to us by bank");
+    expect(container.textContent).not.toContain(
+      "transfer the amount to us by bank",
+    );
   });
 
   it("offers the form and prices the top-up in the digits the server sent", async () => {

@@ -80,7 +80,6 @@ from typing import NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.engine import (
-    DECLARED_POSTURE,
     AgentConfig,
     CallContext,
     DisclosurePosture,
@@ -93,6 +92,7 @@ from calevate_shared.engine import (
     bind_model,
     compose_engine_prompt,
     compose_opening_line,
+    leg_for_model,
 )
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -617,7 +617,7 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     ⚠ **`llm_model` IS THE DEPLOYMENT ID HERE, NOT `Settings.azure_openai_model`**, and
     on every other OpenAI-compatible provider those would be the same string. The model
     name records which model the deployment was made from; it is what
-    `AZURE_LIST_PRICE_USD_PER_MTOK` prices and it never goes on the wire.
+    `LLM_MODELS[model].price` prices and it never goes on the wire.
     `ModelConfig.llm_model` says the same thing at the other end of this seam.
 
     **THE PROVIDER NAME AND THE MODEL BINDING BOTH COME FROM THE DECLARED POSTURE (D-432)**
@@ -686,7 +686,10 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     binding = bind_model(deployment=deployment, model=model)
     return {
         "llm_model": binding.addressed,
-        "llm_provider": DECLARED_POSTURE.llm_provider,
+        # From the MODEL, not the posture (D-456): three legs are declared, so the
+        # provider follows the model that was actually resolved above. Reading it off the
+        # posture would have named one vendor for every leg the day a second was declared.
+        "llm_provider": leg_for_model(model).provider,
         "llm_base_url": azure_openai_base_url(resource),
     }
 

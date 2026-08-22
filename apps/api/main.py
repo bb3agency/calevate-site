@@ -48,6 +48,7 @@ def _mount_routers(application: FastAPI) -> None:
     """Imports are local so a router import error names the module that broke."""
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
+    from apps.api.admin.operator_routes import router as operator_router
     from apps.api.admin.routes import router as admin_router
     from apps.api.agents.experiment_routes import router as experiment_router
     from apps.api.agents.llm_routes import admin_router as llm_defaults_admin_router
@@ -133,6 +134,11 @@ def _mount_routers(application: FastAPI) -> None:
     # segment added beside it (the hazard `voice_router` above calls out), and this is a
     # cross-tenant list, not a tenant's record.
     application.include_router(hold_queue_router)
+    # Who may use the console at all — the superadmin tier's own surface. Its own
+    # `/v1/admin/operators` prefix for the reason the two above have theirs: it is not a
+    # segment under `/v1/admin/tenants/{tenant_id}`, which would swallow any literal
+    # beside it, and it is about US rather than about a client.
+    application.include_router(operator_router)
     # The client health board, for the same reason and with the same hazard in mind: it
     # is a cross-tenant exception report, so it gets its own `/v1/admin/client-health`
     # prefix rather than a segment under `/v1/admin/tenants/{tenant_id}`.

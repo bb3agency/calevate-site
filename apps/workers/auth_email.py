@@ -2,9 +2,9 @@
 
 A reset link nobody receives is a password nobody can change, so this job is the other half
 of every flow in `authn/service.py` that ends in `_enqueue_auth_email`. It is deliberately
-tiny: it renders one of four short messages and hands it to the transport
+tiny: it renders one of five short messages and hands it to the transport
 (`workers/transport.py`) that `notify_hot_lead` already uses. No new dependency, no second
-mail path, no template engine — a template engine for four fixed strings would be a second
+mail path, no template engine — a template engine for five fixed strings would be a second
 way to compose an email in a repo that already has one.
 
 ═══ WHY IT IS AN OUTBOX JOB AND NOT AN INLINE SEND ═══
@@ -76,6 +76,11 @@ _SUBJECTS: dict[str, str] = {
     "otp_login_challenge": "Your Calevate sign-in code",
     "otp_step_up": "Your Calevate authorization code",
     "invite_password": "You have been invited to Calevate",
+    # The operator setup link, for the FIRST administrator (`scripts/bootstrap_admin`) and
+    # for every one a superadmin adds afterwards (`authn/operators.create_operator`). One
+    # kind because it is one act — set the first password on an `admin_users` row — and
+    # `authn/service.enqueue_admin_setup_email` argues why it is not two.
+    "admin_bootstrap": "Set up your Calevate administrator account",
 }
 
 #: Where the emailed links point. The token travels in the `token` query parameter of a
@@ -133,6 +138,18 @@ def _body(kind: str, realm: str, secret: str) -> str:
             f"{base}/auth/accept-invitation?token={secret}\n\n"
             "This link works once and expires in 72 hours. If you were not expecting it, "
             "you can ignore this email — nothing happens until you open it."
+        )
+    if kind == "admin_bootstrap":
+        # `/bootstrap`, the admin console page that POSTs this token to
+        # `/v1/auth/admin/bootstrap/confirm`. Kept in step with
+        # `scripts/bootstrap_admin._link`, which composes the same URL for the deploy-time
+        # path and prints it — `tests/auth_email_delivery_test.py` compares the two,
+        # because a setup link is single-use and a wrong path burns it.
+        return (
+            "You have been given an administrator account on a Calevate deployment.\n\n"
+            f"Set your password:\n\n{base}/bootstrap?token={secret}\n\n"
+            "This link works once and expires in one hour. If it expires, ask the "
+            "administrator who added you to send another."
         )
     # OTP kinds. One code, one sentence about what it is for.
     if kind == "otp_login_challenge":

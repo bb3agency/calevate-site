@@ -55,10 +55,20 @@ memberships(id, tenant_id, user_id, role ENUM[owner,staff], UNIQUE(tenant_id,use
   -- recording audio (D-181: the audio is the source of the text that rule protects)
 invitations(id, tenant_id, email, role, token_hash UNIQUE, expires_at DEFAULT now()+'72h',
   used_at, created_by)               -- single-use; hash only; burned on accept
-admin_users(id, clerk_user_id UNIQUE, name, role ENUM[superadmin,operator])  -- separate realm
+admin_users(id, clerk_user_id UNIQUE, email, name, role ENUM[superadmin,operator],
+  deactivated_at)                                                     -- separate realm
   -- Same two-step deprecation on its clerk_user_id, and the same DROP owed. This table is
   -- an ops-managed allowlist reconciled from nothing; `scripts/bootstrap_admin.py` writes
-  -- the first row (D-171) and the console writes every later one.
+  -- the first row (D-171) and the console writes every later one
+  -- (`POST /v1/admin/operators`, `admin:operators`, superadmin only).
+  -- UNIQUE on lower(email) WHERE deactivated_at IS NULL — one LIVE operator account per
+  -- address, the same partial shape `users` carries (c7a1e93d40b8).
+  -- REVOCATION IS `deactivated_at`, NOT A DELETE (f2c74b81a9d3). Eight tables reference
+  -- this one ON DELETE RESTRICT because they record which operator approved a campaign,
+  -- verified a KYC record or installed a credential, so the DELETE the admin realm's
+  -- liveness rule once assumed raises 23503 for exactly the operators somebody would want
+  -- removed. The row is evidence; the account ends, and its password, sessions and
+  -- outstanding setup link are destroyed with it.
 ```
 
 **The four AUTHENTICATION tables are NOT above, and they are not missing either** — they

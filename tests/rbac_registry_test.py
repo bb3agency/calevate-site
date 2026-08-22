@@ -9,9 +9,14 @@ asks whether the label MEANS anything, and until this file the answer was that i
 not have to: `permission_meta("agents:reed")` beside `requires("agents:reed")` satisfied
 every one of those checks, because two copies of one typo agree with each other.
 
-Three properties are asserted here, and each closes a way the registry could pass
+Four properties are asserted here, and each closes a way the registry could pass
 vacuously:
 
+  0. AN ADMIN-CONSOLE ROUTE RESOLVES THE ADMIN REALM. `ROLE_PERMISSIONS` is one flat dict
+     over both realms, so a client `owner` holds `org:manage`, `agents:write` and
+     `kb:write` — the same strings a dozen `/v1/admin/**` routes declare. What keeps a
+     tenant out of the console is `requires(..., realm="admin")`, never the permission, and
+     a route that forgot it satisfies every other clause in this file.
   1. A DECLARED PERMISSION IS A REAL ONE — in the `Permission` Literal, and held by at
      least one role. A permission no role holds is a lock with no key: `role_has`
      answers False for every role the database allows, so the route 403s the entire
@@ -34,6 +39,12 @@ from decimal import Decimal
 from typing import Annotated
 
 import pytest
+from apps.api.admin.operator_routes import (
+    add_operator_confirmation,
+    operator_revocation_confirmation,
+    operator_role_confirmation,
+    operator_setup_link_confirmation,
+)
 from apps.api.admin.routes import spend_ceiling_confirmation
 from apps.api.billing.credit_routes import (
     credit_adjustment_confirmation,
@@ -47,6 +58,7 @@ from apps.api.compliance.national_dnd_routes import (
 from apps.api.core.auth import requires
 from apps.api.core.context import Principal
 from apps.api.core.rbac import (
+    ADMIN_REALM_PREFIXES,
     GRANTED_PERMISSIONS,
     KNOWN_PERMISSIONS,
     MUTATING_PERMISSIONS,
@@ -57,6 +69,7 @@ from apps.api.core.rbac import (
     iter_api_routes,
     permission_meta,
     role_has,
+    route_realms,
 )
 from apps.api.db.session import untenanted_session
 from apps.api.main import app
@@ -81,6 +94,15 @@ AgentReader = Annotated[Principal, Depends(requires("agents:read"))]
 # `test_every_permission_the_type_admits_is_held_by_somebody` — so the unheld case is
 # built by taking a permission away from every role instead.
 DirectoryReader = Annotated[Principal, Depends(requires("admin:tenants"))]
+#: The realm pair for the two throwaway apps below. MODULE LEVEL for the reason the two
+#: above are: FastAPI resolves a handler's annotations with `get_type_hints`, which cannot
+#: see a name bound inside a test function — so an alias declared locally resolves to
+#: nothing, the route authenticates NOBODY, and the registry fails on that instead of on
+#: the realm. That is not a hypothetical: it is how the first draft of
+#: `test_the_registry_refuses_an_admin_path_route_that_forgot_its_realm` passed its
+#: `pytest.raises` for the wrong reason.
+ClientReachableManager = Annotated[Principal, Depends(requires("org:manage"))]
+AdminOnlyManager = Annotated[Principal, Depends(requires("org:manage", realm="admin"))]
 
 #: The two realms' role names, as the database's CHECK constraints spell them. Restated
 #: here rather than imported so the test compares two independently-written statements
@@ -173,6 +195,60 @@ def test_the_new_clauses_do_not_reject_the_shape_every_real_route_uses() -> None
         return {"ok": "ok"}
 
     assert_policy_registry_complete(proper)
+
+
+def test_the_registry_refuses_an_admin_path_route_that_forgot_its_realm() -> None:
+    """The hole the permission check CANNOT see, and the reason `ADMIN_REALM_PREFIXES`
+    exists.
+
+    `ROLE_PERMISSIONS` is one flat dict over both realms, so a client `owner` holds
+    `org:manage`, `agents:write` and `kb:write` — the same strings a dozen `/v1/admin/**`
+    routes declare. `requires()` defaults to `realm="any"`, which resolves a CLIENT
+    principal when no impersonation header is present. So a console route written without
+    `realm="admin"` declares a permission, enforces that same permission, resolves an
+    identity, and is reachable by every tenant owner on the platform — green on every
+    clause the registry had before this one.
+
+    The route below is the exact shape: correct permission, correct label, missing realm.
+    """
+    forgetful = FastAPI()
+
+    @forgetful.post(
+        "/v1/admin/tenants/{tenant_id}/danger", openapi_extra=permission_meta("org:manage")
+    )
+    async def _danger(tenant_id: str, _: ClientReachableManager) -> dict[str, str]:
+        return {"tenant_id": tenant_id}
+
+    with pytest.raises(MissingPolicyError, match="must be realm='admin'"):
+        assert_policy_registry_complete(forgetful)
+
+
+def test_the_realm_check_passes_the_shape_every_real_console_route_uses() -> None:
+    """The control for the check above — and the assertion that the live app is already
+    in that shape is `test_every_admin_console_path_is_admin_realm` below, which walks
+    the route table rather than a fixture."""
+    proper = FastAPI()
+
+    @proper.post("/v1/ops/danger", openapi_extra=permission_meta("org:manage"))
+    async def _guarded(_: AdminOnlyManager) -> dict[str, str]:
+        return {"ok": "ok"}
+
+    assert_policy_registry_complete(proper)
+
+
+def test_every_admin_console_path_is_admin_realm() -> None:
+    """Stated about the app that ships, in the terms the check uses.
+
+    `assert_policy_registry_complete(app)` runs at boot and would catch this, but as one
+    offender in a list; a reviewer asking "can a client reach the console" should find the
+    question answered here.
+    """
+    offenders = [
+        f"{sorted(route.methods or [])} {route.path}: {sorted(route_realms(route))}"
+        for route in iter_api_routes(app)
+        if route.path.startswith(ADMIN_REALM_PREFIXES) and route_realms(route) != {"admin"}
+    ]
+    assert not offenders, offenders
 
 
 def test_every_permission_the_live_route_table_declares_is_real_and_reachable() -> None:
@@ -332,6 +408,11 @@ def _confirmation_vocabulary() -> dict[str, str]:
         "adjust_credits": credit_adjustment_confirmation(subject),
         "restate_topup": topup_restatement_confirmation("UTR-1", Decimal("900.00")),
         "record_preference_scrub": preference_scrub_confirmation(subject),
+        "add_operator": add_operator_confirmation("operator"),
+        "add_superadmin": add_operator_confirmation("superadmin"),
+        "set_operator_role": operator_role_confirmation(subject),
+        "revoke_operator": operator_revocation_confirmation(subject),
+        "reissue_operator_setup_link": operator_setup_link_confirmation(subject),
         "set_config": config_confirmation(key),
         "revert_config": revert_confirmation(key),
         "set_secret": secret_confirmation(key),
@@ -352,7 +433,7 @@ def test_no_two_step_up_actions_spell_themselves_the_same_way() -> None:
     confirmation captured for one action cannot be replayed against another" — is
     therefore a property of the VOCABULARY and of nothing else.
 
-    Collisions in a set of nineteen strings across six modules are not hypothetical:
+    Collisions in a set of twenty-four strings across seven modules are not hypothetical:
     every one of these is `<verb>` or `<verb>:<subject>`, the verbs are chosen by
     whoever wrote the route, and two of them are one synonym apart
     (`release_outbound` / `release_number_platform_wide`).

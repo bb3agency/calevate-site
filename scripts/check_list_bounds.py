@@ -264,6 +264,16 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="DLT templates, which only an operator can file (`POST /v1/admin/tenants/"
         "{tenant_id}/dlt-templates`) and which the regulator's own registration bounds."
     ),
+    # --- bounded by the number of PEOPLE WE EMPLOY ----------------------------------
+    "GET /v1/admin/operators": BoundedByConstruction(
+        by="one row per LIVE operator account — an allowlist only a superadmin can add "
+        "to (`POST /v1/admin/operators`, `admin:operators`), so its length is a hiring "
+        "decision and never a caller's row count. Revoked rows accumulate and are "
+        "deliberately NOT listed: they survive because eight tables reference them as "
+        "the record of who decided what, and 'who was removed and when' is the audit "
+        "log's question. A LIMIT would hide an administrator from the only screen that "
+        "lists who can administer the platform."
+    ),
     # --- bounded by the number of CLIENTS, which we provision -----------------------
     "GET /v1/admin/tenants": BoundedByConstruction(
         by="one row per signed client. Truncating the operator's directory would hide an "

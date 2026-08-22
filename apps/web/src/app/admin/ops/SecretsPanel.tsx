@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
+import { WithheldPanel, forbiddenReason, isForbidden } from "@/app/admin/withheld";
 import { lookup } from "@/lib/lookup";
 import {
   CheckCircle2,
@@ -103,6 +104,8 @@ import {
 type SecretsState =
   | { status: "loading" }
   | { status: "unreadable" }
+  /** The server ANSWERED, and the answer was "not you". See `withheld.tsx`. */
+  | { status: "forbidden"; said: string | null }
   | { status: "read"; list: SecretsList };
 
 export function secretsState(query: {
@@ -110,6 +113,16 @@ export function secretsState(query: {
   error: unknown;
   isLoading: boolean;
 }): SecretsState {
+  // BEFORE `unreadable`, because a 403 is not a failure to read — it is a read that
+  // succeeded in refusing. The two need opposite sentences: "we could not find out"
+  // invites a retry (and `ProblemNotice` offers one), while this refusal is settled and
+  // pressing the button again can only produce it a second time. The window where an
+  // operator meets this at all is narrow — `/admin/ops` withholds the panel outright once
+  // `/v1/admin/me` has answered — and it is exactly the window where the identity read is
+  // slow or dead, i.e. when the console is least able to explain itself.
+  if (isForbidden(query.error)) {
+    return { status: "forbidden", said: forbiddenReason(query.error) };
+  }
   if (query.error) return { status: "unreadable" };
   if (query.isLoading || !query.data) return { status: "loading" };
   return { status: "read", list: query.data };
@@ -122,6 +135,16 @@ export function SecretsPanel({
 }) {
   const query = useSecrets();
   const state = secretsState(query);
+
+  if (state.status === "forbidden") {
+    return (
+      <WithheldPanel
+        title="Vendor credentials"
+        reason={state.said ?? "The API refused this read: your admin account may not see installed credentials."}
+        subject="This panel would list the key names this deployment holds and the last four characters of each."
+      />
+    );
+  }
 
   return (
     <Card title="Vendor credentials">
@@ -538,6 +561,25 @@ export function KeyManagementPanel({
   /** One rewrap in flight at a time — see the submit handler for why state cannot do it. */
   const firing = useRef(false);
   const kek: KekState | null = query.error ? null : (query.data ?? null);
+
+  // `/v1/ops/secrets/kek` carries `platform:secrets` like every other route on that
+  // router, so the refusal reaches this panel through the same door as the credential
+  // list — and here the generic notice would be actively wrong, because it says the
+  // rewrap "is still offered ... it is the recovery action". Offering a recovery action
+  // to a session the API will refuse is precisely the 403-shaped control this pass
+  // removes.
+  if (isForbidden(query.error)) {
+    return (
+      <WithheldPanel
+        title="Key management"
+        reason={
+          forbiddenReason(query.error) ??
+          "The API refused this read: your admin account may not see key-management state."
+        }
+        subject="This panel would show which key-encryption key is active and how many stored versions are still wrapped under an older one."
+      />
+    );
+  }
 
   return (
     <Card title="Key management">

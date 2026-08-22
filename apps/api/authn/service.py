@@ -124,6 +124,13 @@ AUTH_EMAIL_JOB: Final = "deliver_auth_email"
 #: Invitations are always CLIENT-realm (`authn/invitations.INVITE_REALM` says why).
 INVITE_EMAIL_REALM: Final = "client"
 
+#: The same fact for the operator setup link, in the other direction: the console host
+#: `auth_email._body` renders is `admin.calevate.tech` and the page there is `/bootstrap`.
+#: An operator setup link mailed with `realm="client"` would point at the client app, which
+#: does not serve it — the failure would be a 404 in somebody's browser, an hour after the
+#: only copy of a single-use token was sent.
+ADMIN_EMAIL_REALM: Final = "admin"
+
 #: The OTP purpose that IS the second factor. Named once so `sign_in`, the resend and the
 #: verify step cannot drift onto different purposes — which would be a challenge nobody can
 #: answer, since the purpose is inside the code's hash domain.
@@ -762,6 +769,31 @@ async def enqueue_invitation_email(session: AsyncSession, *, to: str, token: str
     )
 
 
+async def enqueue_admin_setup_email(session: AsyncSession, *, to: str, token: str) -> None:
+    """Mail an operator their single-use setup link, in the transaction that minted it.
+
+    PUBLIC for the same reason `enqueue_invitation_email` is: the caller
+    (`authn/operators.py`) owns the operator account and this package owns the mailer, and
+    the alternative is a second site spelling the outbox payload by hand.
+
+    THE ADMIN REALM IS PASSED EXPLICITLY and decides where the link points —
+    `admin.calevate.tech/bootstrap`, the page that POSTs the token to
+    `/v1/auth/admin/bootstrap/confirm`. `invite_password` would render the CLIENT
+    workspace's accept-invitation URL, which the operator console does not serve.
+
+    ONE PURPOSE FOR ONE ACT. `admin_bootstrap` was minted for the first administrator and
+    now covers every operator account's FIRST password, which is the same act performed by
+    a different authority: the deploy script vouches for operator one, an existing
+    superadmin vouches for the rest. Splitting it into a second purpose would mean two
+    token lifetimes, two redemption routes and two ways to get a password onto an
+    `admin_users` row — and `confirm_bootstrap` already refuses a row that has one, which
+    is the property that keeps either flow from becoming an unaudited password reset.
+    """
+    await _enqueue_auth_email(
+        session, kind="admin_bootstrap", realm=ADMIN_EMAIL_REALM, to=to, secret=token
+    )
+
+
 async def _enqueue_auth_email(
     session: AsyncSession, *, kind: str, realm: str, to: str, secret: str
 ) -> None:
@@ -868,6 +900,7 @@ __all__ = [
     "complete_step_up",
     "confirm_otp",
     "confirm_password_reset",
+    "enqueue_admin_setup_email",
     "find_subject_for_session",
     "has_password",
     "refresh",

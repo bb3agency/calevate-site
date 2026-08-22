@@ -169,12 +169,45 @@ const page = (
   <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
 );
 
+/**
+ * The model catalogue this screen's `AgentModel` panel reads (D-454).
+ *
+ * ROUTED EVEN THOUGH THIS FILE IS NOT ABOUT THE MODEL PANEL, and the omission was not
+ * harmless. The panel fires `GET /v1/organization/llm-defaults` on every render of this
+ * screen — `agentLlmView` is non-null the moment the agent fixture carries the three llm
+ * fields, which it has since D-454 — and an unrouted request THROWS in this harness by
+ * design ("an unstubbed endpoint is a hole in the test's premise"). So every test in this
+ * file was rendering a second, spurious `role="alert"`, and the one assertion that reads a
+ * SINGLE alert ("does not report an agent as settled when the pending read failed") failed
+ * with "Found multiple elements" whenever that alert won the race.
+ *
+ * Deliberately minimal — one addressable model, no surcharge. What the panel SAYS is
+ * `clientLlmModel.test.tsx`'s subject and it carries the fixtures for it; this exists so
+ * the panel behaves the way it does in production while the rest of the screen is tested.
+ */
+const LLM_DEFAULTS = {
+  default_llm_model: null,
+  effective_default: "gpt-4o-mini",
+  available: [
+    {
+      model: "gpt-4o-mini",
+      provider: "Azure OpenAI",
+      platform_cost_inr_per_minute: "0.2400",
+      client_surcharge_inr_per_minute: "0",
+      is_platform_default: true,
+      is_available: true,
+      unavailable_reason: null,
+    },
+  ],
+};
+
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": OWNER,
     "/v1/agents/agent-1": agent(),
     "/v1/agents/agent-1/pending": settled(),
     "/v1/kb/sources": [],
+    "/v1/organization/llm-defaults": LLM_DEFAULTS,
     ...over,
   };
 }

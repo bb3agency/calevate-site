@@ -226,7 +226,7 @@ def ktok(tokens: int) -> Decimal:
 #: shape exactly, arriving on the money axis.
 #:
 #: So there is ONE statement of the vendor's dollar price
-#: (`calevate_shared.engine.AZURE_LIST_PRICE_USD_PER_MTOK`), ONE exchange rate
+#: (`LLM_MODELS[model].price`), ONE exchange rate
 #: (`rates.LIST_PRICE_USD_INR`), and ONE rupee table derived from them for every reader.
 #: D-410 added the second axis: that table is keyed by MODEL, so the accessor takes one
 #: and nothing in this module prices an assist without saying which model ran it.

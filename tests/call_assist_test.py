@@ -66,7 +66,7 @@ from apps.workers.extraction import (
     SarvamExtractor,
 )
 from apps.workers.redaction import redact
-from calevate_shared.engine import AZURE_LIST_PRICE_USD_PER_MTOK
+from calevate_shared.engine import LLM_MODELS
 from calevate_shared.extraction import ExtractionOutput, ExtractionSchemaSpec
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -562,10 +562,17 @@ async def test_a_successful_assist_is_metered_in_ktok_at_the_published_price(
     # rate, not from the rupee table this row was written out of — so an arithmetic error
     # anywhere in the chain still fails here.
     expected = exact.quantize(Decimal("0.0001"))
-    from_vendor_usd = AZURE_LIST_PRICE_USD_PER_MTOK[get_settings().azure_openai_model]
+    # THE VENDOR'S DOLLARS, now read off the model's own catalogue entry (D-456)
+    # instead of a price table beside it. The cross-check is unchanged and so is its
+    # point: this derives from further back than the rupee table the metering row was
+    # written out of, so an arithmetic error anywhere in the chain still fails here.
+    from_vendor_usd = LLM_MODELS[get_settings().azure_openai_model].price
     per_ktok = {
         leg: (usd * rates.LIST_PRICE_USD_INR / 1000).quantize(Decimal("0.0001"))
-        for leg, usd in from_vendor_usd.items()
+        for leg, usd in (
+            ("in", from_vendor_usd.input_usd_per_mtok),
+            ("out", from_vendor_usd.output_usd_per_mtok),
+        )
     }
     assert expected == (
         Decimal("1.2") * per_ktok["in"] + Decimal("0.8") * per_ktok["out"]

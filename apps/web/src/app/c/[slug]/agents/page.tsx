@@ -30,6 +30,7 @@ import {
   type Agent,
   type AgentStats,
 } from "@/lib/api/agents";
+import { agentOwnModel } from "@/lib/api/llmModels";
 import { useLanes, type Lane } from "@/lib/api/publishing";
 import type { Session } from "@/lib/api/client";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
@@ -309,6 +310,21 @@ function AgentRow({
   const direction = lookup(DIRECTION_COPY, agent.direction);
   const DirectionIcon = lookup(DIRECTION_ICONS, agent.direction) ?? Bot;
   const language = lookup(LANGUAGE_NAMES, agent.language_primary) ?? agent.language_primary;
+  /**
+   * WHICH AGENTS HAVE BEEN TAKEN OFF THE ACCOUNT DEFAULT — the one model fact a roster
+   * can answer that a detail screen cannot.
+   *
+   * `/c/[slug]/settings/models` tells an owner that "one agent can be put on a different
+   * model from the rest", and until this line nothing said WHICH. That is a money
+   * question: a per-agent override is a per-agent price (`plans.llm_model_surcharge`,
+   * D-455 — the surcharge applies to the minutes the client's own choice upgraded), and
+   * the busiest agent on the dearest model is the combination nobody sets deliberately.
+   *
+   * Only the OVERRIDE is shown. Printing the effective model on every row would put the
+   * same identifier on all of them, which is a column of noise that hides the one row that
+   * differs — the opposite of what a scan is for.
+   */
+  const ownModel = agentOwnModel(agent);
 
   return (
     <li>
@@ -336,6 +352,10 @@ function AgentRow({
                   : `Answers ${formatCount(agent.inbound_number_count)} numbers`}
               </>
             )}
+            {/* The server's own identifier, not a friendly name: it is what the settings
+                screen and the invoice line both print, and a roster that renamed it would
+                leave an owner unable to match this row to the charge. */}
+            {ownModel !== null && <> · Its own AI model: {ownModel}</>}
           </span>
           {stats && (
             <span className="block text-xs text-ink-faint">

@@ -486,7 +486,7 @@ class AzureOpenAIExtractor:
     THE MODEL AND THE DEPLOYMENT ARE TWO DIFFERENT STRINGS AND ONLY ONE GOES ON THE WIRE.
     On Azure you deploy a model under a deployment ID of your choosing and address THAT,
     so `model` in the request body is the DEPLOYMENT. `model_name` — what the eval
-    baseline keys on, what a log line reports and what `AZURE_LIST_PRICE_USD_PER_MTOK`
+    baseline keys on, what a log line reports and what `LLM_MODELS[model].price`
     prices — is the underlying model, because a deployment ID is one operator's routing
     label and says nothing about cost or quality. Reporting the deployment as the model
     would silently re-baseline the whole regression harness on a console rename.

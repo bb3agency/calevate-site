@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.core.rbac import ADMIN_ROLES as RBAC_ADMIN_ROLES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
@@ -22,7 +23,10 @@ ORG_STATUSES = ("prospect", "onboarding", "active", "suspended", "churned")
 # not retrofittable. `managed` is the client-#1 path; `self_serve` unlocks the M2 UI.
 PLAN_TIERS = ("managed", "self_serve", "trial")
 MEMBER_ROLES = ("owner", "staff")
-ADMIN_ROLES = ("superadmin", "operator")
+#: RE-EXPORTED, NOT RESTATED. `core/rbac.ROLE_PERMISSIONS` is keyed by these two names and
+#: `authn/bootstrap` validates against them; a second literal here is how a role table and
+#: the CHECK constraint built from it come to disagree about what a role is called.
+ADMIN_ROLES = RBAC_ADMIN_ROLES
 
 
 class Organization(PKMixin, TimestampMixin, Base):
@@ -168,3 +172,26 @@ class AdminUser(PKMixin, TimestampMixin, Base):
     email: Mapped[str | None] = mapped_column(Text)
     name: Mapped[str | None] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String, nullable=False, server_default="operator")
+    #: WHEN THIS OPERATOR ACCOUNT STOPPED BEING ONE. NULL = live; set = revoked, and every
+    #: identity read in the admin realm carries `AND deactivated_at IS NULL`
+    #: (`authn/subjects._ADMIN_SELECT`, `core/auth._load_admin_principal`).
+    #:
+    #: THIS COLUMN REVERSES A STATED POSITION AND THE REVERSAL IS THE POINT.
+    #: `authn/subjects.py` argued that the admin realm's liveness rule is ROW PRESENCE and
+    #: that adding a `deactivated_at` would be "a second way to express the same fact".
+    #: That argument rested on a premise the schema does not support: EIGHT tables
+    #: reference `admin_users` with `ON DELETE RESTRICT` — `first_campaign_reviews`,
+    #: `kyc_records`, `platform_secrets`, `platform_settings`, `preference_scrub_runs`,
+    #: `qa_call_samples`, `tenant_feature_flags`, `whatsapp_alert_optin_ledger` — so the
+    #: DELETE that was supposed to be the removal mechanism raises a foreign-key violation
+    #: for any operator who has ever approved a campaign, verified a KYC record, installed
+    #: a credential or reviewed a call. In other words it worked only for operators nobody
+    #: needed to remove. Those references are evidence about who decided what, and they
+    #: are the reason the row must survive its account.
+    #:
+    #: So there is still ONE way to say "this person may not sign in", and this is it; the
+    #: uniformity `subjects.py` cares about is preserved where it was actually promised —
+    #: in the RETURN TYPE, where `load_subject` answers `None` for absent, deleted and
+    #: deactivated alike and no caller can tell which. It is the same shape `users` has
+    #: carried since 769a9152cb06, which is what makes the two realms readable side by side.
+    deactivated_at: Mapped[datetime | None]

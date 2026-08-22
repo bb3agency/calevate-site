@@ -286,7 +286,12 @@ async def _upsert_admin(*, email: str, name: str, role: str) -> UUID:
     async with credential_session() as session:
         found = (
             await session.execute(
-                text("SELECT id FROM admin_users WHERE lower(email) = :e"),
+                # LIVE rows only, matching `authn/bootstrap` and the partial unique index
+                # (migration f2c74b81a9d3): a revoked local operator keeps its row, and
+                # reusing one would hand a developer an account every liveness read refuses.
+                text(
+                    "SELECT id FROM admin_users WHERE lower(email) = :e AND deactivated_at IS NULL"
+                ),
                 {"e": email.casefold()},
             )
         ).first()

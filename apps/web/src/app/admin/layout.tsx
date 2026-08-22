@@ -7,6 +7,7 @@ import {
   Building2,
   ClipboardCheck,
   Coins,
+  Gauge,
   HeartPulse,
   Hourglass,
   Lock,
@@ -15,6 +16,7 @@ import {
   PanelLeftOpen,
   PhoneOff,
   ShieldCheck,
+  ShieldUser,
   SlidersHorizontal,
   UserPlus,
   X,
@@ -187,6 +189,34 @@ const NAV: NavGroup[] = [
         icon: PhoneOff,
         permission: "ops:manage",
         action: "change the platform-wide do-not-call list",
+      },
+      {
+        // Same argument as the row above, and the two documents that need it say so in
+        // their own words: `runbooks/alarm-index.md`'s `engine_llm_ttft_degraded` entry
+        // opens "Read GET /v1/ops/engine-latency first", and OPERATIONS §2 gate 4 sends an
+        // operator to the same read to find out what D-449 actually bought. Both pointed
+        // at a curl until this screen existed. Somebody paging on a slow call is not going
+        // to scroll the platform switches to find it.
+        href: "/admin/ops/engine-latency",
+        label: "Engine latency",
+        icon: Gauge,
+        permission: "ops:manage",
+        action: "read the engine's latency report",
+      },
+      {
+        // LAST IN THE PLATFORM GROUP, and it is the only entry in either shell that is
+        // superadmin-only for a reason other than blast radius: `admin:operators` is the
+        // permission that edits the role table, so a normal admin who could reach it
+        // could grant themselves the other three in one request (`core/rbac.py`). The
+        // entry is still SHOWN and dead rather than hidden — this shell's standing
+        // doctrine, argued at `renderItem` — because "open Admin accounts and add her"
+        // is a sentence one operator says to another, and an entry that is simply absent
+        // reads as a broken build.
+        href: "/admin/operators",
+        label: "Admin accounts",
+        icon: ShieldUser,
+        permission: "admin:operators",
+        action: "manage who may use this console",
       },
     ],
   },

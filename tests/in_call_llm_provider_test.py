@@ -291,7 +291,7 @@ def test_the_wire_carries_the_deployment_and_never_the_model_name() -> None:
     On Azure a model is deployed under an ID the operator chose and the API addresses
     THAT, so the vendor's single model slot must hold `Settings.azure_openai_deployment`.
     `Settings.azure_openai_model` records which model that deployment was made FROM: it
-    is what `AZURE_LIST_PRICE_USD_PER_MTOK` prices and it must never reach the vendor,
+    is what `LLM_MODELS[model].price` prices and it must never reach the vendor,
     because a deployment is not obliged to be named after its model and a request naming
     the model 404s.
 

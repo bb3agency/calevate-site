@@ -58,10 +58,26 @@ from apps.api.billing.rates import (
 )
 from apps.api.core.settings import get_settings
 from calevate_shared.engine import (
-    AZURE_LIST_PRICE_USD_PER_MTOK,
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_OPENAI_MODELS,
+    LLM_MODELS,
 )
+
+
+def list_price_usd_per_mtok(model: str) -> dict[str, Decimal]:
+    """The vendor's dollars for `model`, in the `{"in", "out"}` shape this file's
+    arithmetic is written over.
+
+    D-456 DELETED THE TABLE THIS USED TO IMPORT (`AZURE_LIST_PRICE_USD_PER_MTOK`): a
+    price is now a field on the model's own `LlmModelSpec`, so there is no second
+    mapping to fall out of step with the catalogue. Read here rather than retyped,
+    because a literal in a test is exactly the copy this file exists to refuse — and
+    kept as a helper rather than inlined so the three call sites below still say the
+    same thing they said when the table was a module constant.
+    """
+    price = LLM_MODELS[model].price
+    return {"in": price.input_usd_per_mtok, "out": price.output_usd_per_mtok}
+
 
 #: The published curve, ₹/min at 1, 5 and 10 minutes, per model — the six figures TRD
 #: §10.1 quotes and `scripts/check_docs_drift.py` scores the doc against.
@@ -101,7 +117,13 @@ def test_every_model_an_operator_can_select_has_a_published_price() -> None:
     rots unread until it is quoted somewhere by mistake.
     """
     assert PRICED_LLM_MODELS == AZURE_OPENAI_MODELS
-    assert set(AZURE_LIST_PRICE_USD_PER_MTOK) == AZURE_OPENAI_MODELS
+    # STATED OVER THE CATALOGUE'S OWN AZURE LEG (D-456) rather than over a price table
+    # beside it. Same failure caught, one fewer thing to keep in step: a model whose
+    # `provider` said `azure_openai` but which the Literal never listed would be
+    # priced, dated and addressable by nothing.
+    assert {
+        name for name, spec in LLM_MODELS.items() if spec.provider == "azure_openai"
+    } == AZURE_OPENAI_MODELS
     assert AZURE_OPENAI_DEFAULT_MODEL in PRICED_LLM_MODELS
     assert set(PUBLISHED_CURVE) == AZURE_OPENAI_MODELS, (
         "a model was added or removed and this file's published curve was not updated"
@@ -117,7 +139,8 @@ def test_the_rupee_table_derives_from_the_one_published_dollar_price() -> None:
     publishes dollars, and a constant that has already multiplied cannot be corrected when
     either half moves.
     """
-    for model, usd in AZURE_LIST_PRICE_USD_PER_MTOK.items():
+    for model in AZURE_OPENAI_MODELS:
+        usd = list_price_usd_per_mtok(model)
         inr = llm_inr_per_ktok(model)
         assert set(inr) == {"in", "out"}, model
         for leg, usd_per_mtok in usd.items():
@@ -321,7 +344,7 @@ def test_no_figure_in_the_chain_is_ever_a_float() -> None:
     `float` compare equal often enough to pass everything above."""
     values: list[object] = []
     for model in AZURE_OPENAI_MODELS:
-        values.extend(AZURE_LIST_PRICE_USD_PER_MTOK[model].values())
+        values.extend(list_price_usd_per_mtok(model).values())
         values.extend(llm_inr_per_ktok(model).values())
         values.extend(llm_cost_inr_per_minute(n, model=model) for n in (1, 5, 10))
         values.append(reference_assist_cost_inr(model))

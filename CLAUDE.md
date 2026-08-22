@@ -13,14 +13,27 @@ voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Sa
 Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in East US 2**
 — `AZURE_LOCATION` (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with
 `gpt-4.1-mini` a live config switch. **D-410 supersedes D-400/D-404 on the in-call leg and
-D-127 on the dashboard leg; Gemini and Vertex are OUT of this product. D-449 (22 Aug 2026)
-MOVED THE REGION OFF INDIA** — declared posture `us-azure-openai` — because the engine's
+D-127 on the dashboard leg; Vertex is OUT of this product and Gemini is DECLARED BUT
+OFFERED TO NOBODY (D-456, below). D-449 (22 Aug 2026)
+MOVED THE REGION OFF INDIA** — because the engine's
 orchestrator is US-hosted (`bolna-findings/mirror/pages/concepts/security.md:29`, AWS
 us-east-1), so every in-call turn was an ocean round trip inside an unmeasured 350ms TTFT
 budget, and because Microsoft's Standard (regional) matrix does not offer our default model
 in `southindia`. **The default model is UNCHANGED and TRD §10 is UNREPRICED** — that
 contradiction was `southindia`-only. **The client-facing India warranty is WITHDRAWN, not
-narrowed.** Read the three LLM surfaces separately — two moved, one deliberately did not:
+narrowed.** **D-456 (22 Aug 2026) THEN RENAMED THE POSTURE TO `multi-provider-byok`** and
+made it THREE declared legs — `azure_openai`, `openai`, `google` — of which **only Azure's
+two models are selectable**. It is not a region change and it moves no traffic: `eastus2`,
+the default model, the rate card and TRD §10 are all untouched, and
+`SELECTABLE_LLM_MODELS == AZURE_OPENAI_MODELS` today. The name lost its `us-` prefix
+because Google's Developer API has NO region to request (its SDK raises before a packet
+leaves the machine), so a posture promising one region would be a claim one of its own
+declared legs cannot keep. OpenAI direct is withheld because **no price here was read from
+the vendor** — `LlmModelSpec` raises at import on a selectable model with unverified price
+evidence, so hard rule 7 is enforced by the type rather than remembered; Gemini is withheld
+on merit (thinking tokens share the reply budget and can return NO content — silence on a
+phone call — and the only two models the engine mitigates are the two Google retires
+16 Oct 2026). Read the three LLM surfaces separately — two moved, one deliberately did not:
 
 1. **In-call** (inside the engine, BYOK) — the engine calls our Azure deployment on
    `azure_openai_base_url(resource)`, which emits

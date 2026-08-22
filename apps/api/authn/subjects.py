@@ -96,13 +96,28 @@ _CLIENT_SELECT = (
     "SELECT id, email, email_verified_at FROM users WHERE {predicate} AND deactivated_at IS NULL"
 )
 
-#: The admin realm's liveness rule is ROW PRESENCE, and that is not an oversight.
-#: `admin_users` is an ops-managed allowlist rather than a mirror — the retired Clerk
-#: mirror was explicit that auto-creating one would be "privilege escalation wearing a race
-#: condition's clothes" — so an operator is removed by deleting the row. There is no
-#: `deactivated_at` to check and adding one would create a second way to express the same
-#: fact — the exact drift CLAUDE.md's "one way per problem" forbids.
-_ADMIN_SELECT = "SELECT id, email, NULL AS email_verified_at FROM admin_users WHERE {predicate}"
+#: The admin realm's liveness rule, WHICH IS NO LONGER ROW PRESENCE (migration
+#: f2c74b81a9d3). This constant used to say the opposite and to argue it: `admin_users` is
+#: an ops-managed allowlist, so "an operator is removed by deleting the row", and adding a
+#: `deactivated_at` would be "a second way to express the same fact".
+#:
+#: The premise was false against the schema. EIGHT tables reference `admin_users` with
+#: `ON DELETE RESTRICT` — first_campaign_reviews, kyc_records, platform_secrets,
+#: platform_settings, preference_scrub_runs, qa_call_samples, tenant_feature_flags,
+#: whatsapp_alert_optin_ledger — each recording WHICH OPERATOR decided something. So the
+#: DELETE raises 23503 for every operator who has ever done the job, and worked only for
+#: the ones nobody needed to remove. There was, in practice, no revocation at all; the
+#: migration's docstring carries the full argument.
+#:
+#: What "one way per problem" actually protects is preserved and is preserved where it was
+#: promised: in the RETURN TYPE. `load_subject` answers `None` for absent, hard-deleted and
+#: revoked alike, no exception carries the reason, and no caller can tell which — which is
+#: this module's whole subject. The predicate below is now the same shape `_CLIENT_SELECT`
+#: has always had, so the two realms read alike instead of needing this paragraph.
+_ADMIN_SELECT = (
+    "SELECT id, email, NULL AS email_verified_at FROM admin_users "
+    "WHERE {predicate} AND deactivated_at IS NULL"
+)
 
 
 def _statement(realm: str, predicate: str) -> str:

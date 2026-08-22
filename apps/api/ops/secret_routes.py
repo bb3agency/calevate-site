@@ -16,6 +16,37 @@ accepts this trade rather than discovering it: it can BREAK the platform, and it
 our engine at an attacker's own vendor account. It cannot read what is already installed.
 Detection, not prevention, is the answer — every write lands a `platform.secret_set` row
 in the hash-chained ledger and fires an alert.
+
+═══ CAN A NORMAL ADMIN SEE ANY OF THIS? NO — NOT EVEN THE MASKED LIST ═══
+
+The question the two-tier admin realm makes concrete, answered here because this is the
+surface it is asked about. `platform:secrets` is held by `superadmin` and by nothing else,
+and that covers the READ as much as the write:
+
+* **Write** is settled by §10 and is not a lane's call to reopen. The whole risk
+  acceptance — "one compromised admin session is enough to steal every vendor credential,
+  and that is acceptable" — rests on the sentence "held by fewer people than
+  `admin:tenants`". Granting it to every operator does not narrow that trade, it deletes
+  the only mitigation it names. Reversing it is a decision-log entry.
+* **Read** is the interesting half, because `GET /v1/ops/secrets` returns no plaintext at
+  all and looks harmless. It is not: it is an INVENTORY — which vendors we are wired to,
+  which credentials are missing, which are shadowed by the environment, which KEK
+  generation wraps them and when each was last rotated. That is a targeting document for
+  anybody deciding where to push, and it is the same argument D-128 already accepted one
+  layer down, where `/healthz/ready`'s `fields[]` was put behind `ops:manage` precisely
+  because naming the credentials a deployment has not installed is an oracle.
+* **What it costs a normal admin: nothing.** They cannot install, rotate or test a
+  credential, so the list answers no question they can act on. A masked row would tell
+  them only that somebody else should be called — which is what the 403's remediation
+  says already, without the inventory.
+
+THE FOUNDER'S SENTENCE FOR THIS SURFACE IS AMBIGUOUS AND IS FLAGGED RATHER THAN
+INTERPRETED: "I can add more admins who are NOT super admins and do have access to some
+things like the ops config panel where I put in all the API keys". Read one way that
+grants every operator this panel. PLATFORM-CONFIG §10 is authoritative and says the
+opposite, CLAUDE.md says the docs win, so the narrow reading ships and the widening is one
+line in `ROLE_PERMISSIONS["operator"]` if it is ever decided — with the consequence
+recorded there rather than rediscovered here.
 """
 
 from __future__ import annotations

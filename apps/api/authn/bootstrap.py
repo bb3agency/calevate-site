@@ -39,7 +39,7 @@ Running this twice must not mint a second god-account. Three states, three answe
      the mail bounced, and the deploy is still not finished. It is the reference's
      reactivation case, and it is idempotent in the way that matters — the row count does
      not change.
-  3. **Any operator anywhere already has a password** → **REFUSE.** The deployment is
+  3. **Any LIVE operator anywhere already has a password** → **REFUSE.** The deployment is
      bootstrapped; adding a second operator is an ordinary, audited act that belongs to the
      ops console where one existing operator vouches for the next.
 
@@ -61,6 +61,18 @@ the smallest correct thing is to write the row from there.
 The REDEMPTION half is a route (`POST /v1/auth/admin/bootstrap/confirm`), and that is not
 the same hazard: it is reachable only by presenting a 256-bit single-use token that was
 mailed to an address a deploying operator named.
+
+═══ AND EVERY OPERATOR AFTER THE FIRST ═══
+
+`authn/operators.py` — a superadmin adds them from the console, and the refusal in state 3
+above points there in as many words ("Add further operators from the admin console, where
+an existing operator vouches for the new one"). It mints the SAME `admin_bootstrap` token
+and it is redeemed on the SAME route, because it is the same act — the first password on an
+`admin_users` row — performed under a different authority: this script is vouched for by
+whoever holds the database credentials, that surface by a live superadmin. Two token
+purposes would have meant two lifetimes, two redemption routes and two ways for a password
+to arrive on an operator account, and `confirm_bootstrap`'s refusal of a row that already
+has one is what keeps EITHER flow from becoming an unaudited password reset.
 """
 
 from __future__ import annotations
@@ -78,6 +90,7 @@ from apps.api.authn.sessions import revoke_subject_sessions
 from apps.api.compliance.audit import write_audit
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
+from apps.api.core.rbac import ADMIN_ROLES as RBAC_ADMIN_ROLES
 from apps.api.db.base import uuid7
 from apps.api.db.session import credential_session, untenanted_session
 
@@ -87,8 +100,12 @@ log = get_logger(__name__)
 #: realm vocabulary breaks here loudly rather than leaving a string that matches nothing.
 ADMIN_REALM = AUTHN_REALMS[0]
 
-#: The two roles `ck_admin_users_role_enum` admits.
-ADMIN_ROLES = ("superadmin", "operator")
+#: The two roles `ck_admin_users_role_enum` admits. RE-EXPORTED FROM `core/rbac`, which is
+#: where the role table lives, rather than restated: `scripts/bootstrap_admin` validates
+#: `--role` against this name and the CHECK constraint is rendered from the same tuple, so
+#: a second literal here is how a role that Postgres refuses becomes a role this module
+#: accepts.
+ADMIN_ROLES = RBAC_ADMIN_ROLES
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,8 +176,17 @@ async def bootstrap_first_admin(
         bootstrapped = (
             await session.execute(
                 text(
+                    # A LIVE operator with a password. Revocation deletes the credential
+                    # (`operators.revoke_operator`), so the two predicates agree in the
+                    # ordinary case — and where they do not, this is the one that means
+                    # what state 3 says: a deployment nobody can get into is not
+                    # bootstrapped, whatever rows it still holds as evidence. It is also
+                    # what makes the honest escape hatch this module's docstring names —
+                    # "we lost every operator" — end in a re-runnable bootstrap rather
+                    # than a permanent refusal.
                     "SELECT 1 FROM auth_credentials WHERE realm = :realm "
-                    "AND subject_id IN (SELECT id FROM admin_users) LIMIT 1"
+                    "AND subject_id IN (SELECT id FROM admin_users WHERE deactivated_at IS NULL) "
+                    "LIMIT 1"
                 ),
                 {"realm": ADMIN_REALM},
             )
@@ -170,8 +196,17 @@ async def bootstrap_first_admin(
             raise _already_bootstrapped()
 
         existing = (
+            # LIVE rows only (migration f2c74b81a9d3). A revoked operator keeps their row —
+            # eight `ON DELETE RESTRICT` references make it evidence rather than an
+            # account — and re-issuing a setup link for one would install a password on an
+            # identity every liveness read refuses, which is a bootstrap that appears to
+            # succeed and produces nobody who can sign in. The unique index is partial on
+            # the same predicate, so the INSERT below is free to mint a fresh row for the
+            # same address.
             await session.execute(
-                text("SELECT id FROM admin_users WHERE lower(email) = :e"),
+                text(
+                    "SELECT id FROM admin_users WHERE lower(email) = :e AND deactivated_at IS NULL"
+                ),
                 {"e": address.casefold()},
             )
         ).first()
@@ -278,7 +313,14 @@ async def confirm_bootstrap(
     async with untenanted_session() as session:
         row = (
             await session.execute(
-                text("SELECT 1 FROM admin_users WHERE id = :id"), {"id": admin_id}
+                # LIVE only: a link that outlived its account must be refused, and after
+                # migration f2c74b81a9d3 "gone" includes "revoked". Belt and braces —
+                # `revoke_operator` burns every outstanding `admin_bootstrap` token in the
+                # same transaction, so a live token for a revoked operator should not
+                # exist — but this is the statement that decides whether a password is
+                # installed, and it should not depend on another function's completeness.
+                text("SELECT 1 FROM admin_users WHERE id = :id AND deactivated_at IS NULL"),
+                {"id": admin_id},
             )
         ).first()
     if row is None:
@@ -317,15 +359,25 @@ async def confirm_bootstrap(
 def _bad_bootstrap_token() -> ProblemError:
     """One refusal for unknown, expired, spent, wrong-realm, orphaned, and
     already-has-a-password. Distinguishing them would tell somebody holding a link they
-    should not have whether a deployment is mid-bootstrap."""
+    should not have whether a deployment is mid-bootstrap.
+
+    THE REMEDIATION NAMES BOTH ISSUERS, because this route now redeems both. It used to
+    say only "ask whoever deployed this environment to run the bootstrap again", which was
+    the whole truth while `bootstrap_first_admin` was the only minter; every operator a
+    superadmin adds from the console (`authn/operators.create_operator`) redeems the same
+    purpose here, and sending them to the deploy engineer would be sending them to
+    somebody who cannot help — the console's resend is one click for the person who added
+    them.
+    """
     return ProblemError(
         kind="business_rule",
         code="invalid_bootstrap_token",
         title="That setup link is no longer usable",
         detail="This link has already been used or has expired.",
         remediation=(
-            "Ask whoever deployed this environment to run the administrator bootstrap "
-            "again — it issues a fresh link."
+            "Ask the administrator who added you to send another from the operator "
+            "console — or, if this is a new deployment, ask whoever deployed it to run "
+            "the administrator bootstrap again."
         ),
     )
 

@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 #: single-use link. Derived from `_SUBJECTS` below rather than retyped, so a new kind
 #: fails this file instead of being silently unprinted by the supervisor.
 _OTP_KINDS = {"otp_login_challenge", "otp_step_up", "otp_email_verify"}
-_LINK_KINDS = {"password_reset", "invite_password"}
+_LINK_KINDS = {"password_reset", "invite_password", "admin_bootstrap"}
 
 
 def _make_dev_recipe() -> str:
@@ -98,8 +98,11 @@ def test_the_single_use_link_is_found_too(kind: str) -> None:
 def test_every_kind_that_carries_a_secret_is_one_of_the_two_shapes() -> None:
     """The set this script knows how to read, pinned to the set that exists.
 
-    A sixth kind added to `_SUBJECTS` lands here rather than being delivered to a terminal
-    that prints nothing for it.
+    A NEW kind added to `_SUBJECTS` lands here rather than being delivered to a terminal
+    that prints nothing for it — which is exactly what `admin_bootstrap` did when the
+    console gained `POST /v1/admin/operators`: a single-use operator setup link that
+    `make dev-otp` would have swallowed, on the one flow where the link IS the only copy
+    of the secret.
     """
     assert set(_SUBJECTS) == _OTP_KINDS | _LINK_KINDS
 

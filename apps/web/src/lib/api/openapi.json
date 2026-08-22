@@ -9440,6 +9440,163 @@
         "title": "NumberPurchaseIn",
         "type": "object"
       },
+      "OperatorCreateIn": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 120,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "role": {
+            "default": "operator",
+            "enum": [
+              "superadmin",
+              "operator"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "email"
+        ],
+        "title": "OperatorCreateIn",
+        "type": "object"
+      },
+      "OperatorOut": {
+        "additionalProperties": false,
+        "description": "One operator account. No credential, no token, no setup link \u2014 see below.",
+        "properties": {
+          "activated": {
+            "title": "Activated",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "role",
+          "created_at",
+          "activated"
+        ],
+        "title": "OperatorOut",
+        "type": "object"
+      },
+      "OperatorReasonIn": {
+        "additionalProperties": false,
+        "description": "The stated reason every mutation here carries.\n\nA NAMED, PUBLIC model rather than a private base, because two routes take it as their\nwhole body \u2014 a leading underscore would put `_Reasoned` in the OpenAPI schema and in\nthe generated TypeScript client.\n\nREQUIRED WITH CONTENT, and the bounds are copied from `ConfigSetIn` rather than\nre-argued: whoever reads this ledger row later has to be able to decide whether the\ndecision still holds, and \"\" tells them nothing. One base class so four routes cannot\ndisagree about what a reason is.",
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "OperatorReasonIn",
+        "type": "object"
+      },
+      "OperatorRoleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "superadmin",
+              "operator"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "role"
+        ],
+        "title": "OperatorRoleIn",
+        "type": "object"
+      },
+      "OperatorsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "operators": {
+            "items": {
+              "$ref": "#/components/schemas/OperatorOut"
+            },
+            "title": "Operators",
+            "type": "array"
+          }
+        },
+        "required": [
+          "operators"
+        ],
+        "title": "OperatorsOut",
+        "type": "object"
+      },
       "OrganizationOut": {
         "additionalProperties": false,
         "properties": {
@@ -14748,6 +14905,10 @@
             "title": "Month",
             "type": "string"
           },
+          "month_charges_inr": {
+            "title": "Month Charges Inr",
+            "type": "string"
+          },
           "monthly_fee_inr": {
             "anyOf": [
               {
@@ -14815,6 +14976,7 @@
           "llm_surcharge_inr",
           "llm_surcharge_models",
           "monthly_fee_inr",
+          "month_charges_inr",
           "cap_minutes",
           "minutes_left",
           "capped",
@@ -15924,6 +16086,297 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/operators": {
+      "get": {
+        "description": "The operator allowlist: who may sign in to the admin console, which tier they are in, and whether they have finished setting a password. Revoked accounts are not listed \u2014 their rows survive only as the record of what they decided, and 'who was removed and when' is a question for the audit log.",
+        "operationId": "read_operators_v1_admin_operators_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every live operator account and its tier",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:operators"
+      },
+      "post": {
+        "description": "Creates the account and mails a single-use link the person uses to set their own password; no password is chosen, generated or returned here. Requires `X-Confirm-Action: add_operator:<role>`. The address must not already belong to a live operator account.",
+        "operationId": "add_operator_v1_admin_operators_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorCreateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add an operator account and mail its setup link (step-up confirmed, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:operators"
+      }
+    },
+    "/v1/admin/operators/{operator_id}": {
+      "patch": {
+        "description": "Moves one account between the two tiers and ends its live sessions. Requires `X-Confirm-Action: set_operator_role:<operator_id>`. An operator may not change their own role \u2014 every change to the allowlist names two people. A request that sets the role it already has is a no-op: no ledger row, no sign-out.",
+        "operationId": "change_operator_role_v1_admin_operators__operator_id__patch",
+        "parameters": [
+          {
+            "description": "The operator account's `admin_users.id`.",
+            "in": "path",
+            "name": "operator_id",
+            "required": true,
+            "schema": {
+              "description": "The operator account's `admin_users.id`.",
+              "format": "uuid",
+              "title": "Operator Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorRoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Promote or demote an operator (step-up confirmed, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:operators"
+      }
+    },
+    "/v1/admin/operators/{operator_id}/revocation": {
+      "post": {
+        "description": "Deactivates the account and destroys its password, its live sessions and any outstanding setup link. The row itself is kept: eight tables record which operator approved a campaign or installed a credential, and an erased decider turns those into anonymous decisions. Requires `X-Confirm-Action: revoke_operator:<operator_id>`. An operator may not revoke their own account.",
+        "operationId": "revoke_operator_route_v1_admin_operators__operator_id__revocation_post",
+        "parameters": [
+          {
+            "description": "The operator account's `admin_users.id`.",
+            "in": "path",
+            "name": "operator_id",
+            "required": true,
+            "schema": {
+              "description": "The operator account's `admin_users.id`.",
+              "format": "uuid",
+              "title": "Operator Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorReasonIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "End an operator's access (step-up confirmed, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:operators"
+      }
+    },
+    "/v1/admin/operators/{operator_id}/setup-link": {
+      "post": {
+        "description": "Mails a fresh single-use link to an account that has not set a password yet, and invalidates the previous one. Refused for an account that is already activated \u2014 this is not a password reset, and cannot be used as one: somebody who has forgotten their password uses the sign-in page, which mails the link to them. Requires `X-Confirm-Action: reissue_operator_setup_link:<operator_id>`.",
+        "operationId": "resend_operator_setup_link_v1_admin_operators__operator_id__setup_link_post",
+        "parameters": [
+          {
+            "description": "The operator account's `admin_users.id`.",
+            "in": "path",
+            "name": "operator_id",
+            "required": true,
+            "schema": {
+              "description": "The operator account's `admin_users.id`.",
+              "format": "uuid",
+              "title": "Operator Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorReasonIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-send an operator's setup link (step-up confirmed, audited)",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:operators"
       }
     },
     "/v1/admin/organizations/{org_id}/llm-defaults": {
