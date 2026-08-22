@@ -199,10 +199,20 @@ async def open_tasks_for_request(
     if request_kind not in ("subject", "tenant"):
         raise ValueError(f"unknown request_kind {request_kind!r}")
 
+    # VALIDATED AS A SET, BEFORE THE LOOP, and that ordering is the whole point. This
+    # check used to sit inside the loop, which meant a tuple like ("voice_engine",
+    # "azure") opened the first task and THEN raised — some obligations filed, one lost,
+    # and a caller holding an exception that does not say which. The docstring above is
+    # right that our own callers run this inside the erasure's transaction, so a rollback
+    # would undo the partial write; that is a promise about every caller forever, and it
+    # is cheaper to make the function incapable of a partial application than to keep
+    # requiring it. Sorted so the message is stable for a caller that passed a set.
+    unknown = sorted(set(processors) - set(PROCESSORS))
+    if unknown:
+        raise ValueError(f"unknown processor {unknown[0]!r}")
+
     opened = 0
     for processor in processors:
-        if processor not in PROCESSORS:
-            raise ValueError(f"unknown processor {processor!r}")
         result = await session.execute(
             text(
                 "INSERT INTO processor_erasure_tasks "

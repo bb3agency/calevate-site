@@ -503,3 +503,128 @@ async def test_an_unanswered_vendor_obligation_pages_with_its_own_alarm(
     assert "runbooks/processor-erasure.md" in detail
     # And it must NOT masquerade as a stuck job.
     assert not [c for c in calls if c[1] == "erasure_requests_overdue"]
+
+
+# --- the three argument guards, which are the API's edge and not decoration -----------
+#
+# WHY THESE ARE TESTED RATHER THAN DELETED OR WAIVED. All three are `raise ValueError`
+# arms on a hard-rule-5 surface, and the coverage ratchet found them unexercised. The
+# ratchet's own guidance is to ask first whether a defensive branch should exist at all —
+# an unreachable arm usually means the data was already validated upstream. These are
+# reachable: `request_kind` and `processor` are strings a caller chooses, `outcome` is a
+# string an OPERATOR chooses through the ops route, and each names a column value that a
+# compliance officer later reads back as fact. A typo that reached the INSERT would write
+# an obligation nobody queries for, which is the failure mode this whole module exists to
+# make impossible.
+#
+# Each also asserts that NOTHING WAS WRITTEN, which is the half a bare `pytest.raises`
+# would miss: the guard's value is not that it raises, it is that it raises BEFORE the
+# statement that would have persisted the bad value.
+
+
+async def _task_count(tenant_id: UUID) -> int:
+    async with tenant_session(tenant_id) as session:
+        result = await session.execute(
+            text("SELECT count(*) FROM processor_erasure_tasks WHERE tenant_id = :t"),
+            {"t": tenant_id},
+        )
+        return int(result.scalar_one())
+
+
+@asyncio_test
+async def test_an_unknown_request_kind_is_refused_before_anything_is_written() -> None:
+    """`request_kind` is written to a column a certificate is later derived from.
+
+    Only "subject" and "tenant" mean anything downstream — `overdue_tasks` and the
+    runbook both branch on them — so a third value would open an obligation that no
+    report counts and no operator is paged about.
+    """
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ValueError, match="unknown request_kind 'organisation'"):
+            await open_tasks_for_request(
+                session,
+                tenant_id=tenant_id,
+                request_ref=uuid.uuid4(),
+                request_kind="organisation",
+                subject_ref="abc123",
+                vendor_refs=[_REAL_EXECUTION_ID],
+            )
+    assert await _task_count(tenant_id) == 0
+
+
+@asyncio_test
+async def test_an_unknown_processor_is_refused_before_anything_is_written() -> None:
+    """`PROCESSORS` is role-keyed — "voice_engine", "speech", "llm" — never vendor-named.
+
+    That is what lets a vendor swap on any leg happen without a migration, and it is also
+    why a typo here is dangerous rather than merely wrong: a task filed against a
+    processor no report enumerates is an erasure obligation that silently never comes due.
+    """
+    tenant_id = await _tenant()
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(ValueError, match="unknown processor 'azure'"):
+            await open_tasks_for_request(
+                session,
+                tenant_id=tenant_id,
+                request_ref=uuid.uuid4(),
+                request_kind="subject",
+                subject_ref="abc123",
+                vendor_refs=[_REAL_EXECUTION_ID],
+                processors=("voice_engine", "azure"),
+            )
+    # NOT merely "it raised": the good processor is named FIRST in the tuple, so this
+    # asserts the call is refused WHOLE rather than half-applied. It failed when written,
+    # because the check used to sit inside the loop and `voice_engine` was already
+    # inserted by the time `azure` was reached — a partial open is the worst outcome
+    # available here, some obligations filed and one lost, behind an exception that does
+    # not say which. The fix hoisted the validation above the loop; this line is what
+    # keeps it there.
+    assert await _task_count(tenant_id) == 0
+
+
+@asyncio_test
+async def test_an_outcome_that_is_neither_confirmed_nor_refused_is_rejected() -> None:
+    """The outcome vocabulary is closed because "refused" must stay legible.
+
+    `record_answer`'s docstring makes the point that a vendor refusal is the most
+    important thing anyone learns on this axis. A free-text third outcome — "partial",
+    "pending", "n/a" — is how that distinction gets lost, so the function refuses one
+    rather than storing it.
+    """
+    tenant_id = await _tenant()
+    request_ref = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await open_tasks_for_request(
+            session,
+            tenant_id=tenant_id,
+            request_ref=request_ref,
+            request_kind="subject",
+            subject_ref="abc123",
+            vendor_refs=[_REAL_EXECUTION_ID],
+            processors=("voice_engine",),
+        )
+        task_id = (
+            await session.execute(
+                text(
+                    "SELECT id FROM processor_erasure_tasks "
+                    "WHERE request_ref = :r AND processor = 'voice_engine'"
+                ),
+                {"r": str(request_ref)},
+            )
+        ).scalar_one()
+        await record_request_sent(session, task_id=task_id, vendor_reference="TICKET-1")
+
+        with pytest.raises(ValueError, match="outcome must be confirmed or refused"):
+            await record_answer(session, task_id=task_id, outcome="partial", note=None)
+
+        # The task is untouched: still awaiting an answer, so it still shows up as
+        # overdue and still pages. A guard that raised AFTER the UPDATE would have
+        # settled the obligation on its way out.
+        status = (
+            await session.execute(
+                text("SELECT status FROM processor_erasure_tasks WHERE id = :t"),
+                {"t": str(task_id)},
+            )
+        ).scalar_one()
+        assert status == "requested"
