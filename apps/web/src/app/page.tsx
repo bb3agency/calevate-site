@@ -28,6 +28,13 @@ import {
 } from "lucide-react";
 
 import { CallDemo } from "@/components/marketing/callDemo";
+import {
+  IsoCallStack,
+  IsoHandset,
+  IsoKnowledge,
+  IsoPipeline,
+  IsoShield,
+} from "@/components/marketing/isometric";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { Faq } from "@/components/marketing/faq";
 import { HeroStagger, Reveal, SmoothScroll } from "@/components/marketing/motion";
@@ -334,7 +341,16 @@ export default function Home() {
               <div className="mk-blob mk-blob--b mk-float--slow absolute -top-16 right-[-6rem] h-96 w-96" />
             </div>
 
-            <div className={`${SHELL} pt-16 pb-10 sm:pt-24`}>
+            <div className={`${SHELL} relative pt-16 pb-10 sm:pt-24`}>
+              {/* Decorative isometric accent in the headline's right margin. Only from `xl`,
+                  where the `max-w-4xl` headline leaves clear space; below that it is absent
+                  so it can never crowd the copy or push the hero wider. */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute top-40 right-0 hidden w-56 xl:block"
+              >
+                <IsoHandset className="h-auto w-full" />
+              </div>
               <HeroStagger>
                 <p
                   data-hero-item
@@ -413,12 +429,17 @@ export default function Home() {
           {/* --- How it works ------------------------------------------------------ */}
           <section id="how" className="scroll-mt-20 border-t border-line bg-surface/40">
             <div className={`${SHELL} py-20 sm:py-24`}>
-              <Reveal>
-                <Eyebrow index="01">How it works</Eyebrow>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
-                  Three things happen, and you only set up the first one
-                </h2>
-              </Reveal>
+              <div className="flex items-center justify-between gap-6">
+                <Reveal className="min-w-0 flex-1">
+                  <Eyebrow index="01">How it works</Eyebrow>
+                  <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                    Three things happen, and you only set up the first one
+                  </h2>
+                </Reveal>
+                {/* Call → record, as a lifting card. Decorative; hidden below `sm` so a
+                    portrait phone keeps the full width the heading needs. */}
+                <IsoCallStack className="hidden w-36 shrink-0 sm:block lg:w-48" />
+              </div>
               <ol className="mt-12 grid gap-6 sm:grid-cols-3">
                 {STEPS.map(({ icon: Icon, step, title, body }, index) => (
                   <Reveal
@@ -444,12 +465,16 @@ export default function Home() {
           {/* --- Capabilities ------------------------------------------------------ */}
           <section className="border-t border-line">
             <div className={`${SHELL} py-20 sm:py-24`}>
-              <Reveal>
-                <Eyebrow index="02">What it does</Eyebrow>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
-                  Everything that happens once it&apos;s answering your calls
-                </h2>
-              </Reveal>
+              <div className="flex items-center justify-between gap-6">
+                <Reveal className="min-w-0 flex-1">
+                  <Eyebrow index="02">What it does</Eyebrow>
+                  <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                    Everything that happens once it&apos;s answering your calls
+                  </h2>
+                </Reveal>
+                {/* Leads moving through the campaign pipeline. Decorative; `sm`+ only. */}
+                <IsoPipeline className="hidden w-40 shrink-0 sm:block lg:w-52" />
+              </div>
               <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {CAPABILITIES.map(({ icon: Icon, title, body }, index) => (
                   <Reveal
@@ -609,21 +634,26 @@ export default function Home() {
            */}
           <section className="border-t border-line bg-brand-deep text-white">
             <div className={`${SHELL} py-20 sm:py-24`}>
-              <Reveal>
-                <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-bright uppercase">
-                  <span className="font-mono text-white/70">05</span>
-                  <span aria-hidden className="h-px w-6 bg-white/40" />
-                  Built for the Indian rules
-                </p>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-white sm:text-4xl">
-                  The rules live in the code, not in a policy page
-                </h2>
-                <p className="mt-4 max-w-2xl text-base text-pretty text-white/80">
-                  An automated call is regulated here, and the agent speaks on your
-                  registration. These are not settings with sensible defaults — they are
-                  limits the product enforces on every dial.
-                </p>
-              </Reveal>
+              <div className="flex items-center justify-between gap-8">
+                <Reveal className="min-w-0 flex-1">
+                  <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-bright uppercase">
+                    <span className="font-mono text-white/70">05</span>
+                    <span aria-hidden className="h-px w-6 bg-white/40" />
+                    Built for the Indian rules
+                  </p>
+                  <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-white sm:text-4xl">
+                    The rules live in the code, not in a policy page
+                  </h2>
+                  <p className="mt-4 max-w-2xl text-base text-pretty text-white/80">
+                    An automated call is regulated here, and the agent speaks on your
+                    registration. These are not settings with sensible defaults — they are
+                    limits the product enforces on every dial.
+                  </p>
+                </Reveal>
+                {/* Compliance-as-a-cube. Its linework is `currentColor`, which is white on
+                    this band; decorative, `sm`+ only. */}
+                <IsoShield className="hidden w-36 shrink-0 sm:block lg:w-48" />
+              </div>
               <div className="mt-12 grid gap-4 sm:grid-cols-2">
                 {COMPLIANCE.map(({ icon: Icon, title, body }, index) => (
                   <Reveal
@@ -646,12 +676,16 @@ export default function Home() {
           {/* --- Data ------------------------------------------------------------- */}
           <section className="border-t border-line">
             <div className={`${SHELL} py-20 sm:py-24`}>
-              <Reveal>
-                <Eyebrow index="06">Your customers&apos; data</Eyebrow>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
-                  Where it runs, and who can see what
-                </h2>
-              </Reveal>
+              <div className="flex items-center justify-between gap-6">
+                <Reveal className="min-w-0 flex-1">
+                  <Eyebrow index="06">Your customers&apos; data</Eyebrow>
+                  <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                    Where it runs, and who can see what
+                  </h2>
+                </Reveal>
+                {/* The layered T0–T4 knowledge base. Decorative; `sm`+ only. */}
+                <IsoKnowledge className="hidden w-36 shrink-0 sm:block lg:w-48" />
+              </div>
               <div className="mt-12 grid gap-4 lg:grid-cols-3">
                 {[
                   {

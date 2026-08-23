@@ -373,3 +373,39 @@ html:has([data-marketing-root]) body {
   0% { transform: scale(1); opacity: 0.6; }
   75%, 100% { transform: scale(2.4); opacity: 0; }
 }
+
+/*
+ * Idle loops for the isometric brand illustrations (components/marketing/isometric.tsx).
+ *
+ * Same contract as every mk-* rule above: scoped to [data-marketing-root] so it cannot
+ * reach the app shells, and neutralised for a reduced-motion reader by the reset near the
+ * top of this file — so no keyframe re-checks the preference. Each loop's 0%/100% frame IS
+ * the figure's clean resting state, so the reset (which lands animations on their end frame)
+ * leaves every figure settled and correct; only the ping deliberately rests hidden.
+ */
+[data-marketing-root] .mk-iso-float-a { animation: mk-iso-float 6s ease-in-out infinite; }
+[data-marketing-root] .mk-iso-float-b { animation: mk-iso-float 7.6s ease-in-out infinite; }
+[data-marketing-root] .mk-iso-lift { animation: mk-iso-lift 4.6s ease-in-out infinite; }
+[data-marketing-root] .mk-iso-flow { animation: mk-iso-flow 3.6s ease-in-out infinite; }
+[data-marketing-root] .mk-iso-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: mk-iso-ping 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes mk-iso-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+@keyframes mk-iso-lift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+@keyframes mk-iso-flow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+@keyframes mk-iso-ping {
+  0% { opacity: 0.45; transform: scale(0.75); }
+  70%, 100% { opacity: 0; transform: scale(1.5); }
+}
