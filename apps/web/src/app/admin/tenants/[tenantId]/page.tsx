@@ -276,7 +276,16 @@ export default function TenantDetailPage({
           <ProblemNotice error={queue.error} onRetry={() => queue.refetch()} />
         ) : queue.isLoading ? (
           <Skeleton rows={3} />
-        ) : queue.data?.length ? (
+        ) : !queue.data ? (
+          /* A paused query (offline) is neither loading nor failed and leaves `data`
+             undefined, so `queue.data?.length` would fall through to "Nothing awaiting
+             approval" — a claim about this client's work made from a read that never
+             arrived. Refuse instead, the way the preview branch below already does. */
+          <ProblemNotice
+            error={new Error("The knowledge queue did not load.")}
+            onRetry={() => queue.refetch()}
+          />
+        ) : queue.data.length ? (
           <ul className="space-y-2">
             {queue.data.map((source) => (
               <li key={source.id} className="rounded-card border border-line p-3">

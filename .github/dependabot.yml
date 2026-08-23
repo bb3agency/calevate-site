@@ -1,0 +1,32 @@
+# Dependabot — the update mechanism that makes SHA-pinning safe to live with.
+#
+# `.github/workflows/ci.yml` pins every third-party action to a full commit SHA (hard
+# rule 9). Pinning WITHOUT an updater is its own anti-pattern: the pin then silently ages
+# past security patches. This config is the other half — it watches the upstream actions
+# and raises a REVIEWABLE pull request when one moves, rewriting both the SHA and the
+# `# vX.Y.Z` comment together so the two never drift.
+#
+# SCOPE IS DELIBERATELY `github-actions` ONLY. Those live under `.github/` and are CI's
+# own supply chain. The application dependency trees (pnpm/`apps/web`, uv/`pyproject`)
+# are governed elsewhere — `pnpm-workspace.yaml` already pins CVE overrides by hand and
+# carries a release-age quarantine — and adding their ecosystems here is a dependency-
+# policy decision for the maintainer, not a CI-hardening default. Turn them on by adding
+# `npm` (directory `/apps/web`) and `uv` (directory `/`) blocks when that call is made.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # One grouped PR for routine action bumps keeps the noise off six concurrent lanes;
+    # a security-relevant advisory still opens its own PR regardless of grouping.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "github-actions"
