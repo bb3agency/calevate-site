@@ -127,8 +127,9 @@ INGEST_JOB = "ingest_engine_event"
 HOT_LEAD_JOB = "notify_hot_lead"
 OUTBOUND_WEBHOOK_JOB = "deliver_outbound_webhook"
 
-# Hot-lead rule (FLOWS §6): these reach the owner within 2 minutes.
-HOT_LEAD_STATUSES = frozenset({"hot"})
+# Hot-lead rule (FLOWS §6): these reach the owner within 2 minutes. The trigger is a
+# match on the extracted FIELDS below — not the lead's status column, which this
+# job is the writer of, not a reader of (see `_maybe_notify_hot_lead`).
 HOT_LEAD_FIELD_TRIGGERS: dict[str, frozenset[str]] = {
     "urgency": frozenset({"emergency", "urgent"}),
     "intent": frozenset({"buy", "book"}),
@@ -2472,7 +2473,8 @@ async def _counter_increment(
 async def _maybe_notify_hot_lead(
     tenant_id: UUID, lead_id: UUID, call_id: UUID, data: dict[str, Any]
 ) -> str:
-    """Hot-lead rules key off the FIXED status enum and the schema's own fields (D-21).
+    """Hot-lead rules key off the extracted FIELDS (`HOT_LEAD_FIELD_TRIGGERS`), not the
+    lead's status column — this job WRITES `status='hot'`, it does not read it (D-21).
     The notification goes through the outbox so a worker crash cannot lose it — and is
     queued once per call, so a pipeline replay does not promise a second alert for an
     alert that was already sent.

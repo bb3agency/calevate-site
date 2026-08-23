@@ -110,6 +110,7 @@ from urllib.parse import urlsplit
 import httpx
 from calevate_shared.config import bolna_source_ips
 from calevate_shared.engine import (
+    DECLARED_POSTURE,
     E164,
     LLM_TTFT_BUDGET_MS,
     AgentConfig,
@@ -134,6 +135,7 @@ from calevate_shared.engine import (
     TurnLatency,
     WebhookVerdict,
     compose_engine_prompt,
+    openai_base_url,
 )
 from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
 from pydantic import ValidationError
@@ -357,6 +359,15 @@ _STATUS_MAP: dict[str, CallStatus] = {
 #: human-readable LABEL instead, which is the whole of D-417.
 _WIRE_PROVIDER: Final[Mapping[LlmProvider, str]] = MappingProxyType(
     {"azure_openai": "azure-openai", "openai": "openai", "google": "google"}
+)
+
+#: THE WIRE VALUE -> OUR LEG, the inverse of `_WIRE_PROVIDER`, DERIVED rather than retyped
+#: (D-104: a Literal and its value table are built together, not spelled twice). The read
+#: half needs it: `_agent_models` identifies a leg WITH an endpoint from the endpoint
+#: itself, but the `google` leg has none — its only identifier on the agent object is the
+#: `provider` string the engine echoes, and this maps that string back to our vocabulary.
+_OUR_PROVIDER: Final[Mapping[str, LlmProvider]] = MappingProxyType(
+    {wire: ours for ours, wire in _WIRE_PROVIDER.items()}
 )
 
 #: THE vendor's spelling of "Azure OpenAI" in an agent's `llm_config.provider` — one
@@ -1533,6 +1544,45 @@ def _agent_greeting(agent: dict[str, Any]) -> tuple[str | None, bool]:
     return (greeting if isinstance(greeting, str) else ""), True
 
 
+def _provider_of_endpoint(base_url: str) -> LlmProvider | None:
+    """Which declared leg's builder could have emitted this read-back endpoint, or None.
+
+    THE READ-BACK'S RESIDENCY CHECK, AND IT COVERS EVERY LEG THAT HAS AN ENDPOINT — not
+    only Azure. The endpoint is what identifies a leg that names one: an `azure_openai`
+    leg names ONE resource (the one in `AZURE_LOCATION`), an `openai` leg pins the `us`
+    data-residency host in the authority — so an agent aimed at somebody else's resource,
+    or at OpenAI's region-less `global` host, is exactly the drift this read exists to
+    catch.
+
+    RECOGNISING ONLY AZURE WAS A LIVE DEFECT ONCE THE OPENAI LEG SHIPPED AN ENDPOINT
+    (D-456). It was correct while Azure was the only leg with a base URL (D-410): the whole
+    of `_agent_models`'s residency story was "some Azure resource, and is it OURS". But
+    `in_call_llm` now sends `openai_base_url()` on a `gpt-5.4-mini` agent and `_llm_routing`
+    puts it on the wire, so a legitimately-published OpenAI-direct agent read back through
+    the Azure-only predecessor logged `engine_llm_endpoint_unrecognised` against
+    `us.api.openai.com` and DISCARDED it — a false drift alarm on our own endpoint, which is
+    how an operator learns to ignore the real one, and the loss of the very residency proof
+    this read exists to confirm (the `us` host is that proof — see `openai_base_url`).
+
+    THE `google` LEG NEVER REACHES HERE, and that is not a gap. Its client is built from an
+    API key alone and reads no base URL of ours (`GOOGLE_DIRECT_LEG`), so a google agent
+    carries no endpoint — `_agent_models` finds no `base_url`, this function is not called,
+    and `llm_base_url` stays None with nothing to verify.
+
+    OpenAI is an EXACT match against the one endpoint its builder emits — there is only one
+    OpenAI-direct endpoint this product may address. Azure is asked of its own validator,
+    because that leg's endpoint is per-resource and there is nothing to compare a single
+    label against without it (`ModelConfig._llm_endpoint_is_coherent`).
+    """
+    if base_url == openai_base_url():
+        return "openai"
+    try:
+        ModelConfig(llm_provider="azure_openai", llm_base_url=base_url)
+    except ValidationError:
+        return None
+    return "azure_openai"
+
+
 def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     """`(selections, readable)` — the BYOK choices the agent is RUNNING, in our terms.
 
@@ -1617,15 +1667,19 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     llm_model = leaf("llm_agent", "llm_config", "model") or leaf("llm_agent", "model")
 
     # WHERE THE LLM LEG IS RUNNING, read back rather than assumed (D-400, re-aimed by
-    # D-410). THE ENDPOINT IS WHAT IDENTIFIES THE LEG, AND IT STAYS THAT WAY EVEN THOUGH
-    # THE PROVIDER NAME BECAME INVERTIBLE. Under Vertex both of our arms rendered to
-    # `"custom"`, so there was no choice; since D-410 an `azure_openai` leg renders to
-    # `"azure-openai"` and an unset one to `"openai"`, so `provider` alone would now
-    # appear to answer the question. It does not: `azure-openai` says the agent points at
-    # SOME Azure OpenAI resource, and this repository's guarantee is about ONE — that in
-    # `AZURE_LOCATION`. An agent aimed at somebody else's resource, or at a resource an
-    # operator created in the wrong region, is exactly the drift a read-back exists to
-    # catch, and only the endpoint carries that fact.
+    # D-410, widened to the multi-provider legs by D-456). THE ENDPOINT IS WHAT IDENTIFIES
+    # A LEG THAT NAMES ONE, AND THE PROVIDER NAME ALONE DOES NOT. Under Vertex both of our
+    # arms rendered to `"custom"`, so there was no choice; now three legs are declared and
+    # two of them build an endpoint whose region is the whole of the residency claim —
+    # `azure-openai` points at SOME Azure OpenAI resource (our guarantee is about ONE, in
+    # `AZURE_LOCATION`), and `openai` at OpenAI direct (our guarantee is the `us` host in
+    # the authority). An agent aimed at somebody else's resource, or at OpenAI's region-less
+    # `global` host, is exactly the drift a read-back exists to catch — and only the
+    # endpoint carries that fact, which is why `_provider_of_endpoint` reads the endpoint
+    # rather than trusting the `provider` string beside it. The `google` leg is the one
+    # exception, and it proves the rule: it builds NO endpoint (its client is an API key
+    # alone), so there is no host to identify it by and none to verify — its only handle on
+    # the agent object is the `provider` string, read back below when no base URL is present.
     #
     # DUAL-SPELLED FOR THE SAME REASON `llm_model` IS, and it did not arrive that way.
     # D-400 wrote this read against a FLAT `llm_agent` because the branch it came from
@@ -1634,27 +1688,40 @@ def _agent_models(agent: dict[str, Any]) -> tuple[ModelConfig | None, bool]:
     # report every v2 agent's endpoint as ABSENT — the same confident-wrong answer the
     # paragraph above rejects, on the one field that carries residency.
     #
-    # A base URL WE DO NOT RECOGNISE is reported as no provider and LOGGED, never
-    # normalised away and never raised. `ModelConfig` refuses anything that is not a v1
-    # endpoint on a single-label Azure resource (that is the point of its validator), so
-    # accepting the value here would be impossible and letting the ValidationError escape
-    # would turn a read-back into a failed publish — the one shape D-260 says a snapshot
-    # must never take. The log line carries the HOST only: it is a vendor's endpoint, not
-    # transcript text, and the host is the whole of what an operator needs to see that
-    # something is off.
+    # WHICH DECLARED LEG'S ENDPOINT THIS IS — azure_openai OR openai — via the ONE
+    # predicate that knows both (`_provider_of_endpoint`). A base URL that matches no leg
+    # this product builds is reported as no provider and LOGGED, never normalised away and
+    # never raised: letting the ValidationError escape would turn a read-back into a failed
+    # publish, the one shape D-260 says a snapshot must never take, and a recognised-but-
+    # wrong endpoint is exactly the drift the log line exists to surface. It carries the
+    # HOST only — a vendor's endpoint, not transcript text, and the whole of what an
+    # operator needs to see that something is off.
     base_url = leaf("llm_agent", "llm_config", "base_url") or leaf("llm_agent", "base_url")
+    provider_wire = leaf("llm_agent", "llm_config", "provider") or leaf("llm_agent", "provider")
     llm_provider: LlmProvider | None = None
     if base_url is not None:
-        try:
-            ModelConfig(llm_provider="azure_openai", llm_base_url=base_url)
-        except ValidationError:
+        llm_provider = _provider_of_endpoint(base_url)
+        if llm_provider is None:
             log.warning(
                 "engine_llm_endpoint_unrecognised",
                 extra={"engine": "bolna", "host": urlsplit(base_url).netloc},
             )
             base_url = None
-        else:
-            llm_provider = "azure_openai"
+    elif provider_wire is not None:
+        # A LEG WITH NO ENDPOINT (google) can only be identified by the `provider` string
+        # the engine echoes — there is no host to read a region off, and none to verify —
+        # so it is reverse-mapped from the vendor's wire value. Accepted ONLY for a
+        # builder-less leg, and both halves of that guard matter: an endpoint leg seen with
+        # no base URL cannot be reported (its `ModelConfig` requires one — the construction
+        # below would raise), and the UNSET/passthrough body also carries `provider:
+        # "openai"` with no base URL (`_llm_routing`), which must read back as NO leg rather
+        # than as OpenAI-direct. `builder is None` is exactly the line that separates the
+        # google leg from both. The `provider` echo is the same evidence class as the
+        # `model` and `base_url` reads above — their server returns the stored agent object
+        # (`get_agent`'s docstring) — and is settled against a live account by the same gate.
+        mapped = _OUR_PROVIDER.get(provider_wire)
+        if mapped is not None and DECLARED_POSTURE.leg(mapped).builder is None:
+            llm_provider = mapped
     return (
         ModelConfig(
             stt_provider=leaf("transcriber", "provider"),

@@ -167,9 +167,6 @@ export default function AgentPromptPage({
         versions={history.data}
       />
 
-      {history.error && (
-        <ProblemNotice error={history.error} onRetry={() => history.refetch()} />
-      )}
       {rollback.error && <ProblemNotice error={rollback.error} />}
 
       <Card title="Version history">
@@ -182,7 +179,18 @@ export default function AgentPromptPage({
           <RestrictionNote reason={write.reason} />
           {history.isLoading ? (
             <Skeleton rows={4} />
-          ) : history.data?.length ? (
+          ) : history.error || !history.data ? (
+            /* A failed read AND a paused one (offline: not loading, `error === null`,
+               `data === undefined`) both refuse here. `?.length` alone collapsed the
+               paused case into "No prompt versions yet" — a false claim, on the screen
+               where an operator would then write what they believe is the first version
+               (§52). The refusal now owns both non-answers rather than living above the
+               card, so a failed read is not stated as an empty history at the same time. */
+            <ProblemNotice
+              error={history.error ?? new Error("The version history could not be loaded.")}
+              onRetry={() => history.refetch()}
+            />
+          ) : history.data.length ? (
             <ul className="space-y-2">
               {history.data.map((entry) => (
                 <li

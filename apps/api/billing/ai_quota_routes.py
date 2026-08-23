@@ -129,8 +129,12 @@ class AiQuotaOut(Strict):
     # above — so the modal never divides a rupee amount in the browser.
     extra_block_requests: int
     extra_available: bool
-    # "not_at_ceiling" | "already_purchased" | "not_prepaid" | "platform_paused", or null
-    # when the block IS on offer.
+    # "not_at_ceiling" | "already_purchased" | "not_prepaid" | "platform_paused" |
+    # "month_ending", or null when the block IS on offer. `month_ending` is a real value
+    # this field carries — `read_ai_quota` stamps `month_is_ending(period)` onto the quota
+    # and `AiQuota.extra_unavailable` returns it in the last hour of a month
+    # (`LAST_SALEABLE_MINUTES`) — so an enumeration that dropped it was a comment gone
+    # false about the value beside it.
     extra_unavailable_reason: str | None
 
 

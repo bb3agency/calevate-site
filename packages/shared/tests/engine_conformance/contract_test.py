@@ -19,6 +19,7 @@ from typing import TypedDict, Unpack
 import httpx
 import pytest
 from calevate_shared.engine import (
+    DECLARED_POSTURE,
     TRUTHFUL_ANSWER_MARKER,
     WEBHOOK_AUTH_BY_ENGINE,
     AgentConfig,
@@ -31,10 +32,13 @@ from calevate_shared.engine import (
     ModelConfig,
     NumberSeries,
     NumberSpec,
+    PostureLeg,
     ProvisionedNumber,
     RecallOutcome,
     VoiceEngine,
+    azure_openai_base_url,
     compose_engine_prompt,
+    openai_base_url,
 )
 from calevate_shared.events import TERMINAL_STATUSES, CallStatus
 
@@ -1241,6 +1245,107 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
         assert held == sent, (
             f"we configured `{leg}` as {sent!r} and the engine holds {held!r} — the "
             "write was accepted and not applied, and nothing downstream could see it"
+        )
+
+
+def _endpoint_for_leg(leg: PostureLeg) -> str | None:
+    """The endpoint to PUBLISH for one declared leg, built from its own builder exactly as
+    `in_call_llm` does: a per-resource Azure host, the fixed OpenAI `us` host, or None for a
+    leg that names no endpoint at all (google's client is an API key alone).
+
+    DISPATCHED ON THE LEG'S DECLARED `builder`, never on a vendor name, and it RAISES on a
+    builder it has no recipe for — so a fourth leg cannot join the posture without teaching
+    this clause how the leg is addressed, which is the whole point of the clause being in
+    the exit-door suite rather than one adapter's tests.
+    """
+    if leg.builder is None:
+        return None
+    if leg.builder == "azure_openai_base_url":
+        return azure_openai_base_url("calevate-conformance")
+    if leg.builder == "openai_base_url":
+        return openai_base_url()
+    raise AssertionError(
+        f"conformance has no publish recipe for the {leg.provider!r} leg's builder "
+        f"{leg.builder!r} — a new declared leg must say how its endpoint is built here"
+    )
+
+
+async def test_the_llm_leg_round_trips_its_provider_and_endpoint(engine: VoiceEngine) -> None:
+    """A BYOK LLM leg read back off the engine must be the SAME leg that was published —
+    same provider, same endpoint — and this is the property whose absence let a real defect
+    live unnoticed.
+
+    THE BUG THIS CATCHES. When the posture opened from one LLM leg to three (D-456), the
+    write path learned to publish each — `azure_openai` on its Azure resource, `openai` on
+    the `us` residency host, `google` on no endpoint at all — but a real adapter's read-back
+    was left recognising only Azure. A legitimately-published OpenAI-direct agent read back
+    with no provider and no endpoint, logged its own host as unrecognised on every drift
+    sweep, and lost the very residency proof the read exists to confirm. Nothing failed,
+    because no clause asked the read-back to round-trip a leg. This is that clause.
+
+    PROVIDER-AGNOSTIC BY CONSTRUCTION: it iterates `DECLARED_POSTURE.legs` and, for each,
+    publishes on that leg via the leg's OWN builder and asserts the read-back equals what was
+    published. It states the property — "the leg you published is the leg you read back" —
+    over whatever legs the contract declares, rather than naming a vendor. The endpoint check
+    is the round-trip itself: a leg with an endpoint must return exactly that endpoint (the
+    residency proof), and a leg with none must return None (there is nothing to verify, and
+    reporting an endpoint would be inventing one).
+
+    SCOPED to engines that can answer at all. An `external_deployment` engine hosts no agent
+    of ours and `get_agent` refuses by name, and an engine that DICTATES its LLM leg has no
+    selection of ours to publish — neither has a BYOK LLM leg to round-trip, so both are
+    exempt exactly as `test_a_byok_leg_that_can_be_read_back_holds_what_we_sent` exempts them.
+    """
+    if not engine.capabilities.hosts_agents():
+        # No agent record to create or read back — `get_agent` refuses by name (D-280).
+        return
+    if not engine.capabilities.is_ours("llm"):
+        # The engine dictates its own model; there is no leg of ours to publish or read.
+        return
+
+    speech = _byok_models(engine)
+    for index, leg in enumerate(DECLARED_POSTURE.legs):
+        published_endpoint = _endpoint_for_leg(leg)
+        # Azure addresses a DEPLOYMENT id, every other leg the model's own name — the same
+        # distinction `bind_model` draws, read here off the leg rather than hard-coded.
+        model = "conformance-deployment" if leg.addresses_a_deployment else f"model-{leg.provider}"
+        models = ModelConfig(
+            stt_provider=speech.stt_provider,
+            stt_model=speech.stt_model,
+            llm_provider=leg.provider,
+            llm_model=model,
+            llm_base_url=published_endpoint,
+            tts_provider=speech.tts_provider,
+            tts_voice=speech.tts_voice,
+        )
+        cfg = _agent_config(
+            engine,
+            name=f"LLM leg {leg.provider}",
+            # Distinct per leg AND distinct from every other clause's agent: the fake keys
+            # refs on (tenant_id, agent_id) and the Bolna stub on the agent NAME, so both a
+            # distinct id and a distinct name are needed for the three agents to coexist —
+            # and the `11e6` marker keeps them clear of the default id other clauses use.
+            agent_id=f"0199a0b0-0000-7000-8000-11e6{index:08d}",
+        ).model_copy(update={"models": models})
+
+        ref = await engine.create_agent(cfg)
+        snapshot = await engine.get_agent(ref)
+
+        assert snapshot.models_readable, (
+            f"this adapter claims BYOK LLM and could not read the {leg.provider!r} leg back, "
+            "so 'is the engine running the leg we published?' is unanswerable — the exact "
+            "blind spot that let a whole leg read back as absent"
+        )
+        assert snapshot.models is not None
+        assert snapshot.models.llm_provider == leg.provider, (
+            f"published the {leg.provider!r} leg and read back "
+            f"{snapshot.models.llm_provider!r} — the read-back cannot identify the leg, so a "
+            "publish onto the wrong leg would be invisible"
+        )
+        assert snapshot.models.llm_base_url == published_endpoint, (
+            f"published endpoint {published_endpoint!r} on the {leg.provider!r} leg and read "
+            f"back {snapshot.models.llm_base_url!r} — the endpoint is the leg's residency "
+            "proof, and a mismatch is exactly the drift the read-back exists to catch"
         )
 
 

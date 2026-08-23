@@ -487,10 +487,21 @@ class FakeEngine:
             # rather than the engine's own product name (`AgentSnapshot.models`): the
             # engine's voice id is a vendor string, and a caller comparing it against our
             # catalogue would find no match and conclude the write had been dropped.
+            #
+            # THE LLM LEG ROUND-TRIPS ITS PROVIDER AND ENDPOINT, NOT ONLY ITS MODEL, and
+            # that is what makes this fake a truthful stand-in rather than a mirror that
+            # flatters every adapter. A real `control_plane` adapter (BolnaEngine) reads
+            # `llm_provider` and `llm_base_url` back off the agent object — the endpoint is
+            # the leg's residency proof — so a fake that dropped them let the conformance
+            # suite pass an adapter that dropped them too. It gates on `is_ours("llm")` for
+            # the same reason `llm_model` does: a dictated LLM leg has no selection of ours
+            # to report, and reporting one would read exactly like an applied BYOK choice.
             models=ModelConfig(
                 stt_provider=cfg.models.stt_provider if self.capabilities.is_ours("stt") else None,
                 stt_model=cfg.models.stt_model if self.capabilities.is_ours("stt") else None,
                 llm_model=cfg.models.llm_model if self.capabilities.is_ours("llm") else None,
+                llm_provider=cfg.models.llm_provider if self.capabilities.is_ours("llm") else None,
+                llm_base_url=cfg.models.llm_base_url if self.capabilities.is_ours("llm") else None,
                 tts_provider=cfg.models.tts_provider if self.capabilities.is_ours("tts") else None,
                 tts_voice=cfg.models.tts_voice if self.capabilities.is_ours("tts") else None,
             ),

@@ -33,6 +33,8 @@ from calevate_shared.engine import (
     AgentConfig,
     AgentSnapshot,
     KBSourceRef,
+    azure_openai_base_url,
+    openai_base_url,
 )
 
 
@@ -457,3 +459,128 @@ def test_a_task_list_that_names_no_types_still_reads_the_first_one() -> None:
     assert readable is True
     assert models is not None
     assert models.llm_model == "only-task"
+
+
+# --- the LLM leg endpoint read-back, across the declared legs (D-456) ----------
+#
+# `in_call_llm` publishes THREE legs now, and `_agent_models` used to recognise only
+# Azure's endpoint. The OpenAI leg carries `openai_base_url()` on the wire, so a
+# legitimately-published `gpt-5.4-mini` agent read back through the Azure-only parser
+# logged its own `us.api.openai.com` endpoint as `engine_llm_endpoint_unrecognised` and
+# discarded it — a false drift alarm on our own host and the loss of the residency proof
+# the read-back exists to confirm. These pin the widened predicate and prove the genuine
+# drift alarm still fires for an endpoint no leg builds.
+
+
+def test_the_openai_leg_endpoint_reads_back_as_its_own_leg() -> None:
+    """A `gpt-5.4-mini` agent runs on the `openai` leg and `_llm_routing` sends
+    `openai_base_url()` in `llm_config.base_url`. The read-back must recognise that host
+    as the `us` residency endpoint — not discard it as unrecognised."""
+    agent = {
+        "agent_config": {
+            "tasks": [
+                {
+                    "task_type": "conversation",
+                    "tools_config": {
+                        "transcriber": {"provider": "sarvam", "model": "saaras:v3"},
+                        "llm_agent": {
+                            "agent_type": "simple_llm_agent",
+                            "llm_config": {
+                                "provider": "openai",
+                                "model": "gpt-5.4-mini",
+                                "base_url": openai_base_url(),
+                            },
+                        },
+                        "synthesizer": {
+                            "provider": "sarvam",
+                            "provider_config": {"voice": "bulbul:v3"},
+                        },
+                    },
+                }
+            ]
+        }
+    }
+
+    models, readable = _agent_models(agent)
+
+    assert readable is True
+    assert models is not None
+    assert models.llm_model == "gpt-5.4-mini"
+    assert models.llm_provider == "openai"
+    assert models.llm_base_url == openai_base_url()
+
+
+def test_the_openai_endpoint_does_not_trip_the_drift_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Our own endpoint must not log `engine_llm_endpoint_unrecognised` — an alarm that
+    fires on every read-back of a legitimate agent is how an operator learns to ignore the
+    one that matters."""
+    agent = {
+        "tasks": [
+            {
+                "tools_config": {
+                    "llm_agent": {
+                        "llm_config": {"model": "gpt-5.4-mini", "base_url": openai_base_url()}
+                    }
+                }
+            }
+        ]
+    }
+    with caplog.at_level("WARNING"):
+        _agent_models(agent)
+    assert "engine_llm_endpoint_unrecognised" not in [r.message for r in caplog.records]
+
+
+def test_the_azure_leg_endpoint_still_reads_back_as_azure() -> None:
+    """The pre-existing behaviour, kept green: an Azure v1 endpoint on a single-label
+    resource resolves to the `azure_openai` leg."""
+    agent = {
+        "tasks": [
+            {
+                "tools_config": {
+                    "llm_agent": {
+                        "llm_config": {
+                            "model": "sunrise-4o-mini",
+                            "base_url": azure_openai_base_url("calevate-eus2"),
+                        }
+                    }
+                }
+            }
+        ]
+    }
+
+    models, readable = _agent_models(agent)
+
+    assert readable is True
+    assert models is not None
+    assert models.llm_provider == "azure_openai"
+    assert models.llm_base_url == azure_openai_base_url("calevate-eus2")
+
+
+def test_an_endpoint_no_leg_builds_is_still_refused_and_alarmed(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The drift alarm the widened predicate must NOT weaken. A host that is neither an
+    Azure resource of ours nor the OpenAI `us` endpoint — a hostile host wearing our
+    suffix, or OpenAI's region-less `global` host — reads back as no provider, is dropped,
+    and is logged for an operator to see."""
+    agent = {
+        "tasks": [
+            {
+                "tools_config": {
+                    "llm_agent": {
+                        "llm_config": {"model": "x", "base_url": "https://api.openai.com/v1"}
+                    }
+                }
+            }
+        ]
+    }
+    with caplog.at_level("WARNING"):
+        models, readable = _agent_models(agent)
+
+    assert readable is True
+    assert models is not None
+    assert models.llm_provider is None
+    assert models.llm_base_url is None
+    assert "engine_llm_endpoint_unrecognised" in [r.message for r in caplog.records]

@@ -147,9 +147,9 @@ export default function IntegrationsPage() {
 
       <RestrictionNote reason={write.reason} />
 
-      {endpoints.error && (
-        <ProblemNotice error={endpoints.error} onRetry={() => endpoints.refetch()} />
-      )}
+      {/* The endpoints READ failure is refused inside the "Your endpoints" card below —
+          together with the paused read, so a non-answer never renders as "No endpoints
+          yet" (§52). A page-level copy here would double the refusal on a failure. */}
       {deactivate.error && <ProblemNotice error={deactivate.error} />}
 
       {revealed && (
@@ -227,7 +227,19 @@ export default function IntegrationsPage() {
       <Card title="Your endpoints">
         {endpoints.isLoading ? (
           <Skeleton rows={2} />
-        ) : endpoints.data?.length ? (
+        ) : endpoints.error || !endpoints.data ? (
+          /* A failed read AND a read TanStack never started both land here. `?.length`
+             alone rendered `null` on a failure and "No endpoints yet" on a paused
+             query (offline: not loading, `error === null`, `data === undefined`) — a
+             client told their CRM is unconfigured off a request that never left the
+             browser. §52: failure is a refusal, and neither non-answer is an empty
+             state. The refusal now owns both, the way the dashboard's latest-calls
+             card does (`app/c/[slug]/page.tsx`). */
+          <ProblemNotice
+            error={endpoints.error ?? new Error("Your endpoints could not be loaded.")}
+            onRetry={() => endpoints.refetch()}
+          />
+        ) : endpoints.data.length ? (
           <ul className="divide-y divide-slate-100 dark:divide-slate-800">
             {endpoints.data.map((endpoint) => (
               <li key={endpoint.id} className="flex flex-wrap items-center gap-2 py-2.5">
@@ -273,7 +285,7 @@ export default function IntegrationsPage() {
               </li>
             ))}
           </ul>
-        ) : endpoints.error ? null : (
+        ) : (
           <EmptyState
             title="No endpoints yet"
             hint="Add your CRM's webhook URL and we'll start sending leads the moment they arrive."
@@ -290,16 +302,18 @@ export default function IntegrationsPage() {
             voice at all: a dead `/v1/me` withdrew the column exactly like a refusal. */}
         <RestrictionNote reason={payloadAccess.unknown ? payloadAccess.reason : null} />
 
-        {/* Without this the card falls through to "Nothing sent yet" on a 4xx —
-            which is the exact wrong answer to "did my CRM get it?". */}
-        {deliveries.error && (
-          <div className="mb-3">
-            <ProblemNotice error={deliveries.error} onRetry={() => deliveries.refetch()} />
-          </div>
-        )}
+        {/* A failed read AND a paused one (offline: not loading, `error === null`,
+            `data === undefined`) both refuse here, so the card never falls through to
+            "Nothing sent yet" — the exact wrong answer to "did my CRM get it?" — on
+            either non-answer. §52, the same shape as the endpoints card above. */}
         {deliveries.isLoading ? (
           <Skeleton rows={3} />
-        ) : deliveries.data?.length ? (
+        ) : deliveries.error || !deliveries.data ? (
+          <ProblemNotice
+            error={deliveries.error ?? new Error("Your recent deliveries could not be loaded.")}
+            onRetry={() => deliveries.refetch()}
+          />
+        ) : deliveries.data.length ? (
           <ScrollRegion label="Delivery log" className="-mx-4 px-4 sm:mx-0 sm:px-0">
             <table className="w-full min-w-[500px] text-sm">
             <thead>
@@ -364,7 +378,7 @@ export default function IntegrationsPage() {
             </tbody>
           </table>
           </ScrollRegion>
-        ) : deliveries.error ? null : (
+        ) : (
           <EmptyState
             title="Nothing sent yet"
             hint="Deliveries appear here as they happen — including the ones your endpoint rejected."
