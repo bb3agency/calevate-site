@@ -89,7 +89,7 @@ describe("the call log", () => {
 
   it("says how many rows the filter matched, and only once it knows", async () => {
     const { container } = await renderClientPage(page, routes([call(), call({ id: "c2" })]));
-    await screen.findByText("Open a call to see its transcript, recording and captured fields.");
+    await screen.findByText("Open a call to see the transcript, recording and the details we captured.");
     expect(container.textContent).toContain("2");
     expect(container.textContent).toContain("calls");
   });

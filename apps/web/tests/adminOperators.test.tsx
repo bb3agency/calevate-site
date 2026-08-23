@@ -128,10 +128,10 @@ describe("what a normal admin is shown", () => {
       routes(listOf(FOUNDER), NORMAL_ADMIN),
     );
 
-    await screen.findByText(/does not have the admin:operators permission/);
+    await screen.findByText(/does not have permission to/);
     expect(container.textContent).toContain("Your admin account cannot see this");
-    // The permission name is the useful half of the refusal: it is what they have to ask
-    // a super admin for.
+    // The refusal names the action in plain words and points the reader at a super admin —
+    // the raw permission scope is engineer jargon and is deliberately not shown here.
     expect(container.textContent).toContain("Ask a superadmin");
     // NOT A DIRECTORY. Nothing about who holds an account leaks through the refusal —
     // no name, no address, no count.
@@ -145,7 +145,7 @@ describe("what a normal admin is shown", () => {
   it("offers no control at all — not a disabled one", async () => {
     renderAdminPage(<OperatorsPage />, routes(listOf(FOUNDER), NORMAL_ADMIN));
 
-    await screen.findByText(/does not have the admin:operators permission/);
+    await screen.findByText(/does not have permission to/);
     expect(screen.queryAllByRole("button")).toEqual([]);
     expect(screen.queryAllByRole("textbox")).toEqual([]);
   });
@@ -275,10 +275,10 @@ describe("the nav entry that reaches this screen", () => {
       shell(NORMAL_ADMIN),
     );
     await waitFor(() => expect(entry(dead.container)?.tagName).toBe("SPAN"));
-    // The permission name is the part they have to ask for, so it is in the sentence
-    // beside the dead entry rather than only in a `title` a mouse has to discover.
+    // The reason sits in the sentence beside the dead entry rather than only in a `title`
+    // a mouse has to discover — in plain words, without the raw permission scope.
     expect(dead.container.textContent).toContain(
-      "does not have the admin:operators permission",
+      "does not have permission to",
     );
   });
 });

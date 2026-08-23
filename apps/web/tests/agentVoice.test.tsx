@@ -456,7 +456,7 @@ describe("the voice panel", () => {
     expect(select).toHaveProperty("disabled", true);
     expect(screen.getByRole("button", { name: "Set voice" })).toHaveProperty("disabled", true);
     expect(container.textContent).toContain(
-      "does not have the agents:write permission, so you cannot change this agent's script",
+      "does not have permission to change this agent's script",
     );
   });
 });

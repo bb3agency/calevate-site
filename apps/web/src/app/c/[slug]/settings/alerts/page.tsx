@@ -5,6 +5,7 @@ import { BellOff, BellRing, CircleAlert, Info, Lock, ShieldCheck } from "lucide-
 import {
   Card,
   DANGER_BUTTON,
+  MonoValue,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
@@ -137,11 +138,11 @@ export default function AlertsPage() {
                 >
                   <p className="mt-1">
                     This is on our side, not yours: the WhatsApp business connection is not
-                    live on this deployment
+                    live yet
                     {current.delivery_unavailable_reason && (
                       <>
                         {" "}
-                        (<span className="font-mono">{current.delivery_unavailable_reason}</span>)
+                        (<MonoValue>{current.delivery_unavailable_reason}</MonoValue>)
                       </>
                     )}
                     . Agreeing now would record your consent for something we cannot do, so
@@ -175,7 +176,7 @@ export default function AlertsPage() {
                     write.reason ??
                     (current.delivery_available
                       ? null
-                      : "We cannot send WhatsApp messages on this deployment yet, so there is nothing to agree to.")
+                      : "We cannot send WhatsApp messages yet, so there is nothing to agree to.")
                   }
                   pending={record.isPending}
                   onGrant={() =>
@@ -212,9 +213,9 @@ export default function AlertsPage() {
             </ul>
             <p className="mt-3 text-xs text-ink-faint">
               Wording in force:{" "}
-              <span className="font-mono">{current.current_notice_version}</span>
+              <MonoValue>{current.current_notice_version}</MonoValue>
               {current.notice_version && current.notice_version !== current.current_notice_version && (
-                <> · you agreed to <span className="font-mono">{current.notice_version}</span></>
+                <> · you agreed to <MonoValue>{current.notice_version}</MonoValue></>
               )}
             </p>
           </Card>

@@ -444,12 +444,12 @@ export function intakeBlockers(facts: IntakeFacts): string[] {
  */
 export const INTAKE_BLOCKER_COPY: Record<string, string> = {
   business_hours_missing:
-    "No day has been answered. The after-hours branch (FLOWS §3) reads this, so an empty week is a branch that can never fire.",
+    "No day has been answered. The agent uses these hours to handle after-hours calls, so an empty week leaves it with nothing to go on.",
   business_hours_incomplete:
-    "A day has neither both times nor the closed box ticked. It compiles to nothing while looking answered.",
+    "A day has neither both times nor the closed box ticked, so it looks answered but the agent gets nothing usable from it.",
   branch_missing: "No address. “Where are you?” is the second question every caller asks.",
   service_missing:
-    "No service. The price list is both the knowledge-base seed and the most-asked question.",
+    "No service. The price list is both what the agent answers from and the question callers ask most.",
   escalation_contact_missing:
     "No escalation contact. A transfer during a call has nowhere to go without one.",
 };

@@ -11,6 +11,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  TermGloss,
   formatIST,
 } from "@/components/ui";
 import { useRecordKyc, useTenant, useTenantKyc } from "@/lib/api/admin";
@@ -102,7 +103,10 @@ export default function TenantKycPage({
         </Link>
         {/* Kept: `admin/layout.tsx` prints no page title, so this is the screen's only
             name. Delete it if one lands in the shell. */}
-        <h1 className="mt-1 text-xl font-semibold text-ink">Identity verification (KYC)</h1>
+        <h1 className="mt-1 text-xl font-semibold text-ink">
+          Identity verification (
+          <TermGloss term="KYC">Know Your Customer — the business identity check</TermGloss>)
+        </h1>
         <p className="text-sm text-ink-muted">
           The subscriber check behind a phone connection. A verified record opens number
           provisioning on every tier and outbound dialling on self-serve and trial
@@ -190,9 +194,8 @@ function OnFile({ record }: { record: KycRecord }) {
     return (
       <NoticeBox tone="neutral" icon={<FileWarning className="h-5 w-5" />} title="Nothing on file">
         <p className="mt-1 text-xs opacity-90">
-          The normal state of a new account — the API returns this as data, not a 404. This
-          client&apos;s dial gate reads it as <span className="font-mono">kyc_missing</span>,
-          and any number purchase is refused on every tier.
+          The normal state of a new account. This client&apos;s dial gate reads it as a
+          missing verification, and any number purchase is refused on every tier.
         </p>
       </NoticeBox>
     );
@@ -308,9 +311,9 @@ function RecordForm({
   return (
     <Card title="Record a verification">
       <p className="-mt-2 text-xs text-ink-muted">
-        Upserts — re-recording is what happens on every re-verification, and moving off{" "}
-        <span className="font-mono">verified</span> clears the verification date and the
-        verifier with it.
+        Saving here records or updates the check — re-recording is what happens on every
+        re-verification, and moving off <span className="font-mono">verified</span> clears
+        the verification date and the verifier with it.
       </p>
 
       <form
@@ -536,9 +539,9 @@ function WillRecord({ draft, tenantName }: { draft: KycRecordIn; tenantName: str
             : "cleared, because this is not a verified record."}
         </li>
         <li>
-          <span className="text-ink-faint">Audit</span> — one{" "}
-          <span className="font-mono">kyc.recorded</span> row with the status and the
-          registry reference. The signatory&apos;s name is deliberately not copied into it.
+          <span className="text-ink-faint">Audit</span> — one audit-log entry with the
+          status and the registry reference. The signatory&apos;s name is deliberately not
+          copied into it.
         </li>
       </ul>
       <p className="mt-2 text-ink-muted">

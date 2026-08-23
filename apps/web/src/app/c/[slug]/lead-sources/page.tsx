@@ -444,7 +444,7 @@ export default function LeadSourcesPage() {
               <tbody className="divide-y divide-line">
                 {deliveryRowKeys(deliveries).map(([item, rowKey]) => (
                   <tr key={rowKey}>
-                    <td className="px-3 py-2.5 text-ink">{item.source}</td>
+                    <td className="px-3 py-2.5 text-ink">{sourceLabel(item.source)}</td>
                     {/* The sender's own id for this delivery. For a Meta source it is the
                         `leadgen_id` — the string Meta's Ads Manager and Meta support both
                         speak, and the one thing that survives a lead we could not read, so
@@ -1124,7 +1124,7 @@ function MetaSetupDetails({ setup }: { setup: MetaSetup }) {
 
         <SetupRow
           label="Subscribe your Page to"
-          hint="The webhook field to tick on the Page subscription."
+          hint="The field to tick when you subscribe your Page."
         >
           <code className={CODE}>{setup.subscribe_field}</code>
         </SetupRow>

@@ -319,8 +319,8 @@ function LedgerUnreadable() {
         back.
       </p>
       <p className="mt-2 text-xs">
-        If a client is blocked on credit and this will not load,
-        runbooks/topup-payments.md §3 carries the request to send by hand.
+        If a client is blocked on credit and this will not load, the top-up payments
+        runbook has the steps to record it by hand.
       </p>
     </NoticeBox>
   );
@@ -588,12 +588,12 @@ function RecordPanel({
               an invoice line — it is the balance their dialling is checked against.
             </p>
             <p className="mt-1 text-ink-muted">
-              <span className="font-semibold">There is no undo.</span> This ledger is
-              append-only and a database trigger refuses UPDATE and DELETE, so a credit
-              to the wrong client or for the wrong amount is corrected by ADDING a
-              compensating entry — “Correct a wrong entry”, below. That is a repair, not
-              an undo: both lines stay on the ledger for ever, and the client may already
-              have spent the money.
+              <span className="font-semibold">There is no undo.</span> This ledger only
+              ever grows — the database refuses any edit or deletion — so a credit to the
+              wrong client or for the wrong amount is corrected by ADDING a compensating
+              entry — “Correct a wrong entry”, below. That is a repair, not an undo: both
+              lines stay on the ledger for ever, and the client may already have spent the
+              money.
             </p>
             <p className="mt-1 text-xs text-ink-faint">
               Recorded in the audit log against your admin account, in the same
@@ -1056,10 +1056,10 @@ function CorrectionOutcome({
         >
           <p className="mt-1 text-xs">
             The balance is at or below zero and this is a self-serve or trial account, so
-            the compliance gate refuses every outbound dial (`no_credits`). Inbound calls
-            are unaffected — their receptionist keeps answering. If the credit was
-            genuinely theirs, record the payment above; if it was not, this is the
-            correct state and they need to pay before they dial.
+            the compliance gate refuses every outbound call. Inbound calls are unaffected —
+            their receptionist keeps answering. If the credit was genuinely theirs, record
+            the payment above; if it was not, this is the correct state and they need to pay
+            before they dial.
           </p>
         </NoticeBox>
       )}
@@ -1569,11 +1569,10 @@ function CorrectionCard() {
   return (
     <Card title="If a credit was wrong">
       <p className="text-sm text-ink-muted">
-        Nothing on this ledger is edited or deleted, ever — hard rule 4, and a database
-        trigger enforces it. The wrong entry stays where it is, because it is the
-        evidence that it happened. The balance is repaired by appending ONE compensating
-        entry with the opposite sign and{" "}
-        <span className="font-mono">reason = &apos;adjustment&apos;</span>.
+        Nothing on this ledger is edited or deleted, ever — that is a firm rule, and the
+        database enforces it. The wrong entry stays where it is, because it is the
+        evidence that it happened. The balance is repaired by adding ONE opposite entry
+        that cancels it.
       </p>
       <ul className="mt-3 space-y-3 text-sm text-ink-muted">
         <li>
@@ -1605,18 +1604,14 @@ function CorrectionCard() {
           <span className="font-semibold text-ink">
             The same payment credited twice.
           </span>{" "}
-          <span className="font-mono text-xs">
-            uv run python -m scripts.reconcile_credit_ledger --tenant &lt;id&gt; --apply
-          </span>{" "}
-          is the tool, and it stays the tool: a duplicate is found by the script rather
-          than reported by a person, and its correction is keyed on a fingerprint of the
-          exact rows being cancelled — not something to retype into a form. It reads
-          without <span className="font-mono">--apply</span>, runs under the same
-          per-tenant credit lock as every writer, and deletes nothing.
+          This one is not fixed from this screen. A duplicate is found and cancelled by our
+          reconciliation tool, which matches on a fingerprint of the exact rows involved —
+          not something anyone can retype into a form. Ask engineering to run it against
+          this client; it checks before it changes anything and deletes nothing.
         </li>
       </ul>
       <p className="mt-3 text-xs text-ink-muted">
-        runbooks/topup-payments.md, &ldquo;What NOT to do&rdquo;, is the full list —
+        The top-up payments runbook, under &ldquo;What NOT to do&rdquo;, is the full list —
         including why a payment is never credited by hand while a signature failure is
         unexplained.
       </p>

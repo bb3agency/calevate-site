@@ -317,12 +317,12 @@ export default function Home() {
                 data-hero-item
                 className="mt-5 max-w-3xl text-4xl font-semibold tracking-tight text-balance text-ink sm:text-5xl"
               >
-                The calls you miss are the customers you lose.
+                Never lose a customer to a call you couldn&apos;t take.
               </h1>
               <p data-hero-item className="mt-5 max-w-2xl text-lg text-ink-muted">
-                Calevate answers the phone when you can&apos;t, follows up on the enquiries
-                you already have, and writes down what each caller actually wanted — in the
-                language they actually speak.
+                Calevate is an AI receptionist that picks up when you can&apos;t. It answers
+                your callers, follows up on the enquiries you already have, and writes down
+                what each person wanted — in Telugu, Hindi or English.
               </p>
               <div data-hero-item className="mt-8 flex flex-wrap items-center gap-3">
                 <Link
@@ -339,6 +339,14 @@ export default function Home() {
                   See how it works
                 </Link>
               </div>
+              {/* Honest positioning, not a metric: who this was built for. No count, no
+                  logo wall — those are the fabrications `publicLanding.test.tsx` bans. The
+                  Telugu-first, AP/Telangana focus is the same one the languages section
+                  states outright, said here as a warm line rather than a claim. */}
+              <p data-hero-item className="mt-6 max-w-2xl text-sm text-ink-faint">
+                Built Telugu-first for clinics, property offices and coaching centres across
+                Andhra Pradesh and Telangana.
+              </p>
             </HeroStagger>
 
             <CallDemo />
@@ -397,7 +405,7 @@ export default function Home() {
             <div className="mx-auto w-full max-w-5xl px-6 py-20">
               <Reveal>
                 <h2 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
-                  What it does once it is running
+                  What it does, once it&apos;s answering your calls
                 </h2>
               </Reveal>
               <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -402,7 +402,7 @@ function RecordForm({
           <Field
             label="AI model surcharge (₹ / minute)"
             id="terms-llm-surcharge"
-            hint="D-455: added to the rate above for the minutes this client's own model choice upgraded. It applies only to a model THEY picked — an account following the platform default is never surcharged. Leave EMPTY unless a number has been decided; an unset surcharge means a model choice moves their bill by nothing, which is what every plan does today."
+            hint="Added to the rate above for the minutes this client's own model choice upgraded. It applies only to a model THEY picked — an account following the platform default is never surcharged. Leave EMPTY unless a number has been decided; an unset surcharge means a model choice moves their bill by nothing, which is what every plan does today."
           >
             <input
               id="terms-llm-surcharge"

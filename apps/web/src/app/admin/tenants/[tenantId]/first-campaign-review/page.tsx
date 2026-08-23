@@ -304,7 +304,7 @@ function WhereItStands({
         <Link
           href={`/c/${slug}/campaign-review?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
           className="inline-flex items-center gap-1 font-medium underline"
-          title="Read-only (D-22). Every page view is audit-logged."
+          title="Read-only. Every page view is recorded in the audit log."
         >
           <Eye className="h-3.5 w-3.5" />
           What the client sees (read-only)
@@ -356,9 +356,9 @@ function DecisionForm({
   return (
     <Card title="Record a decision">
       <p className="-mt-2 text-xs text-ink-muted">
-        Upserts one row per account — a release can be withdrawn when complaints arrive and
-        granted again afterwards. Each call writes its own audit entry, so the history is
-        the ledger rather than this row.
+        This keeps one decision per account — a release can be withdrawn when complaints
+        arrive and granted again afterwards. Each decision writes its own audit entry, so
+        the history is the audit log rather than this row.
       </p>
 
       <form
@@ -436,8 +436,8 @@ function DecisionForm({
               "What was reviewed, or what was wrong with it. Choose a decision above and this says which."}
           </p>
           <p className="mt-1 text-xs text-ink-faint">
-            {note.trim().length}/{DECISION_NOTE_MAX} characters. Hard rule 6: this is ops
-            prose about a campaign — no phone numbers, no transcript text.
+            {note.trim().length}/{DECISION_NOTE_MAX} characters. This is a note about a
+            campaign — no phone numbers, no transcript text.
           </p>
         </div>
 
@@ -565,10 +565,9 @@ function WillRecord({
           the row is written.
         </li>
         <li>
-          <span className="text-ink-faint">Audit</span> — one{" "}
-          <span className="font-mono">first_campaign_review.decided</span> entry carrying
-          the decision and the note, so a later reversal adds a row rather than editing
-          this one.
+          <span className="text-ink-faint">Audit</span> — one audit-log entry carrying the
+          decision and the note, so a later reversal adds a row rather than editing this
+          one.
         </li>
       </ul>
     </div>

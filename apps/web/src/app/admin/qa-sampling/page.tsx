@@ -148,8 +148,8 @@ export default function QaSamplingPage() {
       </Card>
 
       <p className="text-xs text-ink-faint">
-        The draw is reproducible: calls are ordered by <code>md5(seed || call_id)</code> with the
-        seed printed on each review, so the same week always yields the same sample and nobody —
+        The draw can be checked and re-run: every call gets a fixed place from a seed that is
+        printed on each review, so the same week always produces the same sample and nobody —
         including us — can quietly re-roll it. A call is never sampled twice.
       </p>
     </div>

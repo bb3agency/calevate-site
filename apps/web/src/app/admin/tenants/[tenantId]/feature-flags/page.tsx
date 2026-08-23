@@ -15,6 +15,7 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
+  TermGloss,
   formatIST,
 } from "@/components/ui";
 import { useTenant } from "@/lib/api/admin";
@@ -124,9 +125,12 @@ export default function FeatureFlagsPage({
           </li>
           <li>
             <span className="font-medium">Never a compliance control.</span> Nothing here
-            can switch off DNC, calling hours, the disclosure line, the campaign review or
-            KYC for a client. If someone asks for that, the answer is no and the reason is
-            that those gates are the law, not a preference.
+            can switch off the{" "}
+            <TermGloss term="DNC">do-not-call list</TermGloss>, calling hours, the
+            disclosure line, the campaign review or{" "}
+            <TermGloss term="KYC">Know Your Customer — the business identity check</TermGloss>{" "}
+            for a client. If someone asks for that, the answer is no and the reason is that
+            those checks are the law, not a preference.
           </li>
         </ul>
       </NoticeBox>
@@ -153,8 +157,8 @@ export default function FeatureFlagsPage({
         </NoticeBox>
       ) : flags.data.items.length === 0 ? (
         <EmptyState
-          title="This build declares no feature flags"
-          hint="Flags are declared in apps/api/flags/registry.py. Nothing to configure until one is."
+          title="This build has no feature flags"
+          hint="No feature flags are defined yet, so there is nothing to configure here."
         />
       ) : (
         <div className="space-y-4">
@@ -338,8 +342,8 @@ function FlagRow({
           <span className={FIELD_HINT}>
             Goes into the audit entry, and into the row for as long as the override stands.
             Required in both directions — &ldquo;why did we put them back on the
-            default&rdquo; is asked just as often. Hard rule 6: ops prose only, no phone
-            numbers and no transcript text.
+            default&rdquo; is asked just as often. Keep it to notes about the change only:
+            no phone numbers and no transcript text.
           </span>
         </div>
 

@@ -326,7 +326,7 @@ describe("the platform-wide do-not-call list", () => {
     );
 
     await waitFor(() => {
-      expect(container.textContent).toContain("does not have the ops:manage permission");
+      expect(container.textContent).toContain("does not have permission to");
     });
     expect(
       (

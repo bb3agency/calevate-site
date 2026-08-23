@@ -420,10 +420,10 @@ describe("the credits screen", () => {
 
     await screen.findByText("If a credit was wrong");
     expect(container.textContent).toContain("There is no undo");
-    // The duplicate case still belongs to the script: a duplicate is DETECTED, and its
-    // correction is keyed on a fingerprint of the rows it cancels — not something an
-    // operator can type into a form.
-    expect(container.textContent).toContain("reconcile_credit_ledger");
+    // The duplicate case still belongs to the reconciliation tool: a duplicate is
+    // DETECTED, and its correction is keyed on a fingerprint of the rows it cancels — not
+    // something an operator can type into a form.
+    expect(container.textContent).toContain("cancelled by our reconciliation tool");
     // …and the sentence this slice deleted. The console HAS a control for the wrong
     // client and the wrong amount now, so the card must not still send people away.
     expect(container.textContent).not.toContain("There is no control for this");
@@ -579,9 +579,9 @@ describe("correcting a wrong entry", () => {
     await screen.findByText(
       "Sri Traders cannot place outbound calls until this wallet is topped up",
     );
-    // The gate's own reason, and the half that is NOT affected — an operator who reads
+    // The gate's effect, and the half that is NOT affected — an operator who reads
     // only this needs to know inbound still answers.
-    expect(container.textContent).toContain("no_credits");
+    expect(container.textContent).toContain("refuses every outbound call");
     expect(container.textContent).toContain("Inbound calls are unaffected");
   });
 

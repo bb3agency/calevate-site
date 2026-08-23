@@ -180,7 +180,7 @@ describe("the spend-cap panel's permission gate", () => {
     await waitFor(() => {
       expect(container.textContent).toContain("recompute a client's spend cap");
     });
-    expect(container.textContent).toContain("ops:manage");
+    expect(container.textContent).toContain("does not have permission to");
     expect(container.textContent).toContain("Ask a superadmin");
 
     // Typing the word does not revive it, and the endpoint is never reached.

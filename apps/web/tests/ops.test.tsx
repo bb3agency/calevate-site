@@ -2025,7 +2025,7 @@ describe("the platform configuration panel", () => {
     // now — Platform configuration and Model prices — so the reason appears on both;
     // `findAllByText` waits for it, and the settings panel is then pinned by its own
     // subject line, which no other withheld card shares.
-    await screen.findAllByText(/does not have the platform:config permission/);
+    await screen.findAllByText(/does not have permission to/);
     screen.getByText(/This panel would list every setting this deployment can change/);
     // Not a disabled control — no control, and no field name to hang one on.
     expect(screen.queryAllByRole("button", { name: /Change/ })).toEqual([]);
@@ -2280,7 +2280,7 @@ describe("the key-management panel", () => {
   it("withholds both credential panels from a session without platform:secrets", async () => {
     const { container, calls } = renderAdminPage(<OpsConfigPage />, configRoutes(OPERATOR));
 
-    await screen.findAllByText(/does not have the platform:secrets permission/);
+    await screen.findAllByText(/does not have permission to/);
     expect(screen.getByText("Vendor credentials")).toBeTruthy();
     expect(screen.getByText("Key management")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Re-lock every key/ })).toBeNull();

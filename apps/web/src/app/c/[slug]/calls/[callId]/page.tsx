@@ -335,7 +335,7 @@ export default function CallDetailPage({
             </dl>
             {!detail.extraction_valid && (
               <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-                Some fields could not be captured cleanly from this call.
+                We could not capture some details cleanly from this call.
               </p>
             )}
           </Card>
@@ -376,7 +376,7 @@ export default function CallDetailPage({
                 Hard rule 5 is invisible otherwise: a client sees an odd-looking number in
                 a line and assumes the agent misheard it. */}
             {showingRaw ? (
-              <NoticeBox tone="warn" icon={<Eye className="h-5 w-5" />} title="Unredacted transcript">
+              <NoticeBox tone="warn" icon={<Eye className="h-5 w-5" />} title="Full transcript">
                 You are reading the full text, personal details included. This view was recorded
                 in your account&apos;s audit log against your name.
               </NoticeBox>
@@ -584,7 +584,7 @@ function DisclosureNotice({ played }: { played: boolean | null | undefined }) {
         title="No disclosure was played on this call"
       >
         Callers must be told they are speaking to an automated agent. Tell us about this call
-        so we can check the agent&apos;s configuration.
+        so we can check how the agent is set up.
       </NoticeBox>
     );
   }
@@ -696,7 +696,7 @@ function RawTranscriptControl({
         onClick={onToggle}
         title={
           access.allowed
-            ? "Shows the full text, personal details included. The read is written to your audit log."
+            ? "Shows the full text, personal details included. Opening it is recorded in your audit log."
             : (access.reason ?? undefined)
         }
         className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-xs font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"

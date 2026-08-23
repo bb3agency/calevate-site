@@ -16,6 +16,7 @@ import {
 import {
   Card,
   EmptyState,
+  MonoValue,
   PRIMARY_BUTTON,
   ProblemNotice,
   Skeleton,
@@ -355,7 +356,11 @@ function AgentRow({
             {/* The server's own identifier, not a friendly name: it is what the settings
                 screen and the invoice line both print, and a roster that renamed it would
                 leave an owner unable to match this row to the charge. */}
-            {ownModel !== null && <> · Its own AI model: {ownModel}</>}
+            {ownModel !== null && (
+              <>
+                {" · "}Its own AI model: <MonoValue>{ownModel}</MonoValue>
+              </>
+            )}
           </span>
           {stats && (
             <span className="block text-xs text-ink-faint">

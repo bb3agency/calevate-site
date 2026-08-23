@@ -167,7 +167,7 @@ describe("the first-campaign review", () => {
   it("leaves no operable control on the form when the session lacks admin:tenants", async () => {
     await render({ [ME_PATH]: me(["org:read", "leads:read"]) });
 
-    await screen.findByText(/does not have the admin:tenants permission/);
+    await screen.findByText(/does not have permission to/);
 
     // EVERY control, not only the submit: a reviewer must not be able to compose a
     // client-facing paragraph that cannot be sent and then lose it to a 403. The submit

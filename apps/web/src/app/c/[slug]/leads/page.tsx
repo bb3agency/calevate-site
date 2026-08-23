@@ -537,7 +537,7 @@ export default function LeadsPage() {
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          Columns follow your agent&apos;s capture list.
+          Columns match what your agent captures on each call.
         </p>
         {/* No count until there IS one: "0 leads" while the first page loads is a
             statement about the business, and it is the wrong one. */}

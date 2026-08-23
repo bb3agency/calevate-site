@@ -251,7 +251,7 @@ export function IntakeStep({
         <NoticeBox
           tone="warn"
           icon={<ShieldAlert aria-hidden className="h-5 w-5" />}
-          title="Only the compiled block survives for this client"
+          title="Only the summary we build for the agent is kept for this client"
         >
           <p className="mt-1 text-xs opacity-90">{gap}</p>
         </NoticeBox>
@@ -263,7 +263,7 @@ export function IntakeStep({
           number by construction (`compile_t0_facts` leaves them out on purpose — a staff
           mobile in a system prompt is a number the agent can read out to whoever asks). */}
       {stored?.compiled_t0_context && (
-        <Card title="Compiled facts currently in the prompt">
+        <Card title="What the agent says today">
           {/* No `overflow-x-auto`: `whitespace-pre-wrap break-words` means this can never
               overflow sideways, so the utility only ever declared a scroll container that
               does not scroll — and an unreachable one at that (see `ScrollRegion`). */}
@@ -293,8 +293,8 @@ export function IntakeStep({
 
         <Card title="Business hours">
           <p className="-mt-2 text-xs text-ink-muted">
-            Read by the after-hours branch on every inbound call (FLOWS §3) and read out to
-            callers who ask. A day left blank is “nobody has answered this yet”, which is a
+            The agent uses these on every after-hours call, and reads them out to callers
+            who ask. A day left blank means “nobody has answered this yet”, which is a
             different fact from “closed” — tick the box for closed.
           </p>
           <div className="mt-4 space-y-2">
@@ -514,7 +514,7 @@ export function IntakeStep({
 
         <RowSection
           title="Staff names and pronunciations"
-          description="Optional. Spell the name the way it should be SAID — PROMPT-GUIDE §3 requires proper nouns to be spelled phonetically, because a mispronounced doctor's name is the first thing a caller notices."
+          description="Optional. Spell each name the way it should be SAID — proper nouns work best spelled phonetically, because a mispronounced doctor's name is the first thing a caller notices."
           rows={draft.staff}
           blank={blankStaff}
           addLabel="Add a person"
@@ -585,7 +585,7 @@ export function IntakeStep({
             <Field
               id={intakeFieldId("booking_rules")}
               label="Rules"
-              hint="Goes into the compiled facts verbatim, so write it as the agent should understand it."
+              hint="The agent uses this word for word, so write it the way the agent should understand it."
               error={placed.messageAt("booking_rules")}
             >
               {(props) => (
@@ -606,7 +606,7 @@ export function IntakeStep({
 
         <RowSection
           title="Escalation contacts"
-          description="Who a call is transferred to when the agent cannot help. At least one is required — a transfer has nowhere to go without it. These numbers are stored on the agent and deliberately NEVER compiled into its prompt."
+          description="Who a call is transferred to when the agent cannot help. At least one is required — a transfer has nowhere to go without it. These numbers are stored on the agent and are deliberately never put into the agent's instructions."
           rows={draft.escalation_contacts}
           blank={blankEscalation}
           addLabel="Add a contact"
@@ -638,7 +638,7 @@ export function IntakeStep({
               <Field
                 id={intakeFieldId(`escalation_contacts.${index}.phone_e164`)}
                 label="Phone"
-                hint="E.164, with the country code — +91…"
+                hint="With the country code — for example +91…"
                 error={placed.messageAt(`escalation_contacts.${index}.phone_e164`)}
               >
                 {(props) => (
@@ -763,7 +763,7 @@ export function IntakeStep({
                 from the local preview, because this notice is a report of the write. */}
             <p className="mt-1 text-xs">
               These answers are on file and this client is on the resume list. Nothing has
-              been compiled into the agent — the submit below still does that.
+              been built into the agent yet — the button below does that.
               {saveDraft.data.blockers.length > 0 &&
                 ` ${saveDraft.data.blockers.length} answer${
                   saveDraft.data.blockers.length === 1 ? "" : "s"

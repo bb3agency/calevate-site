@@ -162,10 +162,10 @@ const NAV: NavGroup[] = [
       },
       {
         href: "/admin/qa-sampling",
-        label: "QA sampling",
+        label: "Call quality checks",
         icon: ClipboardCheck,
         permission: "org:read",
-        action: "open the QA sampling queue",
+        action: "open the call quality checks",
       },
     ],
   },
@@ -223,7 +223,7 @@ const NAV: NavGroup[] = [
         // the longest-match title rule below means `/admin/ops/dnc` keeps this name
         // instead of inheriting "Operations".
         href: "/admin/ops/dnc",
-        label: "Global do-not-call",
+        label: "Do-not-call list",
         icon: PhoneOff,
         permission: "ops:manage",
         action: "change the platform-wide do-not-call list",
@@ -236,10 +236,10 @@ const NAV: NavGroup[] = [
         // at a curl until this screen existed. Somebody paging on a slow call is not going
         // to scroll the platform switches to find it.
         href: "/admin/ops/engine-latency",
-        label: "Engine latency",
+        label: "Voice response time",
         icon: Gauge,
         permission: "ops:manage",
-        action: "read the engine's latency report",
+        action: "read the voice response-time report",
       },
       {
         // LAST IN THE PLATFORM GROUP, and it is the only entry in either shell that is

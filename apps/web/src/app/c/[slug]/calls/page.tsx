@@ -92,7 +92,7 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          Open a call to see its transcript, recording and captured fields.
+          Open a call to see the transcript, recording and the details we captured.
         </p>
         {/* The denominator, so an empty screen is legibly "nothing matched this
             filter" rather than possibly "nothing loaded". Only once the query has

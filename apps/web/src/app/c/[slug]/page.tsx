@@ -378,7 +378,7 @@ function SentimentSplit({ split }: { split: Record<string, number> }) {
   return (
     <Card title="How callers sounded" bodyClassName="p-4 sm:p-5">
       {total === 0 ? (
-        <p className="text-[13px] text-ink-muted">No scored calls in the last 7 days yet.</p>
+        <p className="text-[13px] text-ink-muted">We haven&apos;t rated any calls in the last 7 days yet.</p>
       ) : (
         <div className="space-y-2">
           {rows.map(([mood, count]) => (

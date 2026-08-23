@@ -276,8 +276,8 @@ export function ProblemNotice({ error, onRetry }: { error: unknown; onRetry?: ()
         </button>
       )}
       {problem?.traceId && (
-        <p className="mt-2 font-mono text-[11px] text-rose-700 dark:text-rose-400">
-          ref {problem.traceId}
+        <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
+          Support reference: <span className="font-mono">{problem.traceId}</span>
         </p>
       )}
     </div>

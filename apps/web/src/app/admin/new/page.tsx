@@ -19,11 +19,13 @@ import {
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
+  MonoValue,
   NoticeBox,
   PRIMARY_BUTTON,
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
+  TermGloss,
   formatIST,
 } from "@/components/ui";
 import { ApiProblem } from "@/lib/api/client";
@@ -251,8 +253,8 @@ export default function NewClientPage() {
     <div className="max-w-3xl space-y-5">
       <div>
         <p className="mt-0.5 text-sm text-ink-muted">
-          Creates the account, its retention policies, a draft receptionist and an
-          extraction schema from the vertical template.
+          Creates the account, its data-retention rules, a draft receptionist, and the
+          lead fields for its CRM, based on the business type you choose.
         </p>
         <p className="mt-2 text-xs font-medium uppercase tracking-wide text-ink-faint">
           {!created
@@ -309,8 +311,8 @@ export default function NewClientPage() {
                 className={`${FIELD} font-mono`}
               />
               <span className={FIELD_HINT}>
-                Appears in every client URL and is IMMUTABLE once created (a DB trigger
-                enforces it).{" "}
+                Appears in every client URL and cannot be changed once the client is
+                created.{" "}
                 {mustChooseSlug ? (
                   <span className="text-ink">
                     We cannot build a web address out of that business name, so please
@@ -318,17 +320,17 @@ export default function NewClientPage() {
                   </span>
                 ) : (
                   <>
-                    Left blank, we send{" "}
-                    <span className="font-mono">{derivedSlug || "—"}</span>.
+                    Left blank, we send <MonoValue>{derivedSlug || "—"}</MonoValue>.
                   </>
                 )}
               </span>
             </label>
 
             <fieldset>
-              <legend className={FIELD_LABEL}>Vertical template</legend>
+              <legend className={FIELD_LABEL}>Business type</legend>
               <p className="mt-1 text-xs text-ink-faint">
-                Seeds the extraction schema, which becomes this client&apos;s CRM columns.
+                Sets up the lead fields the agent collects, which become this
+                client&apos;s CRM columns.
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 {VERTICALS.map((option) => (
@@ -489,8 +491,8 @@ function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => vo
   return (
     <Card title="Unfinished onboardings">
       <p className="-mt-2 text-xs text-ink-muted">
-        Accounts created but never through step 3, most recently worked on first. Picking
-        one reopens the intake with whatever was saved.
+        Accounts you started but never finished, most recently worked on first. Picking
+        one reopens its intake with whatever was saved.
       </p>
       <ul className="mt-4 space-y-2">
         {unfinished.data.map((row) => (
@@ -501,7 +503,7 @@ function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => vo
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
               <p className="mt-0.5 text-xs text-ink-faint">
-                <span className="font-mono">/c/{row.slug}</span>
+                <MonoValue>/c/{row.slug}</MonoValue>
                 {" · "}
                 {/* Two different states, said differently. A never-opened intake is not
                     a zero and not "saved never"; it is an account whose step 3 nobody
@@ -589,7 +591,7 @@ function AfterCreate({
         title={created.origin === "created" ? "Account created" : `Resuming ${created.name}`}
       >
         <p className="mt-1">
-          Live at <span className="font-mono font-semibold">/c/{created.slug}</span>, status{" "}
+          Live at <MonoValue className="font-semibold">/c/{created.slug}</MonoValue>, status{" "}
           <span className="font-semibold">{created.status}</span>.{" "}
           {created.origin === "created" ? (
             <>
@@ -693,11 +695,16 @@ function CreatedPanel({
         <ul className="space-y-1.5 text-sm text-ink-muted">
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            Number provisioning and DLT/PE registration (step 6, pilot-gated)
+            <span>
+              Getting a phone number and registering with{" "}
+              <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>/
+              <TermGloss term="PE">Principal Entity — the client, as registered on DLT</TermGloss>{" "}
+              — still done by hand
+            </span>
           </li>
           <li className="flex gap-2">
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
-            Test-call sign-off before publish (step 7, pilot-gated)
+            A test call signed off before the agent goes live — still done by hand
           </li>
         </ul>
       </Card>
@@ -705,8 +712,8 @@ function CreatedPanel({
       <Card title="Invite the owner">
         <div className="space-y-3">
           <p className="text-sm text-ink-muted">
-            Single-use, valid 72 hours, hashed at rest — the link below is shown once and
-            cannot be recovered.
+            We send the owner a single-use link that is valid for 72 hours. We only keep
+            a fingerprint of it, so it is never shown here and cannot be recovered.
           </p>
 
           <form
@@ -777,7 +784,7 @@ function CreatedPanel({
               ) : (
                 pending.data.map((row) => (
                   <div key={row.id} className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-mono text-ink">{row.email}</span>
+                    <MonoValue className="text-ink">{row.email}</MonoValue>
                     <span className="text-ink-muted">
                       {row.role} · expires {formatIST(row.expires_at)}
                     </span>
@@ -837,14 +844,14 @@ function CreatedPanel({
               title="Invitation sent"
             >
               <p className="mt-1">
-                The link is on its way to <span className="font-mono">{sentTo}</span>. It is
-                not shown here and cannot be re-read — only its hash is stored.
+                The link is on its way to <MonoValue>{sentTo}</MonoValue>. It is not shown
+                here and cannot be read again — only a fingerprint of it is stored.
               </p>
               <p className="mt-2 flex items-start gap-2 text-xs">
                 <TriangleAlert aria-hidden className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 Whoever opens it becomes an owner of{" "}
-                <span className="font-mono">/c/{created.slug}</span>. If it went to the
-                wrong address, cancel the invitation rather than sending a second one.
+                <MonoValue>/c/{created.slug}</MonoValue>. If it went to the wrong address,
+                cancel the invitation rather than sending a second one.
               </p>
             </NoticeBox>
           )}

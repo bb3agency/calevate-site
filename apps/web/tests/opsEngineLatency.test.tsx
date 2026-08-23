@@ -247,7 +247,7 @@ describe("the engine latency report", () => {
     );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("does not have the ops:manage permission"),
+      expect(container.textContent).toContain("does not have permission to"),
     );
     // No red failure box, and therefore no retry button whose only outcome is another 403.
     expect(container.textContent).not.toContain("Forbidden");
@@ -281,7 +281,7 @@ describe("the engine latency report", () => {
     );
 
     await waitFor(() =>
-      expect(container.textContent).toContain("does not have the ops:manage permission"),
+      expect(container.textContent).toContain("does not have permission to"),
     );
     const reads = calls.filter((call) => call.path.startsWith(ENGINE_LATENCY_PATH)).length;
     expect(reads).toBeLessThanOrEqual(1);

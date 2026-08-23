@@ -55,7 +55,7 @@ export default function FleetSpendPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-muted">
           What every live client billed and cost us this month, worst margin first.
-          Suspended and churned accounts are not walked.
+          Suspended and closed accounts are not included.
         </p>
         <input
           type="month"
@@ -71,7 +71,7 @@ export default function FleetSpendPage() {
       {/* §52: a skeleton is not a fleet total and a failed walk is not "we made ₹0". */}
       {!data ? (
         board.error ? null : (
-          <Skeleton rows={6} label="Walking every client's month" />
+          <Skeleton rows={6} label="Adding up every client's month" />
         )
       ) : (
         <>
@@ -104,7 +104,7 @@ export default function FleetSpendPage() {
               <div className="p-6">
                 <EmptyState
                   title="No live clients this month"
-                  hint="Suspended and churned accounts are deliberately not walked."
+                  hint="Suspended and closed accounts are deliberately left out."
                 />
               </div>
             ) : (

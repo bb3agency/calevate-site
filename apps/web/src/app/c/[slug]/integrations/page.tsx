@@ -161,9 +161,10 @@ export default function IntegrationsPage() {
             {revealed}
           </code>
           <p className="mt-2 text-xs text-slate-500">
-            Your endpoint should verify the <code>X-Calevate-Signature</code> header:
-            HMAC-SHA256 of <code>{"{timestamp}.{body}"}</code> using this secret, and
-            reject anything older than five minutes.
+            Your system should check the <code>X-Calevate-Signature</code> header on each
+            request: it is the HMAC-SHA256 of <code>{"{timestamp}.{body}"}</code> using this
+            secret. Reject anything older than five minutes. This is how your system confirms a
+            request really came from us.
           </p>
           <button
             type="button"
@@ -217,7 +218,7 @@ export default function IntegrationsPage() {
                both hears one story. */
             <SheetsUnavailable
               headline="Google Sheets delivery is not switched on for your account."
-              remediation="Register a webhook endpoint above instead, or ask us to switch Google Sheets on for you."
+              remediation="Set up a delivery to your own system above instead, or ask us to switch Google Sheets on for you."
               footnote="There is nothing to fill in here yet — this form appears on its own once Sheets is enabled for your account."
             />
           )}
@@ -288,7 +289,7 @@ export default function IntegrationsPage() {
         ) : (
           <EmptyState
             title="No endpoints yet"
-            hint="Add your CRM's webhook URL and we'll start sending leads the moment they arrive."
+            hint="Add the web address your CRM gives you and we'll start sending leads the moment they arrive."
           />
         )}
       </Card>
@@ -690,7 +691,7 @@ function SheetsForm({
         headline={unavailable.message}
         remediation={
           unavailable.remediation ??
-          "Register a webhook endpoint above instead, or ask us to enable Google Sheets for your account."
+          "Set up a delivery to your own system above instead, or ask us to enable Google Sheets for your account."
         }
         footnote="Nothing was created, so there is nothing to undo. Reload this page once we have told you Sheets is switched on for your account."
       />

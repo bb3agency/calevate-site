@@ -286,7 +286,7 @@ describe("the client detail screen", () => {
     });
 
     // The gate answers only once `/v1/admin/me` has, so the sentence settles the render.
-    await screen.findAllByText(/does not have the admin:tenants permission/);
+    await screen.findAllByText(/does not have permission to/);
 
     // `findByRole`, not `getByRole`: the identity read no longer waits for the tenant to
     // supply a slug (it needs none), so the refusal can now paint a tick BEFORE the lists

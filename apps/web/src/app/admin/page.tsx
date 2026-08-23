@@ -109,7 +109,7 @@ export default function AdminClientsPage() {
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <p className="text-sm text-ink-muted">
-          Every client account, with the gates that are holding any of them.
+          Every client account, and anything currently holding one up.
           {/* Only from a list that ARRIVED. A count is the most trusted thing on a
               directory and the cheapest thing to get wrong. */}
           {rows && ` ${formatCount(rows.length)} ${rows.length === 1 ? "account" : "accounts"}.`}
@@ -158,7 +158,7 @@ export default function AdminClientsPage() {
         ) : !rows?.length ? (
           <EmptyState
             title="No clients yet"
-            hint="Create the first one and it appears here with its onboarding gates."
+            hint="Create the first one and it appears here, along with anything left to finish setting it up."
           />
         ) : (
           <ScrollRegion label="Client directory">
@@ -167,7 +167,7 @@ export default function AdminClientsPage() {
                 <tr className="border-b border-line text-left text-[11px] uppercase tracking-wider text-ink-faint">
                   <th className="px-6 py-3 font-semibold">Client</th>
                   <th className="px-6 py-3 font-semibold">Status</th>
-                  <th className="px-6 py-3 font-semibold">Vertical</th>
+                  <th className="px-6 py-3 font-semibold">Business type</th>
                   <th className="px-6 py-3 font-semibold">Live agents</th>
                   <th className="px-6 py-3 font-semibold">Calls 7d</th>
                   <th className="px-6 py-3 font-semibold">Leads</th>
@@ -224,7 +224,9 @@ export default function AdminClientsPage() {
                         ))}
                       </div>
                     </td>
-                    <td className="px-6 py-3 text-ink-muted">{tenant.vertical_template ?? "—"}</td>
+                    <td className="px-6 py-3 text-ink-muted">
+                      {tenant.vertical_template?.replace(/_/g, " ") ?? "—"}
+                    </td>
                     <td className="px-6 py-3 tabular-nums text-ink">
                       {formatCount(tenant.live_agents)}
                     </td>
@@ -240,7 +242,7 @@ export default function AdminClientsPage() {
                       <Link
                         href={`/c/${tenant.slug}?${VIEW_AS_PARAM}=${VIEW_AS_ADMIN}`}
                         className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
-                        title="Read-only view as this client (D-22) — every page view is logged"
+                        title="Read-only view as this client — every page view is logged"
                       >
                         <Eye className="h-3.5 w-3.5" />
                         View as

@@ -172,8 +172,8 @@ export default function AgentPromptPage({
       <Card title="Version history">
         <p className="-mt-2 text-xs text-ink-muted">
           Rolling back creates a NEW version with that content — history is never rewritten
-          — and it applies IMMEDIATELY: FLOWS §7 defines rollback as republishing an earlier
-          version, which is the recovery path, so it does not wait behind Apply.
+          — and it applies IMMEDIATELY, because a rollback is how you recover from a bad
+          change, so it does not wait behind Apply.
         </p>
         <div className="mt-3">
           <RestrictionNote reason={write.reason} />
@@ -471,7 +471,7 @@ function GoLivePanel({
               <span className="text-xs text-ink-muted">
                 {hasAScript === false
                   ? "This agent has no script yet — complete the client's intake, or save a version below, first."
-                  : "FLOWS §1 step 7 asks for a test call and a regression run before this. Both are pilot-gated and neither is automated here, so this button publishes — it does not sign anything off."}
+                  : "A test call and a re-check of the standard scripts are meant to happen before this. Neither is automated here yet, so this button only publishes the agent — it does not sign anything off."}
               </span>
             </div>
           </>
@@ -688,8 +688,8 @@ function LiveConfirmation({
            publish panel: an operator who scrolls straight to this card must not read
            "nothing confirmed" as a publish that went wrong. */
         <p className="mt-2 text-xs text-ink-muted">
-          Publishing is unavailable on this deployment&rsquo;s voice platform, so there is
-          nothing for a read-back to confirm.
+          Publishing is not available on this voice platform, so there is nothing to
+          confirm.
         </p>
       )}
 
